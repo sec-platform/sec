@@ -15,7 +15,15 @@ function renderRouteGraph(lock: LockFile): string {
 }
 
 function renderSlotSkeleton(task: SlotTask): string {
-  return `// @generated slot-id:${task.id} block:${task.block}\nexport function ${task.symbol}(input: CustomerInput): NormalizedCustomerInput {\n  throw new Error('Not implemented');\n}\n`;
+  const importLine =
+    task.inputType && task.outputType
+      ? `import type { ${task.inputType}, ${task.outputType} } from '../src/runtime/database.ts';\n\n`
+      : '';
+  const signature =
+    task.inputType && task.outputType
+      ? `input: ${task.inputType}): ${task.outputType}`
+      : 'input: unknown): unknown';
+  return `// @generated slot-id:${task.id} block:${task.block}\n${importLine}export function ${task.symbol}(${signature} {\n  throw new Error('Not implemented');\n}\n`;
 }
 
 async function mergePrisma(sourcePath: string, targetPath: string): Promise<void> {

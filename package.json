@@ -5,17 +5,17 @@
   "type": "module",
   "scripts": {
     "platform": "node ./platform/cli/index.ts",
-    "test": "node --test --experimental-test-isolation=none tests/pipeline.test.ts",
+    "test": "node --test --experimental-test-isolation=none tests/pipeline.test.ts tests/registry.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "npm run typecheck && npm test",
     "platform:bun": "bun ./platform/cli/index.ts",
-    "test:bun": "bun test tests/pipeline.test.ts"
+    "test:bun": "bun test tests/pipeline.test.ts tests/registry.test.ts"
   },
   "dependencies": {
+    "typescript": "^5.8.3",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@types/node": "^22.15.30",
-    "typescript": "^5.8.3"
+    "@types/node": "^22.15.30"
   }
 }

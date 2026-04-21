@@ -115,6 +115,8 @@ export interface SlotTask {
   target: string;
   symbol: string;
   kind: SlotKind;
+  inputType?: string;
+  outputType?: string;
   status: 'pending' | 'generated' | 'filled' | 'verified' | 'failed';
   writableZones: string[];
   provenanceHints: SlotProvenanceHints;

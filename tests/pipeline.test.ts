@@ -38,6 +38,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
 
   const { report } = await verifyWorkspace(workspaceRoot);
   assert.equal(report.summary.status, 'passed');
+  assert.equal(report.build.status, 'passed');
 
   const locked = await lockWorkspace(workspaceRoot);
   assert.equal(locked.passStatus.lock, 'succeeded');

@@ -19,7 +19,7 @@
     "status": "passed"
   },
   "logs": {
-    "stdout": "unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts",
+    "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts",
     "stderr": ""
   }
 }
