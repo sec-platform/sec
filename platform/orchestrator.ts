@@ -4,6 +4,7 @@ import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from './shar
 import { CompilerError } from './shared/errors.ts';
 import { ensureDir, pathExists, readJson, removeDir, writeJson, writeText } from './shared/fs.ts';
 import { getWorkspacePaths } from './shared/paths.ts';
+import { ensureProjectBase } from './shared/project-base.ts';
 import { writeYaml } from './shared/yaml.ts';
 import { alignInterfaces } from './compiler/align/align-interfaces.ts';
 import { composeProject } from './compiler/compose/compose-project.ts';
@@ -12,6 +13,7 @@ import { loadManifestById } from './compiler/parse/load-manifest.ts';
 import { loadPlan } from './compiler/parse/load-plan.ts';
 import { resolveGraph } from './compiler/resolve/resolve-graph.ts';
 import { adaptProject } from './compiler/synthesize/adapt-project.ts';
+import { validateResolvedTemplates } from './compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from './compiler/verify/verify-project.ts';
 import type { LockFile, ManifestEntry, PlanFile, VerificationReport } from './shared/types.ts';
 
@@ -40,37 +42,6 @@ function defaultPlan(): PlanFile {
     ],
     acceptance: [...DEFAULT_ACCEPTANCE]
   };
-}
-
-async function ensureProjectBase(workspaceRoot: string): Promise<void> {
-  const { projectRoot, generatedDir, projectPackagePath } = getWorkspacePaths(workspaceRoot);
-  await ensureDir(projectRoot);
-  await ensureDir(path.join(projectRoot, 'src', 'runtime'));
-  await ensureDir(path.join(projectRoot, 'src', 'installed'));
-  await ensureDir(path.join(projectRoot, 'tests', 'unit'));
-  await ensureDir(path.join(projectRoot, 'tests', 'acceptance'));
-  await ensureDir(path.join(projectRoot, 'custom'));
-  await ensureDir(generatedDir);
-  await ensureDir(path.join(projectRoot, 'prisma'));
-
-  await writeJson(projectPackagePath, {
-    name: 'generated-customer-admin',
-    private: true,
-    type: 'module',
-    scripts: {
-      test: 'node --test --experimental-test-isolation=none'
-    }
-  });
-
-  await writeText(
-    path.join(projectRoot, 'src', 'runtime', 'database.ts'),
-    `export interface CustomerInput {\n  name?: string;\n  email?: string;\n  phone?: string;\n  company?: string;\n}\n\nexport interface NormalizedCustomerInput {\n  name: string;\n  email: string;\n  phone: string;\n  company: string;\n}\n\nexport interface CustomerRecord extends NormalizedCustomerInput {\n  id: number;\n  tenantId: string;\n}\n\nexport interface Database {\n  nextCustomerId: number;\n  customers: CustomerRecord[];\n}\n\nexport function createDatabase(): Database {\n  return {\n    nextCustomerId: 1,\n    customers: []\n  };\n}\n`
-  );
-
-  await writeText(
-    path.join(projectRoot, 'prisma', 'schema.prisma'),
-    `generator client {\n  provider = "prisma-client-js"\n}\n\ndatasource db {\n  provider = "sqlite"\n  url      = "file:./dev.db"\n}\n`
-  );
 }
 
 export async function initWorkspace(
@@ -133,6 +104,7 @@ export async function resolveWorkspace(
   }
   alignInterfaces(plan, manifestMap);
   const lock = await resolveGraph(plan);
+  await validateResolvedTemplates(lock);
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   return { plan, lock };
 }

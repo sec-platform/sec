@@ -5,7 +5,7 @@ export interface Session {
   role: 'admin';
 }
 
-const USERS = new Map([
+const USERS = new Map<string, Session>([
   [
     'tenant-a-admin',
     {

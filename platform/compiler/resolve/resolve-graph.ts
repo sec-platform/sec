@@ -115,6 +115,8 @@ function buildSlotTasks(plan: PlanFile, manifestMap: Map<string, ManifestEntry>)
       target: slot.target,
       symbol: slot.symbol,
       kind: slot.kind,
+      inputType: manifestSlot.inputType,
+      outputType: manifestSlot.outputType,
       status: 'pending',
       writableZones: manifestSlot.writableZones,
       provenanceHints: {

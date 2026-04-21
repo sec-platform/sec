@@ -85,16 +85,15 @@
       "target": "custom/customer_normalizer.ts",
       "symbol": "normalizeCustomerInput",
       "kind": "adapter",
-      "status": "verified",
+      "inputType": "CustomerInput",
+      "outputType": "NormalizedCustomerInput",
+      "status": "pending",
       "writableZones": [
         "custom/"
       ],
       "provenanceHints": {
         "generator": "mock-local-synthesizer",
-        "verifiedBy": [
-          "tests/unit/customer-normalizer.test.ts",
-          "tests/acceptance/customer-flow.test.ts"
-        ]
+        "verifiedBy": []
       }
     }
   ],
@@ -113,11 +112,11 @@
     "parse": "succeeded",
     "align": "succeeded",
     "resolve": "succeeded",
-    "compose": "succeeded",
-    "adapt": "succeeded",
-    "verify": "succeeded",
+    "compose": "pending",
+    "adapt": "pending",
+    "verify": "pending",
     "repair": "skipped",
-    "lock": "succeeded",
-    "emit": "succeeded"
+    "lock": "pending",
+    "emit": "pending"
   }
 }

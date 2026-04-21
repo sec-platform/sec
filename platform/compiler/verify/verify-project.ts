@@ -5,6 +5,7 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { LockFile, VerificationReport } from '../../shared/types.ts';
+import { formatCompilerFailure, typecheckProject } from './typecheck-project.ts';
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;
@@ -41,6 +42,7 @@ export async function verifyProject(workspaceRoot: string, lock: LockFile): Prom
   let failure: unknown | null = null;
 
   try {
+    await typecheckProject(projectRoot);
     unitPassed = await runSuiteFiles(path.join(projectRoot, 'tests', 'unit'));
     acceptancePassed = await runSuiteFiles(path.join(projectRoot, 'tests', 'acceptance'));
   } catch (error) {
@@ -64,8 +66,8 @@ export async function verifyProject(workspaceRoot: string, lock: LockFile): Prom
       status: failure ? 'failed' : 'passed'
     },
     logs: {
-      stdout: failure ? '' : `unit:${unitPassed.join(',')} acceptance:${acceptancePassed.join(',')}`,
-      stderr: failure ? String(failure instanceof Error ? failure.stack ?? failure.message : failure) : ''
+      stdout: failure ? '' : `typecheck:passed unit:${unitPassed.join(',')} acceptance:${acceptancePassed.join(',')}`,
+      stderr: failure ? formatCompilerFailure(failure) : ''
     }
   };
 
