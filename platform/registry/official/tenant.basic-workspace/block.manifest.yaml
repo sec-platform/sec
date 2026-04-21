@@ -1,0 +1,29 @@
+id: tenant/basic-workspace
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+requires:
+  - auth/session
+provides:
+  - tenant/context
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/tenant/context.ts
+    to: src/installed/tenant/context.ts
+pins:
+  inputs:
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: tenant_context
+      type: TenantId
+      required: true
+slots: []
+acceptance:
+  - id: tenant_only_sees_own_customers
+routes:
+  - path: /workspace
+    file: src/installed/tenant/context.ts

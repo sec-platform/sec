@@ -1,0 +1,25 @@
+{
+  "build": {
+    "status": "passed"
+  },
+  "unit": {
+    "status": "passed",
+    "passed": [
+      "customer-normalizer.test.ts"
+    ]
+  },
+  "acceptance": {
+    "status": "passed",
+    "passed": [
+      "customer-flow.test.ts"
+    ],
+    "failed": []
+  },
+  "summary": {
+    "status": "passed"
+  },
+  "logs": {
+    "stdout": "unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts",
+    "stderr": ""
+  }
+}

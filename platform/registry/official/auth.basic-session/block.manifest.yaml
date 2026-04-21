@@ -1,0 +1,24 @@
+id: auth/basic-session
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+requires: []
+provides:
+  - auth/session
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/auth/session.ts
+    to: src/installed/auth/session.ts
+pins:
+  outputs:
+    - id: actor_identity
+      type: Session
+      required: true
+slots: []
+acceptance:
+  - id: user_can_login
+routes:
+  - path: /login
+    file: src/installed/auth/session.ts

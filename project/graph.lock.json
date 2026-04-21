@@ -1,0 +1,123 @@
+{
+  "formatVersion": "1",
+  "app": {
+    "name": "customer-admin",
+    "stack": "nextjs-ts-prisma-sqlite",
+    "mode": "single-tenant"
+  },
+  "resolvedBlocks": [
+    {
+      "id": "auth/basic-session",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 1,
+      "manifestPath": "platform/registry/official/auth.basic-session/block.manifest.yaml"
+    },
+    {
+      "id": "tenant/basic-workspace",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 2,
+      "manifestPath": "platform/registry/official/tenant.basic-workspace/block.manifest.yaml"
+    },
+    {
+      "id": "entity/customer-basic",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 3,
+      "manifestPath": "platform/registry/official/entity.customer-basic/block.manifest.yaml"
+    }
+  ],
+  "resolvedCapabilities": [
+    "auth/session",
+    "customer/read",
+    "customer/write",
+    "tenant/context"
+  ],
+  "installPlan": [
+    {
+      "stepId": "auth/basic-session:1",
+      "blockId": "auth/basic-session",
+      "action": "copy",
+      "from": "files/src/installed/auth/session.ts",
+      "to": "src/installed/auth/session.ts"
+    },
+    {
+      "stepId": "tenant/basic-workspace:2",
+      "blockId": "tenant/basic-workspace",
+      "action": "copy",
+      "from": "files/src/installed/tenant/context.ts",
+      "to": "src/installed/tenant/context.ts"
+    },
+    {
+      "stepId": "entity/customer-basic:3",
+      "blockId": "entity/customer-basic",
+      "action": "copy",
+      "from": "files/src/installed/entity/customer-service.ts",
+      "to": "src/installed/entity/customer-service.ts"
+    },
+    {
+      "stepId": "entity/customer-basic:4",
+      "blockId": "entity/customer-basic",
+      "action": "merge-prisma",
+      "from": "files/prisma/customer.prisma",
+      "to": "prisma/schema.prisma"
+    },
+    {
+      "stepId": "entity/customer-basic:5",
+      "blockId": "entity/customer-basic",
+      "action": "copy",
+      "from": "files/tests/unit/customer-normalizer.test.ts",
+      "to": "tests/unit/customer-normalizer.test.ts"
+    },
+    {
+      "stepId": "entity/customer-basic:6",
+      "blockId": "entity/customer-basic",
+      "action": "copy",
+      "from": "files/tests/acceptance/customer-flow.test.ts",
+      "to": "tests/acceptance/customer-flow.test.ts"
+    }
+  ],
+  "slotTasks": [
+    {
+      "id": "customer_normalizer",
+      "block": "entity/customer-basic",
+      "target": "custom/customer_normalizer.ts",
+      "symbol": "normalizeCustomerInput",
+      "kind": "adapter",
+      "status": "verified",
+      "writableZones": [
+        "custom/"
+      ],
+      "provenanceHints": {
+        "generator": "mock-local-synthesizer",
+        "verifiedBy": [
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/acceptance/customer-flow.test.ts"
+        ]
+      }
+    }
+  ],
+  "generatedPaths": [
+    "generated/routes.ts",
+    "generated/block-usage-map.json",
+    "generated/install-manifest.json"
+  ],
+  "acceptancePlan": [
+    "user_can_login",
+    "user_can_create_customer",
+    "user_can_list_customers",
+    "tenant_only_sees_own_customers"
+  ],
+  "passStatus": {
+    "parse": "succeeded",
+    "align": "succeeded",
+    "resolve": "succeeded",
+    "compose": "succeeded",
+    "adapt": "succeeded",
+    "verify": "succeeded",
+    "repair": "skipped",
+    "lock": "succeeded",
+    "emit": "succeeded"
+  }
+}

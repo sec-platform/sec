@@ -1,0 +1,50 @@
+[
+  {
+    "stepId": "auth/basic-session:1",
+    "blockId": "auth/basic-session",
+    "action": "copy",
+    "from": "files/src/installed/auth/session.ts",
+    "to": "src/installed/auth/session.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "tenant/basic-workspace:2",
+    "blockId": "tenant/basic-workspace",
+    "action": "copy",
+    "from": "files/src/installed/tenant/context.ts",
+    "to": "src/installed/tenant/context.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "entity/customer-basic:3",
+    "blockId": "entity/customer-basic",
+    "action": "copy",
+    "from": "files/src/installed/entity/customer-service.ts",
+    "to": "src/installed/entity/customer-service.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "entity/customer-basic:4",
+    "blockId": "entity/customer-basic",
+    "action": "merge-prisma",
+    "from": "files/prisma/customer.prisma",
+    "to": "prisma/schema.prisma",
+    "status": "installed"
+  },
+  {
+    "stepId": "entity/customer-basic:5",
+    "blockId": "entity/customer-basic",
+    "action": "copy",
+    "from": "files/tests/unit/customer-normalizer.test.ts",
+    "to": "tests/unit/customer-normalizer.test.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "entity/customer-basic:6",
+    "blockId": "entity/customer-basic",
+    "action": "copy",
+    "from": "files/tests/acceptance/customer-flow.test.ts",
+    "to": "tests/acceptance/customer-flow.test.ts",
+    "status": "installed"
+  }
+]

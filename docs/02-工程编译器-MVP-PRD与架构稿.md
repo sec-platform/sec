@@ -5,12 +5,12 @@
 ## 规范栈
 
 - 产品与架构总规格：当前文档
-- 编译器核心实现规格：[05-编译器核心实现规格.md](D:\Project\pjc\05-编译器核心实现规格.md)
-- Registry 与 Block 协议规范：[06-Registry与Block协议规范.md](D:\Project\pjc\06-Registry与Block协议规范.md)
-- Pass 状态机与错误恢复规范：[07-Pass状态机、错误码与恢复机制.md](D:\Project\pjc\07-Pass状态机、错误码与恢复机制.md)
-- Verification、Provenance 与 Graph 规范：[08-Verification、Provenance与Graph规范.md](D:\Project\pjc\08-Verification、Provenance与Graph规范.md)
-- AI Runtime 与治理规范：[09-AI Runtime、任务信封与治理规范.md](D:\Project\pjc\09-AI Runtime、任务信封与治理规范.md)
-- Upgrade 与 Override 规范：[10-升级迁移与Override规范.md](D:\Project\pjc\10-升级迁移与Override规范.md)
+- 编译器核心实现规格：[05-编译器核心实现规格.md](D:\Project\pjc\docs\05-编译器核心实现规格.md)
+- Registry 与 Block 协议规范：[06-Registry与Block协议规范.md](D:\Project\pjc\docs\06-Registry与Block协议规范.md)
+- Pass 状态机与错误恢复规范：[07-Pass状态机、错误码与恢复机制.md](D:\Project\pjc\docs\07-Pass状态机、错误码与恢复机制.md)
+- Verification、Provenance 与 Graph 规范：[08-Verification、Provenance与Graph规范.md](D:\Project\pjc\docs\08-Verification、Provenance与Graph规范.md)
+- AI Runtime 与治理规范：[09-AI Runtime、任务信封与治理规范.md](D:\Project\pjc\docs\09-AI Runtime、任务信封与治理规范.md)
+- Upgrade 与 Override 规范：[10-升级迁移与Override规范.md](D:\Project\pjc\docs\10-升级迁移与Override规范.md)
 
 ## 产品定位
 
@@ -30,6 +30,59 @@
 
 - 最先能跑通的切入口是多租户后台业务系统，而不是通用软件全领域。
 - 一旦验证“规格优先、块优先、验收优先”成立，这种结构可以向更复杂的软件工业形态扩展。
+
+## 技术栈分层
+
+### 编译器实现栈
+
+- `v0.1` 已定：
+  - `TypeScript`
+  - `Node.js`
+  - `ESM`
+  - CLI-first 工具形态
+  - 文件系统驱动
+  - `yaml` 解析
+- 当前仓库若存在 `.js` 原型实现，只视为过渡状态，不视为长期规范。
+
+### Bun 环境定位
+
+- `v0.1` 不把 `Bun` 定为主运行时。
+- `Bun` 的角色定义为：
+  - 可选的本地开发运行时
+  - 可选的本地测试加速器
+  - 暂不作为规范源的默认 CI 运行时
+- 进入 `v0.2+` 后，可增加：
+  - `bun run` 本地执行支持
+  - `bun test` 辅助测试支持
+  - `bun install` 作为可选包管理器支持
+
+### 生成项目目标栈
+
+- `v0.1` 唯一支持的目标栈：
+  - `Next.js`
+  - `TypeScript`
+  - `React`
+  - `Tailwind`
+  - `Prisma`
+  - `SQLite`
+  - `Vitest`
+  - `Playwright`
+
+### 已定结论
+
+- 编译器本体和被生成的应用不是同一个技术层。
+- 编译器源码层应收敛到 `TypeScript`，不建议长期停留在纯 `JavaScript`。
+- 当前用 `Node.js` 做编译器主运行时是刻意选择，不是偏离设计。
+- `Next.js` 在当前规格里属于“目标应用栈”，不是“编译器本体实现栈”。
+- `Bun` 的优势在于原生运行 TS、内建测试和更快启动，但它更适合作为次级运行环境，而不是在 `v0.1` 直接替代 `Node.js` 成为规范基线。
+- 后续可以给编译器加 Web 工作台，但不会替代 CLI 作为一等入口。
+
+### 约束
+
+- 编译器核心不得依赖 `Bun.*` 全局 API。
+- 编译器核心不得依赖只在 `bun:test` 或 Bun 特有模块解析下成立的行为。
+- 若引入 Bun 支持，必须保持 `Node.js` 主路径不被破坏。
+- 若未来同时支持 `Node.js` 和 `Bun`，规范源以 `Node.js + tsc` 检查结果为准。
 
 ### 待验证
 

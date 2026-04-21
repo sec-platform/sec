@@ -1,0 +1,16 @@
+{
+  "blocks": [
+    {
+      "id": "auth/basic-session",
+      "installOrder": 1
+    },
+    {
+      "id": "tenant/basic-workspace",
+      "installOrder": 2
+    },
+    {
+      "id": "entity/customer-basic",
+      "installOrder": 3
+    }
+  ]
+}
