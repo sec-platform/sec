@@ -1,12 +1,13 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { WorkspacePaths } from './types.ts';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 export const compilerRoot = path.resolve(moduleDir, '../..');
 export const officialRegistryRoot = path.join(compilerRoot, 'platform', 'registry', 'official');
 
-export function getWorkspacePaths(workspaceRoot = process.cwd()) {
+export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
   const root = path.resolve(workspaceRoot);
   const projectRoot = path.join(root, 'project');
 
@@ -23,10 +24,10 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()) {
   };
 }
 
-export function blockDirName(blockId) {
+export function blockDirName(blockId: string): string {
   return blockId.replaceAll('/', '.');
 }
 
-export function blockRoot(blockId) {
+export function blockRoot(blockId: string): string {
   return path.join(officialRegistryRoot, blockDirName(blockId));
 }

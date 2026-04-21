@@ -1,4 +1,6 @@
-export const SUPPORTED_STACK = 'nextjs-ts-prisma-sqlite';
+import type { AcceptanceItem, PassStatus } from './types.ts';
+
+export const SUPPORTED_STACK = 'nextjs-ts-prisma-sqlite' as const;
 
 export const PASS_SEQUENCE = [
   'parse',
@@ -10,9 +12,9 @@ export const PASS_SEQUENCE = [
   'repair',
   'lock',
   'emit'
-];
+] as const;
 
-export const PASS_STATUS_PENDING = Object.freeze({
+export const PASS_STATUS_PENDING: PassStatus = Object.freeze({
   parse: 'pending',
   align: 'pending',
   resolve: 'pending',
@@ -24,14 +26,14 @@ export const PASS_STATUS_PENDING = Object.freeze({
   emit: 'pending'
 });
 
-export const KIND_PRIORITY = Object.freeze({
+export const KIND_PRIORITY = Object.freeze<Record<string, number>>({
   infra: 0,
   governance: 1,
   capability: 2,
   strategy: 3
 });
 
-export const DEFAULT_ACCEPTANCE = Object.freeze([
+export const DEFAULT_ACCEPTANCE: readonly AcceptanceItem[] = Object.freeze([
   { id: 'user_can_login' },
   { id: 'user_can_create_customer' },
   { id: 'user_can_list_customers' },

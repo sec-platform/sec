@@ -11,7 +11,7 @@ import {
   adaptWorkspace,
   verifyWorkspace,
   lockWorkspace
-} from '../platform/orchestrator.js';
+} from '../platform/orchestrator.ts';
 
 test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-'));

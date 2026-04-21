@@ -1,7 +1,8 @@
-import { CompilerError } from '../../shared/errors.js';
-import { SUPPORTED_STACK } from '../../shared/constants.js';
+import { CompilerError } from '../../shared/errors.ts';
+import { SUPPORTED_STACK } from '../../shared/constants.ts';
+import type { ManifestEntry, PlanFile } from '../../shared/types.ts';
 
-export function alignInterfaces(plan, manifestMap) {
+export function alignInterfaces(plan: PlanFile, manifestMap: Map<string, ManifestEntry>): void {
   for (const block of plan.blocks) {
     const entry = manifestMap.get(block.id);
     if (!entry) {
@@ -14,6 +15,9 @@ export function alignInterfaces(plan, manifestMap) {
 
   for (const slot of plan.slots) {
     const entry = manifestMap.get(slot.block);
+    if (!entry) {
+      throw new CompilerError('MANIFEST-SCHEMA-004', `Unknown block "${slot.block}"`);
+    }
     const manifestSlot = entry.manifest.slots.find((candidate) => candidate.id === slot.id);
     if (!manifestSlot) {
       throw new CompilerError('ALIGN-SLOT-001', `Block "${slot.block}" does not expose slot "${slot.id}"`);

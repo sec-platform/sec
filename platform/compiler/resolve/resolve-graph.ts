@@ -1,9 +1,10 @@
 import path from 'node:path';
-import { KIND_PRIORITY, PASS_STATUS_PENDING } from '../../shared/constants.js';
-import { CompilerError } from '../../shared/errors.js';
-import { loadAllManifests, loadManifestById } from '../parse/load-manifest.js';
+import { KIND_PRIORITY, PASS_STATUS_PENDING } from '../../shared/constants.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
+import type { LockFile, ManifestEntry, SlotTask, PlanFile } from '../../shared/types.ts';
 
-function compareBlocks(left, right) {
+function compareBlocks(left: ManifestEntry, right: ManifestEntry): number {
   const leftPriority = KIND_PRIORITY[left.manifest.kind] ?? 99;
   const rightPriority = KIND_PRIORITY[right.manifest.kind] ?? 99;
   if (leftPriority !== rightPriority) {
@@ -12,8 +13,8 @@ function compareBlocks(left, right) {
   return left.manifest.id.localeCompare(right.manifest.id);
 }
 
-function buildCapabilityProviders(entries) {
-  const providers = new Map();
+function buildCapabilityProviders(entries: ManifestEntry[]): Map<string, ManifestEntry[]> {
+  const providers = new Map<string, ManifestEntry[]>();
   for (const entry of entries) {
     for (const capability of entry.manifest.provides) {
       const list = providers.get(capability) ?? [];
@@ -24,7 +25,7 @@ function buildCapabilityProviders(entries) {
   return providers;
 }
 
-function detectConflicts(entries, capabilityProviders) {
+function detectConflicts(entries: ManifestEntry[], capabilityProviders: Map<string, ManifestEntry[]>): void {
   const ids = new Set(entries.map((entry) => entry.manifest.id));
   for (const entry of entries) {
     for (const conflict of entry.manifest.conflicts) {
@@ -34,8 +35,8 @@ function detectConflicts(entries, capabilityProviders) {
           `Block "${entry.manifest.id}" conflicts with "${conflict}"`
         );
       }
-      const providers = capabilityProviders.get(conflict);
-      if (providers?.length) {
+        const providers = capabilityProviders.get(conflict);
+        if (providers?.length) {
         throw new CompilerError(
           'RESOLVE-CONFLICT-003',
           `Block "${entry.manifest.id}" conflicts with provided capability "${conflict}"`
@@ -45,9 +46,9 @@ function detectConflicts(entries, capabilityProviders) {
   }
 }
 
-function topologicalSort(entries, providerMap) {
-  const adjacency = new Map(entries.map((entry) => [entry.manifest.id, new Set()]));
-  const indegree = new Map(entries.map((entry) => [entry.manifest.id, 0]));
+function topologicalSort(entries: ManifestEntry[], providerMap: Map<string, ManifestEntry[]>): ManifestEntry[] {
+  const adjacency = new Map<string, Set<string>>(entries.map((entry) => [entry.manifest.id, new Set<string>()]));
+  const indegree = new Map<string, number>(entries.map((entry) => [entry.manifest.id, 0]));
 
   for (const entry of entries) {
     for (const requirement of entry.manifest.requires) {
@@ -56,24 +57,37 @@ function topologicalSort(entries, providerMap) {
         if (provider.manifest.id === entry.manifest.id) {
           continue;
         }
-        if (!adjacency.get(provider.manifest.id).has(entry.manifest.id)) {
-          adjacency.get(provider.manifest.id).add(entry.manifest.id);
-          indegree.set(entry.manifest.id, indegree.get(entry.manifest.id) + 1);
+        const providerAdjacency = adjacency.get(provider.manifest.id);
+        if (!providerAdjacency) {
+          throw new CompilerError('RESOLVE-INTERNAL-001', `Missing adjacency for "${provider.manifest.id}"`);
+        }
+        if (!providerAdjacency.has(entry.manifest.id)) {
+          providerAdjacency.add(entry.manifest.id);
+          indegree.set(entry.manifest.id, (indegree.get(entry.manifest.id) ?? 0) + 1);
         }
       }
     }
   }
 
-  const queue = entries.filter((entry) => indegree.get(entry.manifest.id) === 0).sort(compareBlocks);
-  const result = [];
+  const queue: ManifestEntry[] = entries
+    .filter((entry) => indegree.get(entry.manifest.id) === 0)
+    .sort(compareBlocks);
+  const result: ManifestEntry[] = [];
 
   while (queue.length > 0) {
     const current = queue.shift();
+    if (!current) {
+      break;
+    }
     result.push(current);
-    for (const dependentId of [...adjacency.get(current.manifest.id)]) {
-      indegree.set(dependentId, indegree.get(dependentId) - 1);
+    const dependents = adjacency.get(current.manifest.id) ?? new Set<string>();
+    for (const dependentId of [...dependents]) {
+      indegree.set(dependentId, (indegree.get(dependentId) ?? 0) - 1);
       if (indegree.get(dependentId) === 0) {
         const dependent = entries.find((entry) => entry.manifest.id === dependentId);
+        if (!dependent) {
+          continue;
+        }
         queue.push(dependent);
         queue.sort(compareBlocks);
       }
@@ -87,9 +101,14 @@ function topologicalSort(entries, providerMap) {
   return result;
 }
 
-function buildSlotTasks(plan, manifestMap) {
+function buildSlotTasks(plan: PlanFile, manifestMap: Map<string, ManifestEntry>): SlotTask[] {
   return plan.slots.map((slot) => {
-    const manifestSlot = manifestMap.get(slot.block).manifest.slots.find((candidate) => candidate.id === slot.id);
+    const manifestSlot = manifestMap
+      .get(slot.block)
+      ?.manifest.slots.find((candidate) => candidate.id === slot.id);
+    if (!manifestSlot?.writableZones) {
+      throw new CompilerError('ALIGN-SLOT-005', `Slot "${slot.id}" is missing writableZones`);
+    }
     return {
       id: slot.id,
       block: slot.block,
@@ -106,15 +125,15 @@ function buildSlotTasks(plan, manifestMap) {
   });
 }
 
-export async function resolveGraph(plan) {
-  const explicitEntries = [];
+export async function resolveGraph(plan: PlanFile): Promise<LockFile> {
+  const explicitEntries: ManifestEntry[] = [];
   for (const block of plan.blocks) {
     explicitEntries.push(await loadManifestById(block.id));
   }
 
   const allEntries = await loadAllManifests();
   const resolvedIds = new Set(explicitEntries.map((entry) => entry.manifest.id));
-  const manifestMap = new Map(explicitEntries.map((entry) => [entry.manifest.id, entry]));
+  const manifestMap = new Map<string, ManifestEntry>(explicitEntries.map((entry) => [entry.manifest.id, entry]));
 
   let changed = true;
   while (changed) {
@@ -159,7 +178,7 @@ export async function resolveGraph(plan) {
     manifestPath: path.relative(process.cwd(), entry.manifestPath).replaceAll('\\', '/')
   }));
 
-  const installPlan = [];
+  const installPlan: LockFile['installPlan'] = [];
   for (const block of sortedEntries) {
     for (const install of block.manifest.installs) {
       installPlan.push({

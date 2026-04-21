@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { blockRoot, getWorkspacePaths } from '../../shared/paths.js';
-import { CompilerError } from '../../shared/errors.js';
-import { copyRecursive, ensureDir, pathExists, readText, writeJson, writeText } from '../../shared/fs.js';
+import { blockRoot, getWorkspacePaths } from '../../shared/paths.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import { copyRecursive, ensureDir, pathExists, readText, writeJson, writeText } from '../../shared/fs.ts';
+import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/types.ts';
 
-function renderRouteGraph(lock) {
+function renderRouteGraph(lock: LockFile): string {
   const routeEntries = lock.resolvedBlocks.map((block) => {
     const pathHint = block.id === 'auth/basic-session' ? '/login' : block.id === 'entity/customer-basic' ? '/customers' : '/workspace';
     return `  { blockId: '${block.id}', path: '${pathHint}' }`;
@@ -13,11 +14,11 @@ function renderRouteGraph(lock) {
   return `export const routes = [\n${routeEntries.join(',\n')}\n];\n`;
 }
 
-function renderSlotSkeleton(task) {
+function renderSlotSkeleton(task: SlotTask): string {
   return `// @generated slot-id:${task.id} block:${task.block}\nexport function ${task.symbol}(input: CustomerInput): NormalizedCustomerInput {\n  throw new Error('Not implemented');\n}\n`;
 }
 
-async function mergePrisma(sourcePath, targetPath) {
+async function mergePrisma(sourcePath: string, targetPath: string): Promise<void> {
   const source = await readText(sourcePath);
   const existing = (await pathExists(targetPath)) ? await readText(targetPath) : '';
   const trimmed = source.trim();
@@ -28,7 +29,7 @@ async function mergePrisma(sourcePath, targetPath) {
   await writeText(targetPath, next);
 }
 
-async function applyInstallStep(projectRoot, step) {
+async function applyInstallStep(projectRoot: string, step: InstallPlanStep): Promise<void> {
   const sourcePath = path.join(blockRoot(step.blockId), step.from);
   const targetPath = path.join(projectRoot, step.to);
 
@@ -45,9 +46,9 @@ async function applyInstallStep(projectRoot, step) {
   throw new CompilerError('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
 }
 
-export async function composeProject(workspaceRoot, lock) {
+export async function composeProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
   const { projectRoot, generatedDir, installManifestPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  const installManifest = [];
+  const installManifest: Array<InstallPlanStep & { status: 'installed' }> = [];
 
   for (const step of lock.installPlan) {
     await applyInstallStep(projectRoot, step);

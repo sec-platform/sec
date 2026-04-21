@@ -1,25 +1,37 @@
-function parseRules(description) {
+import type { TaskEnvelope } from '../../shared/types.ts';
+
+function parseRules(description: string): {
+  requireName: boolean;
+  lowerEmail: boolean;
+  stripPhone: boolean;
+  defaultCompanyUnknown: boolean;
+} {
+  const normalized = description.toLowerCase();
+
   return {
-    requireName: /name.+必填/.test(description),
-    lowerEmail: /email.+转小写/.test(description),
-    stripPhone: /phone.+去掉空格/.test(description) || /phone.+去掉空格和横线/.test(description),
-    defaultCompanyUnknown: /company.+Unknown/.test(description)
+    requireName: /name.+(必填|required)/i.test(description) || /name required/.test(normalized),
+    lowerEmail: /email.+(转小写|lower)/i.test(description) || /email.+lowercase/.test(normalized),
+    stripPhone:
+      /phone.+(去掉空格|去掉空格和横线)/i.test(description) ||
+      /phone.+(digits only|strip)/.test(normalized),
+    defaultCompanyUnknown:
+      /company.+unknown/i.test(description) || /company.+defaults to unknown/.test(normalized)
   };
 }
 
-export function synthesizeSlotSource(envelope) {
+export function synthesizeSlotSource(envelope: TaskEnvelope): string {
   const rules = parseRules(envelope.inputContracts.description);
-  const steps = [];
+  const steps: string[] = [];
 
   steps.push("  const name = String(input.name ?? '').trim();");
   if (rules.requireName) {
-    steps.push("  if (!name) {");
+    steps.push('  if (!name) {');
     steps.push("    throw new Error('customer name is required');");
     steps.push('  }');
   }
   steps.push("  const email = input.email ? String(input.email).trim() : '';");
   if (rules.lowerEmail) {
-    steps.push("  const normalizedEmail = email.toLowerCase();");
+    steps.push('  const normalizedEmail = email.toLowerCase();');
   } else {
     steps.push('  const normalizedEmail = email;');
   }

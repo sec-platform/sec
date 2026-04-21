@@ -1,19 +1,24 @@
-import { readYaml } from '../../shared/yaml.js';
-import { CompilerError } from '../../shared/errors.js';
-import { SUPPORTED_STACK } from '../../shared/constants.js';
+import { readYaml } from '../../shared/yaml.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import { SUPPORTED_STACK } from '../../shared/constants.ts';
+import type { PlanFile } from '../../shared/types.ts';
 
-export function normalizePlan(plan) {
-  const normalized = structuredClone(plan);
-  normalized.blocks ??= [];
-  normalized.slots ??= [];
-  normalized.acceptance ??= [];
-  normalized.app ??= {};
-  normalized.app.packageManager ??= 'pnpm';
-  normalized.app.mode ??= 'single-tenant';
-  return normalized;
+export function normalizePlan(plan: PlanFile): PlanFile {
+  const normalized = structuredClone((plan ?? {}) as Partial<PlanFile>);
+  return {
+    app: {
+      name: normalized.app?.name ?? '',
+      stack: normalized.app?.stack ?? '',
+      packageManager: normalized.app?.packageManager ?? 'pnpm',
+      mode: normalized.app?.mode ?? 'single-tenant'
+    },
+    blocks: normalized.blocks ?? [],
+    slots: normalized.slots ?? [],
+    acceptance: normalized.acceptance ?? []
+  };
 }
 
-export function validatePlan(plan) {
+export function validatePlan(plan: PlanFile): void {
   if (!plan?.app?.name) {
     throw new CompilerError('PLAN-VALIDATION-001', 'Missing app.name');
   }
@@ -29,7 +34,7 @@ export function validatePlan(plan) {
     );
   }
 
-  const blockIds = new Set();
+  const blockIds = new Set<string>();
   for (const block of plan.blocks) {
     if (!block?.id) {
       throw new CompilerError('PLAN-VALIDATION-004', 'Every block entry requires id');
@@ -40,7 +45,7 @@ export function validatePlan(plan) {
     blockIds.add(block.id);
   }
 
-  const slotIds = new Set();
+  const slotIds = new Set<string>();
   for (const slot of plan.slots) {
     if (!slot?.id || !slot?.block || !slot?.kind || !slot?.target || !slot?.symbol) {
       throw new CompilerError('PLAN-VALIDATION-006', `Slot "${slot?.id ?? '<unknown>'}" is incomplete`);
@@ -58,8 +63,8 @@ export function validatePlan(plan) {
   }
 }
 
-export async function loadPlan(planPath) {
-  const plan = normalizePlan(await readYaml(planPath));
+export async function loadPlan(planPath: string): Promise<PlanFile> {
+  const plan = normalizePlan(await readYaml<PlanFile>(planPath));
   validatePlan(plan);
   return plan;
 }

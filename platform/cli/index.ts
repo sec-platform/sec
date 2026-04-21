@@ -7,9 +7,9 @@ import {
   lockWorkspace,
   resolveWorkspace,
   verifyWorkspace
-} from '../orchestrator.js';
+} from '../orchestrator.ts';
 
-async function main() {
+async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
   switch (command) {
@@ -47,14 +47,15 @@ async function main() {
       console.log('Locked project');
       return;
     default:
-      console.log('Usage: node platform/cli/index.js <init|add|resolve|compose|adapt|verify|lock>');
+      console.log('Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|lock>');
   }
 }
 
-main().catch((error) => {
-  console.error(error.code ?? 'UNEXPECTED', error.message);
-  if (error.details) {
-    console.error(JSON.stringify(error.details, null, 2));
+main().catch((error: unknown) => {
+  const failure = error as { code?: string; message?: string; details?: unknown };
+  console.error(failure.code ?? 'UNEXPECTED', failure.message ?? String(error));
+  if (failure.details) {
+    console.error(JSON.stringify(failure.details, null, 2));
   }
   process.exit(1);
 });
