@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2022"],
+    "skipLibCheck": true
+  },
+  "include": ["platform/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["docs/**", "project/**", "node_modules/**", "platform/registry/**/files/**"]
+}

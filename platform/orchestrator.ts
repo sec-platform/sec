@@ -1,20 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from './shared/constants.js';
-import { CompilerError } from './shared/errors.js';
-import { ensureDir, pathExists, removeDir, writeJson, writeText } from './shared/fs.js';
-import { getWorkspacePaths } from './shared/paths.js';
-import { writeYaml } from './shared/yaml.js';
-import { loadPlan } from './compiler/parse/load-plan.js';
-import { alignInterfaces } from './compiler/align/align-interfaces.js';
-import { loadManifestById } from './compiler/parse/load-manifest.js';
-import { resolveGraph } from './compiler/resolve/resolve-graph.js';
-import { composeProject } from './compiler/compose/compose-project.js';
-import { adaptProject } from './compiler/synthesize/adapt-project.js';
-import { verifyProject } from './compiler/verify/verify-project.js';
-import { lockProject } from './compiler/emit/lock-project.js';
+import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from './shared/constants.ts';
+import { CompilerError } from './shared/errors.ts';
+import { ensureDir, pathExists, readJson, removeDir, writeJson, writeText } from './shared/fs.ts';
+import { getWorkspacePaths } from './shared/paths.ts';
+import { writeYaml } from './shared/yaml.ts';
+import { alignInterfaces } from './compiler/align/align-interfaces.ts';
+import { composeProject } from './compiler/compose/compose-project.ts';
+import { lockProject } from './compiler/emit/lock-project.ts';
+import { loadManifestById } from './compiler/parse/load-manifest.ts';
+import { loadPlan } from './compiler/parse/load-plan.ts';
+import { resolveGraph } from './compiler/resolve/resolve-graph.ts';
+import { adaptProject } from './compiler/synthesize/adapt-project.ts';
+import { verifyProject } from './compiler/verify/verify-project.ts';
+import type { LockFile, ManifestEntry, PlanFile, VerificationReport } from './shared/types.ts';
 
-function defaultPlan() {
+function defaultPlan(): PlanFile {
   return {
     app: {
       name: 'customer-admin',
@@ -34,15 +35,14 @@ function defaultPlan() {
         kind: 'adapter',
         target: 'custom/customer_normalizer.ts',
         symbol: 'normalizeCustomerInput',
-        description:
-          'customer name 必填；\nemail 转小写；\nphone 去掉空格和横线；\ncompany 为空时填 Unknown。'
+        description: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
       }
     ],
-    acceptance: DEFAULT_ACCEPTANCE
+    acceptance: [...DEFAULT_ACCEPTANCE]
   };
 }
 
-async function ensureProjectBase(workspaceRoot) {
+async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   const { projectRoot, generatedDir, projectPackagePath } = getWorkspacePaths(workspaceRoot);
   await ensureDir(projectRoot);
   await ensureDir(path.join(projectRoot, 'src', 'runtime'));
@@ -51,6 +51,7 @@ async function ensureProjectBase(workspaceRoot) {
   await ensureDir(path.join(projectRoot, 'tests', 'acceptance'));
   await ensureDir(path.join(projectRoot, 'custom'));
   await ensureDir(generatedDir);
+  await ensureDir(path.join(projectRoot, 'prisma'));
 
   await writeJson(projectPackagePath, {
     name: 'generated-customer-admin',
@@ -72,7 +73,10 @@ async function ensureProjectBase(workspaceRoot) {
   );
 }
 
-export async function initWorkspace(workspaceRoot = process.cwd(), options = {}) {
+export async function initWorkspace(
+  workspaceRoot = process.cwd(),
+  options: { reset?: boolean } = {}
+): Promise<{ planPath: string; lockPath: string }> {
   const { projectRoot, planPath, lockPath, generatedDir } = getWorkspacePaths(workspaceRoot);
   if (options.reset && (await pathExists(projectRoot))) {
     await removeDir(projectRoot);
@@ -106,7 +110,7 @@ export async function initWorkspace(workspaceRoot = process.cwd(), options = {})
   return { planPath, lockPath };
 }
 
-export async function addBlock(workspaceRoot = process.cwd(), blockId) {
+export async function addBlock(workspaceRoot = process.cwd(), blockId: string): Promise<PlanFile> {
   const { planPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   if (plan.blocks.some((entry) => entry.id === blockId)) {
@@ -118,10 +122,12 @@ export async function addBlock(workspaceRoot = process.cwd(), blockId) {
   return plan;
 }
 
-export async function resolveWorkspace(workspaceRoot = process.cwd()) {
+export async function resolveWorkspace(
+  workspaceRoot = process.cwd()
+): Promise<{ plan: PlanFile; lock: LockFile }> {
   const { planPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
-  const manifestMap = new Map();
+  const manifestMap = new Map<string, ManifestEntry>();
   for (const block of plan.blocks) {
     manifestMap.set(block.id, await loadManifestById(block.id));
   }
@@ -131,35 +137,41 @@ export async function resolveWorkspace(workspaceRoot = process.cwd()) {
   return { plan, lock };
 }
 
-export async function composeWorkspace(workspaceRoot = process.cwd()) {
+export async function composeWorkspace(
+  workspaceRoot = process.cwd()
+): Promise<{ plan: PlanFile; lock: LockFile }> {
   const { planPath, lockPath } = getWorkspacePaths(workspaceRoot);
   if (!(await pathExists(lockPath))) {
     throw new CompilerError('COMPOSE-BLOCKED-001', 'graph.lock.json is missing');
   }
   const plan = await loadPlan(planPath);
-  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8'));
+  const lock = await readJson<LockFile>(lockPath);
   await composeProject(workspaceRoot, lock);
   return { plan, lock };
 }
 
-export async function adaptWorkspace(workspaceRoot = process.cwd()) {
+export async function adaptWorkspace(
+  workspaceRoot = process.cwd()
+): Promise<{ plan: PlanFile; lock: LockFile }> {
   const { planPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
-  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8'));
+  const lock = await readJson<LockFile>(lockPath);
   await adaptProject(workspaceRoot, plan, lock);
   return { plan, lock };
 }
 
-export async function verifyWorkspace(workspaceRoot = process.cwd()) {
+export async function verifyWorkspace(
+  workspaceRoot = process.cwd()
+): Promise<{ lock: LockFile; report: VerificationReport }> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8'));
+  const lock = await readJson<LockFile>(lockPath);
   const report = await verifyProject(workspaceRoot, lock);
   return { lock, report };
 }
 
-export async function lockWorkspace(workspaceRoot = process.cwd()) {
+export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<LockFile> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8'));
+  const lock = await readJson<LockFile>(lockPath);
   await lockProject(workspaceRoot, lock);
   return lock;
 }

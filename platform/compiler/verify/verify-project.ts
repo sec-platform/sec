@@ -1,11 +1,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { getWorkspacePaths } from '../../shared/paths.js';
-import { listFilesRecursive, writeJson } from '../../shared/fs.js';
-import { CompilerError } from '../../shared/errors.js';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import type { LockFile, VerificationReport } from '../../shared/types.ts';
 
-async function runSuiteFiles(rootDir) {
+interface SuiteModule {
+  runSuite?: () => Promise<void> | void;
+}
+
+async function runSuiteFiles(rootDir: string): Promise<string[]> {
   const files = (await listFilesRecursive(rootDir))
     .filter((file) => file.endsWith('.test.ts'))
     .sort((left, right) => left.localeCompare(right));
@@ -13,7 +18,7 @@ async function runSuiteFiles(rootDir) {
 
   for (const file of files) {
     const moduleUrl = `${pathToFileURL(file).href}?t=${Date.now()}`;
-    const testModule = await import(moduleUrl);
+    const testModule = (await import(moduleUrl)) as SuiteModule;
     if (typeof testModule.runSuite !== 'function') {
       throw new CompilerError('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
     }
@@ -24,16 +29,16 @@ async function runSuiteFiles(rootDir) {
   return results;
 }
 
-export async function verifyProject(workspaceRoot, lock) {
+export async function verifyProject(workspaceRoot: string, lock: LockFile): Promise<VerificationReport> {
   const { projectRoot, verificationReportPath, lockPath } = getWorkspacePaths(workspaceRoot);
 
   if (lock.passStatus.adapt !== 'succeeded') {
     throw new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify');
   }
 
-  let unitPassed = [];
-  let acceptancePassed = [];
-  let failure = null;
+  let unitPassed: string[] = [];
+  let acceptancePassed: string[] = [];
+  let failure: unknown | null = null;
 
   try {
     unitPassed = await runSuiteFiles(path.join(projectRoot, 'tests', 'unit'));
@@ -42,7 +47,7 @@ export async function verifyProject(workspaceRoot, lock) {
     failure = error;
   }
 
-  const report = {
+  const report: VerificationReport = {
     build: {
       status: failure ? 'failed' : 'passed'
     },
@@ -60,7 +65,7 @@ export async function verifyProject(workspaceRoot, lock) {
     },
     logs: {
       stdout: failure ? '' : `unit:${unitPassed.join(',')} acceptance:${acceptancePassed.join(',')}`,
-      stderr: failure ? String(failure.stack ?? failure.message ?? failure) : ''
+      stderr: failure ? String(failure instanceof Error ? failure.stack ?? failure.message : failure) : ''
     }
   };
 

@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
-import { getWorkspacePaths } from '../../shared/paths.js';
-import { CompilerError } from '../../shared/errors.js';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import type { LockFile } from '../../shared/types.ts';
 
-export async function lockProject(workspaceRoot, lock) {
+export async function lockProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
 
   if (lock.passStatus.verify !== 'succeeded') {

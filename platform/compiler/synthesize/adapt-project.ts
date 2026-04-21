@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getWorkspacePaths } from '../../shared/paths.js';
-import { CompilerError } from '../../shared/errors.js';
-import { buildTaskEnvelope } from './build-task-envelope.js';
-import { synthesizeSlotSource } from './mock-slot-synthesizer.js';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import { buildTaskEnvelope } from './build-task-envelope.ts';
+import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
+import type { LockFile, PlanFile } from '../../shared/types.ts';
 
-export async function adaptProject(workspaceRoot, plan, lock) {
+export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: LockFile): Promise<LockFile> {
   const { projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);
 
   if (lock.passStatus.compose !== 'succeeded') {

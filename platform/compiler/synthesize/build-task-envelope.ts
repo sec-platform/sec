@@ -1,5 +1,10 @@
-export function buildTaskEnvelope(plan, lock, task) {
+import type { LockFile, PlanFile, SlotTask, TaskEnvelope } from '../../shared/types.ts';
+
+export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask): TaskEnvelope {
   const slot = plan.slots.find((candidate) => candidate.id === task.id);
+  if (!slot) {
+    throw new Error(`Missing slot configuration for ${task.id}`);
+  }
   return {
     taskId: `fill_slot_${task.id}`,
     taskKind: `${slot.kind}-slot`,

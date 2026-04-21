@@ -16,11 +16,8 @@ slots:
     kind: adapter
     target: custom/customer_normalizer.ts
     symbol: normalizeCustomerInput
-    description: |-
-      customer name 必填；
-      email 转小写；
-      phone 去掉空格和横线；
-      company 为空时填 Unknown。
+    description: Name required; email lowercased; phone digits only; company
+      defaults to Unknown.
 acceptance:
   - id: user_can_login
   - id: user_can_create_customer
