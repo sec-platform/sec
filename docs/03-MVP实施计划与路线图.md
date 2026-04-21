@@ -23,16 +23,16 @@
 
 ### 输出物
 
-- [01-用户能力模块化开发-主题整理稿.md](D:\Project\pjc\01-用户能力模块化开发-主题整理稿.md)
-- [02-工程编译器-MVP-PRD与架构稿.md](D:\Project\pjc\02-工程编译器-MVP-PRD与架构稿.md)
-- [03-MVP实施计划与路线图.md](D:\Project\pjc\03-MVP实施计划与路线图.md)
-- [04-AI自主实现执行蓝图.md](D:\Project\pjc\04-AI自主实现执行蓝图.md)
-- [05-编译器核心实现规格.md](D:\Project\pjc\05-编译器核心实现规格.md)
-- [06-Registry与Block协议规范.md](D:\Project\pjc\06-Registry与Block协议规范.md)
-- [07-Pass状态机、错误码与恢复机制.md](D:\Project\pjc\07-Pass状态机、错误码与恢复机制.md)
-- [08-Verification、Provenance与Graph规范.md](D:\Project\pjc\08-Verification、Provenance与Graph规范.md)
-- [09-AI Runtime、任务信封与治理规范.md](D:\Project\pjc\09-AI Runtime、任务信封与治理规范.md)
-- [10-升级迁移与Override规范.md](D:\Project\pjc\10-升级迁移与Override规范.md)
+- [01-用户能力模块化开发-主题整理稿.md](D:\Project\pjc\docs\01-用户能力模块化开发-主题整理稿.md)
+- [02-工程编译器-MVP-PRD与架构稿.md](D:\Project\pjc\docs\02-工程编译器-MVP-PRD与架构稿.md)
+- [03-MVP实施计划与路线图.md](D:\Project\pjc\docs\03-MVP实施计划与路线图.md)
+- [04-AI自主实现执行蓝图.md](D:\Project\pjc\docs\04-AI自主实现执行蓝图.md)
+- [05-编译器核心实现规格.md](D:\Project\pjc\docs\05-编译器核心实现规格.md)
+- [06-Registry与Block协议规范.md](D:\Project\pjc\docs\06-Registry与Block协议规范.md)
+- [07-Pass状态机、错误码与恢复机制.md](D:\Project\pjc\docs\07-Pass状态机、错误码与恢复机制.md)
+- [08-Verification、Provenance与Graph规范.md](D:\Project\pjc\docs\08-Verification、Provenance与Graph规范.md)
+- [09-AI Runtime、任务信封与治理规范.md](D:\Project\pjc\docs\09-AI Runtime、任务信封与治理规范.md)
+- [10-升级迁移与Override规范.md](D:\Project\pjc\docs\10-升级迁移与Override规范.md)
 
 ### 退出条件
 
@@ -113,6 +113,7 @@
 - 引入 `Interface Alignment Agent`
 - 扩展到 6 到 10 个官方块
 - 数据库路线从 `SQLite` 扩展到 `PostgreSQL`
+- 评估 `Bun` 作为本地开发/测试加速环境，但不替代 `Node.js` 主基线
 
 ### 推荐新增官方块
 
@@ -226,6 +227,7 @@
 
 - 保守路径：
   - 先完成 `Next.js + Prisma + PostgreSQL`
+  - 再补 `Bun` 次级运行支持
   - 再评估 `Nest`
   - 最后再评估 `Elysia`
 - 原则：

@@ -1,0 +1,13 @@
+{
+  "name": "engineering-compiler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "platform": "node ./platform/cli/index.js",
+    "test": "node --test --experimental-test-isolation=none tests/pipeline.test.js"
+  },
+  "dependencies": {
+    "yaml": "^2.8.3"
+  }
+}

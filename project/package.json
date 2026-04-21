@@ -1,0 +1,8 @@
+{
+  "name": "generated-customer-admin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --experimental-test-isolation=none"
+  }
+}
