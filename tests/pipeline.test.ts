@@ -10,7 +10,8 @@ import {
   composeWorkspace,
   adaptWorkspace,
   verifyWorkspace,
-  lockWorkspace
+  lockWorkspace,
+  explainWorkspace
 } from '../platform/orchestrator.ts';
 
 test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
@@ -43,4 +44,26 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const locked = await lockWorkspace(workspaceRoot);
   assert.equal(locked.passStatus.lock, 'succeeded');
   assert.equal(locked.passStatus.emit, 'succeeded');
+
+  const provenance = JSON.parse(
+    await fs.readFile(path.join(workspaceRoot, 'project', 'provenance.json'), 'utf8')
+  ) as { artifacts: Array<{ path: string; originType: string }> };
+  assert.ok(
+    provenance.artifacts.some(
+      (artifact) => artifact.path === 'custom/customer_normalizer.ts' && artifact.originType === 'slot'
+    )
+  );
+
+  const { graph } = await explainWorkspace(workspaceRoot);
+  assert.ok(graph.nodes.some((node) => node.id === 'slot:customer_normalizer'));
+  assert.ok(graph.edges.some((edge) => edge.type === 'writes_to' && edge.to === 'file:custom/customer_normalizer.ts'));
+
+  const refreshedProvenance = JSON.parse(
+    await fs.readFile(path.join(workspaceRoot, 'project', 'provenance.json'), 'utf8')
+  ) as { artifacts: Array<{ path: string; generatedByPass?: string }> };
+  assert.ok(
+    refreshedProvenance.artifacts.some(
+      (artifact) => artifact.path === 'generated/explain-graph.json' && artifact.generatedByPass === 'explain'
+    )
+  );
 });

@@ -3,8 +3,10 @@ import {
   addBlock,
   adaptWorkspace,
   composeWorkspace,
+  explainWorkspace,
   initWorkspace,
   lockWorkspace,
+  repairWorkspace,
   resolveWorkspace,
   verifyWorkspace
 } from '../orchestrator.ts';
@@ -42,12 +44,22 @@ async function main(): Promise<void> {
       console.log(`Verification ${report.summary.status}`);
       return;
     }
+    case 'repair': {
+      const { repairPlan } = await repairWorkspace(process.cwd());
+      console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)`);
+      return;
+    }
     case 'lock':
       await lockWorkspace(process.cwd());
       console.log('Locked project');
       return;
+    case 'explain': {
+      const { graph } = await explainWorkspace(process.cwd());
+      console.log(`Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`);
+      return;
+    }
     default:
-      console.log('Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|lock>');
+      console.log('Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|lock|explain>');
   }
 }
 

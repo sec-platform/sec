@@ -1,21 +1,30 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from './shared/constants.ts';
 import { CompilerError } from './shared/errors.ts';
-import { ensureDir, pathExists, readJson, removeDir, writeJson, writeText } from './shared/fs.ts';
+import { pathExists, readJson, removeDir, writeJson } from './shared/fs.ts';
 import { getWorkspacePaths } from './shared/paths.ts';
 import { ensureProjectBase } from './shared/project-base.ts';
 import { writeYaml } from './shared/yaml.ts';
 import { alignInterfaces } from './compiler/align/align-interfaces.ts';
 import { composeProject } from './compiler/compose/compose-project.ts';
+import { writeExplainGraph } from './compiler/emit/write-explain-graph.ts';
 import { lockProject } from './compiler/emit/lock-project.ts';
 import { loadManifestById } from './compiler/parse/load-manifest.ts';
 import { loadPlan } from './compiler/parse/load-plan.ts';
+import { buildRepairPlan, writeRepairPlan } from './compiler/repair/build-repair-plan.ts';
 import { resolveGraph } from './compiler/resolve/resolve-graph.ts';
 import { adaptProject } from './compiler/synthesize/adapt-project.ts';
 import { validateResolvedTemplates } from './compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from './compiler/verify/verify-project.ts';
-import type { LockFile, ManifestEntry, PlanFile, VerificationReport } from './shared/types.ts';
+import type {
+  ExplainGraph,
+  LockFile,
+  ManifestEntry,
+  PlanFile,
+  ProvenanceFile,
+  RepairPlan,
+  VerificationReport
+} from './shared/types.ts';
 
 function defaultPlan(): PlanFile {
   return {
@@ -74,7 +83,7 @@ export async function initWorkspace(
     acceptancePlan: DEFAULT_ACCEPTANCE.map((entry) => entry.id),
     passStatus: { ...PASS_STATUS_PENDING }
   });
-  await writeJson(path.join(generatedDir, 'verification-report.json'), {
+  await writeJson(`${generatedDir}/verification-report.json`, {
     summary: { status: 'pending' }
   });
 
@@ -141,9 +150,50 @@ export async function verifyWorkspace(
   return { lock, report };
 }
 
+export async function repairWorkspace(
+  workspaceRoot = process.cwd()
+): Promise<{ lock: LockFile; repairPlan: RepairPlan }> {
+  const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadPlan(planPath);
+  const lock = await readJson<LockFile>(lockPath);
+
+  if (lock.passStatus.verify === 'pending') {
+    throw new CompilerError('REPAIR-BLOCKED-002', 'verify must run before repair');
+  }
+
+  const report = await readJson<VerificationReport>(verificationReportPath);
+
+  try {
+    const repairPlan = buildRepairPlan(plan, lock, report);
+    lock.passStatus.repair = repairPlan.status === 'pending' ? 'succeeded' : 'skipped';
+    await writeRepairPlan(workspaceRoot, repairPlan, lock);
+    return { lock, repairPlan };
+  } catch (error) {
+    lock.passStatus.repair = 'failed';
+    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    throw error;
+  }
+}
+
 export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<LockFile> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(lockPath);
   await lockProject(workspaceRoot, lock);
   return lock;
+}
+
+export async function explainWorkspace(
+  workspaceRoot = process.cwd()
+): Promise<{ lock: LockFile; provenance: ProvenanceFile; report: VerificationReport; graph: ExplainGraph }> {
+  const { lockPath, provenancePath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const lock = await readJson<LockFile>(lockPath);
+
+  if (lock.passStatus.lock !== 'succeeded') {
+    throw new CompilerError('EXPLAIN-BLOCKED-001', 'lock must succeed before explain');
+  }
+
+  const provenance = await readJson<ProvenanceFile>(provenancePath);
+  const report = await readJson<VerificationReport>(verificationReportPath);
+  const graph = await writeExplainGraph(workspaceRoot, lock, provenance, report);
+  return { lock, provenance, report, graph };
 }

@@ -3,6 +3,17 @@ export type AppMode = 'single-tenant' | 'multi-tenant';
 export type SlotKind = 'adapter' | 'policy' | 'ux' | 'repair';
 export type ManifestKind = 'capability' | 'strategy' | 'infra' | 'governance';
 export type PassState = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
+export type ProvenanceOriginType = 'block' | 'slot' | 'generated' | 'override';
+export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
+export type ExplainNodeType = 'app' | 'block' | 'capability' | 'pin' | 'slot' | 'file' | 'acceptance' | 'policy';
+export type ExplainEdgeType =
+  | 'depends_on'
+  | 'provides'
+  | 'connects_to'
+  | 'writes_to'
+  | 'verified_by'
+  | 'originates_from'
+  | 'violates';
 
 export interface AcceptanceItem {
   id: string;
@@ -158,6 +169,8 @@ export interface WorkspacePaths {
   generatedDir: string;
   installManifestPath: string;
   verificationReportPath: string;
+  explainGraphPath: string;
+  repairPlanPath: string;
   projectPackagePath: string;
   provenancePath: string;
 }
@@ -209,4 +222,73 @@ export interface VerificationReport {
     stdout: string;
     stderr: string;
   };
+}
+
+export interface ProvenanceArtifact {
+  path: string;
+  originType: ProvenanceOriginType;
+  originId: string;
+  sourceBlock?: string;
+  generatedByPass?: string;
+  generatorTaskId?: string;
+  verifiedBy: string[];
+  overrideStatus: OverrideStatus;
+}
+
+export interface ProvenanceFile {
+  formatVersion: string;
+  artifacts: ProvenanceArtifact[];
+}
+
+export interface ExplainGraphNode {
+  id: string;
+  type: ExplainNodeType;
+  label: string;
+}
+
+export interface ExplainGraphEdge {
+  from: string;
+  to: string;
+  type: ExplainEdgeType;
+}
+
+export interface CoverageOverlay {
+  blocks: Array<{
+    id: string;
+    coveredBy: string[];
+  }>;
+  slots: Array<{
+    id: string;
+    coveredBy: string[];
+  }>;
+}
+
+export interface ExplainGraph {
+  nodes: ExplainGraphNode[];
+  edges: ExplainGraphEdge[];
+  overlays: {
+    provenance: ProvenanceArtifact[];
+    coverage: CoverageOverlay;
+  };
+}
+
+export interface RepairTask {
+  taskId: string;
+  taskKind: 'repair-slot';
+  phase: 'repair';
+  sourceSlotId: string;
+  targetBlock: string;
+  targetFile: string;
+  allowedPaths: string[];
+  requiredSymbols: string[];
+  forbiddenOperations: string[];
+  testsToPass: string[];
+  failureSummary: string;
+}
+
+export interface RepairPlan {
+  formatVersion: string;
+  status: 'pending' | 'skipped';
+  sourceVerificationStatus: 'passed' | 'failed';
+  tasks: RepairTask[];
 }

@@ -19,6 +19,8 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     generatedDir: path.join(projectRoot, 'generated'),
     installManifestPath: path.join(projectRoot, 'generated', 'install-manifest.json'),
     verificationReportPath: path.join(projectRoot, 'generated', 'verification-report.json'),
+    explainGraphPath: path.join(projectRoot, 'generated', 'explain-graph.json'),
+    repairPlanPath: path.join(projectRoot, 'generated', 'repair-plan.json'),
     projectPackagePath: path.join(projectRoot, 'package.json'),
     provenancePath: path.join(projectRoot, 'provenance.json')
   };

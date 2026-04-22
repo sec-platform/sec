@@ -1,0 +1,120 @@
+{
+  "formatVersion": "1",
+  "artifacts": [
+    {
+      "path": "custom/customer_normalizer.ts",
+      "originType": "slot",
+      "originId": "customer_normalizer",
+      "sourceBlock": "entity/customer-basic",
+      "generatedByPass": "adapt",
+      "generatorTaskId": "fill_slot_customer_normalizer",
+      "verifiedBy": [
+        "tests/unit/customer-normalizer.test.ts",
+        "tests/acceptance/customer-flow.test.ts"
+      ],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "generated/block-usage-map.json",
+      "originType": "generated",
+      "originId": "generated/block-usage-map.json",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "generated/explain-graph.json",
+      "originType": "generated",
+      "originId": "generated/explain-graph.json",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "generated/install-manifest.json",
+      "originType": "generated",
+      "originId": "generated/install-manifest.json",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "generated/repair-plan.json",
+      "originType": "generated",
+      "originId": "generated/repair-plan.json",
+      "generatedByPass": "repair",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "generated/routes.ts",
+      "originType": "generated",
+      "originId": "generated/routes.ts",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "prisma/schema.prisma",
+      "originType": "block",
+      "originId": "entity/customer-basic",
+      "sourceBlock": "entity/customer-basic",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "provenance.json",
+      "originType": "generated",
+      "originId": "provenance.json",
+      "generatedByPass": "lock",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "src/installed/auth/session.ts",
+      "originType": "block",
+      "originId": "auth/basic-session",
+      "sourceBlock": "auth/basic-session",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "src/installed/entity/customer-service.ts",
+      "originType": "block",
+      "originId": "entity/customer-basic",
+      "sourceBlock": "entity/customer-basic",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "src/installed/tenant/context.ts",
+      "originType": "block",
+      "originId": "tenant/basic-workspace",
+      "sourceBlock": "tenant/basic-workspace",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "tests/acceptance/customer-flow.test.ts",
+      "originType": "block",
+      "originId": "entity/customer-basic",
+      "sourceBlock": "entity/customer-basic",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "tests/unit/customer-normalizer.test.ts",
+      "originType": "block",
+      "originId": "entity/customer-basic",
+      "sourceBlock": "entity/customer-basic",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    }
+  ]
+}
