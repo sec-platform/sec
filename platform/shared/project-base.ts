@@ -3,13 +3,14 @@ import { ensureDir, writeJson, writeText } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
 
 export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
-  const { projectRoot, generatedDir, projectPackagePath } = getWorkspacePaths(workspaceRoot);
+  const { projectRoot, generatedDir, projectPackagePath, provenancePath } = getWorkspacePaths(workspaceRoot);
   await ensureDir(projectRoot);
   await ensureDir(path.join(projectRoot, 'src', 'runtime'));
   await ensureDir(path.join(projectRoot, 'src', 'installed'));
   await ensureDir(path.join(projectRoot, 'tests', 'unit'));
   await ensureDir(path.join(projectRoot, 'tests', 'acceptance'));
   await ensureDir(path.join(projectRoot, 'custom'));
+  await ensureDir(path.join(projectRoot, 'overrides'));
   await ensureDir(generatedDir);
   await ensureDir(path.join(projectRoot, 'prisma'));
 
@@ -47,4 +48,9 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     path.join(projectRoot, 'prisma', 'schema.prisma'),
     `generator client {\n  provider = "prisma-client-js"\n}\n\ndatasource db {\n  provider = "sqlite"\n  url      = "file:./dev.db"\n}\n`
   );
+
+  await writeJson(provenancePath, {
+    formatVersion: '1',
+    artifacts: []
+  });
 }

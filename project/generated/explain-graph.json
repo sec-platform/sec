@@ -1,0 +1,502 @@
+{
+  "nodes": [
+    {
+      "id": "acceptance:tenant_only_sees_own_customers",
+      "type": "acceptance",
+      "label": "tenant_only_sees_own_customers"
+    },
+    {
+      "id": "acceptance:user_can_create_customer",
+      "type": "acceptance",
+      "label": "user_can_create_customer"
+    },
+    {
+      "id": "acceptance:user_can_list_customers",
+      "type": "acceptance",
+      "label": "user_can_list_customers"
+    },
+    {
+      "id": "acceptance:user_can_login",
+      "type": "acceptance",
+      "label": "user_can_login"
+    },
+    {
+      "id": "app:customer-admin",
+      "type": "app",
+      "label": "customer-admin"
+    },
+    {
+      "id": "block:auth/basic-session",
+      "type": "block",
+      "label": "auth/basic-session"
+    },
+    {
+      "id": "block:entity/customer-basic",
+      "type": "block",
+      "label": "entity/customer-basic"
+    },
+    {
+      "id": "block:tenant/basic-workspace",
+      "type": "block",
+      "label": "tenant/basic-workspace"
+    },
+    {
+      "id": "capability:auth/session",
+      "type": "capability",
+      "label": "auth/session"
+    },
+    {
+      "id": "capability:customer/read",
+      "type": "capability",
+      "label": "customer/read"
+    },
+    {
+      "id": "capability:customer/write",
+      "type": "capability",
+      "label": "customer/write"
+    },
+    {
+      "id": "capability:tenant/context",
+      "type": "capability",
+      "label": "tenant/context"
+    },
+    {
+      "id": "file:custom/customer_normalizer.ts",
+      "type": "file",
+      "label": "custom/customer_normalizer.ts"
+    },
+    {
+      "id": "file:generated/block-usage-map.json",
+      "type": "file",
+      "label": "generated/block-usage-map.json"
+    },
+    {
+      "id": "file:generated/explain-graph.json",
+      "type": "file",
+      "label": "generated/explain-graph.json"
+    },
+    {
+      "id": "file:generated/install-manifest.json",
+      "type": "file",
+      "label": "generated/install-manifest.json"
+    },
+    {
+      "id": "file:generated/repair-plan.json",
+      "type": "file",
+      "label": "generated/repair-plan.json"
+    },
+    {
+      "id": "file:generated/routes.ts",
+      "type": "file",
+      "label": "generated/routes.ts"
+    },
+    {
+      "id": "file:prisma/schema.prisma",
+      "type": "file",
+      "label": "prisma/schema.prisma"
+    },
+    {
+      "id": "file:provenance.json",
+      "type": "file",
+      "label": "provenance.json"
+    },
+    {
+      "id": "file:src/installed/auth/session.ts",
+      "type": "file",
+      "label": "src/installed/auth/session.ts"
+    },
+    {
+      "id": "file:src/installed/entity/customer-service.ts",
+      "type": "file",
+      "label": "src/installed/entity/customer-service.ts"
+    },
+    {
+      "id": "file:src/installed/tenant/context.ts",
+      "type": "file",
+      "label": "src/installed/tenant/context.ts"
+    },
+    {
+      "id": "file:tests/acceptance/customer-flow.test.ts",
+      "type": "file",
+      "label": "tests/acceptance/customer-flow.test.ts"
+    },
+    {
+      "id": "file:tests/unit/customer-normalizer.test.ts",
+      "type": "file",
+      "label": "tests/unit/customer-normalizer.test.ts"
+    },
+    {
+      "id": "slot:customer_normalizer",
+      "type": "slot",
+      "label": "customer_normalizer"
+    }
+  ],
+  "edges": [
+    {
+      "from": "app:customer-admin",
+      "to": "block:auth/basic-session",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
+      "to": "block:entity/customer-basic",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
+      "to": "block:tenant/basic-workspace",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:auth/basic-session",
+      "to": "capability:auth/session",
+      "type": "provides"
+    },
+    {
+      "from": "block:auth/basic-session",
+      "to": "acceptance:tenant_only_sees_own_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:auth/basic-session",
+      "to": "acceptance:user_can_create_customer",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:auth/basic-session",
+      "to": "acceptance:user_can_list_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:auth/basic-session",
+      "to": "acceptance:user_can_login",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "slot:customer_normalizer",
+      "type": "connects_to"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "capability:auth/session",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "capability:tenant/context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "capability:customer/read",
+      "type": "provides"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "capability:customer/write",
+      "type": "provides"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "acceptance:tenant_only_sees_own_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "acceptance:user_can_create_customer",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "acceptance:user_can_list_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "acceptance:user_can_login",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "capability:auth/session",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "capability:tenant/context",
+      "type": "provides"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "acceptance:tenant_only_sees_own_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "acceptance:user_can_create_customer",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "acceptance:user_can_list_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "acceptance:user_can_login",
+      "type": "verified_by"
+    },
+    {
+      "from": "file:custom/customer_normalizer.ts",
+      "to": "slot:customer_normalizer",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/block-usage-map.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/explain-graph.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/install-manifest.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/repair-plan.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/routes.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:prisma/schema.prisma",
+      "to": "block:entity/customer-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:provenance.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/auth/session.ts",
+      "to": "block:auth/basic-session",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/entity/customer-service.ts",
+      "to": "block:entity/customer-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/tenant/context.ts",
+      "to": "block:tenant/basic-workspace",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/acceptance/customer-flow.test.ts",
+      "to": "block:entity/customer-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/customer-normalizer.test.ts",
+      "to": "block:entity/customer-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "slot:customer_normalizer",
+      "to": "acceptance:tenant_only_sees_own_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "slot:customer_normalizer",
+      "to": "acceptance:user_can_create_customer",
+      "type": "verified_by"
+    },
+    {
+      "from": "slot:customer_normalizer",
+      "to": "acceptance:user_can_list_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "slot:customer_normalizer",
+      "to": "acceptance:user_can_login",
+      "type": "verified_by"
+    },
+    {
+      "from": "slot:customer_normalizer",
+      "to": "file:custom/customer_normalizer.ts",
+      "type": "writes_to"
+    }
+  ],
+  "overlays": {
+    "provenance": [
+      {
+        "path": "custom/customer_normalizer.ts",
+        "originType": "slot",
+        "originId": "customer_normalizer",
+        "sourceBlock": "entity/customer-basic",
+        "generatedByPass": "adapt",
+        "generatorTaskId": "fill_slot_customer_normalizer",
+        "verifiedBy": [
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/acceptance/customer-flow.test.ts"
+        ],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/block-usage-map.json",
+        "originType": "generated",
+        "originId": "generated/block-usage-map.json",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/explain-graph.json",
+        "originType": "generated",
+        "originId": "generated/explain-graph.json",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/install-manifest.json",
+        "originType": "generated",
+        "originId": "generated/install-manifest.json",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/repair-plan.json",
+        "originType": "generated",
+        "originId": "generated/repair-plan.json",
+        "generatedByPass": "repair",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/routes.ts",
+        "originType": "generated",
+        "originId": "generated/routes.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "originType": "block",
+        "originId": "entity/customer-basic",
+        "sourceBlock": "entity/customer-basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "provenance.json",
+        "originType": "generated",
+        "originId": "provenance.json",
+        "generatedByPass": "lock",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "src/installed/auth/session.ts",
+        "originType": "block",
+        "originId": "auth/basic-session",
+        "sourceBlock": "auth/basic-session",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "src/installed/entity/customer-service.ts",
+        "originType": "block",
+        "originId": "entity/customer-basic",
+        "sourceBlock": "entity/customer-basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "src/installed/tenant/context.ts",
+        "originType": "block",
+        "originId": "tenant/basic-workspace",
+        "sourceBlock": "tenant/basic-workspace",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/acceptance/customer-flow.test.ts",
+        "originType": "block",
+        "originId": "entity/customer-basic",
+        "sourceBlock": "entity/customer-basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/unit/customer-normalizer.test.ts",
+        "originType": "block",
+        "originId": "entity/customer-basic",
+        "sourceBlock": "entity/customer-basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      }
+    ],
+    "coverage": {
+      "blocks": [
+        {
+          "id": "auth/basic-session",
+          "coveredBy": [
+            "user_can_login",
+            "user_can_create_customer",
+            "user_can_list_customers",
+            "tenant_only_sees_own_customers"
+          ]
+        },
+        {
+          "id": "tenant/basic-workspace",
+          "coveredBy": [
+            "user_can_login",
+            "user_can_create_customer",
+            "user_can_list_customers",
+            "tenant_only_sees_own_customers"
+          ]
+        },
+        {
+          "id": "entity/customer-basic",
+          "coveredBy": [
+            "user_can_login",
+            "user_can_create_customer",
+            "user_can_list_customers",
+            "tenant_only_sees_own_customers"
+          ]
+        }
+      ],
+      "slots": [
+        {
+          "id": "customer_normalizer",
+          "coveredBy": [
+            "user_can_login",
+            "user_can_create_customer",
+            "user_can_list_customers",
+            "tenant_only_sees_own_customers"
+          ]
+        }
+      ]
+    }
+  }
+}

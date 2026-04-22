@@ -87,20 +87,26 @@
       "kind": "adapter",
       "inputType": "CustomerInput",
       "outputType": "NormalizedCustomerInput",
-      "status": "pending",
+      "status": "verified",
       "writableZones": [
         "custom/"
       ],
       "provenanceHints": {
         "generator": "mock-local-synthesizer",
-        "verifiedBy": []
+        "verifiedBy": [
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/acceptance/customer-flow.test.ts"
+        ]
       }
     }
   ],
   "generatedPaths": [
-    "generated/routes.ts",
     "generated/block-usage-map.json",
-    "generated/install-manifest.json"
+    "generated/explain-graph.json",
+    "generated/install-manifest.json",
+    "generated/repair-plan.json",
+    "generated/routes.ts",
+    "provenance.json"
   ],
   "acceptancePlan": [
     "user_can_login",
@@ -112,11 +118,11 @@
     "parse": "succeeded",
     "align": "succeeded",
     "resolve": "succeeded",
-    "compose": "pending",
-    "adapt": "pending",
-    "verify": "pending",
+    "compose": "succeeded",
+    "adapt": "succeeded",
+    "verify": "succeeded",
     "repair": "skipped",
-    "lock": "pending",
-    "emit": "pending"
+    "lock": "succeeded",
+    "emit": "succeeded"
   }
 }

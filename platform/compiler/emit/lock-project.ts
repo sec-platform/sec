@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/types.ts';
 
 export async function lockProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
@@ -11,6 +12,7 @@ export async function lockProject(workspaceRoot: string, lock: LockFile): Promis
   }
 
   lock.passStatus.lock = 'succeeded';
+  await writeProvenance(workspaceRoot, lock);
   lock.passStatus.emit = 'succeeded';
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   return lock;
