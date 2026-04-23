@@ -1,14 +1,20 @@
 import fs from 'node:fs/promises';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { readJson } from '../../shared/fs.ts';
 import { writeProvenance } from './write-provenance.ts';
-import type { LockFile } from '../../shared/types.ts';
+import type { LockFile, VerificationReport } from '../../shared/types.ts';
 
 export async function lockProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
 
   if (lock.passStatus.verify !== 'succeeded') {
     throw new CompilerError('LOCK-BLOCKED-001', 'verify must succeed before lock');
+  }
+
+  const report = await readJson<VerificationReport>(verificationReportPath);
+  if (report.summary.requestedLane !== 'all' || report.summary.status !== 'passed') {
+    throw new CompilerError('LOCK-BLOCKED-002', 'lock requires a passing verify --lane all result');
   }
 
   lock.passStatus.lock = 'succeeded';

@@ -1,11 +1,13 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { WorkspacePaths } from './types.ts';
+import type { RegistryLocation, WorkspacePaths } from './types.ts';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 export const compilerRoot = path.resolve(moduleDir, '../..');
-export const officialRegistryRoot = path.join(compilerRoot, 'platform', 'registry', 'official');
+export const officialRegistryRelativePath = path.join('platform', 'registry', 'official');
+export const privateRegistryRelativePath = path.join('platform', 'registry', 'private');
+export const officialRegistryRoot = path.join(compilerRoot, officialRegistryRelativePath);
 
 export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
   const root = path.resolve(workspaceRoot);
@@ -14,13 +16,24 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
   return {
     workspaceRoot: root,
     projectRoot,
+    privateRegistryRoot: path.join(root, privateRegistryRelativePath),
+    generatedViewsDir: path.join(projectRoot, 'generated', 'views'),
     planPath: path.join(projectRoot, 'app.plan.yaml'),
     lockPath: path.join(projectRoot, 'graph.lock.json'),
     generatedDir: path.join(projectRoot, 'generated'),
+    overrideManifestPath: path.join(projectRoot, 'overrides', 'override-manifest.yaml'),
+    policySpecPath: path.join(projectRoot, 'policies', 'policy.spec.yaml'),
     installManifestPath: path.join(projectRoot, 'generated', 'install-manifest.json'),
     verificationReportPath: path.join(projectRoot, 'generated', 'verification-report.json'),
+    acceptanceCoveragePath: path.join(projectRoot, 'generated', 'acceptance-coverage.json'),
+    policyReportPath: path.join(projectRoot, 'generated', 'policy-report.json'),
+    runtimeReportPath: path.join(projectRoot, 'generated', 'runtime-report.json'),
     explainGraphPath: path.join(projectRoot, 'generated', 'explain-graph.json'),
+    reviewSummaryPath: path.join(projectRoot, 'generated', 'review-summary.json'),
+    sourceViewPath: path.join(projectRoot, 'generated', 'views', 'source-view.html'),
+    slotRuleViewPath: path.join(projectRoot, 'generated', 'views', 'slot-rule-view.html'),
     repairPlanPath: path.join(projectRoot, 'generated', 'repair-plan.json'),
+    upgradePlanPath: path.join(projectRoot, 'generated', 'upgrade-plan.json'),
     projectPackagePath: path.join(projectRoot, 'package.json'),
     provenancePath: path.join(projectRoot, 'provenance.json')
   };
@@ -32,4 +45,13 @@ export function blockDirName(blockId: string): string {
 
 export function blockRoot(blockId: string): string {
   return path.join(officialRegistryRoot, blockDirName(blockId));
+}
+
+export function resolveRegistryRoot(
+  workspaceRoot: string,
+  location: RegistryLocation,
+  registryPath: string
+): string {
+  const baseRoot = location === 'compiler' ? compilerRoot : path.resolve(workspaceRoot);
+  return path.resolve(baseRoot, registryPath);
 }

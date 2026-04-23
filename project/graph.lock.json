@@ -11,25 +11,73 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 1,
-      "manifestPath": "platform/registry/official/auth.basic-session/block.manifest.yaml"
+      "manifestPath": "block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "audit/basic",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 2,
+      "manifestPath": "block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "rbac/basic",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 3,
+      "manifestPath": "block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
     },
     {
       "id": "tenant/basic-workspace",
       "version": "0.1.0",
       "kind": "capability",
-      "installOrder": 2,
-      "manifestPath": "platform/registry/official/tenant.basic-workspace/block.manifest.yaml"
+      "installOrder": 4,
+      "manifestPath": "block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
     },
     {
       "id": "entity/customer-basic",
       "version": "0.1.0",
       "kind": "capability",
-      "installOrder": 3,
-      "manifestPath": "platform/registry/official/entity.customer-basic/block.manifest.yaml"
+      "installOrder": 5,
+      "manifestPath": "block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "export/csv-basic",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 6,
+      "manifestPath": "block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
     }
   ],
   "resolvedCapabilities": [
+    "audit/log",
+    "auth/authorize",
     "auth/session",
+    "customer/export",
     "customer/read",
     "customer/write",
     "tenant/context"
@@ -38,44 +86,146 @@
     {
       "stepId": "auth/basic-session:1",
       "blockId": "auth/basic-session",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "auth.basic-session",
       "action": "copy",
       "from": "files/src/installed/auth/session.ts",
       "to": "src/installed/auth/session.ts"
     },
     {
-      "stepId": "tenant/basic-workspace:2",
+      "stepId": "audit/basic:2",
+      "blockId": "audit/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "audit.basic",
+      "action": "copy",
+      "from": "files/src/installed/audit/logger.ts",
+      "to": "src/installed/audit/logger.ts"
+    },
+    {
+      "stepId": "audit/basic:3",
+      "blockId": "audit/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "audit.basic",
+      "action": "copy",
+      "from": "files/tests/unit/audit-log.test.ts",
+      "to": "tests/unit/audit-log.test.ts"
+    },
+    {
+      "stepId": "rbac/basic:4",
+      "blockId": "rbac/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "rbac.basic",
+      "action": "copy",
+      "from": "files/src/installed/auth/authorize.ts",
+      "to": "src/installed/auth/authorize.ts"
+    },
+    {
+      "stepId": "rbac/basic:5",
+      "blockId": "rbac/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "rbac.basic",
+      "action": "copy",
+      "from": "files/tests/unit/rbac-authorize.test.ts",
+      "to": "tests/unit/rbac-authorize.test.ts"
+    },
+    {
+      "stepId": "tenant/basic-workspace:6",
       "blockId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "tenant.basic-workspace",
       "action": "copy",
       "from": "files/src/installed/tenant/context.ts",
       "to": "src/installed/tenant/context.ts"
     },
     {
-      "stepId": "entity/customer-basic:3",
+      "stepId": "entity/customer-basic:7",
       "blockId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "entity.customer-basic",
       "action": "copy",
       "from": "files/src/installed/entity/customer-service.ts",
       "to": "src/installed/entity/customer-service.ts"
     },
     {
-      "stepId": "entity/customer-basic:4",
+      "stepId": "entity/customer-basic:8",
       "blockId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "entity.customer-basic",
       "action": "merge-prisma",
       "from": "files/prisma/customer.prisma",
       "to": "prisma/schema.prisma"
     },
     {
-      "stepId": "entity/customer-basic:5",
+      "stepId": "entity/customer-basic:9",
       "blockId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "entity.customer-basic",
       "action": "copy",
       "from": "files/tests/unit/customer-normalizer.test.ts",
       "to": "tests/unit/customer-normalizer.test.ts"
     },
     {
-      "stepId": "entity/customer-basic:6",
+      "stepId": "entity/customer-basic:10",
       "blockId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "entity.customer-basic",
       "action": "copy",
       "from": "files/tests/acceptance/customer-flow.test.ts",
       "to": "tests/acceptance/customer-flow.test.ts"
+    },
+    {
+      "stepId": "export/csv-basic:11",
+      "blockId": "export/csv-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "export.csv-basic",
+      "action": "copy",
+      "from": "files/src/installed/export/customer-csv.ts",
+      "to": "src/installed/export/customer-csv.ts"
+    },
+    {
+      "stepId": "export/csv-basic:12",
+      "blockId": "export/csv-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "export.csv-basic",
+      "action": "copy",
+      "from": "files/tests/unit/customer-export.test.ts",
+      "to": "tests/unit/customer-export.test.ts"
     }
   ],
   "slotTasks": [
@@ -94,19 +244,51 @@
       "provenanceHints": {
         "generator": "mock-local-synthesizer",
         "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/customer-export.test.ts",
           "tests/unit/customer-normalizer.test.ts",
-          "tests/acceptance/customer-flow.test.ts"
+          "tests/unit/rbac-authorize.test.ts"
         ]
       }
     }
   ],
   "generatedPaths": [
+    "app/api/customers/route.ts",
+    "app/api/session/current/route.ts",
+    "app/api/session/login/route.ts",
+    "app/api/session/logout/route.ts",
+    "app/customers/page.tsx",
+    "app/globals.css",
+    "app/layout.tsx",
+    "app/login/page.tsx",
+    "app/page.tsx",
+    "app/workspace/page.tsx",
+    "components/customer-form.tsx",
+    "components/login-form.tsx",
+    "components/logout-button.tsx",
+    "generated/acceptance-coverage.json",
     "generated/block-usage-map.json",
     "generated/explain-graph.json",
     "generated/install-manifest.json",
-    "generated/repair-plan.json",
+    "generated/policy-report.json",
+    "generated/review-summary.json",
     "generated/routes.ts",
-    "provenance.json"
+    "generated/runtime-report.json",
+    "generated/verification-report.json",
+    "generated/views/slot-rule-view.html",
+    "generated/views/source-view.html",
+    "lib/session.ts",
+    "lib/store.ts",
+    "next-env.d.ts",
+    "next.config.mjs",
+    "package.json",
+    "provenance.json",
+    "tests/runtime/acceptance/customer-flow.spec.ts",
+    "tests/runtime/unit/customer-runtime.test.ts",
+    "tsconfig.json"
   ],
   "acceptancePlan": [
     "user_can_login",

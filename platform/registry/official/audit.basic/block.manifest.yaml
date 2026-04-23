@@ -1,0 +1,35 @@
+id: audit/basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+compatibility:
+  blockApi: '1'
+  compilerApi: '1'
+  stackProfiles:
+    - nextjs-ts-prisma-sqlite
+requires:
+  - auth/session
+provides:
+  - audit/log
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/audit/logger.ts
+    to: src/installed/audit/logger.ts
+  - kind: copy
+    from: files/tests/unit/audit-log.test.ts
+    to: tests/unit/audit-log.test.ts
+pins:
+  inputs:
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: audit_entry
+      type: AuditEntry
+      required: true
+slots: []
+acceptance:
+  - id: audit_entry_can_be_created
+routes: []

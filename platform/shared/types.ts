@@ -2,10 +2,16 @@ export type PackageManager = 'pnpm' | 'npm' | 'yarn';
 export type AppMode = 'single-tenant' | 'multi-tenant';
 export type SlotKind = 'adapter' | 'policy' | 'ux' | 'repair';
 export type ManifestKind = 'capability' | 'strategy' | 'infra' | 'governance';
+export type RegistryKind = 'official' | 'private' | 'community';
+export type RegistryLocation = 'compiler' | 'workspace';
 export type PassState = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
+export type VerificationLane = 'fast' | 'runtime' | 'all';
+export type VerificationStatus = 'passed' | 'failed' | 'skipped';
 export type ProvenanceOriginType = 'block' | 'slot' | 'generated' | 'override';
 export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
-export type ExplainNodeType = 'app' | 'block' | 'capability' | 'pin' | 'slot' | 'file' | 'acceptance' | 'policy';
+export type OverrideSource = 'manual' | 'rule-backed';
+export type OverrideApplyPhase = 'compose' | 'adapt';
+export type ExplainNodeType = 'app' | 'block' | 'capability' | 'pin' | 'slot' | 'file' | 'acceptance' | 'policy' | 'override';
 export type ExplainEdgeType =
   | 'depends_on'
   | 'provides'
@@ -14,6 +20,7 @@ export type ExplainEdgeType =
   | 'verified_by'
   | 'originates_from'
   | 'violates';
+export type PolicySeverity = 'info' | 'warn' | 'error' | 'blocker';
 
 export interface AcceptanceItem {
   id: string;
@@ -24,6 +31,17 @@ export interface PlanApp {
   stack: string;
   packageManager: PackageManager;
   mode: AppMode;
+}
+
+export interface PlanRegistrySource {
+  id: string;
+  kind: RegistryKind;
+  location: RegistryLocation;
+  path: string;
+}
+
+export interface PlanRegistry {
+  sources: PlanRegistrySource[];
 }
 
 export interface PlanBlock {
@@ -42,6 +60,7 @@ export interface PlanSlot {
 
 export interface PlanFile {
   app: PlanApp;
+  registry: PlanRegistry;
   blocks: PlanBlock[];
   slots: PlanSlot[];
   acceptance: AcceptanceItem[];
@@ -57,6 +76,26 @@ export interface InstallInstruction {
   kind: string;
   from: string;
   to: string;
+}
+
+export interface ManifestCompatibility {
+  blockApi: string;
+  compilerApi: string;
+  stackProfiles: string[];
+}
+
+export interface UpgradeMigration {
+  id: string;
+  kind: string;
+  entry: string;
+  fromVersion?: string;
+  toVersion?: string;
+  requiresVerification?: boolean;
+}
+
+export interface UpgradeConfig {
+  from: string[];
+  migrations: UpgradeMigration[];
 }
 
 export interface ManifestSlot {
@@ -84,6 +123,7 @@ export interface BlockManifest {
   version: string;
   kind: ManifestKind;
   stackProfiles: string[];
+  compatibility?: ManifestCompatibility;
   requires: string[];
   provides: string[];
   conflicts: string[];
@@ -92,11 +132,18 @@ export interface BlockManifest {
   slots: ManifestSlot[];
   acceptance: AcceptanceItem[];
   routes: ManifestRoute[];
+  upgrade?: UpgradeConfig;
 }
 
 export interface ManifestEntry {
   manifest: BlockManifest;
   manifestPath: string;
+  manifestRoot: string;
+  registryRoot: string;
+  registrySourceId: string;
+  registryKind: RegistryKind;
+  registryLocation: RegistryLocation;
+  registryPath: string;
 }
 
 export interface ResolvedBlock {
@@ -105,11 +152,20 @@ export interface ResolvedBlock {
   kind: ManifestKind;
   installOrder: number;
   manifestPath: string;
+  registrySourceId: string;
+  registryKind: RegistryKind;
+  registryLocation: RegistryLocation;
+  registryPath: string;
 }
 
 export interface InstallPlanStep {
   stepId: string;
   blockId: string;
+  registrySourceId: string;
+  registryKind: RegistryKind;
+  registryLocation: RegistryLocation;
+  registryPath: string;
+  sourceRoot: string;
   action: string;
   from: string;
   to: string;
@@ -164,13 +220,24 @@ export interface LockFile {
 export interface WorkspacePaths {
   workspaceRoot: string;
   projectRoot: string;
+  privateRegistryRoot: string;
+  generatedViewsDir: string;
   planPath: string;
   lockPath: string;
   generatedDir: string;
+  overrideManifestPath: string;
+  policySpecPath: string;
   installManifestPath: string;
   verificationReportPath: string;
+  acceptanceCoveragePath: string;
+  policyReportPath: string;
+  runtimeReportPath: string;
   explainGraphPath: string;
+  reviewSummaryPath: string;
+  sourceViewPath: string;
+  slotRuleViewPath: string;
   repairPlanPath: string;
+  upgradePlanPath: string;
   projectPackagePath: string;
   provenancePath: string;
 }
@@ -202,26 +269,94 @@ export interface TaskEnvelope {
   };
 }
 
-export interface VerificationReport {
+export interface VerificationStepReport {
+  status: VerificationStatus;
+  passed: string[];
+  failed: string[];
+  command: string | null;
+}
+
+export interface VerificationLogs {
+  stdout: string;
+  stderr: string;
+}
+
+export interface PolicyReport {
+  status: 'passed' | 'failed' | 'skipped';
+  official: {
+    policies: string[];
+    violations: PolicyViolation[];
+  };
+  project: {
+    policies: string[];
+    violations: PolicyViolation[];
+  };
+  violations: PolicyViolation[];
+}
+
+export interface FastVerificationLaneReport {
+  status: VerificationStatus;
   build: {
-    status: 'passed' | 'failed';
+    status: VerificationStatus;
   };
   unit: {
-    status: 'passed' | 'failed';
+    status: VerificationStatus;
     passed: string[];
   };
   acceptance: {
-    status: 'passed' | 'failed';
+    status: VerificationStatus;
     passed: string[];
     failed: string[];
   };
+  policy: {
+    status: 'passed' | 'failed' | 'skipped';
+    violations: PolicyViolation[];
+  };
+  policyReport?: PolicyReport;
+  logs: VerificationLogs;
+}
+
+export interface RuntimeVerificationLaneReport {
+  status: VerificationStatus;
+  build: VerificationStepReport;
+  unit: VerificationStepReport;
+  acceptance: VerificationStepReport;
+  logs: VerificationLogs;
+}
+
+export interface VerificationReport {
+  build: FastVerificationLaneReport['build'];
+  unit: FastVerificationLaneReport['unit'];
+  acceptance: FastVerificationLaneReport['acceptance'];
+  policy: FastVerificationLaneReport['policy'];
+  fast: FastVerificationLaneReport;
+  runtime: RuntimeVerificationLaneReport;
   summary: {
     status: 'passed' | 'failed';
+    requestedLane: VerificationLane;
+    failedLanes: Array<'fast' | 'runtime'>;
   };
-  logs: {
-    stdout: string;
-    stderr: string;
-  };
+  logs: VerificationLogs;
+}
+
+export interface PolicyRule {
+  id: string;
+  severity: PolicySeverity;
+  appliesTo: string[];
+  rule: string;
+}
+
+export interface PolicySpec {
+  policies: PolicyRule[];
+}
+
+export interface PolicyViolation {
+  id: string;
+  severity: PolicySeverity;
+  appliesTo: string[];
+  rule: string;
+  files: string[];
+  message: string;
 }
 
 export interface ProvenanceArtifact {
@@ -272,6 +407,37 @@ export interface ExplainGraph {
   };
 }
 
+export interface AcceptanceCoverageEntry {
+  id: string;
+  declaredAcceptance: string[];
+  coveredBy: string[];
+  uncovered: boolean;
+}
+
+export interface AcceptanceCoverageReport {
+  formatVersion: string;
+  status: VerificationStatus;
+  acceptancePassed: string[];
+  blocks: AcceptanceCoverageEntry[];
+  slots: AcceptanceCoverageEntry[];
+  uncoveredBlocks: string[];
+  uncoveredSlots: string[];
+}
+
+export interface ReviewSummary {
+  formatVersion: string;
+  changeSources: Array<{
+    path: string;
+    originType: ProvenanceOriginType;
+    originId: string;
+  }>;
+  impactedBlocks: string[];
+  impactedSlots: string[];
+  failurePoints: string[];
+  regressionRisks: string[];
+  conflictHints: string[];
+}
+
 export interface RepairTask {
   taskId: string;
   taskKind: 'repair-slot';
@@ -291,4 +457,28 @@ export interface RepairPlan {
   status: 'pending' | 'skipped';
   sourceVerificationStatus: 'passed' | 'failed';
   tasks: RepairTask[];
+}
+
+export interface UpgradePlan {
+  formatVersion: string;
+  blockId: string;
+  fromVersion: string;
+  toVersion: string;
+  status: 'planned' | 'applied';
+  impacts: string[];
+  migrations: UpgradeMigration[];
+}
+
+export interface OverrideEntry {
+  id: string;
+  entry: string;
+  target: string;
+  reason: string;
+  source: OverrideSource;
+  appliesAfter: OverrideApplyPhase[];
+  conflictsWith: string[];
+}
+
+export interface OverrideManifest {
+  overrides: OverrideEntry[];
 }

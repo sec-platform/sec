@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { loadManifestById } from '../parse/load-manifest.ts';
+import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { buildProvenance, writeProvenance } from './write-provenance.ts';
 import type {
@@ -24,6 +24,7 @@ function pushEdge(edges: ExplainGraphEdge[], edge: ExplainGraphEdge): void {
 }
 
 export async function buildExplainGraph(
+  workspaceRoot: string,
   lock: LockFile,
   provenance: ProvenanceFile,
   report: VerificationReport
@@ -38,7 +39,7 @@ export async function buildExplainGraph(
   });
 
   for (const block of lock.resolvedBlocks) {
-    const manifestEntry = await loadManifestById(block.id);
+    const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
     const blockNodeId = `block:${block.id}`;
     pushNode(nodes, {
       id: blockNodeId,
@@ -118,7 +119,17 @@ export async function buildExplainGraph(
         ? `slot:${artifact.originId}`
         : artifact.originType === 'block'
           ? `block:${artifact.originId}`
-          : `app:${lock.app.name}`;
+          : artifact.originType === 'override'
+            ? `override:${artifact.originId}`
+            : `app:${lock.app.name}`;
+
+    if (artifact.originType === 'override') {
+      pushNode(nodes, {
+        id: originNodeId,
+        type: 'override',
+        label: artifact.originId
+      });
+    }
 
     pushEdge(edges, {
       from: fileNodeId,
@@ -135,7 +146,7 @@ export async function buildExplainGraph(
       label: acceptanceId
     });
 
-    if (report.acceptance.status === 'passed') {
+    if (report.runtime.acceptance.status === 'passed') {
       for (const block of lock.resolvedBlocks) {
         pushEdge(edges, {
           from: `block:${block.id}`,
@@ -163,11 +174,11 @@ export async function buildExplainGraph(
       coverage: {
         blocks: lock.resolvedBlocks.map((block) => ({
           id: block.id,
-          coveredBy: report.acceptance.status === 'passed' ? [...lock.acceptancePlan] : []
+          coveredBy: report.runtime.acceptance.status === 'passed' ? [...lock.acceptancePlan] : []
         })),
         slots: lock.slotTasks.map((task) => ({
           id: task.id,
-          coveredBy: report.acceptance.status === 'passed' ? [...lock.acceptancePlan] : []
+          coveredBy: report.runtime.acceptance.status === 'passed' ? [...lock.acceptancePlan] : []
         }))
       }
     }
@@ -187,8 +198,8 @@ export async function writeExplainGraph(
   }
   const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === 'generated/explain-graph.json')
     ? provenance
-    : buildProvenance(lock);
-  const graph = await buildExplainGraph(lock, nextProvenance, report);
+    : await buildProvenance(workspaceRoot, lock);
+  const graph = await buildExplainGraph(workspaceRoot, lock, nextProvenance, report);
 
   await fs.writeFile(explainGraphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');

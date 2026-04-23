@@ -1,0 +1,253 @@
+{
+  "formatVersion": "1",
+  "changeSources": [
+    {
+      "path": "app/api/customers/route.ts",
+      "originType": "generated",
+      "originId": "app/api/customers/route.ts"
+    },
+    {
+      "path": "app/api/session/current/route.ts",
+      "originType": "generated",
+      "originId": "app/api/session/current/route.ts"
+    },
+    {
+      "path": "app/api/session/login/route.ts",
+      "originType": "generated",
+      "originId": "app/api/session/login/route.ts"
+    },
+    {
+      "path": "app/api/session/logout/route.ts",
+      "originType": "generated",
+      "originId": "app/api/session/logout/route.ts"
+    },
+    {
+      "path": "app/customers/page.tsx",
+      "originType": "generated",
+      "originId": "app/customers/page.tsx"
+    },
+    {
+      "path": "app/globals.css",
+      "originType": "generated",
+      "originId": "app/globals.css"
+    },
+    {
+      "path": "app/layout.tsx",
+      "originType": "generated",
+      "originId": "app/layout.tsx"
+    },
+    {
+      "path": "app/login/page.tsx",
+      "originType": "generated",
+      "originId": "app/login/page.tsx"
+    },
+    {
+      "path": "app/page.tsx",
+      "originType": "generated",
+      "originId": "app/page.tsx"
+    },
+    {
+      "path": "app/workspace/page.tsx",
+      "originType": "generated",
+      "originId": "app/workspace/page.tsx"
+    },
+    {
+      "path": "components/customer-form.tsx",
+      "originType": "generated",
+      "originId": "components/customer-form.tsx"
+    },
+    {
+      "path": "components/login-form.tsx",
+      "originType": "generated",
+      "originId": "components/login-form.tsx"
+    },
+    {
+      "path": "components/logout-button.tsx",
+      "originType": "generated",
+      "originId": "components/logout-button.tsx"
+    },
+    {
+      "path": "custom/customer_normalizer.ts",
+      "originType": "slot",
+      "originId": "customer_normalizer"
+    },
+    {
+      "path": "generated/acceptance-coverage.json",
+      "originType": "generated",
+      "originId": "generated/acceptance-coverage.json"
+    },
+    {
+      "path": "generated/block-usage-map.json",
+      "originType": "generated",
+      "originId": "generated/block-usage-map.json"
+    },
+    {
+      "path": "generated/explain-graph.json",
+      "originType": "generated",
+      "originId": "generated/explain-graph.json"
+    },
+    {
+      "path": "generated/install-manifest.json",
+      "originType": "generated",
+      "originId": "generated/install-manifest.json"
+    },
+    {
+      "path": "generated/policy-report.json",
+      "originType": "generated",
+      "originId": "generated/policy-report.json"
+    },
+    {
+      "path": "generated/review-summary.json",
+      "originType": "generated",
+      "originId": "generated/review-summary.json"
+    },
+    {
+      "path": "generated/routes.ts",
+      "originType": "generated",
+      "originId": "generated/routes.ts"
+    },
+    {
+      "path": "generated/runtime-report.json",
+      "originType": "generated",
+      "originId": "generated/runtime-report.json"
+    },
+    {
+      "path": "generated/verification-report.json",
+      "originType": "generated",
+      "originId": "generated/verification-report.json"
+    },
+    {
+      "path": "generated/views/slot-rule-view.html",
+      "originType": "generated",
+      "originId": "generated/views/slot-rule-view.html"
+    },
+    {
+      "path": "generated/views/source-view.html",
+      "originType": "generated",
+      "originId": "generated/views/source-view.html"
+    },
+    {
+      "path": "lib/session.ts",
+      "originType": "generated",
+      "originId": "lib/session.ts"
+    },
+    {
+      "path": "lib/store.ts",
+      "originType": "generated",
+      "originId": "lib/store.ts"
+    },
+    {
+      "path": "next-env.d.ts",
+      "originType": "generated",
+      "originId": "next-env.d.ts"
+    },
+    {
+      "path": "next.config.mjs",
+      "originType": "generated",
+      "originId": "next.config.mjs"
+    },
+    {
+      "path": "package.json",
+      "originType": "generated",
+      "originId": "package.json"
+    },
+    {
+      "path": "prisma/schema.prisma",
+      "originType": "block",
+      "originId": "entity/customer-basic"
+    },
+    {
+      "path": "provenance.json",
+      "originType": "generated",
+      "originId": "provenance.json"
+    },
+    {
+      "path": "src/installed/audit/logger.ts",
+      "originType": "block",
+      "originId": "audit/basic"
+    },
+    {
+      "path": "src/installed/auth/authorize.ts",
+      "originType": "block",
+      "originId": "rbac/basic"
+    },
+    {
+      "path": "src/installed/auth/session.ts",
+      "originType": "block",
+      "originId": "auth/basic-session"
+    },
+    {
+      "path": "src/installed/entity/customer-service.ts",
+      "originType": "block",
+      "originId": "entity/customer-basic"
+    },
+    {
+      "path": "src/installed/export/customer-csv.ts",
+      "originType": "block",
+      "originId": "export/csv-basic"
+    },
+    {
+      "path": "src/installed/tenant/context.ts",
+      "originType": "block",
+      "originId": "tenant/basic-workspace"
+    },
+    {
+      "path": "tests/acceptance/customer-flow.test.ts",
+      "originType": "block",
+      "originId": "entity/customer-basic"
+    },
+    {
+      "path": "tests/runtime/acceptance/customer-flow.spec.ts",
+      "originType": "generated",
+      "originId": "tests/runtime/acceptance/customer-flow.spec.ts"
+    },
+    {
+      "path": "tests/runtime/unit/customer-runtime.test.ts",
+      "originType": "generated",
+      "originId": "tests/runtime/unit/customer-runtime.test.ts"
+    },
+    {
+      "path": "tests/unit/audit-log.test.ts",
+      "originType": "block",
+      "originId": "audit/basic"
+    },
+    {
+      "path": "tests/unit/customer-export.test.ts",
+      "originType": "block",
+      "originId": "export/csv-basic"
+    },
+    {
+      "path": "tests/unit/customer-normalizer.test.ts",
+      "originType": "block",
+      "originId": "entity/customer-basic"
+    },
+    {
+      "path": "tests/unit/rbac-authorize.test.ts",
+      "originType": "block",
+      "originId": "rbac/basic"
+    },
+    {
+      "path": "tsconfig.json",
+      "originType": "generated",
+      "originId": "tsconfig.json"
+    }
+  ],
+  "impactedBlocks": [
+    "audit/basic",
+    "auth/basic-session",
+    "entity/customer-basic",
+    "export/csv-basic",
+    "rbac/basic",
+    "tenant/basic-workspace"
+  ],
+  "impactedSlots": [
+    "customer_normalizer"
+  ],
+  "failurePoints": [],
+  "regressionRisks": [
+    "Block audit/basic has no runtime acceptance coverage",
+    "Block export/csv-basic has no runtime acceptance coverage",
+    "Block rbac/basic has no runtime acceptance coverage"
+  ],
+  "conflictHints": []
+}

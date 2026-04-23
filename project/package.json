@@ -2,7 +2,26 @@
   "name": "generated-customer-admin",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "next": "^16.2.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^22.15.30",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.5"
+  },
   "scripts": {
-    "test": "node --test --experimental-test-isolation=none"
+    "dev": "next dev",
+    "build": "next build",
+    "test:fast": "node --test --experimental-test-isolation=none",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:acceptance": "playwright test --config playwright.config.ts",
+    "verify:runtime": "npm run build && npm run test:unit && npm run test:acceptance",
+    "test": "npm run test:fast && npm run test:unit"
   }
 }

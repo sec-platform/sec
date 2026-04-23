@@ -1,0 +1,16 @@
+{
+  "status": "passed",
+  "official": {
+    "policies": [
+      "tenant-scope-required"
+    ],
+    "violations": []
+  },
+  "project": {
+    "policies": [
+      "tenant-scope-required"
+    ],
+    "violations": []
+  },
+  "violations": []
+}

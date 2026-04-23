@@ -5,14 +5,21 @@
   "type": "module",
   "scripts": {
     "platform": "node ./platform/cli/index.ts",
-    "test": "node --test --experimental-test-isolation=none tests/pipeline.test.ts tests/registry.test.ts tests/repair.test.ts",
+    "test": "node --test --experimental-test-isolation=none tests/pipeline.test.ts tests/registry.test.ts tests/repair.test.ts tests/upgrade.test.ts tests/policy.test.ts tests/expanded-blocks.test.ts tests/private-registry.test.ts tests/override-manifest.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "npm run typecheck && npm test",
     "platform:bun": "bun ./platform/cli/index.ts",
-    "test:bun": "bun test tests/pipeline.test.ts tests/registry.test.ts tests/repair.test.ts"
+    "test:bun": "bun test tests/pipeline.test.ts tests/registry.test.ts tests/repair.test.ts tests/upgrade.test.ts tests/policy.test.ts tests/expanded-blocks.test.ts tests/private-registry.test.ts tests/override-manifest.test.ts"
   },
   "dependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "next": "^16.2.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "typescript": "^5.8.3",
+    "vitest": "^4.1.5",
     "yaml": "^2.8.3"
   },
   "devDependencies": {

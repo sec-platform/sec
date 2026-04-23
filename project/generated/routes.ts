@@ -1,5 +1,5 @@
 export const routes = [
-  { blockId: 'auth/basic-session', path: '/login' },
-  { blockId: 'tenant/basic-workspace', path: '/workspace' },
-  { blockId: 'entity/customer-basic', path: '/customers' }
+  { blockId: 'auth/basic-session', path: '/login', file: 'src/installed/auth/session.ts' },
+  { blockId: 'tenant/basic-workspace', path: '/workspace', file: 'src/installed/tenant/context.ts' },
+  { blockId: 'entity/customer-basic', path: '/customers', file: 'src/installed/entity/customer-service.ts' }
 ];

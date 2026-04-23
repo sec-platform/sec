@@ -5,6 +5,8 @@ export interface Session {
   role: 'admin';
 }
 
+export const SESSION_BLOCK_VERSION = '0.1.0';
+
 const USERS = new Map<string, Session>([
   [
     'tenant-a-admin',

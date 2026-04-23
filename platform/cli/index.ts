@@ -8,8 +8,24 @@ import {
   lockWorkspace,
   repairWorkspace,
   resolveWorkspace,
+  upgradeWorkspace,
   verifyWorkspace
 } from '../orchestrator.ts';
+import type { VerificationLane } from '../shared/types.ts';
+
+function parseLaneArg(args: string[]): VerificationLane {
+  const laneFlagIndex = args.findIndex((value) => value === '--lane');
+  if (laneFlagIndex === -1) {
+    return 'all';
+  }
+
+  const value = args[laneFlagIndex + 1];
+  if (value === 'fast' || value === 'runtime' || value === 'all') {
+    return value;
+  }
+
+  throw new Error('Usage: platform verify [--lane fast|runtime|all]');
+}
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
@@ -40,13 +56,21 @@ async function main(): Promise<void> {
       console.log('Adapted slots');
       return;
     case 'verify': {
-      const { report } = await verifyWorkspace(process.cwd());
-      console.log(`Verification ${report.summary.status}`);
+      const { report } = await verifyWorkspace(process.cwd(), { lane: parseLaneArg(args) });
+      console.log(`Verification ${report.summary.status} (${report.summary.requestedLane})`);
       return;
     }
     case 'repair': {
       const { repairPlan } = await repairWorkspace(process.cwd());
       console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)`);
+      return;
+    }
+    case 'upgrade': {
+      if (!args[0] || !args[1]) {
+        throw new Error('Usage: platform upgrade <block-id> <target-version>');
+      }
+      const { upgradePlan } = await upgradeWorkspace(process.cwd(), args[0], args[1]);
+      console.log(`Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`);
       return;
     }
     case 'lock':
@@ -59,7 +83,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log('Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|lock|explain>');
+      console.log('Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>');
   }
 }
 

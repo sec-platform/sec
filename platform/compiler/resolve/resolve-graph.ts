@@ -102,38 +102,52 @@ function topologicalSort(entries: ManifestEntry[], providerMap: Map<string, Mani
 }
 
 function buildSlotTasks(plan: PlanFile, manifestMap: Map<string, ManifestEntry>): SlotTask[] {
-  return plan.slots.map((slot) => {
-    const manifestSlot = manifestMap
-      .get(slot.block)
-      ?.manifest.slots.find((candidate) => candidate.id === slot.id);
-    if (!manifestSlot?.writableZones) {
-      throw new CompilerError('ALIGN-SLOT-005', `Slot "${slot.id}" is missing writableZones`);
-    }
-    return {
-      id: slot.id,
-      block: slot.block,
-      target: slot.target,
-      symbol: slot.symbol,
-      kind: slot.kind,
-      inputType: manifestSlot.inputType,
-      outputType: manifestSlot.outputType,
-      status: 'pending',
-      writableZones: manifestSlot.writableZones,
-      provenanceHints: {
-        generator: 'mock-local-synthesizer',
-        verifiedBy: []
-      }
-    };
-  });
-}
+  const explicitSlots = new Map(plan.slots.map((slot) => [`${slot.block}:${slot.id}`, slot] as const));
+  const tasks: SlotTask[] = [];
 
-export async function resolveGraph(plan: PlanFile): Promise<LockFile> {
-  const explicitEntries: ManifestEntry[] = [];
-  for (const block of plan.blocks) {
-    explicitEntries.push(await loadManifestById(block.id));
+  for (const entry of manifestMap.values()) {
+    for (const manifestSlot of entry.manifest.slots) {
+      if (!manifestSlot.writableZones) {
+        throw new CompilerError('ALIGN-SLOT-005', `Slot "${manifestSlot.id}" is missing writableZones`);
+      }
+      const explicitSlot = explicitSlots.get(`${entry.manifest.id}:${manifestSlot.id}`);
+      tasks.push({
+        id: manifestSlot.id,
+        block: entry.manifest.id,
+        target: explicitSlot?.target ?? manifestSlot.target,
+        symbol: explicitSlot?.symbol ?? manifestSlot.symbol,
+        kind: explicitSlot?.kind ?? manifestSlot.kind,
+        inputType: manifestSlot.inputType,
+        outputType: manifestSlot.outputType,
+        status: 'pending',
+        writableZones: manifestSlot.writableZones,
+        provenanceHints: {
+          generator: explicitSlot ? 'mock-local-synthesizer' : null,
+          verifiedBy: []
+        }
+      });
+    }
   }
 
-  const allEntries = await loadAllManifests();
+  return tasks;
+}
+
+export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promise<LockFile> {
+  const explicitEntries: ManifestEntry[] = [];
+  for (const block of plan.blocks) {
+    explicitEntries.push(
+      await loadManifestById(block.id, {
+        workspaceRoot,
+        version: block.version,
+        registrySources: plan.registry.sources
+      })
+    );
+  }
+
+  const allEntries = await loadAllManifests({
+    workspaceRoot,
+    registrySources: plan.registry.sources
+  });
   const resolvedIds = new Set(explicitEntries.map((entry) => entry.manifest.id));
   const manifestMap = new Map<string, ManifestEntry>(explicitEntries.map((entry) => [entry.manifest.id, entry]));
 
@@ -177,7 +191,11 @@ export async function resolveGraph(plan: PlanFile): Promise<LockFile> {
     version: entry.manifest.version,
     kind: entry.manifest.kind,
     installOrder: index + 1,
-    manifestPath: path.relative(process.cwd(), entry.manifestPath).replaceAll('\\', '/')
+    manifestPath: path.relative(entry.manifestRoot, entry.manifestPath).replaceAll('\\', '/'),
+    registrySourceId: entry.registrySourceId,
+    registryKind: entry.registryKind,
+    registryLocation: entry.registryLocation,
+    registryPath: entry.registryPath
   }));
 
   const installPlan: LockFile['installPlan'] = [];
@@ -186,6 +204,11 @@ export async function resolveGraph(plan: PlanFile): Promise<LockFile> {
       installPlan.push({
         stepId: `${block.manifest.id}:${installPlan.length + 1}`,
         blockId: block.manifest.id,
+        registrySourceId: block.registrySourceId,
+        registryKind: block.registryKind,
+        registryLocation: block.registryLocation,
+        registryPath: block.registryPath,
+        sourceRoot: path.relative(block.registryRoot, block.manifestRoot).replaceAll('\\', '/'),
         action: install.kind,
         from: install.from,
         to: install.to
