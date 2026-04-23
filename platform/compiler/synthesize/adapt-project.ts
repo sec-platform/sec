@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { applyOverrides } from '../compose/apply-overrides.ts';
 import { buildTaskEnvelope } from './build-task-envelope.ts';
 import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
 import type { LockFile, PlanFile } from '../../shared/types.ts';
@@ -23,6 +24,8 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
     await fs.writeFile(targetPath, source, 'utf8');
     task.status = 'filled';
   }
+
+  await applyOverrides(workspaceRoot, 'adapt');
 
   lock.passStatus.adapt = 'succeeded';
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');

@@ -55,6 +55,7 @@ overrides/
 ```yaml
 overrides:
   - id: customer-list-hotfix
+    entry: patches/customer-list.override.ts
     target: src/app/customers/page.tsx
     reason: emergency-ui-fix
     source: manual
@@ -63,6 +64,18 @@ overrides:
     conflictsWith:
       - entity/customer-basic@>=0.2.0
 ```
+
+### 字段说明
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `id` | 是 | override 唯一标识 |
+| `entry` | 是 | 相对 `overrides/` 的源文件路径，必须位于 `patches/`、`rules/` 或 `manifests/` |
+| `target` | 是 | 相对项目根目录的目标路径 |
+| `reason` | 是 | 触发 override 的原因 |
+| `source` | 是 | `manual` / `rule-backed` |
+| `appliesAfter` | 是 | 当前支持 `compose` / `adapt` |
+| `conflictsWith` | 否 | 与哪些 block/version 范围存在已知冲突 |
 
 ## 5. 升级流程
 

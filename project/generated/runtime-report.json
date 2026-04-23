@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "build": {
+    "status": "passed",
+    "passed": [
+      "next build"
+    ],
+    "failed": [],
+    "command": "npm run build"
+  },
+  "unit": {
+    "status": "passed",
+    "passed": [
+      "tests/runtime/unit/customer-runtime.test.ts"
+    ],
+    "failed": [],
+    "command": "npm run test:unit"
+  },
+  "acceptance": {
+    "status": "passed",
+    "passed": [
+      "tests/runtime/acceptance/customer-flow.spec.ts"
+    ],
+    "failed": [],
+    "command": "npm run test:acceptance"
+  },
+  "logs": {
+    "stdout": "\n> build\n> next build\n\n▲ Next.js 16.2.4 (Turbopack)\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 1754ms\n  Running TypeScript ...\n  Finished TypeScript in 3.3s ...\n  Collecting page data using 11 workers ...\n  Generating static pages using 11 workers (0/10) ...\n  Generating static pages using 11 workers (2/10) \r\n  Generating static pages using 11 workers (4/10) \r\n  Generating static pages using 11 workers (7/10) \r\n✓ Generating static pages using 11 workers (10/10) in 898ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ○ /_not-found\n├ ƒ /api/customers\n├ ƒ /api/session/current\n├ ƒ /api/session/login\n├ ƒ /api/session/logout\n├ ƒ /customers\n├ ƒ /login\n└ ƒ /workspace\n\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n\n\n> test:unit\n> vitest run --config vitest.config.ts\n\n\n RUN  v4.1.5 D:/Project/pjc/project\n\n\n Test Files  1 passed (1)\n      Tests  1 passed (1)\n   Start at  15:54:44\n   Duration  509ms (transform 101ms, setup 0ms, import 149ms, tests 7ms, environment 0ms)\n\n\n> test:acceptance\n> playwright test --config playwright.config.ts\n\n\nRunning 1 test using 1 worker\n\n\u001b[1A\u001b[2K[1/1] tests\\runtime\\acceptance\\customer-flow.spec.ts:3:1 › customer runtime flow keeps tenant data isolated\n\u001b[1A\u001b[2K  1 passed (10.3s)\n",
+    "stderr": ""
+  }
+}

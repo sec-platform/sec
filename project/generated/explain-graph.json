@@ -26,6 +26,11 @@
       "label": "customer-admin"
     },
     {
+      "id": "block:audit/basic",
+      "type": "block",
+      "label": "audit/basic"
+    },
+    {
       "id": "block:auth/basic-session",
       "type": "block",
       "label": "auth/basic-session"
@@ -36,14 +41,39 @@
       "label": "entity/customer-basic"
     },
     {
+      "id": "block:export/csv-basic",
+      "type": "block",
+      "label": "export/csv-basic"
+    },
+    {
+      "id": "block:rbac/basic",
+      "type": "block",
+      "label": "rbac/basic"
+    },
+    {
       "id": "block:tenant/basic-workspace",
       "type": "block",
       "label": "tenant/basic-workspace"
     },
     {
+      "id": "capability:audit/log",
+      "type": "capability",
+      "label": "audit/log"
+    },
+    {
+      "id": "capability:auth/authorize",
+      "type": "capability",
+      "label": "auth/authorize"
+    },
+    {
       "id": "capability:auth/session",
       "type": "capability",
       "label": "auth/session"
+    },
+    {
+      "id": "capability:customer/export",
+      "type": "capability",
+      "label": "customer/export"
     },
     {
       "id": "capability:customer/read",
@@ -61,9 +91,79 @@
       "label": "tenant/context"
     },
     {
+      "id": "file:app/api/customers/route.ts",
+      "type": "file",
+      "label": "app/api/customers/route.ts"
+    },
+    {
+      "id": "file:app/api/session/current/route.ts",
+      "type": "file",
+      "label": "app/api/session/current/route.ts"
+    },
+    {
+      "id": "file:app/api/session/login/route.ts",
+      "type": "file",
+      "label": "app/api/session/login/route.ts"
+    },
+    {
+      "id": "file:app/api/session/logout/route.ts",
+      "type": "file",
+      "label": "app/api/session/logout/route.ts"
+    },
+    {
+      "id": "file:app/customers/page.tsx",
+      "type": "file",
+      "label": "app/customers/page.tsx"
+    },
+    {
+      "id": "file:app/globals.css",
+      "type": "file",
+      "label": "app/globals.css"
+    },
+    {
+      "id": "file:app/layout.tsx",
+      "type": "file",
+      "label": "app/layout.tsx"
+    },
+    {
+      "id": "file:app/login/page.tsx",
+      "type": "file",
+      "label": "app/login/page.tsx"
+    },
+    {
+      "id": "file:app/page.tsx",
+      "type": "file",
+      "label": "app/page.tsx"
+    },
+    {
+      "id": "file:app/workspace/page.tsx",
+      "type": "file",
+      "label": "app/workspace/page.tsx"
+    },
+    {
+      "id": "file:components/customer-form.tsx",
+      "type": "file",
+      "label": "components/customer-form.tsx"
+    },
+    {
+      "id": "file:components/login-form.tsx",
+      "type": "file",
+      "label": "components/login-form.tsx"
+    },
+    {
+      "id": "file:components/logout-button.tsx",
+      "type": "file",
+      "label": "components/logout-button.tsx"
+    },
+    {
       "id": "file:custom/customer_normalizer.ts",
       "type": "file",
       "label": "custom/customer_normalizer.ts"
+    },
+    {
+      "id": "file:generated/acceptance-coverage.json",
+      "type": "file",
+      "label": "generated/acceptance-coverage.json"
     },
     {
       "id": "file:generated/block-usage-map.json",
@@ -81,14 +181,64 @@
       "label": "generated/install-manifest.json"
     },
     {
-      "id": "file:generated/repair-plan.json",
+      "id": "file:generated/policy-report.json",
       "type": "file",
-      "label": "generated/repair-plan.json"
+      "label": "generated/policy-report.json"
+    },
+    {
+      "id": "file:generated/review-summary.json",
+      "type": "file",
+      "label": "generated/review-summary.json"
     },
     {
       "id": "file:generated/routes.ts",
       "type": "file",
       "label": "generated/routes.ts"
+    },
+    {
+      "id": "file:generated/runtime-report.json",
+      "type": "file",
+      "label": "generated/runtime-report.json"
+    },
+    {
+      "id": "file:generated/verification-report.json",
+      "type": "file",
+      "label": "generated/verification-report.json"
+    },
+    {
+      "id": "file:generated/views/slot-rule-view.html",
+      "type": "file",
+      "label": "generated/views/slot-rule-view.html"
+    },
+    {
+      "id": "file:generated/views/source-view.html",
+      "type": "file",
+      "label": "generated/views/source-view.html"
+    },
+    {
+      "id": "file:lib/session.ts",
+      "type": "file",
+      "label": "lib/session.ts"
+    },
+    {
+      "id": "file:lib/store.ts",
+      "type": "file",
+      "label": "lib/store.ts"
+    },
+    {
+      "id": "file:next-env.d.ts",
+      "type": "file",
+      "label": "next-env.d.ts"
+    },
+    {
+      "id": "file:next.config.mjs",
+      "type": "file",
+      "label": "next.config.mjs"
+    },
+    {
+      "id": "file:package.json",
+      "type": "file",
+      "label": "package.json"
     },
     {
       "id": "file:prisma/schema.prisma",
@@ -101,6 +251,16 @@
       "label": "provenance.json"
     },
     {
+      "id": "file:src/installed/audit/logger.ts",
+      "type": "file",
+      "label": "src/installed/audit/logger.ts"
+    },
+    {
+      "id": "file:src/installed/auth/authorize.ts",
+      "type": "file",
+      "label": "src/installed/auth/authorize.ts"
+    },
+    {
       "id": "file:src/installed/auth/session.ts",
       "type": "file",
       "label": "src/installed/auth/session.ts"
@@ -109,6 +269,11 @@
       "id": "file:src/installed/entity/customer-service.ts",
       "type": "file",
       "label": "src/installed/entity/customer-service.ts"
+    },
+    {
+      "id": "file:src/installed/export/customer-csv.ts",
+      "type": "file",
+      "label": "src/installed/export/customer-csv.ts"
     },
     {
       "id": "file:src/installed/tenant/context.ts",
@@ -121,9 +286,39 @@
       "label": "tests/acceptance/customer-flow.test.ts"
     },
     {
+      "id": "file:tests/runtime/acceptance/customer-flow.spec.ts",
+      "type": "file",
+      "label": "tests/runtime/acceptance/customer-flow.spec.ts"
+    },
+    {
+      "id": "file:tests/runtime/unit/customer-runtime.test.ts",
+      "type": "file",
+      "label": "tests/runtime/unit/customer-runtime.test.ts"
+    },
+    {
+      "id": "file:tests/unit/audit-log.test.ts",
+      "type": "file",
+      "label": "tests/unit/audit-log.test.ts"
+    },
+    {
+      "id": "file:tests/unit/customer-export.test.ts",
+      "type": "file",
+      "label": "tests/unit/customer-export.test.ts"
+    },
+    {
       "id": "file:tests/unit/customer-normalizer.test.ts",
       "type": "file",
       "label": "tests/unit/customer-normalizer.test.ts"
+    },
+    {
+      "id": "file:tests/unit/rbac-authorize.test.ts",
+      "type": "file",
+      "label": "tests/unit/rbac-authorize.test.ts"
+    },
+    {
+      "id": "file:tsconfig.json",
+      "type": "file",
+      "label": "tsconfig.json"
     },
     {
       "id": "slot:customer_normalizer",
@@ -132,6 +327,11 @@
     }
   ],
   "edges": [
+    {
+      "from": "app:customer-admin",
+      "to": "block:audit/basic",
+      "type": "depends_on"
+    },
     {
       "from": "app:customer-admin",
       "to": "block:auth/basic-session",
@@ -144,8 +344,48 @@
     },
     {
       "from": "app:customer-admin",
+      "to": "block:export/csv-basic",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
+      "to": "block:rbac/basic",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
       "to": "block:tenant/basic-workspace",
       "type": "depends_on"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "capability:auth/session",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "capability:audit/log",
+      "type": "provides"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "acceptance:tenant_only_sees_own_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "acceptance:user_can_create_customer",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "acceptance:user_can_list_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "acceptance:user_can_login",
+      "type": "verified_by"
     },
     {
       "from": "block:auth/basic-session",
@@ -218,6 +458,66 @@
       "type": "verified_by"
     },
     {
+      "from": "block:export/csv-basic",
+      "to": "capability:customer/read",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:export/csv-basic",
+      "to": "capability:customer/export",
+      "type": "provides"
+    },
+    {
+      "from": "block:export/csv-basic",
+      "to": "acceptance:tenant_only_sees_own_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:export/csv-basic",
+      "to": "acceptance:user_can_create_customer",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:export/csv-basic",
+      "to": "acceptance:user_can_list_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:export/csv-basic",
+      "to": "acceptance:user_can_login",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "capability:auth/session",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "capability:auth/authorize",
+      "type": "provides"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "acceptance:tenant_only_sees_own_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "acceptance:user_can_create_customer",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "acceptance:user_can_list_customers",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "acceptance:user_can_login",
+      "type": "verified_by"
+    },
+    {
       "from": "block:tenant/basic-workspace",
       "to": "capability:auth/session",
       "type": "depends_on"
@@ -248,8 +548,78 @@
       "type": "verified_by"
     },
     {
+      "from": "file:app/api/customers/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/api/session/current/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/api/session/login/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/api/session/logout/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/customers/page.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/globals.css",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/layout.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/login/page.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/page.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/workspace/page.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/customer-form.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/login-form.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/logout-button.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:custom/customer_normalizer.ts",
       "to": "slot:customer_normalizer",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/acceptance-coverage.json",
+      "to": "app:customer-admin",
       "type": "originates_from"
     },
     {
@@ -268,12 +638,62 @@
       "type": "originates_from"
     },
     {
-      "from": "file:generated/repair-plan.json",
+      "from": "file:generated/policy-report.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/review-summary.json",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
     {
       "from": "file:generated/routes.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/runtime-report.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/verification-report.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/views/slot-rule-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/views/source-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:lib/session.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:lib/store.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:next-env.d.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:next.config.mjs",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:package.json",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -288,6 +708,16 @@
       "type": "originates_from"
     },
     {
+      "from": "file:src/installed/audit/logger.ts",
+      "to": "block:audit/basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/auth/authorize.ts",
+      "to": "block:rbac/basic",
+      "type": "originates_from"
+    },
+    {
       "from": "file:src/installed/auth/session.ts",
       "to": "block:auth/basic-session",
       "type": "originates_from"
@@ -295,6 +725,11 @@
     {
       "from": "file:src/installed/entity/customer-service.ts",
       "to": "block:entity/customer-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/export/customer-csv.ts",
+      "to": "block:export/csv-basic",
       "type": "originates_from"
     },
     {
@@ -308,8 +743,38 @@
       "type": "originates_from"
     },
     {
+      "from": "file:tests/runtime/acceptance/customer-flow.spec.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/runtime/unit/customer-runtime.test.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/audit-log.test.ts",
+      "to": "block:audit/basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/customer-export.test.ts",
+      "to": "block:export/csv-basic",
+      "type": "originates_from"
+    },
+    {
       "from": "file:tests/unit/customer-normalizer.test.ts",
       "to": "block:entity/customer-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/rbac-authorize.test.ts",
+      "to": "block:rbac/basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tsconfig.json",
+      "to": "app:customer-admin",
       "type": "originates_from"
     },
     {
@@ -341,6 +806,110 @@
   "overlays": {
     "provenance": [
       {
+        "path": "app/api/customers/route.ts",
+        "originType": "generated",
+        "originId": "app/api/customers/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/api/session/current/route.ts",
+        "originType": "generated",
+        "originId": "app/api/session/current/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/api/session/login/route.ts",
+        "originType": "generated",
+        "originId": "app/api/session/login/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/api/session/logout/route.ts",
+        "originType": "generated",
+        "originId": "app/api/session/logout/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/customers/page.tsx",
+        "originType": "generated",
+        "originId": "app/customers/page.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/globals.css",
+        "originType": "generated",
+        "originId": "app/globals.css",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/layout.tsx",
+        "originType": "generated",
+        "originId": "app/layout.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/login/page.tsx",
+        "originType": "generated",
+        "originId": "app/login/page.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/page.tsx",
+        "originType": "generated",
+        "originId": "app/page.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "app/workspace/page.tsx",
+        "originType": "generated",
+        "originId": "app/workspace/page.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "components/customer-form.tsx",
+        "originType": "generated",
+        "originId": "components/customer-form.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "components/login-form.tsx",
+        "originType": "generated",
+        "originId": "components/login-form.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "components/logout-button.tsx",
+        "originType": "generated",
+        "originId": "components/logout-button.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
         "path": "custom/customer_normalizer.ts",
         "originType": "slot",
         "originId": "customer_normalizer",
@@ -348,9 +917,22 @@
         "generatedByPass": "adapt",
         "generatorTaskId": "fill_slot_customer_normalizer",
         "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/customer-export.test.ts",
           "tests/unit/customer-normalizer.test.ts",
-          "tests/acceptance/customer-flow.test.ts"
+          "tests/unit/rbac-authorize.test.ts"
         ],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/acceptance-coverage.json",
+        "originType": "generated",
+        "originId": "generated/acceptance-coverage.json",
+        "generatedByPass": "verify",
+        "verifiedBy": [],
         "overrideStatus": "none"
       },
       {
@@ -378,10 +960,18 @@
         "overrideStatus": "none"
       },
       {
-        "path": "generated/repair-plan.json",
+        "path": "generated/policy-report.json",
         "originType": "generated",
-        "originId": "generated/repair-plan.json",
-        "generatedByPass": "repair",
+        "originId": "generated/policy-report.json",
+        "generatedByPass": "verify",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/review-summary.json",
+        "originType": "generated",
+        "originId": "generated/review-summary.json",
+        "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none"
       },
@@ -389,6 +979,78 @@
         "path": "generated/routes.ts",
         "originType": "generated",
         "originId": "generated/routes.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/runtime-report.json",
+        "originType": "generated",
+        "originId": "generated/runtime-report.json",
+        "generatedByPass": "verify",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/verification-report.json",
+        "originType": "generated",
+        "originId": "generated/verification-report.json",
+        "generatedByPass": "verify",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/views/slot-rule-view.html",
+        "originType": "generated",
+        "originId": "generated/views/slot-rule-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/views/source-view.html",
+        "originType": "generated",
+        "originId": "generated/views/source-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "lib/session.ts",
+        "originType": "generated",
+        "originId": "lib/session.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "lib/store.ts",
+        "originType": "generated",
+        "originId": "lib/store.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "next-env.d.ts",
+        "originType": "generated",
+        "originId": "next-env.d.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "next.config.mjs",
+        "originType": "generated",
+        "originId": "next.config.mjs",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "package.json",
+        "originType": "generated",
+        "originId": "package.json",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none"
@@ -411,6 +1073,24 @@
         "overrideStatus": "none"
       },
       {
+        "path": "src/installed/audit/logger.ts",
+        "originType": "block",
+        "originId": "audit/basic",
+        "sourceBlock": "audit/basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "src/installed/auth/authorize.ts",
+        "originType": "block",
+        "originId": "rbac/basic",
+        "sourceBlock": "rbac/basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
         "path": "src/installed/auth/session.ts",
         "originType": "block",
         "originId": "auth/basic-session",
@@ -424,6 +1104,15 @@
         "originType": "block",
         "originId": "entity/customer-basic",
         "sourceBlock": "entity/customer-basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "src/installed/export/customer-csv.ts",
+        "originType": "block",
+        "originId": "export/csv-basic",
+        "sourceBlock": "export/csv-basic",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none"
@@ -447,10 +1136,61 @@
         "overrideStatus": "none"
       },
       {
+        "path": "tests/runtime/acceptance/customer-flow.spec.ts",
+        "originType": "generated",
+        "originId": "tests/runtime/acceptance/customer-flow.spec.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/runtime/unit/customer-runtime.test.ts",
+        "originType": "generated",
+        "originId": "tests/runtime/unit/customer-runtime.test.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/unit/audit-log.test.ts",
+        "originType": "block",
+        "originId": "audit/basic",
+        "sourceBlock": "audit/basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/unit/customer-export.test.ts",
+        "originType": "block",
+        "originId": "export/csv-basic",
+        "sourceBlock": "export/csv-basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
         "path": "tests/unit/customer-normalizer.test.ts",
         "originType": "block",
         "originId": "entity/customer-basic",
         "sourceBlock": "entity/customer-basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/unit/rbac-authorize.test.ts",
+        "originType": "block",
+        "originId": "rbac/basic",
+        "sourceBlock": "rbac/basic",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tsconfig.json",
+        "originType": "generated",
+        "originId": "tsconfig.json",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none"
@@ -460,6 +1200,24 @@
       "blocks": [
         {
           "id": "auth/basic-session",
+          "coveredBy": [
+            "user_can_login",
+            "user_can_create_customer",
+            "user_can_list_customers",
+            "tenant_only_sees_own_customers"
+          ]
+        },
+        {
+          "id": "audit/basic",
+          "coveredBy": [
+            "user_can_login",
+            "user_can_create_customer",
+            "user_can_list_customers",
+            "tenant_only_sees_own_customers"
+          ]
+        },
+        {
+          "id": "rbac/basic",
           "coveredBy": [
             "user_can_login",
             "user_can_create_customer",
@@ -478,6 +1236,15 @@
         },
         {
           "id": "entity/customer-basic",
+          "coveredBy": [
+            "user_can_login",
+            "user_can_create_customer",
+            "user_can_list_customers",
+            "tenant_only_sees_own_customers"
+          ]
+        },
+        {
+          "id": "export/csv-basic",
           "coveredBy": [
             "user_can_login",
             "user_can_create_customer",

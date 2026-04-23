@@ -334,6 +334,17 @@ app:
   stack: nextjs-ts-prisma-sqlite
   packageManager: pnpm
 
+registry:
+  sources:
+    - id: official
+      kind: official
+      location: compiler
+      path: platform/registry/official
+    - id: private
+      kind: private
+      location: workspace
+      path: platform/registry/private
+
 blocks:
   - id: auth/basic-session
   - id: tenant/basic-workspace
@@ -529,6 +540,11 @@ project/
   custom/
   overrides/
 ```
+
+- `app.plan.yaml` 默认同时声明两个 registry source：
+  - `official`：编译器内置官方块目录
+  - `private`：当前 workspace 下的 `platform/registry/private`
+- `overrides/` 默认包含 `override-manifest.yaml`、`patches/`、`rules/`、`manifests/`。
 
 ## 编译流程
 

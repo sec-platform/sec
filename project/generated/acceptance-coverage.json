@@ -1,0 +1,92 @@
+{
+  "formatVersion": "1",
+  "status": "passed",
+  "acceptancePassed": [
+    "user_can_login",
+    "user_can_create_customer",
+    "user_can_list_customers",
+    "tenant_only_sees_own_customers"
+  ],
+  "blocks": [
+    {
+      "id": "auth/basic-session",
+      "declaredAcceptance": [
+        "user_can_login"
+      ],
+      "coveredBy": [
+        "user_can_login"
+      ],
+      "uncovered": false
+    },
+    {
+      "id": "audit/basic",
+      "declaredAcceptance": [
+        "audit_entry_can_be_created"
+      ],
+      "coveredBy": [],
+      "uncovered": true
+    },
+    {
+      "id": "rbac/basic",
+      "declaredAcceptance": [
+        "user_can_access_authorized_route"
+      ],
+      "coveredBy": [],
+      "uncovered": true
+    },
+    {
+      "id": "tenant/basic-workspace",
+      "declaredAcceptance": [
+        "tenant_only_sees_own_customers"
+      ],
+      "coveredBy": [
+        "tenant_only_sees_own_customers"
+      ],
+      "uncovered": false
+    },
+    {
+      "id": "entity/customer-basic",
+      "declaredAcceptance": [
+        "user_can_create_customer",
+        "user_can_list_customers",
+        "tenant_only_sees_own_customers"
+      ],
+      "coveredBy": [
+        "user_can_create_customer",
+        "user_can_list_customers",
+        "tenant_only_sees_own_customers"
+      ],
+      "uncovered": false
+    },
+    {
+      "id": "export/csv-basic",
+      "declaredAcceptance": [
+        "customer_can_be_exported"
+      ],
+      "coveredBy": [],
+      "uncovered": true
+    }
+  ],
+  "slots": [
+    {
+      "id": "customer_normalizer",
+      "declaredAcceptance": [
+        "user_can_create_customer",
+        "user_can_list_customers",
+        "tenant_only_sees_own_customers"
+      ],
+      "coveredBy": [
+        "user_can_create_customer",
+        "user_can_list_customers",
+        "tenant_only_sees_own_customers"
+      ],
+      "uncovered": false
+    }
+  ],
+  "uncoveredBlocks": [
+    "audit/basic",
+    "rbac/basic",
+    "export/csv-basic"
+  ],
+  "uncoveredSlots": []
+}

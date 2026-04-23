@@ -2,27 +2,34 @@ import fs from 'node:fs/promises';
 import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from './shared/constants.ts';
 import { CompilerError } from './shared/errors.ts';
 import { pathExists, readJson, removeDir, writeJson } from './shared/fs.ts';
-import { getWorkspacePaths } from './shared/paths.ts';
+import { getWorkspacePaths, officialRegistryRelativePath, privateRegistryRelativePath } from './shared/paths.ts';
 import { ensureProjectBase } from './shared/project-base.ts';
 import { writeYaml } from './shared/yaml.ts';
 import { alignInterfaces } from './compiler/align/align-interfaces.ts';
 import { composeProject } from './compiler/compose/compose-project.ts';
 import { writeExplainGraph } from './compiler/emit/write-explain-graph.ts';
+import { writeLocalViews } from './compiler/emit/write-local-views.ts';
 import { lockProject } from './compiler/emit/lock-project.ts';
+import { writeReviewSummary } from './compiler/emit/write-review-summary.ts';
 import { loadManifestById } from './compiler/parse/load-manifest.ts';
 import { loadPlan } from './compiler/parse/load-plan.ts';
 import { buildRepairPlan, writeRepairPlan } from './compiler/repair/build-repair-plan.ts';
 import { resolveGraph } from './compiler/resolve/resolve-graph.ts';
 import { adaptProject } from './compiler/synthesize/adapt-project.ts';
+import { upgradeWorkspace as runUpgradeWorkspace } from './upgrade/upgrade-workspace.ts';
 import { validateResolvedTemplates } from './compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from './compiler/verify/verify-project.ts';
 import type {
+  AcceptanceCoverageReport,
   ExplainGraph,
   LockFile,
   ManifestEntry,
   PlanFile,
+  PolicyReport,
   ProvenanceFile,
   RepairPlan,
+  ReviewSummary,
+  VerificationLane,
   VerificationReport
 } from './shared/types.ts';
 
@@ -33,6 +40,22 @@ function defaultPlan(): PlanFile {
       stack: SUPPORTED_STACK,
       packageManager: 'pnpm',
       mode: 'single-tenant'
+    },
+    registry: {
+      sources: [
+        {
+          id: 'official',
+          kind: 'official',
+          location: 'compiler',
+          path: officialRegistryRelativePath.replaceAll('\\', '/')
+        },
+        {
+          id: 'private',
+          kind: 'private',
+          location: 'workspace',
+          path: privateRegistryRelativePath.replaceAll('\\', '/')
+        }
+      ]
     },
     blocks: [
       { id: 'auth/basic-session', version: '0.1.0' },
@@ -78,7 +101,8 @@ export async function initWorkspace(
     generatedPaths: [
       'generated/routes.ts',
       'generated/block-usage-map.json',
-      'generated/install-manifest.json'
+      'generated/install-manifest.json',
+      'generated/verification-report.json'
     ],
     acceptancePlan: DEFAULT_ACCEPTANCE.map((entry) => entry.id),
     passStatus: { ...PASS_STATUS_PENDING }
@@ -96,8 +120,11 @@ export async function addBlock(workspaceRoot = process.cwd(), blockId: string): 
   if (plan.blocks.some((entry) => entry.id === blockId)) {
     return plan;
   }
-  await loadManifestById(blockId);
-  plan.blocks.push({ id: blockId, version: '0.1.0' });
+  const manifestEntry = await loadManifestById(blockId, {
+    workspaceRoot,
+    registrySources: plan.registry.sources
+  });
+  plan.blocks.push({ id: blockId, version: manifestEntry.manifest.version });
   await writeYaml(planPath, plan);
   return plan;
 }
@@ -109,11 +136,18 @@ export async function resolveWorkspace(
   const plan = await loadPlan(planPath);
   const manifestMap = new Map<string, ManifestEntry>();
   for (const block of plan.blocks) {
-    manifestMap.set(block.id, await loadManifestById(block.id));
+    manifestMap.set(
+      block.id,
+      await loadManifestById(block.id, {
+        workspaceRoot,
+        version: block.version,
+        registrySources: plan.registry.sources
+      })
+    );
   }
   alignInterfaces(plan, manifestMap);
-  const lock = await resolveGraph(plan);
-  await validateResolvedTemplates(lock);
+  const lock = await resolveGraph(workspaceRoot, plan);
+  await validateResolvedTemplates(workspaceRoot, lock);
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   return { plan, lock };
 }
@@ -142,11 +176,12 @@ export async function adaptWorkspace(
 }
 
 export async function verifyWorkspace(
-  workspaceRoot = process.cwd()
+  workspaceRoot = process.cwd(),
+  options: { lane?: VerificationLane } = {}
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(lockPath);
-  const report = await verifyProject(workspaceRoot, lock);
+  const report = await verifyProject(workspaceRoot, lock, options.lane ?? 'all');
   return { lock, report };
 }
 
@@ -184,8 +219,20 @@ export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<Lock
 
 export async function explainWorkspace(
   workspaceRoot = process.cwd()
-): Promise<{ lock: LockFile; provenance: ProvenanceFile; report: VerificationReport; graph: ExplainGraph }> {
-  const { lockPath, provenancePath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+): Promise<{
+  lock: LockFile;
+  provenance: ProvenanceFile;
+  report: VerificationReport;
+  graph: ExplainGraph;
+  reviewSummary: ReviewSummary;
+}> {
+  const {
+    acceptanceCoveragePath,
+    lockPath,
+    policyReportPath,
+    provenancePath,
+    verificationReportPath
+  } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(lockPath);
 
   if (lock.passStatus.lock !== 'succeeded') {
@@ -194,6 +241,28 @@ export async function explainWorkspace(
 
   const provenance = await readJson<ProvenanceFile>(provenancePath);
   const report = await readJson<VerificationReport>(verificationReportPath);
+  const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
+  const policyReport = await readJson<PolicyReport>(policyReportPath);
   const graph = await writeExplainGraph(workspaceRoot, lock, provenance, report);
-  return { lock, provenance, report, graph };
+  const refreshedProvenance = await readJson<ProvenanceFile>(provenancePath);
+  const reviewSummary = await writeReviewSummary(workspaceRoot, lock, refreshedProvenance, report, coverage);
+  await writeLocalViews(
+    workspaceRoot,
+    lock,
+    refreshedProvenance,
+    report,
+    coverage,
+    policyReport,
+    reviewSummary,
+    graph
+  );
+  return { lock, provenance: refreshedProvenance, report, graph, reviewSummary };
+}
+
+export async function upgradeWorkspace(
+  workspaceRoot = process.cwd(),
+  blockId: string,
+  targetVersion: string
+): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: import('./shared/types.ts').UpgradePlan }> {
+  return runUpgradeWorkspace(workspaceRoot, blockId, targetVersion);
 }

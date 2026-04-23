@@ -24,6 +24,24 @@ platform/registry/
   private/
 ```
 
+### 当前默认 registry source
+
+```yaml
+registry:
+  sources:
+    - id: official
+      kind: official
+      location: compiler
+      path: platform/registry/official
+    - id: private
+      kind: private
+      location: workspace
+      path: platform/registry/private
+```
+
+- `official` 由编译器随仓库分发。
+- `private` 由当前 workspace 提供，可被团队按项目直接扩展。
+
 ### block 目录结构
 
 ```text

@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Source View</title>
+    <style>
+      body { font-family: Segoe UI, sans-serif; margin: 0; background: #f4f4ef; color: #17211f; }
+      main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 20px; }
+      .card { background: white; border: 1px solid #d7ddd5; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px rgba(23, 33, 31, 0.06); }
+      pre { overflow: auto; background: #0f1d19; color: #e6fff8; padding: 16px; border-radius: 12px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4e8e2; vertical-align: top; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Source View</h1>
+        <p>Blocks: 6 | Slots: 1 | Files: 46</p>
+        <table>
+          <thead><tr><th>Path</th><th>Origin</th><th>Override</th></tr></thead>
+          <tbody>
+            <tr><td>app/api/customers/route.ts</td><td>generated:app/api/customers/route.ts</td><td>none</td></tr><tr><td>app/api/session/current/route.ts</td><td>generated:app/api/session/current/route.ts</td><td>none</td></tr><tr><td>app/api/session/login/route.ts</td><td>generated:app/api/session/login/route.ts</td><td>none</td></tr><tr><td>app/api/session/logout/route.ts</td><td>generated:app/api/session/logout/route.ts</td><td>none</td></tr><tr><td>app/customers/page.tsx</td><td>generated:app/customers/page.tsx</td><td>none</td></tr><tr><td>app/globals.css</td><td>generated:app/globals.css</td><td>none</td></tr><tr><td>app/layout.tsx</td><td>generated:app/layout.tsx</td><td>none</td></tr><tr><td>app/login/page.tsx</td><td>generated:app/login/page.tsx</td><td>none</td></tr><tr><td>app/page.tsx</td><td>generated:app/page.tsx</td><td>none</td></tr><tr><td>app/workspace/page.tsx</td><td>generated:app/workspace/page.tsx</td><td>none</td></tr><tr><td>components/customer-form.tsx</td><td>generated:components/customer-form.tsx</td><td>none</td></tr><tr><td>components/login-form.tsx</td><td>generated:components/login-form.tsx</td><td>none</td></tr><tr><td>components/logout-button.tsx</td><td>generated:components/logout-button.tsx</td><td>none</td></tr><tr><td>custom/customer_normalizer.ts</td><td>slot:customer_normalizer</td><td>none</td></tr><tr><td>generated/acceptance-coverage.json</td><td>generated:generated/acceptance-coverage.json</td><td>none</td></tr><tr><td>generated/block-usage-map.json</td><td>generated:generated/block-usage-map.json</td><td>none</td></tr><tr><td>generated/explain-graph.json</td><td>generated:generated/explain-graph.json</td><td>none</td></tr><tr><td>generated/install-manifest.json</td><td>generated:generated/install-manifest.json</td><td>none</td></tr><tr><td>generated/policy-report.json</td><td>generated:generated/policy-report.json</td><td>none</td></tr><tr><td>generated/review-summary.json</td><td>generated:generated/review-summary.json</td><td>none</td></tr><tr><td>generated/routes.ts</td><td>generated:generated/routes.ts</td><td>none</td></tr><tr><td>generated/runtime-report.json</td><td>generated:generated/runtime-report.json</td><td>none</td></tr><tr><td>generated/verification-report.json</td><td>generated:generated/verification-report.json</td><td>none</td></tr><tr><td>generated/views/slot-rule-view.html</td><td>generated:generated/views/slot-rule-view.html</td><td>none</td></tr><tr><td>generated/views/source-view.html</td><td>generated:generated/views/source-view.html</td><td>none</td></tr><tr><td>lib/session.ts</td><td>generated:lib/session.ts</td><td>none</td></tr><tr><td>lib/store.ts</td><td>generated:lib/store.ts</td><td>none</td></tr><tr><td>next-env.d.ts</td><td>generated:next-env.d.ts</td><td>none</td></tr><tr><td>next.config.mjs</td><td>generated:next.config.mjs</td><td>none</td></tr><tr><td>package.json</td><td>generated:package.json</td><td>none</td></tr><tr><td>prisma/schema.prisma</td><td>block:entity/customer-basic</td><td>none</td></tr><tr><td>provenance.json</td><td>generated:provenance.json</td><td>none</td></tr><tr><td>src/installed/audit/logger.ts</td><td>block:audit/basic</td><td>none</td></tr><tr><td>src/installed/auth/authorize.ts</td><td>block:rbac/basic</td><td>none</td></tr><tr><td>src/installed/auth/session.ts</td><td>block:auth/basic-session</td><td>none</td></tr><tr><td>src/installed/entity/customer-service.ts</td><td>block:entity/customer-basic</td><td>none</td></tr><tr><td>src/installed/export/customer-csv.ts</td><td>block:export/csv-basic</td><td>none</td></tr><tr><td>src/installed/tenant/context.ts</td><td>block:tenant/basic-workspace</td><td>none</td></tr><tr><td>tests/acceptance/customer-flow.test.ts</td><td>block:entity/customer-basic</td><td>none</td></tr><tr><td>tests/runtime/acceptance/customer-flow.spec.ts</td><td>generated:tests/runtime/acceptance/customer-flow.spec.ts</td><td>none</td></tr><tr><td>tests/runtime/unit/customer-runtime.test.ts</td><td>generated:tests/runtime/unit/customer-runtime.test.ts</td><td>none</td></tr><tr><td>tests/unit/audit-log.test.ts</td><td>block:audit/basic</td><td>none</td></tr><tr><td>tests/unit/customer-export.test.ts</td><td>block:export/csv-basic</td><td>none</td></tr><tr><td>tests/unit/customer-normalizer.test.ts</td><td>block:entity/customer-basic</td><td>none</td></tr><tr><td>tests/unit/rbac-authorize.test.ts</td><td>block:rbac/basic</td><td>none</td></tr><tr><td>tsconfig.json</td><td>generated:tsconfig.json</td><td>none</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="card"><h2>Review Summary</h2><pre>{
+  &quot;formatVersion&quot;: &quot;1&quot;,
+  &quot;changeSources&quot;: [
+    {
+      &quot;path&quot;: &quot;app/api/customers/route.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/api/customers/route.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/api/session/current/route.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/api/session/current/route.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/api/session/login/route.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/api/session/login/route.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/api/session/logout/route.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/api/session/logout/route.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/customers/page.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/customers/page.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/globals.css&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/globals.css&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/layout.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/layout.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/login/page.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/login/page.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/page.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/page.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;app/workspace/page.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;app/workspace/page.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;components/customer-form.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;components/customer-form.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;components/login-form.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;components/login-form.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;components/logout-button.tsx&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;components/logout-button.tsx&quot;
+    },
+    {
+      &quot;path&quot;: &quot;custom/customer_normalizer.ts&quot;,
+      &quot;originType&quot;: &quot;slot&quot;,
+      &quot;originId&quot;: &quot;customer_normalizer&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/acceptance-coverage.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/acceptance-coverage.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/block-usage-map.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/block-usage-map.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/explain-graph.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/explain-graph.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/install-manifest.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/install-manifest.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/policy-report.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/policy-report.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/review-summary.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/review-summary.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/routes.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/routes.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/runtime-report.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/runtime-report.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/verification-report.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/verification-report.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/views/slot-rule-view.html&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/views/slot-rule-view.html&quot;
+    },
+    {
+      &quot;path&quot;: &quot;generated/views/source-view.html&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;generated/views/source-view.html&quot;
+    },
+    {
+      &quot;path&quot;: &quot;lib/session.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;lib/session.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;lib/store.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;lib/store.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;next-env.d.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;next-env.d.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;next.config.mjs&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;next.config.mjs&quot;
+    },
+    {
+      &quot;path&quot;: &quot;package.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;package.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;prisma/schema.prisma&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;entity/customer-basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;provenance.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;provenance.json&quot;
+    },
+    {
+      &quot;path&quot;: &quot;src/installed/audit/logger.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;audit/basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;src/installed/auth/authorize.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;rbac/basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;src/installed/auth/session.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;auth/basic-session&quot;
+    },
+    {
+      &quot;path&quot;: &quot;src/installed/entity/customer-service.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;entity/customer-basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;src/installed/export/customer-csv.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;export/csv-basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;src/installed/tenant/context.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;tenant/basic-workspace&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tests/acceptance/customer-flow.test.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;entity/customer-basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tests/runtime/acceptance/customer-flow.spec.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;tests/runtime/acceptance/customer-flow.spec.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tests/runtime/unit/customer-runtime.test.ts&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;tests/runtime/unit/customer-runtime.test.ts&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tests/unit/audit-log.test.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;audit/basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tests/unit/customer-export.test.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;export/csv-basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tests/unit/customer-normalizer.test.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;entity/customer-basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tests/unit/rbac-authorize.test.ts&quot;,
+      &quot;originType&quot;: &quot;block&quot;,
+      &quot;originId&quot;: &quot;rbac/basic&quot;
+    },
+    {
+      &quot;path&quot;: &quot;tsconfig.json&quot;,
+      &quot;originType&quot;: &quot;generated&quot;,
+      &quot;originId&quot;: &quot;tsconfig.json&quot;
+    }
+  ],
+  &quot;impactedBlocks&quot;: [
+    &quot;audit/basic&quot;,
+    &quot;auth/basic-session&quot;,
+    &quot;entity/customer-basic&quot;,
+    &quot;export/csv-basic&quot;,
+    &quot;rbac/basic&quot;,
+    &quot;tenant/basic-workspace&quot;
+  ],
+  &quot;impactedSlots&quot;: [
+    &quot;customer_normalizer&quot;
+  ],
+  &quot;failurePoints&quot;: [],
+  &quot;regressionRisks&quot;: [
+    &quot;Block audit/basic has no runtime acceptance coverage&quot;,
+    &quot;Block export/csv-basic has no runtime acceptance coverage&quot;,
+    &quot;Block rbac/basic has no runtime acceptance coverage&quot;
+  ],
+  &quot;conflictHints&quot;: []
+}</pre></section>
+      <section class="card"><h2>Explain Graph</h2><pre>{
+  &quot;nodes&quot;: 65,
+  &quot;edges&quot;: 95
+}</pre></section>
+    </main>
+  </body>
+</html>

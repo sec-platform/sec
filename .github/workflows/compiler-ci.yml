@@ -1,0 +1,55 @@
+name: compiler-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  compiler-ci:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Resolve graph
+        run: node ./platform/cli/index.ts resolve
+
+      - name: Compose project
+        run: node ./platform/cli/index.ts compose
+
+      - name: Adapt project
+        run: node ./platform/cli/index.ts adapt
+
+      - name: Verify all lanes
+        run: node ./platform/cli/index.ts verify --lane all
+
+      - name: Lock project
+        run: node ./platform/cli/index.ts lock
+
+      - name: Explain project
+        run: node ./platform/cli/index.ts explain
+
+      - name: Upload generated artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiler-generated-artifacts
+          if-no-files-found: warn
+          path: |
+            project/generated/**
+            project/provenance.json
+            project/graph.lock.json

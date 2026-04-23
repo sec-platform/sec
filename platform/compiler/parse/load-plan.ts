@@ -1,7 +1,43 @@
 import { readYaml } from '../../shared/yaml.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
-import type { PlanFile } from '../../shared/types.ts';
+import {
+  officialRegistryRelativePath,
+  privateRegistryRelativePath
+} from '../../shared/paths.ts';
+import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/types.ts';
+
+function defaultRegistry(): PlanRegistry {
+  return {
+    sources: [
+      {
+        id: 'official',
+        kind: 'official',
+        location: 'compiler',
+        path: officialRegistryRelativePath.replaceAll('\\', '/')
+      },
+      {
+        id: 'private',
+        kind: 'private',
+        location: 'workspace',
+        path: privateRegistryRelativePath.replaceAll('\\', '/')
+      }
+    ]
+  };
+}
+
+function normalizeRegistrySource(source: Partial<PlanRegistrySource>): PlanRegistrySource {
+  return {
+    id: source.id ?? '',
+    kind: source.kind ?? 'private',
+    location: source.location ?? (source.kind === 'official' ? 'compiler' : 'workspace'),
+    path:
+      source.path ??
+      (source.kind === 'official'
+        ? officialRegistryRelativePath.replaceAll('\\', '/')
+        : privateRegistryRelativePath.replaceAll('\\', '/'))
+  };
+}
 
 export function normalizePlan(plan: PlanFile): PlanFile {
   const normalized = structuredClone((plan ?? {}) as Partial<PlanFile>);
@@ -11,6 +47,9 @@ export function normalizePlan(plan: PlanFile): PlanFile {
       stack: normalized.app?.stack ?? '',
       packageManager: normalized.app?.packageManager ?? 'pnpm',
       mode: normalized.app?.mode ?? 'single-tenant'
+    },
+    registry: {
+      sources: (normalized.registry?.sources ?? defaultRegistry().sources).map((source) => normalizeRegistrySource(source))
     },
     blocks: normalized.blocks ?? [],
     slots: normalized.slots ?? [],
@@ -32,6 +71,29 @@ export function validatePlan(plan: PlanFile): void {
       'PLAN-VALIDATION-003',
       `Unsupported stack "${plan.app.stack}", expected "${SUPPORTED_STACK}"`
     );
+  }
+
+  const registryIds = new Set<string>();
+  for (const source of plan.registry.sources) {
+    if (!source.id || !source.kind || !source.location || !source.path) {
+      throw new CompilerError('PLAN-VALIDATION-009', 'Every registry source requires id/kind/location/path');
+    }
+    if (registryIds.has(source.id)) {
+      throw new CompilerError('PLAN-VALIDATION-010', `Duplicate registry source id "${source.id}"`);
+    }
+    if (source.location === 'compiler' && source.kind !== 'official') {
+      throw new CompilerError(
+        'PLAN-VALIDATION-011',
+        `Registry source "${source.id}" cannot use compiler location unless it is official`
+      );
+    }
+    if (source.path.startsWith('../')) {
+      throw new CompilerError(
+        'PLAN-VALIDATION-012',
+        `Registry source "${source.id}" must not traverse outside the configured base root`
+      );
+    }
+    registryIds.add(source.id);
   }
 
   const blockIds = new Set<string>();

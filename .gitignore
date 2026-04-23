@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .npm-cache/
+project/package-lock.json
 __pycache__/
 *.pyc
 .venv/
@@ -19,4 +20,7 @@ Thumbs.db
 # Build
 dist/
 build/
+.next/
+test-results/
+playwright-report/
 *.egg-info/

@@ -3,12 +3,28 @@ app:
   stack: nextjs-ts-prisma-sqlite
   packageManager: pnpm
   mode: single-tenant
+registry:
+  sources:
+    - id: official
+      kind: official
+      location: compiler
+      path: platform/registry/official
+    - id: private
+      kind: private
+      location: workspace
+      path: platform/registry/private
 blocks:
   - id: auth/basic-session
     version: 0.1.0
   - id: tenant/basic-workspace
     version: 0.1.0
   - id: entity/customer-basic
+    version: 0.1.0
+  - id: rbac/basic
+    version: 0.1.0
+  - id: audit/basic
+    version: 0.1.0
+  - id: export/csv-basic
     version: 0.1.0
 slots:
   - id: customer_normalizer
