@@ -24,3 +24,5 @@ build/
 test-results/
 playwright-report/
 *.egg-info/
+.shared-deps/
+project/.runtime-deps.stamp.json

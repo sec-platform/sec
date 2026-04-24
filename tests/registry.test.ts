@@ -1,5 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'vitest';
 
 import { SUPPORTED_STACK } from '../platform/shared/constants.ts';
 import { officialRegistryRelativePath, privateRegistryRelativePath } from '../platform/shared/paths.ts';
@@ -47,7 +46,7 @@ function buildValidationPlan(entry: ManifestEntry): PlanFile {
 
 test('official registry blocks typecheck in their minimal resolved closure', async () => {
   const manifests = await loadAllManifests();
-  assert.ok(manifests.length > 0);
+  expect(manifests.length).toBeGreaterThan(0);
 
   for (const entry of manifests) {
     const plan = buildValidationPlan(entry);

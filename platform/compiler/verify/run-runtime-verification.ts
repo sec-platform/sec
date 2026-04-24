@@ -1,9 +1,16 @@
 import path from 'node:path';
 import { compilerRoot } from '../../shared/paths.ts';
 import { listFilesRecursive } from '../../shared/fs.ts';
-import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
+import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
 import { runCommand } from '../../shared/process.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/types.ts';
+
+function generatePort(): number {
+  const basePort = 3000;
+  const workerId = parseInt(process.env.VITEST_POOL_ID ?? '0', 10);
+  const processId = process.pid % 100;
+  return basePort + workerId * 100 + processId;
+}
 
 function npmCommand(): string {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -23,12 +30,21 @@ function relativeFiles(rootDir: string, files: string[]): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  const result = await fn();
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  console.log(`[TIMING] ${label}: ${elapsed}s`);
+  return result;
+}
+
 async function ensurePlaywrightBrowser(projectRoot: string, env: NodeJS.ProcessEnv): Promise<{
   code: number;
   stdout: string;
   stderr: string;
 }> {
-  return runCommand(npmCommand(), ['exec', 'playwright', 'install', 'chromium'], {
+  const playwrightCli = path.join(projectRoot, 'node_modules', 'playwright', 'cli.js');
+  return runCommand(process.execPath, [playwrightCli, 'install', 'chromium'], {
     cwd: projectRoot,
     env
   });
@@ -44,16 +60,22 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
     (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'acceptance'))).filter((file) => file.endsWith('.spec.ts'))
   );
 
-  await ensureProjectDependencies(projectRoot);
+  await timed('shared deps warmup', () => ensureSharedDepsReady());
+  await timed('project deps materialize', () =>
+    ensureProjectDependencies(projectRoot, { skipSharedDepsWarmup: true })
+  );
 
   const envPathKey = pathEnvKey();
-  const env = {
+  const baseEnv = {
+    ...process.env,
     [envPathKey]: `${path.join(compilerRoot, 'node_modules', '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`
   };
-  const buildResult = await runCommand(npmCommand(), ['run', 'build'], {
-    cwd: projectRoot,
-    env
-  });
+  const buildResult = await timed('next build', () =>
+    runCommand(npmCommand(), ['run', 'build'], {
+      cwd: projectRoot,
+      env: baseEnv
+    })
+  );
   const lane: RuntimeVerificationLaneReport = {
     status: normalizeStatus(buildResult.code),
     build: {
@@ -92,10 +114,12 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
       command: 'npm run test:unit'
     };
   } else {
-    const unitResult = await runCommand(npmCommand(), ['run', 'test:unit'], {
-      cwd: projectRoot,
-      env
-    });
+    const unitResult = await timed('vitest unit', () =>
+      runCommand(npmCommand(), ['run', 'test:unit'], {
+        cwd: projectRoot,
+        env: baseEnv
+      })
+    );
     lane.unit = {
       status: normalizeStatus(unitResult.code),
       passed: unitResult.code === 0 ? runtimeUnitFiles : [],
@@ -122,7 +146,7 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
     return lane;
   }
 
-  const browserInstallResult = await ensurePlaywrightBrowser(projectRoot, env);
+  const browserInstallResult = await timed('playwright install', () => ensurePlaywrightBrowser(projectRoot, baseEnv));
   lane.logs.stdout += browserInstallResult.stdout;
   lane.logs.stderr += browserInstallResult.stderr;
   if (browserInstallResult.code !== 0) {
@@ -136,13 +160,17 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
     return lane;
   }
 
-  const acceptanceResult = await runCommand(npmCommand(), ['run', 'test:acceptance'], {
-    cwd: projectRoot,
-    env: {
-      ...env,
-      CI: process.env.CI ?? 'true'
-    }
-  });
+  const testPort = generatePort();
+  const acceptanceResult = await timed('playwright test', () =>
+    runCommand(npmCommand(), ['run', 'test:acceptance'], {
+      cwd: projectRoot,
+      env: {
+        ...baseEnv,
+        CI: process.env.CI ?? 'true',
+        TEST_PORT: String(testPort)
+      }
+    })
+  );
   lane.acceptance = {
     status: normalizeStatus(acceptanceResult.code),
     passed: acceptanceResult.code === 0 ? runtimeAcceptanceFiles : [],

@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "platform": "node ./platform/cli/index.ts",
-    "test": "node --test --experimental-test-isolation=none tests/pipeline.test.ts tests/registry.test.ts tests/repair.test.ts tests/upgrade.test.ts tests/policy.test.ts tests/expanded-blocks.test.ts tests/private-registry.test.ts tests/override-manifest.test.ts",
+    "reference:refresh": "npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt && npm run platform -- verify --lane all && npm run platform -- lock && npm run platform -- explain",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:bun": "bun test tests/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "npm run typecheck && npm test",
-    "platform:bun": "bun ./platform/cli/index.ts",
-    "test:bun": "bun test tests/pipeline.test.ts tests/registry.test.ts tests/repair.test.ts tests/upgrade.test.ts tests/policy.test.ts tests/expanded-blocks.test.ts tests/private-registry.test.ts tests/override-manifest.test.ts"
+    "platform:bun": "bun ./platform/cli/index.ts"
   },
   "dependencies": {
     "@playwright/test": "^1.59.1",
@@ -18,11 +21,11 @@
     "next": "^16.2.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "typescript": "^5.8.3",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.5",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@types/node": "^22.15.30"
+    "@types/node": "^24.0.0"
   }
 }

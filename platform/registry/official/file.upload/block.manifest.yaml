@@ -1,0 +1,36 @@
+id: file/upload
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+compatibility:
+  blockApi: '1'
+  compilerApi: '1'
+  stackProfiles:
+    - nextjs-ts-prisma-sqlite
+requires:
+  - customer/read
+  - customer/write
+provides:
+  - file/upload
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/file/customer-attachments.ts
+    to: src/installed/file/customer-attachments.ts
+  - kind: copy
+    from: files/tests/unit/customer-attachments.test.ts
+    to: tests/unit/customer-attachments.test.ts
+pins:
+  inputs:
+    - id: customer_created
+      type: CustomerRecord
+      required: true
+  outputs:
+    - id: customer_attachment_uploaded
+      type: CustomerAttachmentRecord
+      required: true
+slots: []
+acceptance:
+  - id: customer_can_upload_attachment
+routes: []

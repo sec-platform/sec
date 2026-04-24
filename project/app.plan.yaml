@@ -26,6 +26,12 @@ blocks:
     version: 0.1.0
   - id: export/csv-basic
     version: 0.1.0
+  - id: file/upload
+    version: 0.1.0
+  - id: notify/email-basic
+    version: 0.1.0
+  - id: table/filter-search
+    version: 0.1.0
 slots:
   - id: customer_normalizer
     block: entity/customer-basic
@@ -39,3 +45,7 @@ acceptance:
   - id: user_can_create_customer
   - id: user_can_list_customers
   - id: tenant_only_sees_own_customers
+  - id: customer_can_be_exported
+  - id: customer_can_upload_attachment
+  - id: customer_creation_sends_email_notification
+  - id: customer_list_can_be_filtered

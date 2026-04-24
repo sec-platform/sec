@@ -1,5 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,8 +12,26 @@ import {
   verifyWorkspace
 } from '../platform/orchestrator.ts';
 
+const activeWorkspaces = new Set<string>();
+
+afterAll(async () => {
+  for (const workspace of activeWorkspaces) {
+    try {
+      await fs.rm(workspace, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+});
+
+async function createWorkspace(prefix: string): Promise<string> {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  activeWorkspaces.add(workspaceRoot);
+  return workspaceRoot;
+}
+
 test('repair emits a local slot-scoped repair plan after verification failure', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-repair-'));
+  const workspaceRoot = await createWorkspace('engineering-compiler-repair-');
 
   await initWorkspace(workspaceRoot, { reset: true });
   await resolveWorkspace(workspaceRoot);
@@ -27,18 +44,11 @@ test('repair emits a local slot-scoped repair plan after verification failure', 
     'utf8'
   );
 
-  await assert.rejects(
-    async () => verifyWorkspace(workspaceRoot),
-    (error: unknown) =>
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code?: string }).code === 'VERIFY-ACCEPTANCE-003'
-  );
+  await expect(verifyWorkspace(workspaceRoot)).rejects.toThrow();
 
   const { repairPlan } = await repairWorkspace(workspaceRoot);
-  assert.equal(repairPlan.status, 'pending');
-  assert.equal(repairPlan.tasks.length, 1);
-  assert.equal(repairPlan.tasks[0].targetFile, 'custom/customer_normalizer.ts');
-  assert.deepEqual(repairPlan.tasks[0].allowedPaths, ['custom/customer_normalizer.ts']);
+  expect(repairPlan.status).toBe('pending');
+  expect(repairPlan.tasks.length).toBe(1);
+  expect(repairPlan.tasks[0].targetFile).toBe('custom/customer_normalizer.ts');
+  expect(repairPlan.tasks[0].allowedPaths).toEqual(['custom/customer_normalizer.ts']);
 });

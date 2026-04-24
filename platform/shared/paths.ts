@@ -12,6 +12,8 @@ export const officialRegistryRoot = path.join(compilerRoot, officialRegistryRela
 export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
   const root = path.resolve(workspaceRoot);
   const projectRoot = path.join(root, 'project');
+  const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');
+  const projectPoliciesRoot = path.join(projectRoot, 'policies');
 
   return {
     workspaceRoot: root,
@@ -22,7 +24,9 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     lockPath: path.join(projectRoot, 'graph.lock.json'),
     generatedDir: path.join(projectRoot, 'generated'),
     overrideManifestPath: path.join(projectRoot, 'overrides', 'override-manifest.yaml'),
-    policySpecPath: path.join(projectRoot, 'policies', 'policy.spec.yaml'),
+    policySpecPath: path.join(projectPoliciesRoot, 'policy.spec.yaml'),
+    officialPoliciesRoot,
+    projectPoliciesRoot,
     installManifestPath: path.join(projectRoot, 'generated', 'install-manifest.json'),
     verificationReportPath: path.join(projectRoot, 'generated', 'verification-report.json'),
     acceptanceCoveragePath: path.join(projectRoot, 'generated', 'acceptance-coverage.json'),

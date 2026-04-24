@@ -6,6 +6,9 @@ import type {
   AcceptanceCoverageReport,
   LockFile,
   ProvenanceFile,
+  ReviewConflictHint,
+  ReviewFailurePoint,
+  ReviewRegressionRisk,
   ReviewSummary,
   UpgradePlan,
   VerificationReport
@@ -13,6 +16,96 @@ import type {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function compareFailurePoints(left: ReviewFailurePoint, right: ReviewFailurePoint): number {
+  return `${left.kind}:${left.lane}:${left.message}:${left.artifactPath}`.localeCompare(
+    `${right.kind}:${right.lane}:${right.message}:${right.artifactPath}`
+  );
+}
+
+function compareRegressionRisks(left: ReviewRegressionRisk, right: ReviewRegressionRisk): number {
+  return `${left.kind}:${left.blockId ?? ''}:${left.slotId ?? ''}:${left.message}`.localeCompare(
+    `${right.kind}:${right.blockId ?? ''}:${right.slotId ?? ''}:${right.message}`
+  );
+}
+
+function compareConflictHints(left: ReviewConflictHint, right: ReviewConflictHint): number {
+  return `${left.kind}:${left.relatedId}:${left.message}`.localeCompare(
+    `${right.kind}:${right.relatedId}:${right.message}`
+  );
+}
+
+function addFailurePoint(
+  points: ReviewFailurePoint[],
+  point: ReviewFailurePoint
+): void {
+  if (
+    !points.some(
+      (entry) =>
+        entry.lane === point.lane &&
+        entry.kind === point.kind &&
+        entry.message === point.message &&
+        entry.artifactPath === point.artifactPath
+    )
+  ) {
+    points.push(point);
+  }
+}
+
+function addRegressionRisk(
+  risks: ReviewRegressionRisk[],
+  risk: ReviewRegressionRisk
+): void {
+  if (
+    !risks.some(
+      (entry) =>
+        entry.kind === risk.kind &&
+        entry.message === risk.message &&
+        entry.blockId === risk.blockId &&
+        entry.slotId === risk.slotId
+    )
+  ) {
+    risks.push(risk);
+  }
+}
+
+function addConflictHint(
+  hints: ReviewConflictHint[],
+  hint: ReviewConflictHint
+): void {
+  if (
+    !hints.some(
+      (entry) =>
+        entry.kind === hint.kind &&
+        entry.relatedId === hint.relatedId &&
+        entry.message === hint.message
+    )
+  ) {
+    hints.push(hint);
+  }
+}
+
+function mapOverrideTarget(
+  lock: LockFile,
+  target: string
+): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
+  const slotTask = lock.slotTasks.find((task) => task.target === target);
+  if (slotTask) {
+    return {
+      blockId: slotTask.block,
+      slotId: slotTask.id
+    };
+  }
+
+  const installStep = lock.installPlan.find((step) => step.to === target);
+  if (installStep) {
+    return {
+      blockId: installStep.blockId
+    };
+  }
+
+  return {};
 }
 
 export async function buildReviewSummary(
@@ -24,50 +117,120 @@ export async function buildReviewSummary(
 ): Promise<ReviewSummary> {
   const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
-  const failurePoints: string[] = [];
-  const regressionRisks: string[] = [];
-  const conflictHints: string[] = [];
+  const failurePoints: ReviewFailurePoint[] = [];
+  const regressionRisks: ReviewRegressionRisk[] = [];
+  const conflictHints: ReviewConflictHint[] = [];
 
-  if (report.summary.status === 'failed') {
-    failurePoints.push(`Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`);
+  if (report.summary.failedLanes.length > 0) {
+    addFailurePoint(failurePoints, {
+      lane: 'all',
+      kind: 'summary',
+      message: `Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`,
+      artifactPath: 'generated/verification-report.json'
+    });
   }
-  if (report.fast.policy.status === 'failed') {
-    for (const violation of report.fast.policy.violations) {
-      failurePoints.push(`Policy ${violation.id}: ${violation.message}`);
-    }
+
+  for (const violation of report.fast.policy.violations) {
+    addFailurePoint(failurePoints, {
+      lane: 'fast',
+      kind: 'policy',
+      message: `Policy ${violation.id}: ${violation.message}`,
+      artifactPath: 'generated/policy-report.json'
+    });
+  }
+
+  if (report.fast.build.status === 'failed') {
+    addFailurePoint(failurePoints, {
+      lane: 'fast',
+      kind: 'build',
+      message: 'Fast-lane typecheck failed',
+      artifactPath: 'generated/verification-report.json'
+    });
+  }
+  if (report.fast.unit.status === 'failed') {
+    addFailurePoint(failurePoints, {
+      lane: 'fast',
+      kind: 'unit',
+      message: 'Fast-lane unit tests failed',
+      artifactPath: 'generated/verification-report.json'
+    });
+  }
+  if (report.fast.acceptance.status === 'failed') {
+    addFailurePoint(failurePoints, {
+      lane: 'fast',
+      kind: 'acceptance',
+      message: 'Fast-lane acceptance tests failed',
+      artifactPath: 'generated/verification-report.json'
+    });
   }
   if (report.runtime.build.status === 'failed') {
-    failurePoints.push('Runtime build failed');
+    addFailurePoint(failurePoints, {
+      lane: 'runtime',
+      kind: 'build',
+      message: 'Runtime build failed',
+      artifactPath: 'generated/runtime-report.json'
+    });
   }
   if (report.runtime.unit.status === 'failed') {
-    failurePoints.push('Runtime unit tests failed');
+    addFailurePoint(failurePoints, {
+      lane: 'runtime',
+      kind: 'unit',
+      message: 'Runtime unit tests failed',
+      artifactPath: 'generated/runtime-report.json'
+    });
   }
   if (report.runtime.acceptance.status === 'failed') {
-    failurePoints.push('Runtime Playwright acceptance failed');
+    addFailurePoint(failurePoints, {
+      lane: 'runtime',
+      kind: 'acceptance',
+      message: 'Runtime acceptance tests failed',
+      artifactPath: 'generated/runtime-report.json'
+    });
   }
 
-  for (const entry of coverage.uncoveredBlocks) {
-    regressionRisks.push(`Block ${entry} has no runtime acceptance coverage`);
+  for (const blockId of coverage.uncoveredBlocks) {
+    addRegressionRisk(regressionRisks, {
+      kind: 'coverage-gap',
+      blockId,
+      message: `Block ${blockId} has no runtime acceptance coverage`
+    });
   }
-  for (const entry of coverage.uncoveredSlots) {
-    regressionRisks.push(`Slot ${entry} has no runtime acceptance coverage`);
+
+  for (const slotId of coverage.uncoveredSlots) {
+    addRegressionRisk(regressionRisks, {
+      kind: 'coverage-gap',
+      slotId,
+      message: `Slot ${slotId} has no runtime acceptance coverage`
+    });
   }
+
   for (const override of overrideManifest.overrides) {
-    regressionRisks.push(`Override active: ${override.id} -> ${override.target}`);
+    addRegressionRisk(regressionRisks, {
+      kind: 'override-active',
+      message: `Override active: ${override.id} -> ${override.target}`,
+      ...mapOverrideTarget(lock, override.target)
+    });
+
     for (const conflict of override.conflictsWith) {
-      conflictHints.push(`Override ${override.id} conflicts with ${conflict}`);
+      addConflictHint(conflictHints, {
+        kind: 'override-conflict',
+        relatedId: conflict,
+        message: `Override ${override.id} conflicts with ${conflict}`
+      });
     }
   }
 
   if (await pathExists(upgradePlanPath)) {
     const upgradePlan = await readJson<UpgradePlan>(upgradePlanPath);
-    conflictHints.push(
-      `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
-    );
+    addConflictHint(conflictHints, {
+      kind: 'upgrade-plan-present',
+      relatedId: upgradePlan.blockId,
+      message: `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+    });
   }
 
   return {
-    formatVersion: '1',
+    formatVersion: '2',
     changeSources: provenance.artifacts.map((artifact) => ({
       path: artifact.path,
       originType: artifact.originType,
@@ -75,9 +238,9 @@ export async function buildReviewSummary(
     })),
     impactedBlocks: unique(lock.resolvedBlocks.map((block) => block.id)),
     impactedSlots: unique(lock.slotTasks.map((task) => task.id)),
-    failurePoints: unique(failurePoints),
-    regressionRisks: unique(regressionRisks),
-    conflictHints: unique(conflictHints)
+    failurePoints: [...failurePoints].sort(compareFailurePoints),
+    regressionRisks: [...regressionRisks].sort(compareRegressionRisks),
+    conflictHints: [...conflictHints].sort(compareConflictHints)
   };
 }
 

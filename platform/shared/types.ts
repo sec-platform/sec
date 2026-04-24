@@ -21,6 +21,7 @@ export type ExplainEdgeType =
   | 'originates_from'
   | 'violates';
 export type PolicySeverity = 'info' | 'warn' | 'error' | 'blocker';
+export type PolicySourceScope = 'official' | 'project';
 
 export interface AcceptanceItem {
   id: string;
@@ -227,6 +228,8 @@ export interface WorkspacePaths {
   generatedDir: string;
   overrideManifestPath: string;
   policySpecPath: string;
+  officialPoliciesRoot: string;
+  projectPoliciesRoot: string;
   installManifestPath: string;
   verificationReportPath: string;
   acceptanceCoveragePath: string;
@@ -285,11 +288,16 @@ export interface PolicyReport {
   status: 'passed' | 'failed' | 'skipped';
   official: {
     policies: string[];
+    sources: PolicySourceFileReport[];
     violations: PolicyViolation[];
   };
   project: {
     policies: string[];
+    sources: PolicySourceFileReport[];
     violations: PolicyViolation[];
+  };
+  merged: {
+    policies: MergedPolicyReportEntry[];
   };
   violations: PolicyViolation[];
 }
@@ -350,6 +358,17 @@ export interface PolicySpec {
   policies: PolicyRule[];
 }
 
+export interface PolicySourceFileReport {
+  path: string;
+  policyIds: string[];
+}
+
+export interface MergedPolicyReportEntry {
+  id: string;
+  sourceScope: PolicySourceScope;
+  sourcePath: string;
+}
+
 export interface PolicyViolation {
   id: string;
   severity: PolicySeverity;
@@ -357,6 +376,8 @@ export interface PolicyViolation {
   rule: string;
   files: string[];
   message: string;
+  sourceScope: PolicySourceScope;
+  sourcePath: string;
 }
 
 export interface ProvenanceArtifact {
@@ -424,8 +445,28 @@ export interface AcceptanceCoverageReport {
   uncoveredSlots: string[];
 }
 
+export interface ReviewFailurePoint {
+  lane: 'fast' | 'runtime' | 'all';
+  kind: 'summary' | 'policy' | 'build' | 'unit' | 'acceptance';
+  message: string;
+  artifactPath: string;
+}
+
+export interface ReviewRegressionRisk {
+  kind: 'coverage-gap' | 'override-active';
+  message: string;
+  blockId?: string;
+  slotId?: string;
+}
+
+export interface ReviewConflictHint {
+  kind: 'override-conflict' | 'upgrade-plan-present';
+  message: string;
+  relatedId: string;
+}
+
 export interface ReviewSummary {
-  formatVersion: string;
+  formatVersion: '2';
   changeSources: Array<{
     path: string;
     originType: ProvenanceOriginType;
@@ -433,9 +474,9 @@ export interface ReviewSummary {
   }>;
   impactedBlocks: string[];
   impactedSlots: string[];
-  failurePoints: string[];
-  regressionRisks: string[];
-  conflictHints: string[];
+  failurePoints: ReviewFailurePoint[];
+  regressionRisks: ReviewRegressionRisk[];
+  conflictHints: ReviewConflictHint[];
 }
 
 export interface RepairTask {

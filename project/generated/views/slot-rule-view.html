@@ -24,22 +24,13 @@
           </tbody>
         </table>
       </section>
-      <section class="card"><h2>Policy Report</h2><pre>{
-  &quot;status&quot;: &quot;passed&quot;,
-  &quot;official&quot;: {
-    &quot;policies&quot;: [
-      &quot;tenant-scope-required&quot;
-    ],
-    &quot;violations&quot;: []
-  },
-  &quot;project&quot;: {
-    &quot;policies&quot;: [
-      &quot;tenant-scope-required&quot;
-    ],
-    &quot;violations&quot;: []
-  },
-  &quot;violations&quot;: []
-}</pre></section>
+      <section class="card">
+        <h2>Policy Violations</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Severity</th><th>Scope</th><th>Source</th><th>Message</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
       <section class="card"><h2>Acceptance Coverage</h2><pre>{
   &quot;formatVersion&quot;: &quot;1&quot;,
   &quot;status&quot;: &quot;passed&quot;,
@@ -47,7 +38,11 @@
     &quot;user_can_login&quot;,
     &quot;user_can_create_customer&quot;,
     &quot;user_can_list_customers&quot;,
-    &quot;tenant_only_sees_own_customers&quot;
+    &quot;tenant_only_sees_own_customers&quot;,
+    &quot;customer_can_be_exported&quot;,
+    &quot;customer_can_upload_attachment&quot;,
+    &quot;customer_creation_sends_email_notification&quot;,
+    &quot;customer_list_can_be_filtered&quot;
   ],
   &quot;blocks&quot;: [
     {
@@ -105,8 +100,40 @@
       &quot;declaredAcceptance&quot;: [
         &quot;customer_can_be_exported&quot;
       ],
-      &quot;coveredBy&quot;: [],
-      &quot;uncovered&quot;: true
+      &quot;coveredBy&quot;: [
+        &quot;customer_can_be_exported&quot;
+      ],
+      &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;file/upload&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;customer_can_upload_attachment&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;customer_can_upload_attachment&quot;
+      ],
+      &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;notify/email-basic&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;customer_creation_sends_email_notification&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;customer_creation_sends_email_notification&quot;
+      ],
+      &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;table/filter-search&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;customer_list_can_be_filtered&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;customer_list_can_be_filtered&quot;
+      ],
+      &quot;uncovered&quot;: false
     }
   ],
   &quot;slots&quot;: [
@@ -127,20 +154,31 @@
   ],
   &quot;uncoveredBlocks&quot;: [
     &quot;audit/basic&quot;,
-    &quot;rbac/basic&quot;,
-    &quot;export/csv-basic&quot;
+    &quot;rbac/basic&quot;
   ],
   &quot;uncoveredSlots&quot;: []
 }</pre></section>
-      <section class="card"><h2>Review Risks</h2><pre>{
-  &quot;failurePoints&quot;: [],
-  &quot;regressionRisks&quot;: [
-    &quot;Block audit/basic has no runtime acceptance coverage&quot;,
-    &quot;Block export/csv-basic has no runtime acceptance coverage&quot;,
-    &quot;Block rbac/basic has no runtime acceptance coverage&quot;
-  ],
-  &quot;conflictHints&quot;: []
-}</pre></section>
+      <section class="card">
+        <h2>Review Failure Points</h2>
+        <table>
+          <thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <section class="card">
+        <h2>Review Regression Risks</h2>
+        <table>
+          <thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead>
+          <tbody><tr><td>coverage-gap</td><td>audit/basic</td><td></td><td>Block audit/basic has no runtime acceptance coverage</td></tr><tr><td>coverage-gap</td><td>rbac/basic</td><td></td><td>Block rbac/basic has no runtime acceptance coverage</td></tr></tbody>
+        </table>
+      </section>
+      <section class="card">
+        <h2>Review Conflict Hints</h2>
+        <table>
+          <thead><tr><th>Kind</th><th>Related ID</th><th>Message</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
     </main>
   </body>
 </html>
