@@ -100,6 +100,18 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 
 ## 6. 错误域
 
+### Issue 分层
+
+| Issue 类型 | 典型错误域 | 是否默认允许 AI 修复 |
+| --- | --- | --- |
+| Spec Issue | PLAN / ALIGN / VERIFY policy | 否，需人工确认规格变更 |
+| Composition Issue | MANIFEST / RESOLVE / COMPOSE | 否，优先修编译器或 block 元数据 |
+| Slot Issue | SLOT / VERIFY unit / VERIFY acceptance | 是，但只能在 task envelope 范围内 |
+| Kernel Issue | VERIFY perf / VERIFY correctness / external harness | 否，默认返回 kernel 维护者 |
+
+- 错误报告必须尽量带上 issue 类型，帮助 Agent 避免把架构问题误当成 slot 修复。
+- `repair` 默认只处理 Slot Issue；Composition Issue 和 Kernel Issue 需要显式授权。
+
 ### PLAN
 
 - 输入 plan 结构、必填项、引用错误

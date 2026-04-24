@@ -13,6 +13,42 @@
   - 新增了什么 AI 可自主承担的职责
 - 每个阶段都有明确退出条件；未达成退出条件前，不跨阶段扩范围。
 
+## 新增整合：全局决策框架
+
+### 现在必须决定
+
+- `v0.1` 仍以当前 Customer Admin 母例为实现目标，不在首条闭环前切换到 ticket/work-tracking。
+- 权威输入必须是 `app.plan.yaml`、`block.manifest.yaml`、`graph.lock.json`、slot、acceptance、policy 和 provenance，而不是聊天记录或生成源码。
+- AI 只能作为受控 pass：`Align`、`Synthesize`、`Repair`，不能成为全仓主控制器。
+- 真实源码必须落地，不能只保留 UX 映射或虚拟描述；源码是可审查、可部署、可调试的编译产物。
+- `v0.1` 必须先证明 `resolve -> compose -> adapt -> verify -> lock` 的重复闭环。
+
+### 现在不用实现但必须预留
+
+- `ticket/basic` 或 work-tracking 行业母例，作为 `v0.2+` 更强 demo。
+- `Kernel Block`、冷热路径、性能预算和 benchmark harness，用于未来高性能/底层系统接入。
+- `provenance.json`、`explain-graph.json`、`acceptance coverage graph` 和 `policy gate` 的正式字段。
+- upgrade / override 冲突分析、rule-backed override、迁移计划和回滚路径。
+- 私有 registry、团队 CI、托管验证、双视图工作台和权限审计。
+- 自举与自维护路径：先让系统描述和生成外围，再逐步接管 block、spec、验收和平台工具，而不是直接自改核心编译器。
+
+### 现在明确不做
+
+- 不做自由 chat 式整仓生成器。
+- 不做全领域通吃承诺。
+- 不做社区随意贡献整块代码的开放 marketplace。
+- 不做多语言、多后端、多运行时并行扩张。
+- 不把 Bun、Java、游戏、实时系统或底层 runtime 提前变成主线。
+- 不让 AI 修改 plan、manifest、lock、registry block 源、generated 产物或未授权路径。
+
+### 晚想会导致返工
+
+- 如果不先冻结 compile contract，后续多栈、多块和升级都会退化成模板拼接。
+- 如果不先设计 provenance 和 graph，团队 review 会退回“看 diff 猜 AI 做了什么”。
+- 如果不先定义 override 与升级优先级，人工修改会在下一次 compose/upgrade 中丢失或冲突不可控。
+- 如果不先区分冷/温/热路径，系统会错误承诺生成性能关键内核。
+- 如果不先规定 AI 任务信封和写入边界，平台会退化成普通 Agent 自动改仓库。
+
 ## 阶段 A：文档与规格冻结
 
 ### 目标
@@ -117,12 +153,20 @@
 
 ### 推荐新增官方块
 
+- `ticket/basic`
+- `worklog/basic`
 - `rbac/basic`
 - `audit/basic`
 - `file/upload`
 - `notify/email-basic`
 - `export/csv-basic`
 - `table/filter-search`
+
+### 母例演进
+
+- Customer Admin 保持为 `v0.1` 闭环母例。
+- `v0.2` 增加 Work Tracking / Ticket SaaS 的最小纵切面，验证状态流转、负责人、租户隔离、列表筛选和基础审计。
+- `v0.5` 将 Work Tracking 作为团队协作 demo，覆盖私有 registry、override、upgrade、policy gate 和 provenance explain。
 
 ### 退出条件
 
@@ -312,6 +356,78 @@
 
 - 平台可以稳定支持多个项目、多个团队、多个栈、多个升级周期。
 - AI 的主要职责已经收敛为：对齐、综合、修复、迁移、解释，而不是从零写整仓。
+
+## 阶段 I：分层自举
+
+### 目标
+
+- 让工程编译器逐步用自身规格描述和维护自身外围，而不是一次性“自改核心”。
+
+### 路线
+
+1. 宿主语言实现内核：parser、resolver、composer、verifier、lock、权限边界继续由 TypeScript/Node 确定性实现。
+2. 用工程规格描述官方 block、slot、acceptance、policy、registry metadata 和升级计划。
+3. 用平台生成和维护文档视图、explain graph、报告、测试 harness、block scaffolding 和 demo 项目。
+4. 将平台外围工具逐步迁移为自身 block：registry admin、upgrade center、policy center、verification dashboard。
+5. 最后才评估核心 pass 的自描述、自测试和受控迁移。
+
+### 不做
+
+- 不允许系统直接无约束改写核心编译器。
+- 不把自举作为 `v0.1-v1` 成功条件。
+
+## 阶段 J：自维护系统
+
+### 目标
+
+- 在 provenance、observability、权限、回滚和验收成熟后，让系统对项目进行有限自诊断、自修复和自升级。
+
+### 必备前提
+
+- 可观测：构建、测试、运行、验收、用户行为和错误都能回到 graph/provenance。
+- 可诊断：失败能映射到 spec issue、composition issue、slot issue 或 kernel issue。
+- 可执行：repair / upgrade / override 都有明确权限、写入范围和预算。
+- 可回滚：migration、compose、override 和生成产物都有恢复路径。
+- 可审计：每次 AI task、人工 override 和升级决策都能解释。
+
+### 默认边界
+
+- 自维护优先处理冷路径和温路径：slot 修复、policy 调整、验收补齐、文档/报告、升级计划。
+- 热路径、核心编译器、基础设施权限和数据迁移必须保持人工审批。
+
+## 阶段 K：产品线、组织与 Reality Compiler 研究线
+
+### 产品线编译器
+
+- 编译一族同源产品：行业包、客户包、差异化配置、override、版本矩阵和升级策略。
+
+### 组织编译器
+
+- 把角色、权限、流程、审批、数据对象、agent 和软件界面编译成组织协作系统。
+
+### Venture / Reality Compiler
+
+- 把商业想法或现实目标转化为软件、agent、人类角色、流程、外部服务和反馈回路组成的行动网络。
+- 该方向只作为长期研究与产品想象，不进入当前工程承诺。
+
+## 新增整合：采用与影响路线
+
+### 早期采用
+
+- 目标用户：重复构建后台、管理台、B2B SaaS、小型内部平台的小团队。
+- 默认交付物：可运行母例、官方块、CLI、验收、explain 报告和源码下钻。
+- 成功标准：用户能在不理解全部长期愿景的情况下完成一次可信编译和一次局部修改。
+
+### 中期采用
+
+- 目标用户：需要维护多个相似项目、多个客户变体、私有组件和团队 CI 的组织。
+- 默认交付物：私有 registry、policy gate、upgrade center、provenance、graph explorer 和 review assist。
+- 成功标准：团队把块、规则、验收和升级当作资产复用，而不是复制项目源码。
+
+### 长期影响
+
+- 软件项目从一次性手工工程变成可组合、可编译、可验证、可持续演化的产品线资产。
+- 新需求会集中在高质量功能块、行业块包、验收套件、规格工程师、项目变体管理、自维护服务、AI 成本压缩和企业软件现代化。
 
 ## 当前优先级矩阵
 
