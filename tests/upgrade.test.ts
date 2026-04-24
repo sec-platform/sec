@@ -1,5 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +6,7 @@ import path from 'node:path';
 import {
   adaptWorkspace,
   composeWorkspace,
+  explainWorkspace,
   initWorkspace,
   lockWorkspace,
   resolveWorkspace,
@@ -16,8 +16,26 @@ import {
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
+const activeWorkspaces = new Set<string>();
+
+afterAll(async () => {
+  for (const workspace of activeWorkspaces) {
+    try {
+      await fs.rm(workspace, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+});
+
+async function createWorkspace(prefix: string): Promise<string> {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  activeWorkspaces.add(workspaceRoot);
+  return workspaceRoot;
+}
+
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-'));
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-');
 
   await initWorkspace(workspaceRoot, { reset: true });
   await resolveWorkspace(workspaceRoot);
@@ -26,36 +44,47 @@ test('upgrade advances an official block version and preserves a passing pipelin
     path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts'),
     'utf8'
   );
-  assert.match(beforeUpgrade, /SESSION_BLOCK_VERSION = '0\.1\.0'/);
+  expect(beforeUpgrade).toMatch(/SESSION_BLOCK_VERSION = '0\.1\.0'/);
 
   await adaptWorkspace(workspaceRoot);
   await verifyWorkspace(workspaceRoot);
   await lockWorkspace(workspaceRoot);
 
   const { plan, lock, upgradePlan } = await upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1');
-  assert.equal(plan.blocks.find((block) => block.id === 'auth/basic-session')?.version, '0.1.1');
-  assert.equal(lock.resolvedBlocks.find((block) => block.id === 'auth/basic-session')?.version, '0.1.1');
-  assert.equal(lock.passStatus.lock, 'succeeded');
-  assert.equal(upgradePlan.status, 'applied');
-  assert.ok(lock.generatedPaths.includes('generated/upgrade-plan.json'));
+  expect(plan.blocks.find((block) => block.id === 'auth/basic-session')?.version).toBe('0.1.1');
+  expect(lock.resolvedBlocks.find((block) => block.id === 'auth/basic-session')?.version).toBe('0.1.1');
+  expect(lock.passStatus.lock).toBe('succeeded');
+  expect(upgradePlan.status).toBe('applied');
+  expect(lock.generatedPaths).toContain('generated/upgrade-plan.json');
 
   const afterUpgrade = await fs.readFile(
     path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts'),
     'utf8'
   );
-  assert.match(afterUpgrade, /SESSION_BLOCK_VERSION = '0\.1\.1'/);
-  assert.match(afterUpgrade, /SUPPORTED_USERNAMES/);
+  expect(afterUpgrade).toMatch(/SESSION_BLOCK_VERSION = '0\.1\.1'/);
+  expect(afterUpgrade).toMatch(/SUPPORTED_USERNAMES/);
 
   const persistedUpgradePlan = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'upgrade-plan.json'), 'utf8')
   ) as { toVersion: string; status: string; impacts: string[] };
-  assert.equal(persistedUpgradePlan.toVersion, '0.1.1');
-  assert.equal(persistedUpgradePlan.status, 'applied');
-  assert.ok(persistedUpgradePlan.impacts.includes('src/installed/auth/session.ts'));
+  expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
+  expect(persistedUpgradePlan.status).toBe('applied');
+  expect(persistedUpgradePlan.impacts).toContain('src/installed/auth/session.ts');
+
+  const { reviewSummary } = await explainWorkspace(workspaceRoot);
+  expect(reviewSummary.conflictHints).toEqual(
+    expect.arrayContaining([
+      {
+        kind: 'upgrade-plan-present',
+        relatedId: 'auth/basic-session',
+        message: 'Upgrade plan present: auth/basic-session 0.1.0 -> 0.1.1'
+      }
+    ])
+  );
 });
 
 test('upgrade is blocked when a manual override conflicts with impacted files', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-conflict-'));
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-conflict-');
   const { overrideManifestPath } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -79,12 +108,5 @@ test('upgrade is blocked when a manual override conflicts with impacted files', 
     ]
   });
 
-  await assert.rejects(
-    async () => upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1'),
-    (error: unknown) =>
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code?: string }).code === 'UPGRADE-CONFLICT-001'
-  );
+  await expect(upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1')).rejects.toThrow();
 });

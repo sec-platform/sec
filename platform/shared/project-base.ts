@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { ensureDir, pathExists, writeJson, writeText } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
+import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 import { writeYaml } from './yaml.ts';
 
 export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
@@ -34,23 +35,9 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   await ensureDir(path.join(projectRoot, 'prisma'));
   await ensureDir(privateRegistryRoot);
 
+  const runtimeDependencySpec = await loadRuntimeDependencySpec();
   await writeJson(projectPackagePath, {
-    name: 'generated-customer-admin',
-    private: true,
-    type: 'module',
-    dependencies: {
-      next: '^16.2.4',
-      react: '^19.2.5',
-      'react-dom': '^19.2.5'
-    },
-    devDependencies: {
-      '@playwright/test': '^1.59.1',
-      '@types/node': '^22.15.30',
-      '@types/react': '^19.2.14',
-      '@types/react-dom': '^19.2.3',
-      typescript: '^5.8.3',
-      vitest: '^4.1.5'
-    },
+    ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),
     scripts: {
       dev: 'next dev',
       build: 'next build',
@@ -112,12 +99,12 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   );
   await writeText(
     path.join(projectRoot, 'playwright.config.ts'),
-    `import { defineConfig } from '@playwright/test';\n\nconst baseURL = 'http://127.0.0.1:3001';\n\nexport default defineConfig({\n  testDir: './tests/runtime/acceptance',\n  reporter: 'line',\n  use: {\n    baseURL,\n    trace: 'off'\n  },\n  webServer: {\n    command: 'next dev --hostname 127.0.0.1 --port 3001',\n    url: \`\${baseURL}/login\`,\n    reuseExistingServer: !process.env.CI,\n    timeout: 120000\n  }\n});\n`
+    `import { defineConfig } from '@playwright/test';\n\nconst port = parseInt(process.env.TEST_PORT ?? '3001', 10);\nconst baseURL = \`http://127.0.0.1:\${port}\`;\n\nexport default defineConfig({\n  testDir: './tests/runtime/acceptance',\n  reporter: 'line',\n  use: {\n    baseURL,\n    trace: 'off'\n  },\n  webServer: {\n    command: \`next dev --hostname 127.0.0.1 --port \${port}\`,\n    url: \`\${baseURL}/login\`,\n    reuseExistingServer: !process.env.CI,\n    timeout: 120000\n  }\n});\n`
   );
 
   await writeText(
     path.join(projectRoot, 'src', 'runtime', 'database.ts'),
-    `export interface CustomerInput {\n  name?: string;\n  email?: string;\n  phone?: string;\n  company?: string;\n}\n\nexport interface NormalizedCustomerInput {\n  name: string;\n  email: string;\n  phone: string;\n  company: string;\n}\n\nexport interface CustomerRecord extends NormalizedCustomerInput {\n  id: number;\n  tenantId: string;\n}\n\nexport interface Database {\n  nextCustomerId: number;\n  customers: CustomerRecord[];\n}\n\nexport function createDatabase(): Database {\n  return {\n    nextCustomerId: 1,\n    customers: []\n  };\n}\n`
+    `export interface CustomerInput {\n  name?: string;\n  email?: string;\n  phone?: string;\n  company?: string;\n}\n\nexport interface NormalizedCustomerInput {\n  name: string;\n  email: string;\n  phone: string;\n  company: string;\n}\n\nexport interface CustomerRecord extends NormalizedCustomerInput {\n  id: number;\n  tenantId: string;\n}\n\nexport interface CustomerAttachmentInput {\n  customerId: number;\n  fileName: string;\n  contentType: string;\n  size: number;\n  contentText: string;\n}\n\nexport interface CustomerAttachmentRecord extends CustomerAttachmentInput {\n  id: number;\n  tenantId: string;\n  createdAt: string;\n}\n\nexport interface EmailNotificationRecord {\n  id: number;\n  tenantId: string;\n  customerId: number;\n  eventType: string;\n  recipient: string;\n  subject: string;\n  body: string;\n  createdAt: string;\n}\n\nexport interface Database {\n  nextCustomerId: number;\n  customers: CustomerRecord[];\n  nextCustomerAttachmentId: number;\n  customerAttachments: CustomerAttachmentRecord[];\n  nextEmailNotificationId: number;\n  emailNotifications: EmailNotificationRecord[];\n}\n\nexport function createDatabase(): Database {\n  return {\n    nextCustomerId: 1,\n    customers: [],\n    nextCustomerAttachmentId: 1,\n    customerAttachments: [],\n    nextEmailNotificationId: 1,\n    emailNotifications: []\n  };\n}\n`
   );
 
   const prismaSchemaPath = path.join(projectRoot, 'prisma', 'schema.prisma');

@@ -1,0 +1,189 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, expect, test } from 'vitest';
+
+import { ensureProjectBase } from '../platform/shared/project-base.ts';
+import {
+  ensureProjectDependencies,
+  ensureSharedDepsReady,
+  readRuntimeDepsStamp,
+  writeRuntimeDepsStamp
+} from '../platform/shared/project-runtime.ts';
+import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
+import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../platform/shared/runtime-dependency-spec.ts';
+
+const activeTempDirs = new Set<string>();
+
+afterAll(async () => {
+  for (const directory of activeTempDirs) {
+    try {
+      await fs.rm(directory, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+});
+
+async function createTempRoot(prefix: string): Promise<string> {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  activeTempDirs.add(directory);
+  return directory;
+}
+
+async function installRuntimeDeps(cwd: string): Promise<void> {
+  const nextPackagePath = path.join(cwd, 'node_modules', 'next', 'package.json');
+  await fs.mkdir(path.dirname(nextPackagePath), { recursive: true });
+  await fs.writeFile(nextPackagePath, '{\n  "name": "next"\n}\n', 'utf8');
+}
+
+test('ensureSharedDepsReady serializes concurrent installs behind one lock', async () => {
+  const tempRoot = await createTempRoot('engineering-compiler-shared-deps-');
+  const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
+  let installCalls = 0;
+
+  const commandRunner = async (_command: string, _args: string[], options: { cwd: string }) => {
+    installCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await installRuntimeDeps(options.cwd);
+    return { code: 0, stdout: 'ok', stderr: '' };
+  };
+
+  await Promise.all([
+    ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
+    ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
+    ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot })
+  ]);
+
+  expect(installCalls).toBe(1);
+  expect(await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'))).toMatchObject({
+    packageManager: 'bun'
+  });
+});
+
+test('project and shared runtime manifests derive versions from the root package.json', async () => {
+  const workspaceRoot = await createTempRoot('engineering-compiler-runtime-manifest-');
+  const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+
+  await ensureProjectBase(workspaceRoot);
+  await ensureSharedDepsReady({
+    commandRunner: async (_command, _args, options) => {
+      await installRuntimeDeps(options.cwd);
+      return { code: 0, stdout: 'ok', stderr: '' };
+    },
+    sharedDepsRoot
+  });
+
+  const rootPackage = JSON.parse(await fs.readFile(path.join(compilerRoot, 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const { projectPackagePath } = getWorkspacePaths(workspaceRoot);
+  const projectPackage = JSON.parse(await fs.readFile(projectPackagePath, 'utf8')) as {
+    dependencies: Record<string, string>;
+    devDependencies: Record<string, string>;
+  };
+  const sharedPackage = JSON.parse(await fs.readFile(path.join(sharedDepsRoot, 'package.json'), 'utf8')) as {
+    dependencies: Record<string, string>;
+    devDependencies: Record<string, string>;
+  };
+
+  expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next);
+  expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react);
+  expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node']);
+  expect(projectPackage.devDependencies.typescript).toBe(rootPackage.dependencies?.typescript);
+  expect(sharedPackage.dependencies).toEqual(projectPackage.dependencies);
+  expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
+});
+
+test('ensureProjectDependencies skips install when warm cache and matching stamps already exist', async () => {
+  const workspaceRoot = await createTempRoot('engineering-compiler-runtime-skip-');
+  const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+  const runtimeSpec = await loadRuntimeDependencySpec();
+
+  await ensureProjectBase(workspaceRoot);
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+
+  await fs.mkdir(path.join(sharedDepsRoot, 'node_modules', 'next'), { recursive: true });
+  await fs.writeFile(path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json'), '{\n}\n', 'utf8');
+  await fs.writeFile(
+    path.join(sharedDepsRoot, 'package.json'),
+    `${JSON.stringify(buildRuntimePackageManifest('shared-runtime-deps', runtimeSpec), null, 2)}\n`,
+    'utf8'
+  );
+  await writeRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'), {
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'bun',
+    installedAt: '2026-01-01T00:00:00.000Z'
+  });
+
+  await fs.mkdir(path.join(projectRoot, 'node_modules', 'next'), { recursive: true });
+  await fs.writeFile(path.join(projectRoot, 'node_modules', 'next', 'package.json'), '{\n}\n', 'utf8');
+  await writeRuntimeDepsStamp(path.join(projectRoot, '.runtime-deps.stamp.json'), {
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'bun',
+    installedAt: '2026-01-01T00:00:00.000Z'
+  });
+
+  let installCalls = 0;
+  await ensureProjectDependencies(projectRoot, {
+    commandRunner: async () => {
+      installCalls += 1;
+      return { code: 0, stdout: 'ok', stderr: '' };
+    },
+    sharedDepsRoot
+  });
+
+  expect(installCalls).toBe(0);
+});
+
+test('ensureProjectDependencies falls back to npm and still writes matching stamps', async () => {
+  const workspaceRoot = await createTempRoot('engineering-compiler-runtime-fallback-');
+  const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+  const runtimeSpec = await loadRuntimeDependencySpec();
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  let bunCalls = 0;
+  let npmCalls = 0;
+
+  await ensureProjectBase(workspaceRoot);
+
+  await ensureProjectDependencies(projectRoot, {
+    commandRunner: async (command, _args, options) => {
+      if (command === 'bun') {
+        bunCalls += 1;
+        return { code: 1, stdout: '', stderr: 'bun failed' };
+      }
+
+      npmCalls += 1;
+      await installRuntimeDeps(options.cwd);
+      return { code: 0, stdout: 'npm ok', stderr: '' };
+    },
+    preferSharedCopy: false,
+    sharedDepsRoot
+  });
+
+  expect(bunCalls).toBe(2);
+  expect(npmCalls).toBe(2);
+  expect(await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'))).toEqual({
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'npm',
+    installedAt: expect.any(String)
+  });
+  expect(await readRuntimeDepsStamp(path.join(projectRoot, '.runtime-deps.stamp.json'))).toEqual({
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'npm',
+    installedAt: expect.any(String)
+  });
+});
+
+test('reference refresh and shared cache contract stay anchored in repo metadata', async () => {
+  const rootPackage = JSON.parse(await fs.readFile(path.join(compilerRoot, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  const gitignore = await fs.readFile(path.join(compilerRoot, '.gitignore'), 'utf8');
+
+  expect(rootPackage.scripts['reference:refresh']).toBe(
+    'npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt && npm run platform -- verify --lane all && npm run platform -- lock && npm run platform -- explain'
+  );
+  expect(gitignore).toContain('.shared-deps/');
+});

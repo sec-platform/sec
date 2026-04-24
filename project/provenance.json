@@ -2,6 +2,14 @@
   "formatVersion": "1",
   "artifacts": [
     {
+      "path": "app/api/customers/[customerId]/attachments/route.ts",
+      "originType": "generated",
+      "originId": "app/api/customers/[customerId]/attachments/route.ts",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
       "path": "app/api/customers/route.ts",
       "originType": "generated",
       "originId": "app/api/customers/route.ts",
@@ -82,6 +90,14 @@
       "overrideStatus": "none"
     },
     {
+      "path": "components/customer-attachment-form.tsx",
+      "originType": "generated",
+      "originId": "components/customer-attachment-form.tsx",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
       "path": "components/customer-form.tsx",
       "originType": "generated",
       "originId": "components/customer-form.tsx",
@@ -117,8 +133,11 @@
         "tests/runtime/acceptance/customer-flow.spec.ts",
         "tests/runtime/unit/customer-runtime.test.ts",
         "tests/unit/audit-log.test.ts",
+        "tests/unit/customer-attachments.test.ts",
         "tests/unit/customer-export.test.ts",
+        "tests/unit/customer-filter.test.ts",
         "tests/unit/customer-normalizer.test.ts",
+        "tests/unit/email-outbox.test.ts",
         "tests/unit/rbac-authorize.test.ts"
       ],
       "overrideStatus": "none"
@@ -164,14 +183,6 @@
       "overrideStatus": "none"
     },
     {
-      "path": "generated/review-summary.json",
-      "originType": "generated",
-      "originId": "generated/review-summary.json",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
       "path": "generated/routes.ts",
       "originType": "generated",
       "originId": "generated/routes.ts",
@@ -192,22 +203,6 @@
       "originType": "generated",
       "originId": "generated/verification-report.json",
       "generatedByPass": "verify",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "generated/views/slot-rule-view.html",
-      "originType": "generated",
-      "originId": "generated/views/slot-rule-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "generated/views/source-view.html",
-      "originType": "generated",
-      "originId": "generated/views/source-view.html",
-      "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none"
     },
@@ -314,6 +309,33 @@
       "overrideStatus": "none"
     },
     {
+      "path": "src/installed/file/customer-attachments.ts",
+      "originType": "block",
+      "originId": "file/upload",
+      "sourceBlock": "file/upload",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "src/installed/notify/email-outbox.ts",
+      "originType": "block",
+      "originId": "notify/email-basic",
+      "sourceBlock": "notify/email-basic",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "src/installed/table/customer-filter.ts",
+      "originType": "block",
+      "originId": "table/filter-search",
+      "sourceBlock": "table/filter-search",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
       "path": "src/installed/tenant/context.ts",
       "originType": "block",
       "originId": "tenant/basic-workspace",
@@ -357,6 +379,15 @@
       "overrideStatus": "none"
     },
     {
+      "path": "tests/unit/customer-attachments.test.ts",
+      "originType": "block",
+      "originId": "file/upload",
+      "sourceBlock": "file/upload",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
       "path": "tests/unit/customer-export.test.ts",
       "originType": "block",
       "originId": "export/csv-basic",
@@ -366,10 +397,28 @@
       "overrideStatus": "none"
     },
     {
+      "path": "tests/unit/customer-filter.test.ts",
+      "originType": "block",
+      "originId": "table/filter-search",
+      "sourceBlock": "table/filter-search",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
       "path": "tests/unit/customer-normalizer.test.ts",
       "originType": "block",
       "originId": "entity/customer-basic",
       "sourceBlock": "entity/customer-basic",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "tests/unit/email-outbox.test.ts",
+      "originType": "block",
+      "originId": "notify/email-basic",
+      "sourceBlock": "notify/email-basic",
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none"

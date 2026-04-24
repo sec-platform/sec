@@ -25,7 +25,6 @@ import type {
   LockFile,
   ManifestEntry,
   PlanFile,
-  PolicyReport,
   ProvenanceFile,
   RepairPlan,
   ReviewSummary,
@@ -125,6 +124,13 @@ export async function addBlock(workspaceRoot = process.cwd(), blockId: string): 
     registrySources: plan.registry.sources
   });
   plan.blocks.push({ id: blockId, version: manifestEntry.manifest.version });
+  const declaredAcceptanceIds = new Set(plan.acceptance.map((entry) => entry.id));
+  for (const acceptance of manifestEntry.manifest.acceptance) {
+    if (!declaredAcceptanceIds.has(acceptance.id)) {
+      plan.acceptance.push({ id: acceptance.id });
+      declaredAcceptanceIds.add(acceptance.id);
+    }
+  }
   await writeYaml(planPath, plan);
   return plan;
 }
@@ -229,7 +235,6 @@ export async function explainWorkspace(
   const {
     acceptanceCoveragePath,
     lockPath,
-    policyReportPath,
     provenancePath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
@@ -242,20 +247,10 @@ export async function explainWorkspace(
   const provenance = await readJson<ProvenanceFile>(provenancePath);
   const report = await readJson<VerificationReport>(verificationReportPath);
   const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
-  const policyReport = await readJson<PolicyReport>(policyReportPath);
-  const graph = await writeExplainGraph(workspaceRoot, lock, provenance, report);
+  const graph = await writeExplainGraph(workspaceRoot, lock, provenance);
   const refreshedProvenance = await readJson<ProvenanceFile>(provenancePath);
   const reviewSummary = await writeReviewSummary(workspaceRoot, lock, refreshedProvenance, report, coverage);
-  await writeLocalViews(
-    workspaceRoot,
-    lock,
-    refreshedProvenance,
-    report,
-    coverage,
-    policyReport,
-    reviewSummary,
-    graph
-  );
+  await writeLocalViews(workspaceRoot);
   return { lock, provenance: refreshedProvenance, report, graph, reviewSummary };
 }
 

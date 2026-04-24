@@ -1,14 +1,16 @@
 import fs from 'node:fs/promises';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import { pathExists, readJson } from '../../shared/fs.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import { buildProvenance, writeProvenance } from './write-provenance.ts';
 import type {
+  AcceptanceCoverageReport,
   ExplainGraph,
   ExplainGraphEdge,
   ExplainGraphNode,
   LockFile,
-  ProvenanceFile,
-  VerificationReport
+  ProvenanceFile
 } from '../../shared/types.ts';
 
 function pushNode(nodes: ExplainGraphNode[], node: ExplainGraphNode): void {
@@ -27,7 +29,7 @@ export async function buildExplainGraph(
   workspaceRoot: string,
   lock: LockFile,
   provenance: ProvenanceFile,
-  report: VerificationReport
+  coverage: AcceptanceCoverageReport
 ): Promise<ExplainGraph> {
   const nodes: ExplainGraphNode[] = [];
   const edges: ExplainGraphEdge[] = [];
@@ -145,22 +147,25 @@ export async function buildExplainGraph(
       type: 'acceptance',
       label: acceptanceId
     });
+  }
 
-    if (report.runtime.acceptance.status === 'passed') {
-      for (const block of lock.resolvedBlocks) {
-        pushEdge(edges, {
-          from: `block:${block.id}`,
-          to: acceptanceNodeId,
-          type: 'verified_by'
-        });
-      }
-      for (const task of lock.slotTasks) {
-        pushEdge(edges, {
-          from: `slot:${task.id}`,
-          to: acceptanceNodeId,
-          type: 'verified_by'
-        });
-      }
+  for (const blockCoverage of coverage.blocks) {
+    for (const acceptanceId of blockCoverage.coveredBy) {
+      pushEdge(edges, {
+        from: `block:${blockCoverage.id}`,
+        to: `acceptance:${acceptanceId}`,
+        type: 'verified_by'
+      });
+    }
+  }
+
+  for (const slotCoverage of coverage.slots) {
+    for (const acceptanceId of slotCoverage.coveredBy) {
+      pushEdge(edges, {
+        from: `slot:${slotCoverage.id}`,
+        to: `acceptance:${acceptanceId}`,
+        type: 'verified_by'
+      });
     }
   }
 
@@ -172,13 +177,13 @@ export async function buildExplainGraph(
     overlays: {
       provenance: provenance.artifacts,
       coverage: {
-        blocks: lock.resolvedBlocks.map((block) => ({
-          id: block.id,
-          coveredBy: report.runtime.acceptance.status === 'passed' ? [...lock.acceptancePlan] : []
+        blocks: coverage.blocks.map((entry) => ({
+          id: entry.id,
+          coveredBy: [...entry.coveredBy]
         })),
-        slots: lock.slotTasks.map((task) => ({
-          id: task.id,
-          coveredBy: report.runtime.acceptance.status === 'passed' ? [...lock.acceptancePlan] : []
+        slots: coverage.slots.map((entry) => ({
+          id: entry.id,
+          coveredBy: [...entry.coveredBy]
         }))
       }
     }
@@ -188,18 +193,22 @@ export async function buildExplainGraph(
 export async function writeExplainGraph(
   workspaceRoot: string,
   lock: LockFile,
-  provenance: ProvenanceFile,
-  report: VerificationReport
+  provenance: ProvenanceFile
 ): Promise<ExplainGraph> {
-  const { explainGraphPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const { acceptanceCoveragePath, explainGraphPath, lockPath } = getWorkspacePaths(workspaceRoot);
   if (!lock.generatedPaths.includes('generated/explain-graph.json')) {
     lock.generatedPaths.push('generated/explain-graph.json');
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   }
+  if (!(await pathExists(acceptanceCoveragePath))) {
+    throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
+  }
+
+  const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
   const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === 'generated/explain-graph.json')
     ? provenance
     : await buildProvenance(workspaceRoot, lock);
-  const graph = await buildExplainGraph(workspaceRoot, lock, nextProvenance, report);
+  const graph = await buildExplainGraph(workspaceRoot, lock, nextProvenance, coverage);
 
   await fs.writeFile(explainGraphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');

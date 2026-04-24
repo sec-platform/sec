@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
-const baseURL = 'http://127.0.0.1:3001';
+const port = parseInt(process.env.TEST_PORT ?? '3001', 10);
+const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: './tests/runtime/acceptance',
@@ -10,7 +11,7 @@ export default defineConfig({
     trace: 'off'
   },
   webServer: {
-    command: 'next dev --hostname 127.0.0.1 --port 3001',
+    command: `next dev --hostname 127.0.0.1 --port ${port}`,
     url: `${baseURL}/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 120000

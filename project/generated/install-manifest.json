@@ -154,5 +154,83 @@
     "from": "files/tests/unit/customer-export.test.ts",
     "to": "tests/unit/customer-export.test.ts",
     "status": "installed"
+  },
+  {
+    "stepId": "file/upload:13",
+    "blockId": "file/upload",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "file.upload",
+    "action": "copy",
+    "from": "files/src/installed/file/customer-attachments.ts",
+    "to": "src/installed/file/customer-attachments.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "file/upload:14",
+    "blockId": "file/upload",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "file.upload",
+    "action": "copy",
+    "from": "files/tests/unit/customer-attachments.test.ts",
+    "to": "tests/unit/customer-attachments.test.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "notify/email-basic:15",
+    "blockId": "notify/email-basic",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "notify.email-basic",
+    "action": "copy",
+    "from": "files/src/installed/notify/email-outbox.ts",
+    "to": "src/installed/notify/email-outbox.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "notify/email-basic:16",
+    "blockId": "notify/email-basic",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "notify.email-basic",
+    "action": "copy",
+    "from": "files/tests/unit/email-outbox.test.ts",
+    "to": "tests/unit/email-outbox.test.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "table/filter-search:17",
+    "blockId": "table/filter-search",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "table.filter-search",
+    "action": "copy",
+    "from": "files/src/installed/table/customer-filter.ts",
+    "to": "src/installed/table/customer-filter.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "table/filter-search:18",
+    "blockId": "table/filter-search",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "table.filter-search",
+    "action": "copy",
+    "from": "files/tests/unit/customer-filter.test.ts",
+    "to": "tests/unit/customer-filter.test.ts",
+    "status": "installed"
   }
 ]

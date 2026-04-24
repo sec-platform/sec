@@ -23,6 +23,18 @@
     {
       "id": "export/csv-basic",
       "installOrder": 6
+    },
+    {
+      "id": "file/upload",
+      "installOrder": 7
+    },
+    {
+      "id": "notify/email-basic",
+      "installOrder": 8
+    },
+    {
+      "id": "table/filter-search",
+      "installOrder": 9
     }
   ]
 }

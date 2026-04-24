@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
-import { ensureDir } from '../../shared/fs.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type {
   AcceptanceCoverageReport,
@@ -23,11 +24,111 @@ function renderJsonCard(title: string, value: unknown): string {
   return `<section class="card"><h2>${escapeHtml(title)}</h2><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></section>`;
 }
 
+async function readRequiredArtifact<T>(filePath: string, label: string): Promise<T> {
+  if (!(await pathExists(filePath))) {
+    throw new CompilerError('EXPLAIN-BLOCKED-003', `${label} is missing`);
+  }
+
+  return readJson<T>(filePath);
+}
+
+function renderPolicySourcesTable(policyReport: PolicyReport): string {
+  const rows = [...policyReport.official.sources, ...policyReport.project.sources]
+    .map((source) => `<tr><td>${escapeHtml(source.path)}</td><td>${escapeHtml(source.policyIds.join(', ') || 'none')}</td></tr>`)
+    .join('');
+
+  return `<section class="card">
+        <h2>Policy Sources</h2>
+        <table>
+          <thead><tr><th>Path</th><th>Policy IDs</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </section>`;
+}
+
+function renderMergedPoliciesTable(policyReport: PolicyReport): string {
+  const rows = policyReport.merged.policies
+    .map(
+      (policy) =>
+        `<tr><td>${escapeHtml(policy.id)}</td><td>${escapeHtml(policy.sourceScope)}</td><td>${escapeHtml(policy.sourcePath)}</td></tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Merged Policies</h2>
+        <table>
+          <thead><tr><th>Policy</th><th>Scope</th><th>Source</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </section>`;
+}
+
+function renderPolicyViolationsTable(policyReport: PolicyReport): string {
+  const rows = policyReport.violations
+    .map(
+      (violation) =>
+        `<tr><td>${escapeHtml(violation.id)}</td><td>${escapeHtml(violation.severity)}</td><td>${escapeHtml(violation.sourceScope)}</td><td>${escapeHtml(violation.sourcePath)}</td><td>${escapeHtml(violation.message)}</td></tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Policy Violations</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Severity</th><th>Scope</th><th>Source</th><th>Message</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </section>`;
+}
+
+function renderReviewSummaryTables(review: ReviewSummary): string {
+  const failureRows = review.failurePoints
+    .map(
+      (failure) =>
+        `<tr><td>${escapeHtml(failure.lane)}</td><td>${escapeHtml(failure.kind)}</td><td>${escapeHtml(failure.artifactPath)}</td><td>${escapeHtml(failure.message)}</td></tr>`
+    )
+    .join('');
+  const regressionRows = review.regressionRisks
+    .map(
+      (risk) =>
+        `<tr><td>${escapeHtml(risk.kind)}</td><td>${escapeHtml(risk.blockId ?? '')}</td><td>${escapeHtml(risk.slotId ?? '')}</td><td>${escapeHtml(risk.message)}</td></tr>`
+    )
+    .join('');
+  const conflictRows = review.conflictHints
+    .map(
+      (hint) =>
+        `<tr><td>${escapeHtml(hint.kind)}</td><td>${escapeHtml(hint.relatedId)}</td><td>${escapeHtml(hint.message)}</td></tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Review Failure Points</h2>
+        <table>
+          <thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead>
+          <tbody>${failureRows}</tbody>
+        </table>
+      </section>
+      <section class="card">
+        <h2>Review Regression Risks</h2>
+        <table>
+          <thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead>
+          <tbody>${regressionRows}</tbody>
+        </table>
+      </section>
+      <section class="card">
+        <h2>Review Conflict Hints</h2>
+        <table>
+          <thead><tr><th>Kind</th><th>Related ID</th><th>Message</th></tr></thead>
+          <tbody>${conflictRows}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderSourceView(
   lock: LockFile,
   provenance: ProvenanceFile,
   review: ReviewSummary,
-  graph: ExplainGraph
+  graph: ExplainGraph,
+  policyReport: PolicyReport
 ): string {
   return `<!doctype html>
 <html lang="en">
@@ -55,7 +156,9 @@ function renderSourceView(
           </tbody>
         </table>
       </section>
-      ${renderJsonCard('Review Summary', review)}
+      ${renderPolicySourcesTable(policyReport)}
+      ${renderMergedPoliciesTable(policyReport)}
+      ${renderReviewSummaryTables(review)}
       ${renderJsonCard('Explain Graph', { nodes: graph.nodes.length, edges: graph.edges.length })}
     </main>
   </body>
@@ -98,29 +201,29 @@ function renderSlotRuleView(
           </tbody>
         </table>
       </section>
-      ${renderJsonCard('Policy Report', policyReport)}
+      ${renderPolicyViolationsTable(policyReport)}
       ${renderJsonCard('Acceptance Coverage', coverage)}
-      ${renderJsonCard('Review Risks', {
-        failurePoints: review.failurePoints,
-        regressionRisks: review.regressionRisks,
-        conflictHints: review.conflictHints
-      })}
+      ${renderReviewSummaryTables(review)}
     </main>
   </body>
 </html>`;
 }
 
-export async function writeLocalViews(
-  workspaceRoot: string,
-  lock: LockFile,
-  provenance: ProvenanceFile,
-  report: VerificationReport,
-  coverage: AcceptanceCoverageReport,
-  policyReport: PolicyReport,
-  review: ReviewSummary,
-  graph: ExplainGraph
-): Promise<void> {
-  const { generatedViewsDir, sourceViewPath, slotRuleViewPath, lockPath } = getWorkspacePaths(workspaceRoot);
+export async function writeLocalViews(workspaceRoot: string): Promise<void> {
+  const {
+    acceptanceCoveragePath,
+    explainGraphPath,
+    generatedViewsDir,
+    lockPath,
+    policyReportPath,
+    provenancePath,
+    reviewSummaryPath,
+    sourceViewPath,
+    slotRuleViewPath,
+    verificationReportPath
+  } = getWorkspacePaths(workspaceRoot);
+
+  const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
   await ensureDir(generatedViewsDir);
   for (const generatedPath of ['generated/views/source-view.html', 'generated/views/slot-rule-view.html']) {
     if (!lock.generatedPaths.includes(generatedPath)) {
@@ -128,7 +231,17 @@ export async function writeLocalViews(
     }
   }
   lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph), 'utf8');
-  await fs.writeFile(slotRuleViewPath, renderSlotRuleView(lock, report, coverage, policyReport, review), 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+
+  const [provenance, report, coverage, policyReport, review, graph] = await Promise.all([
+    readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
+    readRequiredArtifact<VerificationReport>(verificationReportPath, 'verification-report.json'),
+    readRequiredArtifact<AcceptanceCoverageReport>(acceptanceCoveragePath, 'acceptance-coverage.json'),
+    readRequiredArtifact<PolicyReport>(policyReportPath, 'policy-report.json'),
+    readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
+    readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json')
+  ]);
+
+  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport), 'utf8');
+  await fs.writeFile(slotRuleViewPath, renderSlotRuleView(lock, report, coverage, policyReport, review), 'utf8');
 }

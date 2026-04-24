@@ -26,11 +26,16 @@ function createSkippedPolicyReport(): PolicyReport {
     status: 'skipped',
     official: {
       policies: [],
+      sources: [],
       violations: []
     },
     project: {
       policies: [],
+      sources: [],
       violations: []
+    },
+    merged: {
+      policies: []
     },
     violations: []
   };
