@@ -1,16 +1,20 @@
-import { createDatabase, type Database } from '../src/runtime/database.ts';
+import { createRuntimeStore, getRuntimeDatabase, type Database, type RuntimeStore } from '../src/runtime/database.ts';
 
 declare global {
-  var __engineeringCompilerDatabase: Database | undefined;
+  var __engineeringCompilerRuntimeStore: RuntimeStore | undefined;
+}
+
+export function getRuntimeStore(): RuntimeStore {
+  if (!globalThis.__engineeringCompilerRuntimeStore) {
+    globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('postgres-contract');
+  }
+  return globalThis.__engineeringCompilerRuntimeStore;
 }
 
 export function getDatabase(): Database {
-  if (!globalThis.__engineeringCompilerDatabase) {
-    globalThis.__engineeringCompilerDatabase = createDatabase();
-  }
-  return globalThis.__engineeringCompilerDatabase;
+  return getRuntimeDatabase(getRuntimeStore());
 }
 
 export function resetDatabase(): void {
-  globalThis.__engineeringCompilerDatabase = createDatabase();
+  globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('postgres-contract');
 }

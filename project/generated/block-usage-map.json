@@ -1,40 +1,44 @@
 {
   "blocks": [
     {
-      "id": "auth/basic-session",
+      "id": "infra/postgres",
       "installOrder": 1
     },
     {
-      "id": "audit/basic",
+      "id": "auth/basic-session",
       "installOrder": 2
     },
     {
-      "id": "rbac/basic",
+      "id": "audit/basic",
       "installOrder": 3
     },
     {
-      "id": "tenant/basic-workspace",
+      "id": "rbac/basic",
       "installOrder": 4
     },
     {
-      "id": "entity/customer-basic",
+      "id": "tenant/basic-workspace",
       "installOrder": 5
     },
     {
-      "id": "export/csv-basic",
+      "id": "entity/customer-basic",
       "installOrder": 6
     },
     {
-      "id": "file/upload",
+      "id": "export/csv-basic",
       "installOrder": 7
     },
     {
-      "id": "notify/email-basic",
+      "id": "file/upload",
       "installOrder": 8
     },
     {
-      "id": "table/filter-search",
+      "id": "notify/email-basic",
       "installOrder": 9
+    },
+    {
+      "id": "table/filter-search",
+      "installOrder": 10
     }
   ]
 }

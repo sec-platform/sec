@@ -42,6 +42,15 @@ export interface EmailNotificationRecord {
   createdAt: string;
 }
 
+export interface AuditEntryRecord {
+  actorId: string;
+  tenantId: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  occurredAt: string;
+}
+
 export interface Database {
   nextCustomerId: number;
   customers: CustomerRecord[];
@@ -49,6 +58,14 @@ export interface Database {
   customerAttachments: CustomerAttachmentRecord[];
   nextEmailNotificationId: number;
   emailNotifications: EmailNotificationRecord[];
+  auditEntries: AuditEntryRecord[];
+}
+
+export type RuntimePersistence = 'memory' | 'postgres-contract';
+
+export interface RuntimeStore {
+  persistence: RuntimePersistence;
+  database: Database;
 }
 
 export function createDatabase(): Database {
@@ -58,6 +75,18 @@ export function createDatabase(): Database {
     nextCustomerAttachmentId: 1,
     customerAttachments: [],
     nextEmailNotificationId: 1,
-    emailNotifications: []
+    emailNotifications: [],
+    auditEntries: []
   };
+}
+
+export function createRuntimeStore(persistence: RuntimePersistence = 'memory'): RuntimeStore {
+  return {
+    persistence,
+    database: createDatabase()
+  };
+}
+
+export function getRuntimeDatabase(store: RuntimeStore): Database {
+  return store.database;
 }

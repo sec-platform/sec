@@ -33,5 +33,6 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 - `explain` writes `project/generated/explain-graph.json`, `project/generated/review-summary.json`, and the local HTML views under `project/generated/views/`.
 - CI restores a complete governance view from exactly three stable paths: `project/generated/**`, `project/provenance.json`, and `project/graph.lock.json`.
 - `.shared-deps/` is a local Bun/npm cache used to warm runtime dependencies; it is intentionally ignored and is not part of the shipped governance artifacts.
+- `infra/postgres` currently ships a contract-only Postgres path. It emits `project/generated/postgres-contract.json` and keeps the local runtime on the in-memory store until a real Postgres verification lane is added.
 
 When working in Codex web, start from the repo root. Most tasks either touch `platform/` or validate behavior through `tests/`.

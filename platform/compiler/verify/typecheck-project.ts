@@ -57,7 +57,13 @@ export async function typecheckProject(projectRoot: string): Promise<void> {
       rootNames: parsed.fileNames,
       options: {
         ...parsed.options,
-        typeRoots: [...new Set([...(parsed.options.typeRoots ?? []), path.join(compilerRoot, 'node_modules', '@types')])]
+        typeRoots: [
+          ...new Set([
+            ...(parsed.options.typeRoots ?? []),
+            path.join(projectRoot, 'node_modules', '@types'),
+            path.join(compilerRoot, 'node_modules', '@types')
+          ])
+        ]
       }
     });
     const diagnostics = ts.getPreEmitDiagnostics(program);

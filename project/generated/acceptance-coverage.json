@@ -9,9 +9,22 @@
     "customer_can_be_exported",
     "customer_can_upload_attachment",
     "customer_creation_sends_email_notification",
-    "customer_list_can_be_filtered"
+    "customer_list_can_be_filtered",
+    "audit_entry_can_be_created",
+    "user_can_access_authorized_route",
+    "postgres_contract_is_available"
   ],
   "blocks": [
+    {
+      "id": "infra/postgres",
+      "declaredAcceptance": [
+        "postgres_contract_is_available"
+      ],
+      "coveredBy": [
+        "postgres_contract_is_available"
+      ],
+      "uncovered": false
+    },
     {
       "id": "auth/basic-session",
       "declaredAcceptance": [
@@ -27,16 +40,20 @@
       "declaredAcceptance": [
         "audit_entry_can_be_created"
       ],
-      "coveredBy": [],
-      "uncovered": true
+      "coveredBy": [
+        "audit_entry_can_be_created"
+      ],
+      "uncovered": false
     },
     {
       "id": "rbac/basic",
       "declaredAcceptance": [
         "user_can_access_authorized_route"
       ],
-      "coveredBy": [],
-      "uncovered": true
+      "coveredBy": [
+        "user_can_access_authorized_route"
+      ],
+      "uncovered": false
     },
     {
       "id": "tenant/basic-workspace",
@@ -119,9 +136,6 @@
       "uncovered": false
     }
   ],
-  "uncoveredBlocks": [
-    "audit/basic",
-    "rbac/basic"
-  ],
+  "uncoveredBlocks": [],
   "uncoveredSlots": []
 }

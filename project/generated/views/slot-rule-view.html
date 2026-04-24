@@ -42,9 +42,22 @@
     &quot;customer_can_be_exported&quot;,
     &quot;customer_can_upload_attachment&quot;,
     &quot;customer_creation_sends_email_notification&quot;,
-    &quot;customer_list_can_be_filtered&quot;
+    &quot;customer_list_can_be_filtered&quot;,
+    &quot;audit_entry_can_be_created&quot;,
+    &quot;user_can_access_authorized_route&quot;,
+    &quot;postgres_contract_is_available&quot;
   ],
   &quot;blocks&quot;: [
+    {
+      &quot;id&quot;: &quot;infra/postgres&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;postgres_contract_is_available&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;postgres_contract_is_available&quot;
+      ],
+      &quot;uncovered&quot;: false
+    },
     {
       &quot;id&quot;: &quot;auth/basic-session&quot;,
       &quot;declaredAcceptance&quot;: [
@@ -60,16 +73,20 @@
       &quot;declaredAcceptance&quot;: [
         &quot;audit_entry_can_be_created&quot;
       ],
-      &quot;coveredBy&quot;: [],
-      &quot;uncovered&quot;: true
+      &quot;coveredBy&quot;: [
+        &quot;audit_entry_can_be_created&quot;
+      ],
+      &quot;uncovered&quot;: false
     },
     {
       &quot;id&quot;: &quot;rbac/basic&quot;,
       &quot;declaredAcceptance&quot;: [
         &quot;user_can_access_authorized_route&quot;
       ],
-      &quot;coveredBy&quot;: [],
-      &quot;uncovered&quot;: true
+      &quot;coveredBy&quot;: [
+        &quot;user_can_access_authorized_route&quot;
+      ],
+      &quot;uncovered&quot;: false
     },
     {
       &quot;id&quot;: &quot;tenant/basic-workspace&quot;,
@@ -152,10 +169,7 @@
       &quot;uncovered&quot;: false
     }
   ],
-  &quot;uncoveredBlocks&quot;: [
-    &quot;audit/basic&quot;,
-    &quot;rbac/basic&quot;
-  ],
+  &quot;uncoveredBlocks&quot;: [],
   &quot;uncoveredSlots&quot;: []
 }</pre></section>
       <section class="card">
@@ -169,7 +183,7 @@
         <h2>Review Regression Risks</h2>
         <table>
           <thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead>
-          <tbody><tr><td>coverage-gap</td><td>audit/basic</td><td></td><td>Block audit/basic has no runtime acceptance coverage</td></tr><tr><td>coverage-gap</td><td>rbac/basic</td><td></td><td>Block rbac/basic has no runtime acceptance coverage</td></tr></tbody>
+          <tbody></tbody>
         </table>
       </section>
       <section class="card">

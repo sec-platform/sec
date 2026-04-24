@@ -29,6 +29,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
   const companies = listCustomerCompanies(allCustomers);
   const attachmentsByCustomer = new Map(customers.map((customer) => [customer.id, listCustomerAttachments(database, session, customer.id)]));
   const notifications = listEmailNotifications(database, session);
+  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId);
 
   return (
     <main className="stack">
@@ -100,6 +101,19 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
             </li>
           ))}
           {notifications.length === 0 ? <li>No notifications yet.</li> : null}
+        </ul>
+      </section>
+
+      <section className="card stack">
+        <h2>Audit Trail</h2>
+        <ul className="clean" aria-label="Audit entries">
+          {auditEntries.map((entry) => (
+            <li key={`${entry.action}:${entry.entity}:${entry.entityId}`}>
+              <div><strong>{entry.action}</strong> {entry.entity} {entry.entityId}</div>
+              <div>{entry.actorId} in {entry.tenantId}</div>
+            </li>
+          ))}
+          {auditEntries.length === 0 ? <li>No audit entries yet.</li> : null}
         </ul>
       </section>
 
