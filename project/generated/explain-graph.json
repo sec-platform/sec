@@ -1,6 +1,11 @@
 {
   "nodes": [
     {
+      "id": "acceptance:audit_entry_can_be_created",
+      "type": "acceptance",
+      "label": "audit_entry_can_be_created"
+    },
+    {
       "id": "acceptance:customer_can_be_exported",
       "type": "acceptance",
       "label": "customer_can_be_exported"
@@ -21,9 +26,19 @@
       "label": "customer_list_can_be_filtered"
     },
     {
+      "id": "acceptance:postgres_contract_is_available",
+      "type": "acceptance",
+      "label": "postgres_contract_is_available"
+    },
+    {
       "id": "acceptance:tenant_only_sees_own_customers",
       "type": "acceptance",
       "label": "tenant_only_sees_own_customers"
+    },
+    {
+      "id": "acceptance:user_can_access_authorized_route",
+      "type": "acceptance",
+      "label": "user_can_access_authorized_route"
     },
     {
       "id": "acceptance:user_can_create_customer",
@@ -69,6 +84,11 @@
       "id": "block:file/upload",
       "type": "block",
       "label": "file/upload"
+    },
+    {
+      "id": "block:infra/postgres",
+      "type": "block",
+      "label": "infra/postgres"
     },
     {
       "id": "block:notify/email-basic",
@@ -119,6 +139,11 @@
       "id": "capability:customer/write",
       "type": "capability",
       "label": "customer/write"
+    },
+    {
+      "id": "capability:db/postgres",
+      "type": "capability",
+      "label": "db/postgres"
     },
     {
       "id": "capability:file/upload",
@@ -246,6 +271,16 @@
       "label": "generated/policy-report.json"
     },
     {
+      "id": "file:generated/postgres-contract.json",
+      "type": "file",
+      "label": "generated/postgres-contract.json"
+    },
+    {
+      "id": "file:generated/review-summary.json",
+      "type": "file",
+      "label": "generated/review-summary.json"
+    },
+    {
       "id": "file:generated/routes.ts",
       "type": "file",
       "label": "generated/routes.ts"
@@ -259,6 +294,16 @@
       "id": "file:generated/verification-report.json",
       "type": "file",
       "label": "generated/verification-report.json"
+    },
+    {
+      "id": "file:generated/views/slot-rule-view.html",
+      "type": "file",
+      "label": "generated/views/slot-rule-view.html"
+    },
+    {
+      "id": "file:generated/views/source-view.html",
+      "type": "file",
+      "label": "generated/views/source-view.html"
     },
     {
       "id": "file:lib/session.ts",
@@ -326,6 +371,11 @@
       "label": "src/installed/file/customer-attachments.ts"
     },
     {
+      "id": "file:src/installed/infra/postgres-contract.ts",
+      "type": "file",
+      "label": "src/installed/infra/postgres-contract.ts"
+    },
+    {
       "id": "file:src/installed/notify/email-outbox.ts",
       "type": "file",
       "label": "src/installed/notify/email-outbox.ts"
@@ -386,6 +436,11 @@
       "label": "tests/unit/email-outbox.test.ts"
     },
     {
+      "id": "file:tests/unit/postgres-contract.test.ts",
+      "type": "file",
+      "label": "tests/unit/postgres-contract.test.ts"
+    },
+    {
       "id": "file:tests/unit/rbac-authorize.test.ts",
       "type": "file",
       "label": "tests/unit/rbac-authorize.test.ts"
@@ -429,6 +484,11 @@
     },
     {
       "from": "app:customer-admin",
+      "to": "block:infra/postgres",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
       "to": "block:notify/email-basic",
       "type": "depends_on"
     },
@@ -456,6 +516,11 @@
       "from": "block:audit/basic",
       "to": "capability:audit/log",
       "type": "provides"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "acceptance:audit_entry_can_be_created",
+      "type": "verified_by"
     },
     {
       "from": "block:auth/basic-session",
@@ -543,6 +608,16 @@
       "type": "verified_by"
     },
     {
+      "from": "block:infra/postgres",
+      "to": "capability:db/postgres",
+      "type": "provides"
+    },
+    {
+      "from": "block:infra/postgres",
+      "to": "acceptance:postgres_contract_is_available",
+      "type": "verified_by"
+    },
+    {
       "from": "block:notify/email-basic",
       "to": "capability:customer/write",
       "type": "depends_on"
@@ -566,6 +641,11 @@
       "from": "block:rbac/basic",
       "to": "capability:auth/authorize",
       "type": "provides"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "acceptance:user_can_access_authorized_route",
+      "type": "verified_by"
     },
     {
       "from": "block:table/filter-search",
@@ -703,6 +783,16 @@
       "type": "originates_from"
     },
     {
+      "from": "file:generated/postgres-contract.json",
+      "to": "block:infra/postgres",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/review-summary.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:generated/routes.ts",
       "to": "app:customer-admin",
       "type": "originates_from"
@@ -714,6 +804,16 @@
     },
     {
       "from": "file:generated/verification-report.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/views/slot-rule-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/views/source-view.html",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -783,6 +883,11 @@
       "type": "originates_from"
     },
     {
+      "from": "file:src/installed/infra/postgres-contract.ts",
+      "to": "block:infra/postgres",
+      "type": "originates_from"
+    },
+    {
       "from": "file:src/installed/notify/email-outbox.ts",
       "to": "block:notify/email-basic",
       "type": "originates_from"
@@ -840,6 +945,11 @@
     {
       "from": "file:tests/unit/email-outbox.test.ts",
       "to": "block:notify/email-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/postgres-contract.test.ts",
+      "to": "block:infra/postgres",
       "type": "originates_from"
     },
     {
@@ -1012,6 +1122,7 @@
           "tests/unit/customer-filter.test.ts",
           "tests/unit/customer-normalizer.test.ts",
           "tests/unit/email-outbox.test.ts",
+          "tests/unit/postgres-contract.test.ts",
           "tests/unit/rbac-authorize.test.ts"
         ],
         "overrideStatus": "none"
@@ -1057,6 +1168,25 @@
         "overrideStatus": "none"
       },
       {
+        "path": "generated/postgres-contract.json",
+        "originType": "block",
+        "originId": "infra/postgres",
+        "sourceBlock": "infra/postgres",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/unit/postgres-contract.test.ts"
+        ],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/review-summary.json",
+        "originType": "generated",
+        "originId": "generated/review-summary.json",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
         "path": "generated/routes.ts",
         "originType": "generated",
         "originId": "generated/routes.ts",
@@ -1077,6 +1207,22 @@
         "originType": "generated",
         "originId": "generated/verification-report.json",
         "generatedByPass": "verify",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/views/slot-rule-view.html",
+        "originType": "generated",
+        "originId": "generated/views/slot-rule-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/views/source-view.html",
+        "originType": "generated",
+        "originId": "generated/views/source-view.html",
+        "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none"
       },
@@ -1126,7 +1272,10 @@
         "originId": "entity/customer-basic",
         "sourceBlock": "entity/customer-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/customer-normalizer.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1143,7 +1292,9 @@
         "originId": "audit/basic",
         "sourceBlock": "audit/basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/audit-log.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1152,7 +1303,9 @@
         "originId": "rbac/basic",
         "sourceBlock": "rbac/basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/rbac-authorize.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1170,7 +1323,10 @@
         "originId": "entity/customer-basic",
         "sourceBlock": "entity/customer-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/customer-normalizer.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1179,7 +1335,9 @@
         "originId": "export/csv-basic",
         "sourceBlock": "export/csv-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/customer-export.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1188,7 +1346,20 @@
         "originId": "file/upload",
         "sourceBlock": "file/upload",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/customer-attachments.test.ts"
+        ],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "src/installed/infra/postgres-contract.ts",
+        "originType": "block",
+        "originId": "infra/postgres",
+        "sourceBlock": "infra/postgres",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/unit/postgres-contract.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1197,7 +1368,9 @@
         "originId": "notify/email-basic",
         "sourceBlock": "notify/email-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/email-outbox.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1206,7 +1379,9 @@
         "originId": "table/filter-search",
         "sourceBlock": "table/filter-search",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/customer-filter.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1224,7 +1399,10 @@
         "originId": "entity/customer-basic",
         "sourceBlock": "entity/customer-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/customer-normalizer.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1249,7 +1427,9 @@
         "originId": "audit/basic",
         "sourceBlock": "audit/basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/audit-log.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1258,7 +1438,9 @@
         "originId": "file/upload",
         "sourceBlock": "file/upload",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/customer-attachments.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1267,7 +1449,9 @@
         "originId": "export/csv-basic",
         "sourceBlock": "export/csv-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/customer-export.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1276,7 +1460,9 @@
         "originId": "table/filter-search",
         "sourceBlock": "table/filter-search",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/customer-filter.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1285,7 +1471,10 @@
         "originId": "entity/customer-basic",
         "sourceBlock": "entity/customer-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/customer-normalizer.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1294,7 +1483,20 @@
         "originId": "notify/email-basic",
         "sourceBlock": "notify/email-basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/email-outbox.test.ts"
+        ],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/unit/postgres-contract.test.ts",
+        "originType": "block",
+        "originId": "infra/postgres",
+        "sourceBlock": "infra/postgres",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/unit/postgres-contract.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1303,7 +1505,9 @@
         "originId": "rbac/basic",
         "sourceBlock": "rbac/basic",
         "generatedByPass": "compose",
-        "verifiedBy": [],
+        "verifiedBy": [
+          "tests/unit/rbac-authorize.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {
@@ -1318,6 +1522,12 @@
     "coverage": {
       "blocks": [
         {
+          "id": "infra/postgres",
+          "coveredBy": [
+            "postgres_contract_is_available"
+          ]
+        },
+        {
           "id": "auth/basic-session",
           "coveredBy": [
             "user_can_login"
@@ -1325,11 +1535,15 @@
         },
         {
           "id": "audit/basic",
-          "coveredBy": []
+          "coveredBy": [
+            "audit_entry_can_be_created"
+          ]
         },
         {
           "id": "rbac/basic",
-          "coveredBy": []
+          "coveredBy": [
+            "user_can_access_authorized_route"
+          ]
         },
         {
           "id": "tenant/basic-workspace",

@@ -34,11 +34,24 @@ function renderLoginPage(): string {
   return `import { redirect } from 'next/navigation';\nimport { LoginForm } from '../../components/login-form.tsx';\nimport { getCurrentSession } from '../../lib/session.ts';\n\nexport default async function LoginPage() {\n  const session = await getCurrentSession();\n  if (session) {\n    redirect('/workspace');\n  }\n\n  return (\n    <main className=\"stack\">\n      <section className=\"card stack\">\n        <div className=\"stack\">\n          <h1>Customer Admin</h1>\n          <p>Sign in with <strong>tenant-a-admin</strong> or <strong>tenant-b-admin</strong>. Password: <strong>password</strong>.</p>\n        </div>\n        <LoginForm />\n      </section>\n    </main>\n  );\n}\n`;
 }
 
-function renderWorkspacePage(): string {
-  return `import Link from 'next/link';\nimport { redirect } from 'next/navigation';\nimport { LogoutButton } from '../../components/logout-button.tsx';\nimport { getCurrentSession } from '../../lib/session.ts';\nimport { routes } from '../../generated/routes.ts';\n\nexport default async function WorkspacePage() {\n  const session = await getCurrentSession();\n  if (!session) {\n    redirect('/login');\n  }\n\n  const visibleRoutes = routes.filter((route) => route.path !== '/login');\n\n  return (\n    <main className=\"stack\">\n      <section className=\"card stack\">\n        <div className=\"row\" style={{ justifyContent: 'space-between' }}>\n          <div className=\"stack\">\n            <h1>Workspace</h1>\n            <p>{session.username} in tenant <strong>{session.tenantId}</strong></p>\n          </div>\n          <LogoutButton />\n        </div>\n        <nav className=\"row\">\n          {visibleRoutes.length === 0 ? <span>No block routes available for this workspace.</span> : null}\n          {visibleRoutes.map((route) => (\n            <Link key={route.path} href={route.path}>{route.path}</Link>\n          ))}\n        </nav>\n      </section>\n    </main>\n  );\n}\n`;
+function renderWorkspacePage(options: {
+  rbacEnabled: boolean;
+}): string {
+  const rbacImport = options.rbacEnabled
+    ? `\nimport { canAccessWorkspace } from '../../src/installed/auth/authorize.ts';`
+    : '';
+  const rbacSetup = options.rbacEnabled
+    ? `\n  const ownWorkspaceDecision = canAccessWorkspace(session, session.tenantId);\n  const otherTenantId = session.tenantId === 'tenant-a' ? 'tenant-b' : 'tenant-a';\n  const otherWorkspaceDecision = canAccessWorkspace(session, otherTenantId);\n`
+    : '';
+  const rbacView = options.rbacEnabled
+    ? `\n        <div className=\"stack\" aria-label=\"Authorization summary\">\n          <p>Authorization: {ownWorkspaceDecision.reason}</p>\n          <p>Cross-tenant check: {otherWorkspaceDecision.reason}</p>\n        </div>\n`
+    : '';
+
+  return `import Link from 'next/link';\nimport { redirect } from 'next/navigation';\nimport { LogoutButton } from '../../components/logout-button.tsx';\nimport { getCurrentSession } from '../../lib/session.ts';\nimport { routes } from '../../generated/routes.ts';${rbacImport}\n\nexport default async function WorkspacePage() {\n  const session = await getCurrentSession();\n  if (!session) {\n    redirect('/login');\n  }\n\n  const visibleRoutes = routes.filter((route) => route.path !== '/login');\n${rbacSetup}\n  return (\n    <main className=\"stack\">\n      <section className=\"card stack\">\n        <div className=\"row\" style={{ justifyContent: 'space-between' }}>\n          <div className=\"stack\">\n            <h1>Workspace</h1>\n            <p>{session.username} in tenant <strong>{session.tenantId}</strong></p>\n          </div>\n          <LogoutButton />\n        </div>${rbacView}\n        <nav className=\"row\">\n          {visibleRoutes.length === 0 ? <span>No block routes available for this workspace.</span> : null}\n          {visibleRoutes.map((route) => (\n            <Link key={route.path} href={route.path}>{route.path}</Link>\n          ))}\n        </nav>\n      </section>\n    </main>\n  );\n}\n`;
 }
 
 function renderCustomersPage(options: {
+  auditEnabled: boolean;
   fileUploadEnabled: boolean;
   notifyEmailEnabled: boolean;
   tableFilterEnabled: boolean;
@@ -72,19 +85,26 @@ function renderCustomersPage(options: {
   const notificationSetup = options.notifyEmailEnabled
     ? `  const notifications = listEmailNotifications(database, session);\n`
     : '';
+  const auditSetup = options.auditEnabled
+    ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId);\n`
+    : '';
   const notificationView = options.notifyEmailEnabled
     ? `\n      <section className=\"card stack\">\n        <h2>Email Notifications</h2>\n        <ul className=\"clean\" aria-label=\"Notifications\">\n          {notifications.map((notification) => (\n            <li key={notification.id}>\n              <div><strong>{notification.subject}</strong></div>\n              <div>{notification.recipient}</div>\n            </li>\n          ))}\n          {notifications.length === 0 ? <li>No notifications yet.</li> : null}\n        </ul>\n      </section>\n`
     : '';
+  const auditView = options.auditEnabled
+    ? `\n      <section className=\"card stack\">\n        <h2>Audit Trail</h2>\n        <ul className=\"clean\" aria-label=\"Audit entries\">\n          {auditEntries.map((entry) => (\n            <li key={\`\${entry.action}:\${entry.entity}:\${entry.entityId}\`}>\n              <div><strong>{entry.action}</strong> {entry.entity} {entry.entityId}</div>\n              <div>{entry.actorId} in {entry.tenantId}</div>\n            </li>\n          ))}\n          {auditEntries.length === 0 ? <li>No audit entries yet.</li> : null}\n        </ul>\n      </section>\n`
+    : '';
 
-  return `${imports}\n\ninterface CustomersPageProps {\n  searchParams?: Promise<Record<string, string | string[] | undefined>>;\n}\n\nexport default async function CustomersPage({ searchParams }: CustomersPageProps) {\n  const session = await getCurrentSession();\n  if (!session) {\n    redirect('/login');\n  }\n\n  const database = getDatabase();\n  const allCustomers = listCustomers(database, session);\n${searchSetup}${attachmentSetup}${notificationSetup}\n  return (\n    <main className=\"stack\">\n      <section className=\"card stack\">\n        <div className=\"row\" style={{ justifyContent: 'space-between' }}>\n          <div className=\"stack\">\n            <h1>Customers</h1>\n            <p>Tenant <strong>{session.tenantId}</strong> currently sees {customers.length} customer(s).</p>\n          </div>\n          <div className=\"row\">\n            <Link href=\"/workspace\">Workspace</Link>\n            <LogoutButton />\n          </div>\n        </div>\n      </section>\n${tableFilters}\n      <section className=\"card stack\">\n        <CustomerForm />\n      </section>\n\n      <section className=\"card stack\">\n        <h2>Customer List</h2>\n        <ul className=\"clean\" aria-label=\"Customers\">\n          {customers.map((customer) => (\n            <li key={customer.id}>\n              <div><strong>{customer.name}</strong> ({customer.company})</div>\n              <div>{customer.email}</div>\n              <div>{customer.phone}</div>${attachmentView}\n            </li>\n          ))}\n          {customers.length === 0 ? <li>No customers yet.</li> : null}\n        </ul>\n      </section>${notificationView}\n    </main>\n  );\n}\n`;
+  return `${imports}\n\ninterface CustomersPageProps {\n  searchParams?: Promise<Record<string, string | string[] | undefined>>;\n}\n\nexport default async function CustomersPage({ searchParams }: CustomersPageProps) {\n  const session = await getCurrentSession();\n  if (!session) {\n    redirect('/login');\n  }\n\n  const database = getDatabase();\n  const allCustomers = listCustomers(database, session);\n${searchSetup}${attachmentSetup}${notificationSetup}${auditSetup}\n  return (\n    <main className=\"stack\">\n      <section className=\"card stack\">\n        <div className=\"row\" style={{ justifyContent: 'space-between' }}>\n          <div className=\"stack\">\n            <h1>Customers</h1>\n            <p>Tenant <strong>{session.tenantId}</strong> currently sees {customers.length} customer(s).</p>\n          </div>\n          <div className=\"row\">\n            <Link href=\"/workspace\">Workspace</Link>\n            <LogoutButton />\n          </div>\n        </div>\n      </section>\n${tableFilters}\n      <section className=\"card stack\">\n        <CustomerForm />\n      </section>\n\n      <section className=\"card stack\">\n        <h2>Customer List</h2>\n        <ul className=\"clean\" aria-label=\"Customers\">\n          {customers.map((customer) => (\n            <li key={customer.id}>\n              <div><strong>{customer.name}</strong> ({customer.company})</div>\n              <div>{customer.email}</div>\n              <div>{customer.phone}</div>${attachmentView}\n            </li>\n          ))}\n          {customers.length === 0 ? <li>No customers yet.</li> : null}\n        </ul>\n      </section>${notificationView}${auditView}\n    </main>\n  );\n}\n`;
 }
 
 function renderSessionLibrary(): string {
   return `import { cookies } from 'next/headers';\nimport type { Session } from '../src/installed/auth/session.ts';\n\nconst SESSION_COOKIE_NAME = 'engineering-compiler-session';\n\nfunction isSession(value: unknown): value is Session {\n  return typeof value === 'object' && value !== null && 'userId' in value && 'tenantId' in value && 'username' in value;\n}\n\nexport function serializeSession(session: Session): string {\n  return Buffer.from(JSON.stringify(session), 'utf8').toString('base64url');\n}\n\nexport function deserializeSession(raw: string | null | undefined): Session | null {\n  if (!raw) {\n    return null;\n  }\n\n  try {\n    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;\n    return isSession(parsed) ? parsed : null;\n  } catch {\n    return null;\n  }\n}\n\nexport async function getCurrentSession(): Promise<Session | null> {\n  const cookieStore = await cookies();\n  return deserializeSession(cookieStore.get(SESSION_COOKIE_NAME)?.value ?? null);\n}\n\nexport function getSessionCookieName(): string {\n  return SESSION_COOKIE_NAME;\n}\n`;
 }
 
-function renderStoreLibrary(): string {
-  return `import { createDatabase, type Database } from '../src/runtime/database.ts';\n\ndeclare global {\n  var __engineeringCompilerDatabase: Database | undefined;\n}\n\nexport function getDatabase(): Database {\n  if (!globalThis.__engineeringCompilerDatabase) {\n    globalThis.__engineeringCompilerDatabase = createDatabase();\n  }\n  return globalThis.__engineeringCompilerDatabase;\n}\n\nexport function resetDatabase(): void {\n  globalThis.__engineeringCompilerDatabase = createDatabase();\n}\n`;
+function renderStoreLibrary(options: { postgresEnabled: boolean }): string {
+  const persistence = options.postgresEnabled ? 'postgres-contract' : 'memory';
+  return `import { createRuntimeStore, getRuntimeDatabase, type Database, type RuntimeStore } from '../src/runtime/database.ts';\n\ndeclare global {\n  var __engineeringCompilerRuntimeStore: RuntimeStore | undefined;\n}\n\nexport function getRuntimeStore(): RuntimeStore {\n  if (!globalThis.__engineeringCompilerRuntimeStore) {\n    globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('${persistence}');\n  }\n  return globalThis.__engineeringCompilerRuntimeStore;\n}\n\nexport function getDatabase(): Database {\n  return getRuntimeDatabase(getRuntimeStore());\n}\n\nexport function resetDatabase(): void {\n  globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('${persistence}');\n}\n`;
 }
 
 function renderLoginRoute(): string {
@@ -100,6 +120,7 @@ function renderCurrentSessionRoute(): string {
 }
 
 function renderCustomersRoute(options: {
+  auditEnabled: boolean;
   notifyEmailEnabled: boolean;
   tableFilterEnabled: boolean;
 }): string {
@@ -107,19 +128,23 @@ function renderCustomersRoute(options: {
     `import { NextResponse } from 'next/server';`,
     `import type { CustomerInput } from '../../../src/runtime/database.ts';`,
     `import { createCustomer, listCustomers } from '../../../src/installed/entity/customer-service.ts';`,
+    options.auditEnabled ? `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';` : '',
     options.notifyEmailEnabled ? `import { recordCustomerCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';` : '',
     options.tableFilterEnabled ? `import { filterCustomers } from '../../../src/installed/table/customer-filter.ts';` : '',
     `import { getCurrentSession } from '../../../lib/session.ts';`,
     `import { getDatabase } from '../../../lib/store.ts';`
   ].filter(Boolean).join('\n');
   const filterCustomersLine = options.tableFilterEnabled
-    ? `  const url = new URL(request.url);\n  const customers = filterCustomers(listCustomers(getDatabase(), session), {\n    search: url.searchParams.get('search'),\n    company: url.searchParams.get('company')\n  });\n`
-    : `  const customers = listCustomers(getDatabase(), session);\n`;
+    ? `  const database = getDatabase();\n  const url = new URL(request.url);\n  const customers = filterCustomers(listCustomers(database, session), {\n    search: url.searchParams.get('search'),\n    company: url.searchParams.get('company')\n  });\n`
+    : `  const database = getDatabase();\n  const customers = listCustomers(database, session);\n`;
+  const auditLine = options.auditEnabled
+    ? `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'customer.created', 'customer', String(customer.id)));\n`
+    : '';
   const notifyLine = options.notifyEmailEnabled
-    ? `    recordCustomerCreatedEmail(getDatabase(), session, customer);\n`
+    ? `    recordCustomerCreatedEmail(database, session, customer);\n`
     : '';
 
-  return `${imports}\n\nexport async function GET(request: Request) {\n  const session = await getCurrentSession();\n  if (!session) {\n    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });\n  }\n\n${filterCustomersLine}  return NextResponse.json({ customers });\n}\n\nexport async function POST(request: Request) {\n  const session = await getCurrentSession();\n  if (!session) {\n    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });\n  }\n\n  try {\n    const payload = await request.json() as CustomerInput;\n    const customer = createCustomer(getDatabase(), session, payload);\n${notifyLine}    return NextResponse.json({ customer }, { status: 201 });\n  } catch (error) {\n    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });\n  }\n}\n`;
+  return `${imports}\n\nexport async function GET(request: Request) {\n  const session = await getCurrentSession();\n  if (!session) {\n    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });\n  }\n\n${filterCustomersLine}  return NextResponse.json({ customers });\n}\n\nexport async function POST(request: Request) {\n  const session = await getCurrentSession();\n  if (!session) {\n    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });\n  }\n\n  try {\n    const database = getDatabase();\n    const payload = await request.json() as CustomerInput;\n    const customer = createCustomer(database, session, payload);\n${auditLine}${notifyLine}    return NextResponse.json({ customer }, { status: 201 });\n  } catch (error) {\n    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });\n  }\n}\n`;
 }
 
 function renderCustomerAttachmentsRoute(): string {
@@ -143,19 +168,28 @@ function renderCustomerAttachmentForm(): string {
 }
 
 function renderRuntimeUnitTest(options: {
+  auditEnabled: boolean;
   fileUploadEnabled: boolean;
   notifyEmailEnabled: boolean;
+  postgresEnabled: boolean;
+  rbacEnabled: boolean;
   tableFilterEnabled: boolean;
 }): string {
   const imports = [
     `import { beforeEach, describe, expect, it } from 'vitest';`,
     `import { login } from '../../../src/installed/auth/session.ts';`,
     `import { createCustomer, listCustomers } from '../../../src/installed/entity/customer-service.ts';`,
+    options.auditEnabled ? `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';` : '',
     options.fileUploadEnabled ? `import { addCustomerAttachment, listCustomerAttachments } from '../../../src/installed/file/customer-attachments.ts';` : '',
     options.notifyEmailEnabled ? `import { listEmailNotifications, recordCustomerCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';` : '',
+    options.postgresEnabled ? `import { POSTGRES_CONTRACT } from '../../../src/installed/infra/postgres-contract.ts';` : '',
+    options.rbacEnabled ? `import { canAccessWorkspace } from '../../../src/installed/auth/authorize.ts';` : '',
     options.tableFilterEnabled ? `import { filterCustomers } from '../../../src/installed/table/customer-filter.ts';` : '',
-    `import { getDatabase, resetDatabase } from '../../../lib/store.ts';`
+    options.postgresEnabled ? `import { getDatabase, getRuntimeStore, resetDatabase } from '../../../lib/store.ts';` : `import { getDatabase, resetDatabase } from '../../../lib/store.ts';`
   ].filter(Boolean).join('\n');
+  const auditAssertions = options.auditEnabled
+    ? `\n    const auditEntry = createAuditEntry(tenantA, 'customer.created', 'customer', String(created.id));\n    database.auditEntries = appendAuditEntry(database.auditEntries, auditEntry);\n    expect(database.auditEntries).toEqual([auditEntry]);\n    expect(auditEntry.occurredAt).toBe('1970-01-01T00:00:00.000Z');\n`
+    : '';
   const fileAssertions = options.fileUploadEnabled
     ? `\n    const attachment = addCustomerAttachment(database, tenantA, {\n      customerId: created.id,\n      fileName: 'contract.txt',\n      contentType: 'text/plain',\n      size: 8,\n      contentText: 'approved'\n    });\n    expect(attachment.tenantId).toBe('tenant-a');\n    expect(listCustomerAttachments(database, tenantA, created.id)).toHaveLength(1);\n    expect(() => listCustomerAttachments(database, tenantB, created.id)).toThrow(/Customer is not available/);\n`
     : '';
@@ -165,13 +199,21 @@ function renderRuntimeUnitTest(options: {
   const filterAssertions = options.tableFilterEnabled
     ? `\n    expect(filterCustomers(listCustomers(database, tenantA), { search: 'ACME' })).toHaveLength(1);\n    expect(filterCustomers(listCustomers(database, tenantA), { company: 'Unknown' })).toHaveLength(1);\n`
     : '';
+  const postgresAssertions = options.postgresEnabled
+    ? `\n    expect(getRuntimeStore().persistence).toBe('postgres-contract');\n    expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual([\n      'customers',\n      'customer_attachments',\n      'email_notifications',\n      'audit_entries'\n    ]);\n`
+    : '';
+  const rbacAssertions = options.rbacEnabled
+    ? `\n    expect(canAccessWorkspace(tenantA, tenantA.tenantId)).toEqual({ allowed: true, reason: 'allowed' });\n    expect(canAccessWorkspace(tenantA, tenantB.tenantId)).toEqual({ allowed: false, reason: 'tenant-mismatch' });\n`
+    : '';
 
-  return `${imports}\n\ndescribe('runtime customer service', () => {\n  beforeEach(() => {\n    resetDatabase();\n  });\n\n  it('creates a customer for tenant a and hides it from tenant b', () => {\n    const database = getDatabase();\n    const tenantA = login('tenant-a-admin', 'password');\n    const tenantB = login('tenant-b-admin', 'password');\n\n    const created = createCustomer(database, tenantA, {\n      name: 'Acme',\n      email: 'Sales@Acme.test',\n      phone: '400-800-9000',\n      company: ''\n    });\n\n    expect(created.company).toBe('Unknown');\n    expect(listCustomers(database, tenantA)).toHaveLength(1);\n    expect(listCustomers(database, tenantB)).toHaveLength(0);${fileAssertions}${notifyAssertions}${filterAssertions}  });\n});\n`;
+  return `${imports}\n\ndescribe('runtime customer service', () => {\n  beforeEach(() => {\n    resetDatabase();\n  });\n\n  it('creates a customer for tenant a and hides it from tenant b', () => {\n    const database = getDatabase();\n    const tenantA = login('tenant-a-admin', 'password');\n    const tenantB = login('tenant-b-admin', 'password');\n\n    const created = createCustomer(database, tenantA, {\n      name: 'Acme',\n      email: 'Sales@Acme.test',\n      phone: '400-800-9000',\n      company: ''\n    });\n\n    expect(created.company).toBe('Unknown');\n    expect(listCustomers(database, tenantA)).toHaveLength(1);\n    expect(listCustomers(database, tenantB)).toHaveLength(0);${auditAssertions}${fileAssertions}${notifyAssertions}${filterAssertions}${postgresAssertions}${rbacAssertions}  });\n});\n`;
 }
 
 function renderRuntimeAcceptanceTest(options: {
+  auditEnabled: boolean;
   fileUploadEnabled: boolean;
   notifyEmailEnabled: boolean;
+  rbacEnabled: boolean;
   tableFilterEnabled: boolean;
 }): string {
   const uploadSteps = options.fileUploadEnabled
@@ -183,31 +225,40 @@ function renderRuntimeAcceptanceTest(options: {
   const notificationSteps = options.notifyEmailEnabled
     ? `\n  await expect(page.getByText('Customer created: Acme')).toBeVisible();\n`
     : '';
+  const auditSteps = options.auditEnabled
+    ? `\n  await expect(page.getByRole('list', { name: 'Audit entries' }).getByText('customer.created')).toBeVisible();\n`
+    : '';
+  const rbacSteps = options.rbacEnabled
+    ? `\n  await expect(page.getByText('Authorization: allowed')).toBeVisible();\n  await expect(page.getByText('Cross-tenant check: tenant-mismatch')).toBeVisible();\n`
+    : '';
   const tenantBAttachmentAssertion = options.fileUploadEnabled
     ? `\n  await expect(page.getByText('contract.txt')).toHaveCount(0);`
     : '';
 
-  return `import { expect, test } from '@playwright/test';\n\ntest('customer runtime flow keeps tenant data isolated', async ({ page }) => {\n  await page.goto('/login');\n  await page.getByLabel('Username').fill('tenant-a-admin');\n  await page.getByLabel('Password').fill('password');\n  await page.getByRole('button', { name: 'Sign In' }).click();\n  await expect(page).toHaveURL(/\\/workspace$/);\n\n  await page.getByRole('link', { name: '/customers' }).click();\n  await expect(page).toHaveURL(/\\/customers$/);\n  const customerList = page.getByRole('list', { name: 'Customers' });\n  await page.getByLabel('Name', { exact: true }).fill('Acme');\n  await page.getByLabel('Email', { exact: true }).fill('Sales@Acme.test');\n  await page.getByLabel('Phone', { exact: true }).fill('400-800-9000');\n  await page.getByLabel('Company', { exact: true }).fill('');\n  await page.getByRole('button', { name: 'Create Customer' }).click();\n  const createdCustomer = customerList.getByRole('listitem').filter({ hasText: 'Acme' });\n  await expect(createdCustomer).toHaveCount(1);${uploadSteps}${filterSteps}${notificationSteps}\n  await page.request.post('/api/session/logout');\n  await page.goto('/login');\n  await expect(page).toHaveURL(/\\/login$/);\n\n  await page.getByLabel('Username').fill('tenant-b-admin');\n  await page.getByLabel('Password').fill('password');\n  await page.getByRole('button', { name: 'Sign In' }).click();\n  await page.getByRole('link', { name: '/customers' }).click();\n  await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);${tenantBAttachmentAssertion}\n});\n`;
+  return `import { expect, test } from '@playwright/test';\n\ntest('customer runtime flow keeps tenant data isolated', async ({ page }) => {\n  await page.goto('/login');\n  await page.getByLabel('Username').fill('tenant-a-admin');\n  await page.getByLabel('Password').fill('password');\n  await page.getByRole('button', { name: 'Sign In' }).click();\n  await expect(page).toHaveURL(/\\/workspace$/);${rbacSteps}\n\n  await page.getByRole('link', { name: '/customers' }).click();\n  await expect(page).toHaveURL(/\\/customers$/);\n  const customerList = page.getByRole('list', { name: 'Customers' });\n  await page.getByLabel('Name', { exact: true }).fill('Acme');\n  await page.getByLabel('Email', { exact: true }).fill('Sales@Acme.test');\n  await page.getByLabel('Phone', { exact: true }).fill('400-800-9000');\n  await page.getByLabel('Company', { exact: true }).fill('');\n  await page.getByRole('button', { name: 'Create Customer' }).click();\n  const createdCustomer = customerList.getByRole('listitem').filter({ hasText: 'Acme' });\n  await expect(createdCustomer).toHaveCount(1);${uploadSteps}${filterSteps}${notificationSteps}${auditSteps}\n  await page.request.post('/api/session/logout');\n  await page.goto('/login');\n  await expect(page).toHaveURL(/\\/login$/);\n\n  await page.getByLabel('Username').fill('tenant-b-admin');\n  await page.getByLabel('Password').fill('password');\n  await page.getByRole('button', { name: 'Sign In' }).click();\n  await page.getByRole('link', { name: '/customers' }).click();\n  await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);${tenantBAttachmentAssertion}\n});\n`;
 }
 
 function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: string }> {
   const authEnabled = hasBlock(lock, 'auth/basic-session');
   const customerEnabled = hasBlock(lock, 'entity/customer-basic');
   const customerFeatureOptions = {
+    auditEnabled: hasBlock(lock, 'audit/basic'),
     fileUploadEnabled: hasBlock(lock, 'file/upload'),
     notifyEmailEnabled: hasBlock(lock, 'notify/email-basic'),
+    postgresEnabled: hasBlock(lock, 'infra/postgres'),
+    rbacEnabled: hasBlock(lock, 'rbac/basic'),
     tableFilterEnabled: hasBlock(lock, 'table/filter-search')
   };
   const entries: Array<{ relativePath: string; source: string }> = [
     { relativePath: 'app/layout.tsx', source: renderLayout() },
     { relativePath: 'app/page.tsx', source: renderIndexPage(authEnabled) },
-    { relativePath: 'lib/store.ts', source: renderStoreLibrary() }
+    { relativePath: 'lib/store.ts', source: renderStoreLibrary(customerFeatureOptions) }
   ];
 
   if (authEnabled) {
     entries.push(
       { relativePath: 'app/login/page.tsx', source: renderLoginPage() },
-      { relativePath: 'app/workspace/page.tsx', source: renderWorkspacePage() },
+      { relativePath: 'app/workspace/page.tsx', source: renderWorkspacePage(customerFeatureOptions) },
       { relativePath: 'app/api/session/login/route.ts', source: renderLoginRoute() },
       { relativePath: 'app/api/session/logout/route.ts', source: renderLogoutRoute() },
       { relativePath: 'app/api/session/current/route.ts', source: renderCurrentSessionRoute() },

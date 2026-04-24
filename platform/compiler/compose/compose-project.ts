@@ -28,7 +28,7 @@ async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<
     }
   }
 
-  return `export const routes = [\n${routeEntries.join(',\n')}\n];\n`;
+  return `export interface GeneratedRoute {\n  blockId: string;\n  path: string;\n  file: string;\n}\n\nexport const routes: GeneratedRoute[] = [\n${routeEntries.join(',\n')}\n];\n`;
 }
 
 function renderSlotSkeleton(task: SlotTask): string {

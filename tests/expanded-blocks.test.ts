@@ -41,22 +41,36 @@ test('expanded official block set composes and verifies as one project', async (
   await addBlock(workspaceRoot, 'file/upload');
   await addBlock(workspaceRoot, 'notify/email-basic');
   await addBlock(workspaceRoot, 'table/filter-search');
+  await addBlock(workspaceRoot, 'infra/postgres');
 
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
-  expect(resolvedLock.resolvedBlocks.length).toBe(9);
+  expect(resolvedLock.resolvedBlocks.length).toBe(10);
   expect(resolvedLock.slotTasks).toHaveLength(1);
 
   await composeWorkspace(workspaceRoot);
+  const storeSource = await fs.readFile(path.join(workspaceRoot, 'project', 'lib', 'store.ts'), 'utf8');
+  expect(storeSource).toContain("createRuntimeStore('postgres-contract')");
   await adaptWorkspace(workspaceRoot);
   const { report } = await verifyWorkspace(workspaceRoot);
   expect(report.summary.status).toBe('passed');
 
   const coverage = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'acceptance-coverage.json'), 'utf8')
-  ) as { uncoveredBlocks: string[] };
-  expect(coverage.uncoveredBlocks).not.toContain('file/upload');
-  expect(coverage.uncoveredBlocks).not.toContain('notify/email-basic');
-  expect(coverage.uncoveredBlocks).not.toContain('table/filter-search');
+  ) as { uncoveredBlocks: string[]; uncoveredSlots: string[] };
+  expect(coverage.uncoveredBlocks).toEqual([]);
+  expect(coverage.uncoveredSlots).toEqual([]);
+
+  const postgresContract = JSON.parse(
+    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'), 'utf8')
+  ) as { provider: string; persistenceMode: string; tables: Array<{ name: string }> };
+  expect(postgresContract.provider).toBe('postgres');
+  expect(postgresContract.persistenceMode).toBe('contract-only');
+  expect(postgresContract.tables.map((table) => table.name)).toEqual([
+    'customers',
+    'customer_attachments',
+    'email_notifications',
+    'audit_entries'
+  ]);
 
   const locked = await lockWorkspace(workspaceRoot);
   expect(locked.passStatus.lock).toBe('succeeded');
@@ -66,4 +80,15 @@ test('expanded official block set composes and verifies as one project', async (
   expect(locked.resolvedBlocks.some((block) => block.id === 'file/upload')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'notify/email-basic')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'table/filter-search')).toBe(true);
+  expect(locked.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
+  expect(locked.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
+});
+
+test('reference project coverage has no uncovered blocks', async () => {
+  const coverage = JSON.parse(
+    await fs.readFile(path.join(process.cwd(), 'project', 'generated', 'acceptance-coverage.json'), 'utf8')
+  ) as { uncoveredBlocks: string[]; uncoveredSlots: string[] };
+
+  expect(coverage.uncoveredBlocks).toEqual([]);
+  expect(coverage.uncoveredSlots).toEqual([]);
 });

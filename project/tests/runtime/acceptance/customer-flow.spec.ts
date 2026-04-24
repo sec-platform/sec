@@ -6,6 +6,9 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await page.getByLabel('Password').fill('password');
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page).toHaveURL(/\/workspace$/);
+  await expect(page.getByText('Authorization: allowed')).toBeVisible();
+  await expect(page.getByText('Cross-tenant check: tenant-mismatch')).toBeVisible();
+
 
   await page.getByRole('link', { name: '/customers' }).click();
   await expect(page).toHaveURL(/\/customers$/);
@@ -31,6 +34,8 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(1);
 
   await expect(page.getByText('Customer created: Acme')).toBeVisible();
+
+  await expect(page.getByRole('list', { name: 'Audit entries' }).getByText('customer.created')).toBeVisible();
 
   await page.request.post('/api/session/logout');
   await page.goto('/login');

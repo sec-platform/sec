@@ -1,0 +1,33 @@
+export const POSTGRES_CONTRACT = {
+  formatVersion: '1',
+  provider: 'postgres',
+  persistenceMode: 'contract-only',
+  tables: [
+    {
+      name: 'customers',
+      tenantScoped: true,
+      columns: ['id', 'tenant_id', 'name', 'email', 'phone', 'company']
+    },
+    {
+      name: 'customer_attachments',
+      tenantScoped: true,
+      columns: ['id', 'tenant_id', 'customer_id', 'file_name', 'content_type', 'size', 'content_text', 'created_at']
+    },
+    {
+      name: 'email_notifications',
+      tenantScoped: true,
+      columns: ['id', 'tenant_id', 'customer_id', 'event_type', 'recipient', 'subject', 'body', 'created_at']
+    },
+    {
+      name: 'audit_entries',
+      tenantScoped: true,
+      columns: ['actor_id', 'tenant_id', 'action', 'entity', 'entity_id', 'occurred_at']
+    }
+  ]
+} as const;
+
+export type PostgresContract = typeof POSTGRES_CONTRACT;
+
+export function listPostgresContractTables(): string[] {
+  return POSTGRES_CONTRACT.tables.map((table) => table.name);
+}

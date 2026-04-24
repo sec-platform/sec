@@ -1,10 +1,15 @@
 import fs from 'node:fs/promises';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
-import type { LockFile, ProvenanceArtifact, ProvenanceFile } from '../../shared/types.ts';
+import type { LockFile, ProvenanceArtifact, ProvenanceFile, VerificationReport } from '../../shared/types.ts';
 
 function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 function inferGeneratedByPass(targetPath: string): string {
@@ -41,8 +46,49 @@ function inferGeneratedByPass(targetPath: string): string {
   return 'compose';
 }
 
+function passedVerificationPaths(report: VerificationReport | null): string[] {
+  if (!report || report.summary.status !== 'passed') {
+    return [];
+  }
+
+  return unique([
+    ...report.unit.passed.map((file) => `tests/unit/${file}`),
+    ...report.acceptance.passed.map((file) => `tests/acceptance/${file}`),
+    ...report.runtime.unit.passed,
+    ...report.runtime.acceptance.passed
+  ]);
+}
+
+function buildBlockVerificationMap(lock: LockFile, report: VerificationReport | null): Map<string, string[]> {
+  const installedTestBlocks = new Map<string, string>();
+  for (const step of lock.installPlan) {
+    if (step.to.startsWith('tests/')) {
+      installedTestBlocks.set(step.to, step.blockId);
+    }
+  }
+
+  const byBlock = new Map<string, string[]>();
+  for (const testPath of passedVerificationPaths(report)) {
+    const blockId = installedTestBlocks.get(testPath);
+    if (!blockId) {
+      continue;
+    }
+    byBlock.set(blockId, unique([...(byBlock.get(blockId) ?? []), testPath]));
+  }
+  return byBlock;
+}
+
+async function readVerificationReport(workspaceRoot: string): Promise<VerificationReport | null> {
+  const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  if (!(await pathExists(verificationReportPath))) {
+    return null;
+  }
+  return readJson<VerificationReport>(verificationReportPath);
+}
+
 export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
   const artifacts = new Map<string, ProvenanceArtifact>();
+  const blockVerificationMap = buildBlockVerificationMap(lock, await readVerificationReport(workspaceRoot));
 
   for (const step of lock.installPlan) {
     artifacts.set(step.to, {
@@ -51,7 +97,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
       originId: step.blockId,
       sourceBlock: step.blockId,
       generatedByPass: 'compose',
-      verifiedBy: [],
+      verifiedBy: blockVerificationMap.get(step.blockId) ?? [],
       overrideStatus: 'none'
     });
   }

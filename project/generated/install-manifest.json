@@ -1,6 +1,45 @@
 [
   {
-    "stepId": "auth/basic-session:1",
+    "stepId": "infra/postgres:1",
+    "blockId": "infra/postgres",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "infra.postgres",
+    "action": "copy",
+    "from": "files/src/installed/infra/postgres-contract.ts",
+    "to": "src/installed/infra/postgres-contract.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "infra/postgres:2",
+    "blockId": "infra/postgres",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "infra.postgres",
+    "action": "copy",
+    "from": "files/generated/postgres-contract.json",
+    "to": "generated/postgres-contract.json",
+    "status": "installed"
+  },
+  {
+    "stepId": "infra/postgres:3",
+    "blockId": "infra/postgres",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "infra.postgres",
+    "action": "copy",
+    "from": "files/tests/unit/postgres-contract.test.ts",
+    "to": "tests/unit/postgres-contract.test.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "auth/basic-session:4",
     "blockId": "auth/basic-session",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -13,7 +52,7 @@
     "status": "installed"
   },
   {
-    "stepId": "audit/basic:2",
+    "stepId": "audit/basic:5",
     "blockId": "audit/basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -26,7 +65,7 @@
     "status": "installed"
   },
   {
-    "stepId": "audit/basic:3",
+    "stepId": "audit/basic:6",
     "blockId": "audit/basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -39,7 +78,7 @@
     "status": "installed"
   },
   {
-    "stepId": "rbac/basic:4",
+    "stepId": "rbac/basic:7",
     "blockId": "rbac/basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -52,7 +91,7 @@
     "status": "installed"
   },
   {
-    "stepId": "rbac/basic:5",
+    "stepId": "rbac/basic:8",
     "blockId": "rbac/basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -65,7 +104,7 @@
     "status": "installed"
   },
   {
-    "stepId": "tenant/basic-workspace:6",
+    "stepId": "tenant/basic-workspace:9",
     "blockId": "tenant/basic-workspace",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -78,7 +117,7 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:7",
+    "stepId": "entity/customer-basic:10",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -91,7 +130,7 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:8",
+    "stepId": "entity/customer-basic:11",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -104,7 +143,7 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:9",
+    "stepId": "entity/customer-basic:12",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -117,7 +156,7 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:10",
+    "stepId": "entity/customer-basic:13",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -130,7 +169,7 @@
     "status": "installed"
   },
   {
-    "stepId": "export/csv-basic:11",
+    "stepId": "export/csv-basic:14",
     "blockId": "export/csv-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -143,7 +182,7 @@
     "status": "installed"
   },
   {
-    "stepId": "export/csv-basic:12",
+    "stepId": "export/csv-basic:15",
     "blockId": "export/csv-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -156,7 +195,7 @@
     "status": "installed"
   },
   {
-    "stepId": "file/upload:13",
+    "stepId": "file/upload:16",
     "blockId": "file/upload",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -169,7 +208,7 @@
     "status": "installed"
   },
   {
-    "stepId": "file/upload:14",
+    "stepId": "file/upload:17",
     "blockId": "file/upload",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -182,7 +221,7 @@
     "status": "installed"
   },
   {
-    "stepId": "notify/email-basic:15",
+    "stepId": "notify/email-basic:18",
     "blockId": "notify/email-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -195,7 +234,7 @@
     "status": "installed"
   },
   {
-    "stepId": "notify/email-basic:16",
+    "stepId": "notify/email-basic:19",
     "blockId": "notify/email-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -208,7 +247,7 @@
     "status": "installed"
   },
   {
-    "stepId": "table/filter-search:17",
+    "stepId": "table/filter-search:20",
     "blockId": "table/filter-search",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -221,7 +260,7 @@
     "status": "installed"
   },
   {
-    "stepId": "table/filter-search:18",
+    "stepId": "table/filter-search:21",
     "blockId": "table/filter-search",
     "registrySourceId": "official",
     "registryKind": "official",
