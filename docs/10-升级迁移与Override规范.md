@@ -145,7 +145,34 @@ overrides:
 
 - 长期依赖 manual override 停留在生成区源码中
 
-## 9. 升级安全门槛
+## 9. 自举与自维护迁移边界
+
+### 自举迁移原则
+
+- 自举必须分层推进：先描述和生成外围资产，再逐步迁移 block、spec、acceptance、policy、registry metadata 和平台视图。
+- 核心编译器 pass 不得在没有人工审查和独立验证的情况下由系统自动改写。
+- 自举产生的变更必须像普通升级一样进入 migration plan、override 检查、verify 和 provenance。
+
+### 自维护变更分类
+
+| 变更类型 | 默认策略 |
+| --- | --- |
+| slot 修复 | 可由 repair task 执行 |
+| policy / acceptance 补齐 | 生成建议，需人工确认后写入 |
+| block patch | 走 registry 版本升级，不直接热改官方块 |
+| override 回写 | 优先转成 slot description 或 rule-backed override |
+| 数据迁移 | 必须人工审批 |
+| kernel / 热路径修改 | 不自动执行 |
+| 编译器核心 pass 修改 | 不自动执行 |
+
+### 自维护安全门槛
+
+- 必须能定位失败来源：spec、composition、slot 或 kernel。
+- 必须有明确 allowed paths 和回滚策略。
+- 必须有验收或 policy gate 证明修复有效。
+- 必须记录 AI task、人工审批、override 状态和 provenance。
+
+## 10. 升级安全门槛
 
 ### `v0.2` 最低要求
 
@@ -159,7 +186,7 @@ overrides:
 - 支持 override 冲突分析
 - 支持 provenance 级影响面说明
 
-## 10. 回滚
+## 11. 回滚
 
 ### 触发条件
 
@@ -174,7 +201,7 @@ overrides:
 - lock 状态
 - provenance 状态
 
-## 11. 延期项
+## 12. 延期项
 
 - 自动三方 merge
 - 跨项目 override 共享

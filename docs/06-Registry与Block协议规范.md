@@ -82,6 +82,15 @@ registry:
 - 提供验收、政策、审计、安全与升级相关能力
 - 不得成为业务主入口
 
+### Kernel Block
+
+- 针对高性能、底层、实时或专家维护核心模块。
+- 只暴露接口、pin、性能预算、benchmark、correctness harness 和必要 adapter slot。
+- 不要求编译器生成 kernel 内部实现。
+- 不允许 AI 在默认任务中重写 kernel 热路径。
+- 适用于数据库内核、搜索排序核心、渲染循环、协议栈、实时交易、游戏主循环等场景。
+- `v0.1` 不实现 Kernel Block，只在 manifest schema 和图谱模型中预留。
+
 ## 3. 命名规范
 
 - block id：`domain/name`
@@ -266,6 +275,23 @@ upgrade:
 - `auth/basic-session`
 - `tenant/basic-workspace`
 - `entity/customer-basic`
+
+## 12.1 `v0.2+` 建议扩展块
+
+- `ticket/basic`
+- `worklog/basic`
+- `rbac/basic`
+- `audit/basic`
+- `table/filter-search`
+- `export/csv-basic`
+- `notify/email-basic`
+- `file/upload`
+
+### 母例块策略
+
+- `entity/customer-basic` 保持为 `v0.1` 首条闭环的最小业务块。
+- `ticket/basic` 和 `worklog/basic` 用于后续 Work Tracking / Ticket SaaS 母例，覆盖状态、负责人、租户隔离、列表筛选、审计和通知等更真实业务组合。
+- 新母例不得破坏 `v0.1` 的 customer-admin 兼容性；应通过新增块和新增 plan 示例推进。
 
 ## 13. 延期项
 

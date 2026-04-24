@@ -146,6 +146,8 @@ policies:
 - `Slot Graph`
 - `Provenance Overlay`
 - `Acceptance Coverage Graph`
+- `Issue Graph`
+- `Kernel Boundary Graph`
 
 ### Node 类型
 
@@ -157,6 +159,9 @@ policies:
 - `file`
 - `acceptance`
 - `policy`
+- `kernel`
+- `issue`
+- `benchmark`
 
 ### Edge 类型
 
@@ -167,6 +172,16 @@ policies:
 - `verified_by`
 - `originates_from`
 - `violates`
+- `classified_as`
+- `bounded_by`
+- `measured_by`
+
+### 原生图谱对象原则
+
+- Graph 不是事后画图，而是工程对象的解释层：block、pin、slot、file、acceptance、policy、provenance、issue 和 kernel boundary 都应能进入统一图谱。
+- AI 定位问题时应优先使用 graph 和 provenance，而不是直接全文搜索源码。
+- `Issue Graph` 用于把失败映射到 Spec Issue、Composition Issue、Slot Issue 或 Kernel Issue。
+- `Kernel Boundary Graph` 用于标明哪些节点属于外部/专家维护热路径，哪些边界可由 adapter slot 连接。
 
 ## 7. `explain-graph.json`
 

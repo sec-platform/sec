@@ -21,6 +21,28 @@
 - AI 不能决定新增或移除 block
 - AI 不能绕过 compile contract
 - AI 不能修改未授权路径
+- AI 必须优先使用 `plan / graph / manifest / slot / acceptance / provenance / report` 定位任务，再读取有限源码上下文
+- AI 不得把整仓搜索、整仓重写或自由聊天作为默认工程动作
+
+### 与通用 Agent 工具的关系
+
+- Claude Code、Managed Agents、Skills、MCP、hooks 和权限系统可以作为执行基座。
+- 工程编译器必须在这些工具之上提供项目级 task envelope、写入边界、来源追踪、验收和回滚语义。
+- 不允许把工具能力直接暴露为产品核心，否则会退化为“更强的自动改仓库工具”。
+
+### Claude harness 到 SpecEngineer harness 的映射
+
+| Claude 侧能力 | SpecEngineer 对应物 |
+| --- | --- |
+| session | compile session / upgrade session / repair session |
+| sandbox | slot sandbox / override sandbox / repair sandbox |
+| hooks | policy hooks / verification hooks / provenance hooks |
+| Skills | Blocks / Strategy Packs / Governance Packs |
+| permissions | semantic permissions / writable zones / allowed paths |
+| subagents | compiler agents: alignment、synthesis、repair、review、upgrade |
+| MCP tools | registry、verification、observability、deployment adapters |
+
+- Claude 侧能力偏执行，SpecEngineer harness 偏工程语义；两者可以组合，但语义边界必须由工程编译器定义。
 
 ## 2. Task Envelope 正式 schema
 
@@ -107,10 +129,18 @@ expectedOutput:
 ### 上下文优先级
 
 1. task envelope
-2. 相关类型与测试
-3. 目标文件骨架
-4. 相关 block manifest 摘要
-5. 最小业务背景
+2. `graph.lock.json` 中的相关 slot / block / pass 状态
+3. 相关 block manifest 摘要
+4. acceptance、verification report、provenance / explain graph 摘要
+5. 相关类型与测试
+6. 目标文件骨架
+7. 最小业务背景
+
+### 源码下钻规则
+
+- 只有当上面的结构化上下文不足以完成任务时，才读取源码。
+- 源码读取范围应从 `targetFile`、`requiredSymbols`、`testsToPass`、`verifiedBy` 和 graph edge 推导。
+- 禁止为了“更保险”自动扩大到整仓上下文。
 
 ## 6. 自检与后处理
 
