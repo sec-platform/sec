@@ -24,6 +24,11 @@ pins:
 slots: []
 acceptance:
   - id: tenant_only_sees_own_customers
+    dependsOn:
+      - user_can_login
+    covers:
+      blocks:
+        - tenant/basic-workspace
 routes:
   - path: /workspace
     file: src/installed/tenant/context.ts

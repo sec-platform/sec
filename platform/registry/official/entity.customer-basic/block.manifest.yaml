@@ -46,8 +46,29 @@ slots:
       - custom/
 acceptance:
   - id: user_can_create_customer
+    dependsOn:
+      - user_can_login
+    covers:
+      blocks:
+        - entity/customer-basic
+      slots:
+        - customer_normalizer
   - id: user_can_list_customers
+    dependsOn:
+      - user_can_create_customer
+    covers:
+      blocks:
+        - entity/customer-basic
   - id: tenant_only_sees_own_customers
+    dependsOn:
+      - user_can_login
+      - user_can_create_customer
+    covers:
+      blocks:
+        - tenant/basic-workspace
+        - entity/customer-basic
+      slots:
+        - customer_normalizer
 routes:
   - path: /customers
     file: src/installed/entity/customer-service.ts
