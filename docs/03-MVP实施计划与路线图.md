@@ -61,7 +61,7 @@
 1. **升级迁移引擎增强**
    - 状态：active
    - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
-   - 已完成：`config-rewrite` JSON 配置迁移（含 set/delete）、upgrade plan migration 摘要、upgrade dry-run 入口、`slot-contract-update` 计划与影响面记录、迁移 `requiresVerification` 到 plan/review 的显式传播、升级迁移 entry schema 校验、slot 合同变化与 explain graph 的连接、upgrade plan 到本地视图的摘要呈现、upgrade plan 执行前检查清单、升级检查结果在 review/local view 中的聚合、升级前置检查失败的结构化诊断 artifact、升级诊断在 review/local view 中的聚合、upgrade diagnostics 进入 lock/provenance 产物清单。
+   - 已完成：`config-rewrite` JSON 配置迁移（含 set/delete）、`json-array-append` JSON 数组追加迁移、upgrade plan migration 摘要、upgrade dry-run 入口、`slot-contract-update` 计划与影响面记录、迁移 `requiresVerification` 到 plan/review 的显式传播、升级迁移 entry schema 校验、slot 合同变化与 explain graph 的连接、upgrade plan 到本地视图的摘要呈现、upgrade plan 执行前检查清单、升级检查结果在 review/local view 中的聚合、升级前置检查失败的结构化诊断 artifact、升级诊断在 review/local view 中的聚合、upgrade diagnostics 进入 lock/provenance 产物清单。
    - 下一步候选：更多执行型迁移类型。
 
 2. **repair 从基础可用到可审查**
