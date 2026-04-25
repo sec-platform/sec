@@ -14,12 +14,14 @@ import {
 import type { VerificationLane } from '../shared/types.ts';
 
 function parseLaneArg(args: string[]): VerificationLane {
-  const laneFlagIndex = args.findIndex((value) => value === '--lane');
-  if (laneFlagIndex === -1) {
+  if (args.length === 0) {
     return 'all';
   }
+  if (args.length !== 2 || args[0] !== '--lane') {
+    throw new Error('Usage: platform verify [--lane fast|runtime|all]');
+  }
 
-  const value = args[laneFlagIndex + 1];
+  const value = args[1];
   if (value === 'fast' || value === 'runtime' || value === 'all') {
     return value;
   }
