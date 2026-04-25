@@ -14,12 +14,17 @@ interface AcceptanceCoverageTarget {
   blockId: string;
 }
 
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
 function buildCoverageEntry(id: string, declaredAcceptance: string[], coveredBy: string[]): AcceptanceCoverageEntry {
+  const normalizedCoveredBy = uniqueSorted(coveredBy);
   return {
     id,
-    declaredAcceptance,
-    coveredBy,
-    uncovered: coveredBy.length === 0
+    declaredAcceptance: uniqueSorted(declaredAcceptance),
+    coveredBy: normalizedCoveredBy,
+    uncovered: normalizedCoveredBy.length === 0
   };
 }
 
