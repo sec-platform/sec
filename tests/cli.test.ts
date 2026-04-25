@@ -56,8 +56,13 @@ test('CLI prints usage for missing or unknown commands', async () => {
   });
 });
 
-test('CLI accepts init reset flag', async () => {
+test('CLI accepts init commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
       stdout: 'Initialized project workspace\n',
