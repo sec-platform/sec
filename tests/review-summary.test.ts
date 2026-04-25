@@ -94,42 +94,123 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
   );
 });
 
-test('buildReviewSummary captures runtime failures and coverage gaps as structured risks', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-');
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+test('buildReviewSummary adds failed runtime targets as structured failure points', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-targets-');
+  const lock: LockFile = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [
+      {
+        id: 'entity/customer-basic',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 1,
+        manifestPath: 'manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official'
+      }
+    ],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'failed',
+      repair: 'pending',
+      lock: 'pending',
+      emit: 'pending'
+    }
+  };
+  const provenance: ProvenanceFile = {
+    formatVersion: '1',
+    artifacts: []
+  };
+  const coverage: AcceptanceCoverageReport = {
+    formatVersion: '1',
+    status: 'failed',
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: ['entity/customer-basic'],
+    uncoveredSlots: []
+  };
+  const report: VerificationReport = {
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      status: 'passed',
+      build: { status: 'passed' },
+      unit: { status: 'passed', passed: [] },
+      acceptance: { status: 'passed', passed: [], failed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      status: 'failed',
+      build: { status: 'passed', passed: ['next build'], failed: [], command: 'npm run build' },
+      unit: {
+        status: 'failed',
+        passed: [],
+        failed: ['tests/runtime/unit/customer-runtime.test.ts'],
+        command: 'npm run test:unit'
+      },
+      acceptance: {
+        status: 'failed',
+        passed: [],
+        failed: ['tests/runtime/acceptance/customer-flow.spec.ts'],
+        command: 'npm run test:acceptance'
+      },
+      logs: { stdout: '', stderr: 'runtime failed' }
+    },
+    summary: {
+      status: 'failed',
+      requestedLane: 'all',
+      failedLanes: ['runtime']
+    },
+    logs: { stdout: '', stderr: 'runtime failed' }
+  };
 
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
-
-  await fs.writeFile(
-    path.join(projectRoot, 'tests', 'runtime', 'unit', 'customer-runtime.test.ts'),
-    `import { describe, expect, it } from 'vitest';\n\ndescribe('runtime customer service', () => {\n  it('fails intentionally', () => {\n    expect(1).toBe(2);\n  });\n});\n`,
-    'utf8'
-  );
-
-  await expect(verifyWorkspace(workspaceRoot)).rejects.toThrow();
-
-  const { lock, provenance, report, coverage } = await readReviewInputs(workspaceRoot);
-  expect(report.runtime.unit.status).toBe('failed');
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
   expect(summary.failurePoints).toEqual(
     expect.arrayContaining([
       {
-        lane: 'all',
-        kind: 'summary',
-        artifactPath: 'generated/verification-report.json',
-        message: 'Verification failed in lanes: runtime'
+        lane: 'runtime',
+        kind: 'unit',
+        artifactPath: 'generated/runtime-report.json',
+        message: 'Runtime unit tests failed'
       },
       {
         lane: 'runtime',
         kind: 'unit',
         artifactPath: 'generated/runtime-report.json',
-        message: 'Runtime unit tests failed'
+        message: 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts'
+      },
+      {
+        lane: 'runtime',
+        kind: 'acceptance',
+        artifactPath: 'generated/runtime-report.json',
+        message: 'Runtime acceptance test failed: tests/runtime/acceptance/customer-flow.spec.ts'
       }
     ])
   );
-  expect(summary.regressionRisks.some((risk) => risk.kind === 'coverage-gap' && typeof risk.message === 'string')).toBe(true);
+  expect(summary.regressionRisks).toContainEqual({
+    kind: 'coverage-gap',
+    blockId: 'entity/customer-basic',
+    message: 'Block entity/customer-basic has no runtime acceptance coverage'
+  });
 });

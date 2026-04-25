@@ -12,7 +12,8 @@ import type {
   ReviewRegressionRisk,
   ReviewSummary,
   UpgradePlan,
-  VerificationReport
+  VerificationReport,
+  VerificationStepReport
 } from '../../shared/types.ts';
 
 function unique(values: string[]): string[] {
@@ -84,6 +85,24 @@ function addConflictHint(
     )
   ) {
     hints.push(hint);
+  }
+}
+
+function addFailedTargets(
+  points: ReviewFailurePoint[],
+  lane: ReviewFailurePoint['lane'],
+  kind: ReviewFailurePoint['kind'],
+  step: VerificationStepReport,
+  label: string,
+  artifactPath: string
+): void {
+  for (const target of step.failed) {
+    addFailurePoint(points, {
+      lane,
+      kind,
+      message: `${label}: ${target}`,
+      artifactPath
+    });
   }
 }
 
@@ -171,6 +190,14 @@ export async function buildReviewSummary(
       message: 'Runtime build failed',
       artifactPath: 'generated/runtime-report.json'
     });
+    addFailedTargets(
+      failurePoints,
+      'runtime',
+      'build',
+      report.runtime.build,
+      'Runtime build failed',
+      'generated/runtime-report.json'
+    );
   }
   if (report.runtime.unit.status === 'failed') {
     addFailurePoint(failurePoints, {
@@ -179,6 +206,14 @@ export async function buildReviewSummary(
       message: 'Runtime unit tests failed',
       artifactPath: 'generated/runtime-report.json'
     });
+    addFailedTargets(
+      failurePoints,
+      'runtime',
+      'unit',
+      report.runtime.unit,
+      'Runtime unit test failed',
+      'generated/runtime-report.json'
+    );
   }
   if (report.runtime.acceptance.status === 'failed') {
     addFailurePoint(failurePoints, {
@@ -187,6 +222,14 @@ export async function buildReviewSummary(
       message: 'Runtime acceptance tests failed',
       artifactPath: 'generated/runtime-report.json'
     });
+    addFailedTargets(
+      failurePoints,
+      'runtime',
+      'acceptance',
+      report.runtime.acceptance,
+      'Runtime acceptance test failed',
+      'generated/runtime-report.json'
+    );
   }
 
   for (const blockId of coverage.uncoveredBlocks) {
