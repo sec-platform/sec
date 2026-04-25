@@ -163,7 +163,14 @@ export async function applyMigrationEntries(
   }
 }
 
-function buildUpgradePlan(blockId: string, fromVersion: string, toVersion: string, impacts: string[], migrations: UpgradeMigration[]): UpgradePlan {
+function buildUpgradePlan(
+  blockId: string,
+  fromVersion: string,
+  toVersion: string,
+  impacts: string[],
+  migrations: UpgradeMigration[],
+  migrationEntries: UpgradeMigrationEntry[]
+): UpgradePlan {
   return {
     formatVersion: '1',
     blockId,
@@ -171,7 +178,13 @@ function buildUpgradePlan(blockId: string, fromVersion: string, toVersion: strin
     toVersion,
     status: 'planned',
     impacts,
-    migrations
+    migrations,
+    migrationSummaries: migrationEntries.map((entry) => ({
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      reason: entry.reason
+    }))
   };
 }
 
@@ -212,7 +225,7 @@ export async function upgradeWorkspace(
   const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
 
   const backupRoot = await snapshotProject(projectRoot);
-  const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, impacts, migrations);
+  const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, impacts, migrations, migrationEntries);
   await writeJson(upgradePlanPath, upgradePlan);
 
   try {

@@ -66,10 +66,23 @@ test('upgrade advances an official block version and preserves a passing pipelin
 
   const persistedUpgradePlan = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'upgrade-plan.json'), 'utf8')
-  ) as { toVersion: string; status: string; impacts: string[] };
+  ) as {
+    toVersion: string;
+    status: string;
+    impacts: string[];
+    migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string }>;
+  };
   expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
   expect(persistedUpgradePlan.status).toBe('applied');
   expect(persistedUpgradePlan.impacts).toContain('src/installed/auth/session.ts');
+  expect(persistedUpgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-auth-session-refresh',
+      kind: 'file-replace',
+      target: 'src/installed/auth/session.ts',
+      reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.'
+    }
+  ]);
 
   const { reviewSummary } = await explainWorkspace(workspaceRoot);
   expect(reviewSummary.conflictHints).toEqual(
@@ -77,7 +90,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
       {
         kind: 'upgrade-plan-present',
         relatedId: 'auth/basic-session',
-        message: 'Upgrade plan present: auth/basic-session 0.1.0 -> 0.1.1'
+        message: 'Upgrade plan applied, verify pending: auth/basic-session 0.1.0 -> 0.1.1'
       }
     ])
   );
