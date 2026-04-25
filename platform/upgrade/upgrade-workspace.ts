@@ -12,10 +12,10 @@ import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
 import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from '../compiler/verify/verify-project.ts';
 import { CompilerError } from '../shared/errors.ts';
-import { copyRecursive, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
+import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
-import type { LockFile, PlanFile, UpgradeMigration, UpgradePlan } from '../shared/types.ts';
+import type { LockFile, PlanFile, UpgradeMigration, UpgradeMigrationEntry, UpgradePlan } from '../shared/types.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
   if (range === version) {
@@ -65,27 +65,68 @@ async function detectOverrideConflicts(workspaceRoot: string, blockId: string, i
   }
 }
 
-async function validateMigrationEntries(
-  workspaceRoot: string,
-  plan: PlanFile,
+async function loadMigrationEntries(
+  targetManifestRoot: string,
   blockId: string,
   targetVersion: string,
   migrations: UpgradeMigration[]
-): Promise<void> {
-  const targetManifest = await loadManifestById(blockId, {
-    workspaceRoot,
-    version: targetVersion,
-    registrySources: plan.registry.sources
-  });
-
+): Promise<UpgradeMigrationEntry[]> {
+  const entries: UpgradeMigrationEntry[] = [];
   for (const migration of migrations) {
-    const entryPath = path.join(path.dirname(targetManifest.manifestPath), migration.entry);
+    const entryPath = path.join(targetManifestRoot, migration.entry);
     if (!(await pathExists(entryPath))) {
       throw new CompilerError(
         'UPGRADE-MIGRATION-002',
         `Migration entry "${migration.entry}" for "${blockId}@${targetVersion}" is missing`
       );
     }
+    const entry = await readJson<UpgradeMigrationEntry>(entryPath);
+    if (entry.id !== migration.id || entry.kind !== migration.kind) {
+      throw new CompilerError('UPGRADE-MIGRATION-003', `Migration entry "${migration.entry}" does not match manifest metadata`);
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function resolveProjectPath(projectRoot: string, relativePath: string): string {
+  const resolvedPath = path.resolve(projectRoot, relativePath);
+  const projectRootWithSeparator = `${projectRoot}${path.sep}`;
+  if (resolvedPath !== projectRoot && !resolvedPath.startsWith(projectRootWithSeparator)) {
+    throw new CompilerError('UPGRADE-MIGRATION-004', `Migration path "${relativePath}" escapes project root`);
+  }
+  return resolvedPath;
+}
+
+function resolveManifestPath(manifestRoot: string, relativePath: string): string {
+  const resolvedPath = path.resolve(manifestRoot, relativePath);
+  const manifestRootWithSeparator = `${manifestRoot}${path.sep}`;
+  if (resolvedPath !== manifestRoot && !resolvedPath.startsWith(manifestRootWithSeparator)) {
+    throw new CompilerError('UPGRADE-MIGRATION-005', `Migration source "${relativePath}" escapes manifest root`);
+  }
+  return resolvedPath;
+}
+
+export async function applyMigrationEntries(
+  projectRoot: string,
+  targetManifestRoot: string,
+  impacts: string[],
+  entries: UpgradeMigrationEntry[]
+): Promise<void> {
+  for (const entry of entries) {
+    if (entry.kind !== 'file-replace') {
+      throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${entry.kind}"`);
+    }
+    if (!impacts.includes(entry.target)) {
+      throw new CompilerError('UPGRADE-MIGRATION-007', `Migration target "${entry.target}" is outside upgrade impacts`);
+    }
+    const sourcePath = resolveManifestPath(targetManifestRoot, entry.source);
+    const targetPath = resolveProjectPath(projectRoot, entry.target);
+    if (!(await pathExists(sourcePath))) {
+      throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
+    }
+    await ensureDir(path.dirname(targetPath));
+    await fs.copyFile(sourcePath, targetPath);
   }
 }
 
@@ -134,7 +175,8 @@ export async function upgradeWorkspace(
   const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
   ensureUpgradeAllowed(currentVersion, targetVersion, migrations, targetEntry.manifest.upgrade?.from ?? []);
   await detectOverrideConflicts(workspaceRoot, blockId, impacts);
-  await validateMigrationEntries(workspaceRoot, plan, blockId, targetVersion, migrations);
+  const targetManifestRoot = path.dirname(targetEntry.manifestPath);
+  const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
 
   const backupRoot = await snapshotProject(projectRoot);
   const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, impacts, migrations);
@@ -143,6 +185,7 @@ export async function upgradeWorkspace(
   try {
     currentBlock.version = targetVersion;
     await writeYaml(planPath, plan);
+    await applyMigrationEntries(projectRoot, targetManifestRoot, impacts, migrationEntries);
 
     let lock = await resolveGraph(workspaceRoot, plan);
     await validateResolvedTemplates(workspaceRoot, lock);
