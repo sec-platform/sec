@@ -26,6 +26,19 @@ function configRewrite(target: string, updates: Array<{ path: string[]; value: u
   };
 }
 
+function slotContractUpdate(target: string): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-slot-contract-update',
+    kind: 'slot-contract-update',
+    reason: 'test slot contract update',
+    target,
+    slotId: 'customer_normalizer',
+    inputType: 'CustomerInputV2',
+    outputType: 'CustomerRecordInput',
+    writableZones: [target]
+  };
+}
+
 test('file-replace migration copies manifest source to impacted project target', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-migration-'));
   try {
@@ -100,6 +113,23 @@ test('config-rewrite migration rejects empty update paths', async () => {
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-010'
     });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('slot-contract-update migration records contract impact without changing files', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-slot-contract-'));
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'custom'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'export const marker = true;\n', 'utf8');
+
+    await applyMigrationEntries(projectRoot, manifestRoot, ['custom/customer_normalizer.ts'], [slotContractUpdate('custom/customer_normalizer.ts')]);
+
+    await expect(fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe('export const marker = true;\n');
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }

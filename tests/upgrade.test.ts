@@ -13,7 +13,9 @@ import {
   upgradeWorkspace,
   verifyWorkspace
 } from '../platform/orchestrator.ts';
+import { writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
+import type { LockFile } from '../platform/shared/types.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
 const activeWorkspaces = new Set<string>();
@@ -32,6 +34,133 @@ async function createWorkspace(prefix: string): Promise<string> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   activeWorkspaces.add(workspaceRoot);
   return workspaceRoot;
+}
+
+async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<void> {
+  const { lockPath, planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const blockRoot = path.join(privateRegistryRoot, 'private.slot-contract');
+  const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
+  const baseManifest = {
+    id: 'private/slot-contract',
+    version: '0.1.0',
+    kind: 'capability',
+    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    requires: [],
+    provides: ['private/slot-contract'],
+    conflicts: [],
+    installs: [
+      {
+        kind: 'copy',
+        from: 'files/src/installed/private/slot-contract.ts',
+        to: 'src/installed/private/slot-contract.ts'
+      }
+    ],
+    pins: {
+      inputs: [],
+      outputs: []
+    },
+    slots: [
+      {
+        id: 'customer_normalizer',
+        kind: 'adapter',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomer',
+        inputType: 'CustomerInputV1',
+        outputType: 'CustomerRecordInput',
+        writableZones: ['custom/customer_normalizer.ts']
+      }
+    ],
+    acceptance: [],
+    routes: []
+  };
+
+  await writeYaml(planPath, {
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs-ts-prisma-sqlite',
+      packageManager: 'pnpm',
+      mode: 'single-tenant'
+    },
+    registry: {
+      sources: [
+        {
+          id: 'private',
+          kind: 'private',
+          location: 'workspace',
+          path: 'platform/registry/private'
+        }
+      ]
+    },
+    blocks: [{ id: 'private/slot-contract', version: '0.1.0' }],
+    slots: [],
+    acceptance: []
+  });
+  await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), baseManifest);
+  await writeYaml(path.join(versionRoot, 'block.manifest.yaml'), {
+    ...baseManifest,
+    version: '0.2.0',
+    slots: [
+      {
+        id: 'customer_normalizer',
+        kind: 'adapter',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomer',
+        inputType: 'CustomerInputV2',
+        outputType: 'CustomerRecordInput',
+        writableZones: ['custom/customer_normalizer.ts']
+      }
+    ],
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-customer-normalizer-contract',
+          kind: 'slot-contract-update',
+          entry: 'migrations/customer-normalizer-contract.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: true
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'customer-normalizer-contract.json'), {
+    id: 'mig-customer-normalizer-contract',
+    kind: 'slot-contract-update',
+    reason: 'Update customer normalizer input contract to v2.',
+    target: 'custom/customer_normalizer.ts',
+    slotId: 'customer_normalizer',
+    inputType: 'CustomerInputV2',
+    outputType: 'CustomerRecordInput',
+    writableZones: ['custom/customer_normalizer.ts']
+  });
+
+  const lock: LockFile = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs-ts-prisma-sqlite',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'succeeded',
+      repair: 'skipped',
+      lock: 'succeeded',
+      emit: 'succeeded'
+    }
+  };
+  await writeJson(lockPath, lock);
 }
 
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
@@ -124,6 +253,30 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
   await expect(fs.readFile(sessionPath, 'utf8')).resolves.toBe(beforeSession);
+});
+
+test('upgrade dry-run records slot contract migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-slot-contract-plan-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.impacts).toEqual(['custom/customer_normalizer.ts', 'src/installed/private/slot-contract.ts']);
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-customer-normalizer-contract',
+      kind: 'slot-contract-update',
+      target: 'custom/customer_normalizer.ts',
+      reason: 'Update customer normalizer input contract to v2.'
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 });
 
 test('upgrade is blocked when a manual override conflicts with impacted files', async () => {

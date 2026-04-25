@@ -118,7 +118,21 @@ export interface UpgradeConfigRewriteMigrationEntry {
   }>;
 }
 
-export type UpgradeMigrationEntry = UpgradeFileReplaceMigrationEntry | UpgradeConfigRewriteMigrationEntry;
+export interface UpgradeSlotContractUpdateMigrationEntry {
+  id: string;
+  kind: 'slot-contract-update';
+  reason: string;
+  target: string;
+  slotId: string;
+  inputType?: string;
+  outputType?: string;
+  writableZones?: string[];
+}
+
+export type UpgradeMigrationEntry =
+  | UpgradeFileReplaceMigrationEntry
+  | UpgradeConfigRewriteMigrationEntry
+  | UpgradeSlotContractUpdateMigrationEntry;
 
 export interface UpgradeConfig {
   from: string[];
