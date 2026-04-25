@@ -158,7 +158,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
       acceptance: {
         status: 'failed',
         passed: [],
-        failed: ['tests/acceptance/customer-normalizer.test.ts']
+        failed: ['tests/acceptance/customer-normalizer.test.ts', 'tests/acceptance/customer-normalizer.test.ts']
       },
       policy: { status: 'passed', violations: [] },
       logs: { stdout: '', stderr: 'fast failed' }
@@ -190,6 +190,11 @@ test('buildReviewSummary adds failed verification targets as structured failure 
 
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+  expect(
+    summary.failurePoints.filter(
+      (point) => point.message === 'Fast-lane acceptance test failed: tests/acceptance/customer-normalizer.test.ts'
+    )
+  ).toHaveLength(1);
   expect(
     summary.failurePoints.filter(
       (point) => point.message === 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts'
