@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { buildExplainGraph, writeExplainGraph } from '../platform/compiler/emit/write-explain-graph.ts';
 import { initWorkspace, resolveWorkspace } from '../platform/orchestrator.ts';
-import { writeJson } from '../platform/shared/fs.ts';
+import { readJson, writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
 import type { AcceptanceCoverageReport, PolicyReport, ProvenanceFile } from '../platform/shared/types.ts';
 
@@ -128,7 +128,7 @@ test('explain graph includes pins, policies, and policy violation edges without 
 
 test('writeExplainGraph does not require a policy report', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-no-policy-');
-  const { acceptanceCoveragePath, explainGraphPath, policyReportPath } = getWorkspacePaths(workspaceRoot);
+  const { acceptanceCoveragePath, explainGraphPath, lockPath, policyReportPath, provenancePath } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
   const { lock } = await resolveWorkspace(workspaceRoot);
@@ -141,8 +141,16 @@ test('writeExplainGraph does not require a policy report', async () => {
 
   const graph = await writeExplainGraph(workspaceRoot, lock, provenance);
   const writtenGraph = JSON.parse(await fs.readFile(explainGraphPath, 'utf8')) as typeof graph;
+  const writtenLock = await readJson<typeof lock>(lockPath);
+  const writtenProvenance = await readJson<ProvenanceFile>(provenancePath);
 
   expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
   expect(graph.nodes.some((node) => node.type === 'policy')).toBe(false);
   expect(writtenGraph.nodes).toEqual(graph.nodes);
+  expect(writtenLock.generatedPaths).toEqual(
+    expect.arrayContaining(['generated/explain-graph.json', 'provenance.json'])
+  );
+  expect(writtenProvenance.artifacts.map((artifact) => artifact.path)).toEqual(
+    expect.arrayContaining(['generated/explain-graph.json', 'provenance.json'])
+  );
 });
