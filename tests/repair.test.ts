@@ -192,6 +192,31 @@ test('repair writes only slot-scoped source and requires verification rerun', as
   }
 });
 
+test('repair dry-run writes a pending plan without touching source or verification status', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-repair-dry-run-'));
+  try {
+    await writeRepairFixture(workspaceRoot);
+
+    const { lock: plannedLock, repairPlan } = await repairWorkspace(workspaceRoot, { dryRun: true });
+    const { lockPath, repairPlanPath, projectRoot } = getWorkspacePaths(workspaceRoot);
+    const writtenSource = await fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
+    const persistedLock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as LockFile;
+    const persistedRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
+
+    expect(repairPlan.status).toBe('pending');
+    expect(repairPlan.requiresVerification).toBe(false);
+    expect(plannedLock.passStatus.verify).toBe('failed');
+    expect(writtenSource).toBe('export function normalizeCustomerInput(input: unknown): unknown { return input; }\n');
+    expect(persistedLock.passStatus.verify).toBe('failed');
+    expect(persistedLock.passStatus.repair).toBe('pending');
+    expect(persistedLock.slotTasks[0].status).toBe('failed');
+    expect(persistedLock.generatedPaths).toContain('generated/repair-plan.json');
+    expect(persistedRepairPlan).toEqual(repairPlan);
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('repair blocks lock until verification reruns', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-repair-lock-'));
   try {
@@ -214,6 +239,21 @@ test('repair CLI reports applied plans as verify pending', async () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout.trim()).toBe('Repair applied (1 tasks); verify pending');
+    expect(result.stderr).toBe('');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('repair CLI reports dry-run plans without applying them', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-repair-cli-dry-run-'));
+  try {
+    await writeRepairFixture(workspaceRoot);
+
+    const result = await runCli(workspaceRoot, ['repair', '--dry-run']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe('Repair pending (1 tasks) (dry-run)');
     expect(result.stderr).toBe('');
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });

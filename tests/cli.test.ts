@@ -93,6 +93,16 @@ test('CLI reports argument usage errors', async () => {
       stdout: '',
       stderr: 'UNEXPECTED Usage: platform add <block-id>\n'
     });
+    await expect(runCli(workspaceRoot, ['repair', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform repair [--dry-run]\n'
+    });
+    await expect(runCli(workspaceRoot, ['repair', '--dry-run', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform repair [--dry-run]\n'
+    });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
       code: 1,
       stdout: '',

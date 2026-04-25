@@ -17,6 +17,7 @@ const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
+const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run]';
 
 function assertNoArgs(command: string, args: string[]): void {
@@ -49,6 +50,16 @@ function parseLaneArg(args: string[]): VerificationLane {
   }
 
   throw new Error(VERIFY_USAGE);
+}
+
+function parseRepairArgs(args: string[]): { dryRun: boolean } {
+  if (args.length === 0) {
+    return { dryRun: false };
+  }
+  if (args.length === 1 && args[0] === '--dry-run') {
+    return { dryRun: true };
+  }
+  throw new Error(REPAIR_USAGE);
 }
 
 function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: string; dryRun: boolean } {
@@ -98,9 +109,9 @@ async function main(): Promise<void> {
       return;
     }
     case 'repair': {
-      assertNoArgs('repair', args);
-      const { repairPlan } = await repairWorkspace(process.cwd());
-      const suffix = repairPlan.status === 'applied' ? '; verify pending' : '';
+      const repairArgs = parseRepairArgs(args);
+      const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: repairArgs.dryRun });
+      const suffix = repairPlan.status === 'applied' ? '; verify pending' : repairArgs.dryRun ? ' (dry-run)' : '';
       console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)${suffix}`);
       return;
     }
