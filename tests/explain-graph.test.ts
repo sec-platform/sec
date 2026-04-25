@@ -3,8 +3,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { buildExplainGraph } from '../platform/compiler/emit/write-explain-graph.ts';
+import { buildExplainGraph, writeExplainGraph } from '../platform/compiler/emit/write-explain-graph.ts';
 import { initWorkspace, resolveWorkspace } from '../platform/orchestrator.ts';
+import { writeJson } from '../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../platform/shared/paths.ts';
 import type { AcceptanceCoverageReport, PolicyReport, ProvenanceFile } from '../platform/shared/types.ts';
 
 const activeWorkspaces = new Set<string>();
@@ -23,6 +25,18 @@ async function createWorkspace(prefix: string): Promise<string> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   activeWorkspaces.add(workspaceRoot);
   return workspaceRoot;
+}
+
+function emptyCoverage(): AcceptanceCoverageReport {
+  return {
+    formatVersion: '1',
+    status: 'passed',
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
 }
 
 test('explain graph includes pins, policies, and policy violation edges without runtime verification', async () => {
@@ -45,13 +59,8 @@ test('explain graph includes pins, policies, and policy violation edges without 
     ]
   };
   const coverage: AcceptanceCoverageReport = {
-    formatVersion: '1',
-    status: 'passed',
-    acceptancePassed: ['tenant_only_sees_own_customers'],
-    blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
+    ...emptyCoverage(),
+    acceptancePassed: ['tenant_only_sees_own_customers']
   };
   const policyReport: PolicyReport = {
     status: 'failed',
@@ -106,4 +115,25 @@ test('explain graph includes pins, policies, and policy violation edges without 
         edge.type === 'violates'
     )
   ).toBe(true);
+});
+
+test('writeExplainGraph does not require a policy report', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-explain-no-policy-');
+  const { acceptanceCoveragePath, explainGraphPath, policyReportPath } = getWorkspacePaths(workspaceRoot);
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  const { lock } = await resolveWorkspace(workspaceRoot);
+  const provenance: ProvenanceFile = {
+    formatVersion: '1',
+    artifacts: []
+  };
+  await writeJson(acceptanceCoveragePath, emptyCoverage());
+  await fs.rm(policyReportPath, { force: true });
+
+  const graph = await writeExplainGraph(workspaceRoot, lock, provenance);
+  const writtenGraph = JSON.parse(await fs.readFile(explainGraphPath, 'utf8')) as typeof graph;
+
+  expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
+  expect(graph.nodes.some((node) => node.type === 'policy')).toBe(false);
+  expect(writtenGraph.nodes).toEqual(graph.nodes);
 });
