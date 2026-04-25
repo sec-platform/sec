@@ -17,7 +17,7 @@ const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
-const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version>';
+const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run]';
 
 function assertNoArgs(command: string, args: string[]): void {
   if (args.length > 0) {
@@ -49,6 +49,16 @@ function parseLaneArg(args: string[]): VerificationLane {
   }
 
   throw new Error(VERIFY_USAGE);
+}
+
+function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: string; dryRun: boolean } {
+  if (args.length === 2) {
+    return { blockId: args[0], targetVersion: args[1], dryRun: false };
+  }
+  if (args.length === 3 && args[2] === '--dry-run') {
+    return { blockId: args[0], targetVersion: args[1], dryRun: true };
+  }
+  throw new Error(UPGRADE_USAGE);
 }
 
 async function main(): Promise<void> {
@@ -95,11 +105,12 @@ async function main(): Promise<void> {
       return;
     }
     case 'upgrade': {
-      if (args.length !== 2) {
-        throw new Error(UPGRADE_USAGE);
-      }
-      const { upgradePlan } = await upgradeWorkspace(process.cwd(), args[0], args[1]);
-      console.log(`Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`);
+      const upgradeArgs = parseUpgradeArgs(args);
+      const { upgradePlan } = await upgradeWorkspace(process.cwd(), upgradeArgs.blockId, upgradeArgs.targetVersion, {
+        dryRun: upgradeArgs.dryRun
+      });
+      const suffix = upgradeArgs.dryRun ? ' (dry-run)' : '';
+      console.log(`Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`);
       return;
     }
     case 'lock':

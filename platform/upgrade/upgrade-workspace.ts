@@ -202,7 +202,8 @@ async function restoreProject(projectRoot: string, backupRoot: string): Promise<
 export async function upgradeWorkspace(
   workspaceRoot: string,
   blockId: string,
-  targetVersion: string
+  targetVersion: string,
+  options: { dryRun?: boolean } = {}
 ): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
   const { projectRoot, planPath, lockPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
@@ -224,8 +225,14 @@ export async function upgradeWorkspace(
   const targetManifestRoot = path.dirname(targetEntry.manifestPath);
   const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
 
-  const backupRoot = await snapshotProject(projectRoot);
   const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, impacts, migrations, migrationEntries);
+  if (options.dryRun) {
+    const lock = await readJson<LockFile>(lockPath);
+    await writeJson(upgradePlanPath, upgradePlan);
+    return { plan, lock, upgradePlan };
+  }
+
+  const backupRoot = await snapshotProject(projectRoot);
   await writeJson(upgradePlanPath, upgradePlan);
 
   try {

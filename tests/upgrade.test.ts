@@ -96,6 +96,36 @@ test('upgrade advances an official block version and preserves a passing pipelin
   );
 });
 
+test('upgrade dry-run writes a planned upgrade without changing project files', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-dry-run-');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+  await adaptWorkspace(workspaceRoot);
+  await verifyWorkspace(workspaceRoot);
+  await lockWorkspace(workspaceRoot);
+
+  const planPath = path.join(workspaceRoot, 'project', 'app.plan.yaml');
+  const sessionPath = path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts');
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+  const beforeSession = await fs.readFile(sessionPath, 'utf8');
+
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1', { dryRun: true });
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-auth-session-refresh',
+      kind: 'file-replace',
+      target: 'src/installed/auth/session.ts',
+      reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.'
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expect(fs.readFile(sessionPath, 'utf8')).resolves.toBe(beforeSession);
+});
+
 test('upgrade is blocked when a manual override conflicts with impacted files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-conflict-');
   const { overrideManifestPath } = getWorkspacePaths(workspaceRoot);
