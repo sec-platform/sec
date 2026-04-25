@@ -67,8 +67,8 @@
 2. **repair 从基础可用到可审查**
    - 状态：active
    - 目标：让 repair plan 更准确地区分 slot/spec/kernel failure，并输出更清楚的可修复边界。
-   - 已完成：结构化 failure points、repairable 标记、无可修 slot 的阻断错误、repair plan provenance/review 暴露、repair plan 到本地视图的摘要呈现、repair task 与 explain graph 的连接、repair 后自动要求重新 verify 的显式状态。
-   - 下一步候选：repair plan dry-run 模式。
+   - 已完成：结构化 failure points、repairable 标记、无可修 slot 的阻断错误、repair plan provenance/review 暴露、repair plan 到本地视图的摘要呈现、repair task 与 explain graph 的连接、repair 后自动要求重新 verify 的显式状态、repair plan dry-run 模式。
+   - 下一步候选：repair plan 的执行前差异预览。
 
 3. **计划与进度显式化**
    - 状态：active

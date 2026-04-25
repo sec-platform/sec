@@ -192,7 +192,8 @@ export async function verifyWorkspace(
 }
 
 export async function repairWorkspace(
-  workspaceRoot = process.cwd()
+  workspaceRoot = process.cwd(),
+  options: { dryRun?: boolean } = {}
 ): Promise<{ lock: LockFile; repairPlan: RepairPlan }> {
   const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
@@ -207,6 +208,10 @@ export async function repairWorkspace(
   try {
     const repairPlan = buildRepairPlan(plan, lock, report);
     if (repairPlan.status === 'pending') {
+      if (options.dryRun) {
+        await writeRepairPlan(workspaceRoot, repairPlan, lock);
+        return { lock, repairPlan };
+      }
       await applyRepairPlan(workspaceRoot, plan, lock, repairPlan);
       repairPlan.status = 'applied';
       repairPlan.requiresVerification = true;
