@@ -26,6 +26,17 @@ function configRewrite(target: string, updates: Array<{ path: string[]; value?: 
   };
 }
 
+function jsonArrayAppend(target: string, pathSegments: string[], items: unknown[]): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-json-array-append',
+    kind: 'json-array-append',
+    reason: 'test JSON array append',
+    target,
+    path: pathSegments,
+    items
+  };
+}
+
 function slotContractUpdate(target: string): UpgradeMigrationEntry {
   return {
     id: 'mig-test-slot-contract-update',
@@ -133,6 +144,62 @@ test('config-rewrite migration deletes nested JSON configuration keys', async ()
         2
       )}\n`
     );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('json-array-append migration appends unique items to nested arrays', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-array-append-'));
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(projectRoot, 'app.config.json'),
+      `${JSON.stringify({ plugins: ['auth'], feature: { flags: [{ id: 'existing' }] } }, null, 2)}\n`,
+      'utf8'
+    );
+
+    await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
+      jsonArrayAppend('app.config.json', ['plugins'], ['auth', 'tenant']),
+      jsonArrayAppend('app.config.json', ['feature', 'flags'], [{ id: 'existing' }, { id: 'new' }]),
+      jsonArrayAppend('app.config.json', ['feature', 'owners'], ['platform'])
+    ]);
+
+    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+      `${JSON.stringify(
+        {
+          plugins: ['auth', 'tenant'],
+          feature: {
+            flags: [{ id: 'existing' }, { id: 'new' }],
+            owners: ['platform']
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('json-array-append migration rejects non-array targets', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-array-target-'));
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'app.config.json'), `${JSON.stringify({ plugins: 'auth' }, null, 2)}\n`, 'utf8');
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-012'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }

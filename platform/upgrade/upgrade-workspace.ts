@@ -111,6 +111,17 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
+  if (entry.kind === 'json-array-append') {
+    ensureMigrationStringArray(entry.path, 'path', entryPath);
+    if (entry.path.length === 0) {
+      throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array append path must not be empty');
+    }
+    if (!Array.isArray(entry.items) || entry.items.length === 0) {
+      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires items`);
+    }
+    return;
+  }
+
   if (entry.kind === 'slot-contract-update') {
     ensureMigrationString(entry.slotId, 'slotId', entryPath);
     if (entry.inputType !== undefined) {
@@ -172,16 +183,21 @@ function resolveManifestPath(manifestRoot: string, relativePath: string): string
   return resolvedPath;
 }
 
-function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; value?: unknown; operation?: 'set' | 'delete' }>): unknown {
+function ensureJsonObject(config: unknown, label: string): Record<string, unknown> {
   if (typeof config !== 'object' || config === null || Array.isArray(config)) {
-    throw new CompilerError('UPGRADE-MIGRATION-009', 'Config rewrite target must contain a JSON object');
+    throw new CompilerError('UPGRADE-MIGRATION-009', `${label} target must contain a JSON object`);
   }
+  return config as Record<string, unknown>;
+}
+
+function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; value?: unknown; operation?: 'set' | 'delete' }>): unknown {
+  const root = ensureJsonObject(config, 'Config rewrite');
 
   for (const update of updates) {
     if (update.path.length === 0) {
       throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
     }
-    let current: Record<string, unknown> = config as Record<string, unknown>;
+    let current = root;
     for (const segment of update.path.slice(0, -1)) {
       const next = current[segment];
       if (update.operation === 'delete' && (typeof next !== 'object' || next === null || Array.isArray(next))) {
@@ -200,6 +216,40 @@ function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; va
     }
     current[key] = update.value;
   }
+
+  return config;
+}
+
+function applyJsonArrayAppend(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-array-append' }>): unknown {
+  if (entry.path.length === 0) {
+    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array append path must not be empty');
+  }
+  const root = ensureJsonObject(config, 'JSON array append');
+  let current = root;
+  for (const segment of entry.path.slice(0, -1)) {
+    const next = current[segment];
+    if (typeof next !== 'object' || next === null || Array.isArray(next)) {
+      current[segment] = {};
+    }
+    current = current[segment] as Record<string, unknown>;
+  }
+
+  const key = entry.path[entry.path.length - 1];
+  const target = current[key];
+  if (target !== undefined && !Array.isArray(target)) {
+    throw new CompilerError('UPGRADE-MIGRATION-012', 'JSON array append target must be an array');
+  }
+
+  const existing = Array.isArray(target) ? target : [];
+  const seen = new Set(existing.map((item) => JSON.stringify(item)));
+  for (const item of entry.items) {
+    const serialized = JSON.stringify(item);
+    if (!seen.has(serialized)) {
+      existing.push(item);
+      seen.add(serialized);
+    }
+  }
+  current[key] = existing;
 
   return config;
 }
@@ -228,6 +278,12 @@ export async function applyMigrationEntries(
 
     if (entry.kind === 'config-rewrite') {
       const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
+      await writeJson(targetPath, config);
+      continue;
+    }
+
+    if (entry.kind === 'json-array-append') {
+      const config = applyJsonArrayAppend(await readJson<unknown>(targetPath), entry);
       await writeJson(targetPath, config);
       continue;
     }

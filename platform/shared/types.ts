@@ -119,6 +119,15 @@ export interface UpgradeConfigRewriteMigrationEntry {
   }>;
 }
 
+export interface UpgradeJsonArrayAppendMigrationEntry {
+  id: string;
+  kind: 'json-array-append';
+  reason: string;
+  target: string;
+  path: string[];
+  items: unknown[];
+}
+
 export interface UpgradeSlotContractUpdateMigrationEntry {
   id: string;
   kind: 'slot-contract-update';
@@ -133,6 +142,7 @@ export interface UpgradeSlotContractUpdateMigrationEntry {
 export type UpgradeMigrationEntry =
   | UpgradeFileReplaceMigrationEntry
   | UpgradeConfigRewriteMigrationEntry
+  | UpgradeJsonArrayAppendMigrationEntry
   | UpgradeSlotContractUpdateMigrationEntry;
 
 export interface UpgradeConfig {
