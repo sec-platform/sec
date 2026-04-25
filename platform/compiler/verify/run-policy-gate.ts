@@ -131,7 +131,7 @@ function targetFilesForPolicy(lock: LockFile | null, policy: PolicyRule): string
 }
 
 function isPolicyCheckableInstall(step: InstallPlanStep): boolean {
-  return step.action === 'copy' && step.to.endsWith('.ts');
+  return step.action === 'copy' && step.to.startsWith('src/') && step.to.endsWith('.ts');
 }
 
 function evaluateTenantScopeRule(
