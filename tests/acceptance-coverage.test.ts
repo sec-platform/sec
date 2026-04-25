@@ -158,6 +158,13 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
     });
     expect(covered.uncoveredBlocks).toEqual([]);
     expect(covered.uncoveredSlots).toEqual([]);
+
+    const fallback = await buildAcceptanceCoverage(workspaceRoot, lock, runtime([]));
+    expect(fallback.acceptancePassed).toEqual(['source_smoke', 'cross_block_flow', 'target_declared_only']);
+    expect(fallback.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
+      coveredBy: ['cross_block_flow', 'target_declared_only'],
+      uncovered: false
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
