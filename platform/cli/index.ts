@@ -13,6 +13,12 @@ import {
 } from '../orchestrator.ts';
 import type { VerificationLane } from '../shared/types.ts';
 
+function assertNoArgs(command: string, args: string[]): void {
+  if (args.length > 0) {
+    throw new Error(`Usage: platform ${command}`);
+  }
+}
+
 function parseLaneArg(args: string[]): VerificationLane {
   if (args.length === 0) {
     return 'all';
@@ -45,15 +51,18 @@ async function main(): Promise<void> {
       console.log(`Added block ${args[0]}`);
       return;
     case 'resolve': {
+      assertNoArgs('resolve', args);
       const { lock } = await resolveWorkspace(process.cwd());
       console.log(`Resolved ${lock.resolvedBlocks.length} blocks`);
       return;
     }
     case 'compose':
+      assertNoArgs('compose', args);
       await composeWorkspace(process.cwd());
       console.log('Composed project');
       return;
     case 'adapt':
+      assertNoArgs('adapt', args);
       await adaptWorkspace(process.cwd());
       console.log('Adapted slots');
       return;
@@ -63,6 +72,7 @@ async function main(): Promise<void> {
       return;
     }
     case 'repair': {
+      assertNoArgs('repair', args);
       const { repairPlan } = await repairWorkspace(process.cwd());
       const suffix = repairPlan.status === 'applied' ? '; verify pending' : '';
       console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)${suffix}`);
@@ -77,10 +87,12 @@ async function main(): Promise<void> {
       return;
     }
     case 'lock':
+      assertNoArgs('lock', args);
       await lockWorkspace(process.cwd());
       console.log('Locked project');
       return;
     case 'explain': {
+      assertNoArgs('explain', args);
       const { graph } = await explainWorkspace(process.cwd());
       console.log(`Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`);
       return;

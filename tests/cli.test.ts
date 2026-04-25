@@ -98,5 +98,10 @@ test('CLI reports argument usage errors', async () => {
       stdout: '',
       stderr: 'UNEXPECTED Usage: platform verify [--lane fast|runtime|all]\n'
     });
+    await expect(runCli(workspaceRoot, ['resolve', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform resolve\n'
+    });
   });
 });
