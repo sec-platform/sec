@@ -16,7 +16,7 @@ function fileReplace(target: string, source = 'files/source.ts'): UpgradeMigrati
   };
 }
 
-function configRewrite(target: string, updates: Array<{ path: string[]; value: unknown }>): UpgradeMigrationEntry {
+function configRewrite(target: string, updates: Array<{ path: string[]; value?: unknown; operation?: 'set' | 'delete' }>): UpgradeMigrationEntry {
   return {
     id: 'mig-test-config-rewrite',
     kind: 'config-rewrite',
@@ -89,6 +89,45 @@ test('config-rewrite migration updates nested JSON configuration', async () => {
           compiler: {
             upgrade: '0.2'
           }
+        },
+        null,
+        2
+      )}\n`
+    );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('config-rewrite migration deletes nested JSON configuration keys', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-config-delete-'));
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(projectRoot, 'app.config.json'),
+      `${JSON.stringify({ feature: { enabled: true, deprecated: true }, staleRoot: 'remove', keep: true }, null, 2)}\n`,
+      'utf8'
+    );
+
+    await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
+      configRewrite('app.config.json', [
+        { path: ['feature', 'deprecated'], operation: 'delete' },
+        { path: ['feature', 'mode'], value: 'strict' },
+        { path: ['staleRoot'], operation: 'delete' }
+      ])
+    ]);
+
+    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+      `${JSON.stringify(
+        {
+          feature: {
+            enabled: true,
+            mode: 'strict'
+          },
+          keep: true
         },
         null,
         2

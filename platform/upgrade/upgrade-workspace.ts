@@ -101,6 +101,12 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
         throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[]`);
       }
       ensureMigrationStringArray(update.path, 'updates[].path', entryPath);
+      if (update.operation !== undefined && update.operation !== 'set' && update.operation !== 'delete') {
+        throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].operation`);
+      }
+      if ((update.operation === undefined || update.operation === 'set') && !Object.prototype.hasOwnProperty.call(update, 'value')) {
+        throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].value`);
+      }
     }
     return;
   }
@@ -166,7 +172,7 @@ function resolveManifestPath(manifestRoot: string, relativePath: string): string
   return resolvedPath;
 }
 
-function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; value: unknown }>): unknown {
+function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; value?: unknown; operation?: 'set' | 'delete' }>): unknown {
   if (typeof config !== 'object' || config === null || Array.isArray(config)) {
     throw new CompilerError('UPGRADE-MIGRATION-009', 'Config rewrite target must contain a JSON object');
   }
@@ -178,12 +184,21 @@ function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; va
     let current: Record<string, unknown> = config as Record<string, unknown>;
     for (const segment of update.path.slice(0, -1)) {
       const next = current[segment];
+      if (update.operation === 'delete' && (typeof next !== 'object' || next === null || Array.isArray(next))) {
+        current = {};
+        break;
+      }
       if (typeof next !== 'object' || next === null || Array.isArray(next)) {
         current[segment] = {};
       }
       current = current[segment] as Record<string, unknown>;
     }
-    current[update.path[update.path.length - 1]] = update.value;
+    const key = update.path[update.path.length - 1];
+    if (update.operation === 'delete') {
+      delete current[key];
+      continue;
+    }
+    current[key] = update.value;
   }
 
   return config;
