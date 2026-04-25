@@ -209,7 +209,8 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     acceptanceCoveragePath,
     reviewSummaryPath,
     sourceViewPath,
-    slotRuleViewPath
+    slotRuleViewPath,
+    upgradePlanPath
   } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -242,12 +243,42 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   };
   coverage.slots[0].coveredBy = ['disk-driven-acceptance'];
   await fs.writeFile(acceptanceCoveragePath, `${JSON.stringify(coverage, null, 2)}\n`, 'utf8');
+  await fs.writeFile(
+    upgradePlanPath,
+    `${JSON.stringify(
+      {
+        formatVersion: '1',
+        blockId: 'auth/basic-session',
+        fromVersion: '0.1.0',
+        toVersion: '0.1.1',
+        status: 'planned',
+        impacts: ['src/installed/auth/session.ts'],
+        migrations: [],
+        migrationSummaries: [
+          {
+            id: 'mig-auth-session-refresh',
+            kind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            reason: 'Refresh <session> & expose version metadata.',
+            requiresVerification: true
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
 
   await writeLocalViews(workspaceRoot);
 
   const sourceView = await fs.readFile(sourceViewPath, 'utf8');
   const slotRuleView = await fs.readFile(slotRuleViewPath, 'utf8');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
+  expect(sourceView).toContain('Upgrade Plan');
+  expect(sourceView).toContain('auth/basic-session 0.1.0 -&gt; 0.1.1 (planned)');
+  expect(sourceView).toContain('Refresh &lt;session&gt; &amp; expose version metadata.');
   expect(sourceView).not.toContain('disk-only <failure>');
+  expect(sourceView).not.toContain('Refresh <session>');
   expect(slotRuleView).toContain('disk-driven-acceptance');
 });
