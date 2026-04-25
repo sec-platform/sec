@@ -16,6 +16,16 @@ function fileReplace(target: string, source = 'files/source.ts'): UpgradeMigrati
   };
 }
 
+function configRewrite(target: string, updates: Array<{ path: string[]; value: unknown }>): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-config-rewrite',
+    kind: 'config-rewrite',
+    reason: 'test config rewrite',
+    target,
+    updates
+  };
+}
+
 test('file-replace migration copies manifest source to impacted project target', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-migration-'));
   try {
@@ -29,6 +39,67 @@ test('file-replace migration copies manifest source to impacted project target',
     await applyMigrationEntries(projectRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')]);
 
     await expect(fs.readFile(path.join(projectRoot, 'src', 'target.ts'), 'utf8')).resolves.toBe('export const version = "0.1.1";\n');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('config-rewrite migration updates nested JSON configuration', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-config-rewrite-'));
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(projectRoot, 'app.config.json'),
+      `${JSON.stringify({ feature: { enabled: false }, untouched: true }, null, 2)}\n`,
+      'utf8'
+    );
+
+    await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
+      configRewrite('app.config.json', [
+        { path: ['feature', 'enabled'], value: true },
+        { path: ['feature', 'mode'], value: 'strict' },
+        { path: ['compiler', 'upgrade'], value: '0.2' }
+      ])
+    ]);
+
+    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+      `${JSON.stringify(
+        {
+          feature: {
+            enabled: true,
+            mode: 'strict'
+          },
+          untouched: true,
+          compiler: {
+            upgrade: '0.2'
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('config-rewrite migration rejects empty update paths', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-config-empty-path-'));
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'app.config.json'), '{}\n', 'utf8');
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [configRewrite('app.config.json', [{ path: [], value: true }])])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-010'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
