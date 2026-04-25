@@ -71,6 +71,8 @@ test('override-manifest can replace a generated file and surface override proven
   await lockWorkspace(workspaceRoot);
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   expect(graph.nodes.some((node) => node.id === 'override:customer-normalizer-manual')).toBe(true);
+  expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
+  expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
   expect(
     graph.edges.some(
       (edge) =>
