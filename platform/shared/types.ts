@@ -114,7 +114,8 @@ export interface UpgradeConfigRewriteMigrationEntry {
   target: string;
   updates: Array<{
     path: string[];
-    value: unknown;
+    value?: unknown;
+    operation?: 'set' | 'delete';
   }>;
 }
 
