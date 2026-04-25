@@ -53,8 +53,8 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
           id: 'cross_block_flow',
           dependsOn: ['source_smoke'],
           covers: {
-            blocks: ['target/block'],
-            slots: ['target_slot']
+            blocks: ['target/block', 'target/block'],
+            slots: ['target_slot', 'target_slot']
           }
         }
       ])
