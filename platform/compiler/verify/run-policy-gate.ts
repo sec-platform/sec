@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { listFilesRecursive, pathExists, readText } from '../../shared/fs.ts';
+import { listFilesRecursive, pathExists, readJson, readText } from '../../shared/fs.ts';
 import { readYaml } from '../../shared/yaml.ts';
 import type {
+  InstallPlanStep,
+  LockFile,
   MergedPolicyReportEntry,
   PolicyReport,
   PolicyRule,
@@ -119,6 +121,19 @@ function buildMergedPolicyEntries(definitions: Map<string, LoadedPolicyDefinitio
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function targetFilesForPolicy(lock: LockFile | null, policy: PolicyRule): string[] {
+  const installPlan = lock?.installPlan ?? [];
+  const copyTargets = installPlan
+    .filter((step) => policy.appliesTo.includes(step.blockId) && isPolicyCheckableInstall(step))
+    .map((step) => step.to);
+
+  return copyTargets.length > 0 ? [...new Set(copyTargets)].sort((left, right) => left.localeCompare(right)) : ['src/installed/entity/customer-service.ts'];
+}
+
+function isPolicyCheckableInstall(step: InstallPlanStep): boolean {
+  return step.action === 'copy' && step.to.endsWith('.ts');
+}
+
 function evaluateTenantScopeRule(
   source: string,
   filePath: string,
@@ -176,7 +191,7 @@ function buildPolicyReport(
 }
 
 export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport> {
-  const { officialPoliciesRoot, projectPoliciesRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { officialPoliciesRoot, projectPoliciesRoot, projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);
   const official = await loadPolicyScope('official', officialPoliciesRoot);
   const project = await loadPolicyScope('project', projectPoliciesRoot);
   const mergedPolicies = mergePolicies(official, project);
@@ -186,24 +201,22 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
   }
 
   const violations: PolicyViolation[] = [];
-  const targetFile = path.join(projectRoot, 'src', 'installed', 'entity', 'customer-service.ts');
-  const targetFileExists = await pathExists(targetFile);
-  const source = targetFileExists ? await readText(targetFile) : null;
+  const lock = (await pathExists(lockPath)) ? await readJson<LockFile>(lockPath) : null;
 
   for (const definition of mergedPolicies.values()) {
     if (definition.policy.rule !== 'tenant_context_must_flow_to_query') {
       continue;
     }
-    if (!definition.policy.appliesTo.includes('entity/customer-basic')) {
-      continue;
-    }
-    if (!source) {
-      continue;
-    }
 
-    const violation = evaluateTenantScopeRule(source, 'src/installed/entity/customer-service.ts', definition);
-    if (violation) {
-      violations.push(violation);
+    for (const targetFile of targetFilesForPolicy(lock, definition.policy)) {
+      const absolutePath = path.join(projectRoot, targetFile);
+      if (!(await pathExists(absolutePath))) {
+        continue;
+      }
+      const violation = evaluateTenantScopeRule(await readText(absolutePath), targetFile, definition);
+      if (violation) {
+        violations.push(violation);
+      }
     }
   }
 
