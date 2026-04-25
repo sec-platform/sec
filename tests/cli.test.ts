@@ -58,6 +58,16 @@ test('CLI prints usage for missing or unknown commands', async () => {
 
 test('CLI reports argument usage errors', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--unknown'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform init [--reset]\n'
+    });
+    await expect(runCli(workspaceRoot, ['init', '--reset', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform init [--reset]\n'
+    });
     await expect(runCli(workspaceRoot, ['add'])).resolves.toMatchObject({
       code: 1,
       stdout: '',

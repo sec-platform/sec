@@ -19,6 +19,16 @@ function assertNoArgs(command: string, args: string[]): void {
   }
 }
 
+function parseResetArg(args: string[]): boolean {
+  if (args.length === 0) {
+    return false;
+  }
+  if (args.length === 1 && args[0] === '--reset') {
+    return true;
+  }
+  throw new Error('Usage: platform init [--reset]');
+}
+
 function parseLaneArg(args: string[]): VerificationLane {
   if (args.length === 0) {
     return 'all';
@@ -40,7 +50,7 @@ async function main(): Promise<void> {
 
   switch (command) {
     case 'init':
-      await initWorkspace(process.cwd(), { reset: args.includes('--reset') });
+      await initWorkspace(process.cwd(), { reset: parseResetArg(args) });
       console.log('Initialized project workspace');
       return;
     case 'add':
