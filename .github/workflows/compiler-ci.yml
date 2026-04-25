@@ -5,10 +5,65 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: read
 
 jobs:
   compiler-ci:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Resolve graph
+        run: node ./platform/cli/index.ts resolve
+
+      - name: Compose project
+        run: node ./platform/cli/index.ts compose
+
+      - name: Adapt project
+        run: node ./platform/cli/index.ts adapt
+
+      - name: Verify fast lane
+        run: node ./platform/cli/index.ts verify --lane fast
+
+      - name: Upload fast diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-fast-diagnostics
+          if-no-files-found: warn
+          path: |
+            project/generated/**
+            project/provenance.json
+
+  compiler-full:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v5

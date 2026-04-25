@@ -5,7 +5,7 @@ import { composeProject } from '../compose/compose-project.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { copyRecursive, removeDir } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { typecheckProject } from './typecheck-project.ts';
+import { formatCompilerFailure, typecheckProject } from './typecheck-project.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { LockFile } from '../../shared/types.ts';
 
@@ -36,7 +36,7 @@ export async function validateResolvedTemplates(workspaceRoot: string, lock: Loc
     throw new CompilerError(
       'TEMPLATE-BUILD-001',
       'Resolved block templates failed validation before compose',
-      error instanceof Error ? error.message : String(error)
+      formatCompilerFailure(error)
     );
   } finally {
     await removeDir(validationRoot);
