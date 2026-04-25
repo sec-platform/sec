@@ -501,7 +501,7 @@ export interface ReviewRegressionRisk {
 }
 
 export interface ReviewConflictHint {
-  kind: 'override-conflict' | 'upgrade-plan-present' | 'repair-plan-present';
+  kind: 'override-conflict' | 'upgrade-plan-present' | 'upgrade-preflight-passed' | 'repair-plan-present';
   message: string;
   relatedId: string;
 }

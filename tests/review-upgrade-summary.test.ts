@@ -200,6 +200,11 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         kind: 'upgrade-plan-present',
         relatedId: 'auth/basic-session',
         message: 'Upgrade plan present: auth/basic-session 0.1.0 -> 0.1.1'
+      },
+      {
+        kind: 'upgrade-preflight-passed',
+        relatedId: 'auth/basic-session',
+        message: 'Upgrade preflight passed: version-range, migration-entries, impact-scan, override-conflicts'
       }
     ]);
     expect(summary.regressionRisks).toContainEqual({

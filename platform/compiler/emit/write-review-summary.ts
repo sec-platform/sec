@@ -283,6 +283,13 @@ export async function buildReviewSummary(
           ? `Upgrade plan applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
           : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
     });
+    if (upgradePlan.preflightChecks.length > 0) {
+      addConflictHint(conflictHints, {
+        kind: 'upgrade-preflight-passed',
+        relatedId: upgradePlan.blockId,
+        message: `Upgrade preflight passed: ${upgradePlan.preflightChecks.map((check) => check.id).join(', ')}`
+      });
+    }
     for (const impact of upgradePlan.impacts) {
       addRegressionRisk(regressionRisks, {
         kind: 'upgrade-impact',
