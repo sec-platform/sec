@@ -211,6 +211,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     reviewSummaryPath,
     sourceViewPath,
     slotRuleViewPath,
+    upgradeDiagnosticsPath,
     upgradePlanPath
   } = getWorkspacePaths(workspaceRoot);
 
@@ -267,6 +268,23 @@ test('write-local-views consumes generated artifacts from disk', async () => {
             failurePoints: []
           }
         ]
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await fs.writeFile(
+    upgradeDiagnosticsPath,
+    `${JSON.stringify(
+      {
+        formatVersion: '1',
+        status: 'blocked',
+        blockId: 'auth/basic-session',
+        targetVersion: '0.1.1',
+        failedCheck: 'override-conflicts',
+        errorCode: 'UPGRADE-CONFLICT-001',
+        message: 'Override <hotfix> & blocks upgrade'
       },
       null,
       2
@@ -341,6 +359,9 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('impact-scan');
   expect(sourceView).toContain('auth/basic-session 0.1.0 -&gt; 0.1.1 (planned)');
   expect(sourceView).toContain('Refresh &lt;session&gt; &amp; expose version metadata.');
+  expect(sourceView).toContain('Upgrade Diagnostics');
+  expect(sourceView).toContain('UPGRADE-CONFLICT-001');
+  expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
   expect(sourceView).toContain('Repair Plan');
   expect(sourceView).toContain('repair_customer_normalizer');
   expect(sourceView).toContain('unit &lt;failed&gt; &amp; needs repair');

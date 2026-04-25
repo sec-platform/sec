@@ -10,6 +10,7 @@ import type {
   ProvenanceFile,
   RepairPlan,
   ReviewSummary,
+  UpgradeDiagnostics,
   UpgradePlan,
   VerificationReport
 } from '../../shared/types.ts';
@@ -120,6 +121,20 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
       </section>`;
 }
 
+function renderUpgradeDiagnosticsTable(diagnostics: UpgradeDiagnostics | null): string {
+  if (!diagnostics) {
+    return '';
+  }
+
+  return `<section class="card">
+        <h2>Upgrade Diagnostics</h2>
+        <table>
+          <thead><tr><th>Status</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th></tr></thead>
+          <tbody><tr><td>${escapeHtml(diagnostics.status)}</td><td>${escapeHtml(diagnostics.blockId)}</td><td>${escapeHtml(diagnostics.targetVersion)}</td><td>${escapeHtml(diagnostics.failedCheck)}</td><td>${escapeHtml(diagnostics.errorCode)}</td><td>${escapeHtml(diagnostics.message)}</td></tr></tbody>
+        </table>
+      </section>`;
+}
+
 function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
   if (!upgradePlan) {
     return '';
@@ -210,6 +225,7 @@ function renderSourceView(
   graph: ExplainGraph,
   policyReport: PolicyReport,
   repairPlan: RepairPlan | null,
+  upgradeDiagnostics: UpgradeDiagnostics | null,
   upgradePlan: UpgradePlan | null
 ): string {
   return `<!doctype html>
@@ -245,6 +261,7 @@ function renderSourceView(
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradePlanTable(upgradePlan)}
+      ${renderUpgradeDiagnosticsTable(upgradeDiagnostics)}
       ${renderRepairPlanTable(repairPlan)}
       ${renderReviewSummaryTables(review)}
       ${renderJsonCard('Explain Graph', { nodes: graph.nodes.length, edges: graph.edges.length })}
@@ -313,6 +330,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     reviewSummaryPath,
     sourceViewPath,
     slotRuleViewPath,
+    upgradeDiagnosticsPath,
     upgradePlanPath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
@@ -327,7 +345,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
 
-  const [provenance, report, coverage, policyReport, review, graph, repairPlan, upgradePlan] = await Promise.all([
+  const [provenance, report, coverage, policyReport, review, graph, repairPlan, upgradeDiagnostics, upgradePlan] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
     readRequiredArtifact<VerificationReport>(verificationReportPath, 'verification-report.json'),
     readRequiredArtifact<AcceptanceCoverageReport>(acceptanceCoveragePath, 'acceptance-coverage.json'),
@@ -335,9 +353,10 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
     readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json'),
     readOptionalArtifact<RepairPlan>(repairPlanPath),
+    readOptionalArtifact<UpgradeDiagnostics>(upgradeDiagnosticsPath),
     readOptionalArtifact<UpgradePlan>(upgradePlanPath)
   ]);
 
-  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport, repairPlan, upgradePlan), 'utf8');
+  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport, repairPlan, upgradeDiagnostics, upgradePlan), 'utf8');
   await fs.writeFile(slotRuleViewPath, renderSlotRuleView(lock, report, coverage, policyReport, review), 'utf8');
 }

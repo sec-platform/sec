@@ -490,7 +490,7 @@ export interface AcceptanceCoverageReport {
 
 export interface ReviewFailurePoint {
   lane: 'fast' | 'runtime' | 'all';
-  kind: 'summary' | 'policy' | 'build' | 'unit' | 'acceptance';
+  kind: 'summary' | 'policy' | 'build' | 'unit' | 'acceptance' | 'upgrade';
   message: string;
   artifactPath: string;
 }
