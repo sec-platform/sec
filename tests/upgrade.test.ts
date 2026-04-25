@@ -199,7 +199,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
     toVersion: string;
     status: string;
     impacts: string[];
-    migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string }>;
+    migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
   };
   expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
   expect(persistedUpgradePlan.status).toBe('applied');
@@ -209,7 +209,8 @@ test('upgrade advances an official block version and preserves a passing pipelin
       id: 'mig-auth-session-refresh',
       kind: 'file-replace',
       target: 'src/installed/auth/session.ts',
-      reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.'
+      reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
+      requiresVerification: true
     }
   ]);
 
@@ -248,7 +249,8 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       id: 'mig-auth-session-refresh',
       kind: 'file-replace',
       target: 'src/installed/auth/session.ts',
-      reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.'
+      reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
+      requiresVerification: true
     }
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
@@ -272,7 +274,8 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
       id: 'mig-customer-normalizer-contract',
       kind: 'slot-contract-update',
       target: 'custom/customer_normalizer.ts',
-      reason: 'Update customer normalizer input contract to v2.'
+      reason: 'Update customer normalizer input contract to v2.',
+      requiresVerification: true
     }
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);

@@ -101,8 +101,23 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       toVersion: '0.1.1',
       status: 'planned',
       impacts: ['src/installed/auth/session.ts'],
-      migrations: [],
-      migrationSummaries: []
+      migrations: [
+        {
+          id: 'mig-auth-session-refresh',
+          kind: 'file-replace',
+          entry: 'migrations/auth-session-refresh.json',
+          requiresVerification: true
+        }
+      ],
+      migrationSummaries: [
+        {
+          id: 'mig-auth-session-refresh',
+          kind: 'file-replace',
+          target: 'src/installed/auth/session.ts',
+          reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
+          requiresVerification: true
+        }
+      ]
     };
     const repairPlan: RepairPlan = {
       formatVersion: '1',
@@ -165,6 +180,11 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       kind: 'upgrade-impact',
       blockId: 'auth/basic-session',
       message: 'Upgrade auth/basic-session impacts src/installed/auth/session.ts'
+    });
+    expect(summary.regressionRisks).toContainEqual({
+      kind: 'upgrade-verification',
+      blockId: 'auth/basic-session',
+      message: 'Upgrade migration mig-auth-session-refresh requires verification for src/installed/auth/session.ts'
     });
 
     upgradePlan.status = 'applied';

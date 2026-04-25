@@ -290,6 +290,16 @@ export async function buildReviewSummary(
         message: `Upgrade ${upgradePlan.blockId} impacts ${impact}`
       });
     }
+    for (const migration of upgradePlan.migrationSummaries) {
+      if (!migration.requiresVerification) {
+        continue;
+      }
+      addRegressionRisk(regressionRisks, {
+        kind: 'upgrade-verification',
+        blockId: upgradePlan.blockId,
+        message: `Upgrade migration ${migration.id} requires verification for ${migration.target}`
+      });
+    }
   }
 
   if (await pathExists(repairPlanPath)) {
