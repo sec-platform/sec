@@ -15,6 +15,87 @@
   - 新增了什么 AI 可自主承担的职责
 - 每个阶段都有明确退出条件；未达成退出条件前，不跨阶段扩范围。
 
+## 当前进度清单（持续维护）
+
+> 本节是当前开发进度的正式记录区。长期阶段顺序仍以本文后续阶段 A-K 为准；每轮开发完成后，应优先更新这里的状态、下一步和阻塞项，避免进度只散落在聊天、任务列表或 git log 中。
+
+### 状态图例
+
+- `done`：已在代码中实现，并有定向验证或主链路验证覆盖。
+- `active`：当前优先推进方向，允许被拆成多个小提交。
+- `next`：完成 active 后的默认下一批功能切口。
+- `later`：已预留但暂不进入当前开发循环。
+- `blocked`：需要外部凭据、破坏性操作授权或明确产品决策。
+
+### 当前阶段判断
+
+| 阶段 | 状态 | 依据 |
+| --- | --- | --- |
+| 阶段 A：文档与规格冻结 | done | `docs/00-10` 已形成分层规格栈，`00` 定义权威顺序。 |
+| 阶段 B：v0.1 首条闭环 | done | `init -> resolve -> compose -> adapt -> verify -> lock -> explain` 已可重复运行，Customer Admin 母例、三块、单槽位和验收链路已落地。 |
+| 阶段 C：v0.2 工程可持续化 | active | provenance、explain graph、policy gate、repair、upgrade 已具备基础能力，当前重点是把它们从“可用”推进到“可持续维护”。 |
+| 阶段 D：v0.5 团队可用化 | next | 需要在 C 稳定后推进私有 registry、review assist、团队 CI 口径和更完整官方块母库。 |
+| 阶段 E：v1 平台化 | later | graph explorer、双视图工作台、policy center 和托管验证仍是后续平台面。 |
+| 阶段 F-K：多目标、自维护与长期研究线 | later | 必须等单栈平台、升级周期和 provenance 机制稳定后再进入。 |
+
+### 已完成能力
+
+| 能力面 | 当前状态 | 说明 |
+| --- | --- | --- |
+| CLI 主链 | done | `init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain` 已有入口，参数边界已严格化。 |
+| 官方块母例 | done | `auth/basic-session`、`tenant/basic-workspace`、`entity/customer-basic` 支撑 Customer Admin 闭环。 |
+| 单槽位合成 | done | `customer_normalizer` slot 通过 task envelope 限定写入边界。 |
+| fast/runtime verification | done | fast lane、runtime lane、policy report、runtime report 和 summary report 已生成结构化结果。 |
+| acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断。 |
+| provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
+| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override 节点，以及 policy violation 边。 |
+| review summary | done | 结构化输出 change sources、impacted blocks/slots、failure points、regression risks、conflict hints。 |
+| repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
+| upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、verify、lock/provenance 更新和回滚。 |
+| migration 类型 | active | 已支持 `file-replace` 与 `config-rewrite`；其他类型仍待扩展。 |
+| policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
+| 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 是当前稳定治理产物集合。 |
+
+### 当前 active 工作包
+
+1. **升级迁移引擎增强**
+   - 状态：active
+   - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
+   - 已完成：`config-rewrite` JSON 配置迁移。
+   - 下一步候选：`slot-contract-update` 计划生成、migration dry-run 摘要、migration 影响面进入 review summary。
+
+2. **repair 从基础可用到可审查**
+   - 状态：active
+   - 目标：让 repair plan 更准确地区分 slot/spec/kernel failure，并输出更清楚的可修复边界。
+   - 已完成：结构化 failure points、repairable 标记、无可修 slot 的阻断错误、repair plan provenance/review 暴露。
+   - 下一步候选：repair plan dry-run 模式、repair 后自动要求重新 verify 的显式状态、repair task 与 explain graph 的连接。
+
+3. **计划与进度显式化**
+   - 状态：active
+   - 目标：把未来计划和当前进度固定在 repo 文档中，而不是散落在会话上下文。
+   - 已完成：本文新增正式进度清单。
+   - 下一步候选：每轮功能提交后更新本节对应状态，必要时同步 `README` 的入口说明。
+
+### next 工作包
+
+1. **私有 registry 最小通路**
+   - 目标：让 workspace/private registry source 可被 resolve 使用，并与 official registry 共享 manifest/lock/provenance 口径。
+   - 退出条件：一个 private block 可被加入 plan、resolve、compose、verify，并在 provenance 中保留 registry source。
+
+2. **Work Tracking / Ticket SaaS 纵切面**
+   - 目标：在 Customer Admin 外增加一个 `ticket/basic` 最小块，验证状态流转、负责人、租户隔离和列表筛选。
+   - 退出条件：新增官方块可安装、slot 边界清晰、至少一条 acceptance 覆盖状态流转。
+
+3. **review / explain 面向团队协作增强**
+   - 目标：让 review summary 更接近团队 review 入口，而不仅是机器 JSON。
+   - 退出条件：失败点、覆盖缺口、upgrade/repair/override 冲突能稳定聚合，并可被 CI artifact 消费。
+
+### 暂不推进
+
+- 第二后端目标栈、Java、Elysia、游戏/LiveOps 扩展。
+- marketplace、托管运行时、托管验证平台。
+- 无约束自维护或核心 compiler pass 自改写。
+
 ## 新增整合：全局决策框架
 
 ### 现在必须决定
