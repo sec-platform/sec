@@ -169,7 +169,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
       unit: {
         status: 'failed',
         passed: [],
-        failed: ['tests/runtime/unit/customer-runtime.test.ts'],
+        failed: ['tests/runtime/unit/customer-runtime.test.ts', 'tests/runtime/unit/customer-runtime.test.ts'],
         command: 'npm run test:unit'
       },
       acceptance: {
@@ -190,6 +190,11 @@ test('buildReviewSummary adds failed verification targets as structured failure 
 
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+  expect(
+    summary.failurePoints.filter(
+      (point) => point.message === 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts'
+    )
+  ).toHaveLength(1);
   expect(summary.failurePoints).toEqual(
     expect.arrayContaining([
       {
