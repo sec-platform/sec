@@ -94,7 +94,7 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
   );
 });
 
-test('buildReviewSummary adds failed runtime targets as structured failure points', async () => {
+test('buildReviewSummary adds failed verification targets as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-targets-');
   const lock: LockFile = {
     formatVersion: '1',
@@ -152,12 +152,16 @@ test('buildReviewSummary adds failed runtime targets as structured failure point
     acceptance: { status: 'passed', passed: [], failed: [] },
     policy: { status: 'passed', violations: [] },
     fast: {
-      status: 'passed',
+      status: 'failed',
       build: { status: 'passed' },
       unit: { status: 'passed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
+      acceptance: {
+        status: 'failed',
+        passed: [],
+        failed: ['tests/acceptance/customer-normalizer.test.ts']
+      },
       policy: { status: 'passed', violations: [] },
-      logs: { stdout: '', stderr: '' }
+      logs: { stdout: '', stderr: 'fast failed' }
     },
     runtime: {
       status: 'failed',
@@ -179,7 +183,7 @@ test('buildReviewSummary adds failed runtime targets as structured failure point
     summary: {
       status: 'failed',
       requestedLane: 'all',
-      failedLanes: ['runtime']
+      failedLanes: ['fast', 'runtime']
     },
     logs: { stdout: '', stderr: 'runtime failed' }
   };
@@ -188,6 +192,12 @@ test('buildReviewSummary adds failed runtime targets as structured failure point
 
   expect(summary.failurePoints).toEqual(
     expect.arrayContaining([
+      {
+        lane: 'fast',
+        kind: 'acceptance',
+        artifactPath: 'generated/verification-report.json',
+        message: 'Fast-lane acceptance test failed: tests/acceptance/customer-normalizer.test.ts'
+      },
       {
         lane: 'runtime',
         kind: 'unit',
