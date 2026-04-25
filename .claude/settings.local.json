@@ -5,7 +5,10 @@
       "Bash(git commit -m ' *)",
       "Bash(npm test *)",
       "Bash(npm run *)",
-      "Bash(bun *)"
+      "Bash(bun *)",
+      "Bash(command -v python3)",
+      "Bash(command -v python)",
+      "Bash(command -v node)"
     ]
   }
 }
