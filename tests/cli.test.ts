@@ -48,6 +48,11 @@ test('CLI prints usage for missing or unknown commands', async () => {
       stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>\n',
       stderr: ''
     });
+    await expect(runCli(workspaceRoot, ['unknown', '--flag'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>\n',
+      stderr: ''
+    });
   });
 });
 
