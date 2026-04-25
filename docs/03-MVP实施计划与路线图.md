@@ -49,7 +49,7 @@
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override 节点，以及 policy violation 边。 |
-| review summary | done | 结构化输出 change sources、impacted blocks/slots、failure points、regression risks、conflict hints。 |
+| review summary | done | 结构化输出 change sources、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace` 与 `config-rewrite`；其他类型仍待扩展。 |
@@ -62,7 +62,7 @@
    - 状态：active
    - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
    - 已完成：`config-rewrite` JSON 配置迁移。
-   - 下一步候选：`slot-contract-update` 计划生成、migration dry-run 摘要、migration 影响面进入 review summary。
+   - 下一步候选：`slot-contract-update` 计划生成、migration dry-run 摘要。
 
 2. **repair 从基础可用到可审查**
    - 状态：active

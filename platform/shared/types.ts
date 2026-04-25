@@ -480,7 +480,7 @@ export interface ReviewFailurePoint {
 }
 
 export interface ReviewRegressionRisk {
-  kind: 'coverage-gap' | 'override-active';
+  kind: 'coverage-gap' | 'override-active' | 'upgrade-impact';
   message: string;
   blockId?: string;
   slotId?: string;
