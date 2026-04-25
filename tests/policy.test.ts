@@ -92,6 +92,23 @@ test('policy gate handles a missing project policies directory', async () => {
   expect(report.official.policies).toContain('tenant-scope-required');
 });
 
+test('policy gate handles an empty project policies directory', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-empty-project-');
+  const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+
+  await writeCustomerService(workspaceRoot, true);
+  await fs.mkdir(projectPoliciesRoot, { recursive: true });
+  const report = await runPolicyGate(workspaceRoot);
+
+  expect(report.status).toBe('passed');
+  expect(report.project).toEqual({
+    policies: [],
+    sources: [],
+    violations: []
+  });
+  expect(report.official.policies).toContain('tenant-scope-required');
+});
+
 test('policy gate ignores non-YAML project policy files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ignore-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
