@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
@@ -326,6 +327,7 @@ export async function writeReviewSummary(
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   }
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+  await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   return summary;

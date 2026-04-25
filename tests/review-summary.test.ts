@@ -10,9 +10,9 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../platform/orchestrator.ts';
-import { buildReviewSummary } from '../platform/compiler/emit/write-review-summary.ts';
+import { buildReviewSummary, writeReviewSummary } from '../platform/compiler/emit/write-review-summary.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
-import { readJson } from '../platform/shared/fs.ts';
+import { readJson, writeJson } from '../platform/shared/fs.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
@@ -54,6 +54,85 @@ async function readReviewInputs(workspaceRoot: string): Promise<{
 
   return { lock, provenance, report, coverage };
 }
+
+test('writeReviewSummary persists generated path in lock', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-review-write-');
+  const { lockPath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
+  const lock: LockFile = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'succeeded',
+      repair: 'skipped',
+      lock: 'succeeded',
+      emit: 'pending'
+    }
+  };
+  const provenance: ProvenanceFile = {
+    formatVersion: '1',
+    artifacts: []
+  };
+  const report: VerificationReport = {
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      status: 'passed',
+      build: { status: 'passed' },
+      unit: { status: 'passed', passed: [] },
+      acceptance: { status: 'passed', passed: [], failed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      status: 'skipped',
+      build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
+      unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
+      acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
+      logs: { stdout: '', stderr: '' }
+    },
+    summary: {
+      status: 'passed',
+      requestedLane: 'fast',
+      failedLanes: []
+    },
+    logs: { stdout: '', stderr: '' }
+  };
+  const coverage: AcceptanceCoverageReport = {
+    formatVersion: '1',
+    status: 'passed',
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
+  await writeJson(lockPath, lock);
+
+  const summary = await writeReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+  const persistedLock = await readJson<LockFile>(lockPath);
+  const persistedSummary = await readJson<typeof summary>(reviewSummaryPath);
+
+  expect(summary.conflictHints).toEqual([]);
+  expect(persistedSummary).toEqual(summary);
+  expect(persistedLock.generatedPaths).toEqual(['generated/review-summary.json']);
+});
 
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-fast-');
