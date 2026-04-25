@@ -43,6 +43,9 @@ function inferGeneratedByPass(targetPath: string): string {
   if (targetPath === 'generated/upgrade-plan.json') {
     return 'upgrade';
   }
+  if (targetPath === 'generated/upgrade-diagnostics.json') {
+    return 'upgrade';
+  }
   return 'compose';
 }
 
