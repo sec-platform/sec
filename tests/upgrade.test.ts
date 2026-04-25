@@ -198,11 +198,20 @@ test('upgrade advances an official block version and preserves a passing pipelin
   ) as {
     toVersion: string;
     status: string;
+    preflightChecks: Array<{ id: string; status: string; message: string; evidence: string[] }>;
     impacts: string[];
     migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
   };
   expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
   expect(persistedUpgradePlan.status).toBe('applied');
+  expect(persistedUpgradePlan.preflightChecks).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'version-range', status: 'passed', evidence: ['0.1.x'] }),
+      expect.objectContaining({ id: 'migration-entries', status: 'passed', evidence: ['mig-auth-session-refresh:migrations/auth-session-refresh.json'] }),
+      expect.objectContaining({ id: 'impact-scan', status: 'passed', evidence: ['src/installed/auth/session.ts'] }),
+      expect.objectContaining({ id: 'override-conflicts', status: 'passed', evidence: [] })
+    ])
+  );
   expect(persistedUpgradePlan.impacts).toContain('src/installed/auth/session.ts');
   expect(persistedUpgradePlan.migrationSummaries).toEqual([
     {
@@ -244,6 +253,14 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
   const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.preflightChecks).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'version-range', status: 'passed' }),
+      expect.objectContaining({ id: 'migration-entries', status: 'passed' }),
+      expect.objectContaining({ id: 'impact-scan', status: 'passed' }),
+      expect.objectContaining({ id: 'override-conflicts', status: 'passed' })
+    ])
+  );
   expect(upgradePlan.migrationSummaries).toEqual([
     {
       id: 'mig-auth-session-refresh',
@@ -268,6 +285,14 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
   const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.preflightChecks).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'version-range', evidence: ['0.1.x'] }),
+      expect.objectContaining({ id: 'migration-entries', evidence: ['mig-customer-normalizer-contract:migrations/customer-normalizer-contract.json'] }),
+      expect.objectContaining({ id: 'impact-scan', evidence: ['custom/customer_normalizer.ts', 'src/installed/private/slot-contract.ts'] }),
+      expect.objectContaining({ id: 'override-conflicts', evidence: [] })
+    ])
+  );
   expect(upgradePlan.impacts).toEqual(['custom/customer_normalizer.ts', 'src/installed/private/slot-contract.ts']);
   expect(upgradePlan.migrationSummaries).toEqual([
     {

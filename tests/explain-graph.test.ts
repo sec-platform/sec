@@ -137,6 +137,32 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
     fromVersion: '0.1.0',
     toVersion: '0.2.0',
     status: 'planned',
+    preflightChecks: [
+      {
+        id: 'version-range',
+        status: 'passed',
+        message: 'Upgrade path 0.1.0 -> 0.2.0 is allowed',
+        evidence: ['0.1.x']
+      },
+      {
+        id: 'migration-entries',
+        status: 'passed',
+        message: '1 migration entries loaded and validated',
+        evidence: ['mig-customer-normalizer-contract:migrations/customer-normalizer-contract.json']
+      },
+      {
+        id: 'impact-scan',
+        status: 'passed',
+        message: '1 upgrade impacts calculated',
+        evidence: ['custom/customer_normalizer.ts']
+      },
+      {
+        id: 'override-conflicts',
+        status: 'passed',
+        message: '0 overrides scanned with no conflicts',
+        evidence: []
+      }
+    ],
     impacts: ['custom/customer_normalizer.ts'],
     migrations: [
       {

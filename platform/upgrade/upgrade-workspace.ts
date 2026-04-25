@@ -15,7 +15,7 @@ import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
-import type { LockFile, PlanFile, UpgradeMigration, UpgradeMigrationEntry, UpgradePlan } from '../shared/types.ts';
+import type { LockFile, PlanFile, UpgradeMigration, UpgradeMigrationEntry, UpgradePlan, UpgradePreflightCheck } from '../shared/types.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
   if (range === version) {
@@ -48,7 +48,7 @@ function ensureUpgradeAllowed(currentVersion: string, targetVersion: string, mig
   }
 }
 
-async function detectOverrideConflicts(workspaceRoot: string, blockId: string, impacts: string[]): Promise<void> {
+async function detectOverrideConflicts(workspaceRoot: string, blockId: string, impacts: string[]): Promise<string[]> {
   const manifest = await loadOverrideManifest(workspaceRoot);
   const conflictingOverride = manifest.overrides.find(
     (entry) =>
@@ -63,6 +63,8 @@ async function detectOverrideConflicts(workspaceRoot: string, blockId: string, i
       conflictingOverride
     );
   }
+
+  return manifest.overrides.map((entry) => entry.id).sort((left, right) => left.localeCompare(right));
 }
 
 function ensureMigrationString(value: unknown, field: string, entryPath: string): string {
@@ -224,10 +226,48 @@ export async function applyMigrationEntries(
   }
 }
 
+function buildUpgradePreflightChecks(
+  currentVersion: string,
+  targetVersion: string,
+  acceptedRanges: string[],
+  migrations: UpgradeMigration[],
+  migrationEntries: UpgradeMigrationEntry[],
+  impacts: string[],
+  scannedOverrides: string[]
+): UpgradePreflightCheck[] {
+  return [
+    {
+      id: 'version-range',
+      status: 'passed',
+      message: `Upgrade path ${currentVersion} -> ${targetVersion} is allowed`,
+      evidence: acceptedRanges
+    },
+    {
+      id: 'migration-entries',
+      status: 'passed',
+      message: `${migrationEntries.length} migration entries loaded and validated`,
+      evidence: migrations.map((migration) => `${migration.id}:${migration.entry}`)
+    },
+    {
+      id: 'impact-scan',
+      status: 'passed',
+      message: `${impacts.length} upgrade impacts calculated`,
+      evidence: impacts
+    },
+    {
+      id: 'override-conflicts',
+      status: 'passed',
+      message: `${scannedOverrides.length} overrides scanned with no conflicts`,
+      evidence: scannedOverrides
+    }
+  ];
+}
+
 function buildUpgradePlan(
   blockId: string,
   fromVersion: string,
   toVersion: string,
+  preflightChecks: UpgradePreflightCheck[],
   impacts: string[],
   migrations: UpgradeMigration[],
   migrationEntries: UpgradeMigrationEntry[]
@@ -238,6 +278,7 @@ function buildUpgradePlan(
     fromVersion,
     toVersion,
     status: 'planned',
+    preflightChecks,
     impacts,
     migrations,
     migrationSummaries: migrationEntries.map((entry) => {
@@ -286,15 +327,25 @@ export async function upgradeWorkspace(
   });
   const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] => entries.map((entry) => entry.target);
   const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
-  ensureUpgradeAllowed(currentVersion, targetVersion, migrations, targetEntry.manifest.upgrade?.from ?? []);
+  const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
+  ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
   const targetManifestRoot = path.dirname(targetEntry.manifestPath);
   const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
   const impacts = [...new Set([...targetEntry.manifest.installs.map((install) => install.to), ...migrationImpacts(migrationEntries)])].sort(
     (left, right) => left.localeCompare(right)
   );
-  await detectOverrideConflicts(workspaceRoot, blockId, impacts);
+  const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
+  const preflightChecks = buildUpgradePreflightChecks(
+    currentVersion,
+    targetVersion,
+    acceptedRanges,
+    migrations,
+    migrationEntries,
+    impacts,
+    scannedOverrides
+  );
 
-  const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, impacts, migrations, migrationEntries);
+  const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, preflightChecks, impacts, migrations, migrationEntries);
   if (options.dryRun) {
     const lock = await readJson<LockFile>(lockPath);
     await writeJson(upgradePlanPath, upgradePlan);
