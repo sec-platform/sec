@@ -130,6 +130,18 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       ['src/installed/entity/customer-service.ts', 'compose'],
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);
+
+    await writeJson(verificationReportPath, {
+      ...report,
+      summary: {
+        ...report.summary,
+        status: 'failed'
+      }
+    });
+    const failedProvenance = await buildProvenance(workspaceRoot, lock);
+    expect(failedProvenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
+      verifiedBy: []
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
