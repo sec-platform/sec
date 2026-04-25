@@ -354,6 +354,58 @@ test('policy report violations point to the winning project source after recursi
   });
 });
 
+test('policy gate records missing install plan targets without violations', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-missing-target-');
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lock: LockFile = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs-ts-prisma-sqlite',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [],
+    resolvedCapabilities: [],
+    installPlan: [
+      {
+        stepId: 'copy_missing_tenant_query',
+        blockId: 'entity/customer-basic',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official',
+        sourceRoot: 'platform/registry/official/entity.customer-basic/files',
+        action: 'copy',
+        from: 'files/src/installed/alt/missing-query.ts',
+        to: 'src/installed/alt/missing-query.ts'
+      }
+    ],
+    slotTasks: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'pending',
+      repair: 'skipped',
+      lock: 'pending',
+      emit: 'pending'
+    }
+  };
+  await writeJson(lockPath, lock);
+
+  const report = await runPolicyGate(workspaceRoot);
+
+  expect(report.status).toBe('passed');
+  expect(report.violations).toEqual([]);
+  expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([
+    'src/installed/alt/missing-query.ts'
+  ]);
+});
+
 test('policy gate uses lock install plan to locate applied block files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-install-plan-');
   const { lockPath } = getWorkspacePaths(workspaceRoot);
