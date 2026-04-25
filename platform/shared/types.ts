@@ -537,6 +537,13 @@ export interface RepairPlan {
   tasks: RepairTask[];
 }
 
+export interface UpgradeMigrationSummary {
+  id: string;
+  kind: string;
+  target: string;
+  reason: string;
+}
+
 export interface UpgradePlan {
   formatVersion: string;
   blockId: string;
@@ -545,6 +552,7 @@ export interface UpgradePlan {
   status: 'planned' | 'applied';
   impacts: string[];
   migrations: UpgradeMigration[];
+  migrationSummaries: UpgradeMigrationSummary[];
 }
 
 export interface OverrideEntry {

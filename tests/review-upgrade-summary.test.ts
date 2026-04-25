@@ -101,7 +101,8 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       toVersion: '0.1.1',
       status: 'planned',
       impacts: ['src/installed/auth/session.ts'],
-      migrations: []
+      migrations: [],
+      migrationSummaries: []
     };
     const repairPlan: RepairPlan = {
       formatVersion: '1',

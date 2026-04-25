@@ -61,8 +61,8 @@
 1. **升级迁移引擎增强**
    - 状态：active
    - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
-   - 已完成：`config-rewrite` JSON 配置迁移。
-   - 下一步候选：`slot-contract-update` 计划生成、migration dry-run 摘要。
+   - 已完成：`config-rewrite` JSON 配置迁移、upgrade plan migration 摘要。
+   - 下一步候选：`slot-contract-update` 计划生成、migration dry-run 执行入口。
 
 2. **repair 从基础可用到可审查**
    - 状态：active
