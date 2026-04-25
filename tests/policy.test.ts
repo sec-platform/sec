@@ -77,6 +77,21 @@ async function writeCustomerService(workspaceRoot: string, valid: boolean): Prom
   );
 }
 
+test('policy gate handles a missing project policies directory', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-missing-project-');
+
+  await writeCustomerService(workspaceRoot, true);
+  const report = await runPolicyGate(workspaceRoot);
+
+  expect(report.status).toBe('passed');
+  expect(report.project).toEqual({
+    policies: [],
+    sources: [],
+    violations: []
+  });
+  expect(report.official.policies).toContain('tenant-scope-required');
+});
+
 test('policy gate ignores non-YAML project policy files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ignore-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
