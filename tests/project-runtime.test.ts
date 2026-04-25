@@ -8,6 +8,7 @@ import {
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
+  withProjectDependencyBridge,
   writeRuntimeDepsStamp
 } from '../platform/shared/project-runtime.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
@@ -105,6 +106,19 @@ test('project base keeps Playwright traces for failed runtime acceptance', async
   await expect(fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8')).resolves.toContain(
     "trace: 'retain-on-failure'"
   );
+});
+
+test('dependency bridge reuses the shared runtime cache when the project has no node_modules', async () => {
+  const workspaceRoot = await createTempRoot('engineering-compiler-runtime-bridge-');
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const bridgePath = path.join(projectRoot, 'node_modules');
+
+  await ensureProjectBase(workspaceRoot);
+  await withProjectDependencyBridge(projectRoot, async () => {
+    await expect(fs.readFile(path.join(bridgePath, 'next', 'package.json'), 'utf8')).resolves.toContain('next');
+  });
+
+  await expect(fs.stat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 test('ensureProjectDependencies skips install when warm cache and matching stamps already exist', async () => {

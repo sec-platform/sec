@@ -175,13 +175,26 @@ async function runInstallWithFallback(
   });
 }
 
+async function resolveProjectDependencyBridgeTarget(): Promise<string> {
+  const compilerNodeModules = path.join(compilerRoot, 'node_modules');
+  if (await hasInstalledRuntimeDeps(compilerNodeModules)) {
+    return compilerNodeModules;
+  }
+
+  const sharedNodeModules = path.join(defaultSharedDepsRoot(), 'node_modules');
+  if (await hasInstalledRuntimeDeps(sharedNodeModules)) {
+    return sharedNodeModules;
+  }
+
+  return compilerNodeModules;
+}
+
 export async function withProjectDependencyBridge<T>(projectRoot: string, callback: () => Promise<T>): Promise<T> {
   const bridgePath = path.join(projectRoot, 'node_modules');
-  const compilerNodeModules = path.join(compilerRoot, 'node_modules');
   let createdBridge = false;
 
   if (!(await pathExists(bridgePath))) {
-    await fs.symlink(compilerNodeModules, bridgePath, 'junction');
+    await fs.symlink(await resolveProjectDependencyBridgeTarget(), bridgePath, 'junction');
     createdBridge = true;
   }
 
