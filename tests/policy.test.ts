@@ -77,6 +77,18 @@ async function writeCustomerService(workspaceRoot: string, valid: boolean): Prom
   );
 }
 
+test('policy gate ignores non-YAML project policy files', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-ignore-');
+  const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+
+  await fs.mkdir(projectPoliciesRoot, { recursive: true });
+  await fs.writeFile(path.join(projectPoliciesRoot, 'notes.txt'), 'tenant-scope-required\n', 'utf8');
+
+  const report = await runPolicyGate(workspaceRoot);
+
+  expect(report.project.sources.some((source) => source.path.endsWith('notes.txt'))).toBe(false);
+});
+
 test('policy gate merges recursive official/project sources and reports winning definitions', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-merge-');
   const officialFixtureDir = await createOfficialPolicyDir('merge');
