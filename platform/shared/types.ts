@@ -494,7 +494,7 @@ export interface ReviewFailurePoint {
 }
 
 export interface ReviewRegressionRisk {
-  kind: 'coverage-gap' | 'override-active' | 'upgrade-impact';
+  kind: 'coverage-gap' | 'override-active' | 'upgrade-impact' | 'upgrade-verification';
   message: string;
   blockId?: string;
   slotId?: string;
@@ -556,6 +556,7 @@ export interface UpgradeMigrationSummary {
   kind: string;
   target: string;
   reason: string;
+  requiresVerification: boolean;
 }
 
 export interface UpgradePlan {

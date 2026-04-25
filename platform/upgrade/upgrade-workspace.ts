@@ -183,12 +183,16 @@ function buildUpgradePlan(
     status: 'planned',
     impacts,
     migrations,
-    migrationSummaries: migrationEntries.map((entry) => ({
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      reason: entry.reason
-    }))
+    migrationSummaries: migrationEntries.map((entry) => {
+      const migration = migrations.find((candidate) => candidate.id === entry.id);
+      return {
+        id: entry.id,
+        kind: entry.kind,
+        target: entry.target,
+        reason: entry.reason,
+        requiresVerification: migration?.requiresVerification ?? true
+      };
+    })
   };
 }
 
