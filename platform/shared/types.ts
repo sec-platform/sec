@@ -460,7 +460,7 @@ export interface ReviewRegressionRisk {
 }
 
 export interface ReviewConflictHint {
-  kind: 'override-conflict' | 'upgrade-plan-present';
+  kind: 'override-conflict' | 'upgrade-plan-present' | 'repair-plan-present';
   message: string;
   relatedId: string;
 }
@@ -479,6 +479,15 @@ export interface ReviewSummary {
   conflictHints: ReviewConflictHint[];
 }
 
+export interface RepairFailurePoint {
+  lane: 'fast' | 'runtime' | 'all';
+  kind: 'build' | 'unit' | 'acceptance' | 'policy' | 'runtime-build' | 'runtime-unit' | 'runtime-acceptance' | 'summary';
+  issueType: 'slot' | 'spec' | 'kernel' | 'unknown';
+  repairable: boolean;
+  artifactPath: string;
+  message: string;
+}
+
 export interface RepairTask {
   taskId: string;
   taskKind: 'repair-slot';
@@ -491,6 +500,7 @@ export interface RepairTask {
   forbiddenOperations: string[];
   testsToPass: string[];
   failureSummary: string;
+  failurePoints: RepairFailurePoint[];
 }
 
 export interface RepairPlan {

@@ -6,11 +6,11 @@
   "scripts": {
     "platform": "node ./platform/cli/index.ts",
     "reference:refresh": "npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt && npm run platform -- verify --lane all && npm run platform -- lock && npm run platform -- explain",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test": "bun ./platform/dev-runner.ts test",
+    "test:watch": "bun ./platform/dev-runner.ts test --watch",
+    "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
     "test:bun": "bun test tests/",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "bun ./platform/dev-runner.ts typecheck",
     "check": "npm run typecheck && npm test",
     "platform:bun": "bun ./platform/cli/index.ts"
   },

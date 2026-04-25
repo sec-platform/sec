@@ -7,6 +7,7 @@ import type {
   LockFile,
   ProvenanceFile,
   ReviewConflictHint,
+  RepairPlan,
   ReviewFailurePoint,
   ReviewRegressionRisk,
   ReviewSummary,
@@ -115,7 +116,7 @@ export async function buildReviewSummary(
   report: VerificationReport,
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
-  const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+  const { repairPlanPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   const failurePoints: ReviewFailurePoint[] = [];
   const regressionRisks: ReviewRegressionRisk[] = [];
@@ -227,6 +228,17 @@ export async function buildReviewSummary(
       relatedId: upgradePlan.blockId,
       message: `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
     });
+  }
+
+  if (await pathExists(repairPlanPath)) {
+    const repairPlan = await readJson<RepairPlan>(repairPlanPath);
+    for (const task of repairPlan.tasks) {
+      addConflictHint(conflictHints, {
+        kind: 'repair-plan-present',
+        relatedId: task.taskId,
+        message: `Repair task pending: ${task.taskId} -> ${task.targetFile}`
+      });
+    }
   }
 
   return {

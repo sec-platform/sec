@@ -23,7 +23,7 @@ export interface RuntimePackageManifest {
   devDependencies: Record<string, string>;
 }
 
-const runtimeDependencyKeys = ['next', 'react', 'react-dom'] as const;
+const runtimeDependencyKeys = ['next', 'react', 'react-dom', 'yaml'] as const;
 const runtimeDevDependencyKeys = [
   '@playwright/test',
   '@types/node',

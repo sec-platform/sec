@@ -10,6 +10,7 @@ import type {
   ExplainGraphEdge,
   ExplainGraphNode,
   LockFile,
+  PolicyReport,
   ProvenanceFile
 } from '../../shared/types.ts';
 
@@ -25,11 +26,20 @@ function pushEdge(edges: ExplainGraphEdge[], edge: ExplainGraphEdge): void {
   }
 }
 
+async function readPolicyReport(workspaceRoot: string): Promise<PolicyReport | null> {
+  const { policyReportPath } = getWorkspacePaths(workspaceRoot);
+  if (!(await pathExists(policyReportPath))) {
+    return null;
+  }
+  return readJson<PolicyReport>(policyReportPath);
+}
+
 export async function buildExplainGraph(
   workspaceRoot: string,
   lock: LockFile,
   provenance: ProvenanceFile,
-  coverage: AcceptanceCoverageReport
+  coverage: AcceptanceCoverageReport,
+  policyReport: PolicyReport | null
 ): Promise<ExplainGraph> {
   const nodes: ExplainGraphNode[] = [];
   const edges: ExplainGraphEdge[] = [];
@@ -78,6 +88,34 @@ export async function buildExplainGraph(
       pushEdge(edges, {
         from: blockNodeId,
         to: capabilityNodeId,
+        type: 'provides'
+      });
+    }
+
+    for (const pin of manifestEntry.manifest.pins.inputs) {
+      const pinNodeId = `pin:${block.id}:input:${pin.id}`;
+      pushNode(nodes, {
+        id: pinNodeId,
+        type: 'pin',
+        label: pin.id
+      });
+      pushEdge(edges, {
+        from: blockNodeId,
+        to: pinNodeId,
+        type: 'depends_on'
+      });
+    }
+
+    for (const pin of manifestEntry.manifest.pins.outputs) {
+      const pinNodeId = `pin:${block.id}:output:${pin.id}`;
+      pushNode(nodes, {
+        id: pinNodeId,
+        type: 'pin',
+        label: pin.id
+      });
+      pushEdge(edges, {
+        from: blockNodeId,
+        to: pinNodeId,
         type: 'provides'
       });
     }
@@ -138,6 +176,38 @@ export async function buildExplainGraph(
       to: originNodeId,
       type: 'originates_from'
     });
+  }
+
+  if (policyReport) {
+    for (const policy of policyReport.merged.policies) {
+      pushNode(nodes, {
+        id: `policy:${policy.id}`,
+        type: 'policy',
+        label: policy.id
+      });
+    }
+
+    for (const violation of policyReport.violations) {
+      const policyNodeId = `policy:${violation.id}`;
+      pushNode(nodes, {
+        id: policyNodeId,
+        type: 'policy',
+        label: violation.id
+      });
+      for (const file of violation.files) {
+        const fileNodeId = `file:${file}`;
+        pushNode(nodes, {
+          id: fileNodeId,
+          type: 'file',
+          label: file
+        });
+        pushEdge(edges, {
+          from: fileNodeId,
+          to: policyNodeId,
+          type: 'violates'
+        });
+      }
+    }
   }
 
   for (const acceptanceId of lock.acceptancePlan) {
@@ -208,7 +278,7 @@ export async function writeExplainGraph(
   const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === 'generated/explain-graph.json')
     ? provenance
     : await buildProvenance(workspaceRoot, lock);
-  const graph = await buildExplainGraph(workspaceRoot, lock, nextProvenance, coverage);
+  const graph = await buildExplainGraph(workspaceRoot, lock, nextProvenance, coverage, await readPolicyReport(workspaceRoot));
 
   await fs.writeFile(explainGraphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
