@@ -48,10 +48,8 @@ export async function buildAcceptanceCoverage(
   lock: LockFile,
   runtime: RuntimeVerificationLaneReport
 ): Promise<AcceptanceCoverageReport> {
-  const declaredAcceptanceIds = new Set(lock.acceptancePlan);
-  const runtimeAcceptancePassed = runtime.acceptance.status === 'passed'
-    ? runtime.acceptance.passed.filter((acceptanceId) => declaredAcceptanceIds.has(acceptanceId))
-    : [];
+  const runtimeAccepted = new Set(runtime.acceptance.status === 'passed' ? runtime.acceptance.passed : []);
+  const runtimeAcceptancePassed = lock.acceptancePlan.filter((acceptanceId) => runtimeAccepted.has(acceptanceId));
   const acceptancePassed = runtimeAcceptancePassed.length > 0
     ? runtimeAcceptancePassed
     : runtime.acceptance.status === 'passed'

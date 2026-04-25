@@ -139,7 +139,7 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
       uncovered: true
     });
 
-    const covered = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['source_smoke', 'cross_block_flow']));
+    const covered = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['unknown_flow', 'cross_block_flow', 'source_smoke', 'source_smoke']));
     expect(covered.acceptancePassed).toEqual(['source_smoke', 'cross_block_flow']);
     expect(covered.blocks.find((entry) => entry.id === 'source/block')).toMatchObject({
       declaredAcceptance: ['source_smoke'],
