@@ -182,6 +182,14 @@ export async function buildReviewSummary(
       message: 'Fast-lane acceptance tests failed',
       artifactPath: 'generated/verification-report.json'
     });
+    for (const target of report.fast.acceptance.failed) {
+      addFailurePoint(failurePoints, {
+        lane: 'fast',
+        kind: 'acceptance',
+        message: `Fast-lane acceptance test failed: ${target}`,
+        artifactPath: 'generated/verification-report.json'
+      });
+    }
   }
   if (report.runtime.build.status === 'failed') {
     addFailurePoint(failurePoints, {
