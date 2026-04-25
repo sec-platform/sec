@@ -132,10 +132,21 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
     )
     .join('');
   const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
+  const preflightRows = upgradePlan.preflightChecks
+    .map(
+      (check) =>
+        `<tr><td>${escapeHtml(check.id)}</td><td>${escapeHtml(check.status)}</td><td>${escapeHtml(check.message)}</td><td>${escapeHtml(check.evidence.join(', ') || 'none')}</td></tr>`
+    )
+    .join('');
 
   return `<section class="card">
         <h2>Upgrade Plan</h2>
         <p>${escapeHtml(upgradePlan.blockId)} ${escapeHtml(upgradePlan.fromVersion)} -&gt; ${escapeHtml(upgradePlan.toVersion)} (${escapeHtml(upgradePlan.status)})</p>
+        <h3>Preflight Checks</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Status</th><th>Message</th><th>Evidence</th></tr></thead>
+          <tbody>${preflightRows}</tbody>
+        </table>
         <h3>Migrations</h3>
         <table>
           <thead><tr><th>ID</th><th>Kind</th><th>Target</th><th>Requires Verification</th><th>Reason</th></tr></thead>
