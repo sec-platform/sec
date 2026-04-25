@@ -207,6 +207,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-local-views-');
   const {
     acceptanceCoveragePath,
+    repairPlanPath,
     reviewSummaryPath,
     sourceViewPath,
     slotRuleViewPath,
@@ -244,6 +245,35 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   coverage.slots[0].coveredBy = ['disk-driven-acceptance'];
   await fs.writeFile(acceptanceCoveragePath, `${JSON.stringify(coverage, null, 2)}\n`, 'utf8');
   await fs.writeFile(
+    repairPlanPath,
+    `${JSON.stringify(
+      {
+        formatVersion: '1',
+        status: 'pending',
+        sourceVerificationStatus: 'failed',
+        tasks: [
+          {
+            taskId: 'repair_customer_normalizer',
+            taskKind: 'repair-slot',
+            phase: 'repair',
+            sourceSlotId: 'customer_normalizer',
+            targetBlock: 'entity/customer-basic',
+            targetFile: 'custom/customer_normalizer.ts',
+            allowedPaths: ['custom/customer_normalizer.ts'],
+            requiredSymbols: [],
+            forbiddenOperations: [],
+            testsToPass: [],
+            failureSummary: 'unit <failed> & needs repair',
+            failurePoints: []
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await fs.writeFile(
     upgradePlanPath,
     `${JSON.stringify(
       {
@@ -278,7 +308,11 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('Upgrade Plan');
   expect(sourceView).toContain('auth/basic-session 0.1.0 -&gt; 0.1.1 (planned)');
   expect(sourceView).toContain('Refresh &lt;session&gt; &amp; expose version metadata.');
+  expect(sourceView).toContain('Repair Plan');
+  expect(sourceView).toContain('repair_customer_normalizer');
+  expect(sourceView).toContain('unit &lt;failed&gt; &amp; needs repair');
   expect(sourceView).not.toContain('disk-only <failure>');
   expect(sourceView).not.toContain('Refresh <session>');
+  expect(sourceView).not.toContain('unit <failed>');
   expect(slotRuleView).toContain('disk-driven-acceptance');
 });
