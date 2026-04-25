@@ -246,6 +246,15 @@ test('repair plan includes structured failure points for slot and spec failures'
   );
 });
 
+test('repair plan fails when no slot task is repairable', () => {
+  const lockWithoutSlots: LockFile = {
+    ...lock,
+    slotTasks: []
+  };
+
+  expect(() => buildRepairPlan(plan, lockWithoutSlots, failedReport)).toThrow('No repairable slot tasks found for current verification failure');
+});
+
 test('repair plan falls back when failed summary has no lane details', () => {
   const report: VerificationReport = {
     ...failedReport,
