@@ -48,7 +48,7 @@
 | fast/runtime verification | done | fast lane、runtime lane、policy report、runtime report 和 summary report 已生成结构化结果。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
-| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override 节点、policy violation 边，以及 slot 合同升级影响边。 |
+| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair 节点、policy violation 边、slot 合同升级影响边，以及 repair task 归因边。 |
 | review summary | done | 结构化输出 change sources、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
@@ -67,8 +67,8 @@
 2. **repair 从基础可用到可审查**
    - 状态：active
    - 目标：让 repair plan 更准确地区分 slot/spec/kernel failure，并输出更清楚的可修复边界。
-   - 已完成：结构化 failure points、repairable 标记、无可修 slot 的阻断错误、repair plan provenance/review 暴露、repair plan 到本地视图的摘要呈现。
-   - 下一步候选：repair plan dry-run 模式、repair 后自动要求重新 verify 的显式状态、repair task 与 explain graph 的连接。
+   - 已完成：结构化 failure points、repairable 标记、无可修 slot 的阻断错误、repair plan provenance/review 暴露、repair plan 到本地视图的摘要呈现、repair task 与 explain graph 的连接。
+   - 下一步候选：repair plan dry-run 模式、repair 后自动要求重新 verify 的显式状态。
 
 3. **计划与进度显式化**
    - 状态：active
