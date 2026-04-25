@@ -38,7 +38,11 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
           }
         }
       ],
-      generatedPaths: [],
+      generatedPaths: [
+        'generated/explain-graph.json',
+        'generated/repair-plan.json',
+        'generated/upgrade-plan.json'
+      ],
       acceptancePlan: [],
       passStatus: {
         parse: 'succeeded',
@@ -58,6 +62,12 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
     expect(provenance.artifacts.find((artifact) => artifact.path === 'custom/customer_normalizer.ts')).toMatchObject({
       verifiedBy: ['tests/acceptance/customer-flow.test.ts', 'tests/unit/customer-normalizer.test.ts']
     });
+    expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([
+      ['custom/customer_normalizer.ts', 'adapt'],
+      ['generated/explain-graph.json', 'explain'],
+      ['generated/repair-plan.json', 'repair'],
+      ['generated/upgrade-plan.json', 'upgrade']
+    ]);
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
