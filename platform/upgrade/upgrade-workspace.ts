@@ -65,6 +65,62 @@ async function detectOverrideConflicts(workspaceRoot: string, blockId: string, i
   }
 }
 
+function ensureMigrationString(value: unknown, field: string, entryPath: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires ${field}`);
+  }
+  return value;
+}
+
+function ensureMigrationStringArray(value: unknown, field: string, entryPath: string): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires ${field}`);
+  }
+  return value;
+}
+
+function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string): void {
+  ensureMigrationString(entry.id, 'id', entryPath);
+  ensureMigrationString(entry.kind, 'kind', entryPath);
+  ensureMigrationString(entry.reason, 'reason', entryPath);
+  ensureMigrationString(entry.target, 'target', entryPath);
+
+  if (entry.kind === 'file-replace') {
+    ensureMigrationString(entry.source, 'source', entryPath);
+    return;
+  }
+
+  if (entry.kind === 'config-rewrite') {
+    if (!Array.isArray(entry.updates)) {
+      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates`);
+    }
+    for (const update of entry.updates) {
+      if (typeof update !== 'object' || update === null || Array.isArray(update)) {
+        throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[]`);
+      }
+      ensureMigrationStringArray(update.path, 'updates[].path', entryPath);
+    }
+    return;
+  }
+
+  if (entry.kind === 'slot-contract-update') {
+    ensureMigrationString(entry.slotId, 'slotId', entryPath);
+    if (entry.inputType !== undefined) {
+      ensureMigrationString(entry.inputType, 'inputType', entryPath);
+    }
+    if (entry.outputType !== undefined) {
+      ensureMigrationString(entry.outputType, 'outputType', entryPath);
+    }
+    if (entry.writableZones !== undefined) {
+      ensureMigrationStringArray(entry.writableZones, 'writableZones', entryPath);
+    }
+    return;
+  }
+
+  const unsupportedEntry = entry as { kind: string };
+  throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
+}
+
 async function loadMigrationEntries(
   targetManifestRoot: string,
   blockId: string,
@@ -81,6 +137,7 @@ async function loadMigrationEntries(
       );
     }
     const entry = await readJson<UpgradeMigrationEntry>(entryPath);
+    validateMigrationEntry(entry, migration.entry);
     if (entry.id !== migration.id || entry.kind !== migration.kind) {
       throw new CompilerError('UPGRADE-MIGRATION-003', `Migration entry "${migration.entry}" does not match manifest metadata`);
     }

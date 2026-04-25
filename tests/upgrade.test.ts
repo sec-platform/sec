@@ -282,6 +282,24 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 });
 
+test('upgrade rejects malformed migration entries before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-malformed-migration-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  await writeJson(path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0', 'migrations', 'customer-normalizer-contract.json'), {
+    id: 'mig-customer-normalizer-contract',
+    kind: 'slot-contract-update',
+    reason: 'Update customer normalizer input contract to v2.',
+    target: 'custom/customer_normalizer.ts'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-011'
+  });
+});
+
 test('upgrade is blocked when a manual override conflicts with impacted files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-conflict-');
   const { overrideManifestPath } = getWorkspacePaths(workspaceRoot);
