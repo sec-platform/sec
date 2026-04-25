@@ -133,6 +133,36 @@ test('policy gate reports empty project policy YAML sources', async () => {
   expect(report.official.policies).toContain('tenant-scope-required');
 });
 
+test('policy gate loads uppercase YAML project policy files', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-uppercase-yaml-');
+  const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+
+  await writeCustomerService(workspaceRoot, true);
+  await fs.mkdir(projectPoliciesRoot, { recursive: true });
+  await writeYaml(path.join(projectPoliciesRoot, 'tenant-scope.YAML'), {
+    policies: [
+      {
+        id: 'uppercase-project-policy',
+        severity: 'warn',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query'
+      }
+    ]
+  });
+
+  const report = await runPolicyGate(workspaceRoot);
+
+  expect(report.status).toBe('passed');
+  expect(report.project.sources).toContainEqual({
+    path: 'project/policies/tenant-scope.YAML',
+    policyIds: ['uppercase-project-policy']
+  });
+  expect(report.merged.policies.find((policy) => policy.id === 'uppercase-project-policy')).toMatchObject({
+    sourceScope: 'project',
+    sourcePath: 'project/policies/tenant-scope.YAML'
+  });
+});
+
 test('policy gate ignores non-YAML project policy files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ignore-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
