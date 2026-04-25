@@ -12,6 +12,7 @@ import type {
   LockFile,
   PolicyReport,
   ProvenanceFile,
+  RepairPlan,
   UpgradePlan
 } from '../../shared/types.ts';
 
@@ -43,13 +44,22 @@ async function readUpgradePlan(workspaceRoot: string): Promise<UpgradePlan | nul
   return readJson<UpgradePlan>(upgradePlanPath);
 }
 
+async function readRepairPlan(workspaceRoot: string): Promise<RepairPlan | null> {
+  const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
+  if (!(await pathExists(repairPlanPath))) {
+    return null;
+  }
+  return readJson<RepairPlan>(repairPlanPath);
+}
+
 export async function buildExplainGraph(
   workspaceRoot: string,
   lock: LockFile,
   provenance: ProvenanceFile,
   coverage: AcceptanceCoverageReport,
   policyReport: PolicyReport | null,
-  upgradePlan: UpgradePlan | null = null
+  upgradePlan: UpgradePlan | null = null,
+  repairPlan: RepairPlan | null = null
 ): Promise<ExplainGraph> {
   const nodes: ExplainGraphNode[] = [];
   const edges: ExplainGraphEdge[] = [];
@@ -250,6 +260,39 @@ export async function buildExplainGraph(
     }
   }
 
+  if (repairPlan) {
+    for (const task of repairPlan.tasks) {
+      const repairNodeId = `repair:${task.taskId}`;
+      const slotNodeId = `slot:${task.sourceSlotId}`;
+      const fileNodeId = `file:${task.targetFile}`;
+      pushNode(nodes, {
+        id: repairNodeId,
+        type: 'repair',
+        label: task.taskId
+      });
+      pushNode(nodes, {
+        id: slotNodeId,
+        type: 'slot',
+        label: task.sourceSlotId
+      });
+      pushNode(nodes, {
+        id: fileNodeId,
+        type: 'file',
+        label: task.targetFile
+      });
+      pushEdge(edges, {
+        from: repairNodeId,
+        to: slotNodeId,
+        type: 'connects_to'
+      });
+      pushEdge(edges, {
+        from: repairNodeId,
+        to: fileNodeId,
+        type: 'writes_to'
+      });
+    }
+  }
+
   for (const acceptanceId of lock.acceptancePlan) {
     const acceptanceNodeId = `acceptance:${acceptanceId}`;
     pushNode(nodes, {
@@ -318,7 +361,15 @@ export async function writeExplainGraph(
   const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === 'generated/explain-graph.json')
     ? provenance
     : await buildProvenance(workspaceRoot, lock);
-  const graph = await buildExplainGraph(workspaceRoot, lock, nextProvenance, coverage, await readPolicyReport(workspaceRoot), await readUpgradePlan(workspaceRoot));
+  const graph = await buildExplainGraph(
+    workspaceRoot,
+    lock,
+    nextProvenance,
+    coverage,
+    await readPolicyReport(workspaceRoot),
+    await readUpgradePlan(workspaceRoot),
+    await readRepairPlan(workspaceRoot)
+  );
 
   await fs.writeFile(explainGraphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');

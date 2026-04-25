@@ -7,7 +7,7 @@ import { buildExplainGraph, writeExplainGraph } from '../platform/compiler/emit/
 import { initWorkspace, resolveWorkspace } from '../platform/orchestrator.ts';
 import { readJson, writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
-import type { AcceptanceCoverageReport, PolicyReport, ProvenanceFile, UpgradePlan } from '../platform/shared/types.ts';
+import type { AcceptanceCoverageReport, PolicyReport, ProvenanceFile, RepairPlan, UpgradePlan } from '../platform/shared/types.ts';
 
 const activeWorkspaces = new Set<string>();
 
@@ -196,6 +196,50 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
     expect.arrayContaining([
       { from: 'block:entity/customer-basic', to: 'slot:customer_normalizer', type: 'connects_to' },
       { from: 'slot:customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
+    ])
+  );
+});
+
+test('explain graph connects repair tasks to slots and files', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-explain-repair-');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  const { lock } = await resolveWorkspace(workspaceRoot);
+  const repairPlan: RepairPlan = {
+    formatVersion: '1',
+    status: 'pending',
+    sourceVerificationStatus: 'failed',
+    tasks: [
+      {
+        taskId: 'repair_customer_normalizer',
+        taskKind: 'repair-slot',
+        phase: 'repair',
+        sourceSlotId: 'customer_normalizer',
+        targetBlock: 'entity/customer-basic',
+        targetFile: 'custom/customer_normalizer.ts',
+        allowedPaths: ['custom/customer_normalizer.ts'],
+        requiredSymbols: [],
+        forbiddenOperations: [],
+        testsToPass: [],
+        failureSummary: 'unit failed',
+        failurePoints: []
+      }
+    ]
+  };
+
+  const graph = await buildExplainGraph(workspaceRoot, lock, { formatVersion: '1', artifacts: [] }, emptyCoverage(), null, null, repairPlan);
+
+  expect(graph.nodes).toEqual(
+    expect.arrayContaining([
+      { id: 'repair:repair_customer_normalizer', type: 'repair', label: 'repair_customer_normalizer' },
+      { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
+      { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
+    ])
+  );
+  expect(graph.edges).toEqual(
+    expect.arrayContaining([
+      { from: 'repair:repair_customer_normalizer', to: 'slot:customer_normalizer', type: 'connects_to' },
+      { from: 'repair:repair_customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
     ])
   );
 });
