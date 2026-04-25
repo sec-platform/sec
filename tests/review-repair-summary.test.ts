@@ -120,6 +120,21 @@ test('review summary surfaces pending repair tasks', async () => {
         }
       ])
     );
+
+    repairPlan.status = 'applied';
+    await writeJson(repairPlanPath, repairPlan);
+
+    const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+
+    expect(appliedSummary.conflictHints).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'repair-plan-present',
+          relatedId: 'repair_slot_customer_normalizer',
+          message: 'Repair task applied, verify pending: repair_slot_customer_normalizer -> custom/customer_normalizer.ts'
+        }
+      ])
+    );
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }

@@ -236,7 +236,10 @@ export async function buildReviewSummary(
       addConflictHint(conflictHints, {
         kind: 'repair-plan-present',
         relatedId: task.taskId,
-        message: `Repair task pending: ${task.taskId} -> ${task.targetFile}`
+        message:
+          repairPlan.status === 'applied'
+            ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}`
+            : `Repair task pending: ${task.taskId} -> ${task.targetFile}`
       });
     }
   }
