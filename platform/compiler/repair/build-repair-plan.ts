@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
+import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
@@ -138,6 +140,40 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
     sourceVerificationStatus: 'failed',
     tasks
   };
+}
+
+export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const repairableTasks = repairPlan.tasks.filter((task) => task.failurePoints.some((point) => point.repairable));
+
+  if (repairPlan.status === 'pending' && repairableTasks.length === 0) {
+    throw new CompilerError('REPAIR-BLOCKED-003', 'No repairable failure points found for current repair plan');
+  }
+
+  const writeTasks = repairableTasks.map((repairTask) => {
+    if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
+      throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
+    }
+    const targetPath = path.resolve(projectRoot, repairTask.targetFile);
+    const projectRootWithSeparator = `${projectRoot}${path.sep}`;
+    if (targetPath !== projectRoot && !targetPath.startsWith(projectRootWithSeparator)) {
+      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes project root`);
+    }
+    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && task.target === repairTask.targetFile);
+    if (!slotTask) {
+      throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
+    }
+    const envelope = buildTaskEnvelope(plan, lock, slotTask);
+    if (!envelope.allowedPaths.includes(repairTask.targetFile)) {
+      throw new CompilerError('REPAIR-SCOPE-003', `Repair envelope does not allow "${repairTask.targetFile}"`);
+    }
+    return { targetPath, slotTask, source: synthesizeSlotSource(envelope) };
+  });
+
+  for (const { targetPath, slotTask, source } of writeTasks) {
+    await fs.writeFile(targetPath, source, 'utf8');
+    slotTask.status = 'filled';
+  }
 }
 
 export async function writeRepairPlan(workspaceRoot: string, plan: RepairPlan, lock: LockFile): Promise<void> {
