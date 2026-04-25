@@ -8,7 +8,7 @@ export default defineConfig({
   reporter: 'line',
   use: {
     baseURL,
-    trace: 'off'
+    trace: 'retain-on-failure'
   },
   webServer: {
     command: `next dev --hostname 127.0.0.1 --port ${port}`,

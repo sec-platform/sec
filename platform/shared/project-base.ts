@@ -99,7 +99,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   );
   await writeText(
     path.join(projectRoot, 'playwright.config.ts'),
-    `import { defineConfig } from '@playwright/test';\n\nconst port = parseInt(process.env.TEST_PORT ?? '3001', 10);\nconst baseURL = \`http://127.0.0.1:\${port}\`;\n\nexport default defineConfig({\n  testDir: './tests/runtime/acceptance',\n  reporter: 'line',\n  use: {\n    baseURL,\n    trace: 'off'\n  },\n  webServer: {\n    command: \`next dev --hostname 127.0.0.1 --port \${port}\`,\n    url: \`\${baseURL}/login\`,\n    reuseExistingServer: !process.env.CI,\n    timeout: 120000\n  }\n});\n`
+    `import { defineConfig } from '@playwright/test';\n\nconst port = parseInt(process.env.TEST_PORT ?? '3001', 10);\nconst baseURL = \`http://127.0.0.1:\${port}\`;\n\nexport default defineConfig({\n  testDir: './tests/runtime/acceptance',\n  reporter: 'line',\n  use: {\n    baseURL,\n    trace: 'retain-on-failure'\n  },\n  webServer: {\n    command: \`next dev --hostname 127.0.0.1 --port \${port}\`,\n    url: \`\${baseURL}/login\`,\n    reuseExistingServer: !process.env.CI,\n    timeout: 120000\n  }\n});\n`
   );
 
   await writeText(

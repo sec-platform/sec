@@ -96,6 +96,17 @@ test('project and shared runtime manifests derive versions from the root package
   expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
 });
 
+test('project base keeps Playwright traces for failed runtime acceptance', async () => {
+  const workspaceRoot = await createTempRoot('engineering-compiler-runtime-trace-');
+
+  await ensureProjectBase(workspaceRoot);
+
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  await expect(fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8')).resolves.toContain(
+    "trace: 'retain-on-failure'"
+  );
+});
+
 test('ensureProjectDependencies skips install when warm cache and matching stamps already exist', async () => {
   const workspaceRoot = await createTempRoot('engineering-compiler-runtime-skip-');
   const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
