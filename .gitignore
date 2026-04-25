@@ -26,3 +26,5 @@ playwright-report/
 *.egg-info/
 .shared-deps/
 project/.runtime-deps.stamp.json
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
