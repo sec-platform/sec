@@ -211,3 +211,42 @@ test('repair plan includes structured failure points for slot and spec failures'
     ])
   );
 });
+
+test('repair plan falls back when failed summary has no lane details', () => {
+  const report: VerificationReport = {
+    ...failedReport,
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      ...failedReport.fast,
+      status: 'passed',
+      unit: { status: 'passed', passed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      ...failedReport.runtime,
+      status: 'skipped'
+    },
+    summary: {
+      status: 'failed',
+      requestedLane: 'all',
+      failedLanes: []
+    }
+  };
+
+  const repairPlan = buildRepairPlan(plan, lock, report);
+
+  expect(repairPlan.tasks[0].failurePoints).toEqual([
+    {
+      lane: 'all',
+      kind: 'summary',
+      issueType: 'unknown',
+      repairable: false,
+      artifactPath: 'generated/verification-report.json',
+      message: 'Verification failed without lane-specific failure details'
+    }
+  ]);
+});
