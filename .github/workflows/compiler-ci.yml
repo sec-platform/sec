@@ -58,3 +58,4 @@ jobs:
             project/generated/**
             project/provenance.json
             project/graph.lock.json
+            project/test-results/**
