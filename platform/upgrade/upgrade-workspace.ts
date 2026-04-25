@@ -301,9 +301,10 @@ async function writeUpgradeDiagnostics(
   workspaceRoot: string,
   blockId: string,
   targetVersion: string,
-  error: CompilerError
+  error: CompilerError,
+  lock: LockFile | null
 ): Promise<void> {
-  const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const { lockPath, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
   await writeJson(upgradeDiagnosticsPath, {
     formatVersion: '1',
     status: 'blocked',
@@ -313,6 +314,15 @@ async function writeUpgradeDiagnostics(
     errorCode: error.code,
     message: error.message
   } satisfies UpgradeDiagnostics);
+  if (!lock) {
+    return;
+  }
+  if (!lock.generatedPaths.includes('generated/upgrade-diagnostics.json')) {
+    lock.generatedPaths.push('generated/upgrade-diagnostics.json');
+    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
+    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  }
+  await writeProvenance(workspaceRoot, lock);
 }
 
 function buildUpgradePlan(
@@ -366,6 +376,7 @@ export async function upgradeWorkspace(
 ): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
   const { projectRoot, planPath, lockPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
+  const existingLock = (await pathExists(lockPath)) ? await readJson<LockFile>(lockPath) : null;
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
   let targetManifestRoot = '';
   let migrationEntries: UpgradeMigrationEntry[] = [];
@@ -405,7 +416,7 @@ export async function upgradeWorkspace(
     upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, preflightChecks, impacts, migrations, migrationEntries);
   } catch (error) {
     if (error instanceof CompilerError) {
-      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, error);
+      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, error, existingLock);
     }
     throw error;
   }
