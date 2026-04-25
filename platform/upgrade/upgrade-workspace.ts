@@ -158,6 +158,10 @@ export async function applyMigrationEntries(
       continue;
     }
 
+    if (entry.kind === 'slot-contract-update') {
+      continue;
+    }
+
     const unsupportedEntry = entry as { kind: string };
     throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
   }
@@ -218,12 +222,15 @@ export async function upgradeWorkspace(
     version: targetVersion,
     registrySources: plan.registry.sources
   });
-  const impacts = targetEntry.manifest.installs.map((install) => install.to);
+  const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] => entries.map((entry) => entry.target);
   const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
   ensureUpgradeAllowed(currentVersion, targetVersion, migrations, targetEntry.manifest.upgrade?.from ?? []);
-  await detectOverrideConflicts(workspaceRoot, blockId, impacts);
   const targetManifestRoot = path.dirname(targetEntry.manifestPath);
   const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
+  const impacts = [...new Set([...targetEntry.manifest.installs.map((install) => install.to), ...migrationImpacts(migrationEntries)])].sort(
+    (left, right) => left.localeCompare(right)
+  );
+  await detectOverrideConflicts(workspaceRoot, blockId, impacts);
 
   const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, impacts, migrations, migrationEntries);
   if (options.dryRun) {

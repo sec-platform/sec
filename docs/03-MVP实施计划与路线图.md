@@ -52,7 +52,7 @@
 | review summary | done | 结构化输出 change sources、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、verify、lock/provenance 更新和回滚。 |
-| migration 类型 | active | 已支持 `file-replace` 与 `config-rewrite`；其他类型仍待扩展。 |
+| migration 类型 | active | 已支持 `file-replace`、`config-rewrite` 与 `slot-contract-update` 计划迁移；执行型迁移类型仍待扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 是当前稳定治理产物集合。 |
 
@@ -61,8 +61,8 @@
 1. **升级迁移引擎增强**
    - 状态：active
    - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
-   - 已完成：`config-rewrite` JSON 配置迁移、upgrade plan migration 摘要、upgrade dry-run 入口。
-   - 下一步候选：`slot-contract-update` 计划生成。
+   - 已完成：`config-rewrite` JSON 配置迁移、upgrade plan migration 摘要、upgrade dry-run 入口、`slot-contract-update` 计划与影响面记录。
+   - 下一步候选：升级迁移 entry schema 校验、迁移 requiresVerification 到 verify/review 的显式传播。
 
 2. **repair 从基础可用到可审查**
    - 状态：active
