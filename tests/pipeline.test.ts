@@ -96,13 +96,14 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
 
   const policyReport = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'policy-report.json'), 'utf8')
-  ) as { status: string; merged: { policies: Array<{ id: string; sourceScope: string; sourcePath: string }> }; violations: unknown[] };
+  ) as { status: string; merged: { policies: Array<{ id: string; sourceScope: string; sourcePath: string; targets: string[] }> }; violations: unknown[] };
   expect(policyReport.status).toBe('passed');
   expect(policyReport.violations).toEqual([]);
   expect(policyReport.merged.policies.find((policy) => policy.id === 'tenant-scope-required')).toEqual({
     id: 'tenant-scope-required',
     sourceScope: 'official',
-    sourcePath: 'platform/policies/official/policy.spec.yaml'
+    sourcePath: 'platform/policies/official/policy.spec.yaml',
+    targets: ['src/installed/entity/customer-service.ts']
   });
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);

@@ -111,12 +111,16 @@ function mergePolicies(
   return merged;
 }
 
-function buildMergedPolicyEntries(definitions: Map<string, LoadedPolicyDefinition>): MergedPolicyReportEntry[] {
+function buildMergedPolicyEntries(
+  definitions: Map<string, LoadedPolicyDefinition>,
+  lock: LockFile | null
+): MergedPolicyReportEntry[] {
   return [...definitions.values()]
     .map((definition) => ({
       id: definition.policy.id,
       sourceScope: definition.sourceScope,
-      sourcePath: definition.sourcePath
+      sourcePath: definition.sourcePath,
+      targets: targetFilesForPolicy(lock, definition.policy)
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -163,6 +167,7 @@ function buildPolicyReport(
   official: LoadedPolicyScope,
   project: LoadedPolicyScope,
   mergedPolicies: Map<string, LoadedPolicyDefinition>,
+  lock: LockFile | null,
   violations: PolicyViolation[]
 ): PolicyReport {
   const officialViolations = violations.filter((violation) => violation.sourceScope === 'official');
@@ -184,7 +189,7 @@ function buildPolicyReport(
       violations: projectViolations
     },
     merged: {
-      policies: buildMergedPolicyEntries(mergedPolicies)
+      policies: buildMergedPolicyEntries(mergedPolicies, lock)
     },
     violations
   };
@@ -197,7 +202,7 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
   const mergedPolicies = mergePolicies(official, project);
 
   if (mergedPolicies.size === 0) {
-    return buildPolicyReport(official, project, mergedPolicies, []);
+    return buildPolicyReport(official, project, mergedPolicies, null, []);
   }
 
   const violations: PolicyViolation[] = [];
@@ -224,6 +229,7 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
     official,
     project,
     mergedPolicies,
+    lock,
     violations.sort((left, right) =>
       `${left.id}:${left.sourceScope}:${left.sourcePath}:${left.message}`.localeCompare(
         `${right.id}:${right.sourceScope}:${right.sourcePath}:${right.message}`

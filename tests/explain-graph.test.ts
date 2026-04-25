@@ -75,7 +75,8 @@ test('explain graph includes pins, policies, and policy violation edges without 
         {
           id: 'tenant-scope-required',
           sourceScope: 'official',
-          sourcePath: 'platform/policies/official/policy.spec.yaml'
+          sourcePath: 'platform/policies/official/policy.spec.yaml',
+          targets: ['src/installed/entity/customer-service.ts']
         }
       ]
     },
