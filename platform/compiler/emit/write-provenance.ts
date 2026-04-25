@@ -121,7 +121,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
       sourceBlock: task.block,
       generatedByPass: task.status === 'generated' ? 'compose' : 'adapt',
       generatorTaskId: buildTaskGeneratorId(task.id),
-      verifiedBy: [...task.provenanceHints.verifiedBy],
+      verifiedBy: unique(task.provenanceHints.verifiedBy),
       overrideStatus: 'none'
     });
   }
