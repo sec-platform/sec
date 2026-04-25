@@ -264,7 +264,8 @@ export async function explainWorkspace(
 export async function upgradeWorkspace(
   workspaceRoot = process.cwd(),
   blockId: string,
-  targetVersion: string
+  targetVersion: string,
+  options?: { dryRun?: boolean }
 ): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: import('./shared/types.ts').UpgradePlan }> {
-  return runUpgradeWorkspace(workspaceRoot, blockId, targetVersion);
+  return runUpgradeWorkspace(workspaceRoot, blockId, targetVersion, options);
 }
