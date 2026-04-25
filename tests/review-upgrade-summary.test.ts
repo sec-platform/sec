@@ -6,12 +6,19 @@ import path from 'node:path';
 import { buildReviewSummary } from '../platform/compiler/emit/write-review-summary.ts';
 import { writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
-import type { AcceptanceCoverageReport, LockFile, ProvenanceFile, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
+import type {
+  AcceptanceCoverageReport,
+  LockFile,
+  ProvenanceFile,
+  RepairPlan,
+  UpgradePlan,
+  VerificationReport
+} from '../platform/shared/types.ts';
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-review-upgrade-'));
   try {
-    const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+    const { repairPlanPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
     const lock: LockFile = {
       formatVersion: '1',
       app: {
@@ -96,19 +103,63 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       impacts: ['src/installed/auth/session.ts'],
       migrations: []
     };
+    const repairPlan: RepairPlan = {
+      formatVersion: '1',
+      status: 'pending',
+      sourceVerificationStatus: 'failed',
+      tasks: [
+        {
+          taskId: 'repair_zeta',
+          taskKind: 'repair-slot',
+          phase: 'repair',
+          sourceSlotId: 'zeta',
+          targetBlock: 'entity/customer-basic',
+          targetFile: 'custom/zeta.ts',
+          allowedPaths: ['custom/zeta.ts'],
+          requiredSymbols: [],
+          forbiddenOperations: [],
+          testsToPass: [],
+          failureSummary: 'unit=failed',
+          failurePoints: []
+        },
+        {
+          taskId: 'repair_alpha',
+          taskKind: 'repair-slot',
+          phase: 'repair',
+          sourceSlotId: 'alpha',
+          targetBlock: 'entity/customer-basic',
+          targetFile: 'custom/alpha.ts',
+          allowedPaths: ['custom/alpha.ts'],
+          requiredSymbols: [],
+          forbiddenOperations: [],
+          testsToPass: [],
+          failureSummary: 'unit=failed',
+          failurePoints: []
+        }
+      ]
+    };
     await writeJson(upgradePlanPath, upgradePlan);
+    await writeJson(repairPlanPath, repairPlan);
 
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
-    expect(summary.conflictHints).toEqual(
-      expect.arrayContaining([
-        {
-          kind: 'upgrade-plan-present',
-          relatedId: 'auth/basic-session',
-          message: 'Upgrade plan present: auth/basic-session 0.1.0 -> 0.1.1'
-        }
-      ])
-    );
+    expect(summary.conflictHints).toEqual([
+      {
+        kind: 'repair-plan-present',
+        relatedId: 'repair_alpha',
+        message: 'Repair task pending: repair_alpha -> custom/alpha.ts'
+      },
+      {
+        kind: 'repair-plan-present',
+        relatedId: 'repair_zeta',
+        message: 'Repair task pending: repair_zeta -> custom/zeta.ts'
+      },
+      {
+        kind: 'upgrade-plan-present',
+        relatedId: 'auth/basic-session',
+        message: 'Upgrade plan present: auth/basic-session 0.1.0 -> 0.1.1'
+      }
+    ]);
 
     upgradePlan.status = 'applied';
     await writeJson(upgradePlanPath, upgradePlan);
