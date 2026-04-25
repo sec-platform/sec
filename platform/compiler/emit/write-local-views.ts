@@ -8,6 +8,7 @@ import type {
   LockFile,
   PolicyReport,
   ProvenanceFile,
+  RepairPlan,
   ReviewSummary,
   UpgradePlan,
   VerificationReport
@@ -85,6 +86,28 @@ function renderPolicyViolationsTable(policyReport: PolicyReport): string {
         <table>
           <thead><tr><th>ID</th><th>Severity</th><th>Scope</th><th>Source</th><th>Message</th></tr></thead>
           <tbody>${rows}</tbody>
+        </table>
+      </section>`;
+}
+
+function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
+  if (!repairPlan) {
+    return '';
+  }
+
+  const taskRows = repairPlan.tasks
+    .map(
+      (task) =>
+        `<tr><td>${escapeHtml(task.taskId)}</td><td>${escapeHtml(task.sourceSlotId)}</td><td>${escapeHtml(task.targetBlock)}</td><td>${escapeHtml(task.targetFile)}</td><td>${escapeHtml(task.failureSummary)}</td></tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Repair Plan</h2>
+        <p>${escapeHtml(repairPlan.status)} | source verification: ${escapeHtml(repairPlan.sourceVerificationStatus)}</p>
+        <table>
+          <thead><tr><th>Task</th><th>Slot</th><th>Block</th><th>Target File</th><th>Failure Summary</th></tr></thead>
+          <tbody>${taskRows}</tbody>
         </table>
       </section>`;
 }
@@ -167,6 +190,7 @@ function renderSourceView(
   review: ReviewSummary,
   graph: ExplainGraph,
   policyReport: PolicyReport,
+  repairPlan: RepairPlan | null,
   upgradePlan: UpgradePlan | null
 ): string {
   return `<!doctype html>
@@ -198,6 +222,7 @@ function renderSourceView(
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradePlanTable(upgradePlan)}
+      ${renderRepairPlanTable(repairPlan)}
       ${renderReviewSummaryTables(review)}
       ${renderJsonCard('Explain Graph', { nodes: graph.nodes.length, edges: graph.edges.length })}
     </main>
@@ -257,6 +282,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     lockPath,
     policyReportPath,
     provenancePath,
+    repairPlanPath,
     reviewSummaryPath,
     sourceViewPath,
     slotRuleViewPath,
@@ -274,16 +300,17 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
 
-  const [provenance, report, coverage, policyReport, review, graph, upgradePlan] = await Promise.all([
+  const [provenance, report, coverage, policyReport, review, graph, repairPlan, upgradePlan] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
     readRequiredArtifact<VerificationReport>(verificationReportPath, 'verification-report.json'),
     readRequiredArtifact<AcceptanceCoverageReport>(acceptanceCoveragePath, 'acceptance-coverage.json'),
     readRequiredArtifact<PolicyReport>(policyReportPath, 'policy-report.json'),
     readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
     readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json'),
+    readOptionalArtifact<RepairPlan>(repairPlanPath),
     readOptionalArtifact<UpgradePlan>(upgradePlanPath)
   ]);
 
-  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport, upgradePlan), 'utf8');
+  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport, repairPlan, upgradePlan), 'utf8');
   await fs.writeFile(slotRuleViewPath, renderSlotRuleView(lock, report, coverage, policyReport, review), 'utf8');
 }
