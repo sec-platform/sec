@@ -208,6 +208,7 @@ export async function repairWorkspace(
     const repairPlan = buildRepairPlan(plan, lock, report);
     if (repairPlan.status === 'pending') {
       await applyRepairPlan(workspaceRoot, plan, lock, repairPlan);
+      repairPlan.status = 'applied';
       lock.passStatus.verify = 'pending';
       lock.passStatus.repair = 'succeeded';
     } else {

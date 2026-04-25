@@ -505,7 +505,7 @@ export interface RepairTask {
 
 export interface RepairPlan {
   formatVersion: string;
-  status: 'pending' | 'skipped';
+  status: 'pending' | 'applied' | 'skipped';
   sourceVerificationStatus: 'passed' | 'failed';
   tasks: RepairTask[];
 }
