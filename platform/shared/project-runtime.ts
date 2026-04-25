@@ -287,9 +287,10 @@ export async function ensureProjectDependencies(
 
   if (options.preferSharedCopy !== false) {
     const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
-    if (sharedStamp && (await hasInstalledRuntimeDeps(path.join(sharedDepsRoot, 'node_modules')))) {
+    const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
+    if (sharedStamp && (await hasInstalledRuntimeDeps(sharedNodeModulesPath))) {
       try {
-        await fs.cp(path.join(sharedDepsRoot, 'node_modules'), nodeModulesPath, { recursive: true });
+        await fs.symlink(sharedNodeModulesPath, nodeModulesPath, 'junction');
         await writeRuntimeDepsStamp(stampPath, {
           manifestHash: runtimeSpec.manifestHash,
           packageManager: sharedStamp.packageManager,
