@@ -144,6 +144,12 @@ test('policy gate merges recursive official/project sources and reports winning 
           severity: 'warn',
           appliesTo: ['entity/customer-basic'],
           rule: 'tenant_context_must_flow_to_query'
+        },
+        {
+          id: 'project-only',
+          severity: 'warn',
+          appliesTo: ['entity/customer-basic'],
+          rule: 'tenant_context_must_flow_to_query'
         }
       ]
     });
