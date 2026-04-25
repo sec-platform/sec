@@ -15,7 +15,7 @@ import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
-import type { LockFile, PlanFile, UpgradeMigration, UpgradeMigrationEntry, UpgradePlan, UpgradePreflightCheck } from '../shared/types.ts';
+import type { LockFile, PlanFile, UpgradeDiagnostics, UpgradeMigration, UpgradeMigrationEntry, UpgradePlan, UpgradePreflightCheck } from '../shared/types.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
   if (range === version) {
@@ -278,6 +278,43 @@ function buildUpgradePreflightChecks(
   ];
 }
 
+function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck'] {
+  if (code === 'UPGRADE-BLOCKED-003') {
+    return 'plan-block';
+  }
+  if (code === 'MANIFEST-SCHEMA-004') {
+    return 'target-manifest';
+  }
+  if (code === 'UPGRADE-NOOP-001' || code === 'UPGRADE-BLOCKED-001' || code === 'UPGRADE-BLOCKED-002') {
+    return 'version-range';
+  }
+  if (code.startsWith('UPGRADE-MIGRATION-')) {
+    return 'migration-entries';
+  }
+  if (code === 'UPGRADE-CONFLICT-001') {
+    return 'override-conflicts';
+  }
+  return 'impact-scan';
+}
+
+async function writeUpgradeDiagnostics(
+  workspaceRoot: string,
+  blockId: string,
+  targetVersion: string,
+  error: CompilerError
+): Promise<void> {
+  const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  await writeJson(upgradeDiagnosticsPath, {
+    formatVersion: '1',
+    status: 'blocked',
+    blockId,
+    targetVersion,
+    failedCheck: classifyPreflightFailure(error.code),
+    errorCode: error.code,
+    message: error.message
+  } satisfies UpgradeDiagnostics);
+}
+
 function buildUpgradePlan(
   blockId: string,
   fromVersion: string,
@@ -330,37 +367,48 @@ export async function upgradeWorkspace(
   const { projectRoot, planPath, lockPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
-  if (!currentBlock?.version) {
-    throw new CompilerError('UPGRADE-BLOCKED-003', `Block "${blockId}" is not declared in app.plan.yaml`);
+  let targetManifestRoot = '';
+  let migrationEntries: UpgradeMigrationEntry[] = [];
+  let impacts: string[] = [];
+  let upgradePlan: UpgradePlan;
+  try {
+    if (!currentBlock?.version) {
+      throw new CompilerError('UPGRADE-BLOCKED-003', `Block "${blockId}" is not declared in app.plan.yaml`);
+    }
+
+    const currentVersion = currentBlock.version;
+    const targetEntry = await loadManifestById(blockId, {
+      workspaceRoot,
+      version: targetVersion,
+      registrySources: plan.registry.sources
+    });
+    const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] => entries.map((entry) => entry.target);
+    const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
+    const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
+    ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
+    targetManifestRoot = path.dirname(targetEntry.manifestPath);
+    migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
+    impacts = [...new Set([...targetEntry.manifest.installs.map((install) => install.to), ...migrationImpacts(migrationEntries)])].sort(
+      (left, right) => left.localeCompare(right)
+    );
+    const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
+    const preflightChecks = buildUpgradePreflightChecks(
+      currentVersion,
+      targetVersion,
+      acceptedRanges,
+      migrations,
+      migrationEntries,
+      impacts,
+      scannedOverrides
+    );
+
+    upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, preflightChecks, impacts, migrations, migrationEntries);
+  } catch (error) {
+    if (error instanceof CompilerError) {
+      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, error);
+    }
+    throw error;
   }
-
-  const currentVersion = currentBlock.version;
-  const targetEntry = await loadManifestById(blockId, {
-    workspaceRoot,
-    version: targetVersion,
-    registrySources: plan.registry.sources
-  });
-  const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] => entries.map((entry) => entry.target);
-  const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
-  const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
-  ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
-  const targetManifestRoot = path.dirname(targetEntry.manifestPath);
-  const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
-  const impacts = [...new Set([...targetEntry.manifest.installs.map((install) => install.to), ...migrationImpacts(migrationEntries)])].sort(
-    (left, right) => left.localeCompare(right)
-  );
-  const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
-  const preflightChecks = buildUpgradePreflightChecks(
-    currentVersion,
-    targetVersion,
-    acceptedRanges,
-    migrations,
-    migrationEntries,
-    impacts,
-    scannedOverrides
-  );
-
-  const upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, preflightChecks, impacts, migrations, migrationEntries);
   if (options.dryRun) {
     const lock = await readJson<LockFile>(lockPath);
     await writeJson(upgradePlanPath, upgradePlan);

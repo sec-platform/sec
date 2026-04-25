@@ -313,7 +313,7 @@ test('upgrade rejects malformed migration entries before planning', async () => 
 
   await writeSlotUpgradeFixture(workspaceRoot);
 
-  const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
   await writeJson(path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0', 'migrations', 'customer-normalizer-contract.json'), {
     id: 'mig-customer-normalizer-contract',
     kind: 'slot-contract-update',
@@ -324,11 +324,12 @@ test('upgrade rejects malformed migration entries before planning', async () => 
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
     code: 'UPGRADE-MIGRATION-011'
   });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-entries"');
 });
 
 test('upgrade is blocked when a manual override conflicts with impacted files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-conflict-');
-  const { overrideManifestPath } = getWorkspacePaths(workspaceRoot);
+  const { overrideManifestPath, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
   await resolveWorkspace(workspaceRoot);
@@ -352,4 +353,16 @@ test('upgrade is blocked when a manual override conflicts with impacted files', 
   });
 
   await expect(upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1')).rejects.toThrow();
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    status: string;
+    failedCheck: string;
+    errorCode: string;
+    message: string;
+  };
+  expect(diagnostics).toMatchObject({
+    status: 'blocked',
+    failedCheck: 'override-conflicts',
+    errorCode: 'UPGRADE-CONFLICT-001'
+  });
+  expect(diagnostics.message).toContain('manual-auth-session-hotfix');
 });
