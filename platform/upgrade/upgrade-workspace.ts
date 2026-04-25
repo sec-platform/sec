@@ -107,6 +107,29 @@ function resolveManifestPath(manifestRoot: string, relativePath: string): string
   return resolvedPath;
 }
 
+function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; value: unknown }>): unknown {
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+    throw new CompilerError('UPGRADE-MIGRATION-009', 'Config rewrite target must contain a JSON object');
+  }
+
+  for (const update of updates) {
+    if (update.path.length === 0) {
+      throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
+    }
+    let current: Record<string, unknown> = config as Record<string, unknown>;
+    for (const segment of update.path.slice(0, -1)) {
+      const next = current[segment];
+      if (typeof next !== 'object' || next === null || Array.isArray(next)) {
+        current[segment] = {};
+      }
+      current = current[segment] as Record<string, unknown>;
+    }
+    current[update.path[update.path.length - 1]] = update.value;
+  }
+
+  return config;
+}
+
 export async function applyMigrationEntries(
   projectRoot: string,
   targetManifestRoot: string,
@@ -114,19 +137,29 @@ export async function applyMigrationEntries(
   entries: UpgradeMigrationEntry[]
 ): Promise<void> {
   for (const entry of entries) {
-    if (entry.kind !== 'file-replace') {
-      throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${entry.kind}"`);
-    }
     if (!impacts.includes(entry.target)) {
       throw new CompilerError('UPGRADE-MIGRATION-007', `Migration target "${entry.target}" is outside upgrade impacts`);
     }
-    const sourcePath = resolveManifestPath(targetManifestRoot, entry.source);
     const targetPath = resolveProjectPath(projectRoot, entry.target);
-    if (!(await pathExists(sourcePath))) {
-      throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
+
+    if (entry.kind === 'file-replace') {
+      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source);
+      if (!(await pathExists(sourcePath))) {
+        throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
+      }
+      await ensureDir(path.dirname(targetPath));
+      await fs.copyFile(sourcePath, targetPath);
+      continue;
     }
-    await ensureDir(path.dirname(targetPath));
-    await fs.copyFile(sourcePath, targetPath);
+
+    if (entry.kind === 'config-rewrite') {
+      const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
+      await writeJson(targetPath, config);
+      continue;
+    }
+
+    const unsupportedEntry = entry as { kind: string };
+    throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
   }
 }
 

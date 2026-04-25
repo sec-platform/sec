@@ -99,13 +99,26 @@ export interface UpgradeMigration {
   requiresVerification?: boolean;
 }
 
-export interface UpgradeMigrationEntry {
+export interface UpgradeFileReplaceMigrationEntry {
   id: string;
   kind: 'file-replace';
   reason: string;
   source: string;
   target: string;
 }
+
+export interface UpgradeConfigRewriteMigrationEntry {
+  id: string;
+  kind: 'config-rewrite';
+  reason: string;
+  target: string;
+  updates: Array<{
+    path: string[];
+    value: unknown;
+  }>;
+}
+
+export type UpgradeMigrationEntry = UpgradeFileReplaceMigrationEntry | UpgradeConfigRewriteMigrationEntry;
 
 export interface UpgradeConfig {
   from: string[];
