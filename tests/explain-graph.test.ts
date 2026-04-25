@@ -7,7 +7,7 @@ import { buildExplainGraph, writeExplainGraph } from '../platform/compiler/emit/
 import { initWorkspace, resolveWorkspace } from '../platform/orchestrator.ts';
 import { readJson, writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
-import type { AcceptanceCoverageReport, PolicyReport, ProvenanceFile } from '../platform/shared/types.ts';
+import type { AcceptanceCoverageReport, PolicyReport, ProvenanceFile, UpgradePlan } from '../platform/shared/types.ts';
 
 const activeWorkspaces = new Set<string>();
 
@@ -124,6 +124,54 @@ test('explain graph includes pins, policies, and policy violation edges without 
       edge.type === 'violates'
   );
   expect(violationEdges).toHaveLength(1);
+});
+
+test('explain graph connects slot contract upgrade impacts to slots and files', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-explain-upgrade-slot-');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  const { lock } = await resolveWorkspace(workspaceRoot);
+  const upgradePlan: UpgradePlan = {
+    formatVersion: '1',
+    blockId: 'entity/customer-basic',
+    fromVersion: '0.1.0',
+    toVersion: '0.2.0',
+    status: 'planned',
+    impacts: ['custom/customer_normalizer.ts'],
+    migrations: [
+      {
+        id: 'mig-customer-normalizer-contract',
+        kind: 'slot-contract-update',
+        entry: 'migrations/customer-normalizer-contract.json',
+        requiresVerification: true
+      }
+    ],
+    migrationSummaries: [
+      {
+        id: 'mig-customer-normalizer-contract',
+        kind: 'slot-contract-update',
+        target: 'custom/customer_normalizer.ts',
+        reason: 'Update customer normalizer input contract to v2.',
+        requiresVerification: true,
+        slotId: 'customer_normalizer'
+      }
+    ]
+  };
+
+  const graph = await buildExplainGraph(workspaceRoot, lock, { formatVersion: '1', artifacts: [] }, emptyCoverage(), null, upgradePlan);
+
+  expect(graph.nodes).toEqual(
+    expect.arrayContaining([
+      { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
+      { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
+    ])
+  );
+  expect(graph.edges).toEqual(
+    expect.arrayContaining([
+      { from: 'block:entity/customer-basic', to: 'slot:customer_normalizer', type: 'connects_to' },
+      { from: 'slot:customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
+    ])
+  );
 });
 
 test('writeExplainGraph does not require a policy report', async () => {

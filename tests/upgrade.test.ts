@@ -275,7 +275,8 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
       kind: 'slot-contract-update',
       target: 'custom/customer_normalizer.ts',
       reason: 'Update customer normalizer input contract to v2.',
-      requiresVerification: true
+      requiresVerification: true,
+      slotId: 'customer_normalizer'
     }
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);

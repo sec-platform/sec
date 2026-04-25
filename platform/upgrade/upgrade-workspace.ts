@@ -247,7 +247,8 @@ function buildUpgradePlan(
         kind: entry.kind,
         target: entry.target,
         reason: entry.reason,
-        requiresVerification: migration?.requiresVerification ?? true
+        requiresVerification: migration?.requiresVerification ?? true,
+        ...(entry.kind === 'slot-contract-update' ? { slotId: entry.slotId } : {})
       };
     })
   };
