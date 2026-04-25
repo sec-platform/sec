@@ -304,6 +304,10 @@ test('write-local-views consumes generated artifacts from disk', async () => {
 
   const sourceView = await fs.readFile(sourceViewPath, 'utf8');
   const slotRuleView = await fs.readFile(slotRuleViewPath, 'utf8');
+  expect(sourceView).toContain('href="slot-rule-view.html"');
+  expect(sourceView).toContain('href="source-view.html" aria-current="page"');
+  expect(slotRuleView).toContain('href="source-view.html"');
+  expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
   expect(sourceView).toContain('Upgrade Plan');
   expect(sourceView).toContain('auth/basic-session 0.1.0 -&gt; 0.1.1 (planned)');

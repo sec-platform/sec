@@ -54,7 +54,7 @@
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`config-rewrite` 与 `slot-contract-update` 计划迁移；执行型迁移类型仍待扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
-| 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和本地 HTML 视图是当前稳定治理产物集合。 |
+| 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 
 ### 当前 active 工作包
 
@@ -62,7 +62,7 @@
    - 状态：active
    - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
    - 已完成：`config-rewrite` JSON 配置迁移、upgrade plan migration 摘要、upgrade dry-run 入口、`slot-contract-update` 计划与影响面记录、迁移 `requiresVerification` 到 plan/review 的显式传播、升级迁移 entry schema 校验、slot 合同变化与 explain graph 的连接、upgrade plan 到本地视图的摘要呈现。
-   - 下一步候选：更多执行型迁移类型、本地视图索引与导航增强。
+   - 下一步候选：更多执行型迁移类型、升级迁移执行前检查清单。
 
 2. **repair 从基础可用到可审查**
    - 状态：active
@@ -73,7 +73,7 @@
 3. **计划与进度显式化**
    - 状态：active
    - 目标：把未来计划和当前进度固定在 repo 文档中，而不是散落在会话上下文。
-   - 已完成：本文新增正式进度清单。
+   - 已完成：本文新增正式进度清单；本地 Source View 与 Slot / Rule View 已有互相跳转导航。
    - 下一步候选：每轮功能提交后更新本节对应状态，必要时同步 `README` 的入口说明。
 
 ### next 工作包

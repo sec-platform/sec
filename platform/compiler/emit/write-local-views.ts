@@ -26,6 +26,14 @@ function renderJsonCard(title: string, value: unknown): string {
   return `<section class="card"><h2>${escapeHtml(title)}</h2><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></section>`;
 }
 
+function renderViewNav(current: 'source' | 'slot-rule'): string {
+  const links = [
+    { id: 'source', href: 'source-view.html', label: 'Source View' },
+    { id: 'slot-rule', href: 'slot-rule-view.html', label: 'Slot / Rule View' }
+  ];
+  return `<nav class="view-nav">${links.map((link) => `<a href="${link.href}"${link.id === current ? ' aria-current="page"' : ''}>${escapeHtml(link.label)}</a>`).join('')}</nav>`;
+}
+
 async function readRequiredArtifact<T>(filePath: string, label: string): Promise<T> {
   if (!(await pathExists(filePath))) {
     throw new CompilerError('EXPLAIN-BLOCKED-003', `${label} is missing`);
@@ -202,6 +210,9 @@ function renderSourceView(
       body { font-family: Segoe UI, sans-serif; margin: 0; background: #f4f4ef; color: #17211f; }
       main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 20px; }
       .card { background: white; border: 1px solid #d7ddd5; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px rgba(23, 33, 31, 0.06); }
+      .view-nav { display: flex; gap: 12px; }
+      .view-nav a { color: #184c3d; font-weight: 600; text-decoration: none; }
+      .view-nav a[aria-current="page"] { text-decoration: underline; }
       pre { overflow: auto; background: #0f1d19; color: #e6fff8; padding: 16px; border-radius: 12px; }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4e8e2; vertical-align: top; }
@@ -209,6 +220,7 @@ function renderSourceView(
   </head>
   <body>
     <main>
+      ${renderViewNav('source')}
       <section class="card">
         <h1>Source View</h1>
         <p>Blocks: ${lock.resolvedBlocks.length} | Slots: ${lock.slotTasks.length} | Files: ${provenance.artifacts.length}</p>
@@ -246,6 +258,9 @@ function renderSlotRuleView(
       body { font-family: Segoe UI, sans-serif; margin: 0; background: #f4f4ef; color: #17211f; }
       main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 20px; }
       .card { background: white; border: 1px solid #d7ddd5; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px rgba(23, 33, 31, 0.06); }
+      .view-nav { display: flex; gap: 12px; }
+      .view-nav a { color: #184c3d; font-weight: 600; text-decoration: none; }
+      .view-nav a[aria-current="page"] { text-decoration: underline; }
       pre { overflow: auto; background: #0f1d19; color: #e6fff8; padding: 16px; border-radius: 12px; }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4e8e2; vertical-align: top; }
@@ -253,6 +268,7 @@ function renderSlotRuleView(
   </head>
   <body>
     <main>
+      ${renderViewNav('slot-rule')}
       <section class="card">
         <h1>Slot / Rule View</h1>
         <p>Fast lane: ${report.fast.status} | Runtime lane: ${report.runtime.status} | Overall: ${report.summary.status}</p>
