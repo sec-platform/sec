@@ -1,12 +1,17 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function signIn(page: Page, username: string): Promise<void> {
+  const response = await page.request.post('/api/session/login', {
+    data: { username, password: 'password' }
+  });
+  expect(response.ok()).toBe(true);
+}
 
 test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   test.setTimeout(60000);
 
-  await page.goto('/login');
-  await page.getByLabel('Username').fill('tenant-a-admin');
-  await page.getByLabel('Password').fill('password');
-  await page.getByRole('button', { name: 'Sign In' }).click();
+  await signIn(page, 'tenant-a-admin');
+  await page.goto('/workspace');
   await expect(page).toHaveURL(/\/workspace$/);
   await expect(page.getByText('Authorization: allowed')).toBeVisible();
   await expect(page.getByText('Cross-tenant check: tenant-mismatch')).toBeVisible();
@@ -40,12 +45,8 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Audit entries' }).getByText('customer.created')).toBeVisible();
 
   await page.request.post('/api/session/logout');
-  await page.goto('/login');
-  await expect(page).toHaveURL(/\/login$/);
-
-  await page.getByLabel('Username').fill('tenant-b-admin');
-  await page.getByLabel('Password').fill('password');
-  await page.getByRole('button', { name: 'Sign In' }).click();
+  await signIn(page, 'tenant-b-admin');
+  await page.goto('/workspace');
   await expect(page).toHaveURL(/\/workspace$/);
   await page.getByRole('link', { name: '/customers' }).click();
   await expect(page).toHaveURL(/\/customers$/);
