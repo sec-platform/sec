@@ -4,7 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { buildProvenance } from '../platform/compiler/emit/write-provenance.ts';
-import type { LockFile } from '../platform/shared/types.ts';
+import { writeJson } from '../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../platform/shared/paths.ts';
+import type { LockFile, VerificationReport } from '../platform/shared/types.ts';
 
 test('buildProvenance sorts and deduplicates slot verification hints', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-provenance-'));
@@ -18,7 +20,32 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       },
       resolvedBlocks: [],
       resolvedCapabilities: [],
-      installPlan: [],
+      installPlan: [
+        {
+          stepId: 'copy_customer_runtime_test',
+          blockId: 'entity/customer-basic',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official',
+          sourceRoot: 'platform/registry/official/entity.customer-basic/files',
+          action: 'copy',
+          from: 'files/tests/unit/customer-runtime.test.ts',
+          to: 'tests/unit/customer-runtime.test.ts'
+        },
+        {
+          stepId: 'copy_customer_service',
+          blockId: 'entity/customer-basic',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official',
+          sourceRoot: 'platform/registry/official/entity.customer-basic/files',
+          action: 'copy',
+          from: 'files/src/installed/entity/customer-service.ts',
+          to: 'src/installed/entity/customer-service.ts'
+        }
+      ],
       slotTasks: [
         {
           id: 'customer_normalizer',
@@ -57,16 +84,51 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       }
     };
 
+    const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
+    const report: VerificationReport = {
+      build: { status: 'passed' },
+      unit: { status: 'passed', passed: ['customer-runtime.test.ts'] },
+      acceptance: { status: 'passed', passed: [], failed: [] },
+      policy: { status: 'passed', violations: [] },
+      fast: {
+        status: 'passed',
+        build: { status: 'passed' },
+        unit: { status: 'passed', passed: ['customer-runtime.test.ts'] },
+        acceptance: { status: 'passed', passed: [], failed: [] },
+        policy: { status: 'passed', violations: [] },
+        logs: { stdout: '', stderr: '' }
+      },
+      runtime: {
+        status: 'passed',
+        build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
+        unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
+        acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' },
+        logs: { stdout: '', stderr: '' }
+      },
+      summary: {
+        status: 'passed',
+        requestedLane: 'all',
+        failedLanes: []
+      },
+      logs: { stdout: '', stderr: '' }
+    };
+    await writeJson(verificationReportPath, report);
+
     const provenance = await buildProvenance(workspaceRoot, lock);
 
     expect(provenance.artifacts.find((artifact) => artifact.path === 'custom/customer_normalizer.ts')).toMatchObject({
       verifiedBy: ['tests/acceptance/customer-flow.test.ts', 'tests/unit/customer-normalizer.test.ts']
     });
+    expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
+      verifiedBy: ['tests/unit/customer-runtime.test.ts']
+    });
     expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([
       ['custom/customer_normalizer.ts', 'adapt'],
       ['generated/explain-graph.json', 'explain'],
       ['generated/repair-plan.json', 'repair'],
-      ['generated/upgrade-plan.json', 'upgrade']
+      ['generated/upgrade-plan.json', 'upgrade'],
+      ['src/installed/entity/customer-service.ts', 'compose'],
+      ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
