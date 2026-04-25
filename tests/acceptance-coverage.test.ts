@@ -56,6 +56,14 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
             blocks: ['target/block', 'target/block'],
             slots: ['target_slot', 'target_slot']
           }
+        },
+        {
+          id: 'chained_cross_block_flow',
+          dependsOn: ['cross_block_flow'],
+          covers: {
+            blocks: ['target/block'],
+            slots: ['target_slot']
+          }
         }
       ])
     );
@@ -113,7 +121,7 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
         }
       ],
       generatedPaths: [],
-      acceptancePlan: ['source_smoke', 'cross_block_flow', 'target_declared_only'],
+      acceptancePlan: ['source_smoke', 'cross_block_flow', 'chained_cross_block_flow', 'target_declared_only'],
       passStatus: {
         parse: 'succeeded',
         align: 'succeeded',
@@ -129,12 +137,22 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
 
     const missingDependencyCoverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['cross_block_flow']));
     expect(missingDependencyCoverage.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      declaredAcceptance: ['cross_block_flow', 'target_declared_only'],
+      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow', 'target_declared_only'],
       coveredBy: [],
       uncovered: true
     });
     expect(missingDependencyCoverage.slots.find((entry) => entry.id === 'target_slot')).toMatchObject({
-      declaredAcceptance: ['cross_block_flow'],
+      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow'],
+      coveredBy: [],
+      uncovered: true
+    });
+
+    const missingTransitiveDependencyCoverage = await buildAcceptanceCoverage(
+      workspaceRoot,
+      lock,
+      runtime(['chained_cross_block_flow', 'cross_block_flow'])
+    );
+    expect(missingTransitiveDependencyCoverage.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
       coveredBy: [],
       uncovered: true
     });
@@ -147,12 +165,12 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
       uncovered: false
     });
     expect(covered.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      declaredAcceptance: ['cross_block_flow', 'target_declared_only'],
+      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow', 'target_declared_only'],
       coveredBy: ['cross_block_flow'],
       uncovered: false
     });
     expect(covered.slots.find((entry) => entry.id === 'target_slot')).toMatchObject({
-      declaredAcceptance: ['cross_block_flow'],
+      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow'],
       coveredBy: ['cross_block_flow'],
       uncovered: false
     });
@@ -160,9 +178,14 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
     expect(covered.uncoveredSlots).toEqual([]);
 
     const fallback = await buildAcceptanceCoverage(workspaceRoot, lock, runtime([]));
-    expect(fallback.acceptancePassed).toEqual(['source_smoke', 'cross_block_flow', 'target_declared_only']);
+    expect(fallback.acceptancePassed).toEqual([
+      'source_smoke',
+      'cross_block_flow',
+      'chained_cross_block_flow',
+      'target_declared_only'
+    ]);
     expect(fallback.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      coveredBy: ['cross_block_flow', 'target_declared_only'],
+      coveredBy: ['chained_cross_block_flow', 'cross_block_flow', 'target_declared_only'],
       uncovered: false
     });
   } finally {

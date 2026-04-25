@@ -28,8 +28,28 @@ function buildCoverageEntry(id: string, declaredAcceptance: string[], coveredBy:
   };
 }
 
-function isAcceptanceSatisfied(acceptance: AcceptanceItem, accepted: Set<string>): boolean {
-  return accepted.has(acceptance.id) && (acceptance.dependsOn ?? []).every((dependency) => accepted.has(dependency));
+function isAcceptanceSatisfied(
+  acceptance: AcceptanceItem,
+  accepted: Set<string>,
+  acceptanceById: Map<string, AcceptanceItem>,
+  visited = new Set<string>()
+): boolean {
+  if (!accepted.has(acceptance.id)) {
+    return false;
+  }
+  if (visited.has(acceptance.id)) {
+    return true;
+  }
+
+  const nextVisited = new Set(visited);
+  nextVisited.add(acceptance.id);
+  return (acceptance.dependsOn ?? []).every((dependency) => {
+    if (!accepted.has(dependency)) {
+      return false;
+    }
+    const dependencyAcceptance = acceptanceById.get(dependency);
+    return dependencyAcceptance ? isAcceptanceSatisfied(dependencyAcceptance, accepted, acceptanceById, nextVisited) : true;
+  });
 }
 
 function acceptanceCoversBlock(acceptance: AcceptanceItem, blockId: string, declaringBlockId: string): boolean {
@@ -70,6 +90,8 @@ export async function buildAcceptanceCoverage(
     targets.push(...buildAcceptanceTargets(block.id, manifestEntry.manifest));
   }
 
+  const acceptanceById = new Map(targets.map((target) => [target.id, target.acceptance]));
+
   for (const block of lock.resolvedBlocks) {
     const declaredAcceptance = targets
       .filter((target) => acceptanceCoversBlock(target.acceptance, block.id, target.blockId))
@@ -77,7 +99,7 @@ export async function buildAcceptanceCoverage(
     const coveredBy = targets
       .filter(
         (target) =>
-          acceptanceCoversBlock(target.acceptance, block.id, target.blockId) && isAcceptanceSatisfied(target.acceptance, accepted)
+          acceptanceCoversBlock(target.acceptance, block.id, target.blockId) && isAcceptanceSatisfied(target.acceptance, accepted, acceptanceById)
       )
       .map((target) => target.id);
     blockCoverage.push(buildCoverageEntry(block.id, declaredAcceptance, coveredBy));
@@ -88,7 +110,7 @@ export async function buildAcceptanceCoverage(
       .filter((target) => acceptanceCoversSlot(target.acceptance, task.id))
       .map((target) => target.id);
     const coveredBy = targets
-      .filter((target) => acceptanceCoversSlot(target.acceptance, task.id) && isAcceptanceSatisfied(target.acceptance, accepted))
+      .filter((target) => acceptanceCoversSlot(target.acceptance, task.id) && isAcceptanceSatisfied(target.acceptance, accepted, acceptanceById))
       .map((target) => target.id);
     slotCoverage.push(buildCoverageEntry(task.id, declaredAcceptance, coveredBy));
   }
