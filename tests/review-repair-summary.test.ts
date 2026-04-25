@@ -83,16 +83,39 @@ test('review summary surfaces pending repair tasks', async () => {
       sourceVerificationStatus: 'failed',
       tasks: [
         {
-          taskId: 'repair_slot_customer_normalizer',
+          taskId: 'repair_slot_zeta',
           taskKind: 'repair-slot',
           phase: 'repair',
-          sourceSlotId: 'customer_normalizer',
+          sourceSlotId: 'zeta',
           targetBlock: 'entity/customer-basic',
-          targetFile: 'custom/customer_normalizer.ts',
-          allowedPaths: ['custom/customer_normalizer.ts'],
-          requiredSymbols: ['normalizeCustomerInput'],
+          targetFile: 'custom/zeta.ts',
+          allowedPaths: ['custom/zeta.ts'],
+          requiredSymbols: ['zeta'],
           forbiddenOperations: [],
-          testsToPass: ['tests/unit/customer-normalizer.test.ts'],
+          testsToPass: [],
+          failureSummary: 'build=passed; unit=failed; acceptance=passed; policy=passed; runtime=skipped',
+          failurePoints: [
+            {
+              lane: 'fast',
+              kind: 'unit',
+              issueType: 'slot',
+              repairable: true,
+              artifactPath: 'tests/unit',
+              message: 'Unit verification failed'
+            }
+          ]
+        },
+        {
+          taskId: 'repair_slot_alpha',
+          taskKind: 'repair-slot',
+          phase: 'repair',
+          sourceSlotId: 'alpha',
+          targetBlock: 'entity/customer-basic',
+          targetFile: 'custom/alpha.ts',
+          allowedPaths: ['custom/alpha.ts'],
+          requiredSymbols: ['alpha'],
+          forbiddenOperations: [],
+          testsToPass: [],
           failureSummary: 'build=passed; unit=failed; acceptance=passed; policy=passed; runtime=skipped',
           failurePoints: [
             {
@@ -111,30 +134,36 @@ test('review summary surfaces pending repair tasks', async () => {
 
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
-    expect(summary.conflictHints).toEqual(
-      expect.arrayContaining([
-        {
-          kind: 'repair-plan-present',
-          relatedId: 'repair_slot_customer_normalizer',
-          message: 'Repair task pending: repair_slot_customer_normalizer -> custom/customer_normalizer.ts'
-        }
-      ])
-    );
+    expect(summary.conflictHints).toEqual([
+      {
+        kind: 'repair-plan-present',
+        relatedId: 'repair_slot_alpha',
+        message: 'Repair task pending: repair_slot_alpha -> custom/alpha.ts'
+      },
+      {
+        kind: 'repair-plan-present',
+        relatedId: 'repair_slot_zeta',
+        message: 'Repair task pending: repair_slot_zeta -> custom/zeta.ts'
+      }
+    ]);
 
     repairPlan.status = 'applied';
     await writeJson(repairPlanPath, repairPlan);
 
     const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
-    expect(appliedSummary.conflictHints).toEqual(
-      expect.arrayContaining([
-        {
-          kind: 'repair-plan-present',
-          relatedId: 'repair_slot_customer_normalizer',
-          message: 'Repair task applied, verify pending: repair_slot_customer_normalizer -> custom/customer_normalizer.ts'
-        }
-      ])
-    );
+    expect(appliedSummary.conflictHints).toEqual([
+      {
+        kind: 'repair-plan-present',
+        relatedId: 'repair_slot_alpha',
+        message: 'Repair task applied, verify pending: repair_slot_alpha -> custom/alpha.ts'
+      },
+      {
+        kind: 'repair-plan-present',
+        relatedId: 'repair_slot_zeta',
+        message: 'Repair task applied, verify pending: repair_slot_zeta -> custom/zeta.ts'
+      }
+    ]);
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
