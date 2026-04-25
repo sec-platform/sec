@@ -282,6 +282,7 @@ export interface WorkspacePaths {
   slotRuleViewPath: string;
   repairPlanPath: string;
   upgradePlanPath: string;
+  upgradeDiagnosticsPath: string;
   projectPackagePath: string;
   provenancePath: string;
 }
@@ -580,6 +581,16 @@ export interface UpgradePlan {
   impacts: string[];
   migrations: UpgradeMigration[];
   migrationSummaries: UpgradeMigrationSummary[];
+}
+
+export interface UpgradeDiagnostics {
+  formatVersion: string;
+  status: 'blocked';
+  blockId: string;
+  targetVersion: string;
+  failedCheck: UpgradePreflightCheckId | 'target-manifest' | 'plan-block';
+  errorCode: string;
+  message: string;
 }
 
 export interface OverrideEntry {

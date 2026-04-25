@@ -38,6 +38,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     slotRuleViewPath: path.join(projectRoot, 'generated', 'views', 'slot-rule-view.html'),
     repairPlanPath: path.join(projectRoot, 'generated', 'repair-plan.json'),
     upgradePlanPath: path.join(projectRoot, 'generated', 'upgrade-plan.json'),
+    upgradeDiagnosticsPath: path.join(projectRoot, 'generated', 'upgrade-diagnostics.json'),
     projectPackagePath: path.join(projectRoot, 'package.json'),
     provenancePath: path.join(projectRoot, 'provenance.json')
   };

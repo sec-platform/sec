@@ -51,7 +51,7 @@
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override 节点、policy violation 边，以及 slot 合同升级影响边。 |
 | review summary | done | 结构化输出 change sources、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
-| upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、verify、lock/provenance 更新和回滚。 |
+| upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)` 与 `slot-contract-update` 计划迁移；执行型迁移类型仍待扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
@@ -61,8 +61,8 @@
 1. **升级迁移引擎增强**
    - 状态：active
    - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
-   - 已完成：`config-rewrite` JSON 配置迁移（含 set/delete）、upgrade plan migration 摘要、upgrade dry-run 入口、`slot-contract-update` 计划与影响面记录、迁移 `requiresVerification` 到 plan/review 的显式传播、升级迁移 entry schema 校验、slot 合同变化与 explain graph 的连接、upgrade plan 到本地视图的摘要呈现、upgrade plan 执行前检查清单、升级检查结果在 review/local view 中的聚合。
-   - 下一步候选：更多执行型迁移类型、升级检查失败的结构化诊断。
+   - 已完成：`config-rewrite` JSON 配置迁移（含 set/delete）、upgrade plan migration 摘要、upgrade dry-run 入口、`slot-contract-update` 计划与影响面记录、迁移 `requiresVerification` 到 plan/review 的显式传播、升级迁移 entry schema 校验、slot 合同变化与 explain graph 的连接、upgrade plan 到本地视图的摘要呈现、upgrade plan 执行前检查清单、升级检查结果在 review/local view 中的聚合、升级前置检查失败的结构化诊断 artifact。
+   - 下一步候选：更多执行型迁移类型、升级诊断在 review/local view 中的聚合。
 
 2. **repair 从基础可用到可审查**
    - 状态：active
