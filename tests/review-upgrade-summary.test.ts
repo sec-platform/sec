@@ -11,6 +11,7 @@ import type {
   LockFile,
   ProvenanceFile,
   RepairPlan,
+  UpgradeDiagnostics,
   UpgradePlan,
   VerificationReport
 } from '../platform/shared/types.ts';
@@ -18,7 +19,7 @@ import type {
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-review-upgrade-'));
   try {
-    const { repairPlanPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+    const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
     const lock: LockFile = {
       formatVersion: '1',
       app: {
@@ -145,6 +146,15 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         }
       ]
     };
+    const upgradeDiagnostics: UpgradeDiagnostics = {
+      formatVersion: '1',
+      status: 'blocked',
+      blockId: 'auth/basic-session',
+      targetVersion: '0.1.1',
+      failedCheck: 'override-conflicts',
+      errorCode: 'UPGRADE-CONFLICT-001',
+      message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
+    };
     const repairPlan: RepairPlan = {
       formatVersion: '1',
       status: 'pending',
@@ -181,6 +191,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       ]
     };
     await writeJson(upgradePlanPath, upgradePlan);
+    await writeJson(upgradeDiagnosticsPath, upgradeDiagnostics);
     await writeJson(repairPlanPath, repairPlan);
 
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
@@ -207,6 +218,12 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         message: 'Upgrade preflight passed: version-range, migration-entries, impact-scan, override-conflicts'
       }
     ]);
+    expect(summary.failurePoints).toContainEqual({
+      lane: 'all',
+      kind: 'upgrade',
+      artifactPath: 'generated/upgrade-diagnostics.json',
+      message: 'Upgrade blocked at override-conflicts: UPGRADE-CONFLICT-001 Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
+    });
     expect(summary.regressionRisks).toContainEqual({
       kind: 'upgrade-impact',
       blockId: 'auth/basic-session',

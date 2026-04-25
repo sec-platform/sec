@@ -12,6 +12,7 @@ import type {
   ReviewFailurePoint,
   ReviewRegressionRisk,
   ReviewSummary,
+  UpgradeDiagnostics,
   UpgradePlan,
   VerificationReport,
   VerificationStepReport
@@ -136,7 +137,7 @@ export async function buildReviewSummary(
   report: VerificationReport,
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
-  const { repairPlanPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+  const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   const failurePoints: ReviewFailurePoint[] = [];
   const regressionRisks: ReviewRegressionRisk[] = [];
@@ -307,6 +308,16 @@ export async function buildReviewSummary(
         message: `Upgrade migration ${migration.id} requires verification for ${migration.target}`
       });
     }
+  }
+
+  if (await pathExists(upgradeDiagnosticsPath)) {
+    const diagnostics = await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
+    addFailurePoint(failurePoints, {
+      lane: 'all',
+      kind: 'upgrade',
+      message: `Upgrade blocked at ${diagnostics.failedCheck}: ${diagnostics.errorCode} ${diagnostics.message}`,
+      artifactPath: 'generated/upgrade-diagnostics.json'
+    });
   }
 
   if (await pathExists(repairPlanPath)) {
