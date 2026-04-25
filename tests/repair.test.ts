@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { applyRepairPlan } from '../platform/compiler/repair/build-repair-plan.ts';
-import { repairWorkspace } from '../platform/orchestrator.ts';
+import { lockWorkspace, repairWorkspace } from '../platform/orchestrator.ts';
 import { writeJson } from '../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
@@ -185,6 +185,19 @@ test('repair writes only slot-scoped source and requires verification rerun', as
         })
       ])
     );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('repair blocks lock until verification reruns', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-repair-lock-'));
+  try {
+    await writeRepairFixture(workspaceRoot);
+
+    await repairWorkspace(workspaceRoot);
+
+    await expect(lockWorkspace(workspaceRoot)).rejects.toMatchObject({ code: 'LOCK-BLOCKED-001' });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
