@@ -9,6 +9,7 @@ import type {
   PolicyReport,
   ProvenanceFile,
   ReviewSummary,
+  UpgradePlan,
   VerificationReport
 } from '../../shared/types.ts';
 
@@ -27,6 +28,14 @@ function renderJsonCard(title: string, value: unknown): string {
 async function readRequiredArtifact<T>(filePath: string, label: string): Promise<T> {
   if (!(await pathExists(filePath))) {
     throw new CompilerError('EXPLAIN-BLOCKED-003', `${label} is missing`);
+  }
+
+  return readJson<T>(filePath);
+}
+
+async function readOptionalArtifact<T>(filePath: string): Promise<T | null> {
+  if (!(await pathExists(filePath))) {
+    return null;
   }
 
   return readJson<T>(filePath);
@@ -80,6 +89,35 @@ function renderPolicyViolationsTable(policyReport: PolicyReport): string {
       </section>`;
 }
 
+function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
+  if (!upgradePlan) {
+    return '';
+  }
+
+  const migrationRows = upgradePlan.migrationSummaries
+    .map(
+      (migration) =>
+        `<tr><td>${escapeHtml(migration.id)}</td><td>${escapeHtml(migration.kind)}</td><td>${escapeHtml(migration.target)}</td><td>${escapeHtml(String(migration.requiresVerification))}</td><td>${escapeHtml(migration.reason)}</td></tr>`
+    )
+    .join('');
+  const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
+
+  return `<section class="card">
+        <h2>Upgrade Plan</h2>
+        <p>${escapeHtml(upgradePlan.blockId)} ${escapeHtml(upgradePlan.fromVersion)} -&gt; ${escapeHtml(upgradePlan.toVersion)} (${escapeHtml(upgradePlan.status)})</p>
+        <h3>Migrations</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Kind</th><th>Target</th><th>Requires Verification</th><th>Reason</th></tr></thead>
+          <tbody>${migrationRows}</tbody>
+        </table>
+        <h3>Impacts</h3>
+        <table>
+          <thead><tr><th>Path</th></tr></thead>
+          <tbody>${impactRows}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderReviewSummaryTables(review: ReviewSummary): string {
   const failureRows = review.failurePoints
     .map(
@@ -128,7 +166,8 @@ function renderSourceView(
   provenance: ProvenanceFile,
   review: ReviewSummary,
   graph: ExplainGraph,
-  policyReport: PolicyReport
+  policyReport: PolicyReport,
+  upgradePlan: UpgradePlan | null
 ): string {
   return `<!doctype html>
 <html lang="en">
@@ -158,6 +197,7 @@ function renderSourceView(
       </section>
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
+      ${renderUpgradePlanTable(upgradePlan)}
       ${renderReviewSummaryTables(review)}
       ${renderJsonCard('Explain Graph', { nodes: graph.nodes.length, edges: graph.edges.length })}
     </main>
@@ -220,6 +260,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     reviewSummaryPath,
     sourceViewPath,
     slotRuleViewPath,
+    upgradePlanPath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
 
@@ -233,15 +274,16 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
 
-  const [provenance, report, coverage, policyReport, review, graph] = await Promise.all([
+  const [provenance, report, coverage, policyReport, review, graph, upgradePlan] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
     readRequiredArtifact<VerificationReport>(verificationReportPath, 'verification-report.json'),
     readRequiredArtifact<AcceptanceCoverageReport>(acceptanceCoveragePath, 'acceptance-coverage.json'),
     readRequiredArtifact<PolicyReport>(policyReportPath, 'policy-report.json'),
     readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
-    readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json')
+    readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json'),
+    readOptionalArtifact<UpgradePlan>(upgradePlanPath)
   ]);
 
-  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport), 'utf8');
+  await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport, upgradePlan), 'utf8');
   await fs.writeFile(slotRuleViewPath, renderSlotRuleView(lock, report, coverage, policyReport, review), 'utf8');
 }
