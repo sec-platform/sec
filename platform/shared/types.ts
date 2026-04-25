@@ -560,12 +560,22 @@ export interface UpgradeMigrationSummary {
   slotId?: string;
 }
 
+export type UpgradePreflightCheckId = 'version-range' | 'migration-entries' | 'impact-scan' | 'override-conflicts';
+
+export interface UpgradePreflightCheck {
+  id: UpgradePreflightCheckId;
+  status: 'passed';
+  message: string;
+  evidence: string[];
+}
+
 export interface UpgradePlan {
   formatVersion: string;
   blockId: string;
   fromVersion: string;
   toVersion: string;
   status: 'planned' | 'applied';
+  preflightChecks: UpgradePreflightCheck[];
   impacts: string[];
   migrations: UpgradeMigration[];
   migrationSummaries: UpgradeMigrationSummary[];
