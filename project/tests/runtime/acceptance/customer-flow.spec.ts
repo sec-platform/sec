@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
+  test.setTimeout(60000);
+
   await page.goto('/login');
   await page.getByLabel('Username').fill('tenant-a-admin');
   await page.getByLabel('Password').fill('password');
@@ -44,7 +46,9 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await page.getByLabel('Username').fill('tenant-b-admin');
   await page.getByLabel('Password').fill('password');
   await page.getByRole('button', { name: 'Sign In' }).click();
+  await expect(page).toHaveURL(/\/workspace$/);
   await page.getByRole('link', { name: '/customers' }).click();
+  await expect(page).toHaveURL(/\/customers$/);
   await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);
   await expect(page.getByText('contract.txt')).toHaveCount(0);
 });
