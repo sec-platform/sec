@@ -283,6 +283,13 @@ export async function buildReviewSummary(
           ? `Upgrade plan applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
           : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
     });
+    for (const impact of upgradePlan.impacts) {
+      addRegressionRisk(regressionRisks, {
+        kind: 'upgrade-impact',
+        blockId: upgradePlan.blockId,
+        message: `Upgrade ${upgradePlan.blockId} impacts ${impact}`
+      });
+    }
   }
 
   if (await pathExists(repairPlanPath)) {

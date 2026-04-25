@@ -160,6 +160,11 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         message: 'Upgrade plan present: auth/basic-session 0.1.0 -> 0.1.1'
       }
     ]);
+    expect(summary.regressionRisks).toContainEqual({
+      kind: 'upgrade-impact',
+      blockId: 'auth/basic-session',
+      message: 'Upgrade auth/basic-session impacts src/installed/auth/session.ts'
+    });
 
     upgradePlan.status = 'applied';
     await writeJson(upgradePlanPath, upgradePlan);
