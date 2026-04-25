@@ -199,7 +199,7 @@ test('compose refreshes runtime host scaffold for an existing workspace baseline
   const projectPackage = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')) as {
     scripts: Record<string, string>;
   };
-  expect(projectPackage.scripts.build).toBe('next build');
+  expect(projectPackage.scripts.build).toBe('next build --webpack');
   expect(projectPackage.scripts['verify:runtime']).toBe('npm run build && npm run test:unit && npm run test:acceptance');
 });
 
@@ -231,7 +231,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       lane: 'fast',
       kind: 'policy',
       artifactPath: 'generated/policy-report.json',
-      message: 'disk-only failure point'
+      message: 'disk-only <failure> & "point"'
     }
   ];
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
@@ -247,6 +247,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
 
   const sourceView = await fs.readFile(sourceViewPath, 'utf8');
   const slotRuleView = await fs.readFile(slotRuleViewPath, 'utf8');
-  expect(sourceView).toContain('disk-only failure point');
+  expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
+  expect(sourceView).not.toContain('disk-only <failure>');
   expect(slotRuleView).toContain('disk-driven-acceptance');
 });

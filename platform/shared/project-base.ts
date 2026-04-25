@@ -40,7 +40,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),
     scripts: {
       dev: 'next dev',
-      build: 'next build',
+      build: 'next build --webpack',
       'test:fast': 'node --test --experimental-test-isolation=none',
       'test:unit': 'vitest run --config vitest.config.ts',
       'test:acceptance': 'playwright test --config playwright.config.ts',
