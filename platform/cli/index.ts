@@ -13,6 +13,12 @@ import {
 } from '../orchestrator.ts';
 import type { VerificationLane } from '../shared/types.ts';
 
+const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>';
+const INIT_USAGE = 'Usage: platform init [--reset]';
+const ADD_USAGE = 'Usage: platform add <block-id>';
+const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
+const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version>';
+
 function assertNoArgs(command: string, args: string[]): void {
   if (args.length > 0) {
     throw new Error(`Usage: platform ${command}`);
@@ -26,7 +32,7 @@ function parseResetArg(args: string[]): boolean {
   if (args.length === 1 && args[0] === '--reset') {
     return true;
   }
-  throw new Error('Usage: platform init [--reset]');
+  throw new Error(INIT_USAGE);
 }
 
 function parseLaneArg(args: string[]): VerificationLane {
@@ -34,7 +40,7 @@ function parseLaneArg(args: string[]): VerificationLane {
     return 'all';
   }
   if (args.length !== 2 || args[0] !== '--lane') {
-    throw new Error('Usage: platform verify [--lane fast|runtime|all]');
+    throw new Error(VERIFY_USAGE);
   }
 
   const value = args[1];
@@ -42,7 +48,7 @@ function parseLaneArg(args: string[]): VerificationLane {
     return value;
   }
 
-  throw new Error('Usage: platform verify [--lane fast|runtime|all]');
+  throw new Error(VERIFY_USAGE);
 }
 
 async function main(): Promise<void> {
@@ -55,7 +61,7 @@ async function main(): Promise<void> {
       return;
     case 'add':
       if (args.length !== 1) {
-        throw new Error('Usage: platform add <block-id>');
+        throw new Error(ADD_USAGE);
       }
       await addBlock(process.cwd(), args[0]);
       console.log(`Added block ${args[0]}`);
@@ -90,7 +96,7 @@ async function main(): Promise<void> {
     }
     case 'upgrade': {
       if (args.length !== 2) {
-        throw new Error('Usage: platform upgrade <block-id> <target-version>');
+        throw new Error(UPGRADE_USAGE);
       }
       const { upgradePlan } = await upgradeWorkspace(process.cwd(), args[0], args[1]);
       console.log(`Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`);
@@ -108,7 +114,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log('Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>');
+      console.log(USAGE);
   }
 }
 
