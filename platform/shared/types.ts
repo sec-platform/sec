@@ -557,6 +557,7 @@ export interface UpgradeMigrationSummary {
   target: string;
   reason: string;
   requiresVerification: boolean;
+  slotId?: string;
 }
 
 export interface UpgradePlan {
