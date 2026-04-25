@@ -1,5 +1,7 @@
 {
   "id": "mig-auth-session-refresh",
   "kind": "file-replace",
-  "reason": "Refresh auth session implementation to 0.1.1 and expose version metadata."
+  "reason": "Refresh auth session implementation to 0.1.1 and expose version metadata.",
+  "source": "files/src/installed/auth/session.ts",
+  "target": "src/installed/auth/session.ts"
 }

@@ -99,6 +99,14 @@ export interface UpgradeMigration {
   requiresVerification?: boolean;
 }
 
+export interface UpgradeMigrationEntry {
+  id: string;
+  kind: 'file-replace';
+  reason: string;
+  source: string;
+  target: string;
+}
+
 export interface UpgradeConfig {
   from: string[];
   migrations: UpgradeMigration[];
