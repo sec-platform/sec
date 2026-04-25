@@ -25,6 +25,11 @@ export type PolicySourceScope = 'official' | 'project';
 
 export interface AcceptanceItem {
   id: string;
+  dependsOn?: string[];
+  covers?: {
+    blocks?: string[];
+    slots?: string[];
+  };
 }
 
 export interface PlanApp {

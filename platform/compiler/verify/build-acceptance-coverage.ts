@@ -1,5 +1,18 @@
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
-import type { AcceptanceCoverageEntry, AcceptanceCoverageReport, LockFile, RuntimeVerificationLaneReport } from '../../shared/types.ts';
+import type {
+  AcceptanceCoverageEntry,
+  AcceptanceCoverageReport,
+  AcceptanceItem,
+  BlockManifest,
+  LockFile,
+  RuntimeVerificationLaneReport
+} from '../../shared/types.ts';
+
+interface AcceptanceCoverageTarget {
+  id: string;
+  acceptance: AcceptanceItem;
+  blockId: string;
+}
 
 function buildCoverageEntry(id: string, declaredAcceptance: string[], coveredBy: string[]): AcceptanceCoverageEntry {
   return {
@@ -10,35 +23,77 @@ function buildCoverageEntry(id: string, declaredAcceptance: string[], coveredBy:
   };
 }
 
+function isAcceptanceSatisfied(acceptance: AcceptanceItem, accepted: Set<string>): boolean {
+  return accepted.has(acceptance.id) && (acceptance.dependsOn ?? []).every((dependency) => accepted.has(dependency));
+}
+
+function acceptanceCoversBlock(acceptance: AcceptanceItem, blockId: string, declaringBlockId: string): boolean {
+  return acceptance.covers?.blocks?.includes(blockId) ?? declaringBlockId === blockId;
+}
+
+function acceptanceCoversSlot(acceptance: AcceptanceItem, slotId: string): boolean {
+  return acceptance.covers?.slots?.includes(slotId) ?? false;
+}
+
+function buildAcceptanceTargets(blockId: string, manifest: BlockManifest): AcceptanceCoverageTarget[] {
+  return manifest.acceptance.map((acceptance) => ({
+    id: acceptance.id,
+    acceptance,
+    blockId
+  }));
+}
+
 export async function buildAcceptanceCoverage(
   workspaceRoot: string,
   lock: LockFile,
   runtime: RuntimeVerificationLaneReport
 ): Promise<AcceptanceCoverageReport> {
-  const runtimeAcceptancePassed = runtime.acceptance.status === 'passed' ? [...lock.acceptancePlan] : [];
-  const accepted = new Set(runtimeAcceptancePassed);
+  const declaredAcceptanceIds = new Set(lock.acceptancePlan);
+  const runtimeAcceptancePassed = runtime.acceptance.status === 'passed'
+    ? runtime.acceptance.passed.filter((acceptanceId) => declaredAcceptanceIds.has(acceptanceId))
+    : [];
+  const acceptancePassed = runtimeAcceptancePassed.length > 0
+    ? runtimeAcceptancePassed
+    : runtime.acceptance.status === 'passed'
+      ? [...lock.acceptancePlan]
+      : [];
+  const accepted = new Set(acceptancePassed);
   const blockCoverage: AcceptanceCoverageEntry[] = [];
   const slotCoverage: AcceptanceCoverageEntry[] = [];
+  const targets: AcceptanceCoverageTarget[] = [];
 
   for (const block of lock.resolvedBlocks) {
     const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
-    const declaredAcceptance = manifestEntry.manifest.acceptance.map((acceptance) => acceptance.id);
-    const coveredBy = declaredAcceptance.filter((acceptanceId) => accepted.has(acceptanceId));
+    targets.push(...buildAcceptanceTargets(block.id, manifestEntry.manifest));
+  }
+
+  for (const block of lock.resolvedBlocks) {
+    const declaredAcceptance = targets
+      .filter((target) => acceptanceCoversBlock(target.acceptance, block.id, target.blockId))
+      .map((target) => target.id);
+    const coveredBy = targets
+      .filter(
+        (target) =>
+          acceptanceCoversBlock(target.acceptance, block.id, target.blockId) && isAcceptanceSatisfied(target.acceptance, accepted)
+      )
+      .map((target) => target.id);
     blockCoverage.push(buildCoverageEntry(block.id, declaredAcceptance, coveredBy));
   }
 
   for (const task of lock.slotTasks) {
-    const sourceBlock = lock.resolvedBlocks.find((block) => block.id === task.block);
-    const manifestEntry = sourceBlock ? await loadManifestForResolvedBlock(workspaceRoot, sourceBlock) : null;
-    const declaredAcceptance = manifestEntry?.manifest.acceptance.map((acceptance) => acceptance.id) ?? [];
-    const coveredBy = declaredAcceptance.filter((acceptanceId) => accepted.has(acceptanceId));
+    const declaredAcceptance = targets
+      .filter((target) => acceptanceCoversSlot(target.acceptance, task.id))
+      .map((target) => target.id);
+    const coveredBy = targets
+      .filter((target) => acceptanceCoversSlot(target.acceptance, task.id) && isAcceptanceSatisfied(target.acceptance, accepted))
+      .map((target) => target.id);
     slotCoverage.push(buildCoverageEntry(task.id, declaredAcceptance, coveredBy));
   }
 
   return {
     formatVersion: '1',
     status: runtime.status,
-    acceptancePassed: runtimeAcceptancePassed,
+    acceptancePassed,
     blocks: blockCoverage,
     slots: slotCoverage,
     uncoveredBlocks: blockCoverage.filter((entry) => entry.uncovered).map((entry) => entry.id),
