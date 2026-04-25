@@ -182,6 +182,7 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
 
 export async function writeRepairPlan(workspaceRoot: string, plan: RepairPlan, lock: LockFile): Promise<void> {
   const { repairPlanPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  await fs.mkdir(path.dirname(repairPlanPath), { recursive: true });
   await fs.writeFile(repairPlanPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');
   if (!lock.generatedPaths.includes('generated/repair-plan.json')) {
     lock.generatedPaths.push('generated/repair-plan.json');

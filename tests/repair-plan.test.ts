@@ -1,8 +1,13 @@
 import { expect, test } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
-import { buildRepairPlan } from '../platform/compiler/repair/build-repair-plan.ts';
+import { buildRepairPlan, writeRepairPlan } from '../platform/compiler/repair/build-repair-plan.ts';
 import { PASS_STATUS_PENDING } from '../platform/shared/constants.ts';
-import type { LockFile, PlanFile, VerificationReport } from '../platform/shared/types.ts';
+import { getWorkspacePaths } from '../platform/shared/paths.ts';
+import { readJson, writeJson } from '../platform/shared/fs.ts';
+import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../platform/shared/types.ts';
 
 const plan: PlanFile = {
   app: {
@@ -77,6 +82,10 @@ const lock: LockFile = {
     verify: 'failed'
   }
 };
+
+async function createWorkspace(prefix: string): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), prefix));
+}
 
 const failedReport: VerificationReport = {
   build: {
@@ -184,6 +193,34 @@ const failedReport: VerificationReport = {
     stderr: 'unit assertion failed'
   }
 };
+
+test('writeRepairPlan persists generated path in a missing generated directory', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-repair-write-');
+  try {
+    const { lockPath, repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const persistedLockInput: LockFile = {
+      ...lock,
+      generatedPaths: []
+    };
+    const repairPlan: RepairPlan = {
+      formatVersion: '1',
+      status: 'skipped',
+      sourceVerificationStatus: 'passed',
+      tasks: []
+    };
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await writeJson(lockPath, persistedLockInput);
+
+    await writeRepairPlan(workspaceRoot, repairPlan, persistedLockInput);
+
+    const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
+    const persistedLock = await readJson<LockFile>(lockPath);
+    expect(persistedRepairPlan).toEqual(repairPlan);
+    expect(persistedLock.generatedPaths).toEqual(['generated/repair-plan.json', 'provenance.json']);
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
 
 test('repair plan skips when verification passed', () => {
   const report: VerificationReport = {
