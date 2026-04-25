@@ -38,7 +38,7 @@ async function main(): Promise<void> {
       console.log('Initialized project workspace');
       return;
     case 'add':
-      if (!args[0]) {
+      if (args.length !== 1) {
         throw new Error('Usage: platform add <block-id>');
       }
       await addBlock(process.cwd(), args[0]);
