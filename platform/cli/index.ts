@@ -69,7 +69,7 @@ async function main(): Promise<void> {
       return;
     }
     case 'upgrade': {
-      if (!args[0] || !args[1]) {
+      if (args.length !== 2) {
         throw new Error('Usage: platform upgrade <block-id> <target-version>');
       }
       const { upgradePlan } = await upgradeWorkspace(process.cwd(), args[0], args[1]);

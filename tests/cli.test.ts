@@ -68,6 +68,11 @@ test('CLI reports argument usage errors', async () => {
       stdout: '',
       stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version>\n'
     });
+    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version>\n'
+    });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
