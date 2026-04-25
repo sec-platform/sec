@@ -197,6 +197,44 @@ test('ensureProjectDependencies skips install when warm cache and matching stamp
   expect(installCalls).toBe(0);
 });
 
+test('ensureProjectDependencies installs locally when shared linking is disabled', async () => {
+  const workspaceRoot = await createTempRoot('engineering-compiler-runtime-local-');
+  const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+  const runtimeSpec = await loadRuntimeDependencySpec();
+
+  await ensureProjectBase(workspaceRoot);
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+
+  await fs.mkdir(path.join(sharedDepsRoot, 'node_modules', 'next'), { recursive: true });
+  await fs.writeFile(path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json'), '{\n}\n', 'utf8');
+  await writeRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'), {
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'bun',
+    installedAt: '2026-01-01T00:00:00.000Z'
+  });
+
+  let installCalls = 0;
+  await ensureProjectDependencies(projectRoot, {
+    commandRunner: async (_command, _args, options) => {
+      installCalls += 1;
+      await installRuntimeDeps(options.cwd);
+      return { code: 0, stdout: 'ok', stderr: '' };
+    },
+    preferSharedCopy: false,
+    sharedDepsRoot,
+    skipSharedDepsWarmup: true
+  });
+
+  expect(installCalls).toBe(1);
+  expect(await fs.realpath(path.join(projectRoot, 'node_modules'))).not.toBe(
+    await fs.realpath(path.join(sharedDepsRoot, 'node_modules'))
+  );
+  expect(await readRuntimeDepsStamp(path.join(projectRoot, '.runtime-deps.stamp.json'))).toMatchObject({
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'bun'
+  });
+});
+
 test('ensureProjectDependencies falls back to npm and still writes matching stamps', async () => {
   const workspaceRoot = await createTempRoot('engineering-compiler-runtime-fallback-');
   const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
