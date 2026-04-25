@@ -95,6 +95,13 @@ test('review summary surfaces pending repair tasks', async () => {
           forbiddenOperations: [],
           testsToPass: [],
           failureSummary: 'build=passed; unit=failed; acceptance=passed; policy=passed; runtime=skipped',
+          preview: {
+            beforeLines: 1,
+            afterLines: 3,
+            addedLines: 3,
+            removedLines: 1,
+            changed: true
+          },
           failurePoints: [
             {
               lane: 'fast',
@@ -144,7 +151,7 @@ test('review summary surfaces pending repair tasks', async () => {
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_zeta',
-        message: 'Repair task pending: repair_slot_zeta -> custom/zeta.ts'
+        message: 'Repair task pending: repair_slot_zeta -> custom/zeta.ts; preview changed +3/-1'
       }
     ]);
 
@@ -163,7 +170,7 @@ test('review summary surfaces pending repair tasks', async () => {
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_zeta',
-        message: 'Repair task applied, verify pending: repair_slot_zeta -> custom/zeta.ts'
+        message: 'Repair task applied, verify pending: repair_slot_zeta -> custom/zeta.ts; preview changed +3/-1'
       }
     ]);
     expect(appliedSummary.regressionRisks).toContainEqual({

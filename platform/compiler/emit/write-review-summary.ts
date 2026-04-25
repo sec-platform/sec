@@ -329,13 +329,16 @@ export async function buildReviewSummary(
       });
     }
     for (const task of repairPlan.tasks) {
+      const preview = task.preview
+        ? `; preview ${task.preview.changed ? 'changed' : 'unchanged'} +${task.preview.addedLines}/-${task.preview.removedLines}`
+        : '';
       addConflictHint(conflictHints, {
         kind: 'repair-plan-present',
         relatedId: task.taskId,
         message:
           repairPlan.status === 'applied'
-            ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}`
-            : `Repair task pending: ${task.taskId} -> ${task.targetFile}`
+            ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}${preview}`
+            : `Repair task pending: ${task.taskId} -> ${task.targetFile}${preview}`
       });
     }
   }

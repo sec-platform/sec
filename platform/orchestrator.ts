@@ -13,7 +13,7 @@ import { lockProject } from './compiler/emit/lock-project.ts';
 import { writeReviewSummary } from './compiler/emit/write-review-summary.ts';
 import { loadManifestById } from './compiler/parse/load-manifest.ts';
 import { loadPlan } from './compiler/parse/load-plan.ts';
-import { applyRepairPlan, buildRepairPlan, writeRepairPlan } from './compiler/repair/build-repair-plan.ts';
+import { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from './compiler/repair/build-repair-plan.ts';
 import { resolveGraph } from './compiler/resolve/resolve-graph.ts';
 import { adaptProject } from './compiler/synthesize/adapt-project.ts';
 import { upgradeWorkspace as runUpgradeWorkspace } from './upgrade/upgrade-workspace.ts';
@@ -209,6 +209,7 @@ export async function repairWorkspace(
     const repairPlan = buildRepairPlan(plan, lock, report);
     if (repairPlan.status === 'pending') {
       if (options.dryRun) {
+        await previewRepairPlan(workspaceRoot, plan, lock, repairPlan);
         await writeRepairPlan(workspaceRoot, repairPlan, lock);
         return { lock, repairPlan };
       }

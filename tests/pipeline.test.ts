@@ -266,7 +266,14 @@ test('write-local-views consumes generated artifacts from disk', async () => {
             forbiddenOperations: [],
             testsToPass: [],
             failureSummary: 'unit <failed> & needs repair',
-            failurePoints: []
+            failurePoints: [],
+            preview: {
+              beforeLines: 1,
+              afterLines: 4,
+              addedLines: 4,
+              removedLines: 1,
+              changed: true
+            }
           }
         ]
       },
@@ -365,6 +372,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
   expect(sourceView).toContain('Repair Plan');
   expect(sourceView).toContain('requires verification: false');
+  expect(sourceView).toContain('changed; +4/-1; 1 -&gt; 4 lines');
   expect(sourceView).toContain('repair_customer_normalizer');
   expect(sourceView).toContain('unit &lt;failed&gt; &amp; needs repair');
   expect(sourceView).not.toContain('disk-only <failure>');

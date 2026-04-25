@@ -205,6 +205,12 @@ test('repair dry-run writes a pending plan without touching source or verificati
 
     expect(repairPlan.status).toBe('pending');
     expect(repairPlan.requiresVerification).toBe(false);
+    expect(repairPlan.tasks[0].preview).toMatchObject({
+      beforeLines: 1,
+      changed: true
+    });
+    expect(repairPlan.tasks[0].preview?.afterLines).toBeGreaterThan(1);
+    expect(repairPlan.tasks[0].preview?.addedLines).toBeGreaterThan(0);
     expect(plannedLock.passStatus.verify).toBe('failed');
     expect(writtenSource).toBe('export function normalizeCustomerInput(input: unknown): unknown { return input; }\n');
     expect(persistedLock.passStatus.verify).toBe('failed');

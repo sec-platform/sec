@@ -5,7 +5,15 @@ import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
-import type { LockFile, PlanFile, RepairFailurePoint, RepairPlan, RepairTask, VerificationReport } from '../../shared/types.ts';
+import type {
+  LockFile,
+  PlanFile,
+  RepairFailurePoint,
+  RepairPlan,
+  RepairTask,
+  RepairTaskPreview,
+  VerificationReport
+} from '../../shared/types.ts';
 
 function summarizeFailure(report: VerificationReport): string {
   return `build=${report.build.status}; unit=${report.unit.status}; acceptance=${report.acceptance.status}; policy=${report.policy.status}; runtime=${report.runtime.status}`;
@@ -13,6 +21,35 @@ function summarizeFailure(report: VerificationReport): string {
 
 function sortedUniqueMessages(messages: string[]): string[] {
   return [...new Set(messages)].sort((left, right) => left.localeCompare(right));
+}
+
+function countLines(value: string): number {
+  if (value.length === 0) {
+    return 0;
+  }
+  return value.endsWith('\n') ? value.split('\n').length - 1 : value.split('\n').length;
+}
+
+function countChangedLines(before: string, after: string): Pick<RepairTaskPreview, 'addedLines' | 'removedLines'> {
+  const beforeLines = before.split('\n');
+  const afterLines = after.split('\n');
+  let addedLines = 0;
+  let removedLines = 0;
+  const length = Math.max(beforeLines.length, afterLines.length);
+
+  for (let index = 0; index < length; index += 1) {
+    if (beforeLines[index] === afterLines[index]) {
+      continue;
+    }
+    if (afterLines[index] !== undefined) {
+      addedLines += 1;
+    }
+    if (beforeLines[index] !== undefined) {
+      removedLines += 1;
+    }
+  }
+
+  return { addedLines, removedLines };
 }
 
 function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
@@ -146,6 +183,40 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
     requiresVerification: false,
     tasks
   };
+}
+
+export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const repairableTasks = repairPlan.tasks.filter((task) => task.failurePoints.some((point) => point.repairable));
+
+  for (const repairTask of repairableTasks) {
+    if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
+      throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
+    }
+    const targetPath = path.resolve(projectRoot, repairTask.targetFile);
+    const projectRootWithSeparator = `${projectRoot}${path.sep}`;
+    if (targetPath !== projectRoot && !targetPath.startsWith(projectRootWithSeparator)) {
+      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes project root`);
+    }
+    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && task.target === repairTask.targetFile);
+    if (!slotTask) {
+      throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
+    }
+    const envelope = buildTaskEnvelope(plan, lock, slotTask);
+    if (!envelope.allowedPaths.includes(repairTask.targetFile)) {
+      throw new CompilerError('REPAIR-SCOPE-003', `Repair envelope does not allow "${repairTask.targetFile}"`);
+    }
+    const before = await fs.readFile(targetPath, 'utf8').catch(() => '');
+    const after = synthesizeSlotSource(envelope);
+    const { addedLines, removedLines } = countChangedLines(before, after);
+    repairTask.preview = {
+      beforeLines: countLines(before),
+      afterLines: countLines(after),
+      addedLines,
+      removedLines,
+      changed: before !== after
+    };
+  }
 }
 
 export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
