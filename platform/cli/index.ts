@@ -62,7 +62,8 @@ async function main(): Promise<void> {
     }
     case 'repair': {
       const { repairPlan } = await repairWorkspace(process.cwd());
-      console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)`);
+      const suffix = repairPlan.status === 'applied' ? '; verify pending' : '';
+      console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)${suffix}`);
       return;
     }
     case 'upgrade': {
