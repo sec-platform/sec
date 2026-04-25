@@ -361,8 +361,9 @@ test('policy gate uses lock install plan to locate applied block files', async (
   const alphaTargetPath = path.join(projectRoot, 'src', 'installed', 'alt', 'alpha-query.ts');
   const zetaTargetPath = path.join(projectRoot, 'src', 'installed', 'alt', 'zeta-query.ts');
   const nonTypeScriptTargetPath = path.join(projectRoot, 'src', 'installed', 'alt', 'tenant-query.md');
+  const nonCopyTargetPath = path.join(projectRoot, 'src', 'installed', 'alt', 'template-query.ts');
   await fs.mkdir(path.dirname(alphaTargetPath), { recursive: true });
-  for (const targetPath of [alphaTargetPath, zetaTargetPath, nonTypeScriptTargetPath]) {
+  for (const targetPath of [alphaTargetPath, zetaTargetPath, nonTypeScriptTargetPath, nonCopyTargetPath]) {
     await fs.writeFile(
       targetPath,
       `export function listCustomers(db: { customers: Array<{ tenantId: string }> }, session: { tenantId: string }) {
@@ -430,6 +431,18 @@ test('policy gate uses lock install plan to locate applied block files', async (
         action: 'copy',
         from: 'files/src/installed/alt/tenant-query.md',
         to: 'src/installed/alt/tenant-query.md'
+      },
+      {
+        stepId: 'template_tenant_query',
+        blockId: 'entity/customer-basic',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official',
+        sourceRoot: 'platform/registry/official/entity.customer-basic/files',
+        action: 'template',
+        from: 'files/src/installed/alt/template-query.ts',
+        to: 'src/installed/alt/template-query.ts'
       },
       {
         stepId: 'copy_other_query',
