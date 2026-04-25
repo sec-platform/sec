@@ -11,6 +11,10 @@ function summarizeFailure(report: VerificationReport): string {
   return `build=${report.build.status}; unit=${report.unit.status}; acceptance=${report.acceptance.status}; policy=${report.policy.status}; runtime=${report.runtime.status}`;
 }
 
+function sortedUniqueMessages(messages: string[]): string[] {
+  return [...new Set(messages)].sort((left, right) => left.localeCompare(right));
+}
+
 function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
   const points: RepairFailurePoint[] = [];
 
@@ -51,7 +55,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       issueType: 'spec',
       repairable: false,
       artifactPath: 'generated/policy-report.json',
-      message: report.policy.violations.map((violation) => violation.message).join('; ') || 'Policy verification failed'
+      message: sortedUniqueMessages(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed'
     });
   }
   if (report.runtime.build.status === 'failed') {

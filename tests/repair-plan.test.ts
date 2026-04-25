@@ -100,7 +100,27 @@ const failedReport: VerificationReport = {
         appliesTo: ['entity/customer-basic'],
         rule: 'tenant_context_must_flow_to_query',
         files: ['src/installed/entity/customer-service.ts'],
-        message: 'Entity customer queries must derive tenant context and filter by tenantId.',
+        message: 'Z policy issue.',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml'
+      },
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query',
+        files: ['src/installed/entity/customer-service.ts'],
+        message: 'A policy issue.',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml'
+      },
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query',
+        files: ['src/installed/entity/customer-service.ts'],
+        message: 'A policy issue.',
         sourceScope: 'official',
         sourcePath: 'platform/policies/official/policy.spec.yaml'
       }
@@ -185,7 +205,8 @@ test('repair plan includes structured failure points for slot and spec failures'
         kind: 'policy',
         issueType: 'spec',
         repairable: false,
-        artifactPath: 'generated/policy-report.json'
+        artifactPath: 'generated/policy-report.json',
+        message: 'A policy issue.; Z policy issue.'
       })
     ])
   );
