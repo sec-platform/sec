@@ -180,17 +180,20 @@ test('policy gate merges recursive official/project sources and reports winning 
     expect(mergedPolicies.get('official-shadow')).toEqual({
       id: 'official-shadow',
       sourceScope: 'official',
-      sourcePath: normalizePolicyPath(officialScopeRoot, officialWinning, 'official')
+      sourcePath: normalizePolicyPath(officialScopeRoot, officialWinning, 'official'),
+      targets: ['src/installed/entity/customer-service.ts']
     });
     expect(mergedPolicies.get('tenant-scope-required')).toEqual({
       id: 'tenant-scope-required',
       sourceScope: 'project',
-      sourcePath: normalizePolicyPath(projectPoliciesRoot, projectWinning, 'project')
+      sourcePath: normalizePolicyPath(projectPoliciesRoot, projectWinning, 'project'),
+      targets: ['src/installed/entity/customer-service.ts']
     });
     expect(mergedPolicies.get('project-only')).toEqual({
       id: 'project-only',
       sourceScope: 'project',
-      sourcePath: normalizePolicyPath(projectPoliciesRoot, projectWinning, 'project')
+      sourcePath: normalizePolicyPath(projectPoliciesRoot, projectWinning, 'project'),
+      targets: ['src/installed/entity/customer-service.ts']
     });
   } finally {
     await fs.rm(officialFixtureDir, { recursive: true, force: true });
@@ -242,7 +245,8 @@ test('policy report violations point to the winning project source after recursi
   expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')).toEqual({
     id: 'tenant-scope-required',
     sourceScope: 'project',
-    sourcePath: normalizePolicyPath(projectPoliciesRoot, projectWinning, 'project')
+    sourcePath: normalizePolicyPath(projectPoliciesRoot, projectWinning, 'project'),
+    targets: ['src/installed/entity/customer-service.ts']
   });
 });
 
@@ -333,6 +337,9 @@ test('policy gate uses lock install plan to locate applied block files', async (
     id: 'tenant-scope-required',
     files: ['src/installed/alt/tenant-query.ts']
   });
+  expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([
+    'src/installed/alt/tenant-query.ts'
+  ]);
 });
 
 test('policy gate fails when tenant scoping is removed from customer queries', async () => {

@@ -380,6 +380,7 @@ export interface MergedPolicyReportEntry {
   id: string;
   sourceScope: PolicySourceScope;
   sourcePath: string;
+  targets: string[];
 }
 
 export interface PolicyViolation {
