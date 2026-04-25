@@ -90,7 +90,12 @@ export async function buildAcceptanceCoverage(
     targets.push(...buildAcceptanceTargets(block.id, manifestEntry.manifest));
   }
 
-  const acceptanceById = new Map(targets.map((target) => [target.id, target.acceptance]));
+  const acceptanceById = new Map<string, AcceptanceItem>();
+  for (const target of targets) {
+    if (!acceptanceById.has(target.id)) {
+      acceptanceById.set(target.id, target.acceptance);
+    }
+  }
 
   for (const block of lock.resolvedBlocks) {
     const declaredAcceptance = targets
