@@ -231,8 +231,8 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
     mergedPolicies,
     lock,
     violations.sort((left, right) =>
-      `${left.id}:${left.sourceScope}:${left.sourcePath}:${left.message}`.localeCompare(
-        `${right.id}:${right.sourceScope}:${right.sourcePath}:${right.message}`
+      `${left.id}:${left.sourceScope}:${left.sourcePath}:${left.files.join(',')}:${left.message}`.localeCompare(
+        `${right.id}:${right.sourceScope}:${right.sourcePath}:${right.files.join(',')}:${right.message}`
       )
     )
   );
