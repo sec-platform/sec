@@ -209,6 +209,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
     formatVersion: '1',
     status: 'pending',
     sourceVerificationStatus: 'failed',
+    requiresVerification: false,
     tasks: [
       {
         taskId: 'repair_customer_normalizer',
