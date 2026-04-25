@@ -3,10 +3,98 @@ import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
-import type { LockFile, PlanFile, RepairPlan, RepairTask, VerificationReport } from '../../shared/types.ts';
+import type { LockFile, PlanFile, RepairFailurePoint, RepairPlan, RepairTask, VerificationReport } from '../../shared/types.ts';
 
 function summarizeFailure(report: VerificationReport): string {
-  return `build=${report.build.status}; unit=${report.unit.status}; acceptance=${report.acceptance.status}`;
+  return `build=${report.build.status}; unit=${report.unit.status}; acceptance=${report.acceptance.status}; policy=${report.policy.status}; runtime=${report.runtime.status}`;
+}
+
+function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
+  const points: RepairFailurePoint[] = [];
+
+  if (report.build.status === 'failed') {
+    points.push({
+      lane: 'fast',
+      kind: 'build',
+      issueType: 'unknown',
+      repairable: false,
+      artifactPath: 'generated/verification-report.json',
+      message: report.fast.logs.stderr || 'Typecheck failed'
+    });
+  }
+  if (report.unit.status === 'failed') {
+    points.push({
+      lane: 'fast',
+      kind: 'unit',
+      issueType: 'slot',
+      repairable: true,
+      artifactPath: 'tests/unit',
+      message: report.fast.logs.stderr || 'Unit verification failed'
+    });
+  }
+  if (report.acceptance.status === 'failed') {
+    points.push({
+      lane: 'fast',
+      kind: 'acceptance',
+      issueType: 'slot',
+      repairable: true,
+      artifactPath: 'tests/acceptance',
+      message: report.fast.logs.stderr || 'Acceptance verification failed'
+    });
+  }
+  if (report.policy.status === 'failed') {
+    points.push({
+      lane: 'fast',
+      kind: 'policy',
+      issueType: 'spec',
+      repairable: false,
+      artifactPath: 'generated/policy-report.json',
+      message: report.policy.violations.map((violation) => violation.message).join('; ') || 'Policy verification failed'
+    });
+  }
+  if (report.runtime.build.status === 'failed') {
+    points.push({
+      lane: 'runtime',
+      kind: 'runtime-build',
+      issueType: 'kernel',
+      repairable: false,
+      artifactPath: 'generated/runtime-report.json',
+      message: report.runtime.logs.stderr || 'Runtime build failed'
+    });
+  }
+  if (report.runtime.unit.status === 'failed') {
+    points.push({
+      lane: 'runtime',
+      kind: 'runtime-unit',
+      issueType: 'slot',
+      repairable: true,
+      artifactPath: 'generated/runtime-report.json',
+      message: report.runtime.logs.stderr || 'Runtime unit verification failed'
+    });
+  }
+  if (report.runtime.acceptance.status === 'failed') {
+    points.push({
+      lane: 'runtime',
+      kind: 'runtime-acceptance',
+      issueType: 'slot',
+      repairable: true,
+      artifactPath: 'generated/runtime-report.json',
+      message: report.runtime.logs.stderr || 'Runtime acceptance verification failed'
+    });
+  }
+
+  return points.length > 0
+    ? points
+    : [
+        {
+          lane: 'all',
+          kind: 'summary',
+          issueType: 'unknown',
+          repairable: false,
+          artifactPath: 'generated/verification-report.json',
+          message: 'Verification failed without lane-specific failure details'
+        }
+      ];
 }
 
 export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: VerificationReport): RepairPlan {
@@ -19,6 +107,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
     };
   }
 
+  const failurePoints = buildFailurePoints(report);
   const tasks: RepairTask[] = lock.slotTasks
     .filter((task) => task.status === 'filled' || task.status === 'verified' || task.status === 'failed')
     .map((task) => {
@@ -34,7 +123,8 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
         requiredSymbols: envelope.requiredSymbols,
         forbiddenOperations: envelope.forbiddenOperations,
         testsToPass: envelope.testsToPass,
-        failureSummary: summarizeFailure(report)
+        failureSummary: summarizeFailure(report),
+        failurePoints
       };
     });
 

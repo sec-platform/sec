@@ -224,6 +224,32 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
   - 显式授权的 `overrides/`
   - 明确列入 repair envelope 的业务文件
 
+### `repair-plan.json` 最小归因字段
+
+每个 repair task 必须保留旧的 `failureSummary` 字符串，并补充结构化 `failurePoints[]`：
+
+```json
+{
+  "lane": "fast",
+  "kind": "unit",
+  "issueType": "slot",
+  "repairable": true,
+  "artifactPath": "tests/unit",
+  "message": "Unit verification failed"
+}
+```
+
+字段规则：
+
+- `lane`：`fast` / `runtime` / `all`。
+- `kind`：`build` / `unit` / `acceptance` / `policy` / `runtime-build` / `runtime-unit` / `runtime-acceptance` / `summary`。
+- `issueType`：`slot` / `spec` / `kernel` / `unknown`。
+- `repairable`：只有明确映射到 Slot Issue 且 writable paths 受 task envelope 限制时才为 `true`。
+- `artifactPath`：指向对应 verification、policy、runtime 或测试目录产物。
+- `message`：给 Agent 或人工审查的最小失败说明。
+
+`review-summary.json` 在检测到 `generated/repair-plan.json` 时，必须用 `repair-plan-present` conflict hint 暴露待处理 repair task，避免 repair 计划被 explain/review 流程遗漏。
+
 ## 12. 人工干预点
 
 以下情况必须返回人工决策，而不是继续自动推进：

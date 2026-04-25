@@ -8,7 +8,11 @@
       "Bash(bun *)",
       "Bash(command -v python3)",
       "Bash(command -v python)",
-      "Bash(command -v node)"
+      "Bash(command -v node)",
+      "Read(//mnt/d/Project/**)",
+      "Bash(git -C \"/mnt/d/Project/pjc\" status --short)",
+      "Bash(./project/node_modules/.bin/tsc.exe *)",
+      "Bash(git checkout *)"
     ]
   }
 }

@@ -204,6 +204,15 @@ policies:
 - 提供给双视图工作台
 - 不直接作为编译输入
 
+### `v0.2` 最小归因规则
+
+- 每个 block manifest 的 `pins.inputs[]` 和 `pins.outputs[]` 必须进入 explain graph：
+  - input pin 节点：`pin:<blockId>:input:<pinId>`，由 `block:<blockId>` 通过 `depends_on` 指向。
+  - output pin 节点：`pin:<blockId>:output:<pinId>`，由 `block:<blockId>` 通过 `provides` 指向。
+- `policy-report.json` 中的 `merged.policies[]` 必须进入 explain graph，节点 id 为 `policy:<policyId>`。
+- `policy-report.json` 中的每个 violation 必须产生 `file:<path> -> policy:<policyId>` 的 `violates` 边。
+- 文件来源归因仍以 provenance overlay 为准；policy 归因以 policy report 为准；explain graph 只负责把两者合并展示。
+
 ## 8. Coverage 计算
 
 ### Acceptance Coverage

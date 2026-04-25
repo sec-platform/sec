@@ -451,6 +451,106 @@
       "label": "tsconfig.json"
     },
     {
+      "id": "pin:audit/basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:audit/basic:output:audit_entry",
+      "type": "pin",
+      "label": "audit_entry"
+    },
+    {
+      "id": "pin:auth/basic-session:output:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:entity/customer-basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:entity/customer-basic:input:tenant_context",
+      "type": "pin",
+      "label": "tenant_context"
+    },
+    {
+      "id": "pin:entity/customer-basic:output:customer_created",
+      "type": "pin",
+      "label": "customer_created"
+    },
+    {
+      "id": "pin:export/csv-basic:input:customer_created",
+      "type": "pin",
+      "label": "customer_created"
+    },
+    {
+      "id": "pin:export/csv-basic:output:customer_csv",
+      "type": "pin",
+      "label": "customer_csv"
+    },
+    {
+      "id": "pin:file/upload:input:customer_created",
+      "type": "pin",
+      "label": "customer_created"
+    },
+    {
+      "id": "pin:file/upload:output:customer_attachment_uploaded",
+      "type": "pin",
+      "label": "customer_attachment_uploaded"
+    },
+    {
+      "id": "pin:infra/postgres:output:postgres_contract",
+      "type": "pin",
+      "label": "postgres_contract"
+    },
+    {
+      "id": "pin:notify/email-basic:input:customer_created",
+      "type": "pin",
+      "label": "customer_created"
+    },
+    {
+      "id": "pin:notify/email-basic:output:email_notification_created",
+      "type": "pin",
+      "label": "email_notification_created"
+    },
+    {
+      "id": "pin:rbac/basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:rbac/basic:output:authorization_decision",
+      "type": "pin",
+      "label": "authorization_decision"
+    },
+    {
+      "id": "pin:table/filter-search:input:customer_created",
+      "type": "pin",
+      "label": "customer_created"
+    },
+    {
+      "id": "pin:table/filter-search:output:customer_filtered_list",
+      "type": "pin",
+      "label": "customer_filtered_list"
+    },
+    {
+      "id": "pin:tenant/basic-workspace:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:tenant/basic-workspace:output:tenant_context",
+      "type": "pin",
+      "label": "tenant_context"
+    },
+    {
+      "id": "policy:tenant-scope-required",
+      "type": "policy",
+      "label": "tenant-scope-required"
+    },
+    {
       "id": "slot:customer_normalizer",
       "type": "slot",
       "label": "customer_normalizer"
@@ -514,7 +614,17 @@
     },
     {
       "from": "block:audit/basic",
+      "to": "pin:audit/basic:input:actor_identity",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:audit/basic",
       "to": "capability:audit/log",
+      "type": "provides"
+    },
+    {
+      "from": "block:audit/basic",
+      "to": "pin:audit/basic:output:audit_entry",
       "type": "provides"
     },
     {
@@ -525,6 +635,11 @@
     {
       "from": "block:auth/basic-session",
       "to": "capability:auth/session",
+      "type": "provides"
+    },
+    {
+      "from": "block:auth/basic-session",
+      "to": "pin:auth/basic-session:output:actor_identity",
       "type": "provides"
     },
     {
@@ -549,12 +664,27 @@
     },
     {
       "from": "block:entity/customer-basic",
+      "to": "pin:entity/customer-basic:input:actor_identity",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "pin:entity/customer-basic:input:tenant_context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:entity/customer-basic",
       "to": "capability:customer/read",
       "type": "provides"
     },
     {
       "from": "block:entity/customer-basic",
       "to": "capability:customer/write",
+      "type": "provides"
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "pin:entity/customer-basic:output:customer_created",
       "type": "provides"
     },
     {
@@ -579,7 +709,17 @@
     },
     {
       "from": "block:export/csv-basic",
+      "to": "pin:export/csv-basic:input:customer_created",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:export/csv-basic",
       "to": "capability:customer/export",
+      "type": "provides"
+    },
+    {
+      "from": "block:export/csv-basic",
+      "to": "pin:export/csv-basic:output:customer_csv",
       "type": "provides"
     },
     {
@@ -599,7 +739,17 @@
     },
     {
       "from": "block:file/upload",
+      "to": "pin:file/upload:input:customer_created",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:file/upload",
       "to": "capability:file/upload",
+      "type": "provides"
+    },
+    {
+      "from": "block:file/upload",
+      "to": "pin:file/upload:output:customer_attachment_uploaded",
       "type": "provides"
     },
     {
@@ -614,6 +764,11 @@
     },
     {
       "from": "block:infra/postgres",
+      "to": "pin:infra/postgres:output:postgres_contract",
+      "type": "provides"
+    },
+    {
+      "from": "block:infra/postgres",
       "to": "acceptance:postgres_contract_is_available",
       "type": "verified_by"
     },
@@ -624,7 +779,17 @@
     },
     {
       "from": "block:notify/email-basic",
+      "to": "pin:notify/email-basic:input:customer_created",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:notify/email-basic",
       "to": "capability:notify/email",
+      "type": "provides"
+    },
+    {
+      "from": "block:notify/email-basic",
+      "to": "pin:notify/email-basic:output:email_notification_created",
       "type": "provides"
     },
     {
@@ -639,7 +804,17 @@
     },
     {
       "from": "block:rbac/basic",
+      "to": "pin:rbac/basic:input:actor_identity",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:rbac/basic",
       "to": "capability:auth/authorize",
+      "type": "provides"
+    },
+    {
+      "from": "block:rbac/basic",
+      "to": "pin:rbac/basic:output:authorization_decision",
       "type": "provides"
     },
     {
@@ -654,7 +829,17 @@
     },
     {
       "from": "block:table/filter-search",
+      "to": "pin:table/filter-search:input:customer_created",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:table/filter-search",
       "to": "capability:table/filter-search",
+      "type": "provides"
+    },
+    {
+      "from": "block:table/filter-search",
+      "to": "pin:table/filter-search:output:customer_filtered_list",
       "type": "provides"
     },
     {
@@ -669,7 +854,17 @@
     },
     {
       "from": "block:tenant/basic-workspace",
+      "to": "pin:tenant/basic-workspace:input:actor_identity",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
       "to": "capability:tenant/context",
+      "type": "provides"
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "pin:tenant/basic-workspace:output:tenant_context",
       "type": "provides"
     },
     {
