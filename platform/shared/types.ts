@@ -531,6 +531,14 @@ export interface RepairFailurePoint {
   message: string;
 }
 
+export interface RepairTaskPreview {
+  beforeLines: number;
+  afterLines: number;
+  addedLines: number;
+  removedLines: number;
+  changed: boolean;
+}
+
 export interface RepairTask {
   taskId: string;
   taskKind: 'repair-slot';
@@ -544,6 +552,7 @@ export interface RepairTask {
   testsToPass: string[];
   failureSummary: string;
   failurePoints: RepairFailurePoint[];
+  preview?: RepairTaskPreview;
 }
 
 export interface RepairPlan {
