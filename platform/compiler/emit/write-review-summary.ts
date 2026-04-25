@@ -277,7 +277,10 @@ export async function buildReviewSummary(
     addConflictHint(conflictHints, {
       kind: 'upgrade-plan-present',
       relatedId: upgradePlan.blockId,
-      message: `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+      message:
+        upgradePlan.status === 'applied'
+          ? `Upgrade plan applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+          : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
     });
   }
 

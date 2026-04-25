@@ -109,6 +109,21 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         }
       ])
     );
+
+    upgradePlan.status = 'applied';
+    await writeJson(upgradePlanPath, upgradePlan);
+
+    const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+
+    expect(appliedSummary.conflictHints).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'upgrade-plan-present',
+          relatedId: 'auth/basic-session',
+          message: 'Upgrade plan applied, verify pending: auth/basic-session 0.1.0 -> 0.1.1'
+        }
+      ])
+    );
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
