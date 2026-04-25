@@ -99,6 +99,16 @@ test('explain graph includes pins, policies, and policy violation edges without 
         message: 'Entity customer queries must derive tenant context and filter by tenantId.',
         sourceScope: 'official',
         sourcePath: 'platform/policies/official/policy.spec.yaml'
+      },
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query',
+        files: ['src/installed/entity/customer-service.ts'],
+        message: 'Entity customer queries must derive tenant context and filter by tenantId.',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml'
       }
     ]
   };
@@ -107,14 +117,13 @@ test('explain graph includes pins, policies, and policy violation edges without 
 
   expect(graph.nodes.some((node) => node.id === 'pin:entity/customer-basic:input:tenant_context')).toBe(true);
   expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
-  expect(
-    graph.edges.some(
-      (edge) =>
-        edge.from === 'file:src/installed/entity/customer-service.ts' &&
-        edge.to === 'policy:tenant-scope-required' &&
-        edge.type === 'violates'
-    )
-  ).toBe(true);
+  const violationEdges = graph.edges.filter(
+    (edge) =>
+      edge.from === 'file:src/installed/entity/customer-service.ts' &&
+      edge.to === 'policy:tenant-scope-required' &&
+      edge.type === 'violates'
+  );
+  expect(violationEdges).toHaveLength(1);
 });
 
 test('writeExplainGraph does not require a policy report', async () => {
