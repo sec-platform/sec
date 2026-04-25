@@ -185,6 +185,40 @@ const failedReport: VerificationReport = {
   }
 };
 
+test('repair plan skips when verification passed', () => {
+  const report: VerificationReport = {
+    ...failedReport,
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      ...failedReport.fast,
+      status: 'passed',
+      unit: { status: 'passed', passed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      ...failedReport.runtime,
+      status: 'skipped'
+    },
+    summary: {
+      status: 'passed',
+      requestedLane: 'all',
+      failedLanes: []
+    },
+    logs: { stdout: '', stderr: '' }
+  };
+
+  expect(buildRepairPlan(plan, lock, report)).toEqual({
+    formatVersion: '1',
+    status: 'skipped',
+    sourceVerificationStatus: 'passed',
+    tasks: []
+  });
+});
+
 test('repair plan includes structured failure points for slot and spec failures', () => {
   const repairPlan = buildRepairPlan(plan, lock, failedReport);
 
