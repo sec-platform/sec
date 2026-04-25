@@ -260,16 +260,19 @@ test('policy gate uses lock install plan to locate applied block files', async (
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-install-plan-');
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   const projectRoot = path.join(workspaceRoot, 'project');
-  const targetPath = path.join(projectRoot, 'src', 'installed', 'alt', 'tenant-query.ts');
-  await fs.mkdir(path.dirname(targetPath), { recursive: true });
-  await fs.writeFile(
-    targetPath,
-    `export function listCustomers(db: { customers: Array<{ tenantId: string }> }, session: { tenantId: string }) {
+  const alphaTargetPath = path.join(projectRoot, 'src', 'installed', 'alt', 'alpha-query.ts');
+  const zetaTargetPath = path.join(projectRoot, 'src', 'installed', 'alt', 'zeta-query.ts');
+  await fs.mkdir(path.dirname(alphaTargetPath), { recursive: true });
+  for (const targetPath of [alphaTargetPath, zetaTargetPath]) {
+    await fs.writeFile(
+      targetPath,
+      `export function listCustomers(db: { customers: Array<{ tenantId: string }> }, session: { tenantId: string }) {
   return db.customers.filter((customer) => customer.tenantId === session.tenantId);
 }
 `,
-    'utf8'
-  );
+      'utf8'
+    );
+  }
 
   const lock: LockFile = {
     formatVersion: '1',
@@ -282,7 +285,7 @@ test('policy gate uses lock install plan to locate applied block files', async (
     resolvedCapabilities: [],
     installPlan: [
       {
-        stepId: 'copy_alt_tenant_query',
+        stepId: 'copy_zeta_tenant_query',
         blockId: 'entity/customer-basic',
         registrySourceId: 'official',
         registryKind: 'official',
@@ -290,8 +293,20 @@ test('policy gate uses lock install plan to locate applied block files', async (
         registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/entity.customer-basic/files',
         action: 'copy',
-        from: 'files/src/installed/alt/tenant-query.ts',
-        to: 'src/installed/alt/tenant-query.ts'
+        from: 'files/src/installed/alt/zeta-query.ts',
+        to: 'src/installed/alt/zeta-query.ts'
+      },
+      {
+        stepId: 'copy_alpha_tenant_query',
+        blockId: 'entity/customer-basic',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official',
+        sourceRoot: 'platform/registry/official/entity.customer-basic/files',
+        action: 'copy',
+        from: 'files/src/installed/alt/alpha-query.ts',
+        to: 'src/installed/alt/alpha-query.ts'
       },
       {
         stepId: 'copy_customer_normalizer_test',
@@ -338,13 +353,13 @@ test('policy gate uses lock install plan to locate applied block files', async (
   const report = await runPolicyGate(workspaceRoot);
 
   expect(report.status).toBe('failed');
-  expect(report.violations).toHaveLength(1);
-  expect(report.violations[0]).toMatchObject({
-    id: 'tenant-scope-required',
-    files: ['src/installed/alt/tenant-query.ts']
-  });
+  expect(report.violations.map((violation) => violation.files[0])).toEqual([
+    'src/installed/alt/alpha-query.ts',
+    'src/installed/alt/zeta-query.ts'
+  ]);
   expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([
-    'src/installed/alt/tenant-query.ts'
+    'src/installed/alt/alpha-query.ts',
+    'src/installed/alt/zeta-query.ts'
   ]);
 });
 
