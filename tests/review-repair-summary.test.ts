@@ -81,6 +81,7 @@ test('review summary surfaces pending repair tasks', async () => {
       formatVersion: '1',
       status: 'pending',
       sourceVerificationStatus: 'failed',
+      requiresVerification: false,
       tasks: [
         {
           taskId: 'repair_slot_zeta',
@@ -148,6 +149,7 @@ test('review summary surfaces pending repair tasks', async () => {
     ]);
 
     repairPlan.status = 'applied';
+    repairPlan.requiresVerification = true;
     await writeJson(repairPlanPath, repairPlan);
 
     const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
@@ -164,6 +166,10 @@ test('review summary surfaces pending repair tasks', async () => {
         message: 'Repair task applied, verify pending: repair_slot_zeta -> custom/zeta.ts'
       }
     ]);
+    expect(appliedSummary.regressionRisks).toContainEqual({
+      kind: 'repair-verification',
+      message: 'Repair applied and requires verification rerun'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }

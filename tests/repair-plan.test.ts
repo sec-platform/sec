@@ -206,6 +206,7 @@ test('writeRepairPlan persists generated path in a missing generated directory',
       formatVersion: '1',
       status: 'skipped',
       sourceVerificationStatus: 'passed',
+      requiresVerification: false,
       tasks: []
     };
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
@@ -252,6 +253,7 @@ test('repair plan skips when verification passed', () => {
     formatVersion: '1',
     status: 'skipped',
     sourceVerificationStatus: 'passed',
+    requiresVerification: false,
     tasks: []
   });
 });
@@ -260,6 +262,7 @@ test('repair plan includes structured failure points for slot and spec failures'
   const repairPlan = buildRepairPlan(plan, lock, failedReport);
 
   expect(repairPlan.status).toBe('pending');
+  expect(repairPlan.requiresVerification).toBe(false);
   expect(repairPlan.tasks).toHaveLength(1);
   expect(repairPlan.tasks[0].failureSummary).toBe('build=passed; unit=failed; acceptance=passed; policy=failed; runtime=skipped');
   expect(repairPlan.tasks[0].failurePoints).toEqual(

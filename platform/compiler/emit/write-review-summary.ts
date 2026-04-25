@@ -322,6 +322,12 @@ export async function buildReviewSummary(
 
   if (await pathExists(repairPlanPath)) {
     const repairPlan = await readJson<RepairPlan>(repairPlanPath);
+    if (repairPlan.requiresVerification) {
+      addRegressionRisk(regressionRisks, {
+        kind: 'repair-verification',
+        message: 'Repair applied and requires verification rerun'
+      });
+    }
     for (const task of repairPlan.tasks) {
       addConflictHint(conflictHints, {
         kind: 'repair-plan-present',

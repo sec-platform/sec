@@ -496,7 +496,7 @@ export interface ReviewFailurePoint {
 }
 
 export interface ReviewRegressionRisk {
-  kind: 'coverage-gap' | 'override-active' | 'upgrade-impact' | 'upgrade-verification';
+  kind: 'coverage-gap' | 'override-active' | 'upgrade-impact' | 'upgrade-verification' | 'repair-verification';
   message: string;
   blockId?: string;
   slotId?: string;
@@ -550,6 +550,7 @@ export interface RepairPlan {
   formatVersion: string;
   status: 'pending' | 'applied' | 'skipped';
   sourceVerificationStatus: 'passed' | 'failed';
+  requiresVerification: boolean;
   tasks: RepairTask[];
 }
 

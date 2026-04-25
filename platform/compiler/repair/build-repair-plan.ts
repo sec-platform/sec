@@ -109,6 +109,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
       formatVersion: '1',
       status: 'skipped',
       sourceVerificationStatus: 'passed',
+      requiresVerification: false,
       tasks: []
     };
   }
@@ -142,6 +143,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
     formatVersion: '1',
     status: 'pending',
     sourceVerificationStatus: 'failed',
+    requiresVerification: false,
     tasks
   };
 }

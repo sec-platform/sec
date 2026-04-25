@@ -113,7 +113,7 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
 
   return `<section class="card">
         <h2>Repair Plan</h2>
-        <p>${escapeHtml(repairPlan.status)} | source verification: ${escapeHtml(repairPlan.sourceVerificationStatus)}</p>
+        <p>${escapeHtml(repairPlan.status)} | source verification: ${escapeHtml(repairPlan.sourceVerificationStatus)} | requires verification: ${escapeHtml(String(repairPlan.requiresVerification))}</p>
         <table>
           <thead><tr><th>Task</th><th>Slot</th><th>Block</th><th>Target File</th><th>Failure Summary</th></tr></thead>
           <tbody>${taskRows}</tbody>

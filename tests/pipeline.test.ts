@@ -252,6 +252,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
         formatVersion: '1',
         status: 'pending',
         sourceVerificationStatus: 'failed',
+        requiresVerification: false,
         tasks: [
           {
             taskId: 'repair_customer_normalizer',
@@ -363,6 +364,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('UPGRADE-CONFLICT-001');
   expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
   expect(sourceView).toContain('Repair Plan');
+  expect(sourceView).toContain('requires verification: false');
   expect(sourceView).toContain('repair_customer_normalizer');
   expect(sourceView).toContain('unit &lt;failed&gt; &amp; needs repair');
   expect(sourceView).not.toContain('disk-only <failure>');

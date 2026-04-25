@@ -168,6 +168,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     const persistedRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8'));
 
     expect(repairPlan.status).toBe('applied');
+    expect(repairPlan.requiresVerification).toBe(true);
     expect(repairPlan.tasks[0].allowedPaths).toEqual(['custom/customer_normalizer.ts']);
     expect(writtenSource).toContain('// @generated task:fill_slot_customer_normalizer');
     expect(writtenSource).toContain('export function normalizeCustomerInput');
@@ -175,6 +176,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     expect(repairedLock.passStatus.verify).toBe('pending');
     expect(persistedLock.passStatus.verify).toBe('pending');
     expect(persistedRepairPlan.status).toBe('applied');
+    expect(persistedRepairPlan.requiresVerification).toBe(true);
     expect(persistedLock.slotTasks[0].status).toBe('filled');
     expect(persistedLock.generatedPaths).toContain('generated/repair-plan.json');
     expect(persistedRepairPlan.tasks[0].failurePoints).toEqual(
@@ -227,6 +229,7 @@ test('repair blocks targets that escape the project root before writing source',
       formatVersion: '1',
       status: 'pending',
       sourceVerificationStatus: 'failed',
+      requiresVerification: false,
       tasks: [
         {
           taskId: 'repair_slot_customer_normalizer',

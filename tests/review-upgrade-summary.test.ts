@@ -159,6 +159,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       formatVersion: '1',
       status: 'pending',
       sourceVerificationStatus: 'failed',
+      requiresVerification: false,
       tasks: [
         {
           taskId: 'repair_zeta',
