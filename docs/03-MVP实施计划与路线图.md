@@ -244,6 +244,7 @@
      - 租户隔离。
      - 列表筛选。
      - ticket 附件上传与租户隔离查看。
+     - ticket 评论写入与租户隔离查看。
    - 已完成：
      - 新增 `ticket/basic` 官方块：
        - ticket 服务。
@@ -289,6 +290,11 @@
        - `/api/tickets/[ticketId]/attachments`。
        - `/tickets` 页面附件上传表单与列表。
        - runtime unit / acceptance / expanded block / postgres contract 覆盖。
+     - ticket comment 已贯通：
+       - ticket service 评论写入/读取。
+       - `/api/tickets/[ticketId]/comments`。
+       - `/tickets` 页面评论表单与列表。
+       - runtime unit / acceptance / expanded block / postgres contract 覆盖。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
      - review summary 已显式聚合 ticket runtime attribution：
@@ -330,7 +336,8 @@
      - 已完成切口 A。
      - 当前进入切口 C：
        - 已完成 ticket attachment。
-       - 下一步默认转向 ticket comment 或 ticket SLA/reporting 扩展。
+       - 已完成 ticket comment。
+       - 下一步默认转向 ticket SLA/reporting 扩展或 worklog/basic。
      - 然后再进入切口 D。
    - 每个切口的验证口径：
      - `expanded-blocks.test.ts`。

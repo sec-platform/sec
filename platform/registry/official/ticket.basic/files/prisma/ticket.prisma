@@ -19,3 +19,12 @@ model TicketAttachment {
   contentText String
   createdAt   String
 }
+
+model TicketComment {
+  id        Int    @id @default(autoincrement())
+  tenantId  String
+  ticketId  Int
+  body      String
+  authorId  String
+  createdAt String
+}

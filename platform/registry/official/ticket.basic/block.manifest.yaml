@@ -46,6 +46,9 @@ pins:
     - id: ticket_attachment_uploaded
       type: TicketAttachmentRecord
       required: true
+    - id: ticket_comment_added
+      type: TicketCommentRecord
+      required: true
 slots: []
 acceptance:
   - id: ticket_can_be_created
@@ -75,6 +78,12 @@ acceptance:
         - tenant/basic-workspace
         - ticket/basic
   - id: ticket_attachment_can_be_uploaded
+    dependsOn:
+      - ticket_can_be_created
+    covers:
+      blocks:
+        - ticket/basic
+  - id: ticket_comment_can_be_added
     dependsOn:
       - ticket_can_be_created
     covers:

@@ -3,8 +3,10 @@ import { createDatabase } from '../../src/runtime/database.ts';
 import { login } from '../../src/installed/auth/session.ts';
 import {
   addTicketAttachment,
+  addTicketComment,
   createTicket,
   listTicketAttachments,
+  listTicketComments,
   listTickets,
   listTicketsByAssignee,
   listTicketsWithFilters,
@@ -46,6 +48,15 @@ export async function runSuite() {
   assert.equal(attachment.fileName, 'evidence.png');
   assert.equal(listTicketAttachments(db, tenantA, firstTicket.id).length, 1);
   assert.throws(() => listTicketAttachments(db, tenantB, firstTicket.id), /Ticket is not available/);
+
+  const comment = addTicketComment(db, tenantA, {
+    ticketId: firstTicket.id,
+    body: 'Customer confirmed the issue is intermittent'
+  });
+
+  assert.equal(comment.authorId, 'user-tenant-a-admin');
+  assert.equal(listTicketComments(db, tenantA, firstTicket.id).length, 1);
+  assert.throws(() => listTicketComments(db, tenantB, firstTicket.id), /Ticket is not available/);
 
   const transitioned = transitionTicketStatus(db, tenantA, firstTicket.id, 'closed');
   assert.equal(transitioned.status, 'closed');

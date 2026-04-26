@@ -3,8 +3,10 @@ import { createDatabase } from '../../src/runtime/database.ts';
 import { login } from '../../src/installed/auth/session.ts';
 import {
   addTicketAttachment,
+  addTicketComment,
   createTicket,
   listTicketAttachments,
+  listTicketComments,
   listTickets,
   listTicketsByAssignee,
   listTicketsWithFilters,
@@ -41,6 +43,16 @@ export async function runSuite() {
   assert.equal(attachment.tenantId, 'tenant-a');
   assert.equal(listTicketAttachments(db, tenantA, ticket.id).length, 1);
   assert.throws(() => listTicketAttachments(db, tenantB, ticket.id), /Ticket is not available/);
+
+  const comment = addTicketComment(db, tenantA, {
+    ticketId: ticket.id,
+    body: 'Customer is waiting for an update'
+  });
+
+  assert.equal(comment.authorId, 'user-tenant-a-admin');
+  assert.equal(listTicketComments(db, tenantA, ticket.id).length, 1);
+  assert.throws(() => listTicketComments(db, tenantB, ticket.id), /Ticket is not available/);
+  assert.throws(() => addTicketComment(db, tenantA, { ticketId: ticket.id, body: '   ' }), /Ticket comment is required/);
 
   const transitioned = transitionTicketStatus(db, tenantA, ticket.id, 'in_progress');
   assert.equal(transitioned.status, 'in_progress');
