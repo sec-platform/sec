@@ -283,7 +283,8 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'json-array-append') {
-      const config = applyJsonArrayAppend(await readJson<unknown>(targetPath), entry);
+      const config = applyJsonArrayAppend((await pathExists(targetPath)) ? await readJson<unknown>(targetPath) : {}, entry);
+      await ensureDir(path.dirname(targetPath));
       await writeJson(targetPath, config);
       continue;
     }

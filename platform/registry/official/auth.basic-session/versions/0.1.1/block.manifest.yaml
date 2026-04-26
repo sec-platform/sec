@@ -40,3 +40,9 @@ upgrade:
       fromVersion: 0.1.0
       toVersion: 0.1.1
       requiresVerification: true
+    - id: mig-auth-session-upgrade-metadata
+      kind: json-array-append
+      entry: migrations/auth-session-upgrade-metadata.json
+      fromVersion: 0.1.0
+      toVersion: 0.1.1
+      requiresVerification: false
