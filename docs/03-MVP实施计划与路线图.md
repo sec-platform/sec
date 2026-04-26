@@ -87,8 +87,8 @@
 1. **Work Tracking / Ticket SaaS 纵切面**
    - 状态：active
    - 目标：在 Customer Admin 外增加一个 `ticket/basic` 最小块，验证状态流转、负责人、租户隔离和列表筛选。
-   - 已完成：新增 `ticket/basic` 官方块，包含 ticket 服务、Prisma 片段、unit/acceptance 验证、状态流转、负责人筛选和租户隔离；扩展块组合可安装并通过 verify，Postgres contract 已覆盖 `tickets` 表；runtime scaffold 已生成 `/tickets` 页面、ticket API、状态流转 API、表单组件、runtime unit test 与 Playwright 验收；当 `audit/basic` 同时安装时，ticket 创建和状态流转会写入并展示 ticket 审计条目；当 `notify/email-basic` 同时安装时，ticket 创建会生成并展示 ticket 通知，通知模型已从 customer-only 泛化到 entity/entityId；当 `export/csv-basic` 同时安装时，ticket 列表会生成 CSV 导出 API 与页面入口，并覆盖 runtime unit/acceptance 验证；Source View 已显式列出 generated runtime 页面/API 入口，便于审查 ticket export 等组合产物。
-   - 下一步候选：继续把 Work Tracking 纵切面接入 reporting/review/explain 等团队协作面，验证业务块与治理块组合后的可审查输出。
+   - 已完成：新增 `ticket/basic` 官方块，包含 ticket 服务、Prisma 片段、unit/acceptance 验证、状态流转、负责人筛选和租户隔离；扩展块组合可安装并通过 verify，Postgres contract 已覆盖 `tickets` 表；runtime scaffold 已生成 `/tickets` 页面、ticket API、状态流转 API、表单组件、runtime unit test 与 Playwright 验收；当 `audit/basic` 同时安装时，ticket 创建和状态流转会写入并展示 ticket 审计条目；当 `notify/email-basic` 同时安装时，ticket 创建会生成并展示 ticket 通知，通知模型已从 customer-only 泛化到 entity/entityId；当 `export/csv-basic` 同时安装时，ticket 列表会生成 CSV 导出 API 与页面入口，并覆盖 runtime unit/acceptance 验证；新增 `reporting/ticket-summary` 官方块，提供按状态与负责人聚合 ticket 的 summary 能力，并在 `/tickets` runtime 页面展示；Source View 已显式列出 generated runtime 页面/API 入口，便于审查 ticket export 等组合产物。
+   - 下一步候选：继续把 Work Tracking 纵切面接入 review/explain 等团队协作面，验证业务块与治理块组合后的可审查输出。
 
 3. **review / explain 面向团队协作增强**
    - 目标：让 review summary 更接近团队 review 入口，而不仅是机器 JSON。
@@ -241,6 +241,7 @@
 ### 推荐新增官方块
 
 - `ticket/basic`
+- `reporting/ticket-summary`
 - `worklog/basic`
 - `rbac/basic`
 - `audit/basic`

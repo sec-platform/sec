@@ -317,6 +317,7 @@ function renderTicketsPage(options: {
   auditEnabled: boolean;
   exportCsvEnabled: boolean;
   notifyEmailEnabled: boolean;
+  ticketReportingEnabled: boolean;
 }): string {
   const auditSetup = options.auditEnabled
     ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
@@ -324,6 +325,10 @@ function renderTicketsPage(options: {
     : '';
   const notificationSetup = options.notifyEmailEnabled
     ? `  const ticketNotifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'ticket');
+`
+    : '';
+  const reportingSetup = options.ticketReportingEnabled
+    ? `  const ticketSummary = summarizeTickets(allTickets);
 `
     : '';
   const notificationView = options.notifyEmailEnabled
@@ -362,6 +367,25 @@ function renderTicketsPage(options: {
       </section>
 `
     : '';
+  const reportingView = options.ticketReportingEnabled
+    ? `
+      <section className="card stack">
+        <h2>Ticket Summary</h2>
+        <p>Total tickets: {ticketSummary.total}</p>
+        <ul className="clean" aria-label="Ticket status summary">
+          <li>Open: {ticketSummary.byStatus.open}</li>
+          <li>In progress: {ticketSummary.byStatus.in_progress}</li>
+          <li>Closed: {ticketSummary.byStatus.closed}</li>
+        </ul>
+        <ul className="clean" aria-label="Assignee summary">
+          {ticketSummary.byAssignee.map((entry) => (
+            <li key={entry.assigneeId}>{entry.assigneeId}: {entry.count}</li>
+          ))}
+          {ticketSummary.byAssignee.length === 0 ? <li>No assignee summary yet.</li> : null}
+        </ul>
+      </section>
+`
+    : '';
 
   return `import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -370,7 +394,7 @@ import { TicketStatusForm } from '../../components/ticket-status-form.tsx';
 import { LogoutButton } from '../../components/logout-button.tsx';
 import { getCurrentSession } from '../../lib/session.ts';
 import { getDatabase } from '../../lib/store.ts';
-import { listTickets, listTicketsByAssignee } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}
+import { listTickets, listTicketsByAssignee } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
 
 interface TicketsPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -388,7 +412,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const allTickets = listTickets(database, session);
   const tickets = assignee ? listTicketsByAssignee(database, session, assignee) : allTickets;
   const assignees = Array.from(new Set(allTickets.map((ticket) => ticket.assigneeId))).sort((left, right) => left.localeCompare(right));
-${notificationSetup}${auditSetup}
+${notificationSetup}${reportingSetup}${auditSetup}
   return (
     <main className="stack">
       <section className="card stack">
@@ -437,7 +461,7 @@ ${notificationSetup}${auditSetup}
           ))}
           {tickets.length === 0 ? <li>No tickets yet.</li> : null}
         </ul>
-      </section>${notificationView}${auditView}
+      </section>${reportingView}${notificationView}${auditView}
     </main>
   );
 }
@@ -1256,6 +1280,7 @@ function renderTicketRuntimeUnitTest(options: {
   auditEnabled: boolean;
   exportCsvEnabled: boolean;
   notifyEmailEnabled: boolean;
+  ticketReportingEnabled: boolean;
 }): string {
   const auditImport = options.auditEnabled
     ? `
@@ -1278,6 +1303,10 @@ import { listEmailNotifications, recordTicketCreatedEmail } from '../../../src/i
     ? `
 import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.ts';`
     : '';
+  const reportingImport = options.ticketReportingEnabled
+    ? `
+import { summarizeTickets } from '../../../src/installed/reporting/ticket-summary.ts';`
+    : '';
   const notifyAssertions = options.notifyEmailEnabled
     ? `
     const notification = recordTicketCreatedEmail(database, tenantA, ticket);
@@ -1295,10 +1324,21 @@ import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.t
     expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,in_progress,support-owner');
 `
     : '';
+  const reportingAssertions = options.ticketReportingEnabled
+    ? `
+    const summary = summarizeTickets(listTickets(database, tenantA));
+    expect(summary.total).toBe(2);
+    expect(summary.byStatus.in_progress).toBe(1);
+    expect(summary.byAssignee).toEqual([
+      { assigneeId: 'renewal-owner', count: 1 },
+      { assigneeId: 'support-owner', count: 1 }
+    ]);
+`
+    : '';
 
   return `import { beforeEach, describe, expect, it } from 'vitest';
 import { login } from '../../../src/installed/auth/session.ts';
-import { createTicket, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}
+import { createTicket, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';
 
 describe('runtime ticket service', () => {
@@ -1322,7 +1362,7 @@ describe('runtime ticket service', () => {
     expect(listTickets(database, tenantA)).toHaveLength(2);
     expect(listTickets(database, tenantB)).toHaveLength(1);
     expect(listTicketsByAssignee(database, tenantA, 'support-owner')).toEqual([ticket]);
-    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}
+    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}${reportingAssertions}
     expect(() => transitionTicketStatus(database, tenantB, ticket.id, 'closed')).toThrow(/Ticket is not available/);
   });
 });
@@ -1417,6 +1457,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   auditEnabled: boolean;
   exportCsvEnabled: boolean;
   notifyEmailEnabled: boolean;
+  ticketReportingEnabled: boolean;
 }): string {
   const auditAssertions = options.auditEnabled
     ? `
@@ -1442,6 +1483,14 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,open,support-owner');
 `
     : '';
+  const reportingAssertions = options.ticketReportingEnabled
+    ? `
+  await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
+  await expect(page.getByText('Total tickets: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('Open: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Assignee summary' }).getByText('support-owner: 1')).toBeVisible();
+`
+    : '';
 
   return `import { expect, test, type Page } from '@playwright/test';
 
@@ -1465,7 +1514,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByLabel('Ticket title').fill('Escalate onboarding issue');
   await page.getByLabel('Ticket assignee').fill('support-owner');
   await page.getByLabel('Ticket description').fill('Customer cannot finish setup');
-  await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}${exportCsvAssertions}
+  await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
   const createdTicket = ticketList.getByRole('listitem').filter({ hasText: 'Escalate onboarding issue' });
   await expect(createdTicket).toContainText('open');
 
@@ -1503,7 +1552,8 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
     postgresEnabled: hasBlock(lock, 'infra/postgres'),
     rbacEnabled: hasBlock(lock, 'rbac/basic'),
     tableFilterEnabled: hasBlock(lock, 'table/filter-search'),
-    ticketEnabled
+    ticketEnabled,
+    ticketReportingEnabled: hasBlock(lock, 'reporting/ticket-summary')
   };
   const entries: Array<{ relativePath: string; source: string }> = [
     { relativePath: 'app/layout.tsx', source: renderLayout() },

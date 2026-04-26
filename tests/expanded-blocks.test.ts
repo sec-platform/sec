@@ -44,9 +44,10 @@ test('expanded official block set composes and verifies as one project', async (
   await addBlock(workspaceRoot, 'table/filter-search');
   await addBlock(workspaceRoot, 'infra/postgres');
   await addBlock(workspaceRoot, 'ticket/basic');
+  await addBlock(workspaceRoot, 'reporting/ticket-summary');
 
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
-  expect(resolvedLock.resolvedBlocks.length).toBe(11);
+  expect(resolvedLock.resolvedBlocks.length).toBe(12);
   expect(resolvedLock.slotTasks).toHaveLength(1);
 
   await composeWorkspace(workspaceRoot);
@@ -96,7 +97,10 @@ test('expanded official block set composes and verifies as one project', async (
   expect(locked.resolvedBlocks.some((block) => block.id === 'table/filter-search')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'ticket/basic')).toBe(true);
+  expect(locked.resolvedBlocks.some((block) => block.id === 'reporting/ticket-summary')).toBe(true);
   expect(locked.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
+  expect(locked.installPlan.some((step) => step.to === 'src/installed/reporting/ticket-summary.ts')).toBe(true);
+  expect(locked.installPlan.some((step) => step.to === 'tests/unit/ticket-summary.test.ts')).toBe(true);
   expect(locked.generatedPaths).toEqual(
     expect.arrayContaining([
       'app/tickets/page.tsx',
@@ -117,6 +121,7 @@ test('expanded official block set composes and verifies as one project', async (
   const sourceView = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'views', 'source-view.html'), 'utf8');
   expect(sourceView).toContain('Runtime Entry Points');
   expect(sourceView).toContain('app/api/tickets/export/route.ts');
+  expect(sourceView).toContain('reporting/ticket-summary');
 });
 
 test('reference project coverage has no uncovered blocks', async () => {

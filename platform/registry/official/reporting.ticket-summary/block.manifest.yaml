@@ -1,0 +1,41 @@
+id: reporting/ticket-summary
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+compatibility:
+  blockApi: '1'
+  compilerApi: '1'
+  stackProfiles:
+    - nextjs-ts-prisma-sqlite
+requires:
+  - ticket/read
+provides:
+  - ticket/reporting
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/reporting/ticket-summary.ts
+    to: src/installed/reporting/ticket-summary.ts
+  - kind: copy
+    from: files/tests/unit/ticket-summary.test.ts
+    to: tests/unit/ticket-summary.test.ts
+pins:
+  inputs:
+    - id: ticket_list
+      type: TicketRecord[]
+      required: true
+  outputs:
+    - id: ticket_summary
+      type: TicketSummary
+      required: true
+slots: []
+acceptance:
+  - id: ticket_summary_can_be_reported
+    dependsOn:
+      - ticket_can_be_created
+    covers:
+      blocks:
+        - ticket/basic
+        - reporting/ticket-summary
+routes: []
