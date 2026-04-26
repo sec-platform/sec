@@ -638,6 +638,7 @@
          - 显示 coverage slot 数量。
          - 显示 uncovered block 数量。
          - 显示 uncovered slot 数量。
+         - 显示 provenance origin type 分布。
          - 显示 review CI 状态。
          - 显示 impacted block/slot/runtime entry 数量。
      - 切口 C：local views 扩展：

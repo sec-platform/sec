@@ -342,6 +342,9 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
       `uncovered blocks=${uncoveredBlocks}`,
       `uncovered slots=${uncoveredSlots}`
     ].join('; '),
+    `Provenance origins: ${formatCounts(
+      graph.overlays.provenance.map((artifact) => artifact.originType)
+    )}`,
     [
       `CI status: ${ciSummary.status}`,
       `failures: ${ciSummary.failureCount}`,
