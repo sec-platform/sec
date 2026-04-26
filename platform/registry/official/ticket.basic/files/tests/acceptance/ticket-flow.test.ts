@@ -21,7 +21,8 @@ export async function runSuite() {
   const firstTicket = createTicket(db, tenantA, {
     title: 'Escalate onboarding issue',
     description: 'Customer cannot finish setup',
-    assigneeId: 'user-tenant-a-admin'
+    assigneeId: 'user-tenant-a-admin',
+    dueDate: '2026-05-01'
   });
   createTicket(db, tenantA, {
     title: 'Prepare renewal checklist',

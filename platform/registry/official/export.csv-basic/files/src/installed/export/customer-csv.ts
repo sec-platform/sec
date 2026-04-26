@@ -7,6 +7,11 @@ interface TicketSummaryCsvInput {
     in_progress: number;
     closed: number;
   };
+  sla: {
+    overdue: number;
+    dueSoon: number;
+    unscheduled: number;
+  };
   byAssignee: Array<{
     assigneeId: string;
     count: number;
@@ -31,7 +36,7 @@ export function exportCustomersToCsv(customers: CustomerRecord[]): string {
 
 export function exportTicketsToCsv(tickets: TicketRecord[]): string {
   const rows = [
-    ['id', 'tenantId', 'title', 'description', 'status', 'assigneeId', 'createdBy', 'updatedAt'],
+    ['id', 'tenantId', 'title', 'description', 'status', 'assigneeId', 'dueDate', 'createdBy', 'updatedAt'],
     ...tickets.map((ticket) => [
       String(ticket.id),
       ticket.tenantId,
@@ -39,6 +44,7 @@ export function exportTicketsToCsv(tickets: TicketRecord[]): string {
       ticket.description,
       ticket.status,
       ticket.assigneeId,
+      ticket.dueDate,
       ticket.createdBy,
       ticket.updatedAt
     ])
@@ -54,6 +60,9 @@ export function exportTicketSummaryToCsv(summary: TicketSummaryCsvInput): string
     ['status', 'open', String(summary.byStatus.open)],
     ['status', 'in_progress', String(summary.byStatus.in_progress)],
     ['status', 'closed', String(summary.byStatus.closed)],
+    ['sla', 'overdue', String(summary.sla.overdue)],
+    ['sla', 'dueSoon', String(summary.sla.dueSoon)],
+    ['sla', 'unscheduled', String(summary.sla.unscheduled)],
     ...summary.byAssignee.map((entry) => ['assignee', entry.assigneeId, String(entry.count)])
   ];
 

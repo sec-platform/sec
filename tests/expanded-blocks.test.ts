@@ -88,6 +88,17 @@ test('expanded official block set composes and verifies as one project', { timeo
     'body',
     'created_at'
   ]);
+  expect(postgresContract.tables.find((table) => table.name === 'tickets')?.columns).toEqual([
+    'id',
+    'tenant_id',
+    'title',
+    'description',
+    'status',
+    'assignee_id',
+    'due_date',
+    'created_by',
+    'updated_at'
+  ]);
 
   const locked = await lockWorkspace(workspaceRoot);
   expect(locked.passStatus.lock).toBe('succeeded');
@@ -126,6 +137,8 @@ test('expanded official block set composes and verifies as one project', { timeo
   expect(routesSource).toContain("path: '/tickets'");
   const ticketsPageSource = await fs.readFile(path.join(workspaceRoot, 'project', 'app', 'tickets', 'page.tsx'), 'utf8');
   expect(ticketsPageSource).toContain('Ticket status filter');
+  expect(ticketsPageSource).toContain('Ticket SLA summary');
+  expect(ticketsPageSource).toContain('Due date: {ticket.dueDate');
   expect(ticketsPageSource).toContain('summaryExportHref');
   expect(ticketsPageSource).toContain('Attachments for ${ticket.title}');
   expect(ticketsPageSource).toContain('Comments for ${ticket.title}');

@@ -21,12 +21,14 @@ export async function runSuite() {
   const ticket = createTicket(db, tenantA, {
     title: '  Investigate invoice sync  ',
     description: 'Webhook failed',
-    assigneeId: 'user-tenant-a-admin'
+    assigneeId: 'user-tenant-a-admin',
+    dueDate: '2026-05-01'
   });
 
   assert.equal(ticket.tenantId, 'tenant-a');
   assert.equal(ticket.title, 'Investigate invoice sync');
   assert.equal(ticket.status, 'open');
+  assert.equal(ticket.dueDate, '2026-05-01');
   assert.equal(ticket.createdBy, 'user-tenant-a-admin');
   assert.equal(listTickets(db, tenantA).length, 1);
   assert.equal(listTicketsByAssignee(db, tenantA, 'user-tenant-a-admin').length, 1);

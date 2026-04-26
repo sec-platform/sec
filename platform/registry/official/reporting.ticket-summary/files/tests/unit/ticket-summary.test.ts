@@ -11,11 +11,13 @@ export async function runSuite() {
 
   const first = createTicket(db, tenantA, {
     title: 'Escalate onboarding issue',
-    assigneeId: 'support-owner'
+    assigneeId: 'support-owner',
+    dueDate: '2026-04-20'
   });
   createTicket(db, tenantA, {
     title: 'Prepare renewal checklist',
-    assigneeId: 'renewal-owner'
+    assigneeId: 'renewal-owner',
+    dueDate: '2026-05-01'
   });
   createTicket(db, tenantB, {
     title: 'Tenant B support ticket',
@@ -28,6 +30,11 @@ export async function runSuite() {
   assert.equal(summary.byStatus.open, 1);
   assert.equal(summary.byStatus.in_progress, 1);
   assert.equal(summary.byStatus.closed, 0);
+  assert.deepEqual(summary.sla, {
+    overdue: 1,
+    dueSoon: 1,
+    unscheduled: 0
+  });
   assert.deepEqual(summary.byAssignee, [
     { assigneeId: 'renewal-owner', count: 1 },
     { assigneeId: 'support-owner', count: 1 }

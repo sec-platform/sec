@@ -20,6 +20,7 @@ export async function runSuite() {
     description: 'Customer cannot finish setup, needs "support"',
     status: 'open',
     assigneeId: 'support-owner',
+    dueDate: '2026-04-20',
     createdBy: tenantA.userId,
     updatedAt: new Date(0).toISOString()
   };
@@ -29,8 +30,8 @@ export async function runSuite() {
   assert.match(customerCsv, /tenant-a,Acme,sales@acme\.test,4008009000,Unknown/);
 
   const ticketCsv = exportTicketsToCsv([ticket]);
-  assert.match(ticketCsv, /id,tenantId,title,description,status,assigneeId,createdBy,updatedAt/);
-  assert.match(ticketCsv, /tenant-a,Escalate onboarding issue,"Customer cannot finish setup, needs ""support""",open,support-owner/);
+  assert.match(ticketCsv, /id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt/);
+  assert.match(ticketCsv, /tenant-a,Escalate onboarding issue,"Customer cannot finish setup, needs ""support""",open,support-owner,2026-04-20/);
 
   const summaryCsv = exportTicketSummaryToCsv({
     total: 2,
@@ -38,6 +39,11 @@ export async function runSuite() {
       open: 1,
       in_progress: 1,
       closed: 0
+    },
+    sla: {
+      overdue: 1,
+      dueSoon: 1,
+      unscheduled: 0
     },
     byAssignee: [
       { assigneeId: 'renewal-owner', count: 1 },
@@ -47,5 +53,7 @@ export async function runSuite() {
   assert.match(summaryCsv, /section,key,value/);
   assert.match(summaryCsv, /total,tickets,2/);
   assert.match(summaryCsv, /status,in_progress,1/);
+  assert.match(summaryCsv, /sla,overdue,1/);
+  assert.match(summaryCsv, /sla,dueSoon,1/);
   assert.match(summaryCsv, /assignee,support-owner,1/);
 }

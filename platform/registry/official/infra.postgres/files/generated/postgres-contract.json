@@ -66,6 +66,7 @@
         "description",
         "status",
         "assignee_id",
+        "due_date",
         "created_by",
         "updated_at"
       ]
