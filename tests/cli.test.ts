@@ -782,6 +782,10 @@ test('CLI emits blocked repair JSON for CI consumers', { timeout: 20000 }, async
     expect(textResult.code).toBe(1);
     expect(textResult.stdout).toContain('Repair blocked (0 tasks, 1 blockers) (dry-run)');
     expect(textResult.stdout).toContain('Blocker repair_blocker_no_slot_tasks: slot;');
+    expect(textResult.stdout).toContain(
+      'Failure fast/unit; issue=slot; repairable=true;'
+    );
+    expect(textResult.stdout).toContain('Unit verification failed without slot ownership');
     expect(textResult.stderr).toContain('REPAIR-BLOCKED-001');
 
     const result = await runCli(workspaceRoot, ['repair', '--dry-run', '--json']);

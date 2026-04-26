@@ -245,6 +245,15 @@ function formatCounts(values: string[]): string {
   );
 }
 
+function formatRepairFailurePoint(failure: RepairPlan['tasks'][number]['failurePoints'][number]): string {
+  return [
+    `Failure ${failure.lane}/${failure.kind}`,
+    `issue=${failure.issueType}`,
+    `repairable=${failure.repairable}`,
+    failure.message
+  ].join('; ');
+}
+
 function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
   const suffix = repairPlan.status === 'applied' ? '; verify pending' : dryRun ? ' (dry-run)' : '';
   const lines = [
@@ -264,18 +273,14 @@ function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
       );
     }
     for (const failure of task.failurePoints.slice(0, 2)) {
-      lines.push(
-        [
-          `Failure ${failure.lane}/${failure.kind}`,
-          `issue=${failure.issueType}`,
-          `repairable=${failure.repairable}`,
-          failure.message
-        ].join('; ')
-      );
+      lines.push(formatRepairFailurePoint(failure));
     }
   }
   for (const blocker of repairPlan.blockers?.slice(0, 3) ?? []) {
     lines.push(`Blocker ${blocker.blockerId}: ${blocker.boundary}; ${blocker.reason}`);
+    for (const failure of blocker.failurePoints.slice(0, 2)) {
+      lines.push(formatRepairFailurePoint(failure));
+    }
   }
   return lines.join('\n');
 }
