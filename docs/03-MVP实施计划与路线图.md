@@ -172,6 +172,10 @@
      - 切口 C：新增 migration preflight：
        - 目标文件存在性检查。
        - schema/JSON 结构检查。
+       - migration source/target 当前存在性检查：
+         - 状态：done。
+         - plan：`migration-targets` preflight check。
+         - evidence：记录每个 migration 的 source/target 是 `exists` 还是 `missing`。
        - slot 合同前后兼容性检查。
      - 切口 D：把每类 migration 的影响面写入：
        - review summary。

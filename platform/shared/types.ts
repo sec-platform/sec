@@ -686,7 +686,12 @@ export interface UpgradeMigrationSummary {
   source?: string;
 }
 
-export type UpgradePreflightCheckId = 'version-range' | 'migration-entries' | 'impact-scan' | 'override-conflicts';
+export type UpgradePreflightCheckId =
+  | 'version-range'
+  | 'migration-entries'
+  | 'migration-targets'
+  | 'impact-scan'
+  | 'override-conflicts';
 
 export interface UpgradePreflightCheck {
   id: UpgradePreflightCheckId;

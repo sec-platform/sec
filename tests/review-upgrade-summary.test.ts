@@ -115,6 +115,12 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
           evidence: ['mig-auth-session-refresh:migrations/auth-session-refresh.json']
         },
         {
+          id: 'migration-targets',
+          status: 'passed',
+          message: '1 migration paths checked',
+          evidence: ['mig-auth-session-refresh:target:src/installed/auth/session.ts:exists']
+        },
+        {
           id: 'impact-scan',
           status: 'passed',
           message: '1 upgrade impacts calculated',
@@ -219,7 +225,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       {
         kind: 'upgrade-preflight-passed',
         relatedId: 'auth/basic-session',
-        message: 'Upgrade preflight passed: version-range, migration-entries, impact-scan, override-conflicts'
+        message: 'Upgrade preflight passed: version-range, migration-entries, migration-targets, impact-scan, override-conflicts'
       }
     ]);
     expect(summary.failurePoints).toContainEqual({
