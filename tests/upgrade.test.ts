@@ -414,6 +414,72 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 });
 
+test('upgrade dry-run records create directory migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-create-directory-plan-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-create-snapshots-dir',
+          kind: 'create-directory',
+          entry: 'migrations/create-snapshots-dir.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  const migrationPath = path.join(versionRoot, 'migrations', 'create-snapshots-dir.json');
+  await writeJson(migrationPath, {
+    id: 'mig-create-snapshots-dir',
+    kind: 'create-directory',
+    reason: 'Create snapshot directory for generated reports.',
+    target: 'generated/reports/snapshots'
+  });
+
+  const { upgradePlan } = await upgradeWorkspace(
+    workspaceRoot,
+    'private/slot-contract',
+    '0.2.0',
+    { dryRun: true }
+  );
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.impacts).toEqual([
+    'generated/reports/snapshots',
+    'src/installed/private/slot-contract.ts'
+  ]);
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'create-directory': 1
+  });
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-create-snapshots-dir',
+      kind: 'create-directory',
+      target: 'generated/reports/snapshots',
+      reason: 'Create snapshot directory for generated reports.',
+      requiresVerification: false
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
 test('upgrade dry-run records text append migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-text-append-plan-');
 
