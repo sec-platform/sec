@@ -480,6 +480,76 @@ test('upgrade dry-run records create directory migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade dry-run records delete file migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-file-plan-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-delete-obsolete-report',
+          kind: 'delete-file',
+          entry: 'migrations/delete-obsolete-report.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  const migrationPath = path.join(
+    versionRoot,
+    'migrations',
+    'delete-obsolete-report.json'
+  );
+  await writeJson(migrationPath, {
+    id: 'mig-delete-obsolete-report',
+    kind: 'delete-file',
+    reason: 'Remove obsolete generated report from previous upgrades.',
+    target: 'generated/reports/obsolete.json'
+  });
+
+  const { upgradePlan } = await upgradeWorkspace(
+    workspaceRoot,
+    'private/slot-contract',
+    '0.2.0',
+    { dryRun: true }
+  );
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.impacts).toEqual([
+    'generated/reports/obsolete.json',
+    'src/installed/private/slot-contract.ts'
+  ]);
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'delete-file': 1
+  });
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-delete-obsolete-report',
+      kind: 'delete-file',
+      target: 'generated/reports/obsolete.json',
+      reason: 'Remove obsolete generated report from previous upgrades.',
+      requiresVerification: false
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
 test('upgrade dry-run records text append migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-text-append-plan-');
 

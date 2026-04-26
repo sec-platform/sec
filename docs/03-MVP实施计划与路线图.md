@@ -52,7 +52,7 @@
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
-| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
+| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 
@@ -82,6 +82,10 @@
        - 可创建嵌套目标目录。
        - dry-run plan 可展示 impact 和 migration summary。
        - 执行器单测覆盖目录落盘。
+     - `delete-file` 文件删除迁移：
+       - 可删除已存在文件。
+       - 目标是目录时会阻断。
+       - dry-run plan 可展示 impact 和 migration summary。
      - 官方升级 manifest 中的多迁移类型覆盖。
      - upgrade plan migration 摘要与类型计数。
      - upgrade dry-run 入口。
@@ -107,9 +111,10 @@
          - 执行：创建嵌套目标目录。
          - plan：dry-run 记录目录 impact。
        - delete-file：
-         - 状态：next。
+         - 状态：done。
          - 执行：删除目标文件。
-         - preflight：目标必须存在且必须是文件。
+         - safety：目标是目录时阻断。
+         - plan：dry-run 记录文件 impact。
        - rename-file：
          - 状态：later。
          - 执行：移动或重命名目标文件。
