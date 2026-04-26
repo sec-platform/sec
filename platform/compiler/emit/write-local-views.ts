@@ -27,6 +27,35 @@ function renderJsonCard(title: string, value: unknown): string {
   return `<section class="card"><h2>${escapeHtml(title)}</h2><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></section>`;
 }
 
+function classifyRuntimeEntry(path: string): string | null {
+  if (/^app\/.+\/page\.tsx$/.test(path) || path === 'app/page.tsx') {
+    return 'page';
+  }
+  if (/^app\/api\/.+\/route\.ts$/.test(path)) {
+    return 'api';
+  }
+  return null;
+}
+
+function renderRuntimeEntriesTable(lock: LockFile): string {
+  const entries = lock.generatedPaths
+    .map((generatedPath) => ({ path: generatedPath, kind: classifyRuntimeEntry(generatedPath) }))
+    .filter((entry): entry is { path: string; kind: string } => entry.kind !== null);
+  const rows = entries.length > 0
+    ? entries
+        .map((entry) => `<tr><td>${escapeHtml(entry.kind)}</td><td>${escapeHtml(entry.path)}</td></tr>`)
+        .join('')
+    : '<tr><td colspan="2">No generated runtime entries.</td></tr>';
+
+  return `<section class="card">
+        <h2>Runtime Entry Points</h2>
+        <table>
+          <thead><tr><th>Kind</th><th>Path</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderViewNav(current: 'source' | 'slot-rule'): string {
   const links = [
     { id: 'source', href: 'source-view.html', label: 'Source View' },
@@ -279,6 +308,7 @@ function renderSourceView(
           </tbody>
         </table>
       </section>
+      ${renderRuntimeEntriesTable(lock)}
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradePlanTable(upgradePlan)}
