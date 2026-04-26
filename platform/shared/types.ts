@@ -146,6 +146,14 @@ export interface UpgradeJsonObjectMergeMigrationEntry {
   value: Record<string, unknown>;
 }
 
+export interface UpgradeTextAppendMigrationEntry {
+  id: string;
+  kind: 'text-append';
+  reason: string;
+  target: string;
+  content: string;
+}
+
 export interface UpgradeSlotContractUpdateMigrationEntry {
   id: string;
   kind: 'slot-contract-update';
@@ -163,6 +171,7 @@ export type UpgradeMigrationEntry =
   | UpgradeJsonArrayAppendMigrationEntry
   | UpgradeJsonArrayRemoveMigrationEntry
   | UpgradeJsonObjectMergeMigrationEntry
+  | UpgradeTextAppendMigrationEntry
   | UpgradeSlotContractUpdateMigrationEntry;
 
 export interface UpgradeConfig {

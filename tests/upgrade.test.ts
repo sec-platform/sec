@@ -16,7 +16,7 @@ import {
 import { writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
 import type { LockFile } from '../platform/shared/types.ts';
-import { writeYaml } from '../platform/shared/yaml.ts';
+import { readYaml, writeYaml } from '../platform/shared/yaml.ts';
 
 const activeWorkspaces = new Set<string>();
 
@@ -412,6 +412,97 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
+});
+
+test('upgrade dry-run records text append migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-text-append-plan-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-upgrade-notes',
+          kind: 'text-append',
+          entry: 'migrations/upgrade-notes.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes.json'), {
+    id: 'mig-upgrade-notes',
+    kind: 'text-append',
+    reason: 'Append upgrade notes.',
+    target: 'docs/upgrade-notes.md',
+    content: '- text append migration applied.\n'
+  });
+
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.impacts).toEqual(['docs/upgrade-notes.md', 'src/installed/private/slot-contract.ts']);
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'text-append': 1
+  });
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-upgrade-notes',
+      kind: 'text-append',
+      target: 'docs/upgrade-notes.md',
+      reason: 'Append upgrade notes.',
+      requiresVerification: false
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
+test('upgrade rejects malformed text append migration entries before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-malformed-text-append-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-upgrade-notes',
+          kind: 'text-append',
+          entry: 'migrations/upgrade-notes.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes.json'), {
+    id: 'mig-upgrade-notes',
+    kind: 'text-append',
+    reason: 'Append upgrade notes.',
+    target: 'docs/upgrade-notes.md'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-011'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-entries"');
 });
 
 test('upgrade rejects malformed migration entries before planning', async () => {

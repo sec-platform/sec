@@ -133,6 +133,11 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
+  if (entry.kind === 'text-append') {
+    ensureMigrationString(entry.content, 'content', entryPath);
+    return;
+  }
+
   if (entry.kind === 'slot-contract-update') {
     ensureMigrationString(entry.slotId, 'slotId', entryPath);
     if (entry.inputType !== undefined) {
@@ -382,6 +387,13 @@ export async function applyMigrationEntries(
       const config = applyJsonObjectMerge((await pathExists(targetPath)) ? await readJson<unknown>(targetPath) : {}, entry);
       await ensureDir(path.dirname(targetPath));
       await writeJson(targetPath, config);
+      continue;
+    }
+
+    if (entry.kind === 'text-append') {
+      const existingContent = (await pathExists(targetPath)) ? await fs.readFile(targetPath, 'utf8') : '';
+      await ensureDir(path.dirname(targetPath));
+      await fs.writeFile(targetPath, `${existingContent}${entry.content}`, 'utf8');
       continue;
     }
 

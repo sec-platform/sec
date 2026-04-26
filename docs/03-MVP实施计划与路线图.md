@@ -52,7 +52,7 @@
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
-| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge` 与 `slot-contract-update` 计划迁移；执行型迁移类型仍待扩展。 |
+| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append` 与 `slot-contract-update` 计划迁移；执行型迁移类型仍待扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 
@@ -69,6 +69,10 @@
        - `delete`
      - `json-array-append/remove` JSON 数组迁移。
      - `json-object-merge` JSON 对象合并迁移。
+     - `text-append` 文本追加迁移：
+       - 可追加到已有文件。
+       - 可创建缺失目标文件。
+       - 缺少 `content` 会在 planning 前被 schema 校验阻断。
      - 官方升级 manifest 中的多迁移类型覆盖。
      - upgrade plan migration 摘要与类型计数。
      - upgrade dry-run 入口。
@@ -93,9 +97,14 @@
        - 文件删除。
        - 文件重命名。
      - 切口 B：新增文本结构类 migration：
-       - text-append。
-       - text-replace-regex。
-       - 多目标 patch bundle。
+       - text-append：
+         - 状态：done。
+         - 执行：追加文本并创建缺失目标文件。
+         - 校验：缺少 `content` 时阻断。
+       - text-replace-regex：
+         - 状态：next。
+       - 多目标 patch bundle：
+         - 状态：later。
      - 切口 C：新增 migration preflight：
        - 目标文件存在性检查。
        - schema/JSON 结构检查。

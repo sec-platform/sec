@@ -1,10 +1,15 @@
 import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import { applyMigrationEntries } from '../platform/upgrade/upgrade-workspace.ts';
 import type { UpgradeMigrationEntry } from '../platform/shared/types.ts';
+
+async function createWorkspace(prefix = 'engineering-compiler-upgrade-migration-'): Promise<string> {
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  return fs.mkdtemp(path.join(workspaceParent, prefix));
+}
 
 function fileReplace(target: string, source = 'files/source.ts'): UpgradeMigrationEntry {
   return {
@@ -59,6 +64,16 @@ function jsonObjectMerge(target: string, pathSegments: string[], value: Record<s
   };
 }
 
+function textAppend(target: string, content: string): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-text-append',
+    kind: 'text-append',
+    reason: 'test text append',
+    target,
+    content
+  };
+}
+
 function slotContractUpdate(target: string): UpgradeMigrationEntry {
   return {
     id: 'mig-test-slot-contract-update',
@@ -73,7 +88,7 @@ function slotContractUpdate(target: string): UpgradeMigrationEntry {
 }
 
 test('file-replace migration copies manifest source to impacted project target', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-migration-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -91,7 +106,7 @@ test('file-replace migration copies manifest source to impacted project target',
 });
 
 test('config-rewrite migration updates nested JSON configuration', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-config-rewrite-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -133,7 +148,7 @@ test('config-rewrite migration updates nested JSON configuration', async () => {
 });
 
 test('config-rewrite migration deletes nested JSON configuration keys', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-config-delete-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -172,7 +187,7 @@ test('config-rewrite migration deletes nested JSON configuration keys', async ()
 });
 
 test('json-array-append migration appends unique items to nested arrays', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-array-append-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -209,7 +224,7 @@ test('json-array-append migration appends unique items to nested arrays', async 
 });
 
 test('json-array-append migration rejects non-array targets', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-array-target-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -228,7 +243,7 @@ test('json-array-append migration rejects non-array targets', async () => {
 });
 
 test('json-array-remove migration removes matching items from nested arrays', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-array-remove-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -264,7 +279,7 @@ test('json-array-remove migration removes matching items from nested arrays', as
 });
 
 test('json-array-remove migration rejects non-array targets', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-array-remove-target-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -283,7 +298,7 @@ test('json-array-remove migration rejects non-array targets', async () => {
 });
 
 test('json-array-remove migration skips missing JSON targets', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-array-remove-missing-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -299,7 +314,7 @@ test('json-array-remove migration skips missing JSON targets', async () => {
 });
 
 test('json-object-merge migration recursively merges nested objects', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-object-merge-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -343,7 +358,7 @@ test('json-object-merge migration recursively merges nested objects', async () =
 });
 
 test('json-object-merge migration creates missing JSON targets', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-object-merge-missing-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -363,7 +378,7 @@ test('json-object-merge migration creates missing JSON targets', async () => {
 });
 
 test('json-object-merge migration rejects non-object targets', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-json-object-merge-target-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -381,8 +396,47 @@ test('json-object-merge migration rejects non-object targets', async () => {
   }
 });
 
+test('text-append migration appends content to existing text files', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), '- existing note\n', 'utf8');
+
+    await applyMigrationEntries(projectRoot, manifestRoot, ['docs/upgrade-notes.md'], [
+      textAppend('docs/upgrade-notes.md', '- appended note\n')
+    ]);
+
+    await expect(fs.readFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe(
+      '- existing note\n- appended note\n'
+    );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('text-append migration creates missing text targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await applyMigrationEntries(projectRoot, manifestRoot, ['docs/upgrade-notes.md'], [
+      textAppend('docs/upgrade-notes.md', '- first note\n')
+    ]);
+
+    await expect(fs.readFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe('- first note\n');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('config-rewrite migration rejects empty update paths', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-config-empty-path-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -401,7 +455,7 @@ test('config-rewrite migration rejects empty update paths', async () => {
 });
 
 test('slot-contract-update migration records contract impact without changing files', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-slot-contract-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -418,7 +472,7 @@ test('slot-contract-update migration records contract impact without changing fi
 });
 
 test('file-replace migration rejects targets outside upgrade impacts', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-migration-impact-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -437,7 +491,7 @@ test('file-replace migration rejects targets outside upgrade impacts', async () 
 });
 
 test('file-replace migration rejects paths escaping project or manifest roots', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-migration-scope-'));
+  const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
