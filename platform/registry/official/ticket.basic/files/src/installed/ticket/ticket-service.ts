@@ -1,4 +1,11 @@
-import type { Database, TicketInput, TicketRecord, TicketStatus } from '../../runtime/database.ts';
+import type {
+  Database,
+  TicketAttachmentInput,
+  TicketAttachmentRecord,
+  TicketInput,
+  TicketRecord,
+  TicketStatus
+} from '../../runtime/database.ts';
 import type { Session } from '../auth/session.ts';
 import { currentTenant } from '../tenant/context.ts';
 
@@ -67,6 +74,41 @@ export function listTicketsWithFilters(db: Database, session: Session, filters: 
     }
     return true;
   });
+}
+
+export function addTicketAttachment(
+  db: Database,
+  session: Session,
+  input: TicketAttachmentInput
+): TicketAttachmentRecord {
+  const tenantId = currentTenant(session);
+  assertTicketTenant(db.tickets.find((entry) => entry.id === input.ticketId), tenantId);
+
+  const attachment: TicketAttachmentRecord = {
+    id: db.nextTicketAttachmentId++,
+    tenantId,
+    ticketId: input.ticketId,
+    fileName: input.fileName.trim() || 'attachment',
+    contentType: input.contentType || 'application/octet-stream',
+    size: input.size,
+    contentText: input.contentText,
+    createdAt: new Date(0).toISOString()
+  };
+
+  db.ticketAttachments.push(attachment);
+  return attachment;
+}
+
+export function listTicketAttachments(
+  db: Database,
+  session: Session,
+  ticketId: number
+): TicketAttachmentRecord[] {
+  const tenantId = currentTenant(session);
+  assertTicketTenant(db.tickets.find((entry) => entry.id === ticketId), tenantId);
+  return db.ticketAttachments
+    .filter((attachment) => attachment.tenantId === tenantId && attachment.ticketId === ticketId)
+    .sort((left, right) => left.id - right.id);
 }
 
 export function listTicketsByAssignee(db: Database, session: Session, assigneeId: string): TicketRecord[] {

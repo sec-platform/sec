@@ -43,6 +43,9 @@ pins:
     - id: ticket_status_transitioned
       type: TicketRecord
       required: true
+    - id: ticket_attachment_uploaded
+      type: TicketAttachmentRecord
+      required: true
 slots: []
 acceptance:
   - id: ticket_can_be_created
@@ -70,6 +73,12 @@ acceptance:
     covers:
       blocks:
         - tenant/basic-workspace
+        - ticket/basic
+  - id: ticket_attachment_can_be_uploaded
+    dependsOn:
+      - ticket_can_be_created
+    covers:
+      blocks:
         - ticket/basic
 routes:
   - path: /tickets

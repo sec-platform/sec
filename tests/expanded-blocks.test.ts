@@ -73,7 +73,8 @@ test('expanded official block set composes and verifies as one project', async (
     'customer_attachments',
     'email_notifications',
     'audit_entries',
-    'tickets'
+    'tickets',
+    'ticket_attachments'
   ]);
   expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toEqual([
     'id',
@@ -108,7 +109,9 @@ test('expanded official block set composes and verifies as one project', async (
       'app/api/tickets/export/route.ts',
       'app/api/tickets/summary/route.ts',
       'app/api/tickets/summary/export/route.ts',
+      'app/api/tickets/[ticketId]/attachments/route.ts',
       'app/api/tickets/[ticketId]/status/route.ts',
+      'components/ticket-attachment-form.tsx',
       'components/ticket-form.tsx',
       'components/ticket-status-form.tsx',
       'tests/runtime/unit/ticket-runtime.test.ts',
@@ -121,6 +124,7 @@ test('expanded official block set composes and verifies as one project', async (
   const ticketsPageSource = await fs.readFile(path.join(workspaceRoot, 'project', 'app', 'tickets', 'page.tsx'), 'utf8');
   expect(ticketsPageSource).toContain('Ticket status filter');
   expect(ticketsPageSource).toContain('summaryExportHref');
+  expect(ticketsPageSource).toContain('Attachments for ${ticket.title}');
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   expect(
