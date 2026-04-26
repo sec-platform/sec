@@ -3,7 +3,13 @@ import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
-import { buildRuntimeAttributions, buildVerticalSliceAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
+import {
+  buildRuntimeAttribution,
+  buildRuntimeAttributions,
+  buildVerticalSliceAttributions,
+  classifyRuntimeEntry,
+  detectVerticalFromPath
+} from './runtime-attribution.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
@@ -126,6 +132,17 @@ function mapOverrideTarget(
   if (installStep) {
     return {
       blockId: installStep.blockId
+    };
+  }
+
+  const runtimeEntry = buildRuntimeAttribution(lock, target);
+  if (runtimeEntry?.relatedBlocks.length) {
+    const verticalBlock = runtimeEntry.vertical ? `${runtimeEntry.vertical}/basic` : null;
+    return {
+      blockId:
+        verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock)
+          ? verticalBlock
+          : runtimeEntry.relatedBlocks[0]
     };
   }
 

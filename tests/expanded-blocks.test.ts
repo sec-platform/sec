@@ -159,7 +159,7 @@ test('expanded official block set composes and verifies as one project', { timeo
     path: 'app/api/tickets/summary/export/route.ts',
     kind: 'api',
     vertical: 'ticket',
-    relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+    relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic', 'worklog/basic']
   });
   expect(reviewSummary.verticalSlices).toEqual(
     expect.arrayContaining([
@@ -171,7 +171,7 @@ test('expanded official block set composes and verifies as one project', { timeo
           'app/api/tickets/summary/route.ts',
           'app/api/tickets/summary/export/route.ts'
         ]),
-        relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+        relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic', 'worklog/basic']
       }
     ])
   );
