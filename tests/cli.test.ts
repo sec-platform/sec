@@ -343,6 +343,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         missingCount: number;
       };
       artifacts: Array<{ path: string; kind: string; uploadName: string; exists: boolean }>;
+      uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
       missing: Array<{ path: string; reason: string; declaredBy: string }>;
     };
     expect(manifest).toMatchObject({
@@ -356,6 +357,24 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       viewCount: manifest.artifacts.filter((artifact) => artifact.kind === 'view').length,
       missingCount: 0
     });
+    const governancePaths = manifest.artifacts
+      .filter((artifact) => artifact.kind === 'governance')
+      .map((artifact) => artifact.path);
+    const viewPaths = manifest.artifacts
+      .filter((artifact) => artifact.kind === 'view')
+      .map((artifact) => artifact.path);
+    expect(manifest.uploadGroups).toEqual([
+      {
+        kind: 'governance',
+        count: manifest.summary.governanceCount,
+        paths: governancePaths
+      },
+      {
+        kind: 'view',
+        count: manifest.summary.viewCount,
+        paths: viewPaths
+      }
+    ]);
     expect(manifest.artifacts).toEqual(
       expect.arrayContaining([
         {

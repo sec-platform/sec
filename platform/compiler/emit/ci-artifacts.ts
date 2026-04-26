@@ -12,6 +12,12 @@ export interface CiArtifactEntry {
   exists: boolean;
 }
 
+export interface CiArtifactUploadGroup {
+  kind: CiArtifactEntry['kind'];
+  count: number;
+  paths: string[];
+}
+
 interface GeneratedPathResult {
   paths: string[];
   lockExists: boolean;
@@ -35,6 +41,7 @@ export interface CiArtifactManifest {
   root: 'project';
   summary: CiArtifactSummary;
   artifacts: CiArtifactEntry[];
+  uploadGroups: CiArtifactUploadGroup[];
   missing: CiArtifactMissingEntry[];
 }
 
@@ -75,6 +82,21 @@ function uniqueSorted(values: string[]): string[] {
 function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissingEntry[] {
   const entriesByPath = new Map(entries.map((entry) => [normalizeArtifactPath(entry.path), entry]));
   return [...entriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function buildUploadGroups(entries: CiArtifactEntry[]): CiArtifactUploadGroup[] {
+  return (['governance', 'view'] as const)
+    .map((kind) => {
+      const paths = entries
+        .filter((entry) => entry.kind === kind)
+        .map((entry) => entry.path);
+      return {
+        kind,
+        count: paths.length,
+        paths
+      };
+    })
+    .filter((group) => group.count > 0);
 }
 
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
@@ -130,6 +152,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
       missingCount: sortedMissing.length
     },
     artifacts: entries,
+    uploadGroups: buildUploadGroups(entries),
     missing: sortedMissing
   };
 }
@@ -156,6 +179,7 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
           missingCount: 0
         },
         artifacts: [],
+        uploadGroups: [],
         missing: []
       },
       null,
