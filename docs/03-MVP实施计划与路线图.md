@@ -245,6 +245,12 @@
      - repair 后自动要求重新 verify 的显式状态。
      - repair plan dry-run 模式。
      - repair plan 的执行前差异预览。
+     - repair plan 结构化 blockers：
+       - 不可修原因。
+       - 阻断边界。
+       - 人工决策点。
+     - repair blocker 进入 review summary。
+     - repair blocker 进入 local view。
    - 当前阶段拆分：
      - 阶段 1：细化 failure point 归因。
      - 阶段 2：细化 repair task 生成边界。
@@ -260,6 +266,7 @@
        - config repair。
        - generated artifact refresh。
      - 切口 C：补 repair 阻断解释：
+       - 状态：done。
        - 为什么不可修。
        - 哪个边界阻止修复。
        - 需要人工决策的点。

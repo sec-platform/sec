@@ -331,6 +331,25 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
               changed: true
             }
           }
+        ],
+        blockers: [
+          {
+            blockerId: 'repair_blocker_policy',
+            boundary: 'spec',
+            reason: 'policy <boundary> & manual decision',
+            decisionRequired: 'Decide whether policy/spec or project code changes first',
+            failurePoints: [
+              {
+                lane: 'fast',
+                kind: 'policy',
+                issueType: 'spec',
+                repairable: false,
+                artifactPath: 'generated/policy-report.json',
+                message: 'policy <boundary> & manual decision',
+                targetIds: ['tenant-scope-required']
+              }
+            ]
+          }
         ]
       },
       null,
@@ -450,6 +469,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
   expect(sourceView).toContain('Repair Plan');
   expect(sourceView).toContain('requires verification: false');
+  expect(sourceView).toContain('Blockers');
+  expect(sourceView).toContain('repair_blocker_policy');
+  expect(sourceView).toContain('policy &lt;boundary&gt; &amp; manual decision');
+  expect(sourceView).toContain('Decide whether policy/spec or project code changes first');
   expect(sourceView).toContain('Allowed Paths');
   expect(sourceView).toContain('Required Symbols');
   expect(sourceView).toContain('Forbidden Operations');

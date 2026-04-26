@@ -282,6 +282,19 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
     return '';
   }
 
+  const blockerRows = (repairPlan.blockers ?? [])
+    .map(
+      (blocker) =>
+        `<tr><td>${escapeHtml(blocker.blockerId)}</td><td>${escapeHtml(blocker.boundary)}</td><td>${escapeHtml(blocker.reason)}</td><td>${escapeHtml(blocker.decisionRequired)}</td></tr>`
+    )
+    .join('');
+  const blockerTable = blockerRows
+    ? `<h3>Blockers</h3>
+        <table>
+          <thead><tr><th>Blocker</th><th>Boundary</th><th>Reason</th><th>Decision Required</th></tr></thead>
+          <tbody>${blockerRows}</tbody>
+        </table>`
+    : '';
   const taskRows = repairPlan.tasks
     .map((task) => {
       const preview = task.preview
@@ -295,6 +308,7 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
   return `<section class="card">
         <h2>Repair Plan</h2>
         <p>${escapeHtml(repairPlan.status)} | source verification: ${escapeHtml(repairPlan.sourceVerificationStatus)} | requires verification: ${escapeHtml(String(repairPlan.requiresVerification))}</p>
+        ${blockerTable}
         <table>
           <thead><tr><th>Task</th><th>Slot</th><th>Block</th><th>Target File</th><th>Allowed Paths</th><th>Required Symbols</th><th>Forbidden Operations</th><th>Failure Summary</th><th>Failure Targets</th><th>Preview</th></tr></thead>
           <tbody>${taskRows}</tbody>
