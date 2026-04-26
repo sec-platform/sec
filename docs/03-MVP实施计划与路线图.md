@@ -598,6 +598,7 @@
            - `--json` pretty JSON。
            - `--json --compact` 单行 JSON。
            - `--paths` 上传路径列表。
+           - `--paths --json` 结构化路径列表。
          - CI workflow 直接消费 `--paths`。
          - 输出 artifact 相对路径。
          - 输出 artifact kind。

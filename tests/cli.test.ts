@@ -520,6 +520,15 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(uploadPaths).toContain('project/generated/review-summary.json');
     expect(uploadPaths).not.toContain('project/generated/missing-diagnostic.json');
     expect(uploadPaths).not.toContain('project/generated/views/source-view.html');
+
+    const pathsJsonResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--json']);
+    expect(pathsJsonResult.code).toBe(0);
+    expect(pathsJsonResult.stderr).toBe('');
+    const pathsJson = JSON.parse(pathsJsonResult.stdout) as { count: number; paths: string[] };
+    expect(pathsJson).toEqual({
+      count: uploadPaths.length,
+      paths: uploadPaths
+    });
   });
 });
 
@@ -616,22 +625,22 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths)\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths)\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths)\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths)\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
