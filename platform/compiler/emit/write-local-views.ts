@@ -148,6 +148,16 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
         `<tr><td>${escapeHtml(migration.id)}</td><td>${escapeHtml(migration.kind)}</td><td>${escapeHtml(migration.target)}</td><td>${escapeHtml(String(migration.requiresVerification))}</td><td>${escapeHtml(migration.reason)}</td></tr>`
     )
     .join('');
+  const migrationKindCounts =
+    upgradePlan.migrationKindCounts ??
+    upgradePlan.migrationSummaries.reduce<Record<string, number>>((counts, migration) => {
+      counts[migration.kind] = (counts[migration.kind] ?? 0) + 1;
+      return counts;
+    }, {});
+  const migrationKindRows = Object.entries(migrationKindCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
+    .join('');
   const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
   const preflightRows = upgradePlan.preflightChecks
     .map(
@@ -163,6 +173,11 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
         <table>
           <thead><tr><th>ID</th><th>Status</th><th>Message</th><th>Evidence</th></tr></thead>
           <tbody>${preflightRows}</tbody>
+        </table>
+        <h3>Migration Kind Summary</h3>
+        <table>
+          <thead><tr><th>Kind</th><th>Count</th></tr></thead>
+          <tbody>${migrationKindRows}</tbody>
         </table>
         <h3>Migrations</h3>
         <table>

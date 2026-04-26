@@ -610,6 +610,7 @@ export interface UpgradePlan {
   preflightChecks: UpgradePreflightCheck[];
   impacts: string[];
   migrations: UpgradeMigration[];
+  migrationKindCounts: Record<string, number>;
   migrationSummaries: UpgradeMigrationSummary[];
 }
 

@@ -172,6 +172,9 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         requiresVerification: true
       }
     ],
+    migrationKindCounts: {
+      'slot-contract-update': 1
+    },
     migrationSummaries: [
       {
         id: 'mig-customer-normalizer-contract',
