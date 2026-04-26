@@ -145,6 +145,10 @@
        - 显示 migration kind 计数。
        - 显示 impact 文件列表。
        - 显示 requires verification 聚合结果。
+       - 显示最多前三条 migration id。
+       - 显示最多前三条 migration kind。
+       - 显示最多前三条 migration target。
+       - 显示最多前三条 migration requiresVerification。
    - 当前阶段拆分：
      - 阶段 1：扩 migration 类型。
      - 阶段 2：补 migration 预检与阻断口径。
