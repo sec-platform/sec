@@ -17,9 +17,17 @@ interface GeneratedPathResult {
   lockExists: boolean;
 }
 
+export interface CiArtifactSummary {
+  artifactCount: number;
+  governanceCount: number;
+  viewCount: number;
+  missingCount: number;
+}
+
 export interface CiArtifactManifest {
   formatVersion: '1';
   root: 'project';
+  summary: CiArtifactSummary;
   artifacts: CiArtifactEntry[];
   missing: string[];
 }
@@ -95,11 +103,18 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     });
   }
 
+  const sortedMissing = generatedPathResult.lockExists ? uniqueSorted(missing) : [];
   return {
     formatVersion: '1',
     root: 'project',
+    summary: {
+      artifactCount: entries.length,
+      governanceCount: entries.filter((entry) => entry.kind === 'governance').length,
+      viewCount: entries.filter((entry) => entry.kind === 'view').length,
+      missingCount: sortedMissing.length
+    },
     artifacts: entries,
-    missing: generatedPathResult.lockExists ? uniqueSorted(missing) : []
+    missing: sortedMissing
   };
 }
 
@@ -114,7 +129,22 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   await fs.mkdir(path.dirname(ciArtifactsPath), { recursive: true });
   await fs.writeFile(
     ciArtifactsPath,
-    `${JSON.stringify({ formatVersion: '1', root: 'project', artifacts: [], missing: [] }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        formatVersion: '1',
+        root: 'project',
+        summary: {
+          artifactCount: 0,
+          governanceCount: 0,
+          viewCount: 0,
+          missingCount: 0
+        },
+        artifacts: [],
+        missing: []
+      },
+      null,
+      2
+    )}\n`,
     'utf8'
   );
   const manifest = await buildCiArtifactManifest(workspaceRoot);

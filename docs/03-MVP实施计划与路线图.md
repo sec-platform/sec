@@ -596,6 +596,7 @@
          - 输出 artifact 相对路径。
          - 输出 artifact kind。
          - 输出 uploadName。
+         - 输出 summary 计数字段。
          - 输出 lock 声明但缺失的 generated artifact。
          - 持久化 `generated/ci-artifacts.json`。
          - 写入 lock/provenance。

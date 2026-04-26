@@ -336,6 +336,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const manifest = JSON.parse(result.stdout) as {
       formatVersion: string;
       root: string;
+      summary: {
+        artifactCount: number;
+        governanceCount: number;
+        viewCount: number;
+        missingCount: number;
+      };
       artifacts: Array<{ path: string; kind: string; uploadName: string; exists: boolean }>;
       missing: string[];
     };
@@ -344,6 +350,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       root: 'project'
     });
     expect(manifest.missing).toEqual([]);
+    expect(manifest.summary).toEqual({
+      artifactCount: manifest.artifacts.length,
+      governanceCount: manifest.artifacts.filter((artifact) => artifact.kind === 'governance').length,
+      viewCount: manifest.artifacts.filter((artifact) => artifact.kind === 'view').length,
+      missingCount: 0
+    });
     expect(manifest.artifacts).toEqual(
       expect.arrayContaining([
         {
