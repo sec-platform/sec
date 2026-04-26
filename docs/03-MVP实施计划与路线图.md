@@ -594,6 +594,9 @@
        - `artifacts --json`：
          - 状态：done。
          - 输出 CI 上传 artifact manifest。
+         - 支持输出格式：
+           - `--json` pretty JSON。
+           - `--json --compact` 单行 JSON。
          - 输出 artifact 相对路径。
          - 输出 artifact kind。
          - 输出 uploadName。

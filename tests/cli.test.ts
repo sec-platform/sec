@@ -502,6 +502,15 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       'fixed-view-missing': 1
     });
     expect(manifestWithMissing.missing).toEqual(fixedMissingDiagnostics);
+
+    const compactResult = await runCli(workspaceRoot, ['artifacts', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      formatVersion: '1',
+      root: 'project'
+    });
   });
 });
 
@@ -598,12 +607,17 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts --json\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts --json [--compact]\n'
+    });
+    await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform artifacts --json [--compact]\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts --json\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts --json [--compact]\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
