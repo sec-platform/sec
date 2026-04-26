@@ -138,6 +138,15 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
+  if (entry.kind === 'text-replace-regex') {
+    ensureMigrationString(entry.pattern, 'pattern', entryPath);
+    ensureMigrationString(entry.replacement, 'replacement', entryPath);
+    if (entry.flags !== undefined) {
+      ensureMigrationString(entry.flags, 'flags', entryPath);
+    }
+    return;
+  }
+
   if (entry.kind === 'slot-contract-update') {
     ensureMigrationString(entry.slotId, 'slotId', entryPath);
     if (entry.inputType !== undefined) {
@@ -339,6 +348,26 @@ function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigrationEn
   return config;
 }
 
+function buildTextReplaceRegex(entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace-regex' }>): RegExp {
+  try {
+    return new RegExp(entry.pattern, entry.flags ?? 'g');
+  } catch (error) {
+    throw new CompilerError('UPGRADE-MIGRATION-014', `Invalid text replacement regex for "${entry.id}"`, error);
+  }
+}
+
+function applyTextReplaceRegex(
+  source: string,
+  entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace-regex' }>
+): string {
+  const pattern = buildTextReplaceRegex(entry);
+  if (!pattern.test(source)) {
+    throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
+  }
+  pattern.lastIndex = 0;
+  return source.replace(pattern, entry.replacement);
+}
+
 export async function applyMigrationEntries(
   projectRoot: string,
   targetManifestRoot: string,
@@ -394,6 +423,12 @@ export async function applyMigrationEntries(
       const existingContent = (await pathExists(targetPath)) ? await fs.readFile(targetPath, 'utf8') : '';
       await ensureDir(path.dirname(targetPath));
       await fs.writeFile(targetPath, `${existingContent}${entry.content}`, 'utf8');
+      continue;
+    }
+
+    if (entry.kind === 'text-replace-regex') {
+      const source = await fs.readFile(targetPath, 'utf8');
+      await fs.writeFile(targetPath, applyTextReplaceRegex(source, entry), 'utf8');
       continue;
     }
 

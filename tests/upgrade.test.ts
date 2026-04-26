@@ -467,6 +467,99 @@ test('upgrade dry-run records text append migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade dry-run records text replace regex migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-text-regex-plan-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-upgrade-notes-regex',
+          kind: 'text-replace-regex',
+          entry: 'migrations/upgrade-notes-regex.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: true
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes-regex.json'), {
+    id: 'mig-upgrade-notes-regex',
+    kind: 'text-replace-regex',
+    reason: 'Replace upgrade notes marker.',
+    target: 'docs/upgrade-notes.md',
+    pattern: 'status: pending',
+    replacement: 'status: applied'
+  });
+
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.impacts).toEqual(['docs/upgrade-notes.md', 'src/installed/private/slot-contract.ts']);
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'text-replace-regex': 1
+  });
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-upgrade-notes-regex',
+      kind: 'text-replace-regex',
+      target: 'docs/upgrade-notes.md',
+      reason: 'Replace upgrade notes marker.',
+      requiresVerification: true
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
+test('upgrade rejects malformed text replace regex migration entries before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-malformed-text-regex-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-upgrade-notes-regex',
+          kind: 'text-replace-regex',
+          entry: 'migrations/upgrade-notes-regex.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes-regex.json'), {
+    id: 'mig-upgrade-notes-regex',
+    kind: 'text-replace-regex',
+    reason: 'Replace upgrade notes marker.',
+    target: 'docs/upgrade-notes.md',
+    pattern: 'status: pending'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-011'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-entries"');
+});
+
 test('upgrade rejects malformed text append migration entries before planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-malformed-text-append-');
 
