@@ -24,6 +24,11 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
+function formatList(values: Iterable<string>, fallback = 'none'): string {
+  const items = [...values].sort((left, right) => left.localeCompare(right));
+  return items.length > 0 ? items.join(', ') : fallback;
+}
+
 function renderJsonCard(title: string, value: unknown): string {
   return `<section class="card"><h2>${escapeHtml(title)}</h2><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></section>`;
 }
@@ -255,7 +260,7 @@ function renderFailureFocusCard(review: ReviewSummary): string {
           <td>${escapeHtml(group.lane)}</td>
           <td>${escapeHtml(group.kind)}</td>
           <td>${escapeHtml(String(group.count))}</td>
-          <td>${escapeHtml([...group.artifacts].sort((left, right) => left.localeCompare(right)).join(', '))}</td>
+          <td>${escapeHtml(formatList(group.artifacts, ''))}</td>
         </tr>`
     )
     .join('');
@@ -313,7 +318,7 @@ function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
           <td>${escapeHtml(group.vertical)}</td>
           <td>${escapeHtml(group.kind)}</td>
           <td>${escapeHtml(String(group.count))}</td>
-          <td>${escapeHtml([...group.relatedBlocks].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
+          <td>${escapeHtml(formatList(group.relatedBlocks))}</td>
         </tr>`
     )
     .join('');
@@ -381,9 +386,9 @@ function renderInstallImpactCard(review: ReviewSummary): string {
       (group) => `<tr>
           <td>${escapeHtml(group.vertical)}</td>
           <td>${escapeHtml(String(group.blocks.size))}</td>
-          <td>${escapeHtml([...group.actions].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
-          <td>${escapeHtml([...group.runtimeEntries].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
-          <td>${escapeHtml([...group.targets].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
+          <td>${escapeHtml(formatList(group.actions))}</td>
+          <td>${escapeHtml(formatList(group.runtimeEntries))}</td>
+          <td>${escapeHtml(formatList(group.targets))}</td>
         </tr>`
     )
     .join('');
