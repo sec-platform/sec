@@ -344,15 +344,70 @@ function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
 }
 
 function renderInstallImpactCard(review: ReviewSummary): string {
+  const impactGroups = new Map<
+    string,
+    { vertical: string; blocks: Set<string>; actions: Set<string>; runtimeEntries: Set<string>; targets: Set<string> }
+  >();
+  for (const impact of review.installImpacts) {
+    const verticals = impact.verticals.length > 0 ? impact.verticals : ['none'];
+    for (const vertical of verticals) {
+      let group = impactGroups.get(vertical);
+      if (!group) {
+        group = {
+          vertical,
+          blocks: new Set<string>(),
+          actions: new Set<string>(),
+          runtimeEntries: new Set<string>(),
+          targets: new Set<string>()
+        };
+        impactGroups.set(vertical, group);
+      }
+      group.blocks.add(impact.blockId);
+      for (const action of impact.actionKinds) {
+        group.actions.add(action);
+      }
+      for (const runtimeEntry of impact.runtimeEntries) {
+        group.runtimeEntries.add(runtimeEntry);
+      }
+      for (const targetPath of impact.targetPaths) {
+        group.targets.add(targetPath);
+      }
+    }
+  }
+
+  const groupRows = [...impactGroups.values()]
+    .sort((left, right) => left.vertical.localeCompare(right.vertical))
+    .map(
+      (group) => `<tr>
+          <td>${escapeHtml(group.vertical)}</td>
+          <td>${escapeHtml(String(group.blocks.size))}</td>
+          <td>${escapeHtml([...group.actions].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
+          <td>${escapeHtml([...group.runtimeEntries].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
+          <td>${escapeHtml([...group.targets].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
   const rows = review.installImpacts
     .map(
-      (impact) =>
-        `<tr><td>${escapeHtml(impact.blockId)}</td><td>${escapeHtml(impact.actionKinds.join(', ') || 'none')}</td><td>${escapeHtml(impact.sourceRoots.join(', ') || 'none')}</td><td>${escapeHtml(impact.verticals.join(', ') || 'none')}</td><td>${escapeHtml(impact.runtimeEntries.join(', ') || 'none')}</td><td>${escapeHtml(impact.targetPaths.join(', ') || 'none')}</td></tr>`
+      (impact) => `<tr>
+          <td>${escapeHtml(impact.blockId)}</td>
+          <td>${escapeHtml(impact.actionKinds.join(', ') || 'none')}</td>
+          <td>${escapeHtml(impact.sourceRoots.join(', ') || 'none')}</td>
+          <td>${escapeHtml(impact.verticals.join(', ') || 'none')}</td>
+          <td>${escapeHtml(impact.runtimeEntries.join(', ') || 'none')}</td>
+          <td>${escapeHtml(impact.targetPaths.join(', ') || 'none')}</td>
+        </tr>`
     )
     .join('');
 
   return `<section class="card">
         <h2>Install Impact Summary</h2>
+        <h3>Impact Groups</h3>
+        <table>
+          <thead><tr><th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
+          <tbody>${groupRows || '<tr><td colspan="5">No install impact groups in review summary.</td></tr>'}</tbody>
+        </table>
+        <h3>Impact Details</h3>
         <table>
           <thead><tr><th>Block</th><th>Actions</th><th>Sources</th><th>Verticals</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="6">No install impacts in review summary.</td></tr>'}</tbody>

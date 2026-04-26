@@ -591,6 +591,15 @@
          - 按 runtime kind 聚合。
          - 显示每组 related blocks。
          - 保留 runtime entries 明细表。
+       - 增加 install impact 卡片：
+         - 状态：done。
+         - 显示 impact group summary。
+         - 按 vertical 聚合。
+         - 显示每组 block count。
+         - 显示每组 action kinds。
+         - 显示每组 runtime entries。
+         - 显示每组 targets。
+         - 保留 impact details 明细表。
      - 切口 D：CI 消费口径：
        - `upgrade --dry-run --json`：
          - 状态：done。
