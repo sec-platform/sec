@@ -6,7 +6,7 @@ import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -35,6 +35,14 @@ async function withRootDependencyBridge<T>(nodeModulesPath: string, callback: ()
   }
 }
 
+function getTestWorkspaceTempRoot(): string {
+  return path.join(compilerRoot, '.tmp', 'test-workspaces');
+}
+
+async function cleanTestWorkspaces(): Promise<void> {
+  await fs.rm(getTestWorkspaceTempRoot(), { recursive: true, force: true });
+}
+
 function runDevCommand(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -60,6 +68,11 @@ async function main(): Promise<void> {
   const [target, ...args] = process.argv.slice(2);
   if (!target) {
     usage();
+  }
+
+  if (target === 'clean-test-workspaces') {
+    await cleanTestWorkspaces();
+    return;
   }
 
   const sharedDeps = await ensureSharedDepsReady();
