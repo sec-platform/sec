@@ -45,9 +45,10 @@ test('expanded official block set composes and verifies as one project', { timeo
   await addBlock(workspaceRoot, 'infra/postgres');
   await addBlock(workspaceRoot, 'ticket/basic');
   await addBlock(workspaceRoot, 'reporting/ticket-summary');
+  await addBlock(workspaceRoot, 'worklog/basic');
 
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
-  expect(resolvedLock.resolvedBlocks.length).toBe(12);
+  expect(resolvedLock.resolvedBlocks.length).toBe(13);
   expect(resolvedLock.slotTasks).toHaveLength(1);
 
   await composeWorkspace(workspaceRoot);
@@ -75,7 +76,8 @@ test('expanded official block set composes and verifies as one project', { timeo
     'audit_entries',
     'tickets',
     'ticket_attachments',
-    'ticket_comments'
+    'ticket_comments',
+    'worklogs'
   ]);
   expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toEqual([
     'id',
@@ -111,9 +113,12 @@ test('expanded official block set composes and verifies as one project', { timeo
   expect(locked.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'ticket/basic')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'reporting/ticket-summary')).toBe(true);
+  expect(locked.resolvedBlocks.some((block) => block.id === 'worklog/basic')).toBe(true);
   expect(locked.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
   expect(locked.installPlan.some((step) => step.to === 'src/installed/reporting/ticket-summary.ts')).toBe(true);
+  expect(locked.installPlan.some((step) => step.to === 'src/installed/worklog/worklog-service.ts')).toBe(true);
   expect(locked.installPlan.some((step) => step.to === 'tests/unit/ticket-summary.test.ts')).toBe(true);
+  expect(locked.installPlan.some((step) => step.to === 'tests/unit/worklog-service.test.ts')).toBe(true);
   expect(locked.generatedPaths).toEqual(
     expect.arrayContaining([
       'app/tickets/page.tsx',
@@ -124,8 +129,10 @@ test('expanded official block set composes and verifies as one project', { timeo
       'app/api/tickets/[ticketId]/attachments/route.ts',
       'app/api/tickets/[ticketId]/comments/route.ts',
       'app/api/tickets/[ticketId]/status/route.ts',
+      'app/api/tickets/[ticketId]/worklogs/route.ts',
       'components/ticket-attachment-form.tsx',
       'components/ticket-comment-form.tsx',
+      'components/ticket-worklog-form.tsx',
       'components/ticket-form.tsx',
       'components/ticket-status-form.tsx',
       'tests/runtime/unit/ticket-runtime.test.ts',
@@ -142,6 +149,8 @@ test('expanded official block set composes and verifies as one project', { timeo
   expect(ticketsPageSource).toContain('summaryExportHref');
   expect(ticketsPageSource).toContain('Attachments for ${ticket.title}');
   expect(ticketsPageSource).toContain('Comments for ${ticket.title}');
+  expect(ticketsPageSource).toContain('Worklogs for ${ticket.title}');
+  expect(ticketsPageSource).toContain('Total worklog minutes');
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   expect(
