@@ -325,6 +325,8 @@ function renderTicketsPage(options: {
     : '';
   const attachmentSetup = `  const attachmentsByTicket = new Map(tickets.map((ticket) => [ticket.id, listTicketAttachments(database, session, ticket.id)]));
 `;
+  const commentSetup = `  const commentsByTicket = new Map(tickets.map((ticket) => [ticket.id, listTicketComments(database, session, ticket.id)]));
+`;
   const notificationSetup = options.notifyEmailEnabled
     ? `  const ticketNotifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'ticket');
 `
@@ -341,6 +343,16 @@ function renderTicketsPage(options: {
                     <li key={attachment.id}>{attachment.fileName} ({attachment.contentType})</li>
                   ))}
                   {(attachmentsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No attachments yet.</li> : null}
+                </ul>
+              </div>`;
+  const commentView = `
+              <div className="stack" style={{ marginTop: 12 }}>
+                <TicketCommentForm ticketId={ticket.id} ticketTitle={ticket.title} />
+                <ul className="clean" aria-label={\`Comments for \${ticket.title}\`}>
+                  {(commentsByTicket.get(ticket.id) ?? []).map((comment) => (
+                    <li key={comment.id}>{comment.authorId}: {comment.body}</li>
+                  ))}
+                  {(commentsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No comments yet.</li> : null}
                 </ul>
               </div>`;
   const notificationView = options.notifyEmailEnabled
@@ -408,12 +420,13 @@ function renderTicketsPage(options: {
   return `import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { TicketAttachmentForm } from '../../components/ticket-attachment-form.tsx';
+import { TicketCommentForm } from '../../components/ticket-comment-form.tsx';
 import { TicketForm } from '../../components/ticket-form.tsx';
 import { TicketStatusForm } from '../../components/ticket-status-form.tsx';
 import { LogoutButton } from '../../components/logout-button.tsx';
 import { getCurrentSession } from '../../lib/session.ts';
 import { getDatabase } from '../../lib/store.ts';
-import { listTicketAttachments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
+import { listTicketAttachments, listTicketComments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
 
 interface TicketsPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -447,7 +460,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const exportHref = queryString ? '/api/tickets/export?' + queryString : '/api/tickets/export';
   const summaryHref = queryString ? '/api/tickets/summary?' + queryString : '/api/tickets/summary';
   const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
-${attachmentSetup}${notificationSetup}${reportingSetup}${auditSetup}
+${attachmentSetup}${commentSetup}${notificationSetup}${reportingSetup}${auditSetup}
   return (
     <main className="stack">
       <section className="card stack">
@@ -500,7 +513,7 @@ ${attachmentSetup}${notificationSetup}${reportingSetup}${auditSetup}
               <div><strong>{ticket.title}</strong> ({ticket.status})</div>
               <div>{ticket.description || 'No description'}</div>
               <div>Assignee: {ticket.assigneeId}</div>
-              <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />${attachmentView}
+              <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />${attachmentView}${commentView}
             </li>
           ))}
           {tickets.length === 0 ? <li>No tickets yet.</li> : null}
@@ -800,6 +813,54 @@ export async function POST(request: Request, context: TicketAttachmentRouteConte
     return NextResponse.json({ attachment }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid attachment request' }, { status: 400 });
+  }
+}
+`;
+}
+
+function renderTicketCommentsRoute(): string {
+  return `import { NextResponse } from 'next/server';
+import { addTicketComment, listTicketComments } from '../../../../../src/installed/ticket/ticket-service.ts';
+import { getCurrentSession } from '../../../../../lib/session.ts';
+import { getDatabase } from '../../../../../lib/store.ts';
+
+interface TicketCommentRouteContext {
+  params: Promise<{ ticketId: string }>;
+}
+
+export async function GET(_request: Request, context: TicketCommentRouteContext) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const params = await context.params;
+    const ticketId = Number(params.ticketId);
+    const comments = listTicketComments(getDatabase(), session, ticketId);
+    return NextResponse.json({ comments });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid comment request' }, { status: 400 });
+  }
+}
+
+export async function POST(request: Request, context: TicketCommentRouteContext) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const params = await context.params;
+    const ticketId = Number(params.ticketId);
+    const payload = await request.json() as { body?: string };
+    const comment = addTicketComment(getDatabase(), session, {
+      ticketId,
+      body: payload.body ?? ''
+    });
+    return NextResponse.json({ comment }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid comment request' }, { status: 400 });
   }
 }
 `;
@@ -1269,6 +1330,68 @@ export function TicketAttachmentForm({ ticketId, ticketTitle }: TicketAttachment
 `;
 }
 
+function renderTicketCommentForm(): string {
+  return `'use client';
+
+import { type FormEvent, useState } from 'react';
+
+interface TicketCommentFormProps {
+  ticketId: number;
+  ticketTitle: string;
+}
+
+export function TicketCommentForm({ ticketId, ticketTitle }: TicketCommentFormProps) {
+  const [body, setBody] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+
+    const response = await fetch(\`/api/tickets/\${ticketId}/comments\`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ body })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? 'Unable to add comment');
+      setPending(false);
+      return;
+    }
+
+    setBody('');
+    setPending(false);
+    window.location.reload();
+  }
+
+  return (
+    <form className="stack" onSubmit={handleSubmit}>
+      <label>
+        Comment for {ticketTitle}
+        <textarea
+          aria-label={\`Comment for \${ticketTitle}\`}
+          name="body"
+          rows={3}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+        />
+      </label>
+      <div className="row">
+        <button type="submit" disabled={pending}>{pending ? 'Saving...' : \`Add comment for \${ticketTitle}\`}</button>
+      </div>
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
+  );
+}
+`;
+}
+
 function renderTicketForm(): string {
   return `'use client';
 
@@ -1464,7 +1587,8 @@ function renderRuntimeUnitTest(options: {
       'email_notifications',
       'audit_entries',
       'tickets',
-      'ticket_attachments'
+      'ticket_attachments',
+      'ticket_comments'
     `
     : `
       'customers',
@@ -1578,7 +1702,7 @@ import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-ser
 
   return `import { beforeEach, describe, expect, it } from 'vitest';
 import { login } from '../../../src/installed/auth/session.ts';
-import { addTicketAttachment, createTicket, listTicketAttachments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}
+import { addTicketAttachment, addTicketComment, createTicket, listTicketAttachments, listTicketComments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';
 
 describe('runtime ticket service', () => {
@@ -1612,6 +1736,14 @@ describe('runtime ticket service', () => {
     expect(attachment.fileName).toBe('incident.txt');
     expect(listTicketAttachments(database, tenantA, ticket.id)).toHaveLength(1);
     expect(() => listTicketAttachments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
+    const comment = addTicketComment(database, tenantA, {
+      ticketId: ticket.id,
+      body: 'Customer is waiting for an update'
+    });
+    expect(comment.authorId).toBe('user-tenant-a-admin');
+    expect(listTicketComments(database, tenantA, ticket.id)).toHaveLength(1);
+    expect(() => listTicketComments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
+    expect(() => addTicketComment(database, tenantA, { ticketId: ticket.id, body: '   ' })).toThrow(/Ticket comment is required/);
     expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}${reportingAssertions}
     expect(() => transitionTicketStatus(database, tenantB, ticket.id, 'closed')).toThrow(/Ticket is not available/);
   });
@@ -1749,6 +1881,11 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(attachmentPayload.attachments).toEqual([
     expect.objectContaining({ ticketId: 1, fileName: 'incident.txt' })
   ]);
+  await createdTicket.getByLabel('Comment for Escalate onboarding issue').fill('Customer approved the workaround');
+  await createdTicket.getByRole('button', { name: 'Add comment for Escalate onboarding issue' }).click();
+  await expect(createdTicket).toContainText('Customer approved the workaround');
+  const commentResponse = await page.request.get('/api/tickets/1/comments');
+  expect(commentResponse.ok()).toBe(true);
 `;
   const reportingAssertions = options.ticketReportingEnabled
     ? `
@@ -1858,6 +1995,8 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(0);
   const tenantBAttachmentResponse = await page.request.get('/api/tickets/1/attachments');
   expect(tenantBAttachmentResponse.status()).toBe(400);
+  const tenantBCommentResponse = await page.request.get('/api/tickets/1/comments');
+  expect(tenantBCommentResponse.status()).toBe(400);
 });
 `;
 }
@@ -1927,8 +2066,10 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
         ? [{ relativePath: 'app/api/tickets/export/route.ts', source: renderTicketExportRoute() }]
         : []),
       { relativePath: 'app/api/tickets/[ticketId]/attachments/route.ts', source: renderTicketAttachmentsRoute() },
+      { relativePath: 'app/api/tickets/[ticketId]/comments/route.ts', source: renderTicketCommentsRoute() },
       { relativePath: 'app/api/tickets/[ticketId]/status/route.ts', source: renderTicketStatusRoute(customerFeatureOptions) },
       { relativePath: 'components/ticket-attachment-form.tsx', source: renderTicketAttachmentForm() },
+      { relativePath: 'components/ticket-comment-form.tsx', source: renderTicketCommentForm() },
       { relativePath: 'components/ticket-form.tsx', source: renderTicketForm() },
       { relativePath: 'components/ticket-status-form.tsx', source: renderTicketStatusForm() },
       { relativePath: 'tests/runtime/unit/ticket-runtime.test.ts', source: renderTicketRuntimeUnitTest(customerFeatureOptions) },

@@ -83,6 +83,18 @@
         "content_text",
         "created_at"
       ]
+    },
+    {
+      "name": "ticket_comments",
+      "tenantScoped": true,
+      "columns": [
+        "id",
+        "tenant_id",
+        "ticket_id",
+        "body",
+        "author_id",
+        "created_at"
+      ]
     }
   ]
 }

@@ -333,6 +333,18 @@ export interface TicketAttachmentRecord extends TicketAttachmentInput {
   createdAt: string;
 }
 
+export interface TicketCommentInput {
+  ticketId: number;
+  body: string;
+}
+
+export interface TicketCommentRecord extends TicketCommentInput {
+  id: number;
+  tenantId: string;
+  authorId: string;
+  createdAt: string;
+}
+
 export interface Database {
   nextCustomerId: number;
   customers: CustomerRecord[];
@@ -345,6 +357,8 @@ export interface Database {
   tickets: TicketRecord[];
   nextTicketAttachmentId: number;
   ticketAttachments: TicketAttachmentRecord[];
+  nextTicketCommentId: number;
+  ticketComments: TicketCommentRecord[];
 }
 
 export type RuntimePersistence = 'memory' | 'postgres-contract';
@@ -366,7 +380,9 @@ export function createDatabase(): Database {
     nextTicketId: 1,
     tickets: [],
     nextTicketAttachmentId: 1,
-    ticketAttachments: []
+    ticketAttachments: [],
+    nextTicketCommentId: 1,
+    ticketComments: []
   };
 }
 

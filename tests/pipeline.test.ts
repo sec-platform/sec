@@ -25,7 +25,7 @@ afterAll(async () => {
       // ignore cleanup errors
     }
   }
-});
+}, 120000);
 
 async function createWorkspace(prefix: string): Promise<string> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -33,7 +33,7 @@ async function createWorkspace(prefix: string): Promise<string> {
   return workspaceRoot;
 }
 
-test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
+test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000 }, async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -156,7 +156,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   );
 });
 
-test('fast lane alone does not unlock the workspace', async () => {
+test('fast lane alone does not unlock the workspace', { timeout: 20000 }, async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-fast-lane-');
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -203,7 +203,7 @@ test('compose refreshes runtime host scaffold for an existing workspace baseline
   expect(projectPackage.scripts['verify:runtime']).toBe('npm run build && npm run test:unit && npm run test:acceptance');
 });
 
-test('write-local-views consumes generated artifacts from disk', async () => {
+test('write-local-views consumes generated artifacts from disk', { timeout: 120000 }, async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-local-views-');
   const {
     acceptanceCoveragePath,

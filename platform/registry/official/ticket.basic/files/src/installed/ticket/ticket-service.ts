@@ -2,6 +2,8 @@ import type {
   Database,
   TicketAttachmentInput,
   TicketAttachmentRecord,
+  TicketCommentInput,
+  TicketCommentRecord,
   TicketInput,
   TicketRecord,
   TicketStatus
@@ -108,6 +110,35 @@ export function listTicketAttachments(
   assertTicketTenant(db.tickets.find((entry) => entry.id === ticketId), tenantId);
   return db.ticketAttachments
     .filter((attachment) => attachment.tenantId === tenantId && attachment.ticketId === ticketId)
+    .sort((left, right) => left.id - right.id);
+}
+
+export function addTicketComment(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {
+  const tenantId = currentTenant(session);
+  assertTicketTenant(db.tickets.find((entry) => entry.id === input.ticketId), tenantId);
+  const body = input.body.trim();
+  if (!body) {
+    throw new Error('Ticket comment is required');
+  }
+
+  const comment: TicketCommentRecord = {
+    id: db.nextTicketCommentId++,
+    tenantId,
+    ticketId: input.ticketId,
+    body,
+    authorId: session.userId,
+    createdAt: new Date(0).toISOString()
+  };
+
+  db.ticketComments.push(comment);
+  return comment;
+}
+
+export function listTicketComments(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {
+  const tenantId = currentTenant(session);
+  assertTicketTenant(db.tickets.find((entry) => entry.id === ticketId), tenantId);
+  return db.ticketComments
+    .filter((comment) => comment.tenantId === tenantId && comment.ticketId === ticketId)
     .sort((left, right) => left.id - right.id);
 }
 

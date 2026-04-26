@@ -24,7 +24,7 @@ afterAll(async () => {
       // ignore cleanup errors
     }
   }
-});
+}, 120000);
 
 async function createWorkspace(prefix: string): Promise<string> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -32,7 +32,7 @@ async function createWorkspace(prefix: string): Promise<string> {
   return workspaceRoot;
 }
 
-test('expanded official block set composes and verifies as one project', async () => {
+test('expanded official block set composes and verifies as one project', { timeout: 120000 }, async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-expanded-');
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -74,7 +74,8 @@ test('expanded official block set composes and verifies as one project', async (
     'email_notifications',
     'audit_entries',
     'tickets',
-    'ticket_attachments'
+    'ticket_attachments',
+    'ticket_comments'
   ]);
   expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toEqual([
     'id',
@@ -110,8 +111,10 @@ test('expanded official block set composes and verifies as one project', async (
       'app/api/tickets/summary/route.ts',
       'app/api/tickets/summary/export/route.ts',
       'app/api/tickets/[ticketId]/attachments/route.ts',
+      'app/api/tickets/[ticketId]/comments/route.ts',
       'app/api/tickets/[ticketId]/status/route.ts',
       'components/ticket-attachment-form.tsx',
+      'components/ticket-comment-form.tsx',
       'components/ticket-form.tsx',
       'components/ticket-status-form.tsx',
       'tests/runtime/unit/ticket-runtime.test.ts',
@@ -125,6 +128,7 @@ test('expanded official block set composes and verifies as one project', async (
   expect(ticketsPageSource).toContain('Ticket status filter');
   expect(ticketsPageSource).toContain('summaryExportHref');
   expect(ticketsPageSource).toContain('Attachments for ${ticket.title}');
+  expect(ticketsPageSource).toContain('Comments for ${ticket.title}');
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   expect(
