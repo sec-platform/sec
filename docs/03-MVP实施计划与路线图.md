@@ -701,6 +701,7 @@
            - `--json --compact` 单行 JSON。
            - `--paths` 上传路径列表。
            - `--paths --json` 结构化路径列表。
+           - `--paths --json` 输出 `byKind` 计数汇总。
            - `--paths --kind governance` governance 上传路径。
            - `--paths --kind view` view 上传路径。
            - `--paths --kind test` runtime test result 上传路径。
