@@ -293,15 +293,37 @@ test('repair plan includes structured failure points for slot and spec failures'
       })
     ])
   );
+  expect(repairPlan.blockers).toEqual([
+    expect.objectContaining({
+      blockerId: 'repair_blocker_1_fast_policy',
+      boundary: 'spec',
+      reason: 'policy failure is outside automatic slot repair: A policy issue.; Z policy issue.'
+    })
+  ]);
 });
 
-test('repair plan fails when no slot task is repairable', () => {
+test('repair plan records blockers when no slot task is repairable', () => {
   const lockWithoutSlots: LockFile = {
     ...lock,
     slotTasks: []
   };
 
-  expect(() => buildRepairPlan(plan, lockWithoutSlots, failedReport)).toThrow('No repairable slot tasks found for current verification failure');
+  const repairPlan = buildRepairPlan(plan, lockWithoutSlots, failedReport);
+
+  expect(repairPlan.status).toBe('blocked');
+  expect(repairPlan.tasks).toEqual([]);
+  expect(repairPlan.blockers).toEqual([
+    expect.objectContaining({
+      blockerId: 'repair_blocker_no_slot_tasks',
+      boundary: 'slot',
+      reason: 'No eligible slot tasks are present in graph.lock.json for the current verification failure'
+    }),
+    expect.objectContaining({
+      blockerId: 'repair_blocker_1_fast_policy',
+      boundary: 'spec',
+      reason: 'policy failure is outside automatic slot repair: A policy issue.; Z policy issue.'
+    })
+  ]);
 });
 
 test('repair plan falls back when failed summary has no lane details', () => {

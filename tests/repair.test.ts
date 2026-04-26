@@ -223,6 +223,35 @@ test('repair dry-run writes a pending plan without touching source or verificati
   }
 });
 
+test('repair writes blocked plans before reporting non-repairable failures', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-repair-blocked-'));
+  try {
+    await writeRepairFixture(workspaceRoot, {
+      ...lock(),
+      slotTasks: []
+    });
+
+    const result = await runCli(workspaceRoot, ['repair']);
+    const { lockPath, repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const persistedLock = await fs.readFile(lockPath, 'utf8').then((content) => JSON.parse(content) as LockFile);
+    const persistedRepairPlan = await fs.readFile(repairPlanPath, 'utf8').then((content) => JSON.parse(content) as RepairPlan);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('REPAIR-BLOCKED-001');
+    expect(result.stderr).toContain('No eligible slot tasks are present in graph.lock.json');
+    expect(persistedLock.passStatus.repair).toBe('failed');
+    expect(persistedRepairPlan.status).toBe('blocked');
+    expect(persistedRepairPlan.blockers).toEqual([
+      expect.objectContaining({
+        blockerId: 'repair_blocker_no_slot_tasks',
+        boundary: 'slot'
+      })
+    ]);
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('repair blocks lock until verification reruns', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-repair-lock-'));
   try {

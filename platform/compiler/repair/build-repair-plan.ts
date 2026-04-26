@@ -8,6 +8,7 @@ import { writeProvenance } from '../emit/write-provenance.ts';
 import type {
   LockFile,
   PlanFile,
+  RepairBlocker,
   RepairFailurePoint,
   RepairPlan,
   RepairTask,
@@ -148,6 +149,65 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       ];
 }
 
+function repairBoundaryFor(point: RepairFailurePoint): RepairBlocker['boundary'] {
+  if (point.issueType === 'spec' || point.issueType === 'kernel' || point.issueType === 'slot') {
+    return point.issueType;
+  }
+  return 'unknown';
+}
+
+function repairDecisionFor(boundary: RepairBlocker['boundary']): string {
+  if (boundary === 'spec') {
+    return 'Decide whether to change policy/spec, installed source, or project plan before repair can proceed.';
+  }
+  if (boundary === 'kernel') {
+    return 'Inspect runtime/build ownership and decide whether compiler or generated runtime code must change.';
+  }
+  if (boundary === 'slot') {
+    return 'Regenerate or add a slot task that owns the failing target before repair can proceed.';
+  }
+  if (boundary === 'scope') {
+    return 'Choose an allowed project-scoped target before repair can proceed.';
+  }
+  return 'Classify the failure owner before repair can proceed.';
+}
+
+function buildRepairBlockers(failurePoints: RepairFailurePoint[]): RepairBlocker[] {
+  return failurePoints
+    .filter((point) => !point.repairable)
+    .map((point, index) => {
+      const boundary = repairBoundaryFor(point);
+      return {
+        blockerId: `repair_blocker_${index + 1}_${point.lane}_${point.kind}`,
+        reason: `${point.kind} failure is outside automatic slot repair: ${point.message}`,
+        boundary,
+        decisionRequired: repairDecisionFor(boundary),
+        failurePoints: [point]
+      };
+    });
+}
+
+function buildNoSlotBlocker(failurePoints: RepairFailurePoint[]): RepairBlocker {
+  return {
+    blockerId: 'repair_blocker_no_slot_tasks',
+    reason: 'No eligible slot tasks are present in graph.lock.json for the current verification failure',
+    boundary: 'slot',
+    decisionRequired: repairDecisionFor('slot'),
+    failurePoints
+  };
+}
+
+function blockedRepairPlan(blockers: RepairBlocker[]): RepairPlan {
+  return {
+    formatVersion: '1',
+    status: 'blocked',
+    sourceVerificationStatus: 'failed',
+    requiresVerification: false,
+    tasks: [],
+    blockers
+  };
+}
+
 export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: VerificationReport): RepairPlan {
   if (report.summary.status === 'passed') {
     return {
@@ -160,6 +220,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
   }
 
   const failurePoints = buildFailurePoints(report);
+  const blockers = buildRepairBlockers(failurePoints);
   const tasks: RepairTask[] = lock.slotTasks
     .filter((task) => task.status === 'filled' || task.status === 'verified' || task.status === 'failed')
     .map((task) => {
@@ -181,7 +242,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
     });
 
   if (tasks.length === 0) {
-    throw new CompilerError('REPAIR-BLOCKED-001', 'No repairable slot tasks found for current verification failure');
+    return blockedRepairPlan([buildNoSlotBlocker(failurePoints), ...blockers]);
   }
 
   return {
@@ -189,7 +250,8 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
     status: 'pending',
     sourceVerificationStatus: 'failed',
     requiresVerification: false,
-    tasks
+    tasks,
+    ...(blockers.length > 0 ? { blockers } : {})
   };
 }
 

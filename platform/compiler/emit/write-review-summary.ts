@@ -403,6 +403,19 @@ export async function buildReviewSummary(
         message: 'Repair applied and requires verification rerun'
       });
     }
+    for (const blocker of repairPlan.blockers ?? []) {
+      addFailurePoint(failurePoints, {
+        lane: 'all',
+        kind: 'repair',
+        artifactPath: 'generated/repair-plan.json',
+        message: `Repair blocked at ${blocker.boundary}: ${blocker.reason}`
+      });
+      addConflictHint(conflictHints, {
+        kind: 'repair-blocked',
+        relatedId: blocker.blockerId,
+        message: `Repair blocked: ${blocker.reason}; decision ${blocker.decisionRequired}`
+      });
+    }
     for (const task of repairPlan.tasks) {
       const preview = task.preview
         ? `; preview ${task.preview.changed ? 'changed' : 'unchanged'} +${task.preview.addedLines}/-${task.preview.removedLines}`

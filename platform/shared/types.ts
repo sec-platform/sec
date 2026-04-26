@@ -569,7 +569,7 @@ export interface AcceptanceCoverageReport {
 
 export interface ReviewFailurePoint {
   lane: 'fast' | 'runtime' | 'all';
-  kind: 'summary' | 'policy' | 'build' | 'unit' | 'acceptance' | 'upgrade';
+  kind: 'summary' | 'policy' | 'build' | 'unit' | 'acceptance' | 'upgrade' | 'repair';
   message: string;
   artifactPath: string;
 }
@@ -582,7 +582,12 @@ export interface ReviewRegressionRisk {
 }
 
 export interface ReviewConflictHint {
-  kind: 'override-conflict' | 'upgrade-plan-present' | 'upgrade-preflight-passed' | 'repair-plan-present';
+  kind:
+    | 'override-conflict'
+    | 'upgrade-plan-present'
+    | 'upgrade-preflight-passed'
+    | 'repair-plan-present'
+    | 'repair-blocked';
   message: string;
   relatedId: string;
 }
@@ -663,6 +668,14 @@ export interface RepairTaskPreview {
   changed: boolean;
 }
 
+export interface RepairBlocker {
+  blockerId: string;
+  reason: string;
+  boundary: 'slot' | 'spec' | 'kernel' | 'scope' | 'unknown';
+  decisionRequired: string;
+  failurePoints: RepairFailurePoint[];
+}
+
 export interface RepairTask {
   taskId: string;
   taskKind: 'repair-slot';
@@ -681,10 +694,11 @@ export interface RepairTask {
 
 export interface RepairPlan {
   formatVersion: string;
-  status: 'pending' | 'applied' | 'skipped';
+  status: 'pending' | 'applied' | 'skipped' | 'blocked';
   sourceVerificationStatus: 'passed' | 'failed';
   requiresVerification: boolean;
   tasks: RepairTask[];
+  blockers?: RepairBlocker[];
 }
 
 export interface UpgradeMigrationSummary {

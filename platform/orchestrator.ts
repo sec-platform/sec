@@ -207,6 +207,15 @@ export async function repairWorkspace(
 
   try {
     const repairPlan = buildRepairPlan(plan, lock, report);
+    if (repairPlan.status === 'blocked') {
+      lock.passStatus.repair = 'failed';
+      await writeRepairPlan(workspaceRoot, repairPlan, lock);
+      throw new CompilerError(
+        'REPAIR-BLOCKED-001',
+        repairPlan.blockers?.[0]?.reason ?? 'Repair is blocked for current verification failure',
+        { blockers: repairPlan.blockers ?? [] }
+      );
+    }
     if (repairPlan.status === 'pending') {
       if (options.dryRun) {
         await previewRepairPlan(workspaceRoot, plan, lock, repairPlan);

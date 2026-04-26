@@ -138,13 +138,44 @@ test('review summary surfaces pending repair tasks', async () => {
             }
           ]
         }
+      ],
+      blockers: [
+        {
+          blockerId: 'repair_blocker_policy',
+          boundary: 'spec',
+          reason: 'policy failure is outside automatic slot repair: tenant scope missing',
+          decisionRequired: 'Decide whether to change policy/spec, installed source, or project plan before repair can proceed.',
+          failurePoints: [
+            {
+              lane: 'fast',
+              kind: 'policy',
+              issueType: 'spec',
+              repairable: false,
+              artifactPath: 'generated/policy-report.json',
+              message: 'tenant scope missing',
+              targetIds: ['tenant-scope-required']
+            }
+          ]
+        }
       ]
     };
     await writeJson(repairPlanPath, repairPlan);
 
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+    expect(summary.failurePoints).toContainEqual({
+      lane: 'all',
+      kind: 'repair',
+      artifactPath: 'generated/repair-plan.json',
+      message: 'Repair blocked at spec: policy failure is outside automatic slot repair: tenant scope missing'
+    });
     expect(summary.conflictHints).toEqual([
+      {
+        kind: 'repair-blocked',
+        relatedId: 'repair_blocker_policy',
+        message:
+          'Repair blocked: policy failure is outside automatic slot repair: tenant scope missing; decision Decide whether to change policy/spec, installed source, or project plan before repair can proceed.'
+      },
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_alpha',
@@ -164,6 +195,12 @@ test('review summary surfaces pending repair tasks', async () => {
     const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
     expect(appliedSummary.conflictHints).toEqual([
+      {
+        kind: 'repair-blocked',
+        relatedId: 'repair_blocker_policy',
+        message:
+          'Repair blocked: policy failure is outside automatic slot repair: tenant scope missing; decision Decide whether to change policy/spec, installed source, or project plan before repair can proceed.'
+      },
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_alpha',
