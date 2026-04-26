@@ -127,7 +127,15 @@ test('workspace private registry blocks resolve, compose, and verify through the
   });
 
   const reviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
-    changeSources: Array<{ path: string; registrySourceId?: string; registryKind?: string; registryLocation?: string }>;
+    changeSources: Array<{
+      path: string;
+      registrySourceId?: string;
+      registryKind?: string;
+      registryLocation?: string;
+      runtimeKind?: 'page' | 'api';
+      vertical?: string;
+      relatedBlocks?: string[];
+    }>;
   };
   expect(reviewSummary.changeSources.find((source) => source.path === 'src/installed/private/banner.ts')).toMatchObject({
     registrySourceId: 'private',

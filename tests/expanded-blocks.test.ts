@@ -119,11 +119,42 @@ test('expanded official block set composes and verifies as one project', async (
   const routesSource = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'routes.ts'), 'utf8');
   expect(routesSource).toContain("path: '/tickets'");
 
-  await explainWorkspace(workspaceRoot);
+  const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
+  expect(
+    reviewSummary.runtimeEntries.find((entry) => entry.path === 'app/api/tickets/summary/export/route.ts')
+  ).toEqual({
+    path: 'app/api/tickets/summary/export/route.ts',
+    kind: 'api',
+    vertical: 'ticket',
+    relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+  });
+  expect(reviewSummary.verticalSlices).toEqual(
+    expect.arrayContaining([
+      {
+        id: 'ticket',
+        runtimeEntries: expect.arrayContaining([
+          'app/tickets/page.tsx',
+          'app/api/tickets/export/route.ts',
+          'app/api/tickets/summary/route.ts',
+          'app/api/tickets/summary/export/route.ts'
+        ]),
+        relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+      }
+    ])
+  );
+  expect(
+    graph.edges.some(
+      (edge) =>
+        edge.from === 'block:reporting/ticket-summary' &&
+        edge.to === 'file:app/api/tickets/summary/route.ts' &&
+        edge.type === 'writes_to'
+    )
+  ).toBe(true);
   const sourceView = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'views', 'source-view.html'), 'utf8');
   expect(sourceView).toContain('Runtime Entry Points');
   expect(sourceView).toContain('Vertical Summary');
   expect(sourceView).toContain('Block Combination Summary');
+  expect(sourceView).toContain('Review Runtime Attribution');
   expect(sourceView).toContain('app/api/tickets/export/route.ts');
   expect(sourceView).toContain('app/api/tickets/summary/route.ts');
   expect(sourceView).toContain('app/api/tickets/summary/export/route.ts');

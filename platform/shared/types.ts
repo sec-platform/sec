@@ -542,6 +542,21 @@ export interface ReviewConflictHint {
   relatedId: string;
 }
 
+export type ReviewRuntimeEntryKind = 'page' | 'api';
+
+export interface ReviewRuntimeEntry {
+  path: string;
+  kind: ReviewRuntimeEntryKind;
+  vertical?: string;
+  relatedBlocks: string[];
+}
+
+export interface ReviewVerticalSlice {
+  id: string;
+  runtimeEntries: string[];
+  relatedBlocks: string[];
+}
+
 export interface ReviewSummary {
   formatVersion: '2';
   changeSources: Array<{
@@ -551,7 +566,12 @@ export interface ReviewSummary {
     registrySourceId?: string;
     registryKind?: RegistryKind;
     registryLocation?: RegistryLocation;
+    runtimeKind?: ReviewRuntimeEntryKind;
+    vertical?: string;
+    relatedBlocks?: string[];
   }>;
+  runtimeEntries: ReviewRuntimeEntry[];
+  verticalSlices: ReviewVerticalSlice[];
   impactedBlocks: string[];
   impactedSlots: string[];
   failurePoints: ReviewFailurePoint[];

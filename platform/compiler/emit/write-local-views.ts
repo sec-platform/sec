@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 import type {
   AcceptanceCoverageReport,
   ExplainGraph,
@@ -27,16 +28,6 @@ function renderJsonCard(title: string, value: unknown): string {
   return `<section class="card"><h2>${escapeHtml(title)}</h2><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></section>`;
 }
 
-function classifyRuntimeEntry(path: string): string | null {
-  if (/^app\/.+\/page\.tsx$/.test(path) || path === 'app/page.tsx') {
-    return 'page';
-  }
-  if (/^app\/api\/.+\/route\.ts$/.test(path)) {
-    return 'api';
-  }
-  return null;
-}
-
 function renderRuntimeEntriesTable(lock: LockFile): string {
   const entries = lock.generatedPaths
     .map((generatedPath) => ({ path: generatedPath, kind: classifyRuntimeEntry(generatedPath) }))
@@ -56,60 +47,48 @@ function renderRuntimeEntriesTable(lock: LockFile): string {
       </section>`;
 }
 
-function detectVerticalFromPath(filePath: string): string | null {
-  if (filePath.includes('/tickets') || filePath.includes('ticket')) {
-    return 'ticket';
-  }
-  if (filePath.includes('/customers') || filePath.includes('customer')) {
-    return 'customer';
-  }
-  return null;
-}
-
 function renderVerticalSummaryCard(lock: LockFile, review: ReviewSummary): string {
-  const verticals = new Map<string, { blocks: Set<string>; runtimeEntries: Set<string>; risks: string[] }>();
-
-  const ensureVertical = (vertical: string) => {
-    let entry = verticals.get(vertical);
-    if (!entry) {
-      entry = { blocks: new Set<string>(), runtimeEntries: new Set<string>(), risks: [] };
-      verticals.set(vertical, entry);
-    }
-    return entry;
-  };
-
-  for (const block of lock.resolvedBlocks) {
-    const vertical = detectVerticalFromPath(block.id);
-    if (!vertical) {
-      continue;
-    }
-    ensureVertical(vertical).blocks.add(block.id);
-  }
-
-  for (const generatedPath of lock.generatedPaths) {
-    const runtimeKind = classifyRuntimeEntry(generatedPath);
-    const vertical = detectVerticalFromPath(generatedPath);
-    if (!runtimeKind || !vertical) {
-      continue;
-    }
-    ensureVertical(vertical).runtimeEntries.add(generatedPath);
-  }
+  const riskMap = new Map<string, string[]>();
 
   for (const risk of review.regressionRisks) {
     const vertical = detectVerticalFromPath(risk.blockId ?? '') ?? detectVerticalFromPath(risk.message);
     if (!vertical) {
       continue;
     }
-    ensureVertical(vertical).risks.push(risk.message);
+    riskMap.set(vertical, [...(riskMap.get(vertical) ?? []), risk.message].sort((left, right) => left.localeCompare(right)));
   }
 
-  const rows = [...verticals.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([vertical, summary]) => {
-      const blocks = [...summary.blocks].sort((left, right) => left.localeCompare(right)).join(', ') || 'none';
-      const runtimeEntries = [...summary.runtimeEntries].sort((left, right) => left.localeCompare(right)).join(', ') || 'none';
-      const risks = summary.risks.sort((left, right) => left.localeCompare(right)).join(' | ') || 'none';
-      return `<tr><td>${escapeHtml(vertical)}</td><td>${escapeHtml(blocks)}</td><td>${escapeHtml(runtimeEntries)}</td><td>${escapeHtml(risks)}</td></tr>`;
+  const fallbackSlices = new Map<string, { runtimeEntries: Set<string>; relatedBlocks: Set<string> }>();
+  for (const entry of buildRuntimeAttributions(lock, lock.generatedPaths)) {
+    if (!entry.vertical) {
+      continue;
+    }
+    let slice = fallbackSlices.get(entry.vertical);
+    if (!slice) {
+      slice = { runtimeEntries: new Set<string>(), relatedBlocks: new Set<string>() };
+      fallbackSlices.set(entry.vertical, slice);
+    }
+    slice.runtimeEntries.add(entry.path);
+    for (const blockId of entry.relatedBlocks) {
+      slice.relatedBlocks.add(blockId);
+    }
+  }
+
+  const sliceIds = new Set<string>([
+    ...review.verticalSlices.map((slice) => slice.id),
+    ...fallbackSlices.keys(),
+    ...riskMap.keys()
+  ]);
+
+  const rows = [...sliceIds]
+    .sort((left, right) => left.localeCompare(right))
+    .map((vertical) => {
+      const summary = review.verticalSlices.find((slice) => slice.id === vertical);
+      const fallback = fallbackSlices.get(vertical);
+      const blocks = summary?.relatedBlocks ?? [...(fallback?.relatedBlocks ?? [])].sort((left, right) => left.localeCompare(right));
+      const runtimeEntries = summary?.runtimeEntries ?? [...(fallback?.runtimeEntries ?? [])].sort((left, right) => left.localeCompare(right));
+      const risks = riskMap.get(vertical) ?? [];
+      return `<tr><td>${escapeHtml(vertical)}</td><td>${escapeHtml(blocks.join(', ') || 'none')}</td><td>${escapeHtml(runtimeEntries.join(', ') || 'none')}</td><td>${escapeHtml(risks.join(' | ') || 'none')}</td></tr>`;
     })
     .join('');
 
@@ -161,6 +140,23 @@ function renderFailureFocusCard(review: ReviewSummary): string {
         <table>
           <thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="4">No failure points.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
+function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
+  const rows = review.runtimeEntries
+    .map(
+      (entry) =>
+        `<tr><td>${escapeHtml(entry.kind)}</td><td>${escapeHtml(entry.vertical ?? 'none')}</td><td>${escapeHtml(entry.path)}</td><td>${escapeHtml(entry.relatedBlocks.join(', ') || 'none')}</td></tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Review Runtime Attribution</h2>
+        <table>
+          <thead><tr><th>Kind</th><th>Vertical</th><th>Path</th><th>Related Blocks</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">No runtime entries in review summary.</td></tr>'}</tbody>
         </table>
       </section>`;
 }
@@ -421,6 +417,7 @@ function renderSourceView(
       ${renderVerticalSummaryCard(lock, review)}
       ${renderBlockCombinationCard(lock)}
       ${renderFailureFocusCard(review)}
+      ${renderReviewRuntimeAttributionCard(review)}
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradePlanTable(upgradePlan)}

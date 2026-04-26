@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
+import { buildRuntimeAttributions, buildVerticalSliceAttributions } from './runtime-attribution.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
@@ -345,20 +346,35 @@ export async function buildReviewSummary(
     }
   }
 
+  const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path));
+  const runtimeEntryByPath = new Map(runtimeEntries.map((entry) => [entry.path, entry]));
+
   return {
     formatVersion: '2',
-    changeSources: provenance.artifacts.map((artifact) => ({
-      path: artifact.path,
-      originType: artifact.originType,
-      originId: artifact.originId,
-      ...(artifact.registrySourceId
-        ? {
-            registrySourceId: artifact.registrySourceId,
-            registryKind: artifact.registryKind,
-            registryLocation: artifact.registryLocation
-          }
-        : {})
-    })),
+    changeSources: provenance.artifacts.map((artifact) => {
+      const runtimeEntry = runtimeEntryByPath.get(artifact.path);
+      return {
+        path: artifact.path,
+        originType: artifact.originType,
+        originId: artifact.originId,
+        ...(artifact.registrySourceId
+          ? {
+              registrySourceId: artifact.registrySourceId,
+              registryKind: artifact.registryKind,
+              registryLocation: artifact.registryLocation
+            }
+          : {}),
+        ...(runtimeEntry
+          ? {
+              runtimeKind: runtimeEntry.kind,
+              ...(runtimeEntry.vertical ? { vertical: runtimeEntry.vertical } : {}),
+              relatedBlocks: runtimeEntry.relatedBlocks
+            }
+          : {})
+      };
+    }),
+    runtimeEntries,
+    verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
     impactedBlocks: unique(lock.resolvedBlocks.map((block) => block.id)),
     impactedSlots: unique(lock.slotTasks.map((task) => task.id)),
     failurePoints: [...failurePoints].sort(compareFailurePoints),

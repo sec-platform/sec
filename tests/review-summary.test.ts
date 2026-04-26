@@ -313,3 +313,175 @@ test('buildReviewSummary adds failed verification targets as structured failure 
     message: 'Block entity/customer-basic has no runtime acceptance coverage'
   });
 });
+
+test('buildReviewSummary groups ticket runtime entries into explicit vertical attribution', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-review-ticket-attribution-');
+  const lock: LockFile = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [
+      {
+        id: 'ticket/basic',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 1,
+        manifestPath: 'manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official'
+      },
+      {
+        id: 'export/csv-basic',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 2,
+        manifestPath: 'manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official'
+      },
+      {
+        id: 'reporting/ticket-summary',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 3,
+        manifestPath: 'manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official'
+      }
+    ],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [],
+    generatedPaths: [
+      'app/tickets/page.tsx',
+      'app/api/tickets/route.ts',
+      'app/api/tickets/export/route.ts',
+      'app/api/tickets/summary/route.ts',
+      'app/api/tickets/summary/export/route.ts'
+    ],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'succeeded',
+      repair: 'skipped',
+      lock: 'succeeded',
+      emit: 'pending'
+    }
+  };
+  const provenance: ProvenanceFile = {
+    formatVersion: '1',
+    artifacts: [
+      {
+        path: 'app/tickets/page.tsx',
+        originType: 'generated',
+        originId: 'app/tickets/page.tsx',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'app/api/tickets/summary/route.ts',
+        originType: 'generated',
+        originId: 'app/api/tickets/summary/route.ts',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'app/api/tickets/summary/export/route.ts',
+        originType: 'generated',
+        originId: 'app/api/tickets/summary/export/route.ts',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none'
+      }
+    ]
+  };
+  const coverage: AcceptanceCoverageReport = {
+    formatVersion: '1',
+    status: 'passed',
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
+  const report: VerificationReport = {
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      status: 'passed',
+      build: { status: 'passed' },
+      unit: { status: 'passed', passed: [] },
+      acceptance: { status: 'passed', passed: [], failed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      status: 'passed',
+      build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
+      unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
+      acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' },
+      logs: { stdout: '', stderr: '' }
+    },
+    summary: {
+      status: 'passed',
+      requestedLane: 'all',
+      failedLanes: []
+    },
+    logs: { stdout: '', stderr: '' }
+  };
+
+  const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+
+  expect(summary.runtimeEntries).toEqual(
+    expect.arrayContaining([
+      {
+        path: 'app/api/tickets/summary/route.ts',
+        kind: 'api',
+        vertical: 'ticket',
+        relatedBlocks: ['reporting/ticket-summary', 'ticket/basic']
+      },
+      {
+        path: 'app/api/tickets/summary/export/route.ts',
+        kind: 'api',
+        vertical: 'ticket',
+        relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+      }
+    ])
+  );
+  expect(summary.verticalSlices).toEqual([
+    {
+      id: 'ticket',
+      runtimeEntries: [
+        'app/api/tickets/summary/export/route.ts',
+        'app/api/tickets/summary/route.ts',
+        'app/tickets/page.tsx'
+      ],
+      relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+    }
+  ]);
+  expect(summary.changeSources.find((source) => source.path === 'app/api/tickets/summary/export/route.ts')).toEqual({
+    path: 'app/api/tickets/summary/export/route.ts',
+    originType: 'generated',
+    originId: 'app/api/tickets/summary/export/route.ts',
+    runtimeKind: 'api',
+    vertical: 'ticket',
+    relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+  });
+});

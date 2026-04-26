@@ -4,6 +4,7 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { buildProvenance, writeProvenance } from './write-provenance.ts';
+import { buildRuntimeAttribution } from './runtime-attribution.ts';
 import type {
   AcceptanceCoverageReport,
   ExplainGraph,
@@ -196,6 +197,19 @@ export async function buildExplainGraph(
       to: originNodeId,
       type: 'originates_from'
     });
+
+    const runtimeAttribution = buildRuntimeAttribution(lock, artifact.path);
+    if (!runtimeAttribution) {
+      continue;
+    }
+
+    for (const blockId of runtimeAttribution.relatedBlocks) {
+      pushEdge(edges, {
+        from: `block:${blockId}`,
+        to: fileNodeId,
+        type: 'writes_to'
+      });
+    }
   }
 
   if (policyReport) {
