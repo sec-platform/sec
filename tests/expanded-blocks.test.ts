@@ -10,7 +10,8 @@ import {
   initWorkspace,
   lockWorkspace,
   resolveWorkspace,
-  verifyWorkspace
+  verifyWorkspace,
+  explainWorkspace
 } from '../platform/orchestrator.ts';
 
 const activeWorkspaces = new Set<string>();
@@ -111,6 +112,11 @@ test('expanded official block set composes and verifies as one project', async (
 
   const routesSource = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'routes.ts'), 'utf8');
   expect(routesSource).toContain("path: '/tickets'");
+
+  await explainWorkspace(workspaceRoot);
+  const sourceView = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'views', 'source-view.html'), 'utf8');
+  expect(sourceView).toContain('Runtime Entry Points');
+  expect(sourceView).toContain('app/api/tickets/export/route.ts');
 });
 
 test('reference project coverage has no uncovered blocks', async () => {
