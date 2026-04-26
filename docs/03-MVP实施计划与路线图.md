@@ -600,6 +600,11 @@
          - 显示每组 runtime entries。
          - 显示每组 targets。
          - 保留 impact details 明细表。
+       - local view 维护性：
+         - 状态：done。
+         - 抽取列表格式化 helper。
+         - 统一 sort / join / fallback 口径。
+         - 减少新增卡片中的重复长表达式。
      - 切口 D：CI 消费口径：
        - `upgrade --dry-run --json`：
          - 状态：done。
