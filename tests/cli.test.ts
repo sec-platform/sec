@@ -343,7 +343,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         missingCount: number;
       };
       artifacts: Array<{ path: string; kind: string; uploadName: string; exists: boolean }>;
-      missing: string[];
+      missing: Array<{ path: string; reason: string; declaredBy: string }>;
     };
     expect(manifest).toMatchObject({
       formatVersion: '1',
@@ -403,6 +403,24 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       reviewSummary: { artifactSummary?: typeof manifest.summary };
     };
     expect(explainPayload.reviewSummary.artifactSummary).toEqual(manifest.summary);
+
+    const lockWithMissingArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
+    lockWithMissingArtifact.generatedPaths.push('generated/missing-diagnostic.json');
+    await fs.writeFile(lockPath, `${JSON.stringify(lockWithMissingArtifact, null, 2)}\n`, 'utf8');
+
+    const missingResult = await runCli(workspaceRoot, ['artifacts', '--json']);
+    expect(missingResult.code).toBe(0);
+    expect(missingResult.stderr).toBe('');
+
+    const manifestWithMissing = JSON.parse(missingResult.stdout) as typeof manifest;
+    expect(manifestWithMissing.summary.missingCount).toBe(1);
+    expect(manifestWithMissing.missing).toEqual([
+      {
+        path: 'generated/missing-diagnostic.json',
+        reason: 'declared-generated-missing',
+        declaredBy: 'graph.lock.json'
+      }
+    ]);
   });
 });
 
