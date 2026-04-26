@@ -413,14 +413,21 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(missingResult.stderr).toBe('');
 
     const manifestWithMissing = JSON.parse(missingResult.stdout) as typeof manifest;
-    expect(manifestWithMissing.summary.missingCount).toBe(1);
-    expect(manifestWithMissing.missing).toEqual([
+    const missingDiagnostics = [
       {
         path: 'generated/missing-diagnostic.json',
         reason: 'declared-generated-missing',
         declaredBy: 'graph.lock.json'
       }
-    ]);
+    ];
+    expect(manifestWithMissing.summary.missingCount).toBe(1);
+    expect(manifestWithMissing.missing).toEqual(missingDiagnostics);
+
+    const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
+    const explainWithMissingPayload = JSON.parse(explainWithMissingResult.stdout) as {
+      reviewSummary: { artifactSummary?: typeof manifest.summary & { missing?: typeof missingDiagnostics } };
+    };
+    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(missingDiagnostics);
   });
 });
 

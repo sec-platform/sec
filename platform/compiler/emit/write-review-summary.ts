@@ -178,7 +178,10 @@ async function readArtifactSummary(workspaceRoot: string): Promise<ReviewSummary
     return undefined;
   }
   const manifest = await readJson<CiArtifactManifest>(ciArtifactsPath);
-  return manifest.summary;
+  return {
+    ...manifest.summary,
+    ...(manifest.missing.length > 0 ? { missing: manifest.missing } : {})
+  };
 }
 
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {

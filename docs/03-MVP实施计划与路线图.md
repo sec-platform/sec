@@ -603,6 +603,10 @@
            - `path`。
            - `reason`。
            - `declaredBy`。
+         - 缺失项可被消费：
+           - review summary。
+           - `explain --json`。
+           - local source view。
          - 持久化 `generated/ci-artifacts.json`。
          - 写入 lock/provenance。
        - 补对应测试夹具与快照。
