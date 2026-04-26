@@ -2,6 +2,11 @@ import type { Database, TicketInput, TicketRecord, TicketStatus } from '../../ru
 import type { Session } from '../auth/session.ts';
 import { currentTenant } from '../tenant/context.ts';
 
+export interface TicketFilters {
+  assigneeId?: string;
+  status?: TicketStatus;
+}
+
 function normalizeTicketTitle(title: string): string {
   const normalized = title.trim();
   if (!normalized) {
@@ -52,6 +57,18 @@ export function listTickets(db: Database, session: Session): TicketRecord[] {
   return db.tickets.filter((ticket) => ticket.tenantId === tenantId).sort((left, right) => left.id - right.id);
 }
 
+export function listTicketsWithFilters(db: Database, session: Session, filters: TicketFilters): TicketRecord[] {
+  return listTickets(db, session).filter((ticket) => {
+    if (filters.assigneeId && ticket.assigneeId !== filters.assigneeId) {
+      return false;
+    }
+    if (filters.status && ticket.status !== filters.status) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export function listTicketsByAssignee(db: Database, session: Session, assigneeId: string): TicketRecord[] {
-  return listTickets(db, session).filter((ticket) => ticket.assigneeId === assigneeId);
+  return listTicketsWithFilters(db, session, { assigneeId });
 }

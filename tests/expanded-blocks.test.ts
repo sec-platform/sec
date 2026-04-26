@@ -118,6 +118,9 @@ test('expanded official block set composes and verifies as one project', async (
 
   const routesSource = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'routes.ts'), 'utf8');
   expect(routesSource).toContain("path: '/tickets'");
+  const ticketsPageSource = await fs.readFile(path.join(workspaceRoot, 'project', 'app', 'tickets', 'page.tsx'), 'utf8');
+  expect(ticketsPageSource).toContain('Ticket status filter');
+  expect(ticketsPageSource).toContain('summaryExportHref');
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   expect(
