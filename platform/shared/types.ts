@@ -633,11 +633,18 @@ export interface ReviewArtifactMissingEntry {
   declaredBy: string;
 }
 
+export interface ReviewArtifactUploadGroup {
+  kind: string;
+  count: number;
+  paths: string[];
+}
+
 export interface ReviewArtifactSummary {
   artifactCount: number;
   governanceCount: number;
   viewCount: number;
   missingCount: number;
+  uploadGroups?: ReviewArtifactUploadGroup[];
   missing?: ReviewArtifactMissingEntry[];
 }
 
