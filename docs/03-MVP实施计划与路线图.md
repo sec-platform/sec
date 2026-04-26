@@ -52,7 +52,7 @@
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
-| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
+| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 
@@ -86,6 +86,12 @@
        - 可删除已存在文件。
        - 目标是目录时会阻断。
        - dry-run plan 可展示 impact 和 migration summary。
+     - `rename-file` 文件移动迁移：
+       - 可把文件移动到新路径。
+       - source 缺失会阻断。
+       - source 是目录会阻断。
+       - target 已存在会阻断。
+       - dry-run plan 同时展示 source/target impact。
      - 官方升级 manifest 中的多迁移类型覆盖。
      - upgrade plan migration 摘要与类型计数。
      - upgrade dry-run 入口。
@@ -116,9 +122,11 @@
          - safety：目标是目录时阻断。
          - plan：dry-run 记录文件 impact。
        - rename-file：
-         - 状态：later。
-         - 执行：移动或重命名目标文件。
-         - preflight：源文件存在且目标路径未占用。
+         - 状态：done。
+         - 执行：移动或重命名文件。
+         - safety：source 必须存在且必须是文件。
+         - safety：target 必须未占用。
+         - plan：dry-run 记录 source 与 target impact。
      - 切口 B：新增文本结构类 migration：
        - text-append：
          - 状态：done。

@@ -92,6 +92,16 @@ function deleteFile(target: string): UpgradeMigrationEntry {
   };
 }
 
+function renameFile(source: string, target: string): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-rename-file',
+    kind: 'rename-file',
+    reason: 'test file rename',
+    source,
+    target
+  };
+}
+
 function textReplaceRegex(target: string, pattern: string, replacement: string, flags?: string): UpgradeMigrationEntry {
   return {
     id: 'mig-test-text-replace-regex',
@@ -497,6 +507,113 @@ test('delete-file migration rejects directory targets', async () => {
       applyMigrationEntries(projectRoot, manifestRoot, [target], [deleteFile(target)])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('rename-file migration moves file targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const source = 'generated/reports/old.json';
+    const target = 'generated/reports/archive/old.json';
+    const sourcePath = path.join(projectRoot, 'generated', 'reports', 'old.json');
+    const targetPath = path.join(projectRoot, 'generated', 'reports', 'archive', 'old.json');
+    await fs.writeFile(sourcePath, '{"status":"old"}\n', 'utf8');
+
+    await applyMigrationEntries(
+      projectRoot,
+      manifestRoot,
+      [source, target],
+      [renameFile(source, target)]
+    );
+
+    await expect(fs.access(sourcePath)).rejects.toThrow();
+    await expect(fs.readFile(targetPath, 'utf8')).resolves.toBe('{"status":"old"}\n');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('rename-file migration rejects missing sources', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const source = 'generated/reports/missing.json';
+    const target = 'generated/reports/archive/missing.json';
+    await expect(
+      applyMigrationEntries(
+        projectRoot,
+        manifestRoot,
+        [source, target],
+        [renameFile(source, target)]
+      )
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-018'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('rename-file migration rejects directory sources', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const source = 'generated/reports';
+    const target = 'generated/archive';
+    await expect(
+      applyMigrationEntries(
+        projectRoot,
+        manifestRoot,
+        [source, target],
+        [renameFile(source, target)]
+      )
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-019'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('rename-file migration rejects occupied targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(path.join(projectRoot, 'generated', 'archive'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const source = 'generated/reports/old.json';
+    const target = 'generated/archive/old.json';
+    await fs.writeFile(path.join(projectRoot, 'generated', 'reports', 'old.json'), 'old\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'generated', 'archive', 'old.json'), 'existing\n', 'utf8');
+
+    await expect(
+      applyMigrationEntries(
+        projectRoot,
+        manifestRoot,
+        [source, target],
+        [renameFile(source, target)]
+      )
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-020'
     });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });

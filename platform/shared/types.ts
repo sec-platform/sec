@@ -178,6 +178,14 @@ export interface UpgradeDeleteFileMigrationEntry {
   target: string;
 }
 
+export interface UpgradeRenameFileMigrationEntry {
+  id: string;
+  kind: 'rename-file';
+  reason: string;
+  source: string;
+  target: string;
+}
+
 export interface UpgradeSlotContractUpdateMigrationEntry {
   id: string;
   kind: 'slot-contract-update';
@@ -199,6 +207,7 @@ export type UpgradeMigrationEntry =
   | UpgradeTextReplaceRegexMigrationEntry
   | UpgradeCreateDirectoryMigrationEntry
   | UpgradeDeleteFileMigrationEntry
+  | UpgradeRenameFileMigrationEntry
   | UpgradeSlotContractUpdateMigrationEntry;
 
 export interface UpgradeConfig {
@@ -674,6 +683,7 @@ export interface UpgradeMigrationSummary {
   reason: string;
   requiresVerification: boolean;
   slotId?: string;
+  source?: string;
 }
 
 export type UpgradePreflightCheckId = 'version-range' | 'migration-entries' | 'impact-scan' | 'override-conflicts';
