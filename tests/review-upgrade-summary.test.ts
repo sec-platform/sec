@@ -136,6 +136,9 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
           requiresVerification: true
         }
       ],
+      migrationKindCounts: {
+        'file-replace': 1
+      },
       migrationSummaries: [
         {
           id: 'mig-auth-session-refresh',

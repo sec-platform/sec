@@ -201,6 +201,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
     status: string;
     preflightChecks: Array<{ id: string; status: string; message: string; evidence: string[] }>;
     impacts: string[];
+    migrationKindCounts: Record<string, number>;
     migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
   };
   expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
@@ -221,6 +222,10 @@ test('upgrade advances an official block version and preserves a passing pipelin
     ])
   );
   expect(persistedUpgradePlan.impacts).toEqual(['src/installed/auth/session.ts', 'upgrade.metadata.json']);
+  expect(persistedUpgradePlan.migrationKindCounts).toEqual({
+    'file-replace': 1,
+    'json-array-append': 1
+  });
   expect(persistedUpgradePlan.migrationSummaries).toEqual([
     {
       id: 'mig-auth-session-refresh',
@@ -268,6 +273,10 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
   const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'file-replace': 1,
+    'json-array-append': 1
+  });
   expect(upgradePlan.preflightChecks).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ id: 'version-range', status: 'passed' }),
@@ -307,6 +316,9 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
   const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'slot-contract-update': 1
+  });
   expect(upgradePlan.preflightChecks).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ id: 'version-range', evidence: ['0.1.x'] }),

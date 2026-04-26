@@ -336,6 +336,9 @@ test('write-local-views consumes generated artifacts from disk', async () => {
         ],
         impacts: ['src/installed/auth/session.ts'],
         migrations: [],
+        migrationKindCounts: {
+          'file-replace': 1
+        },
         migrationSummaries: [
           {
             id: 'mig-auth-session-refresh',
@@ -362,6 +365,8 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
   expect(sourceView).toContain('Upgrade Plan');
+  expect(sourceView).toContain('Migration Kind Summary');
+  expect(sourceView).toContain('<td>file-replace</td><td>1</td>');
   expect(sourceView).toContain('Preflight Checks');
   expect(sourceView).toContain('version-range');
   expect(sourceView).toContain('impact-scan');

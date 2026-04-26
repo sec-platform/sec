@@ -417,6 +417,13 @@ async function writeUpgradeDiagnostics(
   await writeProvenance(workspaceRoot, lock);
 }
 
+function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Record<string, number> {
+  return migrationEntries.reduce<Record<string, number>>((counts, entry) => {
+    counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
 function buildUpgradePlan(
   blockId: string,
   fromVersion: string,
@@ -435,6 +442,7 @@ function buildUpgradePlan(
     preflightChecks,
     impacts,
     migrations,
+    migrationKindCounts: buildMigrationKindCounts(migrationEntries),
     migrationSummaries: migrationEntries.map((entry) => {
       const migration = migrations.find((candidate) => candidate.id === entry.id);
       return {
