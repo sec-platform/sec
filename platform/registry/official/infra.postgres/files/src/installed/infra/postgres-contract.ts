@@ -16,7 +16,7 @@ export const POSTGRES_CONTRACT = {
     {
       name: 'email_notifications',
       tenantScoped: true,
-      columns: ['id', 'tenant_id', 'customer_id', 'event_type', 'recipient', 'subject', 'body', 'created_at']
+      columns: ['id', 'tenant_id', 'entity', 'entity_id', 'event_type', 'recipient', 'subject', 'body', 'created_at']
     },
     {
       name: 'audit_entries',

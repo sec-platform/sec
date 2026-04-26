@@ -35,7 +35,8 @@
       "columns": [
         "id",
         "tenant_id",
-        "customer_id",
+        "entity",
+        "entity_id",
         "event_type",
         "recipient",
         "subject",
