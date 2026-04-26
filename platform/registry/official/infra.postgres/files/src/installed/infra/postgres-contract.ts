@@ -26,7 +26,7 @@ export const POSTGRES_CONTRACT = {
     {
       name: 'tickets',
       tenantScoped: true,
-      columns: ['id', 'tenant_id', 'title', 'description', 'status', 'assignee_id', 'created_by', 'updated_at']
+      columns: ['id', 'tenant_id', 'title', 'description', 'status', 'assignee_id', 'due_date', 'created_by', 'updated_at']
     },
     {
       name: 'ticket_attachments',

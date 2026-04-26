@@ -306,6 +306,7 @@ export interface TicketInput {
   description?: string;
   status?: TicketStatus;
   assigneeId?: string;
+  dueDate?: string;
 }
 
 export interface TicketRecord {
@@ -315,6 +316,7 @@ export interface TicketRecord {
   description: string;
   status: TicketStatus;
   assigneeId: string;
+  dueDate: string;
   createdBy: string;
   updatedAt: string;
 }

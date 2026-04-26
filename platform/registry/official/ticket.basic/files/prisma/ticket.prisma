@@ -5,6 +5,7 @@ model Ticket {
   description String
   status      String
   assigneeId  String
+  dueDate     String
   createdBy   String
   updatedAt   String
 }

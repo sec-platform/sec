@@ -402,6 +402,11 @@ function renderTicketsPage(options: {
           </div>
         </div>
         <p>Total tickets: {ticketSummary.total}</p>
+        <ul className="clean" aria-label="Ticket SLA summary">
+          <li>Overdue: {ticketSummary.sla.overdue}</li>
+          <li>Due soon: {ticketSummary.sla.dueSoon}</li>
+          <li>Unscheduled: {ticketSummary.sla.unscheduled}</li>
+        </ul>
         <ul className="clean" aria-label="Ticket status summary">
           <li>Open: {ticketSummary.byStatus.open}</li>
           <li>In progress: {ticketSummary.byStatus.in_progress}</li>
@@ -513,6 +518,7 @@ ${attachmentSetup}${commentSetup}${notificationSetup}${reportingSetup}${auditSet
               <div><strong>{ticket.title}</strong> ({ticket.status})</div>
               <div>{ticket.description || 'No description'}</div>
               <div>Assignee: {ticket.assigneeId}</div>
+              <div>Due date: {ticket.dueDate || 'Unscheduled'}</div>
               <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />${attachmentView}${commentView}
             </li>
           ))}
@@ -1401,7 +1407,8 @@ import { type FormEvent, useState } from 'react';
 const INITIAL_STATE = {
   title: '',
   description: '',
-  assigneeId: ''
+  assigneeId: '',
+  dueDate: ''
 };
 
 export function TicketForm() {
@@ -1445,6 +1452,10 @@ export function TicketForm() {
         <label style={{ flex: 1 }}>
           Assignee
           <input aria-label="Ticket assignee" value={form.assigneeId} onChange={(event) => setForm((current) => ({ ...current, assigneeId: event.target.value }))} />
+        </label>
+        <label style={{ flex: 1 }}>
+          Due date
+          <input aria-label="Ticket due date" type="date" value={form.dueDate} onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))} />
         </label>
       </div>
       <label>
@@ -1680,8 +1691,8 @@ import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-ser
   const exportCsvAssertions = options.exportCsvEnabled
     ? `
     const csv = exportTicketsToCsv(listTickets(database, tenantA));
-    expect(csv).toContain('id,tenantId,title,description,status,assigneeId,createdBy,updatedAt');
-    expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,in_progress,support-owner');
+    expect(csv).toContain('id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt');
+    expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,in_progress,support-owner,2026-04-20');
 `
     : '';
   const reportingAssertions = options.ticketReportingEnabled
@@ -1689,6 +1700,7 @@ import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-ser
     const summary = summarizeTickets(listTickets(database, tenantA));
     expect(summary.total).toBe(2);
     expect(summary.byStatus.in_progress).toBe(1);
+    expect(summary.sla).toEqual({ overdue: 1, dueSoon: 1, unscheduled: 0 });
     expect(summary.byAssignee).toEqual([
       { assigneeId: 'renewal-owner', count: 1 },
       { assigneeId: 'support-owner', count: 1 }
@@ -1696,6 +1708,7 @@ import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-ser
     const filteredSummary = summarizeTickets(listTicketsWithFilters(database, tenantA, { status: 'in_progress' }));
     expect(filteredSummary.total).toBe(1);
     expect(filteredSummary.byStatus.in_progress).toBe(1);
+    expect(filteredSummary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
     expect(filteredSummary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
 `
     : '';
@@ -1718,9 +1731,10 @@ describe('runtime ticket service', () => {
     const ticket = createTicket(database, tenantA, {
       title: 'Escalate onboarding issue',
       description: 'Customer cannot finish setup',
-      assigneeId: 'support-owner'
+      assigneeId: 'support-owner',
+      dueDate: '2026-04-20'
     });
-    createTicket(database, tenantA, { title: 'Prepare renewal checklist', assigneeId: 'renewal-owner' });
+    createTicket(database, tenantA, { title: 'Prepare renewal checklist', assigneeId: 'renewal-owner', dueDate: '2026-05-01' });
     createTicket(database, tenantB, { title: 'Tenant B support ticket' });
 
     expect(listTickets(database, tenantA)).toHaveLength(2);
@@ -1861,8 +1875,8 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(exportResponse.ok()).toBe(true);
   expect(exportResponse.headers()['content-type']).toContain('text/csv');
   const csv = await exportResponse.text();
-  expect(csv).toContain('id,tenantId,title,description,status,assigneeId,createdBy,updatedAt');
-  expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,open,support-owner');
+  expect(csv).toContain('id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt');
+  expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,open,support-owner,2026-04-20');
 `
     : '';
   const attachmentAssertions = `
@@ -1896,6 +1910,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   await expect(summaryCsvLink).toBeVisible();
   await expect(page.getByText('Total tickets: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('Open: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ticket SLA summary' }).getByText('Overdue: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Assignee summary' }).getByText('support-owner: 1')).toBeVisible();
   const summaryResponse = await page.request.get('/api/tickets/summary');
   expect(summaryResponse.ok()).toBe(true);
@@ -1903,11 +1918,13 @@ function renderTicketRuntimeAcceptanceTest(options: {
     summary: {
       total: number;
       byStatus: { open: number; in_progress: number; closed: number };
+      sla: { overdue: number; dueSoon: number; unscheduled: number };
       byAssignee: Array<{ assigneeId: string; count: number }>;
     };
   };
   expect(summaryPayload.summary.total).toBe(1);
   expect(summaryPayload.summary.byStatus.open).toBe(1);
+  expect(summaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
   expect(summaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
   const summaryExportResponse = await page.request.get('/api/tickets/summary/export');
   expect(summaryExportResponse.ok()).toBe(true);
@@ -1916,6 +1933,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(summaryCsv).toContain('section,key,value');
   expect(summaryCsv).toContain('total,tickets,1');
   expect(summaryCsv).toContain('status,open,1');
+  expect(summaryCsv).toContain('sla,overdue,1');
   expect(summaryCsv).toContain('assignee,support-owner,1');
 `
     : '';
@@ -1943,12 +1961,14 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByLabel('Ticket title').fill('Escalate onboarding issue');
   await page.getByLabel('Ticket assignee').fill('support-owner');
   await page.getByLabel('Ticket description').fill('Customer cannot finish setup');
+  await page.getByLabel('Ticket due date').fill('2026-04-20');
   await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
   const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
   await expect(createdTicket).toContainText('open');${attachmentAssertions}
 
   await page.getByLabel('Ticket title').fill('Prepare renewal checklist');
   await page.getByLabel('Ticket assignee').fill('renewal-owner');
+  await page.getByLabel('Ticket due date').fill('2026-05-01');
   await page.getByRole('button', { name: 'Create Ticket' }).click();
   await expect(ticketItems).toHaveCount(2);
 
@@ -1974,16 +1994,19 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
     summary: {
       total: number;
       byStatus: { open: number; in_progress: number; closed: number };
+      sla: { overdue: number; dueSoon: number; unscheduled: number };
       byAssignee: Array<{ assigneeId: string; count: number }>;
     };
   };
   expect(filteredSummaryPayload.summary.total).toBe(1);
   expect(filteredSummaryPayload.summary.byStatus.in_progress).toBe(1);
+  expect(filteredSummaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
   expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
   const filteredSummaryExportResponse = await page.request.get('/api/tickets/summary/export?assigneeId=support-owner&status=in_progress');
   expect(filteredSummaryExportResponse.ok()).toBe(true);
   const filteredSummaryCsv = await filteredSummaryExportResponse.text();
   expect(filteredSummaryCsv).toContain('status,in_progress,1');
+  expect(filteredSummaryCsv).toContain('sla,overdue,1');
   expect(filteredSummaryCsv).toContain('assignee,support-owner,1');
 
   await expect(createdTicket).toContainText('in_progress');${auditAssertions}

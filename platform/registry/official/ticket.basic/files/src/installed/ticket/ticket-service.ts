@@ -40,6 +40,7 @@ export function createTicket(db: Database, session: Session, input: TicketInput)
     description: input.description?.trim() ?? '',
     status: input.status ?? 'open',
     assigneeId: input.assigneeId?.trim() || session.userId,
+    dueDate: input.dueDate?.trim() ?? '',
     createdBy: session.userId,
     updatedAt: new Date(0).toISOString()
   };

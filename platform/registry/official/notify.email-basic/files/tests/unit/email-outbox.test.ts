@@ -29,6 +29,7 @@ export async function runSuite() {
     description: 'Customer cannot finish setup',
     status: 'open',
     assigneeId: tenantA.userId,
+    dueDate: '',
     createdBy: tenantA.userId,
     updatedAt: new Date(0).toISOString()
   });

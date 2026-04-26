@@ -245,6 +245,7 @@
      - 列表筛选。
      - ticket 附件上传与租户隔离查看。
      - ticket 评论写入与租户隔离查看。
+     - ticket 到期日与 SLA 汇总。
    - 已完成：
      - 新增 `ticket/basic` 官方块：
        - ticket 服务。
@@ -295,6 +296,20 @@
        - `/api/tickets/[ticketId]/comments`。
        - `/tickets` 页面评论表单与列表。
        - runtime unit / acceptance / expanded block / postgres contract 覆盖。
+     - ticket SLA/reporting 扩展已贯通：
+       - `TicketInput` 支持 `dueDate`。
+       - `TicketRecord` 持久化 `dueDate`。
+       - `ticket/basic` Prisma 片段包含 `dueDate`。
+       - Postgres contract `tickets` 表包含 `due_date`。
+       - `reporting/ticket-summary` 输出 SLA 汇总：
+         - overdue。
+         - dueSoon。
+         - unscheduled。
+       - `export/csv-basic` ticket CSV 包含 `dueDate`。
+       - `export/csv-basic` summary CSV 包含 SLA 行。
+       - `/tickets` 页面展示工单到期日。
+       - `/tickets` 页面展示 SLA summary。
+       - runtime unit / acceptance / expanded block / pipeline 覆盖。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
      - review summary 已显式聚合 ticket runtime attribution：
@@ -337,7 +352,8 @@
      - 当前进入切口 C：
        - 已完成 ticket attachment。
        - 已完成 ticket comment。
-       - 下一步默认转向 ticket SLA/reporting 扩展或 worklog/basic。
+       - 已完成 ticket SLA/reporting 扩展。
+       - 下一步默认转向 `worklog/basic`。
      - 然后再进入切口 D。
    - 每个切口的验证口径：
      - `expanded-blocks.test.ts`。
