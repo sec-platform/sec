@@ -102,17 +102,17 @@ test('CLI prints usage for missing or unknown commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, [])).resolves.toMatchObject({
       code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>\n',
+      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>\n',
       stderr: ''
     });
     await expect(runCli(workspaceRoot, ['unknown'])).resolves.toMatchObject({
       code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>\n',
+      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>\n',
       stderr: ''
     });
     await expect(runCli(workspaceRoot, ['unknown', '--flag'])).resolves.toMatchObject({
       code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>\n',
+      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>\n',
       stderr: ''
     });
   });
@@ -130,6 +130,24 @@ test('CLI accepts init commands', async () => {
       stdout: 'Initialized project workspace\n',
       stderr: ''
     });
+  });
+});
+
+test('CLI exposes developer dependency environment entrypoints', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['doctor'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+    const depsStatus = await runCli(workspaceRoot, ['deps', 'status']);
+    expect(depsStatus.code).toBe(0);
+    expect(depsStatus.stderr).toBe('');
+    expect(depsStatus.stdout).toContain('Runtime dependency status');
+    expect(depsStatus.stdout).toContain('Recommended action:');
+
+    const invalidRelink = await runCli(workspaceRoot, ['deps', 'relink']);
+    expect(invalidRelink.code).toBe(1);
+    expect(invalidRelink.stderr).toContain('platform deps relink project');
   });
 });
 
