@@ -49,6 +49,24 @@ function renderCiSummaryCard(review: ReviewSummary): string {
   ]
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
     .join('');
+  const missingReasonRows = review.artifactSummary?.missingReasonCounts
+    ? Object.entries(review.artifactSummary.missingReasonCounts)
+        .filter(([, count]) => count > 0)
+        .map(
+          ([reason, count]) => `<tr>
+              <td>${escapeHtml(reason)}</td>
+              <td>${escapeHtml(String(count))}</td>
+            </tr>`
+        )
+        .join('')
+    : '';
+  const missingReasonTable = missingReasonRows
+    ? `<h3>Missing Reason Summary</h3>
+        <table>
+          <thead><tr><th>Reason</th><th>Count</th></tr></thead>
+          <tbody>${missingReasonRows}</tbody>
+        </table>`
+    : '';
   const uploadGroupRows = review.artifactSummary?.uploadGroups?.length
     ? review.artifactSummary.uploadGroups
         .map(
@@ -92,6 +110,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
+        ${missingReasonTable}
         ${uploadGroupTable}
         ${missingTable}
       </section>`;
