@@ -32,8 +32,8 @@ export interface CiArtifactSummary {
 
 export interface CiArtifactMissingEntry {
   path: string;
-  reason: 'declared-generated-missing';
-  declaredBy: 'graph.lock.json';
+  reason: 'declared-generated-missing' | 'fixed-governance-missing' | 'fixed-view-missing';
+  declaredBy: 'graph.lock.json' | 'artifact-manifest';
 }
 
 export interface CiArtifactManifest {
@@ -47,7 +47,7 @@ export interface CiArtifactManifest {
 
 const CI_ARTIFACT_PATH = 'generated/ci-artifacts.json';
 
-const GOVERNANCE_ARTIFACTS = [
+const REQUIRED_GOVERNANCE_ARTIFACTS = [
   'graph.lock.json',
   'provenance.json',
   'generated/install-manifest.json',
@@ -55,11 +55,19 @@ const GOVERNANCE_ARTIFACTS = [
   'generated/runtime-report.json',
   'generated/policy-report.json',
   'generated/acceptance-coverage.json',
-  'generated/repair-plan.json',
-  'generated/upgrade-plan.json',
-  'generated/upgrade-diagnostics.json',
   'generated/explain-graph.json',
   'generated/review-summary.json'
+];
+
+const OPTIONAL_GOVERNANCE_ARTIFACTS = [
+  'generated/repair-plan.json',
+  'generated/upgrade-plan.json',
+  'generated/upgrade-diagnostics.json'
+];
+
+const GOVERNANCE_ARTIFACTS = [
+  ...REQUIRED_GOVERNANCE_ARTIFACTS,
+  ...OPTIONAL_GOVERNANCE_ARTIFACTS
 ];
 
 const VIEW_ARTIFACTS = [
@@ -120,10 +128,24 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   const entries: CiArtifactEntry[] = [];
   const missing: CiArtifactMissingEntry[] = [];
   const generatedPaths = new Set(generatedPathResult.paths.map(normalizeArtifactPath));
+  const requiredGovernanceArtifacts = new Set(REQUIRED_GOVERNANCE_ARTIFACTS.map(normalizeArtifactPath));
+  const viewArtifacts = new Set(VIEW_ARTIFACTS.map(normalizeArtifactPath));
 
   for (const artifactPath of artifacts) {
     const exists = await pathExists(path.join(projectRoot, artifactPath));
-    if (generatedPaths.has(artifactPath) && !exists) {
+    if (generatedPathResult.lockExists && requiredGovernanceArtifacts.has(artifactPath) && !exists) {
+      missing.push({
+        path: artifactPath,
+        reason: 'fixed-governance-missing',
+        declaredBy: 'artifact-manifest'
+      });
+    } else if (generatedPathResult.lockExists && viewArtifacts.has(artifactPath) && !exists) {
+      missing.push({
+        path: artifactPath,
+        reason: 'fixed-view-missing',
+        declaredBy: 'artifact-manifest'
+      });
+    } else if (generatedPaths.has(artifactPath) && !exists) {
       missing.push({
         path: artifactPath,
         reason: 'declared-generated-missing',
