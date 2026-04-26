@@ -52,19 +52,33 @@ const DEPS_USAGE = [
 
 type ArtifactPathKind = 'governance' | 'view' | 'test';
 
-function artifactUploadPaths(
+function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
   kind?: ArtifactPathKind
-): string[] {
+): { paths: string[]; byKind: Partial<Record<ArtifactPathKind, number>> } {
   const artifacts = kind
     ? manifest.artifacts.filter((artifact) => artifact.kind === kind)
     : manifest.artifacts;
   const includeManifest = kind === undefined || kind === 'governance';
-  const paths = [
-    ...(includeManifest ? ['project/generated/ci-artifacts.json'] : []),
-    ...artifacts.map((artifact) => `project/${artifact.path}`)
+  const entries = [
+    ...(includeManifest
+      ? [{ path: 'project/generated/ci-artifacts.json', kind: 'governance' as const }]
+      : []),
+    ...artifacts.map((artifact) => ({
+      path: `project/${artifact.path}`,
+      kind: artifact.kind
+    }))
   ];
-  return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
+  const kindByPath = new Map(entries.map((entry) => [entry.path, entry.kind]));
+  const paths = [...kindByPath.keys()].sort((left, right) => left.localeCompare(right));
+  const byKind: Partial<Record<ArtifactPathKind, number>> = {};
+  for (const path of paths) {
+    const pathKind = kindByPath.get(path);
+    if (pathKind) {
+      byKind[pathKind] = (byKind[pathKind] ?? 0) + 1;
+    }
+  }
+  return { paths, byKind };
 }
 
 function assertNoArgs(command: string, args: string[]): void {
@@ -514,12 +528,16 @@ async function main(): Promise<void> {
       const artifactsArgs = parseArtifactsArgs(args);
       const { manifest } = await writeWorkspaceArtifacts(process.cwd());
       if (artifactsArgs.mode === 'paths') {
-        const paths = artifactUploadPaths(manifest, artifactsArgs.kind);
+        const pathSummary = artifactUploadPathSummary(manifest, artifactsArgs.kind);
         if (artifactsArgs.json) {
-          console.log(JSON.stringify({ count: paths.length, paths }, null, 2));
+          console.log(JSON.stringify({
+            count: pathSummary.paths.length,
+            paths: pathSummary.paths,
+            byKind: pathSummary.byKind
+          }, null, 2));
           return;
         }
-        console.log(paths.join('\n'));
+        console.log(pathSummary.paths.join('\n'));
         return;
       }
       console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));

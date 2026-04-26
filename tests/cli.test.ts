@@ -531,7 +531,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(testPathsJsonResult.stderr).toBe('');
     expect(JSON.parse(testPathsJsonResult.stdout)).toEqual({
       count: 1,
-      paths: ['project/test-results/**']
+      paths: ['project/test-results/**'],
+      byKind: {
+        test: 1
+      }
     });
 
     const testManifestResult = await runCli(workspaceRoot, ['artifacts', '--json']);
@@ -611,11 +614,20 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const pathsJsonResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--json']);
     expect(pathsJsonResult.code).toBe(0);
     expect(pathsJsonResult.stderr).toBe('');
-    const pathsJson = JSON.parse(pathsJsonResult.stdout) as { count: number; paths: string[] };
-    expect(pathsJson).toEqual({
-      count: uploadPaths.length,
-      paths: uploadPaths
-    });
+    const pathsJson = JSON.parse(pathsJsonResult.stdout) as {
+      count: number;
+      paths: string[];
+      byKind: Record<string, number>;
+    };
+    expect(pathsJson.count).toBe(uploadPaths.length);
+    expect(pathsJson.paths).toEqual(uploadPaths);
+    expect(pathsJson.byKind.view).toBe(
+      uploadPaths.filter((pathEntry) => pathEntry.includes('/views/')).length
+    );
+    expect(pathsJson.byKind.test).toBe(1);
+    expect(Object.values(pathsJson.byKind).reduce((total, count) => total + count, 0)).toBe(
+      uploadPaths.length
+    );
 
     const governancePathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']);
     expect(governancePathsResult.code).toBe(0);
@@ -634,9 +646,14 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     ]);
     expect(viewPathsJsonResult.code).toBe(0);
     expect(viewPathsJsonResult.stderr).toBe('');
-    const viewPathsJson = JSON.parse(viewPathsJsonResult.stdout) as { count: number; paths: string[] };
+    const viewPathsJson = JSON.parse(viewPathsJsonResult.stdout) as {
+      count: number;
+      paths: string[];
+      byKind: Record<string, number>;
+    };
     expect(viewPathsJson.paths).toEqual(['project/generated/views/slot-rule-view.html']);
     expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
+    expect(viewPathsJson.byKind).toEqual({ view: 1 });
     expect(viewPathsJson.paths).not.toContain('project/generated/ci-artifacts.json');
 
   });
