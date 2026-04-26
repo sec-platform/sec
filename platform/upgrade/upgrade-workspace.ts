@@ -151,6 +151,11 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
+  if (entry.kind === 'rename-file') {
+    ensureMigrationString(entry.source, 'source', entryPath);
+    return;
+  }
+
   if (entry.kind === 'slot-contract-update') {
     ensureMigrationString(entry.slotId, 'slotId', entryPath);
     if (entry.inputType !== undefined) {
@@ -385,6 +390,28 @@ async function removeFileMigrationTarget(targetPath: string, target: string): Pr
   await fs.rm(targetPath);
 }
 
+async function renameFileMigrationTarget(
+  sourcePath: string,
+  targetPath: string,
+  source: string,
+  target: string
+): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(sourcePath);
+  } catch {
+    throw new CompilerError('UPGRADE-MIGRATION-018', `Rename-file source "${source}" is missing`);
+  }
+  if (!stats.isFile()) {
+    throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-file source "${source}" must be a file`);
+  }
+  if (await pathExists(targetPath)) {
+    throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${target}" already exists`);
+  }
+  await ensureDir(path.dirname(targetPath));
+  await fs.rename(sourcePath, targetPath);
+}
+
 export async function applyMigrationEntries(
   projectRoot: string,
   targetManifestRoot: string,
@@ -393,7 +420,16 @@ export async function applyMigrationEntries(
 ): Promise<void> {
   for (const entry of entries) {
     if (!impacts.includes(entry.target)) {
-      throw new CompilerError('UPGRADE-MIGRATION-007', `Migration target "${entry.target}" is outside upgrade impacts`);
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-007',
+        `Migration target "${entry.target}" is outside upgrade impacts`
+      );
+    }
+    if (entry.kind === 'rename-file' && !impacts.includes(entry.source)) {
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-007',
+        `Migration source "${entry.source}" is outside upgrade impacts`
+      );
     }
     const targetPath = resolveProjectPath(projectRoot, entry.target);
 
@@ -456,6 +492,12 @@ export async function applyMigrationEntries(
 
     if (entry.kind === 'delete-file') {
       await removeFileMigrationTarget(targetPath, entry.target);
+      continue;
+    }
+
+    if (entry.kind === 'rename-file') {
+      const sourcePath = resolveProjectPath(projectRoot, entry.source);
+      await renameFileMigrationTarget(sourcePath, targetPath, entry.source, entry.target);
       continue;
     }
 
@@ -586,7 +628,8 @@ function buildUpgradePlan(
         target: entry.target,
         reason: entry.reason,
         requiresVerification: migration?.requiresVerification ?? true,
-        ...(entry.kind === 'slot-contract-update' ? { slotId: entry.slotId } : {})
+        ...(entry.kind === 'slot-contract-update' ? { slotId: entry.slotId } : {}),
+        ...(entry.kind === 'rename-file' ? { source: entry.source } : {})
       };
     })
   };
@@ -628,7 +671,10 @@ export async function upgradeWorkspace(
       version: targetVersion,
       registrySources: plan.registry.sources
     });
-    const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] => entries.map((entry) => entry.target);
+    const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] =>
+      entries.flatMap((entry) =>
+        entry.kind === 'rename-file' ? [entry.source, entry.target] : [entry.target]
+      );
     const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
     const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
     ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
