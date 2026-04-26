@@ -350,6 +350,15 @@
        - block combination summary。
        - failure focus。
        - review runtime attribution。
+     - ticket/worklog policy gate 覆盖已贯通：
+       - `tenant-scope-required` 覆盖 `ticket/basic`。
+       - `tenant-scope-required` 覆盖 `worklog/basic`。
+       - policy targets 可定位：
+         - `src/installed/entity/customer-service.ts`。
+         - `src/installed/ticket/ticket-service.ts`。
+         - `src/installed/worklog/worklog-service.ts`。
+       - 租户检查从 customer 专用扩展为通用 tenantId 比较模式。
+       - 移除 ticket service tenant context 时 policy gate 会失败。
    - 当前阶段拆分：
      - 阶段 1：业务 CRUD 与 runtime host。
      - 阶段 2：横切治理联动。
@@ -379,10 +388,10 @@
        - ticket comment。
        - ticket SLA/reporting 扩展。
        - `worklog/basic`。
-     - 当前准备进入切口 D：
-       - ticket + override。
-       - ticket + upgrade。
-       - ticket + policy gate。
+     - 当前进入切口 D：
+       - 已完成 ticket + policy gate。
+       - 下一步默认转向 ticket + override。
+       - 后续转向 ticket + upgrade。
    - 每个切口的验证口径：
      - `expanded-blocks.test.ts`。
      - runtime unit。
