@@ -192,6 +192,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
   );
   expect(afterUpgrade).toMatch(/SESSION_BLOCK_VERSION = '0\.1\.1'/);
   expect(afterUpgrade).toMatch(/SUPPORTED_USERNAMES/);
+  await expect(fs.readFile(path.join(workspaceRoot, 'project', 'upgrade.metadata.json'), 'utf8')).resolves.toContain('"auth/basic-session@0.1.1"');
 
   const persistedUpgradePlan = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'upgrade-plan.json'), 'utf8')
@@ -207,12 +208,19 @@ test('upgrade advances an official block version and preserves a passing pipelin
   expect(persistedUpgradePlan.preflightChecks).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ id: 'version-range', status: 'passed', evidence: ['0.1.x'] }),
-      expect.objectContaining({ id: 'migration-entries', status: 'passed', evidence: ['mig-auth-session-refresh:migrations/auth-session-refresh.json'] }),
-      expect.objectContaining({ id: 'impact-scan', status: 'passed', evidence: ['src/installed/auth/session.ts'] }),
+      expect.objectContaining({
+        id: 'migration-entries',
+        status: 'passed',
+        evidence: [
+          'mig-auth-session-refresh:migrations/auth-session-refresh.json',
+          'mig-auth-session-upgrade-metadata:migrations/auth-session-upgrade-metadata.json'
+        ]
+      }),
+      expect.objectContaining({ id: 'impact-scan', status: 'passed', evidence: ['src/installed/auth/session.ts', 'upgrade.metadata.json'] }),
       expect.objectContaining({ id: 'override-conflicts', status: 'passed', evidence: [] })
     ])
   );
-  expect(persistedUpgradePlan.impacts).toContain('src/installed/auth/session.ts');
+  expect(persistedUpgradePlan.impacts).toEqual(['src/installed/auth/session.ts', 'upgrade.metadata.json']);
   expect(persistedUpgradePlan.migrationSummaries).toEqual([
     {
       id: 'mig-auth-session-refresh',
@@ -220,6 +228,13 @@ test('upgrade advances an official block version and preserves a passing pipelin
       target: 'src/installed/auth/session.ts',
       reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
       requiresVerification: true
+    },
+    {
+      id: 'mig-auth-session-upgrade-metadata',
+      kind: 'json-array-append',
+      target: 'upgrade.metadata.json',
+      reason: 'Record auth session upgrade metadata in package configuration.',
+      requiresVerification: false
     }
   ]);
 
@@ -268,6 +283,13 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       target: 'src/installed/auth/session.ts',
       reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
       requiresVerification: true
+    },
+    {
+      id: 'mig-auth-session-upgrade-metadata',
+      kind: 'json-array-append',
+      target: 'upgrade.metadata.json',
+      reason: 'Record auth session upgrade metadata in package configuration.',
+      requiresVerification: false
     }
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
