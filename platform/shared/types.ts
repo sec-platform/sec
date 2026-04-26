@@ -171,6 +171,13 @@ export interface UpgradeCreateDirectoryMigrationEntry {
   target: string;
 }
 
+export interface UpgradeDeleteFileMigrationEntry {
+  id: string;
+  kind: 'delete-file';
+  reason: string;
+  target: string;
+}
+
 export interface UpgradeSlotContractUpdateMigrationEntry {
   id: string;
   kind: 'slot-contract-update';
@@ -191,6 +198,7 @@ export type UpgradeMigrationEntry =
   | UpgradeTextAppendMigrationEntry
   | UpgradeTextReplaceRegexMigrationEntry
   | UpgradeCreateDirectoryMigrationEntry
+  | UpgradeDeleteFileMigrationEntry
   | UpgradeSlotContractUpdateMigrationEntry;
 
 export interface UpgradeConfig {

@@ -83,6 +83,15 @@ function createDirectory(target: string): UpgradeMigrationEntry {
   };
 }
 
+function deleteFile(target: string): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-delete-file',
+    kind: 'delete-file',
+    reason: 'test file deletion',
+    target
+  };
+}
+
 function textReplaceRegex(target: string, pattern: string, replacement: string, flags?: string): UpgradeMigrationEntry {
   return {
     id: 'mig-test-text-replace-regex',
@@ -431,6 +440,64 @@ test('create-directory migration creates nested target directories', async () =>
     const snapshotsDir = path.join(projectRoot, 'generated', 'reports', 'snapshots');
     const stats = await fs.stat(snapshotsDir);
     expect(stats.isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('delete-file migration removes existing file targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const target = 'generated/reports/old.json';
+    const targetPath = path.join(projectRoot, 'generated', 'reports', 'old.json');
+    await fs.writeFile(targetPath, '{}\n', 'utf8');
+
+    await applyMigrationEntries(projectRoot, manifestRoot, [target], [deleteFile(target)]);
+
+    await expect(fs.access(targetPath)).rejects.toThrow();
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('delete-file migration rejects missing targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const target = 'generated/reports/missing.json';
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, [target], [deleteFile(target)])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-016'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('delete-file migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const target = 'generated/reports';
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, [target], [deleteFile(target)])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }

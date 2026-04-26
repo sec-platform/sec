@@ -147,7 +147,7 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
-  if (entry.kind === 'create-directory') {
+  if (entry.kind === 'create-directory' || entry.kind === 'delete-file') {
     return;
   }
 
@@ -372,6 +372,19 @@ function applyTextReplaceRegex(
   return source.replace(pattern, entry.replacement);
 }
 
+async function removeFileMigrationTarget(targetPath: string, target: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(targetPath);
+  } catch {
+    throw new CompilerError('UPGRADE-MIGRATION-016', `Delete-file target "${target}" is missing`);
+  }
+  if (!stats.isFile()) {
+    throw new CompilerError('UPGRADE-MIGRATION-017', `Delete-file target "${target}" must be a file`);
+  }
+  await fs.rm(targetPath);
+}
+
 export async function applyMigrationEntries(
   projectRoot: string,
   targetManifestRoot: string,
@@ -438,6 +451,11 @@ export async function applyMigrationEntries(
 
     if (entry.kind === 'create-directory') {
       await ensureDir(targetPath);
+      continue;
+    }
+
+    if (entry.kind === 'delete-file') {
+      await removeFileMigrationTarget(targetPath, entry.target);
       continue;
     }
 
