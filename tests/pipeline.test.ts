@@ -503,6 +503,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('graph.lock.json');
   expect(sourceView).toContain('Vertical Summary');
   expect(sourceView).toContain('Block Combination Summary');
+  expect(sourceView).toContain('<th>Verticals</th><th>Runtime Entries</th>');
+  expect(sourceView).toContain('<td>entity/customer-basic</td>');
+  expect(sourceView).toContain('<td>customer</td>');
+  expect(sourceView).toContain('<td>app/customers/page.tsx</td>');
   expect(sourceView).toContain('Failure Focus');
   expect(sourceView).toContain('Review Runtime Attribution');
   expect(sourceView).toContain('Install Impact Summary');
