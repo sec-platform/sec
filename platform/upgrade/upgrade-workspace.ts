@@ -550,6 +550,65 @@ function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): st
   return evidence.sort((left, right) => left.localeCompare(right));
 }
 
+function isJsonMigrationEntry(entry: UpgradeMigrationEntry): entry is Extract<
+  UpgradeMigrationEntry,
+  { kind: 'config-rewrite' | 'json-array-append' | 'json-array-remove' | 'json-object-merge' }
+> {
+  return (
+    entry.kind === 'config-rewrite' ||
+    entry.kind === 'json-array-append' ||
+    entry.kind === 'json-array-remove' ||
+    entry.kind === 'json-object-merge'
+  );
+}
+
+function readJsonPath(config: unknown, pathSegments: string[]): unknown {
+  let current = config;
+  for (const segment of pathSegments) {
+    if (!isJsonObject(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return current;
+}
+
+async function collectJsonStructureEvidence(
+  projectRoot: string,
+  migrationEntries: UpgradeMigrationEntry[]
+): Promise<string[]> {
+  const evidence: string[] = [];
+  for (const entry of migrationEntries) {
+    if (!isJsonMigrationEntry(entry)) {
+      continue;
+    }
+    const targetPath = resolveProjectPath(projectRoot, entry.target);
+    if (!(await pathExists(targetPath))) {
+      evidence.push(`${entry.id}:target:missing`);
+      continue;
+    }
+    const config = await readJson<unknown>(targetPath);
+    if (entry.kind === 'config-rewrite') {
+      ensureJsonObject(config, 'Config rewrite preflight');
+      evidence.push(`${entry.id}:target:object`);
+      continue;
+    }
+    const target = readJsonPath(config, entry.path);
+    if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
+      if (target !== undefined && !Array.isArray(target)) {
+        throw new CompilerError('UPGRADE-MIGRATION-012', `JSON array migration target must be an array for "${entry.target}"`);
+      }
+      evidence.push(`${entry.id}:target:${target === undefined ? 'missing' : 'array'}`);
+      continue;
+    }
+    if (target !== undefined && !isJsonObject(target)) {
+      throw new CompilerError('UPGRADE-MIGRATION-013', `JSON object merge target must be an object for "${entry.target}"`);
+    }
+    evidence.push(`${entry.id}:target:${target === undefined ? 'missing' : 'object'}`);
+  }
+  return evidence.sort((left, right) => left.localeCompare(right));
+}
+
 function buildUpgradePreflightChecks(
   currentVersion: string,
   targetVersion: string,
@@ -558,6 +617,7 @@ function buildUpgradePreflightChecks(
   migrationEntries: UpgradeMigrationEntry[],
   migrationTargetEvidence: string[],
   jsonShapeEvidence: string[],
+  jsonStructureEvidence: string[],
   impacts: string[],
   scannedOverrides: string[]
 ): UpgradePreflightCheck[] {
@@ -587,6 +647,12 @@ function buildUpgradePreflightChecks(
       evidence: jsonShapeEvidence
     },
     {
+      id: 'migration-json-structure',
+      status: 'passed',
+      message: `${jsonStructureEvidence.length} JSON migration targets checked`,
+      evidence: jsonStructureEvidence
+    },
+    {
       id: 'impact-scan',
       status: 'passed',
       message: `${impacts.length} upgrade impacts calculated`,
@@ -610,6 +676,9 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
   }
   if (code === 'UPGRADE-NOOP-001' || code === 'UPGRADE-BLOCKED-001' || code === 'UPGRADE-BLOCKED-002') {
     return 'version-range';
+  }
+  if (code === 'UPGRADE-MIGRATION-012' || code === 'UPGRADE-MIGRATION-013') {
+    return 'migration-json-structure';
   }
   if (code.startsWith('UPGRADE-MIGRATION-')) {
     return 'migration-entries';
@@ -739,6 +808,7 @@ export async function upgradeWorkspace(
     );
     const migrationTargetEvidence = await collectMigrationTargetEvidence(projectRoot, migrationEntries);
     const jsonShapeEvidence = collectJsonShapeEvidence(migrationEntries);
+    const jsonStructureEvidence = await collectJsonStructureEvidence(projectRoot, migrationEntries);
     const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
     const preflightChecks = buildUpgradePreflightChecks(
       currentVersion,
@@ -748,6 +818,7 @@ export async function upgradeWorkspace(
       migrationEntries,
       migrationTargetEvidence,
       jsonShapeEvidence,
+      jsonStructureEvidence,
       impacts,
       scannedOverrides
     );

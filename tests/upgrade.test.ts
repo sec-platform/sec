@@ -232,6 +232,11 @@ test('upgrade advances an official block version and preserves a passing pipelin
         status: 'passed',
         evidence: ['mig-auth-session-upgrade-metadata:path:upgradedBlocks:array:1']
       }),
+      expect.objectContaining({
+        id: 'migration-json-structure',
+        status: 'passed',
+        evidence: ['mig-auth-session-upgrade-metadata:target:missing']
+      }),
       expect.objectContaining({ id: 'impact-scan', status: 'passed', evidence: ['src/installed/auth/session.ts', 'upgrade.metadata.json'] }),
       expect.objectContaining({ id: 'override-conflicts', status: 'passed', evidence: [] })
     ])
@@ -378,6 +383,11 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
         id: 'migration-json-shapes',
         status: 'passed',
         evidence: ['mig-auth-session-upgrade-metadata:path:upgradedBlocks:array:1']
+      }),
+      expect.objectContaining({
+        id: 'migration-json-structure',
+        status: 'passed',
+        evidence: ['mig-auth-session-upgrade-metadata:target:missing']
       }),
       expect.objectContaining({ id: 'impact-scan', status: 'passed' }),
       expect.objectContaining({ id: 'override-conflicts', status: 'passed' })
@@ -831,6 +841,49 @@ test('upgrade rejects malformed text append migration entries before planning', 
     code: 'UPGRADE-MIGRATION-011'
   });
   await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-entries"');
+});
+
+test('upgrade rejects JSON array structure mismatches before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-json-structure-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, projectRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-json-array-append',
+          kind: 'json-array-append',
+          entry: 'migrations/json-array-append.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(projectRoot, 'upgrade.metadata.json'), {
+    upgradedBlocks: 'auth/basic-session@0.1.0'
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'json-array-append.json'), {
+    id: 'mig-json-array-append',
+    kind: 'json-array-append',
+    reason: 'Append upgrade metadata.',
+    target: 'upgrade.metadata.json',
+    path: ['upgradedBlocks'],
+    items: ['private/slot-contract@0.2.0']
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-012'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-json-structure"');
 });
 
 test('upgrade rejects malformed migration entries before planning', async () => {
