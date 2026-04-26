@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   adaptWorkspace,
+  addBlock,
   composeWorkspace,
   explainWorkspace,
   initWorkspace,
@@ -25,7 +26,7 @@ afterAll(async () => {
       // ignore cleanup errors
     }
   }
-});
+}, 120000);
 
 async function createWorkspace(prefix: string): Promise<string> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -33,7 +34,7 @@ async function createWorkspace(prefix: string): Promise<string> {
   return workspaceRoot;
 }
 
-test('override-manifest can replace a generated file and surface override provenance', async () => {
+test('override-manifest can replace a generated file and surface override provenance', { timeout: 120000 }, async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-override-');
   const { overrideManifestPath, projectRoot } = getWorkspacePaths(workspaceRoot);
 
@@ -112,4 +113,86 @@ test('override-manifest can replace a generated file and surface override proven
       }
     ])
   );
+});
+
+test('override-manifest surfaces ticket runtime override attribution', { timeout: 120000 }, async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-ticket-override-');
+  const { overrideManifestPath, projectRoot } = getWorkspacePaths(workspaceRoot);
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await addBlock(workspaceRoot, 'ticket/basic');
+  await addBlock(workspaceRoot, 'reporting/ticket-summary');
+  await addBlock(workspaceRoot, 'worklog/basic');
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+
+  const ticketSummaryExportPath = path.join(projectRoot, 'app', 'api', 'tickets', 'summary', 'export', 'route.ts');
+  await expect(fs.readFile(ticketSummaryExportPath, 'utf8')).rejects.toThrow();
+
+  const ticketPagePath = path.join(projectRoot, 'app', 'tickets', 'page.tsx');
+  const ticketPageOverride = (await fs.readFile(ticketPagePath, 'utf8')).replace(
+    '<h1>Tickets</h1>',
+    '<h1>Tickets</h1>\n            <p>Manual ticket runtime override active.</p>'
+  );
+
+  await writeYaml(overrideManifestPath, {
+    overrides: [
+      {
+        id: 'ticket-page-runtime-manual',
+        entry: 'patches/ticket-page.override.tsx',
+        target: 'app/tickets/page.tsx',
+        reason: 'manual-ticket-runtime-copy-change',
+        source: 'manual',
+        appliesAfter: ['adapt'],
+        conflictsWith: ['ticket/basic@>=0.2.0', 'worklog/basic@>=0.2.0']
+      }
+    ]
+  });
+  const ticketPageOverridePath = path.join(projectRoot, 'overrides', 'patches', 'ticket-page.override.tsx');
+  await fs.writeFile(ticketPageOverridePath, ticketPageOverride, 'utf8');
+
+  await adaptWorkspace(workspaceRoot);
+  await expect(fs.readFile(ticketPagePath, 'utf8')).resolves.toContain('Manual ticket runtime override active.');
+
+  const { report } = await verifyWorkspace(workspaceRoot);
+  expect(report.summary.status).toBe('passed');
+
+  await lockWorkspace(workspaceRoot);
+  const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
+  const ticketChangeSource = reviewSummary.changeSources.find((source) => source.path === 'app/tickets/page.tsx');
+
+  expect(ticketChangeSource).toMatchObject({
+    path: 'app/tickets/page.tsx',
+    originType: 'override',
+    originId: 'ticket-page-runtime-manual',
+    runtimeKind: 'page',
+    vertical: 'ticket',
+    relatedBlocks: ['reporting/ticket-summary', 'ticket/basic', 'worklog/basic']
+  });
+  expect(reviewSummary.regressionRisks).toEqual(
+    expect.arrayContaining([
+      {
+        kind: 'override-active',
+        blockId: 'ticket/basic',
+        message: 'Override active: ticket-page-runtime-manual -> app/tickets/page.tsx'
+      }
+    ])
+  );
+  expect(reviewSummary.conflictHints).toEqual(
+    expect.arrayContaining([
+      {
+        kind: 'override-conflict',
+        relatedId: 'worklog/basic@>=0.2.0',
+        message: 'Override ticket-page-runtime-manual conflicts with worklog/basic@>=0.2.0'
+      }
+    ])
+  );
+  expect(
+    graph.edges.some(
+      (edge) =>
+        edge.from === 'file:app/tickets/page.tsx' &&
+        edge.to === 'override:ticket-page-runtime-manual' &&
+        edge.type === 'originates_from'
+    )
+  ).toBe(true);
 });

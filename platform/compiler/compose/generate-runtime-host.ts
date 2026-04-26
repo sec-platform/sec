@@ -320,6 +320,7 @@ function renderTicketsPage(options: {
   ticketReportingEnabled: boolean;
   worklogEnabled: boolean;
 }): string {
+  const ticketSummaryExportEnabled = options.ticketReportingEnabled && options.exportCsvEnabled;
   const auditSetup = options.auditEnabled
     ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
 `
@@ -410,14 +411,21 @@ function renderTicketsPage(options: {
       </section>
 `
     : '';
+  const summaryExportAction = ticketSummaryExportEnabled
+    ? `
+            <a href={summaryExportHref}>Export ticket summary CSV</a>`
+    : '';
+  const summaryExportHrefSetup = ticketSummaryExportEnabled
+    ? `  const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
+`
+    : '';
   const reportingView = options.ticketReportingEnabled
     ? `
       <section className="card stack">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <h2>Ticket Summary</h2>
           <div className="row">
-            <a href={summaryHref}>View ticket summary JSON</a>
-            <a href={summaryExportHref}>Export ticket summary CSV</a>
+            <a href={summaryHref}>View ticket summary JSON</a>${summaryExportAction}
           </div>
         </div>
         <p>Total tickets: {ticketSummary.total}</p>
@@ -484,8 +492,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const queryString = summaryQuery.toString();
   const exportHref = queryString ? '/api/tickets/export?' + queryString : '/api/tickets/export';
   const summaryHref = queryString ? '/api/tickets/summary?' + queryString : '/api/tickets/summary';
-  const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
-${attachmentSetup}${commentSetup}${worklogSetup}${notificationSetup}${reportingSetup}${auditSetup}
+${summaryExportHrefSetup}${attachmentSetup}${commentSetup}${worklogSetup}${notificationSetup}${reportingSetup}${auditSetup}
   return (
     <main className="stack">
       <section className="card stack">
@@ -2087,13 +2094,26 @@ function renderTicketRuntimeAcceptanceTest(options: {
   ]);
 `
     : '';
+  const summaryExportAssertions = options.ticketReportingEnabled && options.exportCsvEnabled
+    ? `
+  const summaryCsvLink = page.getByRole('link', { name: 'Export ticket summary CSV' });
+  await expect(summaryCsvLink).toBeVisible();`
+    : '';
+  const filteredSummaryExportAssertions = options.ticketReportingEnabled && options.exportCsvEnabled
+    ? `
+  await expect(page.getByRole('link', { name: 'Export ticket summary CSV' })).toHaveAttribute('href', /status=in_progress/);
+  const filteredSummaryExportResponse = await page.request.get('/api/tickets/summary/export?assigneeId=support-owner&status=in_progress');
+  expect(filteredSummaryExportResponse.ok()).toBe(true);
+  const filteredSummaryCsv = await filteredSummaryExportResponse.text();
+  expect(filteredSummaryCsv).toContain('status,in_progress,1');
+  expect(filteredSummaryCsv).toContain('sla,overdue,1');
+  expect(filteredSummaryCsv).toContain('assignee,support-owner,1');`
+    : '';
   const reportingAssertions = options.ticketReportingEnabled
     ? `
   await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
   const summaryJsonLink = page.getByRole('link', { name: 'View ticket summary JSON' });
-  const summaryCsvLink = page.getByRole('link', { name: 'Export ticket summary CSV' });
-  await expect(summaryJsonLink).toBeVisible();
-  await expect(summaryCsvLink).toBeVisible();
+  await expect(summaryJsonLink).toBeVisible();${summaryExportAssertions}
   await expect(page.getByText('Total tickets: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('Open: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket SLA summary' }).getByText('Overdue: 1')).toBeVisible();
@@ -2111,7 +2131,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(summaryPayload.summary.total).toBe(1);
   expect(summaryPayload.summary.byStatus.open).toBe(1);
   expect(summaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
-  expect(summaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
+  expect(summaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);${options.exportCsvEnabled ? `
   const summaryExportResponse = await page.request.get('/api/tickets/summary/export');
   expect(summaryExportResponse.ok()).toBe(true);
   expect(summaryExportResponse.headers()['content-type']).toContain('text/csv');
@@ -2120,7 +2140,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(summaryCsv).toContain('total,tickets,1');
   expect(summaryCsv).toContain('status,open,1');
   expect(summaryCsv).toContain('sla,overdue,1');
-  expect(summaryCsv).toContain('assignee,support-owner,1');
+  expect(summaryCsv).toContain('assignee,support-owner,1');` : ''}
 `
     : '';
 
@@ -2172,8 +2192,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
   await expect(page.getByText('Total tickets: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('In progress: 1')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);
-  await expect(page.getByRole('link', { name: 'Export ticket summary CSV' })).toHaveAttribute('href', /status=in_progress/);
+  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);${filteredSummaryExportAssertions}
   const filteredSummaryResponse = await page.request.get('/api/tickets/summary?assigneeId=support-owner&status=in_progress');
   expect(filteredSummaryResponse.ok()).toBe(true);
   const filteredSummaryPayload = await filteredSummaryResponse.json() as {
@@ -2188,12 +2207,6 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   expect(filteredSummaryPayload.summary.byStatus.in_progress).toBe(1);
   expect(filteredSummaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
   expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
-  const filteredSummaryExportResponse = await page.request.get('/api/tickets/summary/export?assigneeId=support-owner&status=in_progress');
-  expect(filteredSummaryExportResponse.ok()).toBe(true);
-  const filteredSummaryCsv = await filteredSummaryExportResponse.text();
-  expect(filteredSummaryCsv).toContain('status,in_progress,1');
-  expect(filteredSummaryCsv).toContain('sla,overdue,1');
-  expect(filteredSummaryCsv).toContain('assignee,support-owner,1');
 
   await expect(createdTicket).toContainText('in_progress');${auditAssertions}
 
@@ -2269,10 +2282,10 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
       { relativePath: 'app/tickets/page.tsx', source: renderTicketsPage(customerFeatureOptions) },
       { relativePath: 'app/api/tickets/route.ts', source: renderTicketsRoute(customerFeatureOptions) },
       ...(customerFeatureOptions.ticketReportingEnabled
-        ? [
-            { relativePath: 'app/api/tickets/summary/route.ts', source: renderTicketSummaryRoute() },
-            { relativePath: 'app/api/tickets/summary/export/route.ts', source: renderTicketSummaryExportRoute() }
-          ]
+        ? [{ relativePath: 'app/api/tickets/summary/route.ts', source: renderTicketSummaryRoute() }]
+        : []),
+      ...(customerFeatureOptions.ticketReportingEnabled && customerFeatureOptions.exportCsvEnabled
+        ? [{ relativePath: 'app/api/tickets/summary/export/route.ts', source: renderTicketSummaryExportRoute() }]
         : []),
       ...(customerFeatureOptions.exportCsvEnabled
         ? [{ relativePath: 'app/api/tickets/export/route.ts', source: renderTicketExportRoute() }]

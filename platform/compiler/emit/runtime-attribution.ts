@@ -30,7 +30,7 @@ export function classifyRuntimeEntry(targetPath: string): RuntimeEntryKind | nul
 }
 
 export function detectVerticalFromPath(targetPath: string): string | null {
-  if (targetPath.includes('/tickets') || targetPath.includes('ticket')) {
+  if (targetPath.includes('/tickets') || targetPath.includes('ticket') || targetPath.includes('worklog')) {
     return 'ticket';
   }
   if (targetPath.includes('/customers') || targetPath.includes('customer')) {
