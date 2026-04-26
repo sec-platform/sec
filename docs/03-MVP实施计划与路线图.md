@@ -60,8 +60,9 @@
 
 1. **升级迁移引擎增强**
    - 状态：active
-   - 目标：
+   - 总目标：
      - 从单一 `file-replace` 升级到更多可控 migration 类型。
+     - 让升级从“能跑”进入“能审查、能预检、能回滚边界明确”。
    - 已完成：
      - `config-rewrite` JSON 配置迁移：
        - `set`
@@ -81,17 +82,45 @@
      - 升级前置检查失败的结构化诊断 artifact。
      - 升级诊断在 review/local view 中的聚合。
      - upgrade diagnostics 进入 lock/provenance 产物清单。
-   - 下一步候选：
-     - 更多执行型迁移类型。
+   - 当前阶段拆分：
+     - 阶段 1：扩 migration 类型。
+     - 阶段 2：补 migration 预检与阻断口径。
+     - 阶段 3：补 migration 后 explain/review 可见性。
+   - 连续功能切口：
+     - 切口 A：新增文件系统类 migration：
+       - 目录创建。
+       - 文件删除。
+       - 文件重命名。
+     - 切口 B：新增文本结构类 migration：
+       - text-append。
+       - text-replace-regex。
+       - 多目标 patch bundle。
+     - 切口 C：新增 migration preflight：
+       - 目标文件存在性检查。
+       - schema/JSON 结构检查。
+       - slot 合同前后兼容性检查。
+     - 切口 D：把每类 migration 的影响面写入：
+       - review summary。
+       - explain graph。
+       - local views。
+   - 每个切口的验证口径：
+     - 单测覆盖新增 migration 执行器。
+     - `upgrade.test.ts` 覆盖成功/阻断/回滚口径。
+     - 必要时跑主链 `verify -> lock -> explain`。
+   - 完成定义：
+     - 新 migration 类型可声明、可执行、可 dry-run。
+     - 失败能结构化暴露到 diagnostics/review。
+     - explain/view 能看到迁移影响面。
 
 2. **repair 从基础可用到可审查**
    - 状态：active
-   - 目标：
+   - 总目标：
      - 让 repair plan 更准确地区分 failure 类型：
        - slot failure
        - spec failure
        - kernel failure
      - 输出更清楚的可修复边界。
+     - 让 repair 的可执行性与不可执行原因都可审查。
    - 已完成：
      - 结构化 failure points。
      - repairable 标记。
@@ -104,17 +133,48 @@
      - repair 后自动要求重新 verify 的显式状态。
      - repair plan dry-run 模式。
      - repair plan 的执行前差异预览。
-   - 下一步候选：
-     - repair 失败点到具体生成文件/slot 归因边的更细映射。
+   - 当前阶段拆分：
+     - 阶段 1：细化 failure point 归因。
+     - 阶段 2：细化 repair task 生成边界。
+     - 阶段 3：细化 repair 后验证追踪。
+   - 连续功能切口：
+     - 切口 A：把 failure point 归因到更细粒度目标：
+       - generated file。
+       - slot target。
+       - acceptance case。
+       - policy target。
+     - 切口 B：把 repair task 拆成明确类别：
+       - slot rewrite。
+       - config repair。
+       - generated artifact refresh。
+     - 切口 C：补 repair 阻断解释：
+       - 为什么不可修。
+       - 哪个边界阻止修复。
+       - 需要人工决策的点。
+     - 切口 D：补 repair 前后 diff/verify trace：
+       - preview。
+       - applied result。
+       - verify pending state。
+   - 每个切口的验证口径：
+     - `review-repair-summary.test.ts`。
+     - `pipeline.test.ts`。
+     - 针对 repair plan/local view 的定向测试。
+   - 完成定义：
+     - repair plan 不仅能生成，还能说明：
+       - 修什么。
+       - 为什么修。
+       - 为什么不能修。
+       - 修后还需验证什么。
 
 3. **计划与进度显式化**
    - 状态：active
-   - 目标：
+   - 总目标：
      - 把未来计划和当前进度固定在 repo 文档中。
      - 避免进度只散落在：
        - 会话上下文
        - 临时任务列表
        - git log
+     - 让后续开发不是“找下一步”，而是“沿清单连续推进”。
    - 已完成：
      - 本文新增正式进度清单。
      - 本地 Source View 与 Slot / Rule View 已有互相跳转导航。
@@ -123,44 +183,66 @@
        - 降低局部编辑成本。
        - 降低 review diff 成本。
        - 降低冲突成本。
-   - 下一步候选：
-     - 每轮功能提交后更新本节对应状态。
-     - 必要时同步 `README` 的入口说明。
+   - 当前阶段拆分：
+     - 阶段 1：把 active/next 工作包列表化。
+     - 阶段 2：把每个工作包继续拆到切口级。
+     - 阶段 3：把每轮提交反映回路线图。
+   - 连续功能切口：
+     - 切口 A：给每个 active 工作包补：
+       - 当前阶段。
+       - 连续切口。
+       - 验证口径。
+       - 完成定义。
+     - 切口 B：给每个 next 工作包补：
+       - 进入条件。
+       - 默认顺序。
+       - 不做前提。
+     - 切口 C：同步 README/入口文档：
+       - 当前主链能力。
+       - 当前推荐演示块组合。
+       - 当前治理产物查看入口。
+   - 完成定义：
+     - 用户可直接从文档挑下一切口。
+     - AI 可不依赖聊天上下文连续推进。
+     - 每个大点都有明确的小点序列。
 
 4. **私有 registry 最小通路**
    - 状态：done
-   - 目标：
-     - workspace/private registry source 可被用户入口和主链路使用。
+   - 总目标：
+     - 让 workspace/private registry source 可被用户入口和主链路使用。
      - 与 official registry 共享 manifest/lock/provenance 口径。
    - 已完成：
      - 默认 plan 已包含 workspace private registry source。
      - private block 可通过 CLI/orchestrator 加入：
-       - plan
-       - resolve
-       - compose
-       - verify
-       - lock
-       - explain
+       - plan。
+       - resolve。
+       - compose。
+       - verify。
+       - lock。
+       - explain。
      - CLI `add private/...` 会回显：
-       - version
-       - registry source
+       - version。
+       - registry source。
      - lock/provenance/review/local view 均保留 private registry source 元数据。
-   - 下一步候选：
-     - 进入 Work Tracking / Ticket SaaS 纵切面。
-     - 验证新增官方业务块。
-     - 暂不继续扩 registry 基础设施。
+   - 当前阶段结论：
+     - 基础通路已完成。
+     - 当前不把 registry 基础设施继续前置扩张。
+   - 退出后默认承接方向：
+     - 由 Work Tracking / Ticket SaaS 纵切面继续消费 private registry 能力。
+     - 后续在团队阶段再继续扩版本治理与私有块协作规范。
 
 ### next 工作包
 
 1. **Work Tracking / Ticket SaaS 纵切面**
    - 状态：active
-   - 目标：
-     - 在 Customer Admin 外增加一个 `ticket/basic` 最小块。
-     - 验证 Work Tracking 基础业务能力：
-       - 状态流转
-       - 负责人
-       - 租户隔离
-       - 列表筛选
+   - 总目标：
+     - 在 Customer Admin 外增加一个 `ticket/basic` 最小纵切面。
+     - 让业务块组合不只验证“能装配”，还验证“能协同演进”。
+   - 基础业务能力目标：
+     - 状态流转。
+     - 负责人。
+     - 租户隔离。
+     - 列表筛选。
    - 已完成：
      - 新增 `ticket/basic` 官方块：
        - ticket 服务。
@@ -198,14 +280,68 @@
        - `/tickets` runtime 页面展示 summary。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
-   - 下一步候选：
-     - 继续接入 review/explain 团队协作面。
-     - 验证业务块与治理块组合后的可审查输出。
+   - 当前阶段拆分：
+     - 阶段 1：业务 CRUD 与 runtime host。
+     - 阶段 2：横切治理联动。
+     - 阶段 3：review/explain 团队协作面。
+   - 连续功能切口：
+     - 切口 A：补 reporting 继续细化：
+       - summary API。
+       - summary export。
+       - summary explain 归因。
+     - 切口 B：补 review/explain 联动：
+       - review summary 中显式显示 ticket vertical 相关 generated artifacts。
+       - explain graph 中显式连接 reporting/export/runtime route。
+       - local view 中显示 ticket vertical 组合摘要。
+     - 切口 C：补更强业务块：
+       - `worklog/basic`。
+       - ticket comment/attachment。
+       - ticket SLA/reporting 扩展。
+     - 切口 D：补更强治理组合验证：
+       - ticket + override。
+       - ticket + upgrade。
+       - ticket + policy gate。
+   - 默认执行顺序：
+     - 先做切口 B。
+     - 再做切口 A。
+     - 然后再进入切口 C、D。
+   - 每个切口的验证口径：
+     - `expanded-blocks.test.ts`。
+     - runtime unit。
+     - runtime acceptance。
+     - explain/review/local view 定向断言。
+   - 完成定义：
+     - ticket vertical 不只可运行。
+     - ticket vertical 的业务块与治理块组合可被解释、可被审查、可被升级。
 
 3. **review / explain 面向团队协作增强**
-   - 目标：
+   - 状态：next
+   - 总目标：
      - 让 review summary 更接近团队 review 入口。
      - 不只输出机器 JSON。
+   - 当前阶段拆分：
+     - 阶段 1：补结构化 review 信息。
+     - 阶段 2：补团队阅读友好的视图摘要。
+     - 阶段 3：补 CI/artifact 消费口径。
+   - 连续功能切口：
+     - 切口 A：review summary 扩展：
+       - generated runtime entries 摘要。
+       - vertical/block 组合摘要。
+       - install plan 影响摘要。
+     - 切口 B：explain graph 扩展：
+       - runtime route 到 block 的可视连接。
+       - generated API/page 到来源 block 的显式归因。
+       - reporting/export 等横切能力的组合边。
+     - 切口 C：local views 扩展：
+       - 增加 vertical summary 卡片。
+       - 增加 block combination 卡片。
+       - 增加 failure focus 卡片。
+     - 切口 D：CI 消费口径：
+       - 让 review summary 中的关键字段稳定可解析。
+       - 补对应测试夹具与快照。
+   - 进入条件：
+     - ticket vertical 已有至少一个 reporting/export 联动示例。
+     - explain/local view 已能显示 runtime entry points。
    - 退出条件：
      - 以下信息能稳定聚合：
        - 失败点。
@@ -213,6 +349,7 @@
        - upgrade 冲突。
        - repair 冲突。
        - override 冲突。
+       - vertical 组合产物摘要。
      - 可被 CI artifact 消费。
 
 ### 暂不推进
@@ -346,231 +483,498 @@
 
 ### 目标
 
-- 把“能跑一次”升级为“可以反复编译、可升级、可解释”。
+- 把“能跑一次”升级为“可以反复编译、可升级、可解释、可审查”。
+- 把主链从单一母例验证，推进到业务块与治理块组合验证。
+- 把 AI 从“只会生成”推进到“会解释、会定位、会局部修复”。
 
-### 关键能力
+### 进入条件
 
-- 引入 `provenance.json`
-- 引入 `platform explain`
-- 引入 `override` 区与回写建议
-- 引入 `platform repair`
-- 引入 `Interface Alignment Agent`
-- 扩展到 6 到 10 个官方块
-- 数据库路线从 `SQLite` 扩展到 `PostgreSQL`
-- 评估 `Bun` 作为本地开发/测试加速环境，但不替代 `Node.js` 主基线
+- 阶段 B 闭环已稳定重复运行。
+- `resolve -> compose -> adapt -> verify -> lock -> explain` 已具备基础可用版本。
+- Customer Admin 母例已能作为回归基线。
+
+### 当前阶段拆分
+
+- C1：补齐 provenance、review、explain 的细粒度归因。
+- C2：把 repair、upgrade 从“能出结果”推进到“能审查边界与失败原因”。
+- C3：把官方块矩阵扩到业务块与治理块组合。
+- C4：补齐 `PostgreSQL` contract 与本地治理产物基线。
+
+### 连续功能切口
+
+- 切口 A：增强 explain/review/local view 归因：
+  - policy 节点、pin 节点、override 节点口径统一。
+  - generated runtime route 到来源 block 的显式连接。
+  - vertical 级组合摘要。
+- 切口 B：增强 upgrade：
+  - 新 migration 类型。
+  - preflight 阻断。
+  - diagnostics/review/explain 聚合。
+- 切口 C：增强 repair：
+  - failure point 到 file/slot/acceptance/policy 的细映射。
+  - repair task 分类。
+  - repair 前后 diff 与 verify trace。
+- 切口 D：增强 Work Tracking / Ticket 母例：
+  - `ticket/basic`。
+  - `reporting/ticket-summary`。
+  - `audit/basic`。
+  - `notify/email-basic`。
+  - `export/csv-basic`。
+  - `rbac/basic`。
+  - `table/filter-search`。
+  - `file/upload`。
+  - `infra/postgres`。
+- 切口 E：增强 policy / acceptance / override 联动：
+  - policy violation 归因。
+  - acceptance coverage 缺口聚合。
+  - override 冲突与 upgrade 冲突并列呈现。
 
 ### 推荐新增官方块
 
-- `ticket/basic`
-- `reporting/ticket-summary`
-- `worklog/basic`
-- `rbac/basic`
-- `audit/basic`
-- `file/upload`
-- `notify/email-basic`
-- `export/csv-basic`
-- `table/filter-search`
+- P0：当前已进入主线组合的块：
+  - `ticket/basic`
+  - `reporting/ticket-summary`
+  - `audit/basic`
+  - `notify/email-basic`
+  - `export/csv-basic`
+- P1：当前治理与交互增强块：
+  - `rbac/basic`
+  - `table/filter-search`
+  - `file/upload`
+  - `infra/postgres`
+- P2：下一批业务增强块：
+  - `worklog/basic`
+  - ticket comment/attachment
+  - ticket SLA/reporting 扩展
 
 ### 母例演进
 
-- Customer Admin 保持为 `v0.1` 闭环母例。
-- `v0.2` 增加 Work Tracking / Ticket SaaS 的最小纵切面，验证状态流转、负责人、租户隔离、列表筛选和基础审计。
-- `v0.5` 将 Work Tracking 作为团队协作 demo，覆盖私有 registry、override、upgrade、policy gate 和 provenance explain。
+- 基线母例：Customer Admin 继续作为最小闭环回归基线。
+- 当前扩展母例：Work Tracking / Ticket SaaS 最小纵切面。
+- 下一阶段演示母例：
+  - ticket + governance 组合 demo。
+  - ticket + private registry + override + upgrade demo。
+
+### 默认执行顺序
+
+- 先完成切口 A：把 explain/review/local view 归因补全。
+- 再完成切口 B、C：把 upgrade/repair 补到可审查。
+- 然后推进切口 D：持续扩 ticket vertical。
+- 最后推进切口 E：把 governance 联动收束到统一口径。
+
+### 验证口径
+
+- 主测：
+  - `tests/pipeline.test.ts`
+  - `tests/explain-graph.test.ts`
+  - `tests/review-summary.test.ts`
+  - `tests/repair.test.ts`
+  - `tests/upgrade.test.ts`
+- 组合测：
+  - `tests/expanded-blocks.test.ts`
+  - `tests/override-manifest.test.ts`
+  - `tests/policy.test.ts`
+- 主链回归：
+  - `verify -> lock -> explain`
 
 ### 退出条件
 
-- 产物中每个 slot、每个安装块都可追溯来源。
-- 验收失败时可生成局部修复任务，而不是要求 AI 重写项目。
-- 至少一类块升级可通过 `upgrade + verify` 通过。
+- 产物中每个 slot、每个安装块、每个关键 generated file 都可追溯来源。
+- repair 失败时能说明：
+  - 为什么不可修。
+  - 哪个边界阻断修复。
+  - 下一步应由谁决策。
+- 至少一类块升级可稳定通过 `upgrade + verify + lock + explain`。
+- ticket vertical 与治理块组合后，仍能稳定通过回归与解释产物检查。
 
 ### AI 可自主承担
 
-- pin/slot 对齐建议
-- 局部修复
-- override 回写建议
-- 升级风险摘要
+- pin/slot 对齐建议。
+- 局部 repair patch。
+- override 回写建议。
+- 升级风险摘要。
+- review/local view 摘要生成。
 
 ### 风险
 
-- 如果 provenance 不落地，团队很快失去对 AI 产物的信任。
-- 如果升级仍是“一次性脚手架模式”，平台价值会被腰斩。
+- 如果 provenance、review、graph 口径不统一，团队会失去对 AI 产物的信任。
+- 如果 upgrade/repair 仍停留在“脚手架式一次性输出”，平台价值会被腰斩。
+- 如果 ticket vertical 只有业务功能、没有治理归因，后续团队演示会缺乏说服力。
 
 ## 阶段 D：v0.5 团队可用化
 
 ### 目标
 
 - 从单人编译器升级为小团队可协同的平台。
+- 让团队能够共享 block、policy、验收与升级资产，而不是复制源码仓库。
 
-### 关键能力
+### 进入条件
 
-- 私有 registry
-- 块版本策略
-- policy gate
-- acceptance coverage 报告
-- review / explanation agent
-- 团队使用规范和 CI 模板
+- 阶段 C 的 explain、repair、upgrade、policy 基线稳定。
+- 官方块组合已能覆盖至少一个业务纵切面和多个治理横切面。
+
+### 当前阶段拆分
+
+- D1：私有 registry 与命名空间通路。
+- D2：块版本策略与升级矩阵。
+- D3：团队 CI 模板与 artifact 合同。
+- D4：review assist 与治理使用规范。
+
+### 连续功能切口
+
+- 切口 A：私有 registry：
+  - workspace source。
+  - private block 解析与安装。
+  - 来源元数据保留。
+- 切口 B：版本治理：
+  - block version 约束。
+  - upgrade lane 约束。
+  - 版本冲突摘要。
+- 切口 C：团队 CI：
+  - 标准命令序列。
+  - artifact 上传清单。
+  - 失败时 review/explain 产物暴露。
+- 切口 D：团队审查：
+  - review summary 稳定字段。
+  - policy gate 默认规则。
+  - override/repair/upgrade 审批点。
+
+### 默认执行顺序
+
+- 先做切口 A，稳定私有来源。
+- 再做切口 B，把版本与升级口径固定。
+- 然后做切口 C、D，把团队协作路径跑通。
+
+### 验证口径
+
+- `tests/private-registry.test.ts`
+- `tests/cli.test.ts`
+- `tests/pipeline.test.ts`
+- 团队 CI 样板项目的定向回归。
 
 ### 退出条件
 
-- 团队可在不直接改主干块源码的前提下，共享块、策略和规则。
-- CI 中可稳定执行 `resolve -> compose -> adapt -> verify -> lock`。
-- 失败构建能给出来源、差异和修复建议。
+- 团队可在不直接改主干块源码的前提下，共享块、策略、验收与规则。
+- CI 中可稳定执行 `resolve -> compose -> adapt -> verify -> lock -> explain`。
+- 失败构建能给出来源、差异、阻断点和修复建议。
+- review/explain 产物可被团队成员在不读全量源码的前提下消费。
 
 ### AI 可自主承担
 
-- 变更说明生成
-- 风险摘要
-- 回归影响面说明
-- 初步安全和权限检查
+- 变更说明生成。
+- 风险摘要。
+- 回归影响面说明。
+- 初步安全和权限检查。
+- 私有块接入建议。
 
 ### 风险
 
-- 如果没有团队边界和版本策略，私有 registry 会迅速变成另一个源码仓库。
+- 如果没有团队边界和版本策略，私有 registry 会迅速退化成另一个源码仓库。
+- 如果 CI artifact 口径不稳定，团队 review 仍会回到看 diff 的低效模式。
 
 ## 阶段 E：v1 平台化
 
 ### 目标
 
 - 把系统正式做成团队级工程平台，而不是本地工具集合。
+- 让规格、图谱、验证、治理、升级成为统一工作台的一部分。
 
-### 关键能力
+### 进入条件
 
-- Strategy Pack / Infra Pack / Governance Pack 正式化
-- acceptance graph
-- policy center
-- graph explorer
-- 双视图工作台
-  - Slot / Rule 视图
-  - Source 视图
-- 托管验证和审计日志
-- 官方块库达到后台母体的可用覆盖
+- 阶段 D 已跑通团队级私有 registry、CI、review 与 policy 基线。
+- 官方块库已覆盖后台母体常见场景。
+
+### 当前阶段拆分
+
+- E1：Strategy Pack / Infra Pack / Governance Pack 正式化。
+- E2：graph explorer 与双视图工作台。
+- E3：policy center 与托管验证。
+- E4：官方块库覆盖与运营口径。
+
+### 连续功能切口
+
+- 切口 A：平台包：
+  - Strategy Pack。
+  - Infra Pack。
+  - Governance Pack。
+- 切口 B：图谱工作台：
+  - acceptance graph。
+  - explain graph explorer。
+  - Source / Slot Rule 双视图。
+- 切口 C：治理中心：
+  - policy center。
+  - 托管验证。
+  - 审计日志。
+- 切口 D：块生态：
+  - 官方块覆盖矩阵。
+  - 生命周期状态。
+  - 使用建议与风险标签。
+
+### 默认执行顺序
+
+- 先做切口 A，稳定平台包边界。
+- 再做切口 B，建立统一浏览与审查入口。
+- 然后做切口 C、D，补齐治理和生态面。
+
+### 验证口径
+
+- 平台演示仓回归。
+- graph/explain/review 产物一致性检查。
+- 多项目共享 pack 的组合验证。
 
 ### 退出条件
 
 - 一个团队可以只通过规格和少量 slot 维护多个同类项目。
 - 大部分样板、策略和治理逻辑由系统确定性装配。
 - 人类 review 面积显著低于传统全仓 AI 生成模式。
+- 图谱、策略、验证、升级都能在统一平台面被查看和追踪。
 
 ### AI 可自主承担
 
-- 多 slot 协同综合
-- 多模块局部修复
-- 验收覆盖缺口提示
-- 升级迁移草案
+- 多 slot 协同综合。
+- 多模块局部修复。
+- 验收覆盖缺口提示。
+- 升级迁移草案。
+- 平台包接入建议。
 
 ### 风险
 
 - 如果没有图谱和双视图，平台复杂度会重新退回到“看 diff 猜 AI 做了什么”。
+- 如果平台包边界不清，最终会重新退化成源码模板集合。
 
 ## 阶段 F：v2 多目标编译器
 
 ### 目标
 
 - 从“单栈平台”升级为“多目标编译器”。
+- 在不破坏现有 block/slot/verification 合同的前提下，支持第二目标栈。
+
+### 进入条件
+
+- 阶段 E 的单栈平台已证明可持续升级、可多项目复用、可团队协同。
+- 升级、repair、provenance、policy 在单栈下已稳定。
 
 ### 关键能力
 
-- 第二后端目标栈
-- 更完整的升级/迁移引擎
-- marketplace / 受控生态
-- 托管编译、托管验证、托管观测
-- 运行时集成而非重造 runtime
+- 第二后端目标栈。
+- 更完整的升级/迁移引擎。
+- marketplace / 受控生态。
+- 托管编译、托管验证、托管观测。
+- 运行时集成而非重造 runtime。
 
 ### 技术路径
 
 - 保守路径：
-  - 先完成 `Next.js + Prisma + PostgreSQL`
-  - 再补 `Bun` 次级运行支持
-  - 再评估 `Nest`
-  - 最后再评估 `Elysia`
-- 原则：
-  - 新目标栈必须能复用 block interface、slot contract、verification contract
-  - 不能为了适配新栈破坏已有编译合同
+  - 先完成 `Next.js + Prisma + PostgreSQL`。
+  - 再补 `Bun` 次级运行支持。
+  - 再评估 `Nest`。
+  - 最后再评估 `Elysia`。
+- 不变原则：
+  - 新目标栈必须能复用 block interface、slot contract、verification contract。
+  - 不能为了适配新栈破坏已有编译合同。
+  - 不能用“新模板体系”绕过现有 graph/provenance/repair/upgrade 口径。
+
+### 连续功能切口
+
+- 切口 A：单栈巩固：
+  - `PostgreSQL` 主基线。
+  - upgrade/repair 跨版本稳定。
+- 切口 B：第二目标栈试点：
+  - 最小 block install。
+  - 最小 slot contract。
+  - 最小 verification lane。
+- 切口 C：跨栈治理：
+  - 跨栈 provenance。
+  - 跨栈 explain。
+  - 跨栈 acceptance 报告。
+- 切口 D：托管能力：
+  - 托管编译。
+  - 托管验证。
+  - 托管观测。
+
+### 默认执行顺序
+
+- 先完成切口 A。
+- 再进入切口 B。
+- 跨栈验证稳定后再进入切口 C、D。
+
+### 验证口径
+
+- 至少两个目标栈共享同一 plan 结构。
+- 同一块契约在不同目标栈下有一致的安装/验证结果。
+- upgrade/repair/report 在两个目标栈下都可运行。
 
 ### 退出条件
 
 - 至少两个目标栈可以共享上游 plan 结构和大部分块契约。
 - 块升级、迁移和验收可以跨目标栈工作。
+- 团队不需要维护两套完全割裂的 block 与治理体系。
 
 ### AI 可自主承担
 
-- 迁移计划生成
-- 兼容性差异说明
-- 目标栈适配 slot 生成
+- 迁移计划生成。
+- 兼容性差异说明。
+- 目标栈适配 slot 生成。
+- 跨栈风险摘要。
 
 ### 风险
 
 - 多栈扩展最容易把系统重新打回“模板拼装器”，所以必须以接口和验证契约为核心。
+- 如果先做第二栈、后补 contract，会导致首栈和次栈都难以维护。
 
 ## 阶段 G：v3 跨领域扩展
 
 ### 目标
 
 - 把后台母体扩展到更广的软件工程域，但仍保持“规格优先、块优先、验收优先”。
-
-### 可见方向
-
-- Java / 旧系统现代化
-- 内部工具与工作流整合
-- LiveOps / 运营后台
-- 玩法系统 / 内容管线
-- 组织级系统现代化与增量替换
+- 让平台具备跨领域迁移与增量替换能力，而不是一开始就追求全覆盖。
 
 ### 进入条件
 
-- `v1` 平台化稳定
-- 升级和 provenance 机制成熟
-- 块接口和验证体系已被证明可迁移
+- `v1` 平台化稳定。
+- 升级和 provenance 机制成熟。
+- 块接口和验证体系已被证明可迁移。
+
+### 当前阶段拆分
+
+- G1：内部工具与工作流系统扩展。
+- G2：旧系统现代化与增量替换。
+- G3：重领域场景试点。
+
+### 可见方向
+
+- Java / 旧系统现代化。
+- 内部工具与工作流整合。
+- LiveOps / 运营后台。
+- 玩法系统 / 内容管线。
+- 组织级系统现代化与增量替换。
+
+### 连续功能切口
+
+- 切口 A：内部工具模板化：
+  - 表单。
+  - 列表。
+  - 审批。
+  - 通知。
+- 切口 B：旧系统映射：
+  - schema 映射。
+  - API 映射。
+  - 验收映射。
+- 切口 C：增量替换：
+  - 新旧接口桥接。
+  - 数据同步策略。
+  - 回滚路径。
+- 切口 D：重领域试点：
+  - 仅在平台基线稳定后评估游戏/LiveOps。
+
+### 默认执行顺序
+
+- 先做切口 A。
+- 再做切口 B、C。
+- 最后才评估切口 D。
+
+### 验证口径
+
+- 新领域块仍可复用既有 block/verification/provenance 口径。
+- 至少一个旧系统替换案例可稳定回归。
+- 新领域扩展不破坏后台母体核心路径。
+
+### 退出条件
+
+- 至少两个非当前母例领域可共享平台核心合同。
+- 旧系统现代化场景中，平台能给出可执行的迁移顺序与风险解释。
+- 跨领域扩展未引入新的“无合同模板体系”。
 
 ### AI 可自主承担
 
-- 旧系统映射建议
-- 新旧接口桥接
-- 迁移顺序规划
-- 回归风险分析
+- 旧系统映射建议。
+- 新旧接口桥接建议。
+- 迁移顺序规划。
+- 回归风险分析。
 
 ### 风险
 
 - 过早切入 Java 或游戏主循环会把平台拖回大量领域特定细节，必须晚于平台核心成熟。
+- 如果没有增量替换路径，跨领域扩展会重新变成整仓重写项目。
 
 ## 阶段 H：终局平台面
 
 ### 目标
 
 - 形成完整的工程编译基础设施层。
+- 让上游规格、下游运行和平台治理最终形成统一闭环。
+
+### 进入条件
+
+- 多项目、多团队、多栈、多升级周期已经被证明可稳定运行。
+- 图谱、策略、验证、升级、审计都已有可运营基线。
+
+### 当前阶段拆分
+
+- H1：上游 authoring 与治理。
+- H2：中游编译与修复编排。
+- H3：下游 artifact、deploy、observe 闭环。
+- H4：平台运营、市场与审计层。
 
 ### 终局能力
 
 - 上游：
-  - spec-first authoring
-  - block graph editing
-  - policy and slot authoring
+  - spec-first authoring。
+  - block graph editing。
+  - policy and slot authoring。
 - 中游：
-  - compiler pipeline
-  - alignment / synthesize / repair passes
-  - upgrade and migration engine
+  - compiler pipeline。
+  - alignment / synthesize / repair passes。
+  - upgrade and migration engine。
 - 下游：
-  - repo artifact
-  - provenance
-  - acceptance and policy reports
-  - deploy and observe hooks
+  - repo artifact。
+  - provenance。
+  - acceptance and policy reports。
+  - deploy and observe hooks。
 - 平台：
-  - official + private registry
-  - marketplace
-  - audit and governance
-  - visual graph
-  - hosted verification
+  - official + private registry。
+  - marketplace。
+  - audit and governance。
+  - visual graph。
+  - hosted verification。
+
+### 连续功能切口
+
+- 切口 A：上游建模体验。
+- 切口 B：中游编译调度与预算控制。
+- 切口 C：下游部署与观测接入。
+- 切口 D：平台层审计、市场与权限治理。
+
+### 验证口径
+
+- 多团队多项目长期运行数据。
+- hosted verification 与本地验证结果一致性。
+- 审计链、变更链、升级链可追踪。
 
 ### 退出条件
 
 - 平台可以稳定支持多个项目、多个团队、多个栈、多个升级周期。
 - AI 的主要职责已经收敛为：对齐、综合、修复、迁移、解释，而不是从零写整仓。
+- 人类只需要在关键审批点介入，而不是接管日常编译细节。
 
 ## 阶段 I：分层自举
 
 ### 目标
 
 - 让工程编译器逐步用自身规格描述和维护自身外围，而不是一次性“自改核心”。
+- 保持“外围先自举，核心最后自举”的保守路线。
+
+### 进入条件
+
+- 平台外围工具已足够稳定。
+- provenance、graph、verification、权限边界已成熟。
+
+### 当前阶段拆分
+
+- I1：用规格描述 block、slot、acceptance、policy、registry metadata。
+- I2：用平台生成与维护外围工具和报告。
+- I3：逐步把外围工具 block 化。
+- I4：最后才评估核心 pass 的自描述与受控迁移。
 
 ### 路线
 
@@ -580,16 +984,41 @@
 4. 将平台外围工具逐步迁移为自身 block：registry admin、upgrade center、policy center、verification dashboard。
 5. 最后才评估核心 pass 的自描述、自测试和受控迁移。
 
+### 默认执行顺序
+
+- 先做 I1、I2。
+- 再做 I3。
+- 最后才触碰 I4。
+
+### 验证口径
+
+- 外围工具迁移后，输出与原实现一致。
+- 自举生成的报告、视图、测试 harness 能稳定替代手工维护版本。
+- 核心 pass 在未得到批准前始终保持宿主语言权威实现。
+
+### 退出条件
+
+- 平台外围能力可以由平台自身规格持续描述和演进。
+- 自举只扩大维护效率，不削弱核心确定性与审计性。
+
 ### 不做
 
 - 不允许系统直接无约束改写核心编译器。
 - 不把自举作为 `v0.1-v1` 成功条件。
+- 不用“自举”作为跳过验证和审批的理由。
 
 ## 阶段 J：自维护系统
 
 ### 目标
 
 - 在 provenance、observability、权限、回滚和验收成熟后，让系统对项目进行有限自诊断、自修复和自升级。
+- 把自维护限制在可审查、可回滚、可预算控制的边界内。
+
+### 进入条件
+
+- 失败诊断已经稳定映射到 spec/composition/slot/kernel 四类问题。
+- repair/upgrade/override 已有成熟权限模型。
+- 审计链与回滚链已跑通。
 
 ### 必备前提
 
@@ -599,26 +1028,117 @@
 - 可回滚：migration、compose、override 和生成产物都有恢复路径。
 - 可审计：每次 AI task、人工 override 和升级决策都能解释。
 
+### 当前阶段拆分
+
+- J1：诊断闭环。
+- J2：执行预算与审批模型。
+- J3：冷路径与温路径自修复。
+- J4：受控自升级。
+
+### 连续功能切口
+
+- 切口 A：诊断：
+  - failure focus 视图。
+  - root cause 分类。
+  - 自动建议下一步。
+- 切口 B：权限：
+  - 写入预算。
+  - 批准门槛。
+  - 热路径阻断。
+- 切口 C：执行：
+  - slot repair。
+  - policy 调整建议。
+  - 文档/报告自更新。
+- 切口 D：升级：
+  - 受控 rollout。
+  - 自动回滚条件。
+  - 审批后执行。
+
 ### 默认边界
 
 - 自维护优先处理冷路径和温路径：slot 修复、policy 调整、验收补齐、文档/报告、升级计划。
 - 热路径、核心编译器、基础设施权限和数据迁移必须保持人工审批。
 
+### 验证口径
+
+- 自修复必须保留前后 diff、验证结果和回滚点。
+- 自升级必须在受限环境先通过 verify/lock/explain。
+- 审批边界不可被自动流程绕过。
+
+### 退出条件
+
+- 系统能在无人工逐文件介入的情况下处理一批低风险问题。
+- 所有自动执行都能被解释、回放、回滚、审计。
+- 人类只在真正高风险决策点介入。
+
+### 风险
+
+- 如果缺少预算、审批和热路径阻断，自维护会重新退化成高风险自动改仓库。
+- 如果没有稳定 root cause 分类，自维护只会制造更多噪音任务。
+
 ## 阶段 K：产品线、组织与 Reality Compiler 研究线
+
+### 目标
+
+- 把平台从“单项目编译器”推进到“产品线编译器”和更长期的组织编译器研究线。
+- 维持研究线与当前工程承诺之间的明确边界。
+
+### 进入条件
+
+- 多项目、多团队、多栈平台已经稳定。
+- 自维护能力已有可审计的安全边界。
+
+### 当前阶段拆分
+
+- K1：产品线编译器。
+- K2：组织编译器。
+- K3：Venture / Reality Compiler 研究线。
 
 ### 产品线编译器
 
-- 编译一族同源产品：行业包、客户包、差异化配置、override、版本矩阵和升级策略。
+- 目标：
+  - 编译一族同源产品。
+  - 管理行业包、客户包、差异化配置、override、版本矩阵和升级策略。
+- 连续切口：
+  - 变体模型。
+  - 产品线升级矩阵。
+  - 共性块与差异块治理。
+- 完成定义：
+  - 同一产品线中的多个项目可共享大部分规格、块与升级资产。
 
 ### 组织编译器
 
-- 把角色、权限、流程、审批、数据对象、agent 和软件界面编译成组织协作系统。
+- 目标：
+  - 把角色、权限、流程、审批、数据对象、agent 和软件界面编译成组织协作系统。
+- 连续切口：
+  - 组织角色模型。
+  - 审批与流程 DSL。
+  - 组织级 policy/agent 编排。
+- 完成定义：
+  - 组织配置变化可稳定映射到系统行为与界面装配。
 
 ### Venture / Reality Compiler
 
-- 把商业想法或现实目标转化为软件、agent、人类角色、流程、外部服务和反馈回路组成的行动网络。
-- 该方向只作为长期研究与产品想象，不进入当前工程承诺。
+- 目标：
+  - 把商业想法或现实目标转化为软件、agent、人类角色、流程、外部服务和反馈回路组成的行动网络。
+- 连续切口：
+  - 目标建模。
+  - 反馈回路建模。
+  - 外部系统接入边界。
+- 默认边界：
+  - 该方向只作为长期研究与产品想象，不进入当前工程承诺。
 
+### 默认执行顺序
+
+- 先做 K1。
+- 有稳定产品线资产后再评估 K2。
+- K3 只保留研究，不进入当前交付承诺。
+
+### 验证口径
+
+- 产品线编译器需先证明多变体复用收益。
+- 组织编译器需先证明流程/权限/界面可由统一规格驱动。
+- 研究线只记录模型与原型，不绑定当前主仓里程碑。
 ## 新增整合：采用与影响路线
 
 ### 早期采用
