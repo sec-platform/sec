@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import { createDatabase } from '../../src/runtime/database.ts';
+import { login } from '../../src/installed/auth/session.ts';
+import { createTicket, listTickets, transitionTicketStatus } from '../../src/installed/ticket/ticket-service.ts';
+import { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';
+
+export async function runSuite() {
+  const db = createDatabase();
+  const tenantA = login('tenant-a-admin', 'password');
+  const tenantB = login('tenant-b-admin', 'password');
+
+  const first = createTicket(db, tenantA, {
+    title: 'Escalate onboarding issue',
+    assigneeId: 'support-owner'
+  });
+  createTicket(db, tenantA, {
+    title: 'Prepare renewal checklist',
+    assigneeId: 'renewal-owner'
+  });
+  createTicket(db, tenantB, {
+    title: 'Tenant B support ticket',
+    assigneeId: 'support-owner'
+  });
+  transitionTicketStatus(db, tenantA, first.id, 'in_progress');
+
+  const summary = summarizeTickets(listTickets(db, tenantA));
+  assert.equal(summary.total, 2);
+  assert.equal(summary.byStatus.open, 1);
+  assert.equal(summary.byStatus.in_progress, 1);
+  assert.equal(summary.byStatus.closed, 0);
+  assert.deepEqual(summary.byAssignee, [
+    { assigneeId: 'renewal-owner', count: 1 },
+    { assigneeId: 'support-owner', count: 1 }
+  ]);
+}
