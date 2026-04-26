@@ -489,7 +489,9 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Status</td><td>failed</td>');
   expect(sourceView).toContain('<td>Artifact Status</td><td>attention</td>');
   expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
+  expect(sourceView).toContain('<td>Upload Groups</td><td>2</td>');
   expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
+  expect(sourceView).toContain('<td>Missing Reason Types</td><td>1</td>');
   expect(sourceView).toContain('Missing Reason Summary');
   expect(sourceView).toContain('declared-generated-missing');
   expect(sourceView).toContain('Artifact Upload Groups');
