@@ -111,10 +111,10 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
-  if (entry.kind === 'json-array-append') {
+  if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
     ensureMigrationStringArray(entry.path, 'path', entryPath);
     if (entry.path.length === 0) {
-      throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array append path must not be empty');
+      throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
     }
     if (!Array.isArray(entry.items) || entry.items.length === 0) {
       throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires items`);
@@ -220,22 +220,34 @@ function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; va
   return config;
 }
 
-function applyJsonArrayAppend(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-array-append' }>): unknown {
-  if (entry.path.length === 0) {
-    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array append path must not be empty');
+function resolveJsonArrayTarget(
+  config: unknown,
+  pathSegments: string[],
+  label: string,
+  options: { createParents: boolean }
+): { root: Record<string, unknown>; parent: Record<string, unknown>; key: string; target: unknown } {
+  if (pathSegments.length === 0) {
+    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
   }
-  const root = ensureJsonObject(config, 'JSON array append');
+  const root = ensureJsonObject(config, label);
   let current = root;
-  for (const segment of entry.path.slice(0, -1)) {
+  for (const segment of pathSegments.slice(0, -1)) {
     const next = current[segment];
     if (typeof next !== 'object' || next === null || Array.isArray(next)) {
+      if (!options.createParents) {
+        return { root, parent: {}, key: pathSegments[pathSegments.length - 1], target: undefined };
+      }
       current[segment] = {};
     }
     current = current[segment] as Record<string, unknown>;
   }
 
-  const key = entry.path[entry.path.length - 1];
-  const target = current[key];
+  const key = pathSegments[pathSegments.length - 1];
+  return { root, parent: current, key, target: current[key] };
+}
+
+function applyJsonArrayAppend(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-array-append' }>): unknown {
+  const { parent, key, target } = resolveJsonArrayTarget(config, entry.path, 'JSON array append', { createParents: true });
   if (target !== undefined && !Array.isArray(target)) {
     throw new CompilerError('UPGRADE-MIGRATION-012', 'JSON array append target must be an array');
   }
@@ -249,8 +261,22 @@ function applyJsonArrayAppend(config: unknown, entry: Extract<UpgradeMigrationEn
       seen.add(serialized);
     }
   }
-  current[key] = existing;
+  parent[key] = existing;
 
+  return config;
+}
+
+function applyJsonArrayRemove(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-array-remove' }>): unknown {
+  const { parent, key, target } = resolveJsonArrayTarget(config, entry.path, 'JSON array remove', { createParents: false });
+  if (target === undefined) {
+    return config;
+  }
+  if (!Array.isArray(target)) {
+    throw new CompilerError('UPGRADE-MIGRATION-012', 'JSON array remove target must be an array');
+  }
+
+  const removeItems = new Set(entry.items.map((item) => JSON.stringify(item)));
+  parent[key] = target.filter((item) => !removeItems.has(JSON.stringify(item)));
   return config;
 }
 
@@ -285,6 +311,15 @@ export async function applyMigrationEntries(
     if (entry.kind === 'json-array-append') {
       const config = applyJsonArrayAppend((await pathExists(targetPath)) ? await readJson<unknown>(targetPath) : {}, entry);
       await ensureDir(path.dirname(targetPath));
+      await writeJson(targetPath, config);
+      continue;
+    }
+
+    if (entry.kind === 'json-array-remove') {
+      if (!(await pathExists(targetPath))) {
+        continue;
+      }
+      const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
       await writeJson(targetPath, config);
       continue;
     }
