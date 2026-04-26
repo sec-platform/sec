@@ -378,15 +378,7 @@ function applyTextReplaceRegex(
 }
 
 async function removeFileMigrationTarget(targetPath: string, target: string): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(targetPath);
-  } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-016', `Delete-file target "${target}" is missing`);
-  }
-  if (!stats.isFile()) {
-    throw new CompilerError('UPGRADE-MIGRATION-017', `Delete-file target "${target}" must be a file`);
-  }
+  await statFileMigrationTarget(targetPath, target);
   await fs.rm(targetPath);
 }
 
@@ -396,15 +388,7 @@ async function renameFileMigrationTarget(
   source: string,
   target: string
 ): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(sourcePath);
-  } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-018', `Rename-file source "${source}" is missing`);
-  }
-  if (!stats.isFile()) {
-    throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-file source "${source}" must be a file`);
-  }
+  await statRenameMigrationSource(sourcePath, source);
   if (await pathExists(targetPath)) {
     throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${target}" already exists`);
   }
@@ -534,6 +518,60 @@ async function collectMigrationTargetEvidence(
   return evidence.sort((left, right) => left.localeCompare(right));
 }
 
+async function statFileMigrationTarget(targetPath: string, target: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(targetPath);
+  } catch {
+    throw new CompilerError('UPGRADE-MIGRATION-016', `Delete-file target "${target}" is missing`);
+  }
+  if (!stats.isFile()) {
+    throw new CompilerError('UPGRADE-MIGRATION-017', `Delete-file target "${target}" must be a file`);
+  }
+}
+
+async function statRenameMigrationSource(sourcePath: string, source: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(sourcePath);
+  } catch {
+    throw new CompilerError('UPGRADE-MIGRATION-018', `Rename-file source "${source}" is missing`);
+  }
+  if (!stats.isFile()) {
+    throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-file source "${source}" must be a file`);
+  }
+}
+
+async function collectFileOperationEvidence(
+  projectRoot: string,
+  targetManifestRoot: string,
+  migrationEntries: UpgradeMigrationEntry[]
+): Promise<string[]> {
+  const evidence: string[] = [];
+  for (const entry of migrationEntries) {
+    if (entry.kind === 'file-replace') {
+      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source);
+      if (!(await pathExists(sourcePath))) {
+        throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
+      }
+      evidence.push(`${entry.id}:manifest-source:exists`);
+    }
+    if (entry.kind === 'delete-file') {
+      await statFileMigrationTarget(resolveProjectPath(projectRoot, entry.target), entry.target);
+      evidence.push(`${entry.id}:target:file`);
+    }
+    if (entry.kind === 'rename-file') {
+      await statRenameMigrationSource(resolveProjectPath(projectRoot, entry.source), entry.source);
+      if (await pathExists(resolveProjectPath(projectRoot, entry.target))) {
+        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
+      }
+      evidence.push(`${entry.id}:source:file`);
+      evidence.push(`${entry.id}:target:available`);
+    }
+  }
+  return evidence.sort((left, right) => left.localeCompare(right));
+}
+
 function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
@@ -628,6 +666,7 @@ function buildUpgradePreflightChecks(
   migrations: UpgradeMigration[],
   migrationEntries: UpgradeMigrationEntry[],
   migrationTargetEvidence: string[],
+  fileOperationEvidence: string[],
   jsonShapeEvidence: string[],
   jsonStructureEvidence: string[],
   textPatternEvidence: string[],
@@ -652,6 +691,12 @@ function buildUpgradePreflightChecks(
       status: 'passed',
       message: `${migrationTargetEvidence.length} migration paths checked`,
       evidence: migrationTargetEvidence
+    },
+    {
+      id: 'migration-file-operations',
+      status: 'passed',
+      message: `${fileOperationEvidence.length} file operations checked`,
+      evidence: fileOperationEvidence
     },
     {
       id: 'migration-json-shapes',
@@ -701,6 +746,16 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
   }
   if (code === 'UPGRADE-MIGRATION-014') {
     return 'migration-text-patterns';
+  }
+  if (
+    code === 'UPGRADE-MIGRATION-008' ||
+    code === 'UPGRADE-MIGRATION-016' ||
+    code === 'UPGRADE-MIGRATION-017' ||
+    code === 'UPGRADE-MIGRATION-018' ||
+    code === 'UPGRADE-MIGRATION-019' ||
+    code === 'UPGRADE-MIGRATION-020'
+  ) {
+    return 'migration-file-operations';
   }
   if (code.startsWith('UPGRADE-MIGRATION-')) {
     return 'migration-entries';
@@ -829,6 +884,11 @@ export async function upgradeWorkspace(
       (left, right) => left.localeCompare(right)
     );
     const migrationTargetEvidence = await collectMigrationTargetEvidence(projectRoot, migrationEntries);
+    const fileOperationEvidence = await collectFileOperationEvidence(
+      projectRoot,
+      targetManifestRoot,
+      migrationEntries
+    );
     const jsonShapeEvidence = collectJsonShapeEvidence(migrationEntries);
     const jsonStructureEvidence = await collectJsonStructureEvidence(projectRoot, migrationEntries);
     const textPatternEvidence = collectTextPatternEvidence(migrationEntries);
@@ -840,6 +900,7 @@ export async function upgradeWorkspace(
       migrations,
       migrationEntries,
       migrationTargetEvidence,
+      fileOperationEvidence,
       jsonShapeEvidence,
       jsonStructureEvidence,
       textPatternEvidence,
