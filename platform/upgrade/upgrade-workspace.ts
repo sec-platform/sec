@@ -510,12 +510,37 @@ export async function applyMigrationEntries(
   }
 }
 
+async function describeMigrationPathStatus(
+  projectRoot: string,
+  migrationId: string,
+  role: 'source' | 'target',
+  relativePath: string
+): Promise<string> {
+  const exists = await pathExists(resolveProjectPath(projectRoot, relativePath));
+  return `${migrationId}:${role}:${relativePath}:${exists ? 'exists' : 'missing'}`;
+}
+
+async function collectMigrationTargetEvidence(
+  projectRoot: string,
+  migrationEntries: UpgradeMigrationEntry[]
+): Promise<string[]> {
+  const evidence: string[] = [];
+  for (const entry of migrationEntries) {
+    if (entry.kind === 'rename-file') {
+      evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, 'source', entry.source));
+    }
+    evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, 'target', entry.target));
+  }
+  return evidence.sort((left, right) => left.localeCompare(right));
+}
+
 function buildUpgradePreflightChecks(
   currentVersion: string,
   targetVersion: string,
   acceptedRanges: string[],
   migrations: UpgradeMigration[],
   migrationEntries: UpgradeMigrationEntry[],
+  migrationTargetEvidence: string[],
   impacts: string[],
   scannedOverrides: string[]
 ): UpgradePreflightCheck[] {
@@ -531,6 +556,12 @@ function buildUpgradePreflightChecks(
       status: 'passed',
       message: `${migrationEntries.length} migration entries loaded and validated`,
       evidence: migrations.map((migration) => `${migration.id}:${migration.entry}`)
+    },
+    {
+      id: 'migration-targets',
+      status: 'passed',
+      message: `${migrationTargetEvidence.length} migration paths checked`,
+      evidence: migrationTargetEvidence
     },
     {
       id: 'impact-scan',
@@ -683,6 +714,7 @@ export async function upgradeWorkspace(
     impacts = [...new Set([...targetEntry.manifest.installs.map((install) => install.to), ...migrationImpacts(migrationEntries)])].sort(
       (left, right) => left.localeCompare(right)
     );
+    const migrationTargetEvidence = await collectMigrationTargetEvidence(projectRoot, migrationEntries);
     const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
     const preflightChecks = buildUpgradePreflightChecks(
       currentVersion,
@@ -690,6 +722,7 @@ export async function upgradeWorkspace(
       acceptedRanges,
       migrations,
       migrationEntries,
+      migrationTargetEvidence,
       impacts,
       scannedOverrides
     );

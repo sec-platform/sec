@@ -219,6 +219,14 @@ test('upgrade advances an official block version and preserves a passing pipelin
           'mig-auth-session-upgrade-metadata:migrations/auth-session-upgrade-metadata.json'
         ]
       }),
+      expect.objectContaining({
+        id: 'migration-targets',
+        status: 'passed',
+        evidence: [
+          'mig-auth-session-refresh:target:src/installed/auth/session.ts:exists',
+          'mig-auth-session-upgrade-metadata:target:upgrade.metadata.json:missing'
+        ]
+      }),
       expect.objectContaining({ id: 'impact-scan', status: 'passed', evidence: ['src/installed/auth/session.ts', 'upgrade.metadata.json'] }),
       expect.objectContaining({ id: 'override-conflicts', status: 'passed', evidence: [] })
     ])
@@ -353,6 +361,14 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
     expect.arrayContaining([
       expect.objectContaining({ id: 'version-range', status: 'passed' }),
       expect.objectContaining({ id: 'migration-entries', status: 'passed' }),
+      expect.objectContaining({
+        id: 'migration-targets',
+        status: 'passed',
+        evidence: [
+          'mig-auth-session-refresh:target:src/installed/auth/session.ts:exists',
+          'mig-auth-session-upgrade-metadata:target:upgrade.metadata.json:missing'
+        ]
+      }),
       expect.objectContaining({ id: 'impact-scan', status: 'passed' }),
       expect.objectContaining({ id: 'override-conflicts', status: 'passed' })
     ])
