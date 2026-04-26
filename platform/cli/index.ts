@@ -34,7 +34,7 @@ const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
-const ARTIFACTS_USAGE = 'Usage: platform artifacts --json';
+const ARTIFACTS_USAGE = 'Usage: platform artifacts --json [--compact]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
@@ -117,9 +117,15 @@ function parseExplainArgs(args: string[]): { json: boolean } {
   throw new Error(EXPLAIN_USAGE);
 }
 
-function parseArtifactsArgs(args: string[]): void {
-  if (args.length === 1 && args[0] === '--json') {
-    return;
+function parseArtifactsArgs(args: string[]): { compact: boolean } {
+  if (args[0] !== '--json') {
+    throw new Error(ARTIFACTS_USAGE);
+  }
+  if (args.length === 1) {
+    return { compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { compact: true };
   }
   throw new Error(ARTIFACTS_USAGE);
 }
@@ -278,8 +284,9 @@ async function main(): Promise<void> {
       return;
     }
     case 'artifacts': {
-      parseArtifactsArgs(args);
-      console.log(JSON.stringify(await writeCiArtifactManifest(process.cwd()), null, 2));
+      const artifactsArgs = parseArtifactsArgs(args);
+      const manifest = await writeCiArtifactManifest(process.cwd());
+      console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
       return;
     }
     case 'doctor': {
