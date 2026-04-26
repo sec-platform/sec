@@ -270,9 +270,12 @@ function renderSourceView(
         <h1>Source View</h1>
         <p>Blocks: ${lock.resolvedBlocks.length} | Slots: ${lock.slotTasks.length} | Files: ${provenance.artifacts.length}</p>
         <table>
-          <thead><tr><th>Path</th><th>Origin</th><th>Override</th></tr></thead>
+          <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
           <tbody>
-            ${provenance.artifacts.map((artifact) => `<tr><td>${escapeHtml(artifact.path)}</td><td>${escapeHtml(`${artifact.originType}:${artifact.originId}`)}</td><td>${escapeHtml(artifact.overrideStatus)}</td></tr>`).join('')}
+            ${provenance.artifacts.map((artifact) => {
+              const registry = artifact.registrySourceId ? `${artifact.registrySourceId} (${artifact.registryKind ?? 'unknown'}, ${artifact.registryLocation ?? 'unknown'})` : '';
+              return `<tr><td>${escapeHtml(artifact.path)}</td><td>${escapeHtml(`${artifact.originType}:${artifact.originId}`)}</td><td>${escapeHtml(registry)}</td><td>${escapeHtml(artifact.overrideStatus)}</td></tr>`;
+            }).join('')}
           </tbody>
         </table>
       </section>

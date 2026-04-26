@@ -458,6 +458,10 @@ export interface ProvenanceArtifact {
   originType: ProvenanceOriginType;
   originId: string;
   sourceBlock?: string;
+  registrySourceId?: string;
+  registryKind?: RegistryKind;
+  registryLocation?: RegistryLocation;
+  registryPath?: string;
   generatedByPass?: string;
   generatorTaskId?: string;
   verifiedBy: string[];
@@ -544,6 +548,9 @@ export interface ReviewSummary {
     path: string;
     originType: ProvenanceOriginType;
     originId: string;
+    registrySourceId?: string;
+    registryKind?: RegistryKind;
+    registryLocation?: RegistryLocation;
   }>;
   impactedBlocks: string[];
   impactedSlots: string[];
