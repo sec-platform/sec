@@ -227,6 +227,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     formatVersion: '2';
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
+    installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;
     failurePoints: Array<{ lane: 'fast' | 'runtime' | 'all'; kind: string; artifactPath: string; message: string }>;
     regressionRisks: unknown[];
     conflictHints: unknown[];
@@ -379,6 +380,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('Block Combination Summary');
   expect(sourceView).toContain('Failure Focus');
   expect(sourceView).toContain('Review Runtime Attribution');
+  expect(sourceView).toContain('Install Impact Summary');
   expect(sourceView).toContain('customer');
   expect(sourceView).toContain('customers');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');

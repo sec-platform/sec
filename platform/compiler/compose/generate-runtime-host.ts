@@ -1219,7 +1219,6 @@ export function TicketForm() {
 function renderTicketStatusForm(): string {
   return `'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { TicketStatus } from '../src/runtime/database.ts';
 
@@ -1242,7 +1241,6 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
 };
 
 export function TicketStatusForm({ ticketId, ticketTitle, currentStatus }: TicketStatusFormProps) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const nextStatus = NEXT_STATUS[currentStatus];
@@ -1267,7 +1265,7 @@ export function TicketStatusForm({ ticketId, ticketTitle, currentStatus }: Ticke
     }
 
     setPending(false);
-    router.refresh();
+    window.location.reload();
   }
 
   return (

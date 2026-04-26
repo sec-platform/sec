@@ -557,6 +557,15 @@ export interface ReviewVerticalSlice {
   relatedBlocks: string[];
 }
 
+export interface ReviewInstallImpact {
+  blockId: string;
+  actionKinds: string[];
+  sourceRoots: string[];
+  targetPaths: string[];
+  verticals: string[];
+  runtimeEntries: string[];
+}
+
 export interface ReviewSummary {
   formatVersion: '2';
   changeSources: Array<{
@@ -572,6 +581,7 @@ export interface ReviewSummary {
   }>;
   runtimeEntries: ReviewRuntimeEntry[];
   verticalSlices: ReviewVerticalSlice[];
+  installImpacts: ReviewInstallImpact[];
   impactedBlocks: string[];
   impactedSlots: string[];
   failurePoints: ReviewFailurePoint[];

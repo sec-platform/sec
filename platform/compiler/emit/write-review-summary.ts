@@ -3,12 +3,13 @@ import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
-import { buildRuntimeAttributions, buildVerticalSliceAttributions } from './runtime-attribution.ts';
+import { buildRuntimeAttributions, buildVerticalSliceAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
   ProvenanceFile,
   ReviewConflictHint,
+  ReviewInstallImpact,
   RepairPlan,
   ReviewFailurePoint,
   ReviewRegressionRisk,
@@ -129,6 +130,40 @@ function mapOverrideTarget(
   }
 
   return {};
+}
+
+function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
+  const impacts = new Map<string, ReviewInstallImpact>();
+
+  for (const step of lock.installPlan) {
+    let impact = impacts.get(step.blockId);
+    if (!impact) {
+      impact = {
+        blockId: step.blockId,
+        actionKinds: [],
+        sourceRoots: [],
+        targetPaths: [],
+        verticals: [],
+        runtimeEntries: []
+      };
+      impacts.set(step.blockId, impact);
+    }
+
+    impact.actionKinds = unique([...impact.actionKinds, step.action]);
+    impact.sourceRoots = unique([...impact.sourceRoots, step.sourceRoot]);
+    impact.targetPaths = unique([...impact.targetPaths, step.to]);
+
+    const vertical = detectVerticalFromPath(step.to) ?? detectVerticalFromPath(step.blockId);
+    if (vertical) {
+      impact.verticals = unique([...impact.verticals, vertical]);
+    }
+
+    if (classifyRuntimeEntry(step.to)) {
+      impact.runtimeEntries = unique([...impact.runtimeEntries, step.to]);
+    }
+  }
+
+  return [...impacts.values()].sort((left, right) => left.blockId.localeCompare(right.blockId));
 }
 
 export async function buildReviewSummary(
@@ -348,6 +383,7 @@ export async function buildReviewSummary(
 
   const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path));
   const runtimeEntryByPath = new Map(runtimeEntries.map((entry) => [entry.path, entry]));
+  const installImpacts = buildInstallImpacts(lock);
 
   return {
     formatVersion: '2',
@@ -375,6 +411,7 @@ export async function buildReviewSummary(
     }),
     runtimeEntries,
     verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
+    installImpacts,
     impactedBlocks: unique(lock.resolvedBlocks.map((block) => block.id)),
     impactedSlots: unique(lock.slotTasks.map((task) => task.id)),
     failurePoints: [...failurePoints].sort(compareFailurePoints),
