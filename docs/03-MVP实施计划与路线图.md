@@ -192,6 +192,14 @@
          - 状态：done。
          - plan：`migration-targets` preflight check。
          - evidence：记录每个 migration 的 source/target 是 `exists` 还是 `missing`。
+       - file operation 可执行性检查：
+         - 状态：done。
+         - plan：`migration-file-operations` preflight check。
+         - file-replace：确认 manifest source 存在。
+         - delete-file：确认 target 存在且是文件。
+         - rename-file：确认 source 存在且是文件。
+         - rename-file：确认 target 未被占用。
+         - diagnostics：归类到 `migration-file-operations`。
        - slot 合同前后兼容性检查。
      - 切口 D：把每类 migration 的影响面写入：
        - review summary。

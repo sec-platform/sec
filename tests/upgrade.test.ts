@@ -228,6 +228,11 @@ test('upgrade advances an official block version and preserves a passing pipelin
         ]
       }),
       expect.objectContaining({
+        id: 'migration-file-operations',
+        status: 'passed',
+        evidence: ['mig-auth-session-refresh:manifest-source:exists']
+      }),
+      expect.objectContaining({
         id: 'migration-json-shapes',
         status: 'passed',
         evidence: ['mig-auth-session-upgrade-metadata:path:upgradedBlocks:array:1']
@@ -380,6 +385,11 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
         ]
       }),
       expect.objectContaining({
+        id: 'migration-file-operations',
+        status: 'passed',
+        evidence: ['mig-auth-session-refresh:manifest-source:exists']
+      }),
+      expect.objectContaining({
         id: 'migration-json-shapes',
         status: 'passed',
         evidence: ['mig-auth-session-upgrade-metadata:path:upgradedBlocks:array:1']
@@ -521,7 +531,7 @@ test('upgrade dry-run records delete file migration impacts', async () => {
 
   await writeSlotUpgradeFixture(workspaceRoot);
 
-  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const { planPath, privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
   const versionRoot = path.join(
     privateRegistryRoot,
     'private.slot-contract',
@@ -558,6 +568,9 @@ test('upgrade dry-run records delete file migration impacts', async () => {
     reason: 'Remove obsolete generated report from previous upgrades.',
     target: 'generated/reports/obsolete.json'
   });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'obsolete.json'), {
+    status: 'obsolete'
+  });
 
   const { upgradePlan } = await upgradeWorkspace(
     workspaceRoot,
@@ -574,6 +587,15 @@ test('upgrade dry-run records delete file migration impacts', async () => {
   expect(upgradePlan.migrationKindCounts).toEqual({
     'delete-file': 1
   });
+  expect(upgradePlan.preflightChecks).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'migration-file-operations',
+        status: 'passed',
+        evidence: ['mig-delete-obsolete-report:target:file']
+      })
+    ])
+  );
   expect(upgradePlan.migrationSummaries).toEqual([
     {
       id: 'mig-delete-obsolete-report',
@@ -591,7 +613,7 @@ test('upgrade dry-run records rename file migration impacts', async () => {
 
   await writeSlotUpgradeFixture(workspaceRoot);
 
-  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const { planPath, privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
   const versionRoot = path.join(
     privateRegistryRoot,
     'private.slot-contract',
@@ -629,6 +651,9 @@ test('upgrade dry-run records rename file migration impacts', async () => {
     source: 'generated/reports/current.json',
     target: 'generated/reports/archive/current.json'
   });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'current.json'), {
+    status: 'current'
+  });
 
   const { upgradePlan } = await upgradeWorkspace(
     workspaceRoot,
@@ -646,6 +671,18 @@ test('upgrade dry-run records rename file migration impacts', async () => {
   expect(upgradePlan.migrationKindCounts).toEqual({
     'rename-file': 1
   });
+  expect(upgradePlan.preflightChecks).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'migration-file-operations',
+        status: 'passed',
+        evidence: [
+          'mig-rename-report:source:file',
+          'mig-rename-report:target:available'
+        ]
+      })
+    ])
+  );
   expect(upgradePlan.migrationSummaries).toEqual([
     {
       id: 'mig-rename-report',
@@ -657,6 +694,99 @@ test('upgrade dry-run records rename file migration impacts', async () => {
     }
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
+test('upgrade rejects missing delete file targets before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-file-missing-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-delete-missing-report',
+          kind: 'delete-file',
+          entry: 'migrations/delete-missing-report.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'delete-missing-report.json'), {
+    id: 'mig-delete-missing-report',
+    kind: 'delete-file',
+    reason: 'Remove obsolete generated report from previous upgrades.',
+    target: 'generated/reports/missing.json'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-016'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
+});
+
+test('upgrade rejects occupied rename file targets before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-rename-file-occupied-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, projectRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-rename-report-occupied',
+          kind: 'rename-file',
+          entry: 'migrations/rename-report-occupied.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'rename-report-occupied.json'), {
+    id: 'mig-rename-report-occupied',
+    kind: 'rename-file',
+    reason: 'Move generated report into archive directory.',
+    source: 'generated/reports/current.json',
+    target: 'generated/reports/archive/current.json'
+  });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'current.json'), {
+    status: 'current'
+  });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'archive', 'current.json'), {
+    status: 'occupied'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-020'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
 });
 
 test('upgrade dry-run records text append migration impacts', async () => {
