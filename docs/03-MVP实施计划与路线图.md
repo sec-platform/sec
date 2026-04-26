@@ -171,7 +171,14 @@
          - 状态：later。
      - 切口 C：新增 migration preflight：
        - 目标文件存在性检查。
-       - schema/JSON 结构检查。
+       - JSON migration 结构 evidence：
+         - 状态：done。
+         - plan：`migration-json-shapes` preflight check。
+         - array：记录 path 与 items 数量。
+         - object：记录 path 与 value key 数量。
+         - config：记录 updates 数量。
+       - schema/JSON 结构检查：
+         - 状态：next。
        - migration source/target 当前存在性检查：
          - 状态：done。
          - plan：`migration-targets` preflight check。

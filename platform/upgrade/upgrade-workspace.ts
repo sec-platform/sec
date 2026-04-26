@@ -534,6 +534,22 @@ async function collectMigrationTargetEvidence(
   return evidence.sort((left, right) => left.localeCompare(right));
 }
 
+function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
+  const evidence: string[] = [];
+  for (const entry of migrationEntries) {
+    if (entry.kind === 'config-rewrite') {
+      evidence.push(`${entry.id}:updates:${entry.updates.length}`);
+    }
+    if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
+      evidence.push(`${entry.id}:path:${entry.path.join('.')}:array:${entry.items.length}`);
+    }
+    if (entry.kind === 'json-object-merge') {
+      evidence.push(`${entry.id}:path:${entry.path.join('.')}:object:${Object.keys(entry.value).length}`);
+    }
+  }
+  return evidence.sort((left, right) => left.localeCompare(right));
+}
+
 function buildUpgradePreflightChecks(
   currentVersion: string,
   targetVersion: string,
@@ -541,6 +557,7 @@ function buildUpgradePreflightChecks(
   migrations: UpgradeMigration[],
   migrationEntries: UpgradeMigrationEntry[],
   migrationTargetEvidence: string[],
+  jsonShapeEvidence: string[],
   impacts: string[],
   scannedOverrides: string[]
 ): UpgradePreflightCheck[] {
@@ -562,6 +579,12 @@ function buildUpgradePreflightChecks(
       status: 'passed',
       message: `${migrationTargetEvidence.length} migration paths checked`,
       evidence: migrationTargetEvidence
+    },
+    {
+      id: 'migration-json-shapes',
+      status: 'passed',
+      message: `${jsonShapeEvidence.length} JSON migration shapes checked`,
+      evidence: jsonShapeEvidence
     },
     {
       id: 'impact-scan',
@@ -715,6 +738,7 @@ export async function upgradeWorkspace(
       (left, right) => left.localeCompare(right)
     );
     const migrationTargetEvidence = await collectMigrationTargetEvidence(projectRoot, migrationEntries);
+    const jsonShapeEvidence = collectJsonShapeEvidence(migrationEntries);
     const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
     const preflightChecks = buildUpgradePreflightChecks(
       currentVersion,
@@ -723,6 +747,7 @@ export async function upgradeWorkspace(
       migrations,
       migrationEntries,
       migrationTargetEvidence,
+      jsonShapeEvidence,
       impacts,
       scannedOverrides
     );
