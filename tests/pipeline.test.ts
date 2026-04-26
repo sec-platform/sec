@@ -519,6 +519,12 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>customer</td>\n          <td>api</td>');
   expect(sourceView).toContain('entity/customer-basic');
   expect(sourceView).toContain('Install Impact Summary');
+  expect(sourceView).toContain('Impact Groups');
+  expect(sourceView).toContain('Impact Details');
+  expect(sourceView).toContain('<th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th>');
+  expect(sourceView).toContain('<td>customer</td>\n          <td>1</td>');
+  expect(sourceView).toContain('app/customers/page.tsx');
+  expect(sourceView).toContain('src/installed/entity/customer-service.ts');
   expect(sourceView).toContain('customer');
   expect(sourceView).toContain('customers');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
