@@ -359,7 +359,56 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       }
     ],
     resolvedCapabilities: [],
-    installPlan: [],
+    installPlan: [
+      {
+        stepId: 'ticket/basic:1',
+        blockId: 'ticket/basic',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official',
+        sourceRoot: 'ticket.basic',
+        action: 'copy',
+        from: 'files/app/tickets/page.tsx',
+        to: 'app/tickets/page.tsx'
+      },
+      {
+        stepId: 'export/csv-basic:2',
+        blockId: 'export/csv-basic',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official',
+        sourceRoot: 'export.csv-basic',
+        action: 'copy',
+        from: 'files/app/api/tickets/export/route.ts',
+        to: 'app/api/tickets/export/route.ts'
+      },
+      {
+        stepId: 'reporting/ticket-summary:3',
+        blockId: 'reporting/ticket-summary',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official',
+        sourceRoot: 'reporting.ticket-summary',
+        action: 'copy',
+        from: 'files/app/api/tickets/summary/route.ts',
+        to: 'app/api/tickets/summary/route.ts'
+      },
+      {
+        stepId: 'reporting/ticket-summary:4',
+        blockId: 'reporting/ticket-summary',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official',
+        sourceRoot: 'reporting.ticket-summary',
+        action: 'copy',
+        from: 'files/src/installed/reporting/ticket-summary.ts',
+        to: 'src/installed/reporting/ticket-summary.ts'
+      }
+    ],
     slotTasks: [],
     generatedPaths: [
       'app/tickets/page.tsx',
@@ -474,6 +523,32 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
         'app/tickets/page.tsx'
       ],
       relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+    }
+  ]);
+  expect(summary.installImpacts).toEqual([
+    {
+      blockId: 'export/csv-basic',
+      actionKinds: ['copy'],
+      sourceRoots: ['export.csv-basic'],
+      targetPaths: ['app/api/tickets/export/route.ts'],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/api/tickets/export/route.ts']
+    },
+    {
+      blockId: 'reporting/ticket-summary',
+      actionKinds: ['copy'],
+      sourceRoots: ['reporting.ticket-summary'],
+      targetPaths: ['app/api/tickets/summary/route.ts', 'src/installed/reporting/ticket-summary.ts'],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/api/tickets/summary/route.ts']
+    },
+    {
+      blockId: 'ticket/basic',
+      actionKinds: ['copy'],
+      sourceRoots: ['ticket.basic'],
+      targetPaths: ['app/tickets/page.tsx'],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/tickets/page.tsx']
     }
   ]);
   expect(summary.changeSources.find((source) => source.path === 'app/api/tickets/summary/export/route.ts')).toEqual({

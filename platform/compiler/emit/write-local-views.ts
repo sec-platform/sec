@@ -166,6 +166,23 @@ function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
       </section>`;
 }
 
+function renderInstallImpactCard(review: ReviewSummary): string {
+  const rows = review.installImpacts
+    .map(
+      (impact) =>
+        `<tr><td>${escapeHtml(impact.blockId)}</td><td>${escapeHtml(impact.actionKinds.join(', ') || 'none')}</td><td>${escapeHtml(impact.sourceRoots.join(', ') || 'none')}</td><td>${escapeHtml(impact.verticals.join(', ') || 'none')}</td><td>${escapeHtml(impact.runtimeEntries.join(', ') || 'none')}</td><td>${escapeHtml(impact.targetPaths.join(', ') || 'none')}</td></tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Install Impact Summary</h2>
+        <table>
+          <thead><tr><th>Block</th><th>Actions</th><th>Sources</th><th>Verticals</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6">No install impacts in review summary.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderViewNav(current: 'source' | 'slot-rule'): string {
   const links = [
     { id: 'source', href: 'source-view.html', label: 'Source View' },
@@ -423,6 +440,7 @@ function renderSourceView(
       ${renderBlockCombinationCard(lock)}
       ${renderFailureFocusCard(review)}
       ${renderReviewRuntimeAttributionCard(review)}
+      ${renderInstallImpactCard(review)}
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradePlanTable(upgradePlan)}
