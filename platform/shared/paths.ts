@@ -34,6 +34,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     runtimeReportPath: path.join(projectRoot, 'generated', 'runtime-report.json'),
     explainGraphPath: path.join(projectRoot, 'generated', 'explain-graph.json'),
     reviewSummaryPath: path.join(projectRoot, 'generated', 'review-summary.json'),
+    ciArtifactsPath: path.join(projectRoot, 'generated', 'ci-artifacts.json'),
     sourceViewPath: path.join(projectRoot, 'generated', 'views', 'source-view.html'),
     slotRuleViewPath: path.join(projectRoot, 'generated', 'views', 'slot-rule-view.html'),
     repairPlanPath: path.join(projectRoot, 'generated', 'repair-plan.json'),

@@ -1,6 +1,8 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/types.ts';
 
 export interface CiArtifactEntry {
@@ -21,6 +23,8 @@ export interface CiArtifactManifest {
   artifacts: CiArtifactEntry[];
   missing: string[];
 }
+
+const CI_ARTIFACT_PATH = 'generated/ci-artifacts.json';
 
 const GOVERNANCE_ARTIFACTS = [
   'graph.lock.json',
@@ -67,6 +71,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const generatedPathResult = await readGeneratedPaths(workspaceRoot);
   const artifacts = uniqueSorted([
+    CI_ARTIFACT_PATH,
     ...GOVERNANCE_ARTIFACTS,
     ...VIEW_ARTIFACTS,
     ...generatedPathResult.paths
@@ -96,4 +101,24 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     artifacts: entries,
     missing: generatedPathResult.lockExists ? uniqueSorted(missing) : []
   };
+}
+
+export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
+  const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const lock = await readJson<LockFile>(lockPath);
+  if (!lock.generatedPaths.includes(CI_ARTIFACT_PATH)) {
+    lock.generatedPaths.push(CI_ARTIFACT_PATH);
+    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
+  }
+  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await fs.mkdir(path.dirname(ciArtifactsPath), { recursive: true });
+  await fs.writeFile(
+    ciArtifactsPath,
+    `${JSON.stringify({ formatVersion: '1', root: 'project', artifacts: [], missing: [] }, null, 2)}\n`,
+    'utf8'
+  );
+  const manifest = await buildCiArtifactManifest(workspaceRoot);
+  await fs.writeFile(ciArtifactsPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeProvenance(workspaceRoot, lock);
+  return manifest;
 }

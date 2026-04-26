@@ -11,7 +11,7 @@ import {
   upgradeWorkspace,
   verifyWorkspace
 } from '../orchestrator.ts';
-import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
+import { writeCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
@@ -279,7 +279,7 @@ async function main(): Promise<void> {
     }
     case 'artifacts': {
       parseArtifactsArgs(args);
-      console.log(JSON.stringify(await buildCiArtifactManifest(process.cwd()), null, 2));
+      console.log(JSON.stringify(await writeCiArtifactManifest(process.cwd()), null, 2));
       return;
     }
     case 'doctor': {
