@@ -102,17 +102,17 @@ test('CLI prints usage for missing or unknown commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, [])).resolves.toMatchObject({
       code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>\n',
+      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>\n',
       stderr: ''
     });
     await expect(runCli(workspaceRoot, ['unknown'])).resolves.toMatchObject({
       code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>\n',
+      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>\n',
       stderr: ''
     });
     await expect(runCli(workspaceRoot, ['unknown', '--flag'])).resolves.toMatchObject({
       code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>\n',
+      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>\n',
       stderr: ''
     });
   });
@@ -293,6 +293,82 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
   });
 });
 
+test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 120000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--lane', 'all'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Locked project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['explain'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+
+    const result = await runCli(workspaceRoot, ['artifacts', '--json']);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+
+    const manifest = JSON.parse(result.stdout) as {
+      formatVersion: string;
+      root: string;
+      artifacts: Array<{ path: string; kind: string; uploadName: string; exists: boolean }>;
+      missing: string[];
+    };
+    expect(manifest).toMatchObject({
+      formatVersion: '1',
+      root: 'project'
+    });
+    expect(manifest.missing).toEqual([]);
+    expect(manifest.artifacts).toEqual(
+      expect.arrayContaining([
+        {
+          path: 'generated/review-summary.json',
+          kind: 'governance',
+          uploadName: 'generated__review-summary.json',
+          exists: true
+        },
+        {
+          path: 'generated/explain-graph.json',
+          kind: 'governance',
+          uploadName: 'generated__explain-graph.json',
+          exists: true
+        },
+        {
+          path: 'generated/views/source-view.html',
+          kind: 'view',
+          uploadName: 'generated__views__source-view.html',
+          exists: true
+        }
+      ])
+    );
+  });
+});
+
 test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
@@ -382,6 +458,16 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
       code: 1,
       stdout: '',
       stderr: 'UNEXPECTED Usage: platform explain [--json]\n'
+    });
+    await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform artifacts --json\n'
+    });
+    await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform artifacts --json\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
