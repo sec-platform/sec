@@ -29,6 +29,14 @@ function renderJsonCard(title: string, value: unknown): string {
 }
 
 function renderCiSummaryCard(review: ReviewSummary): string {
+  const artifactRows = review.artifactSummary
+    ? [
+        ['Artifacts', String(review.artifactSummary.artifactCount)],
+        ['Governance Artifacts', String(review.artifactSummary.governanceCount)],
+        ['View Artifacts', String(review.artifactSummary.viewCount)],
+        ['Missing Artifacts', String(review.artifactSummary.missingCount)]
+      ]
+    : [];
   const rows = [
     ['Status', review.ciSummary.status],
     ['Failures', String(review.ciSummary.failureCount)],
@@ -36,7 +44,8 @@ function renderCiSummaryCard(review: ReviewSummary): string {
     ['Conflict Hints', String(review.ciSummary.conflictHintCount)],
     ['Impacted Blocks', String(review.ciSummary.impactedBlockCount)],
     ['Impacted Slots', String(review.ciSummary.impactedSlotCount)],
-    ['Runtime Entries', String(review.ciSummary.runtimeEntryCount)]
+    ['Runtime Entries', String(review.ciSummary.runtimeEntryCount)],
+    ...artifactRows
   ]
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
     .join('');

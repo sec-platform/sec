@@ -263,6 +263,12 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       impactedSlotCount: number;
       runtimeEntryCount: number;
     };
+    artifactSummary?: {
+      artifactCount: number;
+      governanceCount: number;
+      viewCount: number;
+      missingCount: number;
+    };
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
     installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;
@@ -282,6 +288,12 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     ...reviewSummary.ciSummary,
     status: 'failed',
     failureCount: reviewSummary.failurePoints.length
+  };
+  reviewSummary.artifactSummary = {
+    artifactCount: 7,
+    governanceCount: 5,
+    viewCount: 2,
+    missingCount: 1
   };
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
 
@@ -446,6 +458,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
   expect(sourceView).toContain('CI Summary');
   expect(sourceView).toContain('<td>Status</td><td>failed</td>');
+  expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
+  expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
   expect(sourceView).toContain('Vertical Summary');
   expect(sourceView).toContain('Block Combination Summary');
   expect(sourceView).toContain('Failure Focus');

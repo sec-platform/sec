@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
+import type { CiArtifactManifest } from './ci-artifacts.ts';
 import {
   buildRuntimeAttribution,
   buildRuntimeAttributions,
@@ -169,6 +170,15 @@ function buildReviewCiSummary(
     impactedSlotCount: impactedSlots.length,
     runtimeEntryCount: runtimeEntries.length
   };
+}
+
+async function readArtifactSummary(workspaceRoot: string): Promise<ReviewSummary['artifactSummary']> {
+  const { ciArtifactsPath } = getWorkspacePaths(workspaceRoot);
+  if (!(await pathExists(ciArtifactsPath))) {
+    return undefined;
+  }
+  const manifest = await readJson<CiArtifactManifest>(ciArtifactsPath);
+  return manifest.summary;
 }
 
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
@@ -435,6 +445,7 @@ export async function buildReviewSummary(
 
   const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path));
   const runtimeEntryByPath = new Map(runtimeEntries.map((entry) => [entry.path, entry]));
+  const artifactSummary = await readArtifactSummary(workspaceRoot);
   const installImpacts = buildInstallImpacts(lock);
   const impactedBlocks = unique(lock.resolvedBlocks.map((block) => block.id));
   const impactedSlots = unique(lock.slotTasks.map((task) => task.id));
@@ -452,6 +463,7 @@ export async function buildReviewSummary(
       impactedSlots,
       runtimeEntries
     ),
+    ...(artifactSummary ? { artifactSummary } : {}),
     changeSources: provenance.artifacts.map((artifact) => {
       const runtimeEntry = runtimeEntryByPath.get(artifact.path);
       return {

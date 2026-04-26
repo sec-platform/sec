@@ -627,9 +627,17 @@ export interface ReviewCiSummary {
   runtimeEntryCount: number;
 }
 
+export interface ReviewArtifactSummary {
+  artifactCount: number;
+  governanceCount: number;
+  viewCount: number;
+  missingCount: number;
+}
+
 export interface ReviewSummary {
   formatVersion: '2';
   ciSummary: ReviewCiSummary;
+  artifactSummary?: ReviewArtifactSummary;
   changeSources: Array<{
     path: string;
     originType: ProvenanceOriginType;
