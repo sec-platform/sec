@@ -272,6 +272,9 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(textResult.stdout).toContain('policy=');
     expect(textResult.stdout).toContain('Edge types:');
     expect(textResult.stdout).toContain('depends_on=');
+    expect(textResult.stdout).toContain('Coverage: 3 blocks; 1 slots;');
+    expect(textResult.stdout).toContain('uncovered blocks=0');
+    expect(textResult.stdout).toContain('uncovered slots=0');
     expect(textResult.stdout).toContain(
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
     );

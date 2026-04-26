@@ -326,10 +326,22 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
 
 function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
   const { artifactSummary, ciSummary } = reviewSummary;
+  const uncoveredBlocks = graph.overlays.coverage.blocks.filter(
+    (block) => block.coveredBy.length === 0
+  ).length;
+  const uncoveredSlots = graph.overlays.coverage.slots.filter(
+    (slot) => slot.coveredBy.length === 0
+  ).length;
   const lines = [
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
     `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
     `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
+    [
+      `Coverage: ${graph.overlays.coverage.blocks.length} blocks`,
+      `${graph.overlays.coverage.slots.length} slots`,
+      `uncovered blocks=${uncoveredBlocks}`,
+      `uncovered slots=${uncoveredSlots}`
+    ].join('; '),
     [
       `CI status: ${ciSummary.status}`,
       `failures: ${ciSummary.failureCount}`,
