@@ -34,7 +34,7 @@ const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
-const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json])';
+const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
@@ -42,10 +42,18 @@ const DEPS_USAGE = [
   '  platform deps clean --all --force'
 ].join('\n');
 
-function artifactUploadPaths(manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>): string[] {
+type ArtifactPathKind = 'governance' | 'view';
+
+function artifactUploadPaths(
+  manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>,
+  kind?: ArtifactPathKind
+): string[] {
+  const artifacts = kind
+    ? manifest.artifacts.filter((artifact) => artifact.kind === kind)
+    : manifest.artifacts;
   const paths = [
-    'project/generated/ci-artifacts.json',
-    ...manifest.artifacts.map((artifact) => `project/${artifact.path}`)
+    ...(kind === 'view' ? [] : ['project/generated/ci-artifacts.json']),
+    ...artifacts.map((artifact) => `project/${artifact.path}`)
   ];
   return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
 }
@@ -125,14 +133,33 @@ function parseExplainArgs(args: string[]): { json: boolean } {
   throw new Error(EXPLAIN_USAGE);
 }
 
+function parseArtifactPathKind(value: string): ArtifactPathKind {
+  if (value === 'governance' || value === 'view') {
+    return value;
+  }
+  throw new Error(ARTIFACTS_USAGE);
+}
+
 function parseArtifactsArgs(
   args: string[]
-): { mode: 'json'; compact: boolean } | { mode: 'paths'; json: boolean } {
-  if (args.length === 1 && args[0] === '--paths') {
-    return { mode: 'paths', json: false };
-  }
-  if (args.length === 2 && args[0] === '--paths' && args[1] === '--json') {
-    return { mode: 'paths', json: true };
+): { mode: 'json'; compact: boolean } | { mode: 'paths'; json: boolean; kind?: ArtifactPathKind } {
+  if (args[0] === '--paths') {
+    let json = false;
+    let kind: ArtifactPathKind | undefined;
+    for (let index = 1; index < args.length; index += 1) {
+      const flag = args[index];
+      if (flag === '--json' && !json) {
+        json = true;
+        continue;
+      }
+      if (flag === '--kind' && !kind && index + 1 < args.length) {
+        kind = parseArtifactPathKind(args[index + 1]);
+        index += 1;
+        continue;
+      }
+      throw new Error(ARTIFACTS_USAGE);
+    }
+    return { mode: 'paths', json, ...(kind ? { kind } : {}) };
   }
   if (args[0] !== '--json') {
     throw new Error(ARTIFACTS_USAGE);
@@ -303,7 +330,7 @@ async function main(): Promise<void> {
       const artifactsArgs = parseArtifactsArgs(args);
       const manifest = await writeCiArtifactManifest(process.cwd());
       if (artifactsArgs.mode === 'paths') {
-        const paths = artifactUploadPaths(manifest);
+        const paths = artifactUploadPaths(manifest, artifactsArgs.kind);
         if (artifactsArgs.json) {
           console.log(JSON.stringify({ count: paths.length, paths }, null, 2));
           return;
