@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { afterAll, expect, test } from 'vitest';
 
@@ -13,6 +12,7 @@ import {
 } from '../platform/shared/project-runtime.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../platform/shared/runtime-dependency-spec.ts';
+import { getDependencyEnvironmentStatus } from '../platform/shared/dependency-environment.ts';
 
 const activeTempDirs = new Set<string>();
 
@@ -27,7 +27,9 @@ afterAll(async () => {
 });
 
 async function createTempRoot(prefix: string): Promise<string> {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  const directory = await fs.mkdtemp(path.join(workspaceParent, prefix));
   activeTempDirs.add(directory);
   return directory;
 }
@@ -115,7 +117,9 @@ test('dependency bridge reuses the shared runtime cache when the project has no 
 
   await ensureProjectBase(workspaceRoot);
   await withProjectDependencyBridge(projectRoot, async () => {
-    await expect(fs.readFile(path.join(bridgePath, 'next', 'package.json'), 'utf8')).resolves.toContain('next');
+    const bridgeStats = await fs.lstat(bridgePath);
+    expect(bridgeStats.isSymbolicLink()).toBe(true);
+    await expect(fs.stat(path.join(bridgePath, 'next', 'package.json'))).resolves.toBeDefined();
   });
 
   await expect(fs.stat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -272,6 +276,37 @@ test('ensureProjectDependencies falls back to npm and still writes matching stam
     packageManager: 'npm',
     installedAt: expect.any(String)
   });
+});
+
+test('dependency environment reports dirty project dependency copies', async () => {
+  const workspaceRoot = await createTempRoot('engineering-compiler-runtime-status-');
+  const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+  const runtimeSpec = await loadRuntimeDependencySpec();
+
+  await ensureProjectBase(workspaceRoot);
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+
+  const sharedNextPackage = path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json');
+  await fs.mkdir(path.dirname(sharedNextPackage), { recursive: true });
+  await fs.writeFile(sharedNextPackage, '{\n}\n', 'utf8');
+  await writeRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'), {
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'bun',
+    installedAt: '2026-01-01T00:00:00.000Z'
+  });
+  const projectNextPackage = path.join(projectRoot, 'node_modules', 'next', 'package.json');
+  await fs.mkdir(path.dirname(projectNextPackage), { recursive: true });
+  await fs.writeFile(projectNextPackage, '{\n}\n', 'utf8');
+  await writeRuntimeDepsStamp(path.join(projectRoot, '.runtime-deps.stamp.json'), {
+    manifestHash: runtimeSpec.manifestHash,
+    packageManager: 'bun',
+    installedAt: '2026-01-01T00:00:00.000Z'
+  });
+
+  const status = await getDependencyEnvironmentStatus(workspaceRoot, { sharedDepsRoot });
+
+  expect(status.mode).toBe('dirty');
+  expect(status.recommendedAction).toBe('platform deps relink project');
 });
 
 test('reference refresh and shared cache contract stay anchored in repo metadata', async () => {
