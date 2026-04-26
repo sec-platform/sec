@@ -66,6 +66,8 @@ policies:
     severity: error
     appliesTo:
       - entity/customer-basic
+      - ticket/basic
+      - worklog/basic
     rule: tenant_context_must_flow_to_query
 ```
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   adaptWorkspace,
+  addBlock,
   composeWorkspace,
   initWorkspace,
   resolveWorkspace,
@@ -539,7 +540,7 @@ test('policy gate uses lock install plan to locate applied block files', async (
   ]);
 });
 
-test('policy gate fails when tenant scoping is removed from customer queries', async () => {
+test('policy gate fails when tenant scoping is removed from customer queries', { timeout: 20000 }, async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-');
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -557,4 +558,75 @@ test('policy gate fails when tenant scoping is removed from customer queries', a
   expect(report.policy.violations[0]?.id).toBe('tenant-scope-required');
   expect(report.policy.violations[0]?.sourceScope).toBe('official');
   expect(report.policy.violations[0]?.sourcePath).toBe('platform/policies/official/policy.spec.yaml');
+});
+
+test('policy gate targets ticket and worklog tenant-scoped services', { timeout: 20000 }, async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-targets-');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await addBlock(workspaceRoot, 'ticket/basic');
+  await addBlock(workspaceRoot, 'worklog/basic');
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+  await adaptWorkspace(workspaceRoot);
+
+  const report = await runPolicyGate(workspaceRoot);
+  const tenantScopePolicy = report.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
+
+  expect(report.status).toBe('passed');
+  expect(tenantScopePolicy?.targets).toEqual([
+    'src/installed/entity/customer-service.ts',
+    'src/installed/ticket/ticket-service.ts',
+    'src/installed/worklog/worklog-service.ts'
+  ]);
+});
+
+test('policy gate fails when ticket service loses tenant context', { timeout: 20000 }, async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-failure-');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await addBlock(workspaceRoot, 'ticket/basic');
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+  await adaptWorkspace(workspaceRoot);
+
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  await fs.writeFile(
+    path.join(projectRoot, 'src', 'installed', 'ticket', 'ticket-service.ts'),
+    `import type { Database, TicketInput, TicketRecord } from '../../runtime/database.ts';
+import type { Session } from '../auth/session.ts';
+
+export function createTicket(db: Database, session: Session, input: TicketInput): TicketRecord {
+  const ticket: TicketRecord = {
+    id: db.nextTicketId++,
+    tenantId: session.tenantId,
+    title: input.title,
+    description: '',
+    status: 'open',
+    assigneeId: session.userId,
+    dueDate: '',
+    createdBy: session.userId,
+    updatedAt: new Date(0).toISOString()
+  };
+  db.tickets.push(ticket);
+  return ticket;
+}
+
+export function listTickets(db: Database, session: Session): TicketRecord[] {
+  return db.tickets.filter((ticket) => ticket.tenantId === session.tenantId);
+}
+`,
+    'utf8'
+  );
+
+  const report = await runPolicyGate(workspaceRoot);
+
+  expect(report.status).toBe('failed');
+  expect(report.violations).toEqual([
+    expect.objectContaining({
+      id: 'tenant-scope-required',
+      files: ['src/installed/ticket/ticket-service.ts'],
+      message: 'Tenant-scoped queries must derive tenant context and filter by tenantId.'
+    })
+  ]);
 });

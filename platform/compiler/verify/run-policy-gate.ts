@@ -144,8 +144,13 @@ function evaluateTenantScopeRule(
   definition: LoadedPolicyDefinition
 ): PolicyViolation | null {
   const hasCurrentTenant = source.includes('currentTenant(session)');
-  const hasTenantFilter =
-    source.includes('customer.tenantId === tenantId') || source.includes('tenantId === customer.tenantId');
+  const tenantIdComparisonPattern = new RegExp(
+    [
+      String.raw`\b\w+\.tenantId\s*(?:===|!==)\s*tenantId\b`,
+      String.raw`\btenantId\s*(?:===|!==)\s*\w+\.tenantId\b`
+    ].join('|')
+  );
+  const hasTenantFilter = tenantIdComparisonPattern.test(source);
 
   if (hasCurrentTenant && hasTenantFilter) {
     return null;
@@ -157,7 +162,7 @@ function evaluateTenantScopeRule(
     appliesTo: definition.policy.appliesTo,
     rule: definition.policy.rule,
     files: [filePath],
-    message: 'Entity customer queries must derive tenant context and filter by tenantId.',
+    message: 'Tenant-scoped queries must derive tenant context and filter by tenantId.',
     sourceScope: definition.sourceScope,
     sourcePath: definition.sourcePath
   };
