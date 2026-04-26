@@ -76,13 +76,15 @@
    - 已完成：本文新增正式进度清单；本地 Source View 与 Slot / Rule View 已有互相跳转导航。
    - 下一步候选：每轮功能提交后更新本节对应状态，必要时同步 `README` 的入口说明。
 
+4. **私有 registry 最小通路**
+   - 状态：active
+   - 目标：让 workspace/private registry source 可被用户入口和主链路使用，并与 official registry 共享 manifest/lock/provenance 口径。
+   - 已完成：默认 plan 已包含 workspace private registry source；private block 可通过 orchestrator 加入 plan、resolve、compose、verify、lock；CLI `add private/...` 会回显版本与 registry source，并在 resolve 后保留 lock registry metadata。
+   - 下一步候选：将 private registry source 进一步写入 provenance/review/local view 的可审查摘要。
+
 ### next 工作包
 
-1. **私有 registry 最小通路**
-   - 目标：让 workspace/private registry source 可被 resolve 使用，并与 official registry 共享 manifest/lock/provenance 口径。
-   - 退出条件：一个 private block 可被加入 plan、resolve、compose、verify，并在 provenance 中保留 registry source。
-
-2. **Work Tracking / Ticket SaaS 纵切面**
+1. **Work Tracking / Ticket SaaS 纵切面**
    - 目标：在 Customer Admin 外增加一个 `ticket/basic` 最小块，验证状态流转、负责人、租户隔离和列表筛选。
    - 退出条件：新增官方块可安装、slot 边界清晰、至少一条 acceptance 覆盖状态流转。
 
