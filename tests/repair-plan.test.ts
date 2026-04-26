@@ -96,9 +96,9 @@ const failedReport: VerificationReport = {
     passed: []
   },
   acceptance: {
-    status: 'passed',
-    passed: ['customer-flow.test.ts'],
-    failed: []
+    status: 'failed',
+    passed: [],
+    failed: ['customer-flow.test.ts']
   },
   policy: {
     status: 'failed',
@@ -145,9 +145,9 @@ const failedReport: VerificationReport = {
       passed: []
     },
     acceptance: {
-      status: 'passed',
-      passed: ['customer-flow.test.ts'],
-      failed: []
+      status: 'failed',
+      passed: [],
+      failed: ['customer-flow.test.ts']
     },
     policy: {
       status: 'failed',
@@ -264,7 +264,7 @@ test('repair plan includes structured failure points for slot and spec failures'
   expect(repairPlan.status).toBe('pending');
   expect(repairPlan.requiresVerification).toBe(false);
   expect(repairPlan.tasks).toHaveLength(1);
-  expect(repairPlan.tasks[0].failureSummary).toBe('build=passed; unit=failed; acceptance=passed; policy=failed; runtime=skipped');
+  expect(repairPlan.tasks[0].failureSummary).toBe('build=passed; unit=failed; acceptance=failed; policy=failed; runtime=skipped');
   expect(repairPlan.tasks[0].failurePoints).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -276,11 +276,20 @@ test('repair plan includes structured failure points for slot and spec failures'
       }),
       expect.objectContaining({
         lane: 'fast',
+        kind: 'acceptance',
+        issueType: 'slot',
+        repairable: true,
+        artifactPath: 'tests/acceptance',
+        targetIds: ['customer-flow.test.ts']
+      }),
+      expect.objectContaining({
+        lane: 'fast',
         kind: 'policy',
         issueType: 'spec',
         repairable: false,
         artifactPath: 'generated/policy-report.json',
-        message: 'A policy issue.; Z policy issue.'
+        message: 'A policy issue.; Z policy issue.',
+        targetIds: ['src/installed/entity/customer-service.ts', 'tenant-scope-required']
       })
     ])
   );

@@ -23,6 +23,10 @@ function sortedUniqueMessages(messages: string[]): string[] {
   return [...new Set(messages)].sort((left, right) => left.localeCompare(right));
 }
 
+function sortedUniqueTargets(targets: string[]): string[] {
+  return [...new Set(targets.filter((target) => target.length > 0))].sort((left, right) => left.localeCompare(right));
+}
+
 function countLines(value: string): number {
   if (value.length === 0) {
     return 0;
@@ -82,7 +86,8 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       issueType: 'slot',
       repairable: true,
       artifactPath: 'tests/acceptance',
-      message: report.fast.logs.stderr || 'Acceptance verification failed'
+      message: report.fast.logs.stderr || 'Acceptance verification failed',
+      targetIds: sortedUniqueTargets(report.acceptance.failed)
     });
   }
   if (report.policy.status === 'failed') {
@@ -92,7 +97,8 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       issueType: 'spec',
       repairable: false,
       artifactPath: 'generated/policy-report.json',
-      message: sortedUniqueMessages(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed'
+      message: sortedUniqueMessages(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed',
+      targetIds: sortedUniqueTargets(report.policy.violations.flatMap((violation) => [violation.id, ...violation.files]))
     });
   }
   if (report.runtime.build.status === 'failed') {
@@ -112,7 +118,8 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       issueType: 'slot',
       repairable: true,
       artifactPath: 'generated/runtime-report.json',
-      message: report.runtime.logs.stderr || 'Runtime unit verification failed'
+      message: report.runtime.logs.stderr || 'Runtime unit verification failed',
+      targetIds: sortedUniqueTargets(report.runtime.unit.failed)
     });
   }
   if (report.runtime.acceptance.status === 'failed') {
@@ -122,7 +129,8 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       issueType: 'slot',
       repairable: true,
       artifactPath: 'generated/runtime-report.json',
-      message: report.runtime.logs.stderr || 'Runtime acceptance verification failed'
+      message: report.runtime.logs.stderr || 'Runtime acceptance verification failed',
+      targetIds: sortedUniqueTargets(report.runtime.acceptance.failed)
     });
   }
 
