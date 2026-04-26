@@ -29,13 +29,18 @@ function renderJsonCard(title: string, value: unknown): string {
 }
 
 function renderCiSummaryCard(review: ReviewSummary): string {
+  const nonzeroMissingReasonCount = review.artifactSummary?.missingReasonCounts
+    ? Object.values(review.artifactSummary.missingReasonCounts).filter((count) => count > 0).length
+    : 0;
   const artifactRows = review.artifactSummary
     ? [
         ['Artifact Status', review.artifactSummary.artifactStatus ?? 'passed'],
         ['Artifacts', String(review.artifactSummary.artifactCount)],
         ['Governance Artifacts', String(review.artifactSummary.governanceCount)],
         ['View Artifacts', String(review.artifactSummary.viewCount)],
-        ['Missing Artifacts', String(review.artifactSummary.missingCount)]
+        ['Upload Groups', String(review.artifactSummary.uploadGroups?.length ?? 0)],
+        ['Missing Artifacts', String(review.artifactSummary.missingCount)],
+        ['Missing Reason Types', String(nonzeroMissingReasonCount)]
       ]
     : [];
   const rows = [
