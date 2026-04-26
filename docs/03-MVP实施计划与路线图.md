@@ -287,6 +287,10 @@
          - blocked 场景 stdout 输出普通文本摘要。
          - blocked 场景 stderr 保留错误上下文。
          - 显示最多前三个 blocker 摘要。
+         - 显示 blocker failure point lane/kind。
+         - 显示 blocker failure point issue type。
+         - 显示 blocker failure point repairable 状态。
+         - 显示 blocker failure point message。
    - 当前阶段拆分：
      - 阶段 1：细化 failure point 归因。
      - 阶段 2：细化 repair task 生成边界。
