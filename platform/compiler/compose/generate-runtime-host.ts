@@ -2094,6 +2094,11 @@ function renderTicketRuntimeAcceptanceTest(options: {
   ]);
 `
     : '';
+  const tenantBWorklogAssertion = options.worklogEnabled
+    ? `
+  const tenantBWorklogResponse = await page.request.get('/api/tickets/1/worklogs');
+  expect(tenantBWorklogResponse.status()).toBe(400);`
+    : '';
   const summaryExportAssertions = options.ticketReportingEnabled && options.exportCsvEnabled
     ? `
   const summaryCsvLink = page.getByRole('link', { name: 'Export ticket summary CSV' });
@@ -2108,6 +2113,26 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(filteredSummaryCsv).toContain('status,in_progress,1');
   expect(filteredSummaryCsv).toContain('sla,overdue,1');
   expect(filteredSummaryCsv).toContain('assignee,support-owner,1');`
+    : '';
+  const filteredReportingAssertions = options.ticketReportingEnabled
+    ? `
+  await expect(page.getByText('Total tickets: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('In progress: 1')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);${filteredSummaryExportAssertions}
+  const filteredSummaryResponse = await page.request.get('/api/tickets/summary?assigneeId=support-owner&status=in_progress');
+  expect(filteredSummaryResponse.ok()).toBe(true);
+  const filteredSummaryPayload = await filteredSummaryResponse.json() as {
+    summary: {
+      total: number;
+      byStatus: { open: number; in_progress: number; closed: number };
+      sla: { overdue: number; dueSoon: number; unscheduled: number };
+      byAssignee: Array<{ assigneeId: string; count: number }>;
+    };
+  };
+  expect(filteredSummaryPayload.summary.total).toBe(1);
+  expect(filteredSummaryPayload.summary.byStatus.in_progress).toBe(1);
+  expect(filteredSummaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
+  expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);`
     : '';
   const reportingAssertions = options.ticketReportingEnabled
     ? `
@@ -2189,24 +2214,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByRole('button', { name: 'Apply ticket filters' }).click();
   await expect(page).toHaveURL(/status=in_progress/);
   await expect(ticketItems).toHaveCount(1);
-  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
-  await expect(page.getByText('Total tickets: 1')).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('In progress: 1')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);${filteredSummaryExportAssertions}
-  const filteredSummaryResponse = await page.request.get('/api/tickets/summary?assigneeId=support-owner&status=in_progress');
-  expect(filteredSummaryResponse.ok()).toBe(true);
-  const filteredSummaryPayload = await filteredSummaryResponse.json() as {
-    summary: {
-      total: number;
-      byStatus: { open: number; in_progress: number; closed: number };
-      sla: { overdue: number; dueSoon: number; unscheduled: number };
-      byAssignee: Array<{ assigneeId: string; count: number }>;
-    };
-  };
-  expect(filteredSummaryPayload.summary.total).toBe(1);
-  expect(filteredSummaryPayload.summary.byStatus.in_progress).toBe(1);
-  expect(filteredSummaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
-  expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
+  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);${filteredReportingAssertions}
 
   await expect(createdTicket).toContainText('in_progress');${auditAssertions}
 
@@ -2218,9 +2226,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   const tenantBAttachmentResponse = await page.request.get('/api/tickets/1/attachments');
   expect(tenantBAttachmentResponse.status()).toBe(400);
   const tenantBCommentResponse = await page.request.get('/api/tickets/1/comments');
-  expect(tenantBCommentResponse.status()).toBe(400);
-  const tenantBWorklogResponse = await page.request.get('/api/tickets/1/worklogs');
-  expect(tenantBWorklogResponse.status()).toBe(400);
+  expect(tenantBCommentResponse.status()).toBe(400);${tenantBWorklogAssertion}
 });
 `;
 }

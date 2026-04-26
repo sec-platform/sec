@@ -1,6 +1,5 @@
 import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -29,7 +28,9 @@ afterAll(async () => {
 }, 120000);
 
 async function createWorkspace(prefix: string): Promise<string> {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  const workspaceRoot = await fs.mkdtemp(path.join(workspaceParent, prefix));
   activeWorkspaces.add(workspaceRoot);
   return workspaceRoot;
 }
@@ -56,9 +57,27 @@ test('override-manifest can replace a generated file and surface override proven
     ]
   });
 
+  const customerNormalizerOverride = String.raw`import type { CustomerInput, NormalizedCustomerInput } from '../src/runtime/database.ts';
+
+// manual override path
+export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomerInput {
+  const name = String(input.name ?? '').trim();
+  if (!name) {
+    throw new Error('Customer name is required');
+  }
+
+  return {
+    name,
+    email: String(input.email ?? '').trim().toLowerCase(),
+    phone: String(input.phone ?? '').replace(/\D+/g, ''),
+    company: String(input.company ?? '').trim() || 'Unknown'
+  };
+}
+`;
+
   await fs.writeFile(
     path.join(projectRoot, 'overrides', 'patches', 'customer-normalizer.override.ts'),
-    `import type { CustomerInput, NormalizedCustomerInput } from '../src/runtime/database.ts';\n\n// manual override path\nexport function normalizeCustomerInput(input: CustomerInput): NormalizedCustomerInput {\n  const name = String(input.name ?? '').trim();\n  if (!name) {\n    throw new Error('Customer name is required');\n  }\n\n  return {\n    name,\n    email: String(input.email ?? '').trim().toLowerCase(),\n    phone: String(input.phone ?? '').replace(/\\D+/g, ''),\n    company: String(input.company ?? '').trim() || 'Unknown'\n  };\n}\n`,
+    customerNormalizerOverride,
     'utf8'
   );
 

@@ -61,9 +61,7 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
   );
 
   await timed('shared deps warmup', () => ensureSharedDepsReady());
-  await timed('project deps materialize', () =>
-    ensureProjectDependencies(projectRoot, { skipSharedDepsWarmup: true, preferSharedCopy: false })
-  );
+  await timed('project deps materialize', () => ensureProjectDependencies(projectRoot, { skipSharedDepsWarmup: true }));
 
   const envPathKey = pathEnvKey();
   const baseEnv = {
