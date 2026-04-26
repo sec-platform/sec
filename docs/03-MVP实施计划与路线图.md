@@ -73,7 +73,7 @@
 3. **计划与进度显式化**
    - 状态：active
    - 目标：把未来计划和当前进度固定在 repo 文档中，而不是散落在会话上下文。
-   - 已完成：本文新增正式进度清单；本地 Source View 与 Slot / Rule View 已有互相跳转导航。
+   - 已完成：本文新增正式进度清单；本地 Source View 与 Slot / Rule View 已有互相跳转导航；runtime scaffold 与 project base 的超长单行生成模板已改为多行 template literal，后续局部编辑和 review diff 成本降低。
    - 下一步候选：每轮功能提交后更新本节对应状态，必要时同步 `README` 的入口说明。
 
 4. **私有 registry 最小通路**

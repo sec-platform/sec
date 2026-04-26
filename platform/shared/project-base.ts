@@ -87,31 +87,297 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     exclude: ['node_modules']
   });
 
-  await writeText(path.join(projectRoot, 'next.config.mjs'), `const nextConfig = {};\n\nexport default nextConfig;\n`);
+  await writeText(path.join(projectRoot, 'next.config.mjs'), `const nextConfig = {};
+
+export default nextConfig;
+`);
   await writeText(
     path.join(projectRoot, 'next-env.d.ts'),
-    `/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n\n// NOTE: This file is managed by the compiler runtime scaffold.\n`
+    `/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+
+// NOTE: This file is managed by the compiler runtime scaffold.
+`
   );
-  await writeText(path.join(projectRoot, 'app', 'globals.css'), `:root {\n  color-scheme: light;\n  font-family: 'Segoe UI', sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbody {\n  margin: 0;\n  background: #f4f4ef;\n  color: #17211f;\n}\n\na {\n  color: inherit;\n  text-decoration: none;\n}\n\nmain {\n  max-width: 960px;\n  margin: 0 auto;\n  padding: 32px 20px 80px;\n}\n\n.card {\n  background: #ffffff;\n  border: 1px solid #d3d9d0;\n  border-radius: 18px;\n  padding: 20px;\n  box-shadow: 0 10px 24px rgba(23, 33, 31, 0.06);\n}\n\n.stack {\n  display: grid;\n  gap: 16px;\n}\n\n.row {\n  display: flex;\n  gap: 12px;\n  align-items: center;\n  flex-wrap: wrap;\n}\n\nlabel {\n  display: grid;\n  gap: 6px;\n  font-size: 14px;\n}\n\ninput,\nbutton,\ntextarea,\nselect {\n  font: inherit;\n}\n\ninput,\ntextarea,\nselect {\n  width: 100%;\n  border: 1px solid #b7c3b8;\n  border-radius: 12px;\n  padding: 10px 12px;\n  background: #ffffff;\n}\n\nbutton {\n  border: 0;\n  border-radius: 999px;\n  padding: 10px 16px;\n  background: #1d6f5f;\n  color: white;\n  cursor: pointer;\n}\n\nbutton.secondary {\n  background: #dfe8e3;\n  color: #17211f;\n}\n\nul.clean {\n  list-style: none;\n  padding: 0;\n  margin: 0;\n}\n\nul.clean li {\n  padding: 12px 0;\n  border-bottom: 1px solid #e3e8e1;\n}\n\nnav a {\n  padding: 8px 12px;\n  border-radius: 999px;\n  background: #edf4ef;\n}\n\npre.json {\n  overflow: auto;\n  padding: 16px;\n  border-radius: 16px;\n  background: #0f1d19;\n  color: #e6fff8;\n}\n`);
+  await writeText(path.join(projectRoot, 'app', 'globals.css'), `:root {
+  color-scheme: light;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f4ef;
+  color: #17211f;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #d3d9d0;
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 10px 24px rgba(23, 33, 31, 0.06);
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  border: 1px solid #b7c3b8;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: #1d6f5f;
+  color: white;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: #dfe8e3;
+  color: #17211f;
+}
+
+ul.clean {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+ul.clean li {
+  padding: 12px 0;
+  border-bottom: 1px solid #e3e8e1;
+}
+
+nav a {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #edf4ef;
+}
+
+pre.json {
+  overflow: auto;
+  padding: 16px;
+  border-radius: 16px;
+  background: #0f1d19;
+  color: #e6fff8;
+}
+`);
   await writeText(
     path.join(projectRoot, 'vitest.config.ts'),
-    `import { defineConfig } from 'vitest/config';\n\nexport default defineConfig({\n  test: {\n    include: ['tests/runtime/unit/**/*.test.ts'],\n    environment: 'node'\n  }\n});\n`
+    `import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    include: ['tests/runtime/unit/**/*.test.ts'],
+    environment: 'node'
+  }
+});
+`
   );
   await writeText(
     path.join(projectRoot, 'playwright.config.ts'),
-    `import { defineConfig } from '@playwright/test';\n\nconst port = parseInt(process.env.TEST_PORT ?? '3001', 10);\nconst baseURL = \`http://127.0.0.1:\${port}\`;\n\nexport default defineConfig({\n  testDir: './tests/runtime/acceptance',\n  reporter: 'line',\n  use: {\n    baseURL,\n    trace: 'retain-on-failure'\n  },\n  webServer: {\n    command: \`next dev --hostname 127.0.0.1 --port \${port}\`,\n    url: \`\${baseURL}/login\`,\n    reuseExistingServer: !process.env.CI,\n    timeout: 120000\n  }\n});\n`
+    `import { defineConfig } from '@playwright/test';
+
+const port = parseInt(process.env.TEST_PORT ?? '3001', 10);
+const baseURL = \`http://127.0.0.1:\${port}\`;
+
+export default defineConfig({
+  testDir: './tests/runtime/acceptance',
+  reporter: 'line',
+  use: {
+    baseURL,
+    trace: 'retain-on-failure'
+  },
+  webServer: {
+    command: \`next dev --hostname 127.0.0.1 --port \${port}\`,
+    url: \`\${baseURL}/login\`,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120000
+  }
+});
+`
   );
 
   await writeText(
     path.join(projectRoot, 'src', 'runtime', 'database.ts'),
-    `export interface CustomerInput {\n  name?: string;\n  email?: string;\n  phone?: string;\n  company?: string;\n}\n\nexport interface NormalizedCustomerInput {\n  name: string;\n  email: string;\n  phone: string;\n  company: string;\n}\n\nexport interface CustomerRecord extends NormalizedCustomerInput {\n  id: number;\n  tenantId: string;\n}\n\nexport interface CustomerAttachmentInput {\n  customerId: number;\n  fileName: string;\n  contentType: string;\n  size: number;\n  contentText: string;\n}\n\nexport interface CustomerAttachmentRecord extends CustomerAttachmentInput {\n  id: number;\n  tenantId: string;\n  createdAt: string;\n}\n\nexport interface EmailNotificationRecord {\n  id: number;\n  tenantId: string;\n  entity: string;\n  entityId: string;\n  eventType: string;\n  recipient: string;\n  subject: string;\n  body: string;\n  createdAt: string;\n}\n\nexport interface AuditEntryRecord {\n  actorId: string;\n  tenantId: string;\n  action: string;\n  entity: string;\n  entityId: string;\n  occurredAt: string;\n}\n\nexport type TicketStatus = 'open' | 'in_progress' | 'closed';\n\nexport interface TicketInput {\n  title: string;\n  description?: string;\n  status?: TicketStatus;\n  assigneeId?: string;\n}\n\nexport interface TicketRecord {\n  id: number;\n  tenantId: string;\n  title: string;\n  description: string;\n  status: TicketStatus;\n  assigneeId: string;\n  createdBy: string;\n  updatedAt: string;\n}\n\nexport interface Database {\n  nextCustomerId: number;\n  customers: CustomerRecord[];\n  nextCustomerAttachmentId: number;\n  customerAttachments: CustomerAttachmentRecord[];\n  nextEmailNotificationId: number;\n  emailNotifications: EmailNotificationRecord[];\n  auditEntries: AuditEntryRecord[];\n  nextTicketId: number;\n  tickets: TicketRecord[];\n}\n\nexport type RuntimePersistence = 'memory' | 'postgres-contract';\n\nexport interface RuntimeStore {\n  persistence: RuntimePersistence;\n  database: Database;\n}\n\nexport function createDatabase(): Database {\n  return {\n    nextCustomerId: 1,\n    customers: [],\n    nextCustomerAttachmentId: 1,\n    customerAttachments: [],\n    nextEmailNotificationId: 1,\n    emailNotifications: [],\n    auditEntries: [],\n    nextTicketId: 1,\n    tickets: []\n  };\n}\n\nexport function createRuntimeStore(persistence: RuntimePersistence = 'memory'): RuntimeStore {\n  return {\n    persistence,\n    database: createDatabase()\n  };\n}\n\nexport function getRuntimeDatabase(store: RuntimeStore): Database {\n  return store.database;\n}\n`
+    `export interface CustomerInput {
+  name?: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+}
+
+export interface NormalizedCustomerInput {
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+}
+
+export interface CustomerRecord extends NormalizedCustomerInput {
+  id: number;
+  tenantId: string;
+}
+
+export interface CustomerAttachmentInput {
+  customerId: number;
+  fileName: string;
+  contentType: string;
+  size: number;
+  contentText: string;
+}
+
+export interface CustomerAttachmentRecord extends CustomerAttachmentInput {
+  id: number;
+  tenantId: string;
+  createdAt: string;
+}
+
+export interface EmailNotificationRecord {
+  id: number;
+  tenantId: string;
+  entity: string;
+  entityId: string;
+  eventType: string;
+  recipient: string;
+  subject: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface AuditEntryRecord {
+  actorId: string;
+  tenantId: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  occurredAt: string;
+}
+
+export type TicketStatus = 'open' | 'in_progress' | 'closed';
+
+export interface TicketInput {
+  title: string;
+  description?: string;
+  status?: TicketStatus;
+  assigneeId?: string;
+}
+
+export interface TicketRecord {
+  id: number;
+  tenantId: string;
+  title: string;
+  description: string;
+  status: TicketStatus;
+  assigneeId: string;
+  createdBy: string;
+  updatedAt: string;
+}
+
+export interface Database {
+  nextCustomerId: number;
+  customers: CustomerRecord[];
+  nextCustomerAttachmentId: number;
+  customerAttachments: CustomerAttachmentRecord[];
+  nextEmailNotificationId: number;
+  emailNotifications: EmailNotificationRecord[];
+  auditEntries: AuditEntryRecord[];
+  nextTicketId: number;
+  tickets: TicketRecord[];
+}
+
+export type RuntimePersistence = 'memory' | 'postgres-contract';
+
+export interface RuntimeStore {
+  persistence: RuntimePersistence;
+  database: Database;
+}
+
+export function createDatabase(): Database {
+  return {
+    nextCustomerId: 1,
+    customers: [],
+    nextCustomerAttachmentId: 1,
+    customerAttachments: [],
+    nextEmailNotificationId: 1,
+    emailNotifications: [],
+    auditEntries: [],
+    nextTicketId: 1,
+    tickets: []
+  };
+}
+
+export function createRuntimeStore(persistence: RuntimePersistence = 'memory'): RuntimeStore {
+  return {
+    persistence,
+    database: createDatabase()
+  };
+}
+
+export function getRuntimeDatabase(store: RuntimeStore): Database {
+  return store.database;
+}
+`
   );
 
   const prismaSchemaPath = path.join(projectRoot, 'prisma', 'schema.prisma');
   if (!(await pathExists(prismaSchemaPath))) {
     await writeText(
       prismaSchemaPath,
-      `generator client {\n  provider = "prisma-client-js"\n}\n\ndatasource db {\n  provider = "sqlite"\n  url      = "file:./dev.db"\n}\n`
+      `generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+`
     );
   }
 
