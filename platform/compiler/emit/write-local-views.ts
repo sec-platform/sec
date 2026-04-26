@@ -231,15 +231,53 @@ function renderBlockCombinationCard(lock: LockFile, review: ReviewSummary): stri
 }
 
 function renderFailureFocusCard(review: ReviewSummary): string {
+  const failureGroups = new Map<string, { lane: string; kind: string; count: number; artifacts: Set<string> }>();
+  for (const failure of review.failurePoints) {
+    const key = `${failure.lane}:${failure.kind}`;
+    let group = failureGroups.get(key);
+    if (!group) {
+      group = {
+        lane: failure.lane,
+        kind: failure.kind,
+        count: 0,
+        artifacts: new Set<string>()
+      };
+      failureGroups.set(key, group);
+    }
+    group.count += 1;
+    group.artifacts.add(failure.artifactPath);
+  }
+
+  const groupRows = [...failureGroups.values()]
+    .sort((left, right) => left.lane.localeCompare(right.lane) || left.kind.localeCompare(right.kind))
+    .map(
+      (group) => `<tr>
+          <td>${escapeHtml(group.lane)}</td>
+          <td>${escapeHtml(group.kind)}</td>
+          <td>${escapeHtml(String(group.count))}</td>
+          <td>${escapeHtml([...group.artifacts].sort((left, right) => left.localeCompare(right)).join(', '))}</td>
+        </tr>`
+    )
+    .join('');
   const rows = review.failurePoints
     .map(
-      (failure) =>
-        `<tr><td>${escapeHtml(failure.lane)}</td><td>${escapeHtml(failure.kind)}</td><td>${escapeHtml(failure.artifactPath)}</td><td>${escapeHtml(failure.message)}</td></tr>`
+      (failure) => `<tr>
+          <td>${escapeHtml(failure.lane)}</td>
+          <td>${escapeHtml(failure.kind)}</td>
+          <td>${escapeHtml(failure.artifactPath)}</td>
+          <td>${escapeHtml(failure.message)}</td>
+        </tr>`
     )
     .join('');
 
   return `<section class="card">
         <h2>Failure Focus</h2>
+        <h3>Failure Groups</h3>
+        <table>
+          <thead><tr><th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th></tr></thead>
+          <tbody>${groupRows || '<tr><td colspan="4">No failure groups.</td></tr>'}</tbody>
+        </table>
+        <h3>Failure Details</h3>
         <table>
           <thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="4">No failure points.</td></tr>'}</tbody>

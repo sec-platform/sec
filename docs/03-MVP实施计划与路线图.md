@@ -577,7 +577,13 @@
          - 显示每个 block 的 install step count。
          - 显示每个 block 的 verticals。
          - 显示每个 block 的 runtime entry paths。
-       - 增加 failure focus 卡片。
+       - 增加 failure focus 卡片：
+         - 状态：done。
+         - 显示 failure group summary。
+         - 按 lane 聚合。
+         - 按 kind 聚合。
+         - 显示每组 artifact 列表。
+         - 保留 failure details 明细表。
      - 切口 D：CI 消费口径：
        - `upgrade --dry-run --json`：
          - 状态：done。

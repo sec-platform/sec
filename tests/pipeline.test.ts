@@ -508,6 +508,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>customer</td>');
   expect(sourceView).toContain('<td>app/customers/page.tsx</td>');
   expect(sourceView).toContain('Failure Focus');
+  expect(sourceView).toContain('Failure Groups');
+  expect(sourceView).toContain('Failure Details');
+  expect(sourceView).toContain('<th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th>');
+  expect(sourceView).toContain('<td>fast</td>\n          <td>policy</td>\n          <td>1</td>\n          <td>generated/policy-report.json</td>');
   expect(sourceView).toContain('Review Runtime Attribution');
   expect(sourceView).toContain('Install Impact Summary');
   expect(sourceView).toContain('customer');
