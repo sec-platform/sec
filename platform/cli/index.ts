@@ -14,14 +14,27 @@ import {
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
+import {
+  cleanDependencyEnvironment,
+  formatDependencyEnvironmentStatus,
+  getDependencyEnvironmentStatus,
+  relinkProjectDependencies,
+  warmupDependencyEnvironment,
+  type DependencyCleanOptions
+} from '../shared/dependency-environment.ts';
 import type { VerificationLane } from '../shared/types.ts';
 
-const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>';
+const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>';
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
+const DEPS_USAGE = [
+  'Usage: platform deps <status|warmup|relink|clean>',
+  '  platform deps relink project',
+  '  platform deps clean [--project|--shared|--npm-cache|--all]'
+].join('\n');
 
 function assertNoArgs(command: string, args: string[]): void {
   if (args.length > 0) {
@@ -86,6 +99,69 @@ function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: str
   }
 
   return { blockId, targetVersion, dryRun, json };
+}
+
+function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
+  if (args.length === 0) {
+    throw new Error(DEPS_USAGE);
+  }
+
+  const options: DependencyCleanOptions = {};
+  for (const flag of args) {
+    if (flag === '--project') {
+      options.project = true;
+      continue;
+    }
+    if (flag === '--shared') {
+      options.shared = true;
+      continue;
+    }
+    if (flag === '--npm-cache') {
+      options.npmCache = true;
+      continue;
+    }
+    if (flag === '--all') {
+      options.all = true;
+      continue;
+    }
+    throw new Error(DEPS_USAGE);
+  }
+
+  return options;
+}
+
+async function runDepsCommand(args: string[]): Promise<void> {
+  const [subcommand, ...subArgs] = args;
+  switch (subcommand) {
+    case 'status': {
+      assertNoArgs('deps status', subArgs);
+      const status = await getDependencyEnvironmentStatus(process.cwd());
+      console.log(formatDependencyEnvironmentStatus(status));
+      return;
+    }
+    case 'warmup': {
+      assertNoArgs('deps warmup', subArgs);
+      const status = await warmupDependencyEnvironment(process.cwd());
+      console.log(formatDependencyEnvironmentStatus(status));
+      return;
+    }
+    case 'relink': {
+      if (subArgs.length !== 1 || subArgs[0] !== 'project') {
+        throw new Error(DEPS_USAGE);
+      }
+      const status = await relinkProjectDependencies(process.cwd());
+      console.log(formatDependencyEnvironmentStatus(status));
+      return;
+    }
+    case 'clean': {
+      const cleanOptions = parseDepsCleanArgs(subArgs);
+      const removed = await cleanDependencyEnvironment(process.cwd(), cleanOptions);
+      console.log(`Cleaned ${removed.length} dependency paths`);
+      return;
+    }
+    default:
+      throw new Error(DEPS_USAGE);
+  }
 }
 
 async function main(): Promise<void> {
@@ -163,6 +239,15 @@ async function main(): Promise<void> {
       console.log(`Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`);
       return;
     }
+    case 'doctor': {
+      assertNoArgs('doctor', args);
+      const status = await getDependencyEnvironmentStatus(process.cwd());
+      console.log(formatDependencyEnvironmentStatus(status));
+      return;
+    }
+    case 'deps':
+      await runDepsCommand(args);
+      return;
     default:
       console.log(USAGE);
   }
