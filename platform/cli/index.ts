@@ -233,6 +233,18 @@ function formatList(values: string[], fallback = 'none'): string {
   return values.length > 0 ? values.join(', ') : fallback;
 }
 
+function formatCounts(values: string[]): string {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return formatList(
+    [...counts.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([value, count]) => `${value}=${count}`)
+  );
+}
+
 function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
   const suffix = repairPlan.status === 'applied' ? '; verify pending' : dryRun ? ' (dry-run)' : '';
   const lines = [
@@ -283,6 +295,8 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
   const { artifactSummary, ciSummary } = reviewSummary;
   const lines = [
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
+    `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
+    `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
     [
       `CI status: ${ciSummary.status}`,
       `failures: ${ciSummary.failureCount}`,
