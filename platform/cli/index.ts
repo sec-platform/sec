@@ -11,6 +11,9 @@ import {
   upgradeWorkspace,
   verifyWorkspace
 } from '../orchestrator.ts';
+import { loadManifestById } from '../compiler/parse/load-manifest.ts';
+import { loadPlan } from '../compiler/parse/load-plan.ts';
+import { getWorkspacePaths } from '../shared/paths.ts';
 import type { VerificationLane } from '../shared/types.ts';
 
 const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain>';
@@ -80,13 +83,21 @@ async function main(): Promise<void> {
       await initWorkspace(process.cwd(), { reset: parseResetArg(args) });
       console.log('Initialized project workspace');
       return;
-    case 'add':
+    case 'add': {
       if (args.length !== 1) {
         throw new Error(ADD_USAGE);
       }
       await addBlock(process.cwd(), args[0]);
-      console.log(`Added block ${args[0]}`);
+      const { planPath } = getWorkspacePaths(process.cwd());
+      const plan = await loadPlan(planPath);
+      const manifestEntry = await loadManifestById(args[0], {
+        workspaceRoot: process.cwd(),
+        version: plan.blocks.find((block) => block.id === args[0])?.version,
+        registrySources: plan.registry.sources
+      });
+      console.log(`Added block ${args[0]}@${manifestEntry.manifest.version} from ${manifestEntry.registrySourceId} (${manifestEntry.registryKind})`);
       return;
+    }
     case 'resolve': {
       assertNoArgs('resolve', args);
       const { lock } = await resolveWorkspace(process.cwd());

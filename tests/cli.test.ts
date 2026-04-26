@@ -4,7 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { compilerRoot } from '../platform/shared/paths.ts';
+import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
+import { writeYaml } from '../platform/shared/yaml.ts';
 
 function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,66 @@ async function withTempWorkspace<T>(callback: (workspaceRoot: string) => Promise
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
+}
+
+async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
+  const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const blockRoot = path.join(privateRegistryRoot, 'private.banner-basic');
+
+  await fs.mkdir(path.join(blockRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
+  await fs.mkdir(path.join(blockRoot, 'files', 'tests', 'unit'), { recursive: true });
+
+  await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), {
+    id: 'private/banner-basic',
+    version: '0.1.0',
+    kind: 'governance',
+    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    compatibility: {
+      blockApi: '1',
+      compilerApi: '1',
+      stackProfiles: ['nextjs-ts-prisma-sqlite']
+    },
+    requires: [],
+    provides: ['governance/banner'],
+    conflicts: [],
+    installs: [
+      {
+        kind: 'copy',
+        from: 'files/src/installed/private/banner.ts',
+        to: 'src/installed/private/banner.ts'
+      },
+      {
+        kind: 'copy',
+        from: 'files/tests/unit/private-banner.test.ts',
+        to: 'tests/unit/private-banner.test.ts'
+      }
+    ],
+    pins: {
+      inputs: [],
+      outputs: [
+        {
+          id: 'banner_message',
+          type: 'string',
+          required: true
+        }
+      ]
+    },
+    slots: [],
+    acceptance: [],
+    routes: []
+  });
+
+  await fs.writeFile(
+    path.join(blockRoot, 'files', 'src', 'installed', 'private', 'banner.ts'),
+    `export function projectBanner(projectName: string): string {\n  return \`private-banner:\${projectName}\`;\n}\n`,
+    'utf8'
+  );
+
+  await fs.writeFile(
+    path.join(blockRoot, 'files', 'tests', 'unit', 'private-banner.test.ts'),
+    `import assert from 'node:assert/strict';\nimport { projectBanner } from '../../src/installed/private/banner.ts';\n\nexport async function runSuite() {\n  assert.equal(projectBanner('customer-admin'), 'private-banner:customer-admin');\n}\n`,
+    'utf8'
+  );
 }
 
 test('CLI prints usage for missing or unknown commands', async () => {
@@ -67,6 +128,38 @@ test('CLI accepts init commands', async () => {
       code: 0,
       stdout: 'Initialized project workspace\n',
       stderr: ''
+    });
+  });
+});
+
+test('CLI adds private registry blocks and preserves registry metadata on resolve', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await installPrivateBannerBlock(workspaceRoot);
+
+    await expect(runCli(workspaceRoot, ['add', 'private/banner-basic'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Added block private/banner-basic@0.1.0 from private (private)\n',
+      stderr: ''
+    });
+    await expect(fs.readFile(path.join(workspaceRoot, 'project', 'app.plan.yaml'), 'utf8')).resolves.toContain('private/banner-basic');
+
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 4 blocks\n',
+      stderr: ''
+    });
+    const lock = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'project', 'graph.lock.json'), 'utf8')) as {
+      resolvedBlocks: Array<{ id: string; registrySourceId: string; registryKind: string; registryLocation: string }>;
+    };
+    expect(lock.resolvedBlocks.find((block) => block.id === 'private/banner-basic')).toMatchObject({
+      registrySourceId: 'private',
+      registryKind: 'private',
+      registryLocation: 'workspace'
     });
   });
 });
