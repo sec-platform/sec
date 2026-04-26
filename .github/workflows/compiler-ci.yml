@@ -79,8 +79,7 @@ jobs:
         id: fast_artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force project/generated | Out-Null
-          node ./platform/cli/index.ts artifacts --json > project/generated/ci-artifacts.json
+          node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
           $paths = @('project/generated/ci-artifacts.json')
           $paths += @($manifest.artifacts | ForEach-Object { "project/$($_.path)" })
@@ -185,8 +184,7 @@ jobs:
         id: full_artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force project/generated | Out-Null
-          node ./platform/cli/index.ts artifacts --json > project/generated/ci-artifacts.json
+          node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
           $paths = @('project/generated/ci-artifacts.json')
           $paths += @($manifest.artifacts | ForEach-Object { "project/$($_.path)" })

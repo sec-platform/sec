@@ -347,6 +347,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(manifest.artifacts).toEqual(
       expect.arrayContaining([
         {
+          path: 'generated/ci-artifacts.json',
+          kind: 'governance',
+          uploadName: 'generated__ci-artifacts.json',
+          exists: true
+        },
+        {
           path: 'generated/review-summary.json',
           kind: 'governance',
           uploadName: 'generated__review-summary.json',
@@ -365,6 +371,19 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
           exists: true
         }
       ])
+    );
+
+    const { lockPath, provenancePath } = getWorkspacePaths(workspaceRoot);
+    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
+    const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+      artifacts: Array<{ path: string; generatedByPass?: string }>;
+    };
+    expect(lock.generatedPaths).toContain('generated/ci-artifacts.json');
+    expect(provenance.artifacts).toContainEqual(
+      expect.objectContaining({
+        path: 'generated/ci-artifacts.json',
+        generatedByPass: 'artifacts'
+      })
     );
   });
 });

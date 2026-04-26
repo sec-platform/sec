@@ -597,6 +597,8 @@
          - 输出 artifact kind。
          - 输出 uploadName。
          - 输出 lock 声明但缺失的 generated artifact。
+         - 持久化 `generated/ci-artifacts.json`。
+         - 写入 lock/provenance。
        - 补对应测试夹具与快照。
    - 进入条件：
      - ticket vertical 已有至少一个 reporting/export 联动示例。

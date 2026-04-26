@@ -353,6 +353,7 @@ export interface WorkspacePaths {
   runtimeReportPath: string;
   explainGraphPath: string;
   reviewSummaryPath: string;
+  ciArtifactsPath: string;
   sourceViewPath: string;
   slotRuleViewPath: string;
   repairPlanPath: string;

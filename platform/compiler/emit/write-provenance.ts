@@ -34,6 +34,9 @@ function inferGeneratedByPass(targetPath: string): string {
   if (targetPath === 'generated/review-summary.json') {
     return 'explain';
   }
+  if (targetPath === 'generated/ci-artifacts.json') {
+    return 'artifacts';
+  }
   if (targetPath === 'generated/views/source-view.html' || targetPath === 'generated/views/slot-rule-view.html') {
     return 'explain';
   }
