@@ -890,8 +890,12 @@
   - upgrade lane 约束。
   - 版本冲突摘要。
 - 切口 C：团队 CI：
+  - 状态：active。
   - 标准命令序列。
-  - artifact 上传清单。
+  - artifact 上传清单：
+    - 状态：done。
+    - `platform artifacts --json` 生成清单。
+    - CI 上传步骤消费清单路径。
   - 失败时 review/explain 产物暴露。
 - 切口 D：团队审查：
   - review summary 稳定字段。
