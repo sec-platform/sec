@@ -10,6 +10,7 @@
     "test:watch": "bun ./platform/dev-runner.ts test --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
     "test:bun": "bun test tests/",
+    "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
     "check": "npm run typecheck && npm test",
     "platform:bun": "bun ./platform/cli/index.ts"
