@@ -210,6 +210,8 @@ export async function relinkProjectDependencies(
   options: DependencyEnvironmentOptions = {}
 ): Promise<DependencyEnvironmentStatus> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  await removeDir(path.join(projectRoot, 'node_modules'));
+  await removeDir(projectStampPath(projectRoot));
   await ensureProjectDependencies(projectRoot, { sharedDepsRoot: options.sharedDepsRoot });
   return getDependencyEnvironmentStatus(workspaceRoot, options);
 }
