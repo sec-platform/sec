@@ -500,6 +500,20 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(testPathsResult.stderr).toBe('');
     expect(testPathsResult.stdout).toBe('project/test-results/**\n');
 
+    const testPathsJsonResult = await runCli(workspaceRoot, [
+      'artifacts',
+      '--paths',
+      '--json',
+      '--kind',
+      'test'
+    ]);
+    expect(testPathsJsonResult.code).toBe(0);
+    expect(testPathsJsonResult.stderr).toBe('');
+    expect(JSON.parse(testPathsJsonResult.stdout)).toEqual({
+      count: 1,
+      paths: ['project/test-results/**']
+    });
+
     const testManifestResult = await runCli(workspaceRoot, ['artifacts', '--json']);
     const testManifest = JSON.parse(testManifestResult.stdout) as typeof manifest;
     expect(testManifest.summary.testCount).toBe(1);
