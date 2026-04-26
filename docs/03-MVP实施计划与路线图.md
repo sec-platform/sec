@@ -683,6 +683,11 @@
            - review summary。
            - `explain --json`。
            - local source view。
+         - `artifacts --json` 后自动刷新：
+           - `generated/review-summary.json`。
+           - `generated/views/source-view.html`。
+           - `generated/views/slot-rule-view.html`。
+           - 缺少 explain/view 前置产物时跳过刷新，不阻断失败诊断。
          - 输出 lock 声明但缺失的 generated artifact。
          - 缺失项包含：
            - `path`。
