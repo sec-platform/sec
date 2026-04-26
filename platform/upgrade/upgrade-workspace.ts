@@ -573,6 +573,18 @@ function readJsonPath(config: unknown, pathSegments: string[]): unknown {
   return current;
 }
 
+function collectTextPatternEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
+  const evidence: string[] = [];
+  for (const entry of migrationEntries) {
+    if (entry.kind !== 'text-replace-regex') {
+      continue;
+    }
+    const pattern = buildTextReplaceRegex(entry);
+    evidence.push(`${entry.id}:flags:${pattern.flags}`);
+  }
+  return evidence.sort((left, right) => left.localeCompare(right));
+}
+
 async function collectJsonStructureEvidence(
   projectRoot: string,
   migrationEntries: UpgradeMigrationEntry[]
@@ -618,6 +630,7 @@ function buildUpgradePreflightChecks(
   migrationTargetEvidence: string[],
   jsonShapeEvidence: string[],
   jsonStructureEvidence: string[],
+  textPatternEvidence: string[],
   impacts: string[],
   scannedOverrides: string[]
 ): UpgradePreflightCheck[] {
@@ -653,6 +666,12 @@ function buildUpgradePreflightChecks(
       evidence: jsonStructureEvidence
     },
     {
+      id: 'migration-text-patterns',
+      status: 'passed',
+      message: `${textPatternEvidence.length} text replacement patterns checked`,
+      evidence: textPatternEvidence
+    },
+    {
       id: 'impact-scan',
       status: 'passed',
       message: `${impacts.length} upgrade impacts calculated`,
@@ -679,6 +698,9 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
   }
   if (code === 'UPGRADE-MIGRATION-012' || code === 'UPGRADE-MIGRATION-013') {
     return 'migration-json-structure';
+  }
+  if (code === 'UPGRADE-MIGRATION-014') {
+    return 'migration-text-patterns';
   }
   if (code.startsWith('UPGRADE-MIGRATION-')) {
     return 'migration-entries';
@@ -809,6 +831,7 @@ export async function upgradeWorkspace(
     const migrationTargetEvidence = await collectMigrationTargetEvidence(projectRoot, migrationEntries);
     const jsonShapeEvidence = collectJsonShapeEvidence(migrationEntries);
     const jsonStructureEvidence = await collectJsonStructureEvidence(projectRoot, migrationEntries);
+    const textPatternEvidence = collectTextPatternEvidence(migrationEntries);
     const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
     const preflightChecks = buildUpgradePreflightChecks(
       currentVersion,
@@ -819,6 +842,7 @@ export async function upgradeWorkspace(
       migrationTargetEvidence,
       jsonShapeEvidence,
       jsonStructureEvidence,
+      textPatternEvidence,
       impacts,
       scannedOverrides
     );

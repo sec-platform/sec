@@ -692,6 +692,7 @@ export type UpgradePreflightCheckId =
   | 'migration-targets'
   | 'migration-json-shapes'
   | 'migration-json-structure'
+  | 'migration-text-patterns'
   | 'impact-scan'
   | 'override-conflicts';
 

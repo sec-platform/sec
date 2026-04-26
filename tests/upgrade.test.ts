@@ -754,6 +754,15 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace-regex': 1
   });
+  expect(upgradePlan.preflightChecks).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'migration-text-patterns',
+        status: 'passed',
+        evidence: ['mig-upgrade-notes-regex:flags:g']
+      })
+    ])
+  );
   expect(upgradePlan.migrationSummaries).toEqual([
     {
       id: 'mig-upgrade-notes-regex',
@@ -803,6 +812,46 @@ test('upgrade rejects malformed text replace regex migration entries before plan
     code: 'UPGRADE-MIGRATION-011'
   });
   await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-entries"');
+});
+
+test('upgrade rejects invalid text replace regex patterns before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-invalid-text-regex-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-upgrade-notes-regex',
+          kind: 'text-replace-regex',
+          entry: 'migrations/upgrade-notes-regex.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes-regex.json'), {
+    id: 'mig-upgrade-notes-regex',
+    kind: 'text-replace-regex',
+    reason: 'Replace upgrade notes marker.',
+    target: 'docs/upgrade-notes.md',
+    pattern: 'status: (pending',
+    replacement: 'status: applied'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-014'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-text-patterns"');
 });
 
 test('upgrade rejects malformed text append migration entries before planning', async () => {
