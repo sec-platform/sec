@@ -1,6 +1,5 @@
 import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -28,7 +27,9 @@ afterAll(async () => {
 }, 120000);
 
 async function createWorkspace(prefix: string): Promise<string> {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  const workspaceRoot = await fs.mkdtemp(path.join(workspaceParent, prefix));
   activeWorkspaces.add(workspaceRoot);
   return workspaceRoot;
 }
@@ -167,8 +168,30 @@ test('fast lane alone does not unlock the workspace', { timeout: 20000 }, async 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');
   expect(report.summary.requestedLane).toBe('fast');
+  expect(report.runtime.status).toBe('passed');
+  expect(report.runtime.build.status).toBe('skipped');
+  expect(report.runtime.unit.status).toBe('passed');
+  expect(report.runtime.acceptance.status).toBe('skipped');
 
   await expect(lockWorkspace(workspaceRoot)).rejects.toThrow();
+});
+
+test('runtime lane runs generated service tests without full browser acceptance', { timeout: 20000 }, async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-runtime-service-lane-');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+  await adaptWorkspace(workspaceRoot);
+
+  const { report } = await verifyWorkspace(workspaceRoot, { lane: 'runtime' });
+  expect(report.summary.status).toBe('passed');
+  expect(report.summary.requestedLane).toBe('runtime');
+  expect(report.fast.status).toBe('skipped');
+  expect(report.runtime.status).toBe('passed');
+  expect(report.runtime.build.status).toBe('skipped');
+  expect(report.runtime.unit.status).toBe('passed');
+  expect(report.runtime.acceptance.status).toBe('skipped');
 });
 
 test('compose refreshes runtime host scaffold for an existing workspace baseline', async () => {
@@ -200,7 +223,11 @@ test('compose refreshes runtime host scaffold for an existing workspace baseline
     scripts: Record<string, string>;
   };
   expect(projectPackage.scripts.build).toBe('next build --webpack');
-  expect(projectPackage.scripts['verify:runtime']).toBe('npm run build && npm run test:unit && npm run test:acceptance');
+  expect(projectPackage.scripts['verify:runtime:service']).toBe('npm run test:unit');
+  expect(projectPackage.scripts['verify:runtime:full']).toBe(
+    'npm run build && npm run test:unit && npm run test:acceptance'
+  );
+  expect(projectPackage.scripts['verify:runtime']).toBe('npm run verify:runtime:full');
 });
 
 test('write-local-views consumes generated artifacts from disk', { timeout: 120000 }, async () => {

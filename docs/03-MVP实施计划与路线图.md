@@ -45,7 +45,7 @@
 | CLI 主链 | done | `init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain` 已有入口，参数边界已严格化。 |
 | 官方块母例 | done | `auth/basic-session`、`tenant/basic-workspace`、`entity/customer-basic` 支撑 Customer Admin 闭环。 |
 | 单槽位合成 | done | `customer_normalizer` slot 通过 task envelope 限定写入边界。 |
-| fast/runtime verification | done | fast lane、runtime lane、policy report、runtime report 和 summary report 已生成结构化结果。 |
+| fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair 节点、policy violation 边、slot 合同升级影响边，以及 repair task 归因边。 |
@@ -74,7 +74,17 @@
 - `platform deps clean --project|--shared|--npm-cache` 提供单层受控清理入口，避免开发者手动删除内部目录后破坏 stamp 状态。
 - `platform deps clean --all --force` 才能清理全部依赖层；这是刻意的强制确认口径，因为它会导致下一次 runtime verification 重新预热依赖。
 - 本地推荐依赖布局是保留根 `node_modules` 给 compiler 自身使用，保留 `.shared-deps/node_modules` 给 generated project runtime 使用，`project/node_modules` 默认只作为链接。
-- CI 推荐 PR/push 继续跑 fast lane，schedule/manual 跑 all lane；远程缓存优先覆盖 Bun cache 和 `.shared-deps`，不缓存 `project/node_modules` 实体副本。
+- CI 推荐 PR/push 继续跑 fast lane，schedule/manual 跑 all lane；远程缓存优先覆盖 Bun cache、`.shared-deps`、`project/.next/cache` 和 Playwright browser cache，不缓存 `project/node_modules` 实体副本。
+- 本地无参数 `platform verify` 默认跑 fast lane：
+  - 运行 compiler typecheck、generated fast unit/acceptance、policy gate。
+  - 运行 generated runtime service/unit 测试。
+  - 不运行 Next build。
+  - 不安装或启动 Playwright browser。
+- `platform verify --lane runtime` 跑 generated runtime service/unit 测试，不运行完整浏览器验收。
+- `platform verify --lane all` 才运行完整 runtime：
+  - Next build。
+  - runtime unit。
+  - Playwright acceptance。
 
 ### 当前 active 工作包
 

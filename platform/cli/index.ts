@@ -57,7 +57,7 @@ function parseResetArg(args: string[]): boolean {
 
 function parseLaneArg(args: string[]): VerificationLane {
   if (args.length === 0) {
-    return 'all';
+    return 'fast';
   }
   if (args.length !== 2 || args[0] !== '--lane') {
     throw new Error(VERIFY_USAGE);

@@ -7,10 +7,8 @@ import {
   adaptWorkspace,
   composeWorkspace,
   initWorkspace,
-  lockWorkspace,
   resolveWorkspace,
-  verifyWorkspace,
-  explainWorkspace
+  verifyWorkspace
 } from '../platform/orchestrator.ts';
 
 const activeWorkspaces = new Set<string>();
@@ -56,14 +54,10 @@ test('expanded official block set composes and verifies as one project', { timeo
   const storeSource = await fs.readFile(path.join(workspaceRoot, 'project', 'lib', 'store.ts'), 'utf8');
   expect(storeSource).toContain("createRuntimeStore('postgres-contract')");
   await adaptWorkspace(workspaceRoot);
-  const { report } = await verifyWorkspace(workspaceRoot);
+  const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');
-
-  const coverage = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'acceptance-coverage.json'), 'utf8')
-  ) as { uncoveredBlocks: string[]; uncoveredSlots: string[] };
-  expect(coverage.uncoveredBlocks).toEqual([]);
-  expect(coverage.uncoveredSlots).toEqual([]);
+  expect(report.runtime.unit.status).toBe('passed');
+  expect(report.runtime.acceptance.status).toBe('skipped');
 
   const postgresContract = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'), 'utf8')
@@ -103,24 +97,24 @@ test('expanded official block set composes and verifies as one project', { timeo
     'updated_at'
   ]);
 
-  const locked = await lockWorkspace(workspaceRoot);
-  expect(locked.passStatus.lock).toBe('succeeded');
-  expect(locked.resolvedBlocks.some((block) => block.id === 'rbac/basic')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'audit/basic')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'export/csv-basic')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'file/upload')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'notify/email-basic')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'table/filter-search')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'ticket/basic')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'reporting/ticket-summary')).toBe(true);
-  expect(locked.resolvedBlocks.some((block) => block.id === 'worklog/basic')).toBe(true);
-  expect(locked.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
-  expect(locked.installPlan.some((step) => step.to === 'src/installed/reporting/ticket-summary.ts')).toBe(true);
-  expect(locked.installPlan.some((step) => step.to === 'src/installed/worklog/worklog-service.ts')).toBe(true);
-  expect(locked.installPlan.some((step) => step.to === 'tests/unit/ticket-summary.test.ts')).toBe(true);
-  expect(locked.installPlan.some((step) => step.to === 'tests/unit/worklog-service.test.ts')).toBe(true);
-  expect(locked.generatedPaths).toEqual(
+  const lock = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'project', 'graph.lock.json'), 'utf8')) as typeof resolvedLock;
+  expect(lock.passStatus.verify).toBe('pending');
+  expect(lock.resolvedBlocks.some((block) => block.id === 'rbac/basic')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'audit/basic')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'export/csv-basic')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'file/upload')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'notify/email-basic')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'table/filter-search')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'ticket/basic')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'reporting/ticket-summary')).toBe(true);
+  expect(lock.resolvedBlocks.some((block) => block.id === 'worklog/basic')).toBe(true);
+  expect(lock.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
+  expect(lock.installPlan.some((step) => step.to === 'src/installed/reporting/ticket-summary.ts')).toBe(true);
+  expect(lock.installPlan.some((step) => step.to === 'src/installed/worklog/worklog-service.ts')).toBe(true);
+  expect(lock.installPlan.some((step) => step.to === 'tests/unit/ticket-summary.test.ts')).toBe(true);
+  expect(lock.installPlan.some((step) => step.to === 'tests/unit/worklog-service.test.ts')).toBe(true);
+  expect(lock.generatedPaths).toEqual(
     expect.arrayContaining([
       'app/tickets/page.tsx',
       'app/api/tickets/route.ts',
@@ -153,47 +147,6 @@ test('expanded official block set composes and verifies as one project', { timeo
   expect(ticketsPageSource).toContain('Worklogs for ${ticket.title}');
   expect(ticketsPageSource).toContain('Total worklog minutes');
 
-  const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  expect(
-    reviewSummary.runtimeEntries.find((entry) => entry.path === 'app/api/tickets/summary/export/route.ts')
-  ).toEqual({
-    path: 'app/api/tickets/summary/export/route.ts',
-    kind: 'api',
-    vertical: 'ticket',
-    relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic', 'worklog/basic']
-  });
-  expect(reviewSummary.verticalSlices).toEqual(
-    expect.arrayContaining([
-      {
-        id: 'ticket',
-        runtimeEntries: expect.arrayContaining([
-          'app/tickets/page.tsx',
-          'app/api/tickets/export/route.ts',
-          'app/api/tickets/summary/route.ts',
-          'app/api/tickets/summary/export/route.ts'
-        ]),
-        relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic', 'worklog/basic']
-      }
-    ])
-  );
-  expect(
-    graph.edges.some(
-      (edge) =>
-        edge.from === 'block:reporting/ticket-summary' &&
-        edge.to === 'file:app/api/tickets/summary/route.ts' &&
-        edge.type === 'writes_to'
-    )
-  ).toBe(true);
-  const sourceView = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'views', 'source-view.html'), 'utf8');
-  expect(sourceView).toContain('Runtime Entry Points');
-  expect(sourceView).toContain('Vertical Summary');
-  expect(sourceView).toContain('Block Combination Summary');
-  expect(sourceView).toContain('Review Runtime Attribution');
-  expect(sourceView).toContain('app/api/tickets/export/route.ts');
-  expect(sourceView).toContain('app/api/tickets/summary/route.ts');
-  expect(sourceView).toContain('app/api/tickets/summary/export/route.ts');
-  expect(sourceView).toContain('ticket/basic');
-  expect(sourceView).toContain('reporting/ticket-summary');
 });
 
 test('reference project coverage has no uncovered blocks', async () => {

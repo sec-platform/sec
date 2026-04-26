@@ -5,6 +5,8 @@ import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/p
 import { runCommand } from '../../shared/process.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/types.ts';
 
+type RuntimeVerificationMode = 'service' | 'full';
+
 function generatePort(): number {
   const basePort = 3000;
   const workerId = parseInt(process.env.VITEST_POOL_ID ?? '0', 10);
@@ -50,7 +52,10 @@ async function ensurePlaywrightBrowser(projectRoot: string, env: NodeJS.ProcessE
   });
 }
 
-export async function runRuntimeVerification(projectRoot: string): Promise<RuntimeVerificationLaneReport> {
+export async function runRuntimeVerification(
+  projectRoot: string,
+  mode: RuntimeVerificationMode = 'full'
+): Promise<RuntimeVerificationLaneReport> {
   const runtimeUnitFiles = relativeFiles(
     projectRoot,
     (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'unit'))).filter((file) => file.endsWith('.test.ts'))
@@ -68,18 +73,12 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
     ...process.env,
     [envPathKey]: `${path.join(compilerRoot, 'node_modules', '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`
   };
-  const buildResult = await timed('next build', () =>
-    runCommand(npmCommand(), ['run', 'build'], {
-      cwd: projectRoot,
-      env: baseEnv
-    })
-  );
   const lane: RuntimeVerificationLaneReport = {
-    status: normalizeStatus(buildResult.code),
+    status: 'skipped',
     build: {
-      status: normalizeStatus(buildResult.code),
-      passed: buildResult.code === 0 ? ['next build'] : [],
-      failed: buildResult.code === 0 ? [] : ['next build'],
+      status: 'skipped',
+      passed: [],
+      failed: [],
       command: 'npm run build'
     },
     unit: {
@@ -95,13 +94,31 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
       command: 'npm run test:acceptance'
     },
     logs: {
-      stdout: buildResult.stdout,
-      stderr: buildResult.stderr
+      stdout: '',
+      stderr: ''
     }
   };
 
-  if (buildResult.code !== 0) {
-    return lane;
+  if (mode === 'full') {
+    const buildResult = await timed('next build', () =>
+      runCommand(npmCommand(), ['run', 'build'], {
+        cwd: projectRoot,
+        env: baseEnv
+      })
+    );
+    lane.status = normalizeStatus(buildResult.code);
+    lane.build = {
+      status: normalizeStatus(buildResult.code),
+      passed: buildResult.code === 0 ? ['next build'] : [],
+      failed: buildResult.code === 0 ? [] : ['next build'],
+      command: 'npm run build'
+    };
+    lane.logs.stdout += buildResult.stdout;
+    lane.logs.stderr += buildResult.stderr;
+
+    if (buildResult.code !== 0) {
+      return lane;
+    }
   }
 
   if (runtimeUnitFiles.length === 0) {
@@ -131,6 +148,11 @@ export async function runRuntimeVerification(projectRoot: string): Promise<Runti
     if (unitResult.code !== 0) {
       return lane;
     }
+  }
+
+  if (mode === 'service') {
+    lane.status = 'passed';
+    return lane;
   }
 
   if (runtimeAcceptanceFiles.length === 0) {
