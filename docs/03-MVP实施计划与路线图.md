@@ -584,6 +584,13 @@
          - 按 kind 聚合。
          - 显示每组 artifact 列表。
          - 保留 failure details 明细表。
+       - 增加 runtime attribution 卡片：
+         - 状态：done。
+         - 显示 runtime group summary。
+         - 按 vertical 聚合。
+         - 按 runtime kind 聚合。
+         - 显示每组 related blocks。
+         - 保留 runtime entries 明细表。
      - 切口 D：CI 消费口径：
        - `upgrade --dry-run --json`：
          - 状态：done。
