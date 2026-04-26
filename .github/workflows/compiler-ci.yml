@@ -84,7 +84,8 @@ jobs:
           $paths = @('project/generated/ci-artifacts.json')
           $paths += @($manifest.artifacts | ForEach-Object { "project/$($_.path)" })
           if ($manifest.missing.Count -gt 0) {
-            Write-Warning "Missing generated artifacts: $($manifest.missing -join ', ')"
+            $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
+            Write-Warning "Missing generated artifacts: $($missing -join ', ')"
           }
           "paths<<EOF" >> $env:GITHUB_OUTPUT
           $paths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
@@ -192,7 +193,8 @@ jobs:
             $paths += 'project/test-results/**'
           }
           if ($manifest.missing.Count -gt 0) {
-            Write-Warning "Missing generated artifacts: $($manifest.missing -join ', ')"
+            $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
+            Write-Warning "Missing generated artifacts: $($missing -join ', ')"
           }
           "paths<<EOF" >> $env:GITHUB_OUTPUT
           $paths | Sort-Object -Unique >> $env:GITHUB_OUTPUT

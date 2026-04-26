@@ -599,6 +599,10 @@
          - 输出 uploadName。
          - 输出 summary 计数字段。
          - 输出 lock 声明但缺失的 generated artifact。
+         - 缺失项包含：
+           - `path`。
+           - `reason`。
+           - `declaredBy`。
          - 持久化 `generated/ci-artifacts.json`。
          - 写入 lock/provenance。
        - 补对应测试夹具与快照。

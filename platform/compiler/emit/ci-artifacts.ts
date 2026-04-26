@@ -24,12 +24,18 @@ export interface CiArtifactSummary {
   missingCount: number;
 }
 
+export interface CiArtifactMissingEntry {
+  path: string;
+  reason: 'declared-generated-missing';
+  declaredBy: 'graph.lock.json';
+}
+
 export interface CiArtifactManifest {
   formatVersion: '1';
   root: 'project';
   summary: CiArtifactSummary;
   artifacts: CiArtifactEntry[];
-  missing: string[];
+  missing: CiArtifactMissingEntry[];
 }
 
 const CI_ARTIFACT_PATH = 'generated/ci-artifacts.json';
@@ -66,6 +72,11 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.map(normalizeArtifactPath))].sort((left, right) => left.localeCompare(right));
 }
 
+function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissingEntry[] {
+  const entriesByPath = new Map(entries.map((entry) => [normalizeArtifactPath(entry.path), entry]));
+  return [...entriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   if (!(await pathExists(lockPath))) {
@@ -85,12 +96,17 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     ...generatedPathResult.paths
   ]);
   const entries: CiArtifactEntry[] = [];
-  const missing: string[] = [];
+  const missing: CiArtifactMissingEntry[] = [];
+  const generatedPaths = new Set(generatedPathResult.paths.map(normalizeArtifactPath));
 
   for (const artifactPath of artifacts) {
     const exists = await pathExists(path.join(projectRoot, artifactPath));
-    if (generatedPathResult.paths.includes(artifactPath) && !exists) {
-      missing.push(artifactPath);
+    if (generatedPaths.has(artifactPath) && !exists) {
+      missing.push({
+        path: artifactPath,
+        reason: 'declared-generated-missing',
+        declaredBy: 'graph.lock.json'
+      });
     }
     if (!exists) {
       continue;
@@ -103,7 +119,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     });
   }
 
-  const sortedMissing = generatedPathResult.lockExists ? uniqueSorted(missing) : [];
+  const sortedMissing = generatedPathResult.lockExists ? uniqueSortedMissing(missing) : [];
   return {
     formatVersion: '1',
     root: 'project',
