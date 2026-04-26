@@ -1,10 +1,10 @@
 import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
   adaptWorkspace,
+  addBlock,
   composeWorkspace,
   explainWorkspace,
   initWorkspace,
@@ -31,7 +31,9 @@ afterAll(async () => {
 });
 
 async function createWorkspace(prefix: string): Promise<string> {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  const workspaceRoot = await fs.mkdtemp(path.join(workspaceParent, prefix));
   activeWorkspaces.add(workspaceRoot);
   return workspaceRoot;
 }
@@ -253,6 +255,76 @@ test('upgrade advances an official block version and preserves a passing pipelin
       }
     ])
   );
+});
+
+test('upgrade advances ticket block version and surfaces runtime upgrade impact', { timeout: 240000 }, async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-ticket-upgrade-');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await addBlock(workspaceRoot, 'ticket/basic');
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+  await adaptWorkspace(workspaceRoot);
+  await verifyWorkspace(workspaceRoot);
+  await lockWorkspace(workspaceRoot);
+
+  const ticketServicePath = path.join(workspaceRoot, 'project', 'src', 'installed', 'ticket', 'ticket-service.ts');
+  const beforeUpgrade = await fs.readFile(ticketServicePath, 'utf8');
+  expect(beforeUpgrade).not.toMatch(/TICKET_BLOCK_VERSION/);
+
+  const { plan, lock, upgradePlan } = await upgradeWorkspace(workspaceRoot, 'ticket/basic', '0.1.1');
+
+  const plannedTicketBlock = plan.blocks.find((block) => block.id === 'ticket/basic');
+  const resolvedTicketBlock = lock.resolvedBlocks.find((block) => block.id === 'ticket/basic');
+  expect(plannedTicketBlock?.version).toBe('0.1.1');
+  expect(resolvedTicketBlock?.version).toBe('0.1.1');
+  expect(lock.passStatus.lock).toBe('succeeded');
+  expect(upgradePlan.status).toBe('applied');
+  expect(upgradePlan.impacts).toEqual([
+    'prisma/schema.prisma',
+    'src/installed/ticket/ticket-service.ts',
+    'tests/acceptance/ticket-flow.test.ts',
+    'tests/unit/ticket-service.test.ts',
+    'upgrade.metadata.json'
+  ]);
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'file-replace': 1,
+    'json-array-append': 1
+  });
+
+  const afterUpgrade = await fs.readFile(ticketServicePath, 'utf8');
+  expect(afterUpgrade).toMatch(/TICKET_BLOCK_VERSION = '0\.1\.1'/);
+  const upgradeMetadataPath = path.join(workspaceRoot, 'project', 'upgrade.metadata.json');
+  const upgradeMetadata = await fs.readFile(upgradeMetadataPath, 'utf8');
+  expect(upgradeMetadata).toContain('"ticket/basic@0.1.1"');
+
+  const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
+  expect(reviewSummary.conflictHints).toEqual(
+    expect.arrayContaining([
+      {
+        kind: 'upgrade-plan-present',
+        relatedId: 'ticket/basic',
+        message: 'Upgrade plan applied, verify pending: ticket/basic 0.1.0 -> 0.1.1'
+      }
+    ])
+  );
+  expect(reviewSummary.regressionRisks).toEqual(
+    expect.arrayContaining([
+      {
+        kind: 'upgrade-impact',
+        blockId: 'ticket/basic',
+        message: 'Upgrade ticket/basic impacts src/installed/ticket/ticket-service.ts'
+      }
+    ])
+  );
+  expect(
+    graph.edges.some(
+      (edge) =>
+        edge.from === 'block:ticket/basic' &&
+        edge.to === 'file:app/tickets/page.tsx' &&
+        edge.type === 'writes_to'
+    )
+  ).toBe(true);
 });
 
 test('upgrade dry-run writes a planned upgrade without changing project files', async () => {

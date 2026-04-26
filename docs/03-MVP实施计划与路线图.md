@@ -372,6 +372,20 @@
       - override conflict hints 可显示 ticket/worklog 相关冲突。
       - explain graph 保留 `file:app/tickets/page.tsx -> override:*` 的 `originates_from` 边。
       - reporting-only 组合不再生成依赖 `export/csv-basic` 的 summary CSV route。
+    - ticket + upgrade 治理组合已贯通：
+      - 新增 `ticket/basic@0.1.1` 官方升级目标。
+      - 升级迁移包含：
+        - `file-replace` 刷新 ticket service。
+        - `json-array-append` 记录升级元数据。
+      - ticket service 0.1.1 暴露 `TICKET_BLOCK_VERSION`。
+      - upgrade plan 可显示：
+        - migration kind counts。
+        - preflight checks。
+        - impacted files。
+      - review summary 可显示：
+        - `upgrade-plan-present`。
+        - `upgrade-impact`。
+      - explain graph 保留 ticket runtime page 到 `ticket/basic` 的 `writes_to` 归因边。
    - 当前阶段拆分：
      - 阶段 1：业务 CRUD 与 runtime host。
      - 阶段 2：横切治理联动。
@@ -404,7 +418,8 @@
      - 当前进入切口 D：
        - 已完成 ticket + policy gate。
        - 已完成 ticket + override。
-       - 后续转向 ticket + upgrade。
+       - 已完成 ticket + upgrade。
+       - 后续转向更细 migration 类型和团队 CI 消费口径。
    - 每个切口的验证口径：
      - `expanded-blocks.test.ts`。
      - runtime unit。

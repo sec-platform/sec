@@ -1,6 +1,5 @@
 import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -27,7 +26,9 @@ afterAll(async () => {
 }, 120000);
 
 async function createWorkspace(prefix: string): Promise<string> {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  const workspaceRoot = await fs.mkdtemp(path.join(workspaceParent, prefix));
   activeWorkspaces.add(workspaceRoot);
   return workspaceRoot;
 }

@@ -1,0 +1,8 @@
+{
+  "id": "mig-ticket-upgrade-metadata",
+  "kind": "json-array-append",
+  "reason": "Record ticket service upgrade metadata in package configuration.",
+  "target": "upgrade.metadata.json",
+  "path": ["upgradedBlocks"],
+  "items": ["ticket/basic@0.1.1"]
+}
