@@ -15,7 +15,16 @@ import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
-import type { LockFile, PlanFile, UpgradeDiagnostics, UpgradeMigration, UpgradeMigrationEntry, UpgradePlan, UpgradePreflightCheck } from '../shared/types.ts';
+import type {
+  LockFile,
+  ManifestSlot,
+  PlanFile,
+  UpgradeDiagnostics,
+  UpgradeMigration,
+  UpgradeMigrationEntry,
+  UpgradePlan,
+  UpgradePreflightCheck
+} from '../shared/types.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
   if (range === version) {
@@ -588,6 +597,77 @@ function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): st
   return evidence.sort((left, right) => left.localeCompare(right));
 }
 
+function ensureSlotContractValue(
+  migrationId: string,
+  field: 'inputType' | 'outputType',
+  expected: string | undefined,
+  actual: string | undefined
+): string[] {
+  if (expected === undefined) {
+    return [];
+  }
+  if (actual !== expected) {
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-021',
+      `Slot contract migration "${migrationId}" ${field} does not match target manifest slot`
+    );
+  }
+  return [`${migrationId}:${field}:${actual}`];
+}
+
+function ensureSlotWritableZones(
+  migrationId: string,
+  expected: string[] | undefined,
+  actual: string[] | undefined
+): string[] {
+  if (expected === undefined) {
+    return [];
+  }
+  const actualZones = actual ?? [];
+  if (
+    expected.length !== actualZones.length ||
+    expected.some((zone, index) => zone !== actualZones[index])
+  ) {
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-022',
+      `Slot contract migration "${migrationId}" writableZones do not match target manifest slot`
+    );
+  }
+  return [`${migrationId}:writableZones:${actualZones.join(',')}`];
+}
+
+function collectSlotContractEvidence(
+  targetSlots: ManifestSlot[],
+  migrationEntries: UpgradeMigrationEntry[]
+): string[] {
+  const slotsById = new Map(targetSlots.map((slot) => [slot.id, slot]));
+  const evidence: string[] = [];
+  for (const entry of migrationEntries) {
+    if (entry.kind !== 'slot-contract-update') {
+      continue;
+    }
+    const slot = slotsById.get(entry.slotId);
+    if (!slot) {
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-021',
+        `Slot contract migration "${entry.id}" references missing target slot "${entry.slotId}"`
+      );
+    }
+    if (slot.target !== entry.target) {
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-021',
+        `Slot contract migration "${entry.id}" target does not match target manifest slot`
+      );
+    }
+    evidence.push(`${entry.id}:slot:${entry.slotId}`);
+    evidence.push(`${entry.id}:target:${slot.target}`);
+    evidence.push(...ensureSlotContractValue(entry.id, 'inputType', entry.inputType, slot.inputType));
+    evidence.push(...ensureSlotContractValue(entry.id, 'outputType', entry.outputType, slot.outputType));
+    evidence.push(...ensureSlotWritableZones(entry.id, entry.writableZones, slot.writableZones));
+  }
+  return evidence.sort((left, right) => left.localeCompare(right));
+}
+
 function isJsonMigrationEntry(entry: UpgradeMigrationEntry): entry is Extract<
   UpgradeMigrationEntry,
   { kind: 'config-rewrite' | 'json-array-append' | 'json-array-remove' | 'json-object-merge' }
@@ -670,6 +750,7 @@ function buildUpgradePreflightChecks(
   jsonShapeEvidence: string[],
   jsonStructureEvidence: string[],
   textPatternEvidence: string[],
+  slotContractEvidence: string[],
   impacts: string[],
   scannedOverrides: string[]
 ): UpgradePreflightCheck[] {
@@ -717,6 +798,12 @@ function buildUpgradePreflightChecks(
       evidence: textPatternEvidence
     },
     {
+      id: 'migration-slot-contracts',
+      status: 'passed',
+      message: `${slotContractEvidence.length} slot contract fields checked`,
+      evidence: slotContractEvidence
+    },
+    {
       id: 'impact-scan',
       status: 'passed',
       message: `${impacts.length} upgrade impacts calculated`,
@@ -746,6 +833,9 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
   }
   if (code === 'UPGRADE-MIGRATION-014') {
     return 'migration-text-patterns';
+  }
+  if (code === 'UPGRADE-MIGRATION-021' || code === 'UPGRADE-MIGRATION-022') {
+    return 'migration-slot-contracts';
   }
   if (
     code === 'UPGRADE-MIGRATION-008' ||
@@ -892,6 +982,7 @@ export async function upgradeWorkspace(
     const jsonShapeEvidence = collectJsonShapeEvidence(migrationEntries);
     const jsonStructureEvidence = await collectJsonStructureEvidence(projectRoot, migrationEntries);
     const textPatternEvidence = collectTextPatternEvidence(migrationEntries);
+    const slotContractEvidence = collectSlotContractEvidence(targetEntry.manifest.slots, migrationEntries);
     const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
     const preflightChecks = buildUpgradePreflightChecks(
       currentVersion,
@@ -904,6 +995,7 @@ export async function upgradeWorkspace(
       jsonShapeEvidence,
       jsonStructureEvidence,
       textPatternEvidence,
+      slotContractEvidence,
       impacts,
       scannedOverrides
     );

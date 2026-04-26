@@ -200,7 +200,14 @@
          - rename-file：确认 source 存在且是文件。
          - rename-file：确认 target 未被占用。
          - diagnostics：归类到 `migration-file-operations`。
-       - slot 合同前后兼容性检查。
+       - slot 合同前后兼容性检查：
+         - 状态：done。
+         - plan：`migration-slot-contracts` preflight check。
+         - slot：确认目标 manifest slot 存在。
+         - target：确认 migration target 与目标 slot target 一致。
+         - input/output：确认 migration 声明与目标 slot 合同一致。
+         - writableZones：确认 migration 声明与目标 slot 写入边界一致。
+         - diagnostics：归类到 `migration-slot-contracts`。
      - 切口 D：把每类 migration 的影响面写入：
        - review summary。
        - explain graph。

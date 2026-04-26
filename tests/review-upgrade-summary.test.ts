@@ -145,6 +145,12 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
           evidence: []
         },
         {
+          id: 'migration-slot-contracts',
+          status: 'passed',
+          message: '0 slot contract fields checked',
+          evidence: []
+        },
+        {
           id: 'impact-scan',
           status: 'passed',
           message: '1 upgrade impacts calculated',
@@ -249,7 +255,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       {
         kind: 'upgrade-preflight-passed',
         relatedId: 'auth/basic-session',
-        message: 'Upgrade preflight passed: version-range, migration-entries, migration-targets, migration-file-operations, migration-json-shapes, migration-json-structure, migration-text-patterns, impact-scan, override-conflicts'
+        message: 'Upgrade preflight passed: version-range, migration-entries, migration-targets, migration-file-operations, migration-json-shapes, migration-json-structure, migration-text-patterns, migration-slot-contracts, impact-scan, override-conflicts'
       }
     ]);
     expect(summary.failurePoints).toContainEqual({

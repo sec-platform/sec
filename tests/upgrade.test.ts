@@ -441,6 +441,16 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
     expect.arrayContaining([
       expect.objectContaining({ id: 'version-range', evidence: ['0.1.x'] }),
       expect.objectContaining({ id: 'migration-entries', evidence: ['mig-customer-normalizer-contract:migrations/customer-normalizer-contract.json'] }),
+      expect.objectContaining({
+        id: 'migration-slot-contracts',
+        evidence: [
+          'mig-customer-normalizer-contract:inputType:CustomerInputV2',
+          'mig-customer-normalizer-contract:outputType:CustomerRecordInput',
+          'mig-customer-normalizer-contract:slot:customer_normalizer',
+          'mig-customer-normalizer-contract:target:custom/customer_normalizer.ts',
+          'mig-customer-normalizer-contract:writableZones:custom/customer_normalizer.ts'
+        ]
+      }),
       expect.objectContaining({ id: 'impact-scan', evidence: ['custom/customer_normalizer.ts', 'src/installed/private/slot-contract.ts'] }),
       expect.objectContaining({ id: 'override-conflicts', evidence: [] })
     ])
@@ -1063,6 +1073,29 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
     code: 'UPGRADE-MIGRATION-012'
   });
   await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-json-structure"');
+});
+
+test('upgrade rejects slot contract mismatches before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-slot-contract-mismatch-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  await writeJson(path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0', 'migrations', 'customer-normalizer-contract.json'), {
+    id: 'mig-customer-normalizer-contract',
+    kind: 'slot-contract-update',
+    reason: 'Update customer normalizer input contract to v2.',
+    target: 'custom/customer_normalizer.ts',
+    slotId: 'customer_normalizer',
+    inputType: 'CustomerInputV3',
+    outputType: 'CustomerRecordInput',
+    writableZones: ['custom/customer_normalizer.ts']
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-021'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-slot-contracts"');
 });
 
 test('upgrade rejects malformed migration entries before planning', async () => {
