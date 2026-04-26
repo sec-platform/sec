@@ -597,6 +597,7 @@
          - 支持输出格式：
            - `--json` pretty JSON。
            - `--json --compact` 单行 JSON。
+           - `--paths` 上传路径列表。
          - 输出 artifact 相对路径。
          - 输出 artifact kind。
          - 输出 uploadName。
