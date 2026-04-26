@@ -611,6 +611,10 @@
            - `path`。
            - `reason`。
            - `declaredBy`。
+         - 缺失 reason 分类：
+           - `declared-generated-missing`。
+           - `fixed-governance-missing`。
+           - `fixed-view-missing`。
          - 缺失项可被消费：
            - review summary。
            - `explain --json`。

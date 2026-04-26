@@ -404,7 +404,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       ])
     );
 
-    const { lockPath, provenancePath } = getWorkspacePaths(workspaceRoot);
+    const { lockPath, provenancePath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
     const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
       artifacts: Array<{ path: string; generatedByPass?: string }>;
@@ -430,34 +430,58 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     lockWithMissingArtifact.generatedPaths.push('generated/missing-diagnostic.json');
     await fs.writeFile(lockPath, `${JSON.stringify(lockWithMissingArtifact, null, 2)}\n`, 'utf8');
 
-    const missingResult = await runCli(workspaceRoot, ['artifacts', '--json']);
-    expect(missingResult.code).toBe(0);
-    expect(missingResult.stderr).toBe('');
+    const lockMissingResult = await runCli(workspaceRoot, ['artifacts', '--json']);
+    expect(lockMissingResult.code).toBe(0);
+    expect(lockMissingResult.stderr).toBe('');
 
-    const manifestWithMissing = JSON.parse(missingResult.stdout) as typeof manifest;
-    const missingDiagnostics = [
+    const manifestWithLockMissing = JSON.parse(lockMissingResult.stdout) as typeof manifest;
+    const lockMissingDiagnostics = [
       {
         path: 'generated/missing-diagnostic.json',
         reason: 'declared-generated-missing',
         declaredBy: 'graph.lock.json'
       }
     ];
-    expect(manifestWithMissing.summary.missingCount).toBe(1);
-    expect(manifestWithMissing.missing).toEqual(missingDiagnostics);
+    expect(manifestWithLockMissing.summary.missingCount).toBe(1);
+    expect(manifestWithLockMissing.missing).toEqual(lockMissingDiagnostics);
 
     const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
     const explainWithMissingPayload = JSON.parse(explainWithMissingResult.stdout) as {
       reviewSummary: {
         artifactSummary?: typeof manifest.summary & {
           uploadGroups?: typeof manifest.uploadGroups;
-          missing?: typeof missingDiagnostics;
+          missing?: typeof lockMissingDiagnostics;
         };
       };
     };
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(
-      manifestWithMissing.uploadGroups
+      manifestWithLockMissing.uploadGroups
     );
-    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(missingDiagnostics);
+    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(lockMissingDiagnostics);
+
+    await fs.rm(path.join(workspaceRoot, 'project', 'generated', 'policy-report.json'));
+    await fs.rm(sourceViewPath);
+
+    const missingResult = await runCli(workspaceRoot, ['artifacts', '--json']);
+    expect(missingResult.code).toBe(0);
+    expect(missingResult.stderr).toBe('');
+
+    const manifestWithMissing = JSON.parse(missingResult.stdout) as typeof manifest;
+    const fixedMissingDiagnostics = [
+      ...lockMissingDiagnostics,
+      {
+        path: 'generated/policy-report.json',
+        reason: 'fixed-governance-missing',
+        declaredBy: 'artifact-manifest'
+      },
+      {
+        path: 'generated/views/source-view.html',
+        reason: 'fixed-view-missing',
+        declaredBy: 'artifact-manifest'
+      }
+    ];
+    expect(manifestWithMissing.summary.missingCount).toBe(3);
+    expect(manifestWithMissing.missing).toEqual(fixedMissingDiagnostics);
   });
 });
 
