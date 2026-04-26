@@ -52,9 +52,24 @@
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
-| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
+| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
+| 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
+
+### 开发者入口与依赖环境策略
+
+- 平台源码本身是工具实现层，普通项目开发者默认不直接修改 `platform/compiler/**`、`platform/shared/**`、`platform/registry/official/**`。
+- 项目开发者的默认工作面是 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**`。
+- `project/src/installed/**`、`project/generated/**` 和运行时 scaffold 视为编译产物或治理产物；需要人工介入时优先回写为 slot、rule-backed override 或 private block，而不是长期手改生成源码。
+- CLI 是一等入口；工作台或 IDE 插件只能补充交互体验，不替代 CLI 合同。
+- `platform doctor` 用于检查本地依赖环境、缓存状态和推荐动作。
+- `platform deps status` 输出 root/shared/project/npm cache 的状态、体积、链接关系和 cold/warm/dirty/stale 模式。
+- `platform deps warmup` 预热 `.shared-deps`，作为 generated project runtime 的共享实体依赖层。
+- `platform deps relink project` 让 `project/node_modules` 优先回到指向 `.shared-deps/node_modules` 的 junction，减少实体依赖副本。
+- `platform deps clean --project|--shared|--npm-cache|--all` 提供受控清理入口，避免开发者手动删除内部目录后破坏 stamp 状态。
+- 本地推荐依赖布局是保留根 `node_modules` 给 compiler 自身使用，保留 `.shared-deps/node_modules` 给 generated project runtime 使用，`project/node_modules` 默认只作为链接。
+- CI 推荐 PR/push 继续跑 fast lane，schedule/manual 跑 all lane；远程缓存优先覆盖 Bun cache 和 `.shared-deps`，不缓存 `project/node_modules` 实体副本。
 
 ### 当前 active 工作包
 
@@ -86,6 +101,12 @@
        - 可删除已存在文件。
        - 目标是目录时会阻断。
        - dry-run plan 可展示 impact 和 migration summary。
+     - `rename-file` 文件移动迁移：
+       - 可把文件移动到新路径。
+       - source 缺失会阻断。
+       - source 是目录会阻断。
+       - target 已存在会阻断。
+       - dry-run plan 同时展示 source/target impact。
      - 官方升级 manifest 中的多迁移类型覆盖。
      - upgrade plan migration 摘要与类型计数。
      - upgrade dry-run 入口。
@@ -116,9 +137,11 @@
          - safety：目标是目录时阻断。
          - plan：dry-run 记录文件 impact。
        - rename-file：
-         - 状态：later。
-         - 执行：移动或重命名目标文件。
-         - preflight：源文件存在且目标路径未占用。
+         - 状态：done。
+         - 执行：移动或重命名文件。
+         - safety：source 必须存在且必须是文件。
+         - safety：target 必须未占用。
+         - plan：dry-run 记录 source 与 target impact。
      - 切口 B：新增文本结构类 migration：
        - text-append：
          - 状态：done。
