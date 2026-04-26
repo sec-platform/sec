@@ -81,8 +81,7 @@ jobs:
         run: |
           node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
-          $paths = @('project/generated/ci-artifacts.json')
-          $paths += @($manifest.artifacts | ForEach-Object { "project/$($_.path)" })
+          $paths = @(node ./platform/cli/index.ts artifacts --paths)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing generated artifacts: $($missing -join ', ')"
@@ -187,8 +186,7 @@ jobs:
         run: |
           node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
-          $paths = @('project/generated/ci-artifacts.json')
-          $paths += @($manifest.artifacts | ForEach-Object { "project/$($_.path)" })
+          $paths = @(node ./platform/cli/index.ts artifacts --paths)
           if (Test-Path project/test-results) {
             $paths += 'project/test-results/**'
           }
