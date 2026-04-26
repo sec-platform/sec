@@ -100,6 +100,7 @@ test('expanded official block set composes and verifies as one project', async (
     expect.arrayContaining([
       'app/tickets/page.tsx',
       'app/api/tickets/route.ts',
+      'app/api/tickets/export/route.ts',
       'app/api/tickets/[ticketId]/status/route.ts',
       'components/ticket-form.tsx',
       'components/ticket-status-form.tsx',

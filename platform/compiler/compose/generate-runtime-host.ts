@@ -313,7 +313,11 @@ ${tableFilters}
 `;
 }
 
-function renderTicketsPage(options: { auditEnabled: boolean; notifyEmailEnabled: boolean }): string {
+function renderTicketsPage(options: {
+  auditEnabled: boolean;
+  exportCsvEnabled: boolean;
+  notifyEmailEnabled: boolean;
+}): string {
   const auditSetup = options.auditEnabled
     ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
 `
@@ -337,6 +341,10 @@ function renderTicketsPage(options: { auditEnabled: boolean; notifyEmailEnabled:
         </ul>
       </section>
 `
+    : '';
+  const exportAction = options.exportCsvEnabled
+    ? `
+            <a href="/api/tickets/export">Export tickets CSV</a>`
     : '';
   const auditView = options.auditEnabled
     ? `
@@ -390,7 +398,7 @@ ${notificationSetup}${auditSetup}
             <p>Tenant <strong>{session.tenantId}</strong> currently sees {tickets.length} ticket(s).</p>
           </div>
           <div className="row">
-            <Link href="/workspace">Workspace</Link>
+            <Link href="/workspace">Workspace</Link>${exportAction}
             <LogoutButton />
           </div>
         </div>
@@ -724,6 +732,30 @@ ${auditLine}${notifyLine}    return NextResponse.json({ ticket }, { status: 201 
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });
   }
+}
+`;
+}
+
+function renderTicketExportRoute(): string {
+  return `import { NextResponse } from 'next/server';
+import { exportTicketsToCsv } from '../../../../src/installed/export/customer-csv.ts';
+import { listTickets } from '../../../../src/installed/ticket/ticket-service.ts';
+import { getCurrentSession } from '../../../../lib/session.ts';
+import { getDatabase } from '../../../../lib/store.ts';
+
+export async function GET() {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  const csv = exportTicketsToCsv(listTickets(getDatabase(), session));
+  return new NextResponse(csv, {
+    headers: {
+      'content-disposition': 'attachment; filename="tickets.csv"',
+      'content-type': 'text/csv; charset=utf-8'
+    }
+  });
 }
 `;
 }
@@ -1220,7 +1252,11 @@ describe('runtime customer service', () => {
 `;
 }
 
-function renderTicketRuntimeUnitTest(options: { auditEnabled: boolean; notifyEmailEnabled: boolean }): string {
+function renderTicketRuntimeUnitTest(options: {
+  auditEnabled: boolean;
+  exportCsvEnabled: boolean;
+  notifyEmailEnabled: boolean;
+}): string {
   const auditImport = options.auditEnabled
     ? `
 import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`
@@ -1238,6 +1274,10 @@ import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit
     ? `
 import { listEmailNotifications, recordTicketCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`
     : '';
+  const exportCsvImport = options.exportCsvEnabled
+    ? `
+import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.ts';`
+    : '';
   const notifyAssertions = options.notifyEmailEnabled
     ? `
     const notification = recordTicketCreatedEmail(database, tenantA, ticket);
@@ -1248,10 +1288,17 @@ import { listEmailNotifications, recordTicketCreatedEmail } from '../../../src/i
     expect(listEmailNotifications(database, tenantB)).toHaveLength(0);
 `
     : '';
+  const exportCsvAssertions = options.exportCsvEnabled
+    ? `
+    const csv = exportTicketsToCsv(listTickets(database, tenantA));
+    expect(csv).toContain('id,tenantId,title,description,status,assigneeId,createdBy,updatedAt');
+    expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,in_progress,support-owner');
+`
+    : '';
 
   return `import { beforeEach, describe, expect, it } from 'vitest';
 import { login } from '../../../src/installed/auth/session.ts';
-import { createTicket, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}
+import { createTicket, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';
 
 describe('runtime ticket service', () => {
@@ -1275,7 +1322,7 @@ describe('runtime ticket service', () => {
     expect(listTickets(database, tenantA)).toHaveLength(2);
     expect(listTickets(database, tenantB)).toHaveLength(1);
     expect(listTicketsByAssignee(database, tenantA, 'support-owner')).toEqual([ticket]);
-    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}
+    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}
     expect(() => transitionTicketStatus(database, tenantB, ticket.id, 'closed')).toThrow(/Ticket is not available/);
   });
 });
@@ -1366,7 +1413,11 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
 `;
 }
 
-function renderTicketRuntimeAcceptanceTest(options: { auditEnabled: boolean; notifyEmailEnabled: boolean }): string {
+function renderTicketRuntimeAcceptanceTest(options: {
+  auditEnabled: boolean;
+  exportCsvEnabled: boolean;
+  notifyEmailEnabled: boolean;
+}): string {
   const auditAssertions = options.auditEnabled
     ? `
   const ticketAuditList = page.getByRole('list', { name: 'Ticket audit entries' });
@@ -1378,6 +1429,17 @@ function renderTicketRuntimeAcceptanceTest(options: { auditEnabled: boolean; not
     ? `
   const ticketNotificationList = page.getByRole('list', { name: 'Ticket notifications' });
   await expect(ticketNotificationList.getByRole('listitem').filter({ hasText: 'Ticket created: Escalate onboarding issue' })).toHaveCount(1);
+`
+    : '';
+  const exportCsvAssertions = options.exportCsvEnabled
+    ? `
+  await expect(page.getByRole('link', { name: 'Export tickets CSV' })).toBeVisible();
+  const exportResponse = await page.request.get('/api/tickets/export');
+  expect(exportResponse.ok()).toBe(true);
+  expect(exportResponse.headers()['content-type']).toContain('text/csv');
+  const csv = await exportResponse.text();
+  expect(csv).toContain('id,tenantId,title,description,status,assigneeId,createdBy,updatedAt');
+  expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,open,support-owner');
 `
     : '';
 
@@ -1403,7 +1465,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByLabel('Ticket title').fill('Escalate onboarding issue');
   await page.getByLabel('Ticket assignee').fill('support-owner');
   await page.getByLabel('Ticket description').fill('Customer cannot finish setup');
-  await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}
+  await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}${exportCsvAssertions}
   const createdTicket = ticketList.getByRole('listitem').filter({ hasText: 'Escalate onboarding issue' });
   await expect(createdTicket).toContainText('open');
 
@@ -1436,6 +1498,7 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
   const customerFeatureOptions = {
     auditEnabled: hasBlock(lock, 'audit/basic'),
     fileUploadEnabled: hasBlock(lock, 'file/upload'),
+    exportCsvEnabled: hasBlock(lock, 'export/csv-basic'),
     notifyEmailEnabled: hasBlock(lock, 'notify/email-basic'),
     postgresEnabled: hasBlock(lock, 'infra/postgres'),
     rbacEnabled: hasBlock(lock, 'rbac/basic'),
@@ -1482,6 +1545,9 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
     entries.push(
       { relativePath: 'app/tickets/page.tsx', source: renderTicketsPage(customerFeatureOptions) },
       { relativePath: 'app/api/tickets/route.ts', source: renderTicketsRoute(customerFeatureOptions) },
+      ...(customerFeatureOptions.exportCsvEnabled
+        ? [{ relativePath: 'app/api/tickets/export/route.ts', source: renderTicketExportRoute() }]
+        : []),
       { relativePath: 'app/api/tickets/[ticketId]/status/route.ts', source: renderTicketStatusRoute(customerFeatureOptions) },
       { relativePath: 'components/ticket-form.tsx', source: renderTicketForm() },
       { relativePath: 'components/ticket-status-form.tsx', source: renderTicketStatusForm() },
