@@ -373,6 +373,11 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('href="source-view.html" aria-current="page"');
   expect(slotRuleView).toContain('href="source-view.html"');
   expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
+  expect(sourceView).toContain('Vertical Summary');
+  expect(sourceView).toContain('Block Combination Summary');
+  expect(sourceView).toContain('Failure Focus');
+  expect(sourceView).toContain('customer');
+  expect(sourceView).toContain('customers');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
   expect(sourceView).toContain('Upgrade Plan');
   expect(sourceView).toContain('Migration Kind Summary');

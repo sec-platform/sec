@@ -280,6 +280,10 @@
        - `/tickets` runtime 页面展示 summary。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
+     - local views 已新增团队协作摘要卡片：
+       - vertical summary。
+       - block combination summary。
+       - failure focus。
    - 当前阶段拆分：
      - 阶段 1：业务 CRUD 与 runtime host。
      - 阶段 2：横切治理联动。

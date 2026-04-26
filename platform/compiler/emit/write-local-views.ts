@@ -56,6 +56,115 @@ function renderRuntimeEntriesTable(lock: LockFile): string {
       </section>`;
 }
 
+function detectVerticalFromPath(filePath: string): string | null {
+  if (filePath.includes('/tickets') || filePath.includes('ticket')) {
+    return 'ticket';
+  }
+  if (filePath.includes('/customers') || filePath.includes('customer')) {
+    return 'customer';
+  }
+  return null;
+}
+
+function renderVerticalSummaryCard(lock: LockFile, review: ReviewSummary): string {
+  const verticals = new Map<string, { blocks: Set<string>; runtimeEntries: Set<string>; risks: string[] }>();
+
+  const ensureVertical = (vertical: string) => {
+    let entry = verticals.get(vertical);
+    if (!entry) {
+      entry = { blocks: new Set<string>(), runtimeEntries: new Set<string>(), risks: [] };
+      verticals.set(vertical, entry);
+    }
+    return entry;
+  };
+
+  for (const block of lock.resolvedBlocks) {
+    const vertical = detectVerticalFromPath(block.id);
+    if (!vertical) {
+      continue;
+    }
+    ensureVertical(vertical).blocks.add(block.id);
+  }
+
+  for (const generatedPath of lock.generatedPaths) {
+    const runtimeKind = classifyRuntimeEntry(generatedPath);
+    const vertical = detectVerticalFromPath(generatedPath);
+    if (!runtimeKind || !vertical) {
+      continue;
+    }
+    ensureVertical(vertical).runtimeEntries.add(generatedPath);
+  }
+
+  for (const risk of review.regressionRisks) {
+    const vertical = detectVerticalFromPath(risk.blockId ?? '') ?? detectVerticalFromPath(risk.message);
+    if (!vertical) {
+      continue;
+    }
+    ensureVertical(vertical).risks.push(risk.message);
+  }
+
+  const rows = [...verticals.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([vertical, summary]) => {
+      const blocks = [...summary.blocks].sort((left, right) => left.localeCompare(right)).join(', ') || 'none';
+      const runtimeEntries = [...summary.runtimeEntries].sort((left, right) => left.localeCompare(right)).join(', ') || 'none';
+      const risks = summary.risks.sort((left, right) => left.localeCompare(right)).join(' | ') || 'none';
+      return `<tr><td>${escapeHtml(vertical)}</td><td>${escapeHtml(blocks)}</td><td>${escapeHtml(runtimeEntries)}</td><td>${escapeHtml(risks)}</td></tr>`;
+    })
+    .join('');
+
+  return `<section class="card">
+        <h2>Vertical Summary</h2>
+        <table>
+          <thead><tr><th>Vertical</th><th>Blocks</th><th>Runtime Entries</th><th>Regression Risks</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">No vertical summaries.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
+function renderBlockCombinationCard(lock: LockFile): string {
+  const rows = lock.resolvedBlocks
+    .slice()
+    .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id))
+    .map((block) => {
+      const installs = lock.installPlan.filter((step) => step.blockId === block.id).length;
+      const blockVertical = detectVerticalFromPath(block.id);
+      const runtimeEntries = blockVertical
+        ? lock.generatedPaths.filter(
+            (generatedPath) =>
+              classifyRuntimeEntry(generatedPath) !== null && detectVerticalFromPath(generatedPath) === blockVertical
+          ).length
+        : 0;
+      return `<tr><td>${escapeHtml(block.id)}</td><td>${escapeHtml(block.kind)}</td><td>${escapeHtml(String(block.installOrder))}</td><td>${escapeHtml(String(installs))}</td><td>${escapeHtml(String(runtimeEntries))}</td></tr>`;
+    })
+    .join('');
+
+  return `<section class="card">
+        <h2>Block Combination Summary</h2>
+        <table>
+          <thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Runtime Entries</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5">No blocks installed.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
+function renderFailureFocusCard(review: ReviewSummary): string {
+  const rows = review.failurePoints
+    .map(
+      (failure) =>
+        `<tr><td>${escapeHtml(failure.lane)}</td><td>${escapeHtml(failure.kind)}</td><td>${escapeHtml(failure.artifactPath)}</td><td>${escapeHtml(failure.message)}</td></tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Failure Focus</h2>
+        <table>
+          <thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">No failure points.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderViewNav(current: 'source' | 'slot-rule'): string {
   const links = [
     { id: 'source', href: 'source-view.html', label: 'Source View' },
@@ -309,6 +418,9 @@ function renderSourceView(
         </table>
       </section>
       ${renderRuntimeEntriesTable(lock)}
+      ${renderVerticalSummaryCard(lock, review)}
+      ${renderBlockCombinationCard(lock)}
+      ${renderFailureFocusCard(review)}
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradePlanTable(upgradePlan)}
