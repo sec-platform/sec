@@ -319,6 +319,20 @@ export interface TicketRecord {
   updatedAt: string;
 }
 
+export interface TicketAttachmentInput {
+  ticketId: number;
+  fileName: string;
+  contentType: string;
+  size: number;
+  contentText: string;
+}
+
+export interface TicketAttachmentRecord extends TicketAttachmentInput {
+  id: number;
+  tenantId: string;
+  createdAt: string;
+}
+
 export interface Database {
   nextCustomerId: number;
   customers: CustomerRecord[];
@@ -329,6 +343,8 @@ export interface Database {
   auditEntries: AuditEntryRecord[];
   nextTicketId: number;
   tickets: TicketRecord[];
+  nextTicketAttachmentId: number;
+  ticketAttachments: TicketAttachmentRecord[];
 }
 
 export type RuntimePersistence = 'memory' | 'postgres-contract';
@@ -348,7 +364,9 @@ export function createDatabase(): Database {
     emailNotifications: [],
     auditEntries: [],
     nextTicketId: 1,
-    tickets: []
+    tickets: [],
+    nextTicketAttachmentId: 1,
+    ticketAttachments: []
   };
 }
 

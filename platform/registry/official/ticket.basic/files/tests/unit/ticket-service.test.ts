@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { createDatabase } from '../../src/runtime/database.ts';
 import { login } from '../../src/installed/auth/session.ts';
 import {
+  addTicketAttachment,
   createTicket,
+  listTicketAttachments,
   listTickets,
   listTicketsByAssignee,
   listTicketsWithFilters,
@@ -27,6 +29,18 @@ export async function runSuite() {
   assert.equal(listTickets(db, tenantA).length, 1);
   assert.equal(listTicketsByAssignee(db, tenantA, 'user-tenant-a-admin').length, 1);
   assert.equal(listTicketsWithFilters(db, tenantA, { status: 'open' }).length, 1);
+
+  const attachment = addTicketAttachment(db, tenantA, {
+    ticketId: ticket.id,
+    fileName: 'incident.txt',
+    contentType: 'text/plain',
+    size: 12,
+    contentText: 'triage notes'
+  });
+
+  assert.equal(attachment.tenantId, 'tenant-a');
+  assert.equal(listTicketAttachments(db, tenantA, ticket.id).length, 1);
+  assert.throws(() => listTicketAttachments(db, tenantB, ticket.id), /Ticket is not available/);
 
   const transitioned = transitionTicketStatus(db, tenantA, ticket.id, 'in_progress');
   assert.equal(transitioned.status, 'in_progress');

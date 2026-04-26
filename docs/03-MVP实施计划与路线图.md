@@ -243,6 +243,7 @@
      - 负责人。
      - 租户隔离。
      - 列表筛选。
+     - ticket 附件上传与租户隔离查看。
    - 已完成：
      - 新增 `ticket/basic` 官方块：
        - ticket 服务。
@@ -283,6 +284,11 @@
        - summary JSON / CSV 已支持 assignee + status 联动筛选。
        - 页面 summary 已与当前 assignee + status 筛选结果保持一致。
        - 页面已提供 summary JSON 与 CSV 入口。
+     - ticket attachment 已贯通：
+       - ticket service 附件写入/读取。
+       - `/api/tickets/[ticketId]/attachments`。
+       - `/tickets` 页面附件上传表单与列表。
+       - runtime unit / acceptance / expanded block / postgres contract 覆盖。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
      - review summary 已显式聚合 ticket runtime attribution：
@@ -313,16 +319,19 @@
        - local view 中显示 ticket vertical 组合摘要。
      - 切口 C：补更强业务块：
        - `worklog/basic`。
-       - ticket comment/attachment。
+       - ticket comment。
        - ticket SLA/reporting 扩展。
      - 切口 D：补更强治理组合验证：
        - ticket + override。
        - ticket + upgrade。
        - ticket + policy gate。
    - 默认执行顺序：
-     - 先做切口 B。
-     - 再做切口 A。
-     - 然后再进入切口 C、D。
+     - 已完成切口 B。
+     - 已完成切口 A。
+     - 当前进入切口 C：
+       - 已完成 ticket attachment。
+       - 下一步默认转向 ticket comment 或 ticket SLA/reporting 扩展。
+     - 然后再进入切口 D。
    - 每个切口的验证口径：
      - `expanded-blocks.test.ts`。
      - runtime unit。

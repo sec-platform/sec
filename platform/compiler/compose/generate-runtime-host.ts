@@ -323,6 +323,8 @@ function renderTicketsPage(options: {
     ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
 `
     : '';
+  const attachmentSetup = `  const attachmentsByTicket = new Map(tickets.map((ticket) => [ticket.id, listTicketAttachments(database, session, ticket.id)]));
+`;
   const notificationSetup = options.notifyEmailEnabled
     ? `  const ticketNotifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'ticket');
 `
@@ -331,6 +333,16 @@ function renderTicketsPage(options: {
     ? `  const ticketSummary = summarizeTickets(tickets);
 `
     : '';
+  const attachmentView = `
+              <div className="stack" style={{ marginTop: 12 }}>
+                <TicketAttachmentForm ticketId={ticket.id} ticketTitle={ticket.title} />
+                <ul className="clean" aria-label={\`Attachments for \${ticket.title}\`}>
+                  {(attachmentsByTicket.get(ticket.id) ?? []).map((attachment) => (
+                    <li key={attachment.id}>{attachment.fileName} ({attachment.contentType})</li>
+                  ))}
+                  {(attachmentsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No attachments yet.</li> : null}
+                </ul>
+              </div>`;
   const notificationView = options.notifyEmailEnabled
     ? `
       <section className="card stack">
@@ -395,12 +407,13 @@ function renderTicketsPage(options: {
 
   return `import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { TicketAttachmentForm } from '../../components/ticket-attachment-form.tsx';
 import { TicketForm } from '../../components/ticket-form.tsx';
 import { TicketStatusForm } from '../../components/ticket-status-form.tsx';
 import { LogoutButton } from '../../components/logout-button.tsx';
 import { getCurrentSession } from '../../lib/session.ts';
 import { getDatabase } from '../../lib/store.ts';
-import { listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
+import { listTicketAttachments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
 
 interface TicketsPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -434,7 +447,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const exportHref = queryString ? '/api/tickets/export?' + queryString : '/api/tickets/export';
   const summaryHref = queryString ? '/api/tickets/summary?' + queryString : '/api/tickets/summary';
   const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
-${notificationSetup}${reportingSetup}${auditSetup}
+${attachmentSetup}${notificationSetup}${reportingSetup}${auditSetup}
   return (
     <main className="stack">
       <section className="card stack">
@@ -487,7 +500,7 @@ ${notificationSetup}${reportingSetup}${auditSetup}
               <div><strong>{ticket.title}</strong> ({ticket.status})</div>
               <div>{ticket.description || 'No description'}</div>
               <div>Assignee: {ticket.assigneeId}</div>
-              <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />
+              <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />${attachmentView}
             </li>
           ))}
           {tickets.length === 0 ? <li>No tickets yet.</li> : null}
@@ -723,6 +736,62 @@ export async function POST(request: Request, context: AttachmentRouteContext) {
 
     const attachment = addCustomerAttachment(getDatabase(), session, {
       customerId,
+      fileName: file.name,
+      contentType: file.type || 'application/octet-stream',
+      size: file.size,
+      contentText: await file.text()
+    });
+    return NextResponse.json({ attachment }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid attachment request' }, { status: 400 });
+  }
+}
+`;
+}
+
+function renderTicketAttachmentsRoute(): string {
+  return `import { NextResponse } from 'next/server';
+import { addTicketAttachment, listTicketAttachments } from '../../../../../src/installed/ticket/ticket-service.ts';
+import { getCurrentSession } from '../../../../../lib/session.ts';
+import { getDatabase } from '../../../../../lib/store.ts';
+
+interface TicketAttachmentRouteContext {
+  params: Promise<{ ticketId: string }>;
+}
+
+export async function GET(_request: Request, context: TicketAttachmentRouteContext) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const params = await context.params;
+    const ticketId = Number(params.ticketId);
+    const attachments = listTicketAttachments(getDatabase(), session, ticketId);
+    return NextResponse.json({ attachments });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid attachment request' }, { status: 400 });
+  }
+}
+
+export async function POST(request: Request, context: TicketAttachmentRouteContext) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const params = await context.params;
+    const ticketId = Number(params.ticketId);
+    const formData = await request.formData();
+    const file = formData.get('file');
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: 'Missing file' }, { status: 400 });
+    }
+
+    const attachment = addTicketAttachment(getDatabase(), session, {
+      ticketId,
       fileName: file.name,
       contentType: file.type || 'application/octet-stream',
       size: file.size,
@@ -1149,6 +1218,57 @@ export function CustomerAttachmentForm({ customerId, customerName }: CustomerAtt
 `;
 }
 
+function renderTicketAttachmentForm(): string {
+  return `'use client';
+
+import { type FormEvent, useRef, useState } from 'react';
+
+interface TicketAttachmentFormProps {
+  ticketId: number;
+  ticketTitle: string;
+}
+
+export function TicketAttachmentForm({ ticketId, ticketTitle }: TicketAttachmentFormProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+
+    const response = await fetch(\`/api/tickets/\${ticketId}/attachments\`, {
+      method: 'POST',
+      body: new FormData(event.currentTarget)
+    });
+
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? 'Unable to upload attachment');
+      setPending(false);
+      return;
+    }
+
+    formRef.current?.reset();
+    setPending(false);
+    window.location.reload();
+  }
+
+  return (
+    <form ref={formRef} className="row" onSubmit={handleSubmit}>
+      <label style={{ flex: 1 }}>
+        Attachment
+        <input aria-label={\`Attachment for \${ticketTitle}\`} name="file" type="file" />
+      </label>
+      <button type="submit" disabled={pending}>{pending ? 'Uploading...' : \`Upload attachment for \${ticketTitle}\`}</button>
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
+  );
+}
+`;
+}
+
 function renderTicketForm(): string {
   return `'use client';
 
@@ -1343,7 +1463,8 @@ function renderRuntimeUnitTest(options: {
       'customer_attachments',
       'email_notifications',
       'audit_entries',
-      'tickets'
+      'tickets',
+      'ticket_attachments'
     `
     : `
       'customers',
@@ -1457,7 +1578,7 @@ import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-ser
 
   return `import { beforeEach, describe, expect, it } from 'vitest';
 import { login } from '../../../src/installed/auth/session.ts';
-import { createTicket, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}
+import { addTicketAttachment, createTicket, listTicketAttachments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';
 
 describe('runtime ticket service', () => {
@@ -1481,6 +1602,16 @@ describe('runtime ticket service', () => {
     expect(listTickets(database, tenantA)).toHaveLength(2);
     expect(listTickets(database, tenantB)).toHaveLength(1);
     expect(listTicketsByAssignee(database, tenantA, 'support-owner')).toEqual([ticket]);
+    const attachment = addTicketAttachment(database, tenantA, {
+      ticketId: ticket.id,
+      fileName: 'incident.txt',
+      contentType: 'text/plain',
+      size: 12,
+      contentText: 'triage notes'
+    });
+    expect(attachment.fileName).toBe('incident.txt');
+    expect(listTicketAttachments(database, tenantA, ticket.id)).toHaveLength(1);
+    expect(() => listTicketAttachments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
     expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}${reportingAssertions}
     expect(() => transitionTicketStatus(database, tenantB, ticket.id, 'closed')).toThrow(/Ticket is not available/);
   });
@@ -1602,6 +1733,23 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,open,support-owner');
 `
     : '';
+  const attachmentAssertions = `
+  await createdTicket.getByLabel('Attachment for Escalate onboarding issue').setInputFiles({
+    name: 'incident.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('triage notes')
+  });
+  await createdTicket.getByRole('button', { name: 'Upload attachment for Escalate onboarding issue' }).click();
+  await expect(createdTicket).toContainText('incident.txt');
+  const attachmentResponse = await page.request.get('/api/tickets/1/attachments');
+  expect(attachmentResponse.ok()).toBe(true);
+  const attachmentPayload = await attachmentResponse.json() as {
+    attachments: Array<{ ticketId: number; fileName: string }>;
+  };
+  expect(attachmentPayload.attachments).toEqual([
+    expect.objectContaining({ ticketId: 1, fileName: 'incident.txt' })
+  ]);
+`;
   const reportingAssertions = options.ticketReportingEnabled
     ? `
   await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
@@ -1654,30 +1802,31 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByRole('link', { name: '/tickets' }).click();
   await expect(page).toHaveURL(/\\/tickets$/);
   const ticketList = page.getByRole('list', { name: 'Tickets' });
+  const ticketItems = ticketList.locator(':scope > li');
   await page.getByLabel('Ticket title').fill('Escalate onboarding issue');
   await page.getByLabel('Ticket assignee').fill('support-owner');
   await page.getByLabel('Ticket description').fill('Customer cannot finish setup');
   await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
-  const createdTicket = ticketList.getByRole('listitem').filter({ hasText: 'Escalate onboarding issue' });
-  await expect(createdTicket).toContainText('open');
+  const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
+  await expect(createdTicket).toContainText('open');${attachmentAssertions}
 
   await page.getByLabel('Ticket title').fill('Prepare renewal checklist');
   await page.getByLabel('Ticket assignee').fill('renewal-owner');
   await page.getByRole('button', { name: 'Create Ticket' }).click();
-  await expect(ticketList.getByRole('listitem')).toHaveCount(2);
+  await expect(ticketItems).toHaveCount(2);
 
   await page.getByLabel('Assignee filter').selectOption('support-owner');
   await page.getByRole('button', { name: 'Apply ticket filters' }).click();
-  await expect(ticketList.getByRole('listitem').filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
-  await expect(ticketList.getByRole('listitem').filter({ hasText: 'Prepare renewal checklist' })).toHaveCount(0);
+  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
+  await expect(ticketItems.filter({ hasText: 'Prepare renewal checklist' })).toHaveCount(0);
 
   await createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' }).click();
   await expect(createdTicket).toContainText('in_progress');
   await page.getByLabel('Ticket status filter').selectOption('in_progress');
   await page.getByRole('button', { name: 'Apply ticket filters' }).click();
   await expect(page).toHaveURL(/status=in_progress/);
-  await expect(ticketList.getByRole('listitem')).toHaveCount(1);
-  await expect(ticketList.getByRole('listitem').filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
+  await expect(ticketItems).toHaveCount(1);
+  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
   await expect(page.getByText('Total tickets: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('In progress: 1')).toBeVisible();
   await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);
@@ -1706,7 +1855,9 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await signIn(page, 'tenant-b-admin');
   await page.goto('/workspace');
   await page.getByRole('link', { name: '/tickets' }).click();
-  await expect(ticketList.getByRole('listitem').filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(0);
+  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(0);
+  const tenantBAttachmentResponse = await page.request.get('/api/tickets/1/attachments');
+  expect(tenantBAttachmentResponse.status()).toBe(400);
 });
 `;
 }
@@ -1775,7 +1926,9 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
       ...(customerFeatureOptions.exportCsvEnabled
         ? [{ relativePath: 'app/api/tickets/export/route.ts', source: renderTicketExportRoute() }]
         : []),
+      { relativePath: 'app/api/tickets/[ticketId]/attachments/route.ts', source: renderTicketAttachmentsRoute() },
       { relativePath: 'app/api/tickets/[ticketId]/status/route.ts', source: renderTicketStatusRoute(customerFeatureOptions) },
+      { relativePath: 'components/ticket-attachment-form.tsx', source: renderTicketAttachmentForm() },
       { relativePath: 'components/ticket-form.tsx', source: renderTicketForm() },
       { relativePath: 'components/ticket-status-form.tsx', source: renderTicketStatusForm() },
       { relativePath: 'tests/runtime/unit/ticket-runtime.test.ts', source: renderTicketRuntimeUnitTest(customerFeatureOptions) },

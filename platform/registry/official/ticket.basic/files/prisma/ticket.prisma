@@ -8,3 +8,14 @@ model Ticket {
   createdBy   String
   updatedAt   String
 }
+
+model TicketAttachment {
+  id          Int    @id @default(autoincrement())
+  tenantId    String
+  ticketId    Int
+  fileName    String
+  contentType String
+  size        Int
+  contentText String
+  createdAt   String
+}
