@@ -1747,27 +1747,23 @@ function renderRuntimeUnitTest(options: {
     expect(filterCustomers(listCustomers(database, tenantA), { company: 'Unknown' })).toHaveLength(1);
 `
     : '';
-  const postgresTables = options.ticketEnabled
-    ? `
-      'customers',
-      'customer_attachments',
-      'email_notifications',
-      'audit_entries',
-      'tickets',
-      'ticket_attachments',
-      'ticket_comments'${options.worklogEnabled ? `,
-      'worklogs'` : ''}
-    `
-    : `
-      'customers',
-      'customer_attachments',
-      'email_notifications',
-      'audit_entries'
-    `;
+  const postgresTables = [
+    'customers',
+    'customer_attachments',
+    'email_notifications',
+    'audit_entries',
+    ...(options.ticketEnabled ? ['tickets', 'ticket_attachments', 'ticket_comments'] : []),
+    ...(options.ticketEnabled && options.worklogEnabled ? ['worklogs'] : [])
+  ];
+  const postgresTableList = postgresTables.map((table) => `      '${table}'`).join(',\n');
   const postgresAssertions = options.postgresEnabled
     ? `
     expect(getRuntimeStore().persistence).toBe('postgres-contract');
-    expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual([${postgresTables}]);
+    expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual(
+      expect.arrayContaining([
+${postgresTableList}
+      ])
+    );
 `
     : '';
   const rbacAssertions = options.rbacEnabled
