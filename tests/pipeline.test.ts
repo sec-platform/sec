@@ -362,6 +362,12 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
             evidence: []
           },
           {
+            id: 'migration-targets',
+            status: 'passed',
+            message: '1 migration paths checked',
+            evidence: ['mig-auth-session-refresh:target:src/installed/auth/session.ts:exists']
+          },
+          {
             id: 'impact-scan',
             status: 'passed',
             message: '1 upgrade impacts calculated',
@@ -412,6 +418,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('customers');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
   expect(sourceView).toContain('Upgrade Plan');
+  expect(sourceView).toContain('Preflight Summary');
+  expect(sourceView).toContain('<td>migration</td><td>2</td><td>1</td>');
   expect(sourceView).toContain('Migration Kind Summary');
   expect(sourceView).toContain('<td>file-replace</td><td>1</td>');
   expect(sourceView).toContain('Preflight Checks');

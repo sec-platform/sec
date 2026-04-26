@@ -316,6 +316,23 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
     .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
     .join('');
   const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
+  const preflightGroups = upgradePlan.preflightChecks.reduce<Record<string, { checks: number; evidence: number }>>(
+    (groups, check) => {
+      const group = check.id.startsWith('migration-') ? 'migration' : check.id.split('-')[0];
+      groups[group] ??= { checks: 0, evidence: 0 };
+      groups[group].checks += 1;
+      groups[group].evidence += check.evidence.length;
+      return groups;
+    },
+    {}
+  );
+  const preflightSummaryRows = Object.entries(preflightGroups)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([group, summary]) =>
+        `<tr><td>${escapeHtml(group)}</td><td>${escapeHtml(String(summary.checks))}</td><td>${escapeHtml(String(summary.evidence))}</td></tr>`
+    )
+    .join('');
   const preflightRows = upgradePlan.preflightChecks
     .map(
       (check) =>
@@ -326,6 +343,11 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
   return `<section class="card">
         <h2>Upgrade Plan</h2>
         <p>${escapeHtml(upgradePlan.blockId)} ${escapeHtml(upgradePlan.fromVersion)} -&gt; ${escapeHtml(upgradePlan.toVersion)} (${escapeHtml(upgradePlan.status)})</p>
+        <h3>Preflight Summary</h3>
+        <table>
+          <thead><tr><th>Group</th><th>Checks</th><th>Evidence Items</th></tr></thead>
+          <tbody>${preflightSummaryRows}</tbody>
+        </table>
         <h3>Preflight Checks</h3>
         <table>
           <thead><tr><th>ID</th><th>Status</th><th>Message</th><th>Evidence</th></tr></thead>

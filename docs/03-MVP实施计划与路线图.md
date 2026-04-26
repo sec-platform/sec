@@ -196,7 +196,10 @@
      - 切口 D：把每类 migration 的影响面写入：
        - review summary。
        - explain graph。
-       - local views。
+       - local views：
+         - 状态：done。
+         - Upgrade Plan 增加 Preflight Summary。
+         - 按 preflight group 汇总 checks 数量和 evidence 数量。
    - 每个切口的验证口径：
      - 单测覆盖新增 migration 执行器。
      - `upgrade.test.ts` 覆盖成功/阻断/回滚口径。
