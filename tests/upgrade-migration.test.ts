@@ -74,6 +74,15 @@ function textAppend(target: string, content: string): UpgradeMigrationEntry {
   };
 }
 
+function createDirectory(target: string): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-create-directory',
+    kind: 'create-directory',
+    reason: 'test directory creation',
+    target
+  };
+}
+
 function textReplaceRegex(target: string, pattern: string, replacement: string, flags?: string): UpgradeMigrationEntry {
   return {
     id: 'mig-test-text-replace-regex',
@@ -403,6 +412,25 @@ test('json-object-merge migration rejects non-object targets', async () => {
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-013'
     });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('create-directory migration creates nested target directories', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    const target = 'generated/reports/snapshots';
+    await applyMigrationEntries(projectRoot, manifestRoot, [target], [createDirectory(target)]);
+
+    const snapshotsDir = path.join(projectRoot, 'generated', 'reports', 'snapshots');
+    const stats = await fs.stat(snapshotsDir);
+    expect(stats.isDirectory()).toBe(true);
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }

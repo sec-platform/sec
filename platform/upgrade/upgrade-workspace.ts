@@ -147,6 +147,10 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
+  if (entry.kind === 'create-directory') {
+    return;
+  }
+
   if (entry.kind === 'slot-contract-update') {
     ensureMigrationString(entry.slotId, 'slotId', entryPath);
     if (entry.inputType !== undefined) {
@@ -429,6 +433,11 @@ export async function applyMigrationEntries(
     if (entry.kind === 'text-replace-regex') {
       const source = await fs.readFile(targetPath, 'utf8');
       await fs.writeFile(targetPath, applyTextReplaceRegex(source, entry), 'utf8');
+      continue;
+    }
+
+    if (entry.kind === 'create-directory') {
+      await ensureDir(targetPath);
       continue;
     }
 

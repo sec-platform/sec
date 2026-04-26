@@ -164,6 +164,13 @@ export interface UpgradeTextReplaceRegexMigrationEntry {
   flags?: string;
 }
 
+export interface UpgradeCreateDirectoryMigrationEntry {
+  id: string;
+  kind: 'create-directory';
+  reason: string;
+  target: string;
+}
+
 export interface UpgradeSlotContractUpdateMigrationEntry {
   id: string;
   kind: 'slot-contract-update';
@@ -183,6 +190,7 @@ export type UpgradeMigrationEntry =
   | UpgradeJsonObjectMergeMigrationEntry
   | UpgradeTextAppendMigrationEntry
   | UpgradeTextReplaceRegexMigrationEntry
+  | UpgradeCreateDirectoryMigrationEntry
   | UpgradeSlotContractUpdateMigrationEntry;
 
 export interface UpgradeConfig {
