@@ -135,19 +135,36 @@ test('CLI accepts init commands', async () => {
 
 test('CLI exposes developer dependency environment entrypoints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['doctor'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    const doctor = await runCli(workspaceRoot, ['doctor']);
+    expect(doctor.code).toBe(0);
+    expect(doctor.stderr).toBe('');
+    expect(doctor.stdout).toContain('Developer environment doctor');
+    expect(doctor.stdout).toContain('node-version');
+    expect(doctor.stdout).toContain('runtime-dependencies');
+
     const depsStatus = await runCli(workspaceRoot, ['deps', 'status']);
     expect(depsStatus.code).toBe(0);
     expect(depsStatus.stderr).toBe('');
     expect(depsStatus.stdout).toContain('Runtime dependency status');
+    expect(depsStatus.stdout).toContain('top-level entries');
     expect(depsStatus.stdout).toContain('Recommended action:');
+
+    const cleanProject = await runCli(workspaceRoot, ['deps', 'clean', '--project']);
+    expect(cleanProject.code).toBe(0);
+    expect(cleanProject.stderr).toBe('');
+    expect(cleanProject.stdout).toBe('Cleaned 2 dependency paths\n');
 
     const invalidRelink = await runCli(workspaceRoot, ['deps', 'relink']);
     expect(invalidRelink.code).toBe(1);
     expect(invalidRelink.stderr).toContain('platform deps relink project');
+
+    const invalidCleanAll = await runCli(workspaceRoot, ['deps', 'clean', '--all']);
+    expect(invalidCleanAll.code).toBe(1);
+    expect(invalidCleanAll.stderr).toContain('platform deps clean --all --force');
+
+    const invalidForce = await runCli(workspaceRoot, ['deps', 'clean', '--force']);
+    expect(invalidForce.code).toBe(1);
+    expect(invalidForce.stderr).toContain('platform deps clean --all --force');
   });
 });
 

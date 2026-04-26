@@ -14,7 +14,8 @@ import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../platform/shared/runtime-dependency-spec.ts';
 import {
   getDependencyEnvironmentStatus,
-  relinkProjectDependencies
+  relinkProjectDependencies,
+  formatDependencyEnvironmentStatus
 } from '../platform/shared/dependency-environment.ts';
 
 const activeTempDirs = new Set<string>();
@@ -310,6 +311,9 @@ test('dependency environment reports dirty project dependency copies', async () 
 
   expect(status.mode).toBe('dirty');
   expect(status.recommendedAction).toBe('platform deps relink project');
+  expect(status.sharedNodeModules.entryCount).toBe(1);
+  expect(formatDependencyEnvironmentStatus(status)).toContain('metadata');
+  expect(formatDependencyEnvironmentStatus(status)).toContain('top-level entries');
 
   const relinkedStatus = await relinkProjectDependencies(workspaceRoot, { sharedDepsRoot });
 

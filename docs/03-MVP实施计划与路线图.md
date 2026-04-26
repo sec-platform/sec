@@ -60,14 +60,19 @@
 ### 开发者入口与依赖环境策略
 
 - 平台源码本身是工具实现层，普通项目开发者默认不直接修改 `platform/compiler/**`、`platform/shared/**`、`platform/registry/official/**`。
-- 项目开发者的默认工作面是 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**`。
+- 最终成品必须提供对外开发环境：CLI 是最低可用入口，Workbench/IDE 插件是产品化入口；两者都写入同一套 workspace 合同，而不是要求开发者打开平台源码目录操作。
+- 项目开发者的默认工作面是 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 MVP 临时私有 registry 入口 `platform/registry/private/**`。
+- `platform/registry/private/**` 只是当前单仓 MVP 阶段的 workspace 私有块存放点；长期应迁移为独立私有 registry 包、私有 registry 服务或工作台托管资产，避免让普通开发者把 `platform/` 误认为日常源码工作区。
 - `project/src/installed/**`、`project/generated/**` 和运行时 scaffold 视为编译产物或治理产物；需要人工介入时优先回写为 slot、rule-backed override 或 private block，而不是长期手改生成源码。
 - CLI 是一等入口；工作台或 IDE 插件只能补充交互体验，不替代 CLI 合同。
+- Workbench/IDE 插件必须遵守同一边界：可读 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；可写 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 MVP 临时私有 registry；禁止直接写 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
+- Workbench/IDE 插件至少要复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain` 这些命令入口，而不是旁路实现另一套规则。
 - `platform doctor` 用于检查本地依赖环境、缓存状态和推荐动作。
-- `platform deps status` 输出 root/shared/project/npm cache 的状态、体积、链接关系和 cold/warm/dirty/stale 模式。
+- `platform deps status` 输出 root/shared/project/npm cache 的状态、元数据大小、顶层条目数量、链接关系和 cold/warm/dirty/stale 模式；为保证每次检查足够快，禁止递归扫描 `node_modules` 计算真实总字节数。
 - `platform deps warmup` 预热 `.shared-deps`，作为 generated project runtime 的共享实体依赖层。
-- `platform deps relink project` 让 `project/node_modules` 优先回到指向 `.shared-deps/node_modules` 的 junction，减少实体依赖副本。
-- `platform deps clean --project|--shared|--npm-cache|--all` 提供受控清理入口，避免开发者手动删除内部目录后破坏 stamp 状态。
+- `platform deps relink project` 让 `project/node_modules` 优先回到指向 `.shared-deps/node_modules` 的 junction，减少实体依赖副本；当前 relink 目标只支持 `project`，未来如需扩展目标必须保持命令参数向后兼容。
+- `platform deps clean --project|--shared|--npm-cache` 提供单层受控清理入口，避免开发者手动删除内部目录后破坏 stamp 状态。
+- `platform deps clean --all --force` 才能清理全部依赖层；这是刻意的强制确认口径，因为它会导致下一次 runtime verification 重新预热依赖。
 - 本地推荐依赖布局是保留根 `node_modules` 给 compiler 自身使用，保留 `.shared-deps/node_modules` 给 generated project runtime 使用，`project/node_modules` 默认只作为链接。
 - CI 推荐 PR/push 继续跑 fast lane，schedule/manual 跑 all lane；远程缓存优先覆盖 Bun cache 和 `.shared-deps`，不缓存 `project/node_modules` 实体副本。
 

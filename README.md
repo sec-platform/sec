@@ -9,6 +9,57 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 - Use the compiler CLI with `npm run platform -- <command>`.
 - Refresh the reference workspace and governance artifacts with `npm run reference:refresh`.
 
+## Developer Entry Model
+
+The platform is a software tool, not the normal editing surface for product developers. Product developers should work through the external workspace contract and platform commands instead of entering platform source folders.
+
+Default developer surface:
+
+- `project/app.plan.yaml`: product plan, selected blocks, registry sources, slots, and acceptance intent
+- `project/custom/**`: project-owned custom implementation
+- `project/overrides/**`: governed overrides, patches, rules, and override manifests
+- `project/policies/**`: project policy input
+- `platform/registry/private/**`: temporary MVP workspace-private blocks and manifests until they move to a separate private registry package or service
+
+Internal implementation surface:
+
+- `platform/compiler/**`
+- `platform/shared/**`
+- `platform/registry/official/**`
+- generated runtime scaffold files under `project/`
+
+If a product change appears to require editing internal platform source, first express it as one of these external inputs:
+
+- a plan/spec change in `project/app.plan.yaml`
+- a private block under `platform/registry/private/**`
+- a slot or adapter rule
+- a rule-backed override under `project/overrides/**`
+- a policy update under `project/policies/**`
+
+Use these entry commands for normal development:
+
+- `npm run platform -- doctor`: inspect local developer environment and dependency health
+- `npm run platform -- deps status`: inspect dependency cache/link status
+- `npm run platform -- deps warmup`: prepare shared runtime dependencies
+- `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
+- `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry
+- `npm run platform -- deps clean --all --force`: remove project, shared, and npm-cache dependency state; this intentionally causes the next runtime verification to warm dependencies again
+- `npm run platform -- add <block-id>`: add official or private blocks
+- `npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt`: refresh compiled project artifacts
+- `npm run platform -- verify --lane fast|runtime|all`: verify the current workspace
+- `npm run platform -- repair`: create or apply bounded repairs from verification failures
+- `npm run platform -- upgrade <block-id> <target-version> --dry-run`: review upgrade impact before applying it
+- `npm run platform -- lock && npm run platform -- explain`: freeze and inspect governance outputs
+
+For the final product shape, the expected external developer environment is a CLI plus optional Workbench or IDE plugin over the same contract. The Workbench may provide forms, graph views, slot editors, policy editors, and verification dashboards, but it must call the same platform commands and write the same external workspace inputs rather than requiring developers to edit platform source.
+
+Workbench and IDE integrations must preserve this boundary:
+
+- Allowed reads: workspace plan, private block manifests, overrides, policies, generated governance artifacts, provenance, and graph lock files
+- Allowed writes: `project/app.plan.yaml`, `project/custom/**`, `project/overrides/**`, `project/policies/**`, and the temporary MVP private registry path
+- Required command surface: `doctor`, `deps status`, `add`, `resolve`, `compose`, `adapt`, `verify`, `repair`, `upgrade --dry-run`, `lock`, and `explain`
+- Forbidden writes: compiler internals, shared platform utilities, official registry blocks, generated runtime scaffold, and dependency directories outside the controlled `deps` commands
+
 ## Repository Layout
 
 - `platform/`: compiler pipeline, adapters, and the CLI entrypoint at `platform/cli/index.ts`

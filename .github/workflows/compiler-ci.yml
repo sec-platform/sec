@@ -50,6 +50,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Warm runtime dependency cache
+        run: node ./platform/cli/index.ts deps warmup
+
       - name: Resolve graph
         run: node ./platform/cli/index.ts resolve
 
@@ -106,6 +109,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Warm runtime dependency cache
+        run: node ./platform/cli/index.ts deps warmup
 
       - name: Resolve graph
         run: node ./platform/cli/index.ts resolve

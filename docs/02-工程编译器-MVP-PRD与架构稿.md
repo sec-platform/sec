@@ -596,6 +596,32 @@ project/
   - `private`：当前 workspace 下的 `platform/registry/private`
 - `overrides/` 默认包含 `override-manifest.yaml`、`patches/`、`rules/`、`manifests/`。
 
+### 6. 对外开发环境边界
+
+- 对最终成品而言，`platform/` 是工具实现，不是普通项目开发者的工作区。
+- 普通项目开发者应通过 CLI、Workbench 或 IDE 插件进入外部开发环境；这些入口必须写入同一套 workspace 合同，而不是要求开发者进入平台源码目录。
+- 默认外部工作面包括：
+  - `project/app.plan.yaml`：产品计划、块选择、slot、验收意图和 registry source。
+  - `project/custom/**`：项目自有实现。
+  - `project/overrides/**`：受治理的 override、patch、rule 和 manifest。
+  - `project/policies/**`：项目策略输入。
+  - `platform/registry/private/**`：当前 MVP 阶段的 workspace 私有块临时入口；长期必须迁移为独立私有 registry 包、私有 registry 服务或工作台托管资产。
+- 默认禁止把以下路径作为产品开发入口：
+  - `platform/compiler/**`
+  - `platform/shared/**`
+  - `platform/registry/official/**`
+  - `project/generated/**`
+  - 编译器生成的 runtime scaffold。
+- 如果产品需求似乎必须修改平台源码，应先转换为 plan/spec、private block、slot/rule、policy 或 governed override；只有平台工具本身演进时才进入 `platform/**` 实现层。
+- 对外开发环境至少暴露这些能力：
+  - 初始化、添加能力块、解析、装配、slot 综合、验证、修复、升级、锁定和解释。
+  - 依赖环境检查和受控清理。
+  - graph/provenance/review 视图。
+  - slot、policy、override 和 private block 的编辑入口。
+- Workbench 是 CLI 合同上的产品化界面：可以提供表单、图谱、双视图、验证面板和升级审查，但不得绕过 CLI/pass 合同直接改内部平台实现。
+- Workbench/IDE 插件的最小命令面必须复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain`。
+- Workbench/IDE 插件允许读取 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；允许写入 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 MVP 临时私有 registry；禁止直接写入 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
+
 ## 编译流程
 
 ### CLI 面
@@ -620,6 +646,18 @@ project/
   - 输出 block graph、slot graph 和 provenance 摘要
 - `platform upgrade`
   - 从 `v0.2` 起做块升级与迁移
+- `platform doctor`
+  - 检查本地外部开发环境、依赖布局、缓存和推荐动作
+- `platform deps status`
+  - 查看 root/shared/project/npm cache 的状态、元数据大小、顶层条目数量和链接关系；为保证入口足够快，禁止递归扫描 `node_modules` 计算真实总字节数
+- `platform deps warmup`
+  - 预热 shared runtime dependencies
+- `platform deps relink project`
+  - 把 `project/node_modules` 恢复为指向 `.shared-deps/node_modules` 的链接；当前 relink 目标只支持 `project`
+- `platform deps clean --project|--shared|--npm-cache`
+  - 通过工具入口受控清理单个依赖层
+- `platform deps clean --all --force`
+  - 显式确认清理 project/shared/npm cache 全部依赖状态，下一次 runtime verification 会重新预热依赖
 
 ### Pass 流水线
 
