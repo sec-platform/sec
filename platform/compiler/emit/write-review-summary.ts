@@ -350,7 +350,14 @@ export async function buildReviewSummary(
     changeSources: provenance.artifacts.map((artifact) => ({
       path: artifact.path,
       originType: artifact.originType,
-      originId: artifact.originId
+      originId: artifact.originId,
+      ...(artifact.registrySourceId
+        ? {
+            registrySourceId: artifact.registrySourceId,
+            registryKind: artifact.registryKind,
+            registryLocation: artifact.registryLocation
+          }
+        : {})
     })),
     impactedBlocks: unique(lock.resolvedBlocks.map((block) => block.id)),
     impactedSlots: unique(lock.slotTasks.map((task) => task.id)),

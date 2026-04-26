@@ -7,6 +7,7 @@ import {
   addBlock,
   adaptWorkspace,
   composeWorkspace,
+  explainWorkspace,
   initWorkspace,
   lockWorkspace,
   resolveWorkspace,
@@ -113,4 +114,28 @@ test('workspace private registry blocks resolve, compose, and verify through the
 
   const locked = await lockWorkspace(workspaceRoot);
   expect(locked.passStatus.lock).toBe('succeeded');
+  await explainWorkspace(workspaceRoot);
+
+  const { provenancePath, reviewSummaryPath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
+  const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+    artifacts: Array<{ path: string; registrySourceId?: string; registryKind?: string; registryLocation?: string }>;
+  };
+  expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/private/banner.ts')).toMatchObject({
+    registrySourceId: 'private',
+    registryKind: 'private',
+    registryLocation: 'workspace'
+  });
+
+  const reviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
+    changeSources: Array<{ path: string; registrySourceId?: string; registryKind?: string; registryLocation?: string }>;
+  };
+  expect(reviewSummary.changeSources.find((source) => source.path === 'src/installed/private/banner.ts')).toMatchObject({
+    registrySourceId: 'private',
+    registryKind: 'private',
+    registryLocation: 'workspace'
+  });
+
+  const sourceView = await fs.readFile(sourceViewPath, 'utf8');
+  expect(sourceView).toContain('Registry');
+  expect(sourceView).toContain('private (private, workspace)');
 });

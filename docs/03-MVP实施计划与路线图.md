@@ -77,10 +77,10 @@
    - 下一步候选：每轮功能提交后更新本节对应状态，必要时同步 `README` 的入口说明。
 
 4. **私有 registry 最小通路**
-   - 状态：active
+   - 状态：done
    - 目标：让 workspace/private registry source 可被用户入口和主链路使用，并与 official registry 共享 manifest/lock/provenance 口径。
-   - 已完成：默认 plan 已包含 workspace private registry source；private block 可通过 orchestrator 加入 plan、resolve、compose、verify、lock；CLI `add private/...` 会回显版本与 registry source，并在 resolve 后保留 lock registry metadata。
-   - 下一步候选：将 private registry source 进一步写入 provenance/review/local view 的可审查摘要。
+   - 已完成：默认 plan 已包含 workspace private registry source；private block 可通过 CLI/orchestrator 加入 plan、resolve、compose、verify、lock、explain；CLI `add private/...` 会回显版本与 registry source；lock/provenance/review/local view 均保留 private registry source 元数据。
+   - 下一步候选：进入 Work Tracking / Ticket SaaS 纵切面，验证新增官方业务块而不是继续扩 registry 基础设施。
 
 ### next 工作包
 
