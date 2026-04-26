@@ -133,6 +133,36 @@ test('CLI accepts init commands', async () => {
   });
 });
 
+test('CLI defaults verification to the fast lane', { timeout: 20000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+
+    const result = await runCli(workspaceRoot, ['verify']);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('Verification passed (fast)\n');
+  });
+});
+
 test('CLI exposes developer dependency environment entrypoints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const doctor = await runCli(workspaceRoot, ['doctor']);

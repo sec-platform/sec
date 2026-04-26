@@ -211,7 +211,7 @@ function summarizeReport(
   if ((lane === 'fast' || lane === 'all') && fast.status === 'failed') {
     failedLanes.push('fast');
   }
-  if ((lane === 'runtime' || lane === 'all') && runtime.status === 'failed') {
+  if (runtime.status === 'failed') {
     failedLanes.push('runtime');
   }
 
@@ -285,9 +285,10 @@ export async function verifyProject(
 
   const fastResult =
     lane === 'runtime' ? { lane: createSkippedFastLane(), failure: null } : await runFastVerification(workspaceRoot, projectRoot);
-  const shouldRunRuntime =
-    lane === 'runtime' || (lane === 'all' && fastResult.lane.status === 'passed');
-  const runtimeLane = shouldRunRuntime ? await runRuntimeVerification(projectRoot) : createSkippedRuntimeLane();
+  const shouldRunRuntime = fastResult.lane.status === 'passed' || lane === 'runtime';
+  const runtimeLane = shouldRunRuntime
+    ? await runRuntimeVerification(projectRoot, lane === 'all' ? 'full' : 'service')
+    : createSkippedRuntimeLane();
   const summary = summarizeReport(lane, fastResult.lane, runtimeLane);
   const report: VerificationReport = {
     build: fastResult.lane.build,

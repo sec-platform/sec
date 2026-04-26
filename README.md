@@ -46,7 +46,8 @@ Use these entry commands for normal development:
 - `npm run platform -- deps clean --all --force`: remove project, shared, and npm-cache dependency state; this intentionally causes the next runtime verification to warm dependencies again
 - `npm run platform -- add <block-id>`: add official or private blocks
 - `npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt`: refresh compiled project artifacts
-- `npm run platform -- verify --lane fast|runtime|all`: verify the current workspace
+- `npm run platform -- verify`: run the default fast lane with generated runtime service tests
+- `npm run platform -- verify --lane fast|runtime|all`: choose a specific verification lane; full Playwright runtime acceptance only runs in all
 - `npm run platform -- repair`: create or apply bounded repairs from verification failures
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run`: review upgrade impact before applying it
 - `npm run platform -- lock && npm run platform -- explain`: freeze and inspect governance outputs
@@ -76,6 +77,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- compose`
 - `npm run platform -- adapt`
 - `npm run platform -- verify`
+- `npm run platform -- verify --lane all`
 - `npm run platform -- explain`
 
 ## Governance Artifacts
