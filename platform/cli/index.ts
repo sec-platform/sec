@@ -11,6 +11,7 @@ import {
   upgradeWorkspace,
   verifyWorkspace
 } from '../orchestrator.ts';
+import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
@@ -26,13 +27,14 @@ import {
 } from '../shared/dependency-environment.ts';
 import type { VerificationLane } from '../shared/types.ts';
 
-const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|doctor|deps>';
+const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>';
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
+const ARTIFACTS_USAGE = 'Usage: platform artifacts --json';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
@@ -113,6 +115,13 @@ function parseExplainArgs(args: string[]): { json: boolean } {
     return { json: true };
   }
   throw new Error(EXPLAIN_USAGE);
+}
+
+function parseArtifactsArgs(args: string[]): void {
+  if (args.length === 1 && args[0] === '--json') {
+    return;
+  }
+  throw new Error(ARTIFACTS_USAGE);
 }
 
 function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
@@ -266,6 +275,11 @@ async function main(): Promise<void> {
         return;
       }
       console.log(`Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`);
+      return;
+    }
+    case 'artifacts': {
+      parseArtifactsArgs(args);
+      console.log(JSON.stringify(await buildCiArtifactManifest(process.cwd()), null, 2));
       return;
     }
     case 'doctor': {
