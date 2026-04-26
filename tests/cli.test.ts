@@ -859,6 +859,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(textResult.stdout).toContain(
       'Migration mig-auth-session-upgrade-metadata: json-array-append;'
     );
+    expect(textResult.stdout).toContain('Preflight version-range: passed; evidence=');
+    expect(textResult.stdout).toContain('Preflight migration-entries: passed; evidence=');
 
     const result = await runCli(workspaceRoot, [
       'upgrade',
