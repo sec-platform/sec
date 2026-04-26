@@ -655,10 +655,12 @@
            - `--paths --json` 结构化路径列表。
            - `--paths --kind governance` governance 上传路径。
            - `--paths --kind view` view 上传路径。
+           - `--paths --kind test` runtime test result 上传路径。
            - `--paths --json --kind view` 结构化分组路径。
          - CI workflow 直接消费 `--paths`。
          - CI workflow 直接消费 `--paths --kind governance`。
          - CI workflow 直接消费 `--paths --kind view`。
+         - CI workflow 直接消费 `--paths --kind test`。
          - CI artifact upload 已拆分：
            - governance artifacts。
            - local views。
@@ -666,7 +668,10 @@
          - 输出 artifact 相对路径。
          - 输出 artifact kind。
          - 输出 uploadName。
-         - 输出 summary 计数字段。
+         - 输出 summary 计数字段：
+           - governanceCount。
+           - viewCount。
+           - testCount。
          - 输出 artifactStatus：
            - `passed`。
            - `attention`。

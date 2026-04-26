@@ -342,6 +342,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         artifactCount: number;
         governanceCount: number;
         viewCount: number;
+        testCount: number;
         missingCount: number;
         missingReasonCounts: Record<string, number>;
       };
@@ -359,6 +360,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       artifactCount: manifest.artifacts.length,
       governanceCount: manifest.artifacts.filter((artifact) => artifact.kind === 'governance').length,
       viewCount: manifest.artifacts.filter((artifact) => artifact.kind === 'view').length,
+      testCount: manifest.artifacts.filter((artifact) => artifact.kind === 'test').length,
       missingCount: 0,
       missingReasonCounts: {
         'declared-generated-missing': 0,
@@ -372,7 +374,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const viewPaths = manifest.artifacts
       .filter((artifact) => artifact.kind === 'view')
       .map((artifact) => artifact.path);
-    expect(manifest.uploadGroups).toEqual([
+    const testPaths = manifest.artifacts
+      .filter((artifact) => artifact.kind === 'test')
+      .map((artifact) => artifact.path);
+    const expectedUploadGroups = [
       {
         kind: 'governance',
         count: manifest.summary.governanceCount,
@@ -383,7 +388,15 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         count: manifest.summary.viewCount,
         paths: viewPaths
       }
-    ]);
+    ];
+    if (testPaths.length > 0) {
+      expectedUploadGroups.push({
+        kind: 'test',
+        count: manifest.summary.testCount,
+        paths: testPaths
+      });
+    }
+    expect(manifest.uploadGroups).toEqual(expectedUploadGroups);
     expect(manifest.artifacts).toEqual(
       expect.arrayContaining([
         {
@@ -552,6 +565,28 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(viewPathsJson.paths).toEqual(['project/generated/views/slot-rule-view.html']);
     expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
     expect(viewPathsJson.paths).not.toContain('project/generated/ci-artifacts.json');
+
+    const testPathsBeforeFixture = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
+    expect(testPathsBeforeFixture.code).toBe(0);
+    expect(testPathsBeforeFixture.stderr).toBe('');
+    expect(testPathsBeforeFixture.stdout === '\n' || testPathsBeforeFixture.stdout === 'project/test-results/**\n').toBe(true);
+
+    await fs.mkdir(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'project', 'test-results', 'runtime.xml'), '<testsuite />\n', 'utf8');
+
+    const testPathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
+    expect(testPathsResult.code).toBe(0);
+    expect(testPathsResult.stderr).toBe('');
+    expect(testPathsResult.stdout).toBe('project/test-results/**\n');
+
+    const testManifestResult = await runCli(workspaceRoot, ['artifacts', '--json']);
+    const testManifest = JSON.parse(testManifestResult.stdout) as typeof manifest;
+    expect(testManifest.summary.testCount).toBe(1);
+    expect(testManifest.uploadGroups).toContainEqual({
+      kind: 'test',
+      count: 1,
+      paths: ['test-results/**']
+    });
   });
 });
 
@@ -808,22 +843,22 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,

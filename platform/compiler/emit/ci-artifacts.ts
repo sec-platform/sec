@@ -5,9 +5,11 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/types.ts';
 
+type CiArtifactKind = 'governance' | 'view' | 'test';
+
 export interface CiArtifactEntry {
   path: string;
-  kind: 'governance' | 'view';
+  kind: CiArtifactKind;
   uploadName: string;
   exists: boolean;
 }
@@ -28,6 +30,7 @@ export interface CiArtifactSummary {
   artifactCount: number;
   governanceCount: number;
   viewCount: number;
+  testCount: number;
   missingCount: number;
   missingReasonCounts: Record<CiArtifactMissingEntry['reason'], number>;
 }
@@ -77,6 +80,10 @@ const VIEW_ARTIFACTS = [
   'generated/views/slot-rule-view.html'
 ];
 
+const TEST_ARTIFACTS = [
+  'test-results/**'
+];
+
 function normalizeArtifactPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
@@ -94,8 +101,18 @@ function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissi
   return [...entriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
+function artifactKindFor(artifactPath: string): CiArtifactKind {
+  if (artifactPath.startsWith('generated/views/')) {
+    return 'view';
+  }
+  if (artifactPath.startsWith('test-results/')) {
+    return 'test';
+  }
+  return 'governance';
+}
+
 function buildUploadGroups(entries: CiArtifactEntry[]): CiArtifactUploadGroup[] {
-  return (['governance', 'view'] as const)
+  return (['governance', 'view', 'test'] as const)
     .map((kind) => {
       const paths = entries
         .filter((entry) => entry.kind === kind)
@@ -141,6 +158,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     CI_ARTIFACT_PATH,
     ...GOVERNANCE_ARTIFACTS,
     ...VIEW_ARTIFACTS,
+    ...TEST_ARTIFACTS,
     ...generatedPathResult.paths
   ]);
   const entries: CiArtifactEntry[] = [];
@@ -150,7 +168,9 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   const viewArtifacts = new Set(VIEW_ARTIFACTS.map(normalizeArtifactPath));
 
   for (const artifactPath of artifacts) {
-    const exists = await pathExists(path.join(projectRoot, artifactPath));
+    const exists = artifactPath.endsWith('/**')
+      ? await pathExists(path.join(projectRoot, artifactPath.slice(0, -3)))
+      : await pathExists(path.join(projectRoot, artifactPath));
     if (generatedPathResult.lockExists && requiredGovernanceArtifacts.has(artifactPath) && !exists) {
       missing.push({
         path: artifactPath,
@@ -175,7 +195,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     }
     entries.push({
       path: artifactPath,
-      kind: artifactPath.startsWith('generated/views/') ? 'view' : 'governance',
+      kind: artifactKindFor(artifactPath),
       uploadName: uploadNameFor(artifactPath),
       exists
     });
@@ -190,6 +210,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
       artifactCount: entries.length,
       governanceCount: entries.filter((entry) => entry.kind === 'governance').length,
       viewCount: entries.filter((entry) => entry.kind === 'view').length,
+      testCount: entries.filter((entry) => entry.kind === 'test').length,
       missingCount: sortedMissing.length,
       missingReasonCounts: buildMissingReasonCounts(sortedMissing)
     },
@@ -219,6 +240,7 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
           artifactCount: 0,
           governanceCount: 0,
           viewCount: 0,
+          testCount: 0,
           missingCount: 0,
           missingReasonCounts: {
             'declared-generated-missing': 0,
