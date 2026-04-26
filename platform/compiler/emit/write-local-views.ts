@@ -29,9 +29,14 @@ function renderJsonCard(title: string, value: unknown): string {
 }
 
 function renderRuntimeEntriesTable(lock: LockFile): string {
-  const entries = lock.generatedPaths
-    .map((generatedPath) => ({ path: generatedPath, kind: classifyRuntimeEntry(generatedPath) }))
-    .filter((entry): entry is { path: string; kind: string } => entry.kind !== null);
+  const entries: Array<{ path: string; kind: NonNullable<ReturnType<typeof classifyRuntimeEntry>> }> = [];
+  for (const generatedPath of lock.generatedPaths) {
+    const kind = classifyRuntimeEntry(generatedPath);
+    if (!kind) {
+      continue;
+    }
+    entries.push({ path: generatedPath, kind });
+  }
   const rows = entries.length > 0
     ? entries
         .map((entry) => `<tr><td>${escapeHtml(entry.kind)}</td><td>${escapeHtml(entry.path)}</td></tr>`)
