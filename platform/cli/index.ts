@@ -32,6 +32,7 @@ const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
+const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
@@ -102,6 +103,16 @@ function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: str
   }
 
   return { blockId, targetVersion, dryRun, json };
+}
+
+function parseExplainArgs(args: string[]): { json: boolean } {
+  if (args.length === 0) {
+    return { json: false };
+  }
+  if (args.length === 1 && args[0] === '--json') {
+    return { json: true };
+  }
+  throw new Error(EXPLAIN_USAGE);
 }
 
 function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
@@ -248,8 +259,12 @@ async function main(): Promise<void> {
       console.log('Locked project');
       return;
     case 'explain': {
-      assertNoArgs('explain', args);
-      const { graph } = await explainWorkspace(process.cwd());
+      const explainArgs = parseExplainArgs(args);
+      const { graph, reviewSummary } = await explainWorkspace(process.cwd());
+      if (explainArgs.json) {
+        console.log(JSON.stringify({ graph, reviewSummary }, null, 2));
+        return;
+      }
       console.log(`Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`);
       return;
     }

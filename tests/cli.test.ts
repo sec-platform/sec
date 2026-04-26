@@ -230,6 +230,60 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
   });
 });
 
+test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    const verification = await runCli(workspaceRoot, ['verify', '--lane', 'all']);
+    expect(verification.code).toBe(0);
+    expect(verification.stderr).toBe('');
+    expect(verification.stdout).toContain('Verification passed (all)');
+    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Locked project\n',
+      stderr: ''
+    });
+
+    const result = await runCli(workspaceRoot, ['explain', '--json']);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+
+    const payload = JSON.parse(result.stdout) as {
+      graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
+      reviewSummary: { formatVersion: string; impactedBlocks: string[]; failurePoints: unknown[] };
+    };
+    expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
+    expect(payload.graph.edges.length).toBeGreaterThan(0);
+    expect(payload.reviewSummary.formatVersion).toBe('2');
+    expect(payload.reviewSummary.impactedBlocks).toEqual(
+      expect.arrayContaining([
+        'auth/basic-session',
+        'entity/customer-basic',
+        'tenant/basic-workspace'
+      ])
+    );
+    expect(payload.reviewSummary.failurePoints).toEqual([]);
+  });
+});
+
 test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
@@ -309,6 +363,16 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
       code: 1,
       stdout: '',
       stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]\n'
+    });
+    await expect(runCli(workspaceRoot, ['explain', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform explain [--json]\n'
+    });
+    await expect(runCli(workspaceRoot, ['explain', '--json', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform explain [--json]\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,

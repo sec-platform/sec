@@ -568,7 +568,19 @@
        - 增加 block combination 卡片。
        - 增加 failure focus 卡片。
      - 切口 D：CI 消费口径：
-       - 让 review summary 中的关键字段稳定可解析。
+       - `upgrade --dry-run --json`：
+         - 状态：done。
+         - 输出机器可解析 upgrade plan。
+       - `explain --json`：
+         - 状态：done。
+         - 输出机器可解析 explain graph。
+         - 输出机器可解析 review summary。
+       - review summary 关键字段：
+         - 状态：active。
+         - 保持 `formatVersion: 2`。
+         - 稳定 `failurePoints`。
+         - 稳定 `regressionRisks`。
+         - 稳定 `conflictHints`。
        - 补对应测试夹具与快照。
    - 进入条件：
      - ticket vertical 已有至少一个 reporting/export 联动示例。
