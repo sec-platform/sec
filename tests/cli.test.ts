@@ -529,6 +529,28 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       count: uploadPaths.length,
       paths: uploadPaths
     });
+
+    const governancePathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']);
+    expect(governancePathsResult.code).toBe(0);
+    expect(governancePathsResult.stderr).toBe('');
+    const governanceUploadPaths = governancePathsResult.stdout.trim().split('\n');
+    expect(governanceUploadPaths).toContain('project/generated/ci-artifacts.json');
+    expect(governanceUploadPaths).toContain('project/generated/review-summary.json');
+    expect(governanceUploadPaths).not.toContain('project/generated/views/slot-rule-view.html');
+
+    const viewPathsJsonResult = await runCli(workspaceRoot, [
+      'artifacts',
+      '--paths',
+      '--json',
+      '--kind',
+      'view'
+    ]);
+    expect(viewPathsJsonResult.code).toBe(0);
+    expect(viewPathsJsonResult.stderr).toBe('');
+    const viewPathsJson = JSON.parse(viewPathsJsonResult.stdout) as { count: number; paths: string[] };
+    expect(viewPathsJson.paths).toEqual(['project/generated/views/slot-rule-view.html']);
+    expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
+    expect(viewPathsJson.paths).not.toContain('project/generated/ci-artifacts.json');
   });
 });
 
@@ -625,22 +647,22 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
