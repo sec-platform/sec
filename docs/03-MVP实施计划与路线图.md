@@ -149,6 +149,9 @@
        - 显示最多前三条 migration kind。
        - 显示最多前三条 migration target。
        - 显示最多前三条 migration requiresVerification。
+       - 显示最多前三条 preflight check id。
+       - 显示最多前三条 preflight check status。
+       - 显示最多前三条 preflight check evidence 数量。
    - 当前阶段拆分：
      - 阶段 1：扩 migration 类型。
      - 阶段 2：补 migration 预检与阻断口径。

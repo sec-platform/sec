@@ -313,6 +313,14 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
       ].join('; ')
     );
   }
+  for (const check of upgradePlan.preflightChecks.slice(0, 3)) {
+    lines.push(
+      [
+        `Preflight ${check.id}: ${check.status}`,
+        `evidence=${check.evidence.length}`
+      ].join('; ')
+    );
+  }
   return lines.join('\n');
 }
 
