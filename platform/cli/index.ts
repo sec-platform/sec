@@ -9,9 +9,10 @@ import {
   repairWorkspace,
   resolveWorkspace,
   upgradeWorkspace,
-  verifyWorkspace
+  verifyWorkspace,
+  writeWorkspaceArtifacts
 } from '../orchestrator.ts';
-import { writeCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
+import type { CiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
@@ -46,7 +47,7 @@ const DEPS_USAGE = [
 type ArtifactPathKind = 'governance' | 'view' | 'test';
 
 function artifactUploadPaths(
-  manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>,
+  manifest: CiArtifactManifest,
   kind?: ArtifactPathKind
 ): string[] {
   const artifacts = kind
@@ -359,7 +360,7 @@ async function main(): Promise<void> {
     }
     case 'artifacts': {
       const artifactsArgs = parseArtifactsArgs(args);
-      const manifest = await writeCiArtifactManifest(process.cwd());
+      const { manifest } = await writeWorkspaceArtifacts(process.cwd());
       if (artifactsArgs.mode === 'paths') {
         const paths = artifactUploadPaths(manifest, artifactsArgs.kind);
         if (artifactsArgs.json) {

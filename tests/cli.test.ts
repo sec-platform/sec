@@ -426,7 +426,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       ])
     );
 
-    const { lockPath, provenancePath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
+    const { lockPath, provenancePath, reviewSummaryPath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
     const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
       artifacts: Array<{ path: string; generatedByPass?: string }>;
@@ -486,6 +486,45 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       manifestWithLockMissing.uploadGroups
     );
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(lockMissingDiagnostics);
+
+    const testPathsBeforeFixture = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
+    expect(testPathsBeforeFixture.code).toBe(0);
+    expect(testPathsBeforeFixture.stderr).toBe('');
+    expect(testPathsBeforeFixture.stdout === '\n' || testPathsBeforeFixture.stdout === 'project/test-results/**\n').toBe(true);
+
+    await fs.mkdir(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'project', 'test-results', 'runtime.xml'), '<testsuite />\n', 'utf8');
+
+    const testPathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
+    expect(testPathsResult.code).toBe(0);
+    expect(testPathsResult.stderr).toBe('');
+    expect(testPathsResult.stdout).toBe('project/test-results/**\n');
+
+    const testManifestResult = await runCli(workspaceRoot, ['artifacts', '--json']);
+    const testManifest = JSON.parse(testManifestResult.stdout) as typeof manifest;
+    expect(testManifest.summary.testCount).toBe(1);
+    expect(testManifest.uploadGroups).toContainEqual({
+      kind: 'test',
+      count: 1,
+      paths: ['test-results/**']
+    });
+
+    const refreshedReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
+      artifactSummary?: typeof testManifest.summary & { uploadGroups?: typeof testManifest.uploadGroups };
+    };
+    expect(refreshedReviewSummary.artifactSummary).toMatchObject({
+      testCount: 1
+    });
+    expect(refreshedReviewSummary.artifactSummary?.uploadGroups).toContainEqual({
+      kind: 'test',
+      count: 1,
+      paths: ['test-results/**']
+    });
+
+    const refreshedSourceView = await fs.readFile(sourceViewPath, 'utf8');
+    expect(refreshedSourceView).toContain('<td>Test Artifacts</td><td>1</td>');
+    expect(refreshedSourceView).toContain('<td>test</td>');
+    expect(refreshedSourceView).toContain('test-results/**');
 
     await fs.rm(path.join(workspaceRoot, 'project', 'generated', 'policy-report.json'));
     await fs.rm(sourceViewPath);
@@ -566,27 +605,6 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
     expect(viewPathsJson.paths).not.toContain('project/generated/ci-artifacts.json');
 
-    const testPathsBeforeFixture = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
-    expect(testPathsBeforeFixture.code).toBe(0);
-    expect(testPathsBeforeFixture.stderr).toBe('');
-    expect(testPathsBeforeFixture.stdout === '\n' || testPathsBeforeFixture.stdout === 'project/test-results/**\n').toBe(true);
-
-    await fs.mkdir(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true });
-    await fs.writeFile(path.join(workspaceRoot, 'project', 'test-results', 'runtime.xml'), '<testsuite />\n', 'utf8');
-
-    const testPathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
-    expect(testPathsResult.code).toBe(0);
-    expect(testPathsResult.stderr).toBe('');
-    expect(testPathsResult.stdout).toBe('project/test-results/**\n');
-
-    const testManifestResult = await runCli(workspaceRoot, ['artifacts', '--json']);
-    const testManifest = JSON.parse(testManifestResult.stdout) as typeof manifest;
-    expect(testManifest.summary.testCount).toBe(1);
-    expect(testManifest.uploadGroups).toContainEqual({
-      kind: 'test',
-      count: 1,
-      paths: ['test-results/**']
-    });
   });
 });
 

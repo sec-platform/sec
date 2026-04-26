@@ -7,6 +7,7 @@ import { ensureProjectBase } from './shared/project-base.ts';
 import { writeYaml } from './shared/yaml.ts';
 import { alignInterfaces } from './compiler/align/align-interfaces.ts';
 import { composeProject } from './compiler/compose/compose-project.ts';
+import { writeCiArtifactManifest } from './compiler/emit/ci-artifacts.ts';
 import { writeExplainGraph } from './compiler/emit/write-explain-graph.ts';
 import { writeLocalViews } from './compiler/emit/write-local-views.ts';
 import { lockProject } from './compiler/emit/lock-project.ts';
@@ -244,6 +245,45 @@ export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<Lock
   const lock = await readJson<LockFile>(lockPath);
   await lockProject(workspaceRoot, lock);
   return lock;
+}
+
+async function refreshReviewArtifacts(workspaceRoot: string, lock: LockFile): Promise<ReviewSummary | null> {
+  const {
+    acceptanceCoveragePath,
+    explainGraphPath,
+    policyReportPath,
+    provenancePath,
+    reviewSummaryPath,
+    verificationReportPath
+  } = getWorkspacePaths(workspaceRoot);
+  if (
+    !(await pathExists(provenancePath)) ||
+    !(await pathExists(verificationReportPath)) ||
+    !(await pathExists(acceptanceCoveragePath)) ||
+    !(await pathExists(policyReportPath)) ||
+    !(await pathExists(explainGraphPath)) ||
+    !(await pathExists(reviewSummaryPath))
+  ) {
+    return null;
+  }
+
+  const provenance = await readJson<ProvenanceFile>(provenancePath);
+  const report = await readJson<VerificationReport>(verificationReportPath);
+  const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
+  const reviewSummary = await writeReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+  await writeLocalViews(workspaceRoot);
+  return reviewSummary;
+}
+
+export async function writeWorkspaceArtifacts(workspaceRoot = process.cwd()): Promise<{
+  manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>;
+  reviewSummary: ReviewSummary | null;
+}> {
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const manifest = await writeCiArtifactManifest(workspaceRoot);
+  const lock = await readJson<LockFile>(lockPath);
+  const reviewSummary = await refreshReviewArtifacts(workspaceRoot, lock);
+  return { manifest, reviewSummary };
 }
 
 export async function explainWorkspace(
