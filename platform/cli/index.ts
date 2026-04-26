@@ -14,6 +14,7 @@ import {
 import { writeCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
+import { pathExists, readJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import {
   cleanDependencyEnvironment,
@@ -25,7 +26,7 @@ import {
   warmupDependencyEnvironment,
   type DependencyCleanOptions
 } from '../shared/dependency-environment.ts';
-import type { VerificationLane } from '../shared/types.ts';
+import type { RepairPlan, VerificationLane } from '../shared/types.ts';
 
 const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>';
 const INIT_USAGE = 'Usage: platform init [--reset]';
@@ -220,6 +221,14 @@ function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
   return options;
 }
 
+async function readWrittenRepairPlan(workspaceRoot: string): Promise<RepairPlan | null> {
+  const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
+  if (!(await pathExists(repairPlanPath))) {
+    return null;
+  }
+  return readJson<RepairPlan>(repairPlanPath);
+}
+
 async function runDepsCommand(args: string[]): Promise<void> {
   const [subcommand, ...subArgs] = args;
   switch (subcommand) {
@@ -300,14 +309,24 @@ async function main(): Promise<void> {
     }
     case 'repair': {
       const repairArgs = parseRepairArgs(args);
-      const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: repairArgs.dryRun });
-      if (repairArgs.json) {
-        console.log(JSON.stringify(repairPlan, null, 2));
+      try {
+        const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: repairArgs.dryRun });
+        if (repairArgs.json) {
+          console.log(JSON.stringify(repairPlan, null, 2));
+          return;
+        }
+        const suffix = repairPlan.status === 'applied' ? '; verify pending' : repairArgs.dryRun ? ' (dry-run)' : '';
+        console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)${suffix}`);
         return;
+      } catch (error) {
+        if (repairArgs.json) {
+          const repairPlan = await readWrittenRepairPlan(process.cwd());
+          if (repairPlan) {
+            console.log(JSON.stringify(repairPlan, null, 2));
+          }
+        }
+        throw error;
       }
-      const suffix = repairPlan.status === 'applied' ? '; verify pending' : repairArgs.dryRun ? ' (dry-run)' : '';
-      console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)${suffix}`);
-      return;
     }
     case 'upgrade': {
       const upgradeArgs = parseUpgradeArgs(args);
