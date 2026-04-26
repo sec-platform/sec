@@ -248,6 +248,104 @@ test('explain graph connects repair tasks to slots and files', async () => {
   );
 });
 
+test('explain graph links generated ticket runtime routes back to related blocks', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-explain-runtime-attribution-');
+  const lock = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [
+      {
+        id: 'ticket/basic',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 1,
+        manifestPath: 'manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official'
+      },
+      {
+        id: 'export/csv-basic',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 2,
+        manifestPath: 'manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official'
+      },
+      {
+        id: 'reporting/ticket-summary',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 3,
+        manifestPath: 'manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official'
+      }
+    ],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [],
+    generatedPaths: ['app/api/tickets/summary/export/route.ts'],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'succeeded',
+      repair: 'skipped',
+      lock: 'succeeded',
+      emit: 'pending'
+    }
+  };
+  const provenance: ProvenanceFile = {
+    formatVersion: '1',
+    artifacts: [
+      {
+        path: 'app/api/tickets/summary/export/route.ts',
+        originType: 'generated',
+        originId: 'app/api/tickets/summary/export/route.ts',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none'
+      }
+    ]
+  };
+
+  const graph = await buildExplainGraph(workspaceRoot, lock, provenance, emptyCoverage(), null);
+
+  expect(graph.edges).toEqual(
+    expect.arrayContaining([
+      {
+        from: 'block:ticket/basic',
+        to: 'file:app/api/tickets/summary/export/route.ts',
+        type: 'writes_to'
+      },
+      {
+        from: 'block:reporting/ticket-summary',
+        to: 'file:app/api/tickets/summary/export/route.ts',
+        type: 'writes_to'
+      },
+      {
+        from: 'block:export/csv-basic',
+        to: 'file:app/api/tickets/summary/export/route.ts',
+        type: 'writes_to'
+      }
+    ])
+  );
+});
+
 test('writeExplainGraph does not require a policy report', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-no-policy-');
   const { acceptanceCoveragePath, explainGraphPath, lockPath, policyReportPath, provenancePath } = getWorkspacePaths(workspaceRoot);

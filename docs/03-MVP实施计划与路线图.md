@@ -283,10 +283,19 @@
        - 页面已提供 summary JSON 与 CSV 入口。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
+     - review summary 已显式聚合 ticket runtime attribution：
+       - runtime entries。
+       - vertical slices。
+       - change sources 中的 related blocks。
+     - explain graph 已显式连接 ticket runtime route 到相关 block：
+       - `ticket/basic`。
+       - `reporting/ticket-summary`。
+       - `export/csv-basic`。
      - local views 已新增团队协作摘要卡片：
        - vertical summary。
        - block combination summary。
        - failure focus。
+       - review runtime attribution。
    - 当前阶段拆分：
      - 阶段 1：业务 CRUD 与 runtime host。
      - 阶段 2：横切治理联动。
