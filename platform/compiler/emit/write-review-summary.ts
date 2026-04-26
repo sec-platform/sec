@@ -332,13 +332,15 @@ export async function buildReviewSummary(
       const preview = task.preview
         ? `; preview ${task.preview.changed ? 'changed' : 'unchanged'} +${task.preview.addedLines}/-${task.preview.removedLines}`
         : '';
+      const targetIds = unique(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+      const targets = targetIds.length > 0 ? `; targets ${targetIds.join(', ')}` : '';
       addConflictHint(conflictHints, {
         kind: 'repair-plan-present',
         relatedId: task.taskId,
         message:
           repairPlan.status === 'applied'
-            ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}${preview}`
-            : `Repair task pending: ${task.taskId} -> ${task.targetFile}${preview}`
+            ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}`
+            : `Repair task pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}`
       });
     }
   }

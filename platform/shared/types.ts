@@ -549,6 +549,7 @@ export interface RepairFailurePoint {
   repairable: boolean;
   artifactPath: string;
   message: string;
+  targetIds?: string[];
 }
 
 export interface RepairTaskPreview {

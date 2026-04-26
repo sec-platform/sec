@@ -109,7 +109,8 @@ test('review summary surfaces pending repair tasks', async () => {
               issueType: 'slot',
               repairable: true,
               artifactPath: 'tests/unit',
-              message: 'Unit verification failed'
+              message: 'Unit verification failed',
+              targetIds: ['zeta.test.ts']
             }
           ]
         },
@@ -132,7 +133,8 @@ test('review summary surfaces pending repair tasks', async () => {
               issueType: 'slot',
               repairable: true,
               artifactPath: 'tests/unit',
-              message: 'Unit verification failed'
+              message: 'Unit verification failed',
+              targetIds: ['zeta.test.ts']
             }
           ]
         }
@@ -146,12 +148,12 @@ test('review summary surfaces pending repair tasks', async () => {
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_alpha',
-        message: 'Repair task pending: repair_slot_alpha -> custom/alpha.ts'
+        message: 'Repair task pending: repair_slot_alpha -> custom/alpha.ts; targets zeta.test.ts'
       },
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_zeta',
-        message: 'Repair task pending: repair_slot_zeta -> custom/zeta.ts; preview changed +3/-1'
+        message: 'Repair task pending: repair_slot_zeta -> custom/zeta.ts; preview changed +3/-1; targets zeta.test.ts'
       }
     ]);
 
@@ -165,12 +167,12 @@ test('review summary surfaces pending repair tasks', async () => {
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_alpha',
-        message: 'Repair task applied, verify pending: repair_slot_alpha -> custom/alpha.ts'
+        message: 'Repair task applied, verify pending: repair_slot_alpha -> custom/alpha.ts; targets zeta.test.ts'
       },
       {
         kind: 'repair-plan-present',
         relatedId: 'repair_slot_zeta',
-        message: 'Repair task applied, verify pending: repair_slot_zeta -> custom/zeta.ts; preview changed +3/-1'
+        message: 'Repair task applied, verify pending: repair_slot_zeta -> custom/zeta.ts; preview changed +3/-1; targets zeta.test.ts'
       }
     ]);
     expect(appliedSummary.regressionRisks).toContainEqual({
