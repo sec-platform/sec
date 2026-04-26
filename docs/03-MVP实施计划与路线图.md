@@ -279,6 +279,10 @@
          - 显示 task preview changed 状态。
          - 显示 task preview added/removed 行数。
          - 显示 task preview before/after 总行数。
+         - 显示 task failure point lane/kind。
+         - 显示 task failure point issue type。
+         - 显示 task failure point repairable 状态。
+         - 显示 task failure point message。
          - 显示最多前三个 blocker 摘要。
    - 当前阶段拆分：
      - 阶段 1：细化 failure point 归因。

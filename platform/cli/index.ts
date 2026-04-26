@@ -263,6 +263,16 @@ function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
         ].join('; ')
       );
     }
+    for (const failure of task.failurePoints.slice(0, 2)) {
+      lines.push(
+        [
+          `Failure ${failure.lane}/${failure.kind}`,
+          `issue=${failure.issueType}`,
+          `repairable=${failure.repairable}`,
+          failure.message
+        ].join('; ')
+      );
+    }
   }
   for (const blocker of repairPlan.blockers?.slice(0, 3) ?? []) {
     lines.push(`Blocker ${blocker.blockerId}: ${blocker.boundary}; ${blocker.reason}`);

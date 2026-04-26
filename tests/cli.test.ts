@@ -687,6 +687,12 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
     expect(textResult.stdout).toContain(
       'Preview repair_slot_customer_normalizer: changed=false; +0; -0;'
     );
+    expect(textResult.stdout).toContain(
+      'Failure fast/unit; issue=slot; repairable=true;'
+    );
+    expect(textResult.stdout).toContain(
+      'Unit verification failed for customer_normalizer'
+    );
 
     const result = await runCli(workspaceRoot, ['repair', '--dry-run', '--json']);
     expect(result.code).toBe(0);
