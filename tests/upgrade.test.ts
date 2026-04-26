@@ -550,6 +550,79 @@ test('upgrade dry-run records delete file migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade dry-run records rename file migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-rename-file-plan-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-rename-report',
+          kind: 'rename-file',
+          entry: 'migrations/rename-report.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  const migrationPath = path.join(
+    versionRoot,
+    'migrations',
+    'rename-report.json'
+  );
+  await writeJson(migrationPath, {
+    id: 'mig-rename-report',
+    kind: 'rename-file',
+    reason: 'Move generated report into archive directory.',
+    source: 'generated/reports/current.json',
+    target: 'generated/reports/archive/current.json'
+  });
+
+  const { upgradePlan } = await upgradeWorkspace(
+    workspaceRoot,
+    'private/slot-contract',
+    '0.2.0',
+    { dryRun: true }
+  );
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.impacts).toEqual([
+    'generated/reports/archive/current.json',
+    'generated/reports/current.json',
+    'src/installed/private/slot-contract.ts'
+  ]);
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'rename-file': 1
+  });
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-rename-report',
+      kind: 'rename-file',
+      target: 'generated/reports/archive/current.json',
+      reason: 'Move generated report into archive directory.',
+      requiresVerification: false,
+      source: 'generated/reports/current.json'
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
 test('upgrade dry-run records text append migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-text-append-plan-');
 
