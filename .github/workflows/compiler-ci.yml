@@ -200,10 +200,7 @@ jobs:
           $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
           $governancePaths = @(node ./platform/cli/index.ts artifacts --paths --kind governance)
           $viewPaths = @(node ./platform/cli/index.ts artifacts --paths --kind view)
-          $testPaths = @()
-          if (Test-Path project/test-results) {
-            $testPaths += 'project/test-results/**'
-          }
+          $testPaths = @(node ./platform/cli/index.ts artifacts --paths --kind test)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing generated artifacts: $($missing -join ', ')"

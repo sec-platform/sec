@@ -644,6 +644,7 @@ export interface ReviewArtifactSummary {
   artifactCount: number;
   governanceCount: number;
   viewCount: number;
+  testCount?: number;
   missingCount: number;
   missingReasonCounts?: Record<string, number>;
   uploadGroups?: ReviewArtifactUploadGroup[];

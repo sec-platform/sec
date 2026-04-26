@@ -35,7 +35,7 @@ const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
-const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])';
+const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
@@ -43,7 +43,7 @@ const DEPS_USAGE = [
   '  platform deps clean --all --force'
 ].join('\n');
 
-type ArtifactPathKind = 'governance' | 'view';
+type ArtifactPathKind = 'governance' | 'view' | 'test';
 
 function artifactUploadPaths(
   manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>,
@@ -52,8 +52,9 @@ function artifactUploadPaths(
   const artifacts = kind
     ? manifest.artifacts.filter((artifact) => artifact.kind === kind)
     : manifest.artifacts;
+  const includeManifest = kind === undefined || kind === 'governance';
   const paths = [
-    ...(kind === 'view' ? [] : ['project/generated/ci-artifacts.json']),
+    ...(includeManifest ? ['project/generated/ci-artifacts.json'] : []),
     ...artifacts.map((artifact) => `project/${artifact.path}`)
   ];
   return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
@@ -142,7 +143,7 @@ function parseExplainArgs(args: string[]): { json: boolean } {
 }
 
 function parseArtifactPathKind(value: string): ArtifactPathKind {
-  if (value === 'governance' || value === 'view') {
+  if (value === 'governance' || value === 'view' || value === 'test') {
     return value;
   }
   throw new Error(ARTIFACTS_USAGE);
