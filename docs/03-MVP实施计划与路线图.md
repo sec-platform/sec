@@ -257,6 +257,10 @@
        - 输出机器可解析 `RepairPlan`。
        - 保持普通文本输出不变。
        - dry-run JSON 会写入 `generated/repair-plan.json`。
+       - blocked repair JSON 输出：
+         - 保持失败退出码。
+         - stdout 输出已写入的 blocked `RepairPlan`。
+         - stderr 保留 `REPAIR-BLOCKED-*` 错误与 details。
    - 当前阶段拆分：
      - 阶段 1：细化 failure point 归因。
      - 阶段 2：细化 repair task 生成边界。
@@ -286,6 +290,8 @@
          - JSON 输出保留 `requiresVerification`。
          - JSON 输出保留 repair task failure points。
          - JSON 输出可被 CI/review 工具直接解析。
+         - blocked 场景下 stdout 输出 blocked repair plan。
+         - blocked 场景下 stderr 保留错误上下文。
    - 每个切口的验证口径：
      - `review-repair-summary.test.ts`。
      - `pipeline.test.ts`。
@@ -293,6 +299,7 @@
      - CLI JSON 消费测试：
        - `tests/cli.test.ts`。
        - `repair --dry-run --json`。
+       - blocked repair JSON 输出。
        - argument usage 边界。
    - 完成定义：
      - repair plan 不仅能生成，还能说明：
