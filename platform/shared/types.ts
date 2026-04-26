@@ -154,6 +154,16 @@ export interface UpgradeTextAppendMigrationEntry {
   content: string;
 }
 
+export interface UpgradeTextReplaceRegexMigrationEntry {
+  id: string;
+  kind: 'text-replace-regex';
+  reason: string;
+  target: string;
+  pattern: string;
+  replacement: string;
+  flags?: string;
+}
+
 export interface UpgradeSlotContractUpdateMigrationEntry {
   id: string;
   kind: 'slot-contract-update';
@@ -172,6 +182,7 @@ export type UpgradeMigrationEntry =
   | UpgradeJsonArrayRemoveMigrationEntry
   | UpgradeJsonObjectMergeMigrationEntry
   | UpgradeTextAppendMigrationEntry
+  | UpgradeTextReplaceRegexMigrationEntry
   | UpgradeSlotContractUpdateMigrationEntry;
 
 export interface UpgradeConfig {
