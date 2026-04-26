@@ -21,7 +21,7 @@ const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
-const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run]';
+const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 
 function assertNoArgs(command: string, args: string[]): void {
   if (args.length > 0) {
@@ -65,14 +65,27 @@ function parseRepairArgs(args: string[]): { dryRun: boolean } {
   throw new Error(REPAIR_USAGE);
 }
 
-function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: string; dryRun: boolean } {
-  if (args.length === 2) {
-    return { blockId: args[0], targetVersion: args[1], dryRun: false };
+function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: string; dryRun: boolean; json: boolean } {
+  if (args.length < 2) {
+    throw new Error(UPGRADE_USAGE);
   }
-  if (args.length === 3 && args[2] === '--dry-run') {
-    return { blockId: args[0], targetVersion: args[1], dryRun: true };
+
+  const [blockId, targetVersion, ...flags] = args;
+  let dryRun = false;
+  let json = false;
+  for (const flag of flags) {
+    if (flag === '--dry-run' && !dryRun) {
+      dryRun = true;
+      continue;
+    }
+    if (flag === '--json' && !json) {
+      json = true;
+      continue;
+    }
+    throw new Error(UPGRADE_USAGE);
   }
-  throw new Error(UPGRADE_USAGE);
+
+  return { blockId, targetVersion, dryRun, json };
 }
 
 async function main(): Promise<void> {
@@ -131,6 +144,10 @@ async function main(): Promise<void> {
       const { upgradePlan } = await upgradeWorkspace(process.cwd(), upgradeArgs.blockId, upgradeArgs.targetVersion, {
         dryRun: upgradeArgs.dryRun
       });
+      if (upgradeArgs.json) {
+        console.log(JSON.stringify(upgradePlan, null, 2));
+        return;
+      }
       const suffix = upgradeArgs.dryRun ? ' (dry-run)' : '';
       console.log(`Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`);
       return;

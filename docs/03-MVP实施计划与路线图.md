@@ -82,6 +82,7 @@
      - 升级前置检查失败的结构化诊断 artifact。
      - 升级诊断在 review/local view 中的聚合。
      - upgrade diagnostics 进入 lock/provenance 产物清单。
+     - CLI `upgrade --dry-run --json` 可输出机器可解析 plan，供团队 CI 直接消费。
    - 当前阶段拆分：
      - 阶段 1：扩 migration 类型。
      - 阶段 2：补 migration 预检与阻断口径。
