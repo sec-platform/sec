@@ -293,7 +293,7 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
   const requiresVerificationCount = upgradePlan.migrationSummaries.filter(
     (migration) => migration.requiresVerification
   ).length;
-  return [
+  const lines = [
     `Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`,
     [
       `Status: ${upgradePlan.status}`,
@@ -303,7 +303,17 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
     `Migration kinds: ${formatList(migrationKinds)}`,
     `Impacts: ${formatList(upgradePlan.impacts)}`,
     `Requires verification: ${requiresVerificationCount > 0} (${requiresVerificationCount} migrations)`
-  ].join('\n');
+  ];
+  for (const migration of upgradePlan.migrationSummaries.slice(0, 3)) {
+    lines.push(
+      [
+        `Migration ${migration.id}: ${migration.kind}`,
+        `target=${migration.target}`,
+        `requiresVerification=${migration.requiresVerification}`
+      ].join('; ')
+    );
+  }
+  return lines.join('\n');
 }
 
 function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {

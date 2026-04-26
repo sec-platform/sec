@@ -850,6 +850,15 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       'Impacts: src/installed/auth/session.ts, upgrade.metadata.json'
     );
     expect(textResult.stdout).toContain('Requires verification: true (1 migrations)');
+    expect(textResult.stdout).toContain(
+      'Migration mig-auth-session-refresh: file-replace;'
+    );
+    expect(textResult.stdout).toContain(
+      'target=src/installed/auth/session.ts; requiresVerification=true'
+    );
+    expect(textResult.stdout).toContain(
+      'Migration mig-auth-session-upgrade-metadata: json-array-append;'
+    );
 
     const result = await runCli(workspaceRoot, [
       'upgrade',
