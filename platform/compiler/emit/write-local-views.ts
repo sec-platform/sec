@@ -31,6 +31,7 @@ function renderJsonCard(title: string, value: unknown): string {
 function renderCiSummaryCard(review: ReviewSummary): string {
   const artifactRows = review.artifactSummary
     ? [
+        ['Artifact Status', review.artifactSummary.artifactStatus ?? 'passed'],
         ['Artifacts', String(review.artifactSummary.artifactCount)],
         ['Governance Artifacts', String(review.artifactSummary.governanceCount)],
         ['View Artifacts', String(review.artifactSummary.viewCount)],

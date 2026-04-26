@@ -337,6 +337,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       formatVersion: string;
       root: string;
       summary: {
+        artifactStatus: 'passed' | 'attention';
         artifactCount: number;
         governanceCount: number;
         viewCount: number;
@@ -353,6 +354,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     });
     expect(manifest.missing).toEqual([]);
     expect(manifest.summary).toEqual({
+      artifactStatus: 'passed',
       artifactCount: manifest.artifacts.length,
       governanceCount: manifest.artifacts.filter((artifact) => artifact.kind === 'governance').length,
       viewCount: manifest.artifacts.filter((artifact) => artifact.kind === 'view').length,
@@ -448,6 +450,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         declaredBy: 'graph.lock.json'
       }
     ];
+    expect(manifestWithLockMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithLockMissing.summary.missingCount).toBe(1);
     expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual({
       'declared-generated-missing': 1,
@@ -491,6 +494,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         declaredBy: 'artifact-manifest'
       }
     ];
+    expect(manifestWithMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithMissing.summary.missingCount).toBe(3);
     expect(manifestWithMissing.summary.missingReasonCounts).toEqual({
       'declared-generated-missing': 1,

@@ -640,6 +640,7 @@ export interface ReviewArtifactUploadGroup {
 }
 
 export interface ReviewArtifactSummary {
+  artifactStatus?: 'passed' | 'attention';
   artifactCount: number;
   governanceCount: number;
   viewCount: number;
