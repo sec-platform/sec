@@ -656,7 +656,8 @@
            - `--paths --kind governance` governance 上传路径。
            - `--paths --kind view` view 上传路径。
            - `--paths --kind test` runtime test result 上传路径。
-           - `--paths --json --kind view` 结构化分组路径。
+           - `--paths --json --kind view` 结构化 view 路径。
+           - `--paths --json --kind test` 结构化 runtime test result 路径。
          - CI workflow 直接消费 `--paths`。
          - CI workflow 直接消费 `--paths --kind governance`。
          - CI workflow 直接消费 `--paths --kind view`。
