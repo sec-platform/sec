@@ -241,6 +241,16 @@ function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
   ];
   for (const task of repairPlan.tasks.slice(0, 3)) {
     lines.push(`Task ${task.taskId}: ${task.targetBlock} -> ${task.targetFile}`);
+    if (task.preview) {
+      lines.push(
+        [
+          `Preview ${task.taskId}: changed=${task.preview.changed}`,
+          `+${task.preview.addedLines}`,
+          `-${task.preview.removedLines}`,
+          `${task.preview.beforeLines}->${task.preview.afterLines} lines`
+        ].join('; ')
+      );
+    }
   }
   for (const blocker of repairPlan.blockers?.slice(0, 3) ?? []) {
     lines.push(`Blocker ${blocker.blockerId}: ${blocker.boundary}; ${blocker.reason}`);
