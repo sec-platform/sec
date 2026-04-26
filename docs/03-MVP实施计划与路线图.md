@@ -246,6 +246,7 @@
      - ticket 附件上传与租户隔离查看。
      - ticket 评论写入与租户隔离查看。
      - ticket 到期日与 SLA 汇总。
+     - ticket 工时记录与租户隔离查看。
    - 已完成：
      - 新增 `ticket/basic` 官方块：
        - ticket 服务。
@@ -310,6 +311,30 @@
        - `/tickets` 页面展示工单到期日。
        - `/tickets` 页面展示 SLA summary。
        - runtime unit / acceptance / expanded block / pipeline 覆盖。
+     - `worklog/basic` 已贯通：
+       - 新增 `worklog/basic` 官方块。
+       - `WorklogInput` 支持：
+         - `ticketId`。
+         - `minutes`。
+         - `note`。
+       - `WorklogRecord` 持久化：
+         - `tenantId`。
+         - `authorId`。
+         - `createdAt`。
+       - worklog service 支持：
+         - 记录工时。
+         - 按 ticket 读取工时。
+         - 汇总 ticket 工时分钟数。
+         - 跨租户 ticket 访问阻断。
+       - Prisma 片段新增 `Worklog` 模型。
+       - Postgres contract 新增 `worklogs` 表。
+       - runtime scaffold 生成：
+         - `/api/tickets/[ticketId]/worklogs`。
+         - `TicketWorklogForm`。
+         - `/tickets` 页面工时表单。
+         - `/tickets` 页面工时列表。
+         - `/tickets` 页面总工时分钟数。
+       - runtime unit / acceptance / expanded block 覆盖。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
      - review summary 已显式聚合 ticket runtime attribution：
@@ -349,12 +374,15 @@
    - 默认执行顺序：
      - 已完成切口 B。
      - 已完成切口 A。
-     - 当前进入切口 C：
-       - 已完成 ticket attachment。
-       - 已完成 ticket comment。
-       - 已完成 ticket SLA/reporting 扩展。
-       - 下一步默认转向 `worklog/basic`。
-     - 然后再进入切口 D。
+     - 已完成切口 C：
+       - ticket attachment。
+       - ticket comment。
+       - ticket SLA/reporting 扩展。
+       - `worklog/basic`。
+     - 当前准备进入切口 D：
+       - ticket + override。
+       - ticket + upgrade。
+       - ticket + policy gate。
    - 每个切口的验证口径：
      - `expanded-blocks.test.ts`。
      - runtime unit。

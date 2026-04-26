@@ -318,6 +318,7 @@ function renderTicketsPage(options: {
   exportCsvEnabled: boolean;
   notifyEmailEnabled: boolean;
   ticketReportingEnabled: boolean;
+  worklogEnabled: boolean;
 }): string {
   const auditSetup = options.auditEnabled
     ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
@@ -333,6 +334,11 @@ function renderTicketsPage(options: {
     : '';
   const reportingSetup = options.ticketReportingEnabled
     ? `  const ticketSummary = summarizeTickets(tickets);
+`
+    : '';
+  const worklogSetup = options.worklogEnabled
+    ? `  const worklogsByTicket = new Map(tickets.map((ticket) => [ticket.id, listWorklogs(database, session, ticket.id)]));
+  const worklogMinutesByTicket = new Map(tickets.map((ticket) => [ticket.id, summarizeWorklogMinutes(database, session, ticket.id)]));
 `
     : '';
   const attachmentView = `
@@ -355,6 +361,19 @@ function renderTicketsPage(options: {
                   {(commentsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No comments yet.</li> : null}
                 </ul>
               </div>`;
+  const worklogView = options.worklogEnabled
+    ? `
+              <div className="stack" style={{ marginTop: 12 }}>
+                <TicketWorklogForm ticketId={ticket.id} ticketTitle={ticket.title} />
+                <div>Total worklog minutes: {worklogMinutesByTicket.get(ticket.id) ?? 0}</div>
+                <ul className="clean" aria-label={\`Worklogs for \${ticket.title}\`}>
+                  {(worklogsByTicket.get(ticket.id) ?? []).map((worklog) => (
+                    <li key={worklog.id}>{worklog.minutes}m by {worklog.authorId}: {worklog.note || 'No note'}</li>
+                  ))}
+                  {(worklogsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No worklogs yet.</li> : null}
+                </ul>
+              </div>`
+    : '';
   const notificationView = options.notifyEmailEnabled
     ? `
       <section className="card stack">
@@ -425,13 +444,14 @@ function renderTicketsPage(options: {
   return `import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { TicketAttachmentForm } from '../../components/ticket-attachment-form.tsx';
-import { TicketCommentForm } from '../../components/ticket-comment-form.tsx';
+import { TicketCommentForm } from '../../components/ticket-comment-form.tsx';${options.worklogEnabled ? `
+import { TicketWorklogForm } from '../../components/ticket-worklog-form.tsx';` : ''}
 import { TicketForm } from '../../components/ticket-form.tsx';
 import { TicketStatusForm } from '../../components/ticket-status-form.tsx';
 import { LogoutButton } from '../../components/logout-button.tsx';
 import { getCurrentSession } from '../../lib/session.ts';
 import { getDatabase } from '../../lib/store.ts';
-import { listTicketAttachments, listTicketComments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
+import { listTicketAttachments, listTicketComments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}${options.worklogEnabled ? `\nimport { listWorklogs, summarizeWorklogMinutes } from '../../src/installed/worklog/worklog-service.ts';` : ''}
 
 interface TicketsPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -465,7 +485,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const exportHref = queryString ? '/api/tickets/export?' + queryString : '/api/tickets/export';
   const summaryHref = queryString ? '/api/tickets/summary?' + queryString : '/api/tickets/summary';
   const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
-${attachmentSetup}${commentSetup}${notificationSetup}${reportingSetup}${auditSetup}
+${attachmentSetup}${commentSetup}${worklogSetup}${notificationSetup}${reportingSetup}${auditSetup}
   return (
     <main className="stack">
       <section className="card stack">
@@ -519,7 +539,7 @@ ${attachmentSetup}${commentSetup}${notificationSetup}${reportingSetup}${auditSet
               <div>{ticket.description || 'No description'}</div>
               <div>Assignee: {ticket.assigneeId}</div>
               <div>Due date: {ticket.dueDate || 'Unscheduled'}</div>
-              <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />${attachmentView}${commentView}
+              <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />${attachmentView}${commentView}${worklogView}
             </li>
           ))}
           {tickets.length === 0 ? <li>No tickets yet.</li> : null}
@@ -867,6 +887,58 @@ export async function POST(request: Request, context: TicketCommentRouteContext)
     return NextResponse.json({ comment }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid comment request' }, { status: 400 });
+  }
+}
+`;
+}
+
+function renderTicketWorklogsRoute(): string {
+  return `import { NextResponse } from 'next/server';
+import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../../../src/installed/worklog/worklog-service.ts';
+import { getCurrentSession } from '../../../../../lib/session.ts';
+import { getDatabase } from '../../../../../lib/store.ts';
+
+interface TicketWorklogRouteContext {
+  params: Promise<{ ticketId: string }>;
+}
+
+export async function GET(_request: Request, context: TicketWorklogRouteContext) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const params = await context.params;
+    const ticketId = Number(params.ticketId);
+    const database = getDatabase();
+    return NextResponse.json({
+      worklogs: listWorklogs(database, session, ticketId),
+      totalMinutes: summarizeWorklogMinutes(database, session, ticketId)
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid worklog request' }, { status: 400 });
+  }
+}
+
+export async function POST(request: Request, context: TicketWorklogRouteContext) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const params = await context.params;
+    const ticketId = Number(params.ticketId);
+    const payload = await request.json() as { minutes?: number; note?: string };
+    const worklog = recordWorklog(getDatabase(), session, {
+      ticketId,
+      minutes: Number(payload.minutes ?? 0),
+      note: payload.note ?? ''
+    });
+    return NextResponse.json({ worklog }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid worklog request' }, { status: 400 });
   }
 }
 `;
@@ -1398,6 +1470,80 @@ export function TicketCommentForm({ ticketId, ticketTitle }: TicketCommentFormPr
 `;
 }
 
+function renderTicketWorklogForm(): string {
+  return `'use client';
+
+import { type FormEvent, useState } from 'react';
+
+interface TicketWorklogFormProps {
+  ticketId: number;
+  ticketTitle: string;
+}
+
+export function TicketWorklogForm({ ticketId, ticketTitle }: TicketWorklogFormProps) {
+  const [minutes, setMinutes] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+
+    const response = await fetch(\`/api/tickets/\${ticketId}/worklogs\`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ minutes: Number(minutes), note })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? 'Unable to record worklog');
+      setPending(false);
+      return;
+    }
+
+    setMinutes('');
+    setNote('');
+    setPending(false);
+    window.location.reload();
+  }
+
+  return (
+    <form className="stack" onSubmit={handleSubmit}>
+      <div className="row">
+        <label style={{ flex: 1 }}>
+          Minutes for {ticketTitle}
+          <input
+            aria-label={\`Worklog minutes for \${ticketTitle}\`}
+            min="1"
+            type="number"
+            value={minutes}
+            onChange={(event) => setMinutes(event.target.value)}
+          />
+        </label>
+        <label style={{ flex: 2 }}>
+          Note
+          <input
+            aria-label={\`Worklog note for \${ticketTitle}\`}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+      </div>
+      <div className="row">
+        <button type="submit" disabled={pending}>{pending ? 'Saving...' : \`Add worklog for \${ticketTitle}\`}</button>
+      </div>
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
+  );
+}
+`;
+}
+
 function renderTicketForm(): string {
   return `'use client';
 
@@ -1542,6 +1688,7 @@ function renderRuntimeUnitTest(options: {
   rbacEnabled: boolean;
   tableFilterEnabled: boolean;
   ticketEnabled: boolean;
+  worklogEnabled: boolean;
 }): string {
   const imports = [
     `import { beforeEach, describe, expect, it } from 'vitest';`,
@@ -1599,7 +1746,8 @@ function renderRuntimeUnitTest(options: {
       'audit_entries',
       'tickets',
       'ticket_attachments',
-      'ticket_comments'
+      'ticket_comments'${options.worklogEnabled ? `,
+      'worklogs'` : ''}
     `
     : `
       'customers',
@@ -1651,6 +1799,7 @@ function renderTicketRuntimeUnitTest(options: {
   exportCsvEnabled: boolean;
   notifyEmailEnabled: boolean;
   ticketReportingEnabled: boolean;
+  worklogEnabled: boolean;
 }): string {
   const auditImport = options.auditEnabled
     ? `
@@ -1677,6 +1826,10 @@ import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.t
     ? `
 import { summarizeTickets } from '../../../src/installed/reporting/ticket-summary.ts';
 import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-service.ts';`
+    : '';
+  const worklogImport = options.worklogEnabled
+    ? `
+import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../src/installed/worklog/worklog-service.ts';`
     : '';
   const notifyAssertions = options.notifyEmailEnabled
     ? `
@@ -1712,10 +1865,23 @@ import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-ser
     expect(filteredSummary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
 `
     : '';
+  const worklogAssertions = options.worklogEnabled
+    ? `
+    const worklog = recordWorklog(database, tenantA, {
+      ticketId: ticket.id,
+      minutes: 45,
+      note: 'Investigated customer setup logs'
+    });
+    expect(worklog.authorId).toBe('user-tenant-a-admin');
+    expect(listWorklogs(database, tenantA, ticket.id)).toHaveLength(1);
+    expect(summarizeWorklogMinutes(database, tenantA, ticket.id)).toBe(45);
+    expect(() => listWorklogs(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
+`
+    : '';
 
   return `import { beforeEach, describe, expect, it } from 'vitest';
 import { login } from '../../../src/installed/auth/session.ts';
-import { addTicketAttachment, addTicketComment, createTicket, listTicketAttachments, listTicketComments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}
+import { addTicketAttachment, addTicketComment, createTicket, listTicketAttachments, listTicketComments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}${worklogImport}
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';
 
 describe('runtime ticket service', () => {
@@ -1758,7 +1924,7 @@ describe('runtime ticket service', () => {
     expect(listTicketComments(database, tenantA, ticket.id)).toHaveLength(1);
     expect(() => listTicketComments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
     expect(() => addTicketComment(database, tenantA, { ticketId: ticket.id, body: '   ' })).toThrow(/Ticket comment is required/);
-    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}${reportingAssertions}
+    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}${reportingAssertions}${worklogAssertions}
     expect(() => transitionTicketStatus(database, tenantB, ticket.id, 'closed')).toThrow(/Ticket is not available/);
   });
 });
@@ -1854,6 +2020,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   exportCsvEnabled: boolean;
   notifyEmailEnabled: boolean;
   ticketReportingEnabled: boolean;
+  worklogEnabled: boolean;
 }): string {
   const auditAssertions = options.auditEnabled
     ? `
@@ -1901,6 +2068,25 @@ function renderTicketRuntimeAcceptanceTest(options: {
   const commentResponse = await page.request.get('/api/tickets/1/comments');
   expect(commentResponse.ok()).toBe(true);
 `;
+  const worklogAssertions = options.worklogEnabled
+    ? `
+  await createdTicket.getByLabel('Worklog minutes for Escalate onboarding issue').fill('45');
+  await createdTicket.getByLabel('Worklog note for Escalate onboarding issue').fill('Investigated customer setup logs');
+  await createdTicket.getByRole('button', { name: 'Add worklog for Escalate onboarding issue' }).click();
+  await expect(createdTicket).toContainText('Total worklog minutes: 45');
+  await expect(createdTicket).toContainText('45m by user-tenant-a-admin: Investigated customer setup logs');
+  const worklogResponse = await page.request.get('/api/tickets/1/worklogs');
+  expect(worklogResponse.ok()).toBe(true);
+  const worklogPayload = await worklogResponse.json() as {
+    totalMinutes: number;
+    worklogs: Array<{ ticketId: number; minutes: number; note: string }>;
+  };
+  expect(worklogPayload.totalMinutes).toBe(45);
+  expect(worklogPayload.worklogs).toEqual([
+    expect.objectContaining({ ticketId: 1, minutes: 45, note: 'Investigated customer setup logs' })
+  ]);
+`
+    : '';
   const reportingAssertions = options.ticketReportingEnabled
     ? `
   await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
@@ -1964,7 +2150,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByLabel('Ticket due date').fill('2026-04-20');
   await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
   const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
-  await expect(createdTicket).toContainText('open');${attachmentAssertions}
+  await expect(createdTicket).toContainText('open');${attachmentAssertions}${worklogAssertions}
 
   await page.getByLabel('Ticket title').fill('Prepare renewal checklist');
   await page.getByLabel('Ticket assignee').fill('renewal-owner');
@@ -2020,6 +2206,8 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   expect(tenantBAttachmentResponse.status()).toBe(400);
   const tenantBCommentResponse = await page.request.get('/api/tickets/1/comments');
   expect(tenantBCommentResponse.status()).toBe(400);
+  const tenantBWorklogResponse = await page.request.get('/api/tickets/1/worklogs');
+  expect(tenantBWorklogResponse.status()).toBe(400);
 });
 `;
 }
@@ -2037,7 +2225,8 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
     rbacEnabled: hasBlock(lock, 'rbac/basic'),
     tableFilterEnabled: hasBlock(lock, 'table/filter-search'),
     ticketEnabled,
-    ticketReportingEnabled: hasBlock(lock, 'reporting/ticket-summary')
+    ticketReportingEnabled: hasBlock(lock, 'reporting/ticket-summary'),
+    worklogEnabled: hasBlock(lock, 'worklog/basic')
   };
   const entries: Array<{ relativePath: string; source: string }> = [
     { relativePath: 'app/layout.tsx', source: renderLayout() },
@@ -2090,9 +2279,15 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
         : []),
       { relativePath: 'app/api/tickets/[ticketId]/attachments/route.ts', source: renderTicketAttachmentsRoute() },
       { relativePath: 'app/api/tickets/[ticketId]/comments/route.ts', source: renderTicketCommentsRoute() },
+      ...(customerFeatureOptions.worklogEnabled
+        ? [{ relativePath: 'app/api/tickets/[ticketId]/worklogs/route.ts', source: renderTicketWorklogsRoute() }]
+        : []),
       { relativePath: 'app/api/tickets/[ticketId]/status/route.ts', source: renderTicketStatusRoute(customerFeatureOptions) },
       { relativePath: 'components/ticket-attachment-form.tsx', source: renderTicketAttachmentForm() },
       { relativePath: 'components/ticket-comment-form.tsx', source: renderTicketCommentForm() },
+      ...(customerFeatureOptions.worklogEnabled
+        ? [{ relativePath: 'components/ticket-worklog-form.tsx', source: renderTicketWorklogForm() }]
+        : []),
       { relativePath: 'components/ticket-form.tsx', source: renderTicketForm() },
       { relativePath: 'components/ticket-status-form.tsx', source: renderTicketStatusForm() },
       { relativePath: 'tests/runtime/unit/ticket-runtime.test.ts', source: renderTicketRuntimeUnitTest(customerFeatureOptions) },

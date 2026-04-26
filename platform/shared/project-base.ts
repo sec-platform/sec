@@ -347,6 +347,20 @@ export interface TicketCommentRecord extends TicketCommentInput {
   createdAt: string;
 }
 
+export interface WorklogInput {
+  ticketId: number;
+  minutes: number;
+  note?: string;
+}
+
+export interface WorklogRecord extends WorklogInput {
+  id: number;
+  tenantId: string;
+  note: string;
+  authorId: string;
+  createdAt: string;
+}
+
 export interface Database {
   nextCustomerId: number;
   customers: CustomerRecord[];
@@ -361,6 +375,8 @@ export interface Database {
   ticketAttachments: TicketAttachmentRecord[];
   nextTicketCommentId: number;
   ticketComments: TicketCommentRecord[];
+  nextWorklogId: number;
+  worklogs: WorklogRecord[];
 }
 
 export type RuntimePersistence = 'memory' | 'postgres-contract';
@@ -384,7 +400,9 @@ export function createDatabase(): Database {
     nextTicketAttachmentId: 1,
     ticketAttachments: [],
     nextTicketCommentId: 1,
-    ticketComments: []
+    ticketComments: [],
+    nextWorklogId: 1,
+    worklogs: []
   };
 }
 

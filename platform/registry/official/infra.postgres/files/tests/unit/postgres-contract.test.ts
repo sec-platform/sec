@@ -11,7 +11,8 @@ export async function runSuite() {
     'audit_entries',
     'tickets',
     'ticket_attachments',
-    'ticket_comments'
+    'ticket_comments',
+    'worklogs'
   ]);
   assert.equal(POSTGRES_CONTRACT.tables.every((table) => table.tenantScoped), true);
 }
