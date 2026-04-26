@@ -5,6 +5,7 @@ import {
   createTicket,
   listTickets,
   listTicketsByAssignee,
+  listTicketsWithFilters,
   transitionTicketStatus
 } from '../../src/installed/ticket/ticket-service.ts';
 
@@ -25,9 +26,11 @@ export async function runSuite() {
   assert.equal(ticket.createdBy, 'user-tenant-a-admin');
   assert.equal(listTickets(db, tenantA).length, 1);
   assert.equal(listTicketsByAssignee(db, tenantA, 'user-tenant-a-admin').length, 1);
+  assert.equal(listTicketsWithFilters(db, tenantA, { status: 'open' }).length, 1);
 
   const transitioned = transitionTicketStatus(db, tenantA, ticket.id, 'in_progress');
   assert.equal(transitioned.status, 'in_progress');
+  assert.equal(listTicketsWithFilters(db, tenantA, { status: 'in_progress' }).length, 1);
   assert.equal(listTickets(db, tenantB).length, 0);
   assert.throws(() => transitionTicketStatus(db, tenantB, ticket.id, 'closed'), /Ticket is not available/);
   assert.throws(() => createTicket(db, tenantA, { title: '   ' }), /Ticket title is required/);

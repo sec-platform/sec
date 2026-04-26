@@ -328,7 +328,7 @@ function renderTicketsPage(options: {
 `
     : '';
   const reportingSetup = options.ticketReportingEnabled
-    ? `  const ticketSummary = summarizeTickets(allTickets);
+    ? `  const ticketSummary = summarizeTickets(tickets);
 `
     : '';
   const notificationView = options.notifyEmailEnabled
@@ -349,7 +349,7 @@ function renderTicketsPage(options: {
     : '';
   const exportAction = options.exportCsvEnabled
     ? `
-            <a href="/api/tickets/export">Export tickets CSV</a>`
+            <a href={exportHref}>Export tickets CSV</a>`
     : '';
   const auditView = options.auditEnabled
     ? `
@@ -373,8 +373,8 @@ function renderTicketsPage(options: {
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <h2>Ticket Summary</h2>
           <div className="row">
-            <a href="/api/tickets/summary">View ticket summary JSON</a>
-            <a href="/api/tickets/summary/export">Export ticket summary CSV</a>
+            <a href={summaryHref}>View ticket summary JSON</a>
+            <a href={summaryExportHref}>Export ticket summary CSV</a>
           </div>
         </div>
         <p>Total tickets: {ticketSummary.total}</p>
@@ -400,7 +400,7 @@ import { TicketStatusForm } from '../../components/ticket-status-form.tsx';
 import { LogoutButton } from '../../components/logout-button.tsx';
 import { getCurrentSession } from '../../lib/session.ts';
 import { getDatabase } from '../../lib/store.ts';
-import { listTickets, listTicketsByAssignee } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
+import { listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}
 
 interface TicketsPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -414,10 +414,26 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
 
   const params = await searchParams;
   const assignee = typeof params?.assignee === 'string' ? params.assignee : '';
+  const status = typeof params?.status === 'string' ? params.status : '';
   const database = getDatabase();
   const allTickets = listTickets(database, session);
-  const tickets = assignee ? listTicketsByAssignee(database, session, assignee) : allTickets;
+  const filters: TicketFilters = {
+    ...(assignee ? { assigneeId: assignee } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status } : {})
+  };
+  const tickets = listTicketsWithFilters(database, session, filters);
   const assignees = Array.from(new Set(allTickets.map((ticket) => ticket.assigneeId))).sort((left, right) => left.localeCompare(right));
+  const summaryQuery = new URLSearchParams();
+  if (assignee) {
+    summaryQuery.set('assigneeId', assignee);
+  }
+  if (status) {
+    summaryQuery.set('status', status);
+  }
+  const queryString = summaryQuery.toString();
+  const exportHref = queryString ? '/api/tickets/export?' + queryString : '/api/tickets/export';
+  const summaryHref = queryString ? '/api/tickets/summary?' + queryString : '/api/tickets/summary';
+  const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
 ${notificationSetup}${reportingSetup}${auditSetup}
   return (
     <main className="stack">
@@ -444,6 +460,15 @@ ${notificationSetup}${reportingSetup}${auditSetup}
               {assignees.map((entry) => (
                 <option key={entry} value={entry}>{entry}</option>
               ))}
+            </select>
+          </label>
+          <label style={{ flex: 1 }}>
+            Status
+            <select aria-label="Ticket status filter" name="status" defaultValue={status}>
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In progress</option>
+              <option value="closed">Closed</option>
             </select>
           </label>
           <button type="submit">Apply ticket filters</button>
@@ -730,10 +755,20 @@ import { recordTicketCreatedEmail } from '../../../src/installed/notify/email-ou
     : '';
 
   return `import { NextResponse } from 'next/server';
-import type { TicketInput } from '../../../src/runtime/database.ts';
-import { createTicket, listTickets, listTicketsByAssignee } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}
+import type { TicketInput, TicketStatus } from '../../../src/runtime/database.ts';
+import { createTicket, listTicketsWithFilters, type TicketFilters } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}
 import { getCurrentSession } from '../../../lib/session.ts';
 import { getDatabase } from '../../../lib/store.ts';
+
+function readTicketFilters(request: Request): TicketFilters {
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const status = url.searchParams.get('status');
+  return {
+    ...(assigneeId ? { assigneeId } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
+  };
+}
 
 export async function GET(request: Request) {
   const session = await getCurrentSession();
@@ -741,10 +776,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
   }
 
-  const database = getDatabase();
-  const url = new URL(request.url);
-  const assigneeId = url.searchParams.get('assigneeId');
-  const tickets = assigneeId ? listTicketsByAssignee(database, session, assigneeId) : listTickets(database, session);
+  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
   return NextResponse.json({ tickets });
 }
 
@@ -768,18 +800,29 @@ ${auditLine}${notifyLine}    return NextResponse.json({ ticket }, { status: 201 
 
 function renderTicketExportRoute(): string {
   return `import { NextResponse } from 'next/server';
+import type { TicketStatus } from '../../../../src/runtime/database.ts';
 import { exportTicketsToCsv } from '../../../../src/installed/export/customer-csv.ts';
-import { listTickets } from '../../../../src/installed/ticket/ticket-service.ts';
+import { listTicketsWithFilters, type TicketFilters } from '../../../../src/installed/ticket/ticket-service.ts';
 import { getCurrentSession } from '../../../../lib/session.ts';
 import { getDatabase } from '../../../../lib/store.ts';
 
-export async function GET() {
+function readTicketFilters(request: Request): TicketFilters {
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const status = url.searchParams.get('status');
+  return {
+    ...(assigneeId ? { assigneeId } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
+  };
+}
+
+export async function GET(request: Request) {
   const session = await getCurrentSession();
   if (!session) {
     return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
   }
 
-  const csv = exportTicketsToCsv(listTickets(getDatabase(), session));
+  const csv = exportTicketsToCsv(listTicketsWithFilters(getDatabase(), session, readTicketFilters(request)));
   return new NextResponse(csv, {
     headers: {
       'content-disposition': 'attachment; filename="tickets.csv"',
@@ -792,10 +835,21 @@ export async function GET() {
 
 function renderTicketSummaryRoute(): string {
   return `import { NextResponse } from 'next/server';
+import type { TicketStatus } from '../../../../src/runtime/database.ts';
 import { summarizeTickets } from '../../../../src/installed/reporting/ticket-summary.ts';
-import { listTickets, listTicketsByAssignee } from '../../../../src/installed/ticket/ticket-service.ts';
+import { listTicketsWithFilters, type TicketFilters } from '../../../../src/installed/ticket/ticket-service.ts';
 import { getCurrentSession } from '../../../../lib/session.ts';
 import { getDatabase } from '../../../../lib/store.ts';
+
+function readTicketFilters(request: Request): TicketFilters {
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const status = url.searchParams.get('status');
+  return {
+    ...(assigneeId ? { assigneeId } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
+  };
+}
 
 export async function GET(request: Request) {
   const session = await getCurrentSession();
@@ -803,10 +857,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
   }
 
-  const database = getDatabase();
-  const url = new URL(request.url);
-  const assigneeId = url.searchParams.get('assigneeId');
-  const tickets = assigneeId ? listTicketsByAssignee(database, session, assigneeId) : listTickets(database, session);
+  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
   return NextResponse.json({ summary: summarizeTickets(tickets) });
 }
 `;
@@ -814,11 +865,22 @@ export async function GET(request: Request) {
 
 function renderTicketSummaryExportRoute(): string {
   return `import { NextResponse } from 'next/server';
+import type { TicketStatus } from '../../../../../src/runtime/database.ts';
 import { exportTicketSummaryToCsv } from '../../../../../src/installed/export/customer-csv.ts';
 import { summarizeTickets } from '../../../../../src/installed/reporting/ticket-summary.ts';
-import { listTickets, listTicketsByAssignee } from '../../../../../src/installed/ticket/ticket-service.ts';
+import { listTicketsWithFilters, type TicketFilters } from '../../../../../src/installed/ticket/ticket-service.ts';
 import { getCurrentSession } from '../../../../../lib/session.ts';
 import { getDatabase } from '../../../../../lib/store.ts';
+
+function readTicketFilters(request: Request): TicketFilters {
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const status = url.searchParams.get('status');
+  return {
+    ...(assigneeId ? { assigneeId } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
+  };
+}
 
 export async function GET(request: Request) {
   const session = await getCurrentSession();
@@ -826,10 +888,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
   }
 
-  const database = getDatabase();
-  const url = new URL(request.url);
-  const assigneeId = url.searchParams.get('assigneeId');
-  const tickets = assigneeId ? listTicketsByAssignee(database, session, assigneeId) : listTickets(database, session);
+  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
   const csv = exportTicketSummaryToCsv(summarizeTickets(tickets));
   return new NextResponse(csv, {
     headers: {
@@ -1362,7 +1421,8 @@ import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.t
     : '';
   const reportingImport = options.ticketReportingEnabled
     ? `
-import { summarizeTickets } from '../../../src/installed/reporting/ticket-summary.ts';`
+import { summarizeTickets } from '../../../src/installed/reporting/ticket-summary.ts';
+import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-service.ts';`
     : '';
   const notifyAssertions = options.notifyEmailEnabled
     ? `
@@ -1390,6 +1450,10 @@ import { summarizeTickets } from '../../../src/installed/reporting/ticket-summar
       { assigneeId: 'renewal-owner', count: 1 },
       { assigneeId: 'support-owner', count: 1 }
     ]);
+    const filteredSummary = summarizeTickets(listTicketsWithFilters(database, tenantA, { status: 'in_progress' }));
+    expect(filteredSummary.total).toBe(1);
+    expect(filteredSummary.byStatus.in_progress).toBe(1);
+    expect(filteredSummary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
 `
     : '';
 
@@ -1543,8 +1607,10 @@ function renderTicketRuntimeAcceptanceTest(options: {
   const reportingAssertions = options.ticketReportingEnabled
     ? `
   await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Export ticket summary CSV' })).toBeVisible();
+  const summaryJsonLink = page.getByRole('link', { name: 'View ticket summary JSON' });
+  const summaryCsvLink = page.getByRole('link', { name: 'Export ticket summary CSV' });
+  await expect(summaryJsonLink).toBeVisible();
+  await expect(summaryCsvLink).toBeVisible();
   await expect(page.getByText('Total tickets: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('Open: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Assignee summary' }).getByText('support-owner: 1')).toBeVisible();
@@ -1608,6 +1674,34 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await expect(ticketList.getByRole('listitem').filter({ hasText: 'Prepare renewal checklist' })).toHaveCount(0);
 
   await createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' }).click();
+  await expect(createdTicket).toContainText('in_progress');
+  await page.getByLabel('Ticket status filter').selectOption('in_progress');
+  await page.getByRole('button', { name: 'Apply ticket filters' }).click();
+  await expect(page).toHaveURL(/status=in_progress/);
+  await expect(ticketList.getByRole('listitem')).toHaveCount(1);
+  await expect(ticketList.getByRole('listitem').filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
+  await expect(page.getByText('Total tickets: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('In progress: 1')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);
+  await expect(page.getByRole('link', { name: 'Export ticket summary CSV' })).toHaveAttribute('href', /status=in_progress/);
+  const filteredSummaryResponse = await page.request.get('/api/tickets/summary?assigneeId=support-owner&status=in_progress');
+  expect(filteredSummaryResponse.ok()).toBe(true);
+  const filteredSummaryPayload = await filteredSummaryResponse.json() as {
+    summary: {
+      total: number;
+      byStatus: { open: number; in_progress: number; closed: number };
+      byAssignee: Array<{ assigneeId: string; count: number }>;
+    };
+  };
+  expect(filteredSummaryPayload.summary.total).toBe(1);
+  expect(filteredSummaryPayload.summary.byStatus.in_progress).toBe(1);
+  expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
+  const filteredSummaryExportResponse = await page.request.get('/api/tickets/summary/export?assigneeId=support-owner&status=in_progress');
+  expect(filteredSummaryExportResponse.ok()).toBe(true);
+  const filteredSummaryCsv = await filteredSummaryExportResponse.text();
+  expect(filteredSummaryCsv).toContain('status,in_progress,1');
+  expect(filteredSummaryCsv).toContain('assignee,support-owner,1');
+
   await expect(createdTicket).toContainText('in_progress');${auditAssertions}
 
   await page.request.post('/api/session/logout');
