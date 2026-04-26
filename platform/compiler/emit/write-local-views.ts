@@ -110,7 +110,7 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
         ? `${task.preview.changed ? 'changed' : 'unchanged'}; +${task.preview.addedLines}/-${task.preview.removedLines}; ${task.preview.beforeLines} -> ${task.preview.afterLines} lines`
         : '';
       const targets = task.failurePoints.flatMap((point) => point.targetIds ?? []).join(', ');
-      return `<tr><td>${escapeHtml(task.taskId)}</td><td>${escapeHtml(task.sourceSlotId)}</td><td>${escapeHtml(task.targetBlock)}</td><td>${escapeHtml(task.targetFile)}</td><td>${escapeHtml(task.failureSummary)}</td><td>${escapeHtml(targets)}</td><td>${escapeHtml(preview)}</td></tr>`;
+      return `<tr><td>${escapeHtml(task.taskId)}</td><td>${escapeHtml(task.sourceSlotId)}</td><td>${escapeHtml(task.targetBlock)}</td><td>${escapeHtml(task.targetFile)}</td><td>${escapeHtml(task.allowedPaths.join(', '))}</td><td>${escapeHtml(task.requiredSymbols.join(', '))}</td><td>${escapeHtml(task.forbiddenOperations.join(', '))}</td><td>${escapeHtml(task.failureSummary)}</td><td>${escapeHtml(targets)}</td><td>${escapeHtml(preview)}</td></tr>`;
     })
     .join('');
 
@@ -118,7 +118,7 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
         <h2>Repair Plan</h2>
         <p>${escapeHtml(repairPlan.status)} | source verification: ${escapeHtml(repairPlan.sourceVerificationStatus)} | requires verification: ${escapeHtml(String(repairPlan.requiresVerification))}</p>
         <table>
-          <thead><tr><th>Task</th><th>Slot</th><th>Block</th><th>Target File</th><th>Failure Summary</th><th>Failure Targets</th><th>Preview</th></tr></thead>
+          <thead><tr><th>Task</th><th>Slot</th><th>Block</th><th>Target File</th><th>Allowed Paths</th><th>Required Symbols</th><th>Forbidden Operations</th><th>Failure Summary</th><th>Failure Targets</th><th>Preview</th></tr></thead>
           <tbody>${taskRows}</tbody>
         </table>
       </section>`;

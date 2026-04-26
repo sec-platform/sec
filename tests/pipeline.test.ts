@@ -262,8 +262,8 @@ test('write-local-views consumes generated artifacts from disk', async () => {
             targetBlock: 'entity/customer-basic',
             targetFile: 'custom/customer_normalizer.ts',
             allowedPaths: ['custom/customer_normalizer.ts'],
-            requiredSymbols: [],
-            forbiddenOperations: [],
+            requiredSymbols: ['normalizeCustomerInput'],
+            forbiddenOperations: ['write outside custom/customer_normalizer.ts'],
             testsToPass: [],
             failureSummary: 'unit <failed> & needs repair',
             failurePoints: [
@@ -387,6 +387,12 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
   expect(sourceView).toContain('Repair Plan');
   expect(sourceView).toContain('requires verification: false');
+  expect(sourceView).toContain('Allowed Paths');
+  expect(sourceView).toContain('Required Symbols');
+  expect(sourceView).toContain('Forbidden Operations');
+  expect(sourceView).toContain('custom/customer_normalizer.ts');
+  expect(sourceView).toContain('normalizeCustomerInput');
+  expect(sourceView).toContain('write outside custom/customer_normalizer.ts');
   expect(sourceView).toContain('Failure Targets');
   expect(sourceView).toContain('customer-normalizer.test.ts');
   expect(sourceView).toContain('changed; +4/-1; 1 -&gt; 4 lines');
