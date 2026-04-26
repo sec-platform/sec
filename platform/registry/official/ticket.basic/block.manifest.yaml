@@ -1,0 +1,74 @@
+id: ticket/basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+compatibility:
+  blockApi: '1'
+  compilerApi: '1'
+  stackProfiles:
+    - nextjs-ts-prisma-sqlite
+requires:
+  - auth/session
+  - tenant/context
+provides:
+  - ticket/read
+  - ticket/write
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/ticket/ticket-service.ts
+    to: src/installed/ticket/ticket-service.ts
+  - kind: merge-prisma
+    from: files/prisma/ticket.prisma
+    to: prisma/schema.prisma
+  - kind: copy
+    from: files/tests/unit/ticket-service.test.ts
+    to: tests/unit/ticket-service.test.ts
+  - kind: copy
+    from: files/tests/acceptance/ticket-flow.test.ts
+    to: tests/acceptance/ticket-flow.test.ts
+pins:
+  inputs:
+    - id: tenant_context
+      type: TenantId
+      required: true
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: ticket_created
+      type: TicketRecord
+      required: true
+    - id: ticket_status_transitioned
+      type: TicketRecord
+      required: true
+slots: []
+acceptance:
+  - id: ticket_can_be_created
+    dependsOn:
+      - user_can_login
+    covers:
+      blocks:
+        - ticket/basic
+  - id: ticket_status_can_transition
+    dependsOn:
+      - ticket_can_be_created
+    covers:
+      blocks:
+        - ticket/basic
+  - id: assignee_can_filter_tickets
+    dependsOn:
+      - ticket_can_be_created
+    covers:
+      blocks:
+        - ticket/basic
+  - id: tenant_only_sees_own_tickets
+    dependsOn:
+      - user_can_login
+      - ticket_can_be_created
+    covers:
+      blocks:
+        - tenant/basic-workspace
+        - ticket/basic
+routes: []

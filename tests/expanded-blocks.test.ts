@@ -42,9 +42,10 @@ test('expanded official block set composes and verifies as one project', async (
   await addBlock(workspaceRoot, 'notify/email-basic');
   await addBlock(workspaceRoot, 'table/filter-search');
   await addBlock(workspaceRoot, 'infra/postgres');
+  await addBlock(workspaceRoot, 'ticket/basic');
 
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
-  expect(resolvedLock.resolvedBlocks.length).toBe(10);
+  expect(resolvedLock.resolvedBlocks.length).toBe(11);
   expect(resolvedLock.slotTasks).toHaveLength(1);
 
   await composeWorkspace(workspaceRoot);
@@ -69,7 +70,8 @@ test('expanded official block set composes and verifies as one project', async (
     'customers',
     'customer_attachments',
     'email_notifications',
-    'audit_entries'
+    'audit_entries',
+    'tickets'
   ]);
 
   const locked = await lockWorkspace(workspaceRoot);
@@ -81,6 +83,7 @@ test('expanded official block set composes and verifies as one project', async (
   expect(locked.resolvedBlocks.some((block) => block.id === 'notify/email-basic')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'table/filter-search')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
+  expect(locked.resolvedBlocks.some((block) => block.id === 'ticket/basic')).toBe(true);
   expect(locked.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
 });
 
