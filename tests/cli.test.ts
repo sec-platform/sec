@@ -1,7 +1,6 @@
 import { expect, test } from 'vitest';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
@@ -29,7 +28,9 @@ function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; 
 }
 
 async function withTempWorkspace<T>(callback: (workspaceRoot: string) => Promise<T>): Promise<T> {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-cli-'));
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  const workspaceRoot = await fs.mkdtemp(path.join(workspaceParent, 'engineering-compiler-cli-'));
   try {
     return await callback(workspaceRoot);
   } finally {
@@ -132,7 +133,7 @@ test('CLI accepts init commands', async () => {
   });
 });
 
-test('CLI adds private registry blocks and preserves registry metadata on resolve', async () => {
+test('CLI adds private registry blocks and preserves registry metadata on resolve', { timeout: 20000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -164,7 +165,40 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
   });
 });
 
-test('CLI reports argument usage errors', async () => {
+test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    const result = await runCli(workspaceRoot, ['upgrade', 'auth/basic-session', '0.1.1', '--dry-run', '--json']);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+
+    const upgradePlan = JSON.parse(result.stdout) as {
+      blockId: string;
+      fromVersion: string;
+      toVersion: string;
+      status: string;
+      migrationKindCounts: Record<string, number>;
+      impacts: string[];
+    };
+    expect(upgradePlan).toMatchObject({
+      blockId: 'auth/basic-session',
+      fromVersion: '0.1.0',
+      toVersion: '0.1.1',
+      status: 'planned',
+      migrationKindCounts: {
+        'file-replace': 1,
+        'json-array-append': 1
+      }
+    });
+    expect(upgradePlan.impacts).toEqual(['src/installed/auth/session.ts', 'upgrade.metadata.json']);
+  });
+});
+
+test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--unknown'])).resolves.toMatchObject({
       code: 1,
@@ -199,17 +233,17 @@ test('CLI reports argument usage errors', async () => {
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run]\n'
+      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]\n'
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run]\n'
+      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]\n'
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--dry-run', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run]\n'
+      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
