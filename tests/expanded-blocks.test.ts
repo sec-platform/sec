@@ -106,6 +106,8 @@ test('expanded official block set composes and verifies as one project', async (
       'app/tickets/page.tsx',
       'app/api/tickets/route.ts',
       'app/api/tickets/export/route.ts',
+      'app/api/tickets/summary/route.ts',
+      'app/api/tickets/summary/export/route.ts',
       'app/api/tickets/[ticketId]/status/route.ts',
       'components/ticket-form.tsx',
       'components/ticket-status-form.tsx',
@@ -123,6 +125,8 @@ test('expanded official block set composes and verifies as one project', async (
   expect(sourceView).toContain('Vertical Summary');
   expect(sourceView).toContain('Block Combination Summary');
   expect(sourceView).toContain('app/api/tickets/export/route.ts');
+  expect(sourceView).toContain('app/api/tickets/summary/route.ts');
+  expect(sourceView).toContain('app/api/tickets/summary/export/route.ts');
   expect(sourceView).toContain('ticket/basic');
   expect(sourceView).toContain('reporting/ticket-summary');
 });

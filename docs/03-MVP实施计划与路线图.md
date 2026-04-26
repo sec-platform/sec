@@ -278,6 +278,9 @@
        - 按状态聚合 ticket。
        - 按负责人聚合 ticket。
        - `/tickets` runtime 页面展示 summary。
+       - `/api/tickets/summary` 提供 summary JSON API。
+       - `/api/tickets/summary/export` 提供 summary CSV 导出。
+       - 页面已提供 summary JSON 与 CSV 入口。
      - Source View 已显式列出 generated runtime 页面/API 入口：
        - 便于审查 ticket export 等组合产物。
      - local views 已新增团队协作摘要卡片：
