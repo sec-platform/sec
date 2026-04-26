@@ -60,39 +60,160 @@
 
 1. **升级迁移引擎增强**
    - 状态：active
-   - 目标：从单一 `file-replace` 升级到更多可控 migration 类型。
-   - 已完成：`config-rewrite` JSON 配置迁移（含 set/delete）、`json-array-append/remove` JSON 数组迁移、`json-object-merge` JSON 对象合并迁移、官方升级 manifest 中的多迁移类型覆盖、upgrade plan migration 摘要与类型计数、upgrade dry-run 入口、`slot-contract-update` 计划与影响面记录、迁移 `requiresVerification` 到 plan/review 的显式传播、升级迁移 entry schema 校验、slot 合同变化与 explain graph 的连接、upgrade plan 到本地视图的摘要呈现、upgrade plan 执行前检查清单、升级检查结果在 review/local view 中的聚合、升级前置检查失败的结构化诊断 artifact、升级诊断在 review/local view 中的聚合、upgrade diagnostics 进入 lock/provenance 产物清单。
-   - 下一步候选：更多执行型迁移类型。
+   - 目标：
+     - 从单一 `file-replace` 升级到更多可控 migration 类型。
+   - 已完成：
+     - `config-rewrite` JSON 配置迁移：
+       - `set`
+       - `delete`
+     - `json-array-append/remove` JSON 数组迁移。
+     - `json-object-merge` JSON 对象合并迁移。
+     - 官方升级 manifest 中的多迁移类型覆盖。
+     - upgrade plan migration 摘要与类型计数。
+     - upgrade dry-run 入口。
+     - `slot-contract-update` 计划与影响面记录。
+     - 迁移 `requiresVerification` 到 plan/review 的显式传播。
+     - 升级迁移 entry schema 校验。
+     - slot 合同变化与 explain graph 的连接。
+     - upgrade plan 到本地视图的摘要呈现。
+     - upgrade plan 执行前检查清单。
+     - 升级检查结果在 review/local view 中的聚合。
+     - 升级前置检查失败的结构化诊断 artifact。
+     - 升级诊断在 review/local view 中的聚合。
+     - upgrade diagnostics 进入 lock/provenance 产物清单。
+   - 下一步候选：
+     - 更多执行型迁移类型。
 
 2. **repair 从基础可用到可审查**
    - 状态：active
-   - 目标：让 repair plan 更准确地区分 slot/spec/kernel failure，并输出更清楚的可修复边界。
-   - 已完成：结构化 failure points、repairable 标记、失败点到 acceptance/policy/runtime 目标的映射、本地视图中的 slot 写入边界展示、无可修 slot 的阻断错误、repair plan provenance/review 暴露、repair plan 到本地视图的摘要呈现、repair task 与 explain graph 的连接、repair 后自动要求重新 verify 的显式状态、repair plan dry-run 模式、repair plan 的执行前差异预览。
-   - 下一步候选：repair 失败点到具体生成文件/slot 归因边的更细映射。
+   - 目标：
+     - 让 repair plan 更准确地区分 failure 类型：
+       - slot failure
+       - spec failure
+       - kernel failure
+     - 输出更清楚的可修复边界。
+   - 已完成：
+     - 结构化 failure points。
+     - repairable 标记。
+     - 失败点到 acceptance/policy/runtime 目标的映射。
+     - 本地视图中的 slot 写入边界展示。
+     - 无可修 slot 的阻断错误。
+     - repair plan provenance/review 暴露。
+     - repair plan 到本地视图的摘要呈现。
+     - repair task 与 explain graph 的连接。
+     - repair 后自动要求重新 verify 的显式状态。
+     - repair plan dry-run 模式。
+     - repair plan 的执行前差异预览。
+   - 下一步候选：
+     - repair 失败点到具体生成文件/slot 归因边的更细映射。
 
 3. **计划与进度显式化**
    - 状态：active
-   - 目标：把未来计划和当前进度固定在 repo 文档中，而不是散落在会话上下文。
-   - 已完成：本文新增正式进度清单；本地 Source View 与 Slot / Rule View 已有互相跳转导航；runtime scaffold 与 project base 的超长单行生成模板已改为多行 template literal，后续局部编辑和 review diff 成本降低。
-   - 下一步候选：每轮功能提交后更新本节对应状态，必要时同步 `README` 的入口说明。
+   - 目标：
+     - 把未来计划和当前进度固定在 repo 文档中。
+     - 避免进度只散落在：
+       - 会话上下文
+       - 临时任务列表
+       - git log
+   - 已完成：
+     - 本文新增正式进度清单。
+     - 本地 Source View 与 Slot / Rule View 已有互相跳转导航。
+     - runtime scaffold 与 project base 的超长单行生成模板已改为多行 template literal。
+     - 后续收益：
+       - 降低局部编辑成本。
+       - 降低 review diff 成本。
+       - 降低冲突成本。
+   - 下一步候选：
+     - 每轮功能提交后更新本节对应状态。
+     - 必要时同步 `README` 的入口说明。
 
 4. **私有 registry 最小通路**
    - 状态：done
-   - 目标：让 workspace/private registry source 可被用户入口和主链路使用，并与 official registry 共享 manifest/lock/provenance 口径。
-   - 已完成：默认 plan 已包含 workspace private registry source；private block 可通过 CLI/orchestrator 加入 plan、resolve、compose、verify、lock、explain；CLI `add private/...` 会回显版本与 registry source；lock/provenance/review/local view 均保留 private registry source 元数据。
-   - 下一步候选：进入 Work Tracking / Ticket SaaS 纵切面，验证新增官方业务块而不是继续扩 registry 基础设施。
+   - 目标：
+     - workspace/private registry source 可被用户入口和主链路使用。
+     - 与 official registry 共享 manifest/lock/provenance 口径。
+   - 已完成：
+     - 默认 plan 已包含 workspace private registry source。
+     - private block 可通过 CLI/orchestrator 加入：
+       - plan
+       - resolve
+       - compose
+       - verify
+       - lock
+       - explain
+     - CLI `add private/...` 会回显：
+       - version
+       - registry source
+     - lock/provenance/review/local view 均保留 private registry source 元数据。
+   - 下一步候选：
+     - 进入 Work Tracking / Ticket SaaS 纵切面。
+     - 验证新增官方业务块。
+     - 暂不继续扩 registry 基础设施。
 
 ### next 工作包
 
 1. **Work Tracking / Ticket SaaS 纵切面**
    - 状态：active
-   - 目标：在 Customer Admin 外增加一个 `ticket/basic` 最小块，验证状态流转、负责人、租户隔离和列表筛选。
-   - 已完成：新增 `ticket/basic` 官方块，包含 ticket 服务、Prisma 片段、unit/acceptance 验证、状态流转、负责人筛选和租户隔离；扩展块组合可安装并通过 verify，Postgres contract 已覆盖 `tickets` 表；runtime scaffold 已生成 `/tickets` 页面、ticket API、状态流转 API、表单组件、runtime unit test 与 Playwright 验收；当 `audit/basic` 同时安装时，ticket 创建和状态流转会写入并展示 ticket 审计条目；当 `notify/email-basic` 同时安装时，ticket 创建会生成并展示 ticket 通知，通知模型已从 customer-only 泛化到 entity/entityId；当 `export/csv-basic` 同时安装时，ticket 列表会生成 CSV 导出 API 与页面入口，并覆盖 runtime unit/acceptance 验证；新增 `reporting/ticket-summary` 官方块，提供按状态与负责人聚合 ticket 的 summary 能力，并在 `/tickets` runtime 页面展示；Source View 已显式列出 generated runtime 页面/API 入口，便于审查 ticket export 等组合产物。
-   - 下一步候选：继续把 Work Tracking 纵切面接入 review/explain 等团队协作面，验证业务块与治理块组合后的可审查输出。
+   - 目标：
+     - 在 Customer Admin 外增加一个 `ticket/basic` 最小块。
+     - 验证 Work Tracking 基础业务能力：
+       - 状态流转
+       - 负责人
+       - 租户隔离
+       - 列表筛选
+   - 已完成：
+     - 新增 `ticket/basic` 官方块：
+       - ticket 服务。
+       - Prisma 片段。
+       - unit/acceptance 验证。
+       - 状态流转。
+       - 负责人筛选。
+       - 租户隔离。
+     - 扩展块组合可安装并通过 verify。
+     - Postgres contract 已覆盖 `tickets` 表。
+     - runtime scaffold 已生成：
+       - `/tickets` 页面。
+       - ticket API。
+       - 状态流转 API。
+       - 表单组件。
+       - runtime unit test。
+       - Playwright 验收。
+     - `audit/basic` 联动：
+       - ticket 创建写入 ticket 审计条目。
+       - ticket 状态流转写入 ticket 审计条目。
+       - `/tickets` 页面展示 ticket 审计条目。
+     - `notify/email-basic` 联动：
+       - ticket 创建生成 ticket 通知。
+       - `/tickets` 页面展示 ticket 通知。
+       - 通知模型已从 customer-only 泛化到：
+         - `entity`
+         - `entityId`
+     - `export/csv-basic` 联动：
+       - ticket 列表生成 CSV 导出 API。
+       - `/tickets` 页面生成 CSV 导出入口。
+       - runtime unit/acceptance 已覆盖。
+     - 新增 `reporting/ticket-summary` 官方块：
+       - 按状态聚合 ticket。
+       - 按负责人聚合 ticket。
+       - `/tickets` runtime 页面展示 summary。
+     - Source View 已显式列出 generated runtime 页面/API 入口：
+       - 便于审查 ticket export 等组合产物。
+   - 下一步候选：
+     - 继续接入 review/explain 团队协作面。
+     - 验证业务块与治理块组合后的可审查输出。
 
 3. **review / explain 面向团队协作增强**
-   - 目标：让 review summary 更接近团队 review 入口，而不仅是机器 JSON。
-   - 退出条件：失败点、覆盖缺口、upgrade/repair/override 冲突能稳定聚合，并可被 CI artifact 消费。
+   - 目标：
+     - 让 review summary 更接近团队 review 入口。
+     - 不只输出机器 JSON。
+   - 退出条件：
+     - 以下信息能稳定聚合：
+       - 失败点。
+       - 覆盖缺口。
+       - upgrade 冲突。
+       - repair 冲突。
+       - override 冲突。
+     - 可被 CI artifact 消费。
 
 ### 暂不推进
 
