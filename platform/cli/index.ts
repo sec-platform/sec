@@ -434,10 +434,12 @@ async function main(): Promise<void> {
         console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
         return;
       } catch (error) {
-        if (repairArgs.json) {
-          const repairPlan = await readWrittenRepairPlan(process.cwd());
-          if (repairPlan) {
+        const repairPlan = await readWrittenRepairPlan(process.cwd());
+        if (repairPlan) {
+          if (repairArgs.json) {
             console.log(JSON.stringify(repairPlan, null, 2));
+          } else {
+            console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
           }
         }
         throw error;
