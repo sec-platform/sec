@@ -120,7 +120,10 @@ test('expanded official block set composes and verifies as one project', async (
   await explainWorkspace(workspaceRoot);
   const sourceView = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'views', 'source-view.html'), 'utf8');
   expect(sourceView).toContain('Runtime Entry Points');
+  expect(sourceView).toContain('Vertical Summary');
+  expect(sourceView).toContain('Block Combination Summary');
   expect(sourceView).toContain('app/api/tickets/export/route.ts');
+  expect(sourceView).toContain('ticket/basic');
   expect(sourceView).toContain('reporting/ticket-summary');
 });
 
