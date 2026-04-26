@@ -12,7 +12,10 @@ import {
 } from '../platform/shared/project-runtime.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../platform/shared/runtime-dependency-spec.ts';
-import { getDependencyEnvironmentStatus } from '../platform/shared/dependency-environment.ts';
+import {
+  getDependencyEnvironmentStatus,
+  relinkProjectDependencies
+} from '../platform/shared/dependency-environment.ts';
 
 const activeTempDirs = new Set<string>();
 
@@ -307,6 +310,13 @@ test('dependency environment reports dirty project dependency copies', async () 
 
   expect(status.mode).toBe('dirty');
   expect(status.recommendedAction).toBe('platform deps relink project');
+
+  const relinkedStatus = await relinkProjectDependencies(workspaceRoot, { sharedDepsRoot });
+
+  expect(relinkedStatus.mode).toBe('warm-project');
+  expect(await fs.realpath(path.join(projectRoot, 'node_modules'))).toBe(
+    await fs.realpath(path.join(sharedDepsRoot, 'node_modules'))
+  );
 });
 
 test('reference refresh and shared cache contract stay anchored in repo metadata', async () => {
