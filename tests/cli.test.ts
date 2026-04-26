@@ -664,6 +664,13 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
     report.logs.stderr = 'Unit verification failed for customer_normalizer';
     await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
+    const textResult = await runCli(workspaceRoot, ['repair', '--dry-run']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
+    expect(textResult.stdout).toContain('Source verification: failed; requires verification: false');
+    expect(textResult.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
+
     const result = await runCli(workspaceRoot, ['repair', '--dry-run', '--json']);
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
