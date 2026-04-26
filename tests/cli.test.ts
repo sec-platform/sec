@@ -397,6 +397,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         generatedByPass: 'artifacts'
       })
     );
+
+    const explainResult = await runCli(workspaceRoot, ['explain', '--json']);
+    const explainPayload = JSON.parse(explainResult.stdout) as {
+      reviewSummary: { artifactSummary?: typeof manifest.summary };
+    };
+    expect(explainPayload.reviewSummary.artifactSummary).toEqual(manifest.summary);
   });
 });
 

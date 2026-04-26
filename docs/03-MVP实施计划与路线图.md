@@ -590,6 +590,7 @@
          - 稳定 `failurePoints`。
          - 稳定 `regressionRisks`。
          - 稳定 `conflictHints`。
+         - 暴露 `artifactSummary`。
        - `artifacts --json`：
          - 状态：done。
          - 输出 CI 上传 artifact manifest。
