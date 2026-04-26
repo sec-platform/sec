@@ -85,6 +85,20 @@ test('expanded official block set composes and verifies as one project', async (
   expect(locked.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
   expect(locked.resolvedBlocks.some((block) => block.id === 'ticket/basic')).toBe(true);
   expect(locked.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
+  expect(locked.generatedPaths).toEqual(
+    expect.arrayContaining([
+      'app/tickets/page.tsx',
+      'app/api/tickets/route.ts',
+      'app/api/tickets/[ticketId]/status/route.ts',
+      'components/ticket-form.tsx',
+      'components/ticket-status-form.tsx',
+      'tests/runtime/unit/ticket-runtime.test.ts',
+      'tests/runtime/acceptance/ticket-flow.spec.ts'
+    ])
+  );
+
+  const routesSource = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'routes.ts'), 'utf8');
+  expect(routesSource).toContain("path: '/tickets'");
 });
 
 test('reference project coverage has no uncovered blocks', async () => {

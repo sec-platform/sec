@@ -87,8 +87,8 @@
 1. **Work Tracking / Ticket SaaS 纵切面**
    - 状态：active
    - 目标：在 Customer Admin 外增加一个 `ticket/basic` 最小块，验证状态流转、负责人、租户隔离和列表筛选。
-   - 已完成：新增 `ticket/basic` 官方块，包含 ticket 服务、Prisma 片段、unit/acceptance 验证、状态流转、负责人筛选和租户隔离；扩展块组合可安装并通过 verify，Postgres contract 已覆盖 `tickets` 表。
-   - 下一步候选：为 `ticket/basic` 增加 runtime UI/API 页面与 Playwright 验收，而不仅是 service-level acceptance。
+   - 已完成：新增 `ticket/basic` 官方块，包含 ticket 服务、Prisma 片段、unit/acceptance 验证、状态流转、负责人筛选和租户隔离；扩展块组合可安装并通过 verify，Postgres contract 已覆盖 `tickets` 表；runtime scaffold 已生成 `/tickets` 页面、ticket API、状态流转 API、表单组件、runtime unit test 与 Playwright 验收。
+   - 下一步候选：把 Work Tracking 纵切面接入 audit/notify 等横切能力，验证业务块与治理块组合后的 review/explain 输出。
 
 3. **review / explain 面向团队协作增强**
    - 目标：让 review summary 更接近团队 review 入口，而不仅是机器 JSON。

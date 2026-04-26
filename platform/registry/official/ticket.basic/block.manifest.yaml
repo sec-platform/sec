@@ -71,4 +71,6 @@ acceptance:
       blocks:
         - tenant/basic-workspace
         - ticket/basic
-routes: []
+routes:
+  - path: /tickets
+    file: src/installed/ticket/ticket-service.ts
