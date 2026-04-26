@@ -572,7 +572,11 @@
        - reporting/export 等横切能力的组合边。
      - 切口 C：local views 扩展：
        - 增加 vertical summary 卡片。
-       - 增加 block combination 卡片。
+       - 增加 block combination 卡片：
+         - 状态：done。
+         - 显示每个 block 的 install step count。
+         - 显示每个 block 的 verticals。
+         - 显示每个 block 的 runtime entry paths。
        - 增加 failure focus 卡片。
      - 切口 D：CI 消费口径：
        - `upgrade --dry-run --json`：

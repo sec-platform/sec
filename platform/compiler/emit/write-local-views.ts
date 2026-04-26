@@ -200,28 +200,32 @@ function renderVerticalSummaryCard(lock: LockFile, review: ReviewSummary): strin
       </section>`;
 }
 
-function renderBlockCombinationCard(lock: LockFile): string {
+function renderBlockCombinationCard(lock: LockFile, review: ReviewSummary): string {
+  const impactByBlock = new Map(review.installImpacts.map((impact) => [impact.blockId, impact]));
   const rows = lock.resolvedBlocks
     .slice()
     .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id))
     .map((block) => {
       const installs = lock.installPlan.filter((step) => step.blockId === block.id).length;
-      const blockVertical = detectVerticalFromPath(block.id);
-      const runtimeEntries = blockVertical
-        ? lock.generatedPaths.filter(
-            (generatedPath) =>
-              classifyRuntimeEntry(generatedPath) !== null && detectVerticalFromPath(generatedPath) === blockVertical
-          ).length
-        : 0;
-      return `<tr><td>${escapeHtml(block.id)}</td><td>${escapeHtml(block.kind)}</td><td>${escapeHtml(String(block.installOrder))}</td><td>${escapeHtml(String(installs))}</td><td>${escapeHtml(String(runtimeEntries))}</td></tr>`;
+      const impact = impactByBlock.get(block.id);
+      const verticals = impact?.verticals ?? [];
+      const runtimeEntries = impact?.runtimeEntries ?? [];
+      return `<tr>
+          <td>${escapeHtml(block.id)}</td>
+          <td>${escapeHtml(block.kind)}</td>
+          <td>${escapeHtml(String(block.installOrder))}</td>
+          <td>${escapeHtml(String(installs))}</td>
+          <td>${escapeHtml(verticals.join(', ') || 'none')}</td>
+          <td>${escapeHtml(runtimeEntries.join(', ') || 'none')}</td>
+        </tr>`;
     })
     .join('');
 
   return `<section class="card">
         <h2>Block Combination Summary</h2>
         <table>
-          <thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Runtime Entries</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="5">No blocks installed.</td></tr>'}</tbody>
+          <thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Verticals</th><th>Runtime Entries</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6">No blocks installed.</td></tr>'}</tbody>
         </table>
       </section>`;
 }
@@ -568,7 +572,7 @@ function renderSourceView(
       </section>
       ${renderRuntimeEntriesTable(lock)}
       ${renderVerticalSummaryCard(lock, review)}
-      ${renderBlockCombinationCard(lock)}
+      ${renderBlockCombinationCard(lock, review)}
       ${renderFailureFocusCard(review)}
       ${renderReviewRuntimeAttributionCard(review)}
       ${renderInstallImpactCard(review)}
