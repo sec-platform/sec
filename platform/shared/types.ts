@@ -611,8 +611,19 @@ export interface ReviewInstallImpact {
   runtimeEntries: string[];
 }
 
+export interface ReviewCiSummary {
+  status: 'passed' | 'attention' | 'failed';
+  failureCount: number;
+  regressionRiskCount: number;
+  conflictHintCount: number;
+  impactedBlockCount: number;
+  impactedSlotCount: number;
+  runtimeEntryCount: number;
+}
+
 export interface ReviewSummary {
   formatVersion: '2';
+  ciSummary: ReviewCiSummary;
   changeSources: Array<{
     path: string;
     originType: ProvenanceOriginType;

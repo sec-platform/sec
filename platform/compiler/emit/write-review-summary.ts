@@ -149,6 +149,28 @@ function mapOverrideTarget(
   return {};
 }
 
+function buildReviewCiSummary(
+  failurePoints: ReviewFailurePoint[],
+  regressionRisks: ReviewRegressionRisk[],
+  conflictHints: ReviewConflictHint[],
+  impactedBlocks: string[],
+  impactedSlots: string[],
+  runtimeEntries: ReviewSummary['runtimeEntries']
+): ReviewSummary['ciSummary'] {
+  const failureCount = failurePoints.length;
+  const regressionRiskCount = regressionRisks.length;
+  const conflictHintCount = conflictHints.length;
+  return {
+    status: failureCount > 0 ? 'failed' : regressionRiskCount > 0 || conflictHintCount > 0 ? 'attention' : 'passed',
+    failureCount,
+    regressionRiskCount,
+    conflictHintCount,
+    impactedBlockCount: impactedBlocks.length,
+    impactedSlotCount: impactedSlots.length,
+    runtimeEntryCount: runtimeEntries.length
+  };
+}
+
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
   const impacts = new Map<string, ReviewInstallImpact>();
 
@@ -401,9 +423,22 @@ export async function buildReviewSummary(
   const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path));
   const runtimeEntryByPath = new Map(runtimeEntries.map((entry) => [entry.path, entry]));
   const installImpacts = buildInstallImpacts(lock);
+  const impactedBlocks = unique(lock.resolvedBlocks.map((block) => block.id));
+  const impactedSlots = unique(lock.slotTasks.map((task) => task.id));
+  const sortedFailurePoints = [...failurePoints].sort(compareFailurePoints);
+  const sortedRegressionRisks = [...regressionRisks].sort(compareRegressionRisks);
+  const sortedConflictHints = [...conflictHints].sort(compareConflictHints);
 
   return {
     formatVersion: '2',
+    ciSummary: buildReviewCiSummary(
+      sortedFailurePoints,
+      sortedRegressionRisks,
+      sortedConflictHints,
+      impactedBlocks,
+      impactedSlots,
+      runtimeEntries
+    ),
     changeSources: provenance.artifacts.map((artifact) => {
       const runtimeEntry = runtimeEntryByPath.get(artifact.path);
       return {
@@ -429,11 +464,11 @@ export async function buildReviewSummary(
     runtimeEntries,
     verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
     installImpacts,
-    impactedBlocks: unique(lock.resolvedBlocks.map((block) => block.id)),
-    impactedSlots: unique(lock.slotTasks.map((task) => task.id)),
-    failurePoints: [...failurePoints].sort(compareFailurePoints),
-    regressionRisks: [...regressionRisks].sort(compareRegressionRisks),
-    conflictHints: [...conflictHints].sort(compareConflictHints)
+    impactedBlocks,
+    impactedSlots,
+    failurePoints: sortedFailurePoints,
+    regressionRisks: sortedRegressionRisks,
+    conflictHints: sortedConflictHints
   };
 }
 

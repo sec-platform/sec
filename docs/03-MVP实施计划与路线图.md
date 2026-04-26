@@ -576,8 +576,10 @@
          - 输出机器可解析 explain graph。
          - 输出机器可解析 review summary。
        - review summary 关键字段：
-         - 状态：active。
+         - 状态：done。
          - 保持 `formatVersion: 2`。
+         - 稳定 `ciSummary.status`。
+         - 稳定 `ciSummary` 计数字段。
          - 稳定 `failurePoints`。
          - 稳定 `regressionRisks`。
          - 稳定 `conflictHints`。

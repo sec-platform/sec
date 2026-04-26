@@ -28,6 +28,28 @@ function renderJsonCard(title: string, value: unknown): string {
   return `<section class="card"><h2>${escapeHtml(title)}</h2><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></section>`;
 }
 
+function renderCiSummaryCard(review: ReviewSummary): string {
+  const rows = [
+    ['Status', review.ciSummary.status],
+    ['Failures', String(review.ciSummary.failureCount)],
+    ['Regression Risks', String(review.ciSummary.regressionRiskCount)],
+    ['Conflict Hints', String(review.ciSummary.conflictHintCount)],
+    ['Impacted Blocks', String(review.ciSummary.impactedBlockCount)],
+    ['Impacted Slots', String(review.ciSummary.impactedSlotCount)],
+    ['Runtime Entries', String(review.ciSummary.runtimeEntryCount)]
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+
+  return `<section class="card">
+        <h2>CI Summary</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderRuntimeEntriesTable(lock: LockFile): string {
   const entries: Array<{ path: string; kind: NonNullable<ReturnType<typeof classifyRuntimeEntry>> }> = [];
   for (const generatedPath of lock.generatedPaths) {
@@ -444,6 +466,7 @@ function renderSourceView(
   <body>
     <main>
       ${renderViewNav('source')}
+      ${renderCiSummaryCard(review)}
       <section class="card">
         <h1>Source View</h1>
         <p>Blocks: ${lock.resolvedBlocks.length} | Slots: ${lock.slotTasks.length} | Files: ${provenance.artifacts.length}</p>
