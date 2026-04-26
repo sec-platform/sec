@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
+import type { RepairPlan, VerificationReport } from '../platform/shared/types.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
 function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -554,6 +555,86 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
   });
 });
 
+test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+
+    const { lockPath, repairPlanPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { passStatus: { verify: string } };
+    lock.passStatus.verify = 'failed';
+    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+
+    const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
+    report.unit.status = 'failed';
+    report.fast.status = 'failed';
+    report.fast.unit.status = 'failed';
+    report.fast.logs.stderr = 'Unit verification failed for customer_normalizer';
+    report.summary.status = 'failed';
+    report.summary.failedLanes = ['fast'];
+    report.logs.stderr = 'Unit verification failed for customer_normalizer';
+    await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+
+    const result = await runCli(workspaceRoot, ['repair', '--dry-run', '--json']);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+
+    const repairPlan = JSON.parse(result.stdout) as RepairPlan;
+    expect(repairPlan).toMatchObject({
+      formatVersion: '1',
+      status: 'pending',
+      sourceVerificationStatus: 'failed',
+      requiresVerification: false
+    });
+    expect(repairPlan.tasks).toHaveLength(1);
+    expect(repairPlan.tasks[0]).toMatchObject({
+      taskId: 'repair_slot_customer_normalizer',
+      taskKind: 'repair-slot',
+      sourceSlotId: 'customer_normalizer',
+      targetBlock: 'entity/customer-basic',
+      targetFile: 'custom/customer_normalizer.ts'
+    });
+    expect(repairPlan.tasks[0].failurePoints).toEqual([
+      expect.objectContaining({
+        lane: 'fast',
+        kind: 'unit',
+        issueType: 'slot',
+        repairable: true,
+        artifactPath: 'tests/unit',
+        message: 'Unit verification failed for customer_normalizer'
+      })
+    ]);
+    expect(repairPlan.tasks[0].preview).toMatchObject({
+      changed: false
+    });
+
+    const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
+    expect(writtenRepairPlan).toEqual(repairPlan);
+  });
+});
+
 test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
@@ -612,12 +693,12 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['repair', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform repair [--dry-run]\n'
+      stderr: 'UNEXPECTED Usage: platform repair [--dry-run] [--json]\n'
     });
     await expect(runCli(workspaceRoot, ['repair', '--dry-run', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform repair [--dry-run]\n'
+      stderr: 'UNEXPECTED Usage: platform repair [--dry-run] [--json]\n'
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
       code: 1,

@@ -251,6 +251,12 @@
        - 人工决策点。
      - repair blocker 进入 review summary。
      - repair blocker 进入 local view。
+     - repair plan CLI JSON 输出：
+       - `repair --json`。
+       - `repair --dry-run --json`。
+       - 输出机器可解析 `RepairPlan`。
+       - 保持普通文本输出不变。
+       - dry-run JSON 会写入 `generated/repair-plan.json`。
    - 当前阶段拆分：
      - 阶段 1：细化 failure point 归因。
      - 阶段 2：细化 repair task 生成边界。
@@ -271,13 +277,23 @@
        - 哪个边界阻止修复。
        - 需要人工决策的点。
      - 切口 D：补 repair 前后 diff/verify trace：
+       - 状态：active。
        - preview。
        - applied result。
        - verify pending state。
+       - 已完成：
+         - `repair --dry-run --json` 输出 preview 后的 repair plan。
+         - JSON 输出保留 `requiresVerification`。
+         - JSON 输出保留 repair task failure points。
+         - JSON 输出可被 CI/review 工具直接解析。
    - 每个切口的验证口径：
      - `review-repair-summary.test.ts`。
      - `pipeline.test.ts`。
      - 针对 repair plan/local view 的定向测试。
+     - CLI JSON 消费测试：
+       - `tests/cli.test.ts`。
+       - `repair --dry-run --json`。
+       - argument usage 边界。
    - 完成定义：
      - repair plan 不仅能生成，还能说明：
        - 修什么。
