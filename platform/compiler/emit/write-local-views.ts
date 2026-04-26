@@ -49,6 +49,24 @@ function renderCiSummaryCard(review: ReviewSummary): string {
   ]
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
     .join('');
+  const missingRows = review.artifactSummary?.missing?.length
+    ? review.artifactSummary.missing
+        .map(
+          (entry) => `<tr>
+              <td>${escapeHtml(entry.path)}</td>
+              <td>${escapeHtml(entry.reason)}</td>
+              <td>${escapeHtml(entry.declaredBy)}</td>
+            </tr>`
+        )
+        .join('')
+    : '';
+  const missingTable = missingRows
+    ? `<h3>Missing Artifact Diagnostics</h3>
+        <table>
+          <thead><tr><th>Path</th><th>Reason</th><th>Declared By</th></tr></thead>
+          <tbody>${missingRows}</tbody>
+        </table>`
+    : '';
 
   return `<section class="card">
         <h2>CI Summary</h2>
@@ -56,6 +74,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
+        ${missingTable}
       </section>`;
 }
 

@@ -627,11 +627,18 @@ export interface ReviewCiSummary {
   runtimeEntryCount: number;
 }
 
+export interface ReviewArtifactMissingEntry {
+  path: string;
+  reason: string;
+  declaredBy: string;
+}
+
 export interface ReviewArtifactSummary {
   artifactCount: number;
   governanceCount: number;
   viewCount: number;
   missingCount: number;
+  missing?: ReviewArtifactMissingEntry[];
 }
 
 export interface ReviewSummary {

@@ -268,6 +268,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       governanceCount: number;
       viewCount: number;
       missingCount: number;
+      missing?: Array<{ path: string; reason: string; declaredBy: string }>;
     };
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
@@ -293,7 +294,14 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     artifactCount: 7,
     governanceCount: 5,
     viewCount: 2,
-    missingCount: 1
+    missingCount: 1,
+    missing: [
+      {
+        path: 'generated/missing-<artifact>.json',
+        reason: 'declared-generated-missing',
+        declaredBy: 'graph.lock.json'
+      }
+    ]
   };
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
 
@@ -460,6 +468,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Status</td><td>failed</td>');
   expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
   expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
+  expect(sourceView).toContain('Missing Artifact Diagnostics');
+  expect(sourceView).toContain('generated/missing-&lt;artifact&gt;.json');
+  expect(sourceView).toContain('declared-generated-missing');
+  expect(sourceView).toContain('graph.lock.json');
   expect(sourceView).toContain('Vertical Summary');
   expect(sourceView).toContain('Block Combination Summary');
   expect(sourceView).toContain('Failure Focus');
