@@ -34,13 +34,21 @@ const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
-const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths)';
+const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json])';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
   '  platform deps clean [--project|--shared|--npm-cache]',
   '  platform deps clean --all --force'
 ].join('\n');
+
+function artifactUploadPaths(manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>): string[] {
+  const paths = [
+    'project/generated/ci-artifacts.json',
+    ...manifest.artifacts.map((artifact) => `project/${artifact.path}`)
+  ];
+  return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
+}
 
 function assertNoArgs(command: string, args: string[]): void {
   if (args.length > 0) {
@@ -117,9 +125,14 @@ function parseExplainArgs(args: string[]): { json: boolean } {
   throw new Error(EXPLAIN_USAGE);
 }
 
-function parseArtifactsArgs(args: string[]): { mode: 'json'; compact: boolean } | { mode: 'paths' } {
+function parseArtifactsArgs(
+  args: string[]
+): { mode: 'json'; compact: boolean } | { mode: 'paths'; json: boolean } {
   if (args.length === 1 && args[0] === '--paths') {
-    return { mode: 'paths' };
+    return { mode: 'paths', json: false };
+  }
+  if (args.length === 2 && args[0] === '--paths' && args[1] === '--json') {
+    return { mode: 'paths', json: true };
   }
   if (args[0] !== '--json') {
     throw new Error(ARTIFACTS_USAGE);
@@ -290,11 +303,12 @@ async function main(): Promise<void> {
       const artifactsArgs = parseArtifactsArgs(args);
       const manifest = await writeCiArtifactManifest(process.cwd());
       if (artifactsArgs.mode === 'paths') {
-        const paths = [
-          'project/generated/ci-artifacts.json',
-          ...manifest.artifacts.map((artifact) => `project/${artifact.path}`)
-        ];
-        console.log([...new Set(paths)].sort((left, right) => left.localeCompare(right)).join('\n'));
+        const paths = artifactUploadPaths(manifest);
+        if (artifactsArgs.json) {
+          console.log(JSON.stringify({ count: paths.length, paths }, null, 2));
+          return;
+        }
+        console.log(paths.join('\n'));
         return;
       }
       console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
