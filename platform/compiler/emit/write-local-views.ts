@@ -286,15 +286,56 @@ function renderFailureFocusCard(review: ReviewSummary): string {
 }
 
 function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
+  const runtimeGroups = new Map<string, { vertical: string; kind: string; count: number; relatedBlocks: Set<string> }>();
+  for (const entry of review.runtimeEntries) {
+    const vertical = entry.vertical ?? 'none';
+    const key = `${vertical}:${entry.kind}`;
+    let group = runtimeGroups.get(key);
+    if (!group) {
+      group = {
+        vertical,
+        kind: entry.kind,
+        count: 0,
+        relatedBlocks: new Set<string>()
+      };
+      runtimeGroups.set(key, group);
+    }
+    group.count += 1;
+    for (const blockId of entry.relatedBlocks) {
+      group.relatedBlocks.add(blockId);
+    }
+  }
+
+  const groupRows = [...runtimeGroups.values()]
+    .sort((left, right) => left.vertical.localeCompare(right.vertical) || left.kind.localeCompare(right.kind))
+    .map(
+      (group) => `<tr>
+          <td>${escapeHtml(group.vertical)}</td>
+          <td>${escapeHtml(group.kind)}</td>
+          <td>${escapeHtml(String(group.count))}</td>
+          <td>${escapeHtml([...group.relatedBlocks].sort((left, right) => left.localeCompare(right)).join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
   const rows = review.runtimeEntries
     .map(
-      (entry) =>
-        `<tr><td>${escapeHtml(entry.kind)}</td><td>${escapeHtml(entry.vertical ?? 'none')}</td><td>${escapeHtml(entry.path)}</td><td>${escapeHtml(entry.relatedBlocks.join(', ') || 'none')}</td></tr>`
+      (entry) => `<tr>
+          <td>${escapeHtml(entry.kind)}</td>
+          <td>${escapeHtml(entry.vertical ?? 'none')}</td>
+          <td>${escapeHtml(entry.path)}</td>
+          <td>${escapeHtml(entry.relatedBlocks.join(', ') || 'none')}</td>
+        </tr>`
     )
     .join('');
 
   return `<section class="card">
         <h2>Review Runtime Attribution</h2>
+        <h3>Runtime Groups</h3>
+        <table>
+          <thead><tr><th>Vertical</th><th>Kind</th><th>Count</th><th>Related Blocks</th></tr></thead>
+          <tbody>${groupRows || '<tr><td colspan="4">No runtime groups in review summary.</td></tr>'}</tbody>
+        </table>
+        <h3>Runtime Entries</h3>
         <table>
           <thead><tr><th>Kind</th><th>Vertical</th><th>Path</th><th>Related Blocks</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="4">No runtime entries in review summary.</td></tr>'}</tbody>
