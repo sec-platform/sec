@@ -615,6 +615,10 @@
            - `declared-generated-missing`。
            - `fixed-governance-missing`。
            - `fixed-view-missing`。
+         - 输出 missingReasonCounts：
+           - 按 reason 聚合。
+           - review summary 可消费。
+           - local source view 可展示。
          - 缺失项可被消费：
            - review summary。
            - `explain --json`。

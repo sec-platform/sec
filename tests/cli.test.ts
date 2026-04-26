@@ -341,6 +341,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         governanceCount: number;
         viewCount: number;
         missingCount: number;
+        missingReasonCounts: Record<string, number>;
       };
       artifacts: Array<{ path: string; kind: string; uploadName: string; exists: boolean }>;
       uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
@@ -355,7 +356,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       artifactCount: manifest.artifacts.length,
       governanceCount: manifest.artifacts.filter((artifact) => artifact.kind === 'governance').length,
       viewCount: manifest.artifacts.filter((artifact) => artifact.kind === 'view').length,
-      missingCount: 0
+      missingCount: 0,
+      missingReasonCounts: {
+        'declared-generated-missing': 0,
+        'fixed-governance-missing': 0,
+        'fixed-view-missing': 0
+      }
     });
     const governancePaths = manifest.artifacts
       .filter((artifact) => artifact.kind === 'governance')
@@ -443,6 +449,11 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       }
     ];
     expect(manifestWithLockMissing.summary.missingCount).toBe(1);
+    expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual({
+      'declared-generated-missing': 1,
+      'fixed-governance-missing': 0,
+      'fixed-view-missing': 0
+    });
     expect(manifestWithLockMissing.missing).toEqual(lockMissingDiagnostics);
 
     const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
@@ -481,6 +492,11 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       }
     ];
     expect(manifestWithMissing.summary.missingCount).toBe(3);
+    expect(manifestWithMissing.summary.missingReasonCounts).toEqual({
+      'declared-generated-missing': 1,
+      'fixed-governance-missing': 1,
+      'fixed-view-missing': 1
+    });
     expect(manifestWithMissing.missing).toEqual(fixedMissingDiagnostics);
   });
 });

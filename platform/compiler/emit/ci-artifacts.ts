@@ -28,6 +28,7 @@ export interface CiArtifactSummary {
   governanceCount: number;
   viewCount: number;
   missingCount: number;
+  missingReasonCounts: Record<CiArtifactMissingEntry['reason'], number>;
 }
 
 export interface CiArtifactMissingEntry {
@@ -107,6 +108,22 @@ function buildUploadGroups(entries: CiArtifactEntry[]): CiArtifactUploadGroup[] 
     .filter((group) => group.count > 0);
 }
 
+function buildMissingReasonCounts(
+  missing: CiArtifactMissingEntry[]
+): CiArtifactSummary['missingReasonCounts'] {
+  return {
+    'declared-generated-missing': missing.filter(
+      (entry) => entry.reason === 'declared-generated-missing'
+    ).length,
+    'fixed-governance-missing': missing.filter(
+      (entry) => entry.reason === 'fixed-governance-missing'
+    ).length,
+    'fixed-view-missing': missing.filter(
+      (entry) => entry.reason === 'fixed-view-missing'
+    ).length
+  };
+}
+
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   if (!(await pathExists(lockPath))) {
@@ -171,7 +188,8 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
       artifactCount: entries.length,
       governanceCount: entries.filter((entry) => entry.kind === 'governance').length,
       viewCount: entries.filter((entry) => entry.kind === 'view').length,
-      missingCount: sortedMissing.length
+      missingCount: sortedMissing.length,
+      missingReasonCounts: buildMissingReasonCounts(sortedMissing)
     },
     artifacts: entries,
     uploadGroups: buildUploadGroups(entries),
@@ -198,7 +216,12 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
           artifactCount: 0,
           governanceCount: 0,
           viewCount: 0,
-          missingCount: 0
+          missingCount: 0,
+          missingReasonCounts: {
+            'declared-generated-missing': 0,
+            'fixed-governance-missing': 0,
+            'fixed-view-missing': 0
+          }
         },
         artifacts: [],
         uploadGroups: [],

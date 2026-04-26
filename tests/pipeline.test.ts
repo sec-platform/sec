@@ -268,6 +268,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       governanceCount: number;
       viewCount: number;
       missingCount: number;
+      missingReasonCounts?: Record<string, number>;
       uploadGroups?: Array<{ kind: string; count: number; paths: string[] }>;
       missing?: Array<{ path: string; reason: string; declaredBy: string }>;
     };
@@ -296,6 +297,11 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     governanceCount: 5,
     viewCount: 2,
     missingCount: 1,
+    missingReasonCounts: {
+      'declared-generated-missing': 1,
+      'fixed-governance-missing': 0,
+      'fixed-view-missing': 0
+    },
     uploadGroups: [
       {
         kind: 'governance',
@@ -481,6 +487,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Status</td><td>failed</td>');
   expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
   expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
+  expect(sourceView).toContain('Missing Reason Summary');
+  expect(sourceView).toContain('declared-generated-missing');
   expect(sourceView).toContain('Artifact Upload Groups');
   expect(sourceView).toContain('generated/review-summary.json, generated/ci-artifacts.json');
   expect(sourceView).toContain('generated/views/source-view.html, generated/views/slot-rule-view.html');
