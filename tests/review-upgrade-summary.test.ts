@@ -133,6 +133,12 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
           evidence: []
         },
         {
+          id: 'migration-text-patterns',
+          status: 'passed',
+          message: '0 text replacement patterns checked',
+          evidence: []
+        },
+        {
           id: 'impact-scan',
           status: 'passed',
           message: '1 upgrade impacts calculated',
@@ -237,7 +243,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       {
         kind: 'upgrade-preflight-passed',
         relatedId: 'auth/basic-session',
-        message: 'Upgrade preflight passed: version-range, migration-entries, migration-targets, migration-json-shapes, migration-json-structure, impact-scan, override-conflicts'
+        message: 'Upgrade preflight passed: version-range, migration-entries, migration-targets, migration-json-shapes, migration-json-structure, migration-text-patterns, impact-scan, override-conflicts'
       }
     ]);
     expect(summary.failurePoints).toContainEqual({

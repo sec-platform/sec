@@ -183,6 +183,11 @@
          - 阻断：已有 array target 非数组时阻断。
          - 阻断：已有 object merge target 非对象时阻断。
          - diagnostics：归类到 `migration-json-structure`。
+       - text replacement pattern 检查：
+         - 状态：done。
+         - plan：`migration-text-patterns` preflight check。
+         - 阻断：非法正则在 planning 阶段阻断。
+         - diagnostics：归类到 `migration-text-patterns`。
        - migration source/target 当前存在性检查：
          - 状态：done。
          - plan：`migration-targets` preflight check。
