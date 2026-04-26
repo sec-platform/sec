@@ -261,6 +261,13 @@
          - 保持失败退出码。
          - stdout 输出已写入的 blocked `RepairPlan`。
          - stderr 保留 `REPAIR-BLOCKED-*` 错误与 details。
+       - repair CLI 普通文本摘要：
+         - 显示 task 数。
+         - 显示 blocker 数。
+         - 显示 source verification 状态。
+         - 显示 requires verification 状态。
+         - 显示最多前三个 repair task 目标。
+         - 显示最多前三个 blocker 摘要。
    - 当前阶段拆分：
      - 阶段 1：细化 failure point 归因。
      - 阶段 2：细化 repair task 生成边界。

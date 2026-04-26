@@ -223,6 +223,21 @@ function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
   return options;
 }
 
+function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
+  const suffix = repairPlan.status === 'applied' ? '; verify pending' : dryRun ? ' (dry-run)' : '';
+  const lines = [
+    `Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks, ${repairPlan.blockers?.length ?? 0} blockers)${suffix}`,
+    `Source verification: ${repairPlan.sourceVerificationStatus}; requires verification: ${repairPlan.requiresVerification}`
+  ];
+  for (const task of repairPlan.tasks.slice(0, 3)) {
+    lines.push(`Task ${task.taskId}: ${task.targetBlock} -> ${task.targetFile}`);
+  }
+  for (const blocker of repairPlan.blockers?.slice(0, 3) ?? []) {
+    lines.push(`Blocker ${blocker.blockerId}: ${blocker.boundary}; ${blocker.reason}`);
+  }
+  return lines.join('\n');
+}
+
 async function readWrittenRepairPlan(workspaceRoot: string): Promise<RepairPlan | null> {
   const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
   if (!(await pathExists(repairPlanPath))) {
@@ -317,8 +332,7 @@ async function main(): Promise<void> {
           console.log(JSON.stringify(repairPlan, null, 2));
           return;
         }
-        const suffix = repairPlan.status === 'applied' ? '; verify pending' : repairArgs.dryRun ? ' (dry-run)' : '';
-        console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)${suffix}`);
+        console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
         return;
       } catch (error) {
         if (repairArgs.json) {
