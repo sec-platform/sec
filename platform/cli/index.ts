@@ -27,7 +27,13 @@ import {
   warmupDependencyEnvironment,
   type DependencyCleanOptions
 } from '../shared/dependency-environment.ts';
-import type { RepairPlan, VerificationLane } from '../shared/types.ts';
+import type {
+  ExplainGraph,
+  RepairPlan,
+  ReviewSummary,
+  UpgradePlan,
+  VerificationLane
+} from '../shared/types.ts';
 
 const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>';
 const INIT_USAGE = 'Usage: platform init [--reset]';
@@ -223,6 +229,10 @@ function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
   return options;
 }
 
+function formatList(values: string[], fallback = 'none'): string {
+  return values.length > 0 ? values.join(', ') : fallback;
+}
+
 function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
   const suffix = repairPlan.status === 'applied' ? '; verify pending' : dryRun ? ' (dry-run)' : '';
   const lines = [
@@ -235,6 +245,61 @@ function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
   for (const blocker of repairPlan.blockers?.slice(0, 3) ?? []) {
     lines.push(`Blocker ${blocker.blockerId}: ${blocker.boundary}; ${blocker.reason}`);
   }
+  return lines.join('\n');
+}
+
+function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
+  const suffix = dryRun ? ' (dry-run)' : '';
+  const migrationKinds = Object.entries(upgradePlan.migrationKindCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([kind, count]) => `${kind}=${count}`);
+  const requiresVerificationCount = upgradePlan.migrationSummaries.filter(
+    (migration) => migration.requiresVerification
+  ).length;
+  return [
+    `Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`,
+    [
+      `Status: ${upgradePlan.status}`,
+      `migrations: ${upgradePlan.migrations.length}`,
+      `preflight checks: ${upgradePlan.preflightChecks.length}`
+    ].join('; '),
+    `Migration kinds: ${formatList(migrationKinds)}`,
+    `Impacts: ${formatList(upgradePlan.impacts)}`,
+    `Requires verification: ${requiresVerificationCount > 0} (${requiresVerificationCount} migrations)`
+  ].join('\n');
+}
+
+function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
+  const { artifactSummary, ciSummary } = reviewSummary;
+  const lines = [
+    `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
+    [
+      `CI status: ${ciSummary.status}`,
+      `failures: ${ciSummary.failureCount}`,
+      `regression risks: ${ciSummary.regressionRiskCount}`,
+      `conflict hints: ${ciSummary.conflictHintCount}`
+    ].join('; '),
+    [
+      `Impacted: ${ciSummary.impactedBlockCount} blocks`,
+      `${ciSummary.impactedSlotCount} slots`,
+      `${ciSummary.runtimeEntryCount} runtime entries`
+    ].join(', ')
+  ];
+
+  if (artifactSummary) {
+    const uploadGroups = artifactSummary.uploadGroups?.map(
+      (group) => `${group.kind}=${group.count}`
+    ) ?? [];
+    lines.push(
+      [
+        `Artifacts: ${artifactSummary.artifactStatus ?? 'passed'}`,
+        `total: ${artifactSummary.artifactCount}`,
+        `missing: ${artifactSummary.missingCount}`
+      ].join('; '),
+      `Upload groups: ${formatList(uploadGroups)}`
+    );
+  }
+
   return lines.join('\n');
 }
 
@@ -353,8 +418,7 @@ async function main(): Promise<void> {
         console.log(JSON.stringify(upgradePlan, null, 2));
         return;
       }
-      const suffix = upgradeArgs.dryRun ? ' (dry-run)' : '';
-      console.log(`Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`);
+      console.log(formatUpgradeSummary(upgradePlan, upgradeArgs.dryRun));
       return;
     }
     case 'lock':
@@ -369,7 +433,7 @@ async function main(): Promise<void> {
         console.log(JSON.stringify({ graph, reviewSummary }, null, 2));
         return;
       }
-      console.log(`Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`);
+      console.log(formatExplainSummary(graph, reviewSummary));
       return;
     }
     case 'artifacts': {

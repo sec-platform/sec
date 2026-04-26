@@ -48,7 +48,7 @@
 | fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
-| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair 节点、policy violation 边、slot 合同升级影响边，以及 repair task 归因边。 |
+| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair 节点、policy violation 边、slot 合同升级影响边、repair task 归因边，以及 CLI 普通文本 review 摘要。 |
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
@@ -136,6 +136,15 @@
      - 升级诊断在 review/local view 中的聚合。
      - upgrade diagnostics 进入 lock/provenance 产物清单。
      - CLI `upgrade --dry-run --json` 可输出机器可解析 plan，供团队 CI 直接消费。
+     - upgrade CLI 普通文本摘要：
+       - 显示 block 升级版本。
+       - 显示 dry-run 状态。
+       - 显示 plan 状态。
+       - 显示 migration 数量。
+       - 显示 preflight check 数量。
+       - 显示 migration kind 计数。
+       - 显示 impact 文件列表。
+       - 显示 requires verification 聚合结果。
    - 当前阶段拆分：
      - 阶段 1：扩 migration 类型。
      - 阶段 2：补 migration 预检与阻断口径。

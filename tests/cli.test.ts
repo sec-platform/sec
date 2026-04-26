@@ -263,6 +263,15 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       stderr: ''
     });
 
+    const textResult = await runCli(workspaceRoot, ['explain']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Explain graph');
+    expect(textResult.stdout).toContain(
+      'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
+    );
+    expect(textResult.stdout).toContain('Impacted: 3 blocks, 1 slots,');
+
     const result = await runCli(workspaceRoot, ['explain', '--json']);
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
@@ -796,7 +805,35 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       stdout: 'Initialized project workspace\n',
       stderr: ''
     });
-    const result = await runCli(workspaceRoot, ['upgrade', 'auth/basic-session', '0.1.1', '--dry-run', '--json']);
+    const textResult = await runCli(workspaceRoot, [
+      'upgrade',
+      'auth/basic-session',
+      '0.1.1',
+      '--dry-run'
+    ]);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain(
+      'Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)'
+    );
+    expect(textResult.stdout).toContain(
+      'Status: planned; migrations: 2; preflight checks:'
+    );
+    expect(textResult.stdout).toContain(
+      'Migration kinds: file-replace=1, json-array-append=1'
+    );
+    expect(textResult.stdout).toContain(
+      'Impacts: src/installed/auth/session.ts, upgrade.metadata.json'
+    );
+    expect(textResult.stdout).toContain('Requires verification: true (1 migrations)');
+
+    const result = await runCli(workspaceRoot, [
+      'upgrade',
+      'auth/basic-session',
+      '0.1.1',
+      '--dry-run',
+      '--json'
+    ]);
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
 
