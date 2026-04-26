@@ -1,4 +1,5 @@
 import type { CustomerRecord, TicketRecord } from '../../runtime/database.ts';
+import type { TicketSummary } from '../../installed/reporting/ticket-summary.ts';
 
 export function exportCustomersToCsv(customers: CustomerRecord[]): string {
   const rows = [
@@ -29,6 +30,19 @@ export function exportTicketsToCsv(tickets: TicketRecord[]): string {
       ticket.createdBy,
       ticket.updatedAt
     ])
+  ];
+
+  return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\n');
+}
+
+export function exportTicketSummaryToCsv(summary: TicketSummary): string {
+  const rows = [
+    ['section', 'key', 'value'],
+    ['total', 'tickets', String(summary.total)],
+    ['status', 'open', String(summary.byStatus.open)],
+    ['status', 'in_progress', String(summary.byStatus.in_progress)],
+    ['status', 'closed', String(summary.byStatus.closed)],
+    ...summary.byAssignee.map((entry) => ['assignee', entry.assigneeId, String(entry.count)])
   ];
 
   return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\n');

@@ -370,7 +370,13 @@ function renderTicketsPage(options: {
   const reportingView = options.ticketReportingEnabled
     ? `
       <section className="card stack">
-        <h2>Ticket Summary</h2>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2>Ticket Summary</h2>
+          <div className="row">
+            <a href="/api/tickets/summary">View ticket summary JSON</a>
+            <a href="/api/tickets/summary/export">Export ticket summary CSV</a>
+          </div>
+        </div>
         <p>Total tickets: {ticketSummary.total}</p>
         <ul className="clean" aria-label="Ticket status summary">
           <li>Open: {ticketSummary.byStatus.open}</li>
@@ -777,6 +783,57 @@ export async function GET() {
   return new NextResponse(csv, {
     headers: {
       'content-disposition': 'attachment; filename="tickets.csv"',
+      'content-type': 'text/csv; charset=utf-8'
+    }
+  });
+}
+`;
+}
+
+function renderTicketSummaryRoute(): string {
+  return `import { NextResponse } from 'next/server';
+import { summarizeTickets } from '../../../../src/installed/reporting/ticket-summary.ts';
+import { listTickets, listTicketsByAssignee } from '../../../../src/installed/ticket/ticket-service.ts';
+import { getCurrentSession } from '../../../../lib/session.ts';
+import { getDatabase } from '../../../../lib/store.ts';
+
+export async function GET(request: Request) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  const database = getDatabase();
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const tickets = assigneeId ? listTicketsByAssignee(database, session, assigneeId) : listTickets(database, session);
+  return NextResponse.json({ summary: summarizeTickets(tickets) });
+}
+`;
+}
+
+function renderTicketSummaryExportRoute(): string {
+  return `import { NextResponse } from 'next/server';
+import { exportTicketSummaryToCsv } from '../../../../../src/installed/export/customer-csv.ts';
+import { summarizeTickets } from '../../../../../src/installed/reporting/ticket-summary.ts';
+import { listTickets, listTicketsByAssignee } from '../../../../../src/installed/ticket/ticket-service.ts';
+import { getCurrentSession } from '../../../../../lib/session.ts';
+import { getDatabase } from '../../../../../lib/store.ts';
+
+export async function GET(request: Request) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  const database = getDatabase();
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const tickets = assigneeId ? listTicketsByAssignee(database, session, assigneeId) : listTickets(database, session);
+  const csv = exportTicketSummaryToCsv(summarizeTickets(tickets));
+  return new NextResponse(csv, {
+    headers: {
+      'content-disposition': 'attachment; filename="ticket-summary.csv"',
       'content-type': 'text/csv; charset=utf-8'
     }
   });
@@ -1486,9 +1543,31 @@ function renderTicketRuntimeAcceptanceTest(options: {
   const reportingAssertions = options.ticketReportingEnabled
     ? `
   await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Export ticket summary CSV' })).toBeVisible();
   await expect(page.getByText('Total tickets: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('Open: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Assignee summary' }).getByText('support-owner: 1')).toBeVisible();
+  const summaryResponse = await page.request.get('/api/tickets/summary');
+  expect(summaryResponse.ok()).toBe(true);
+  const summaryPayload = await summaryResponse.json() as {
+    summary: {
+      total: number;
+      byStatus: { open: number; in_progress: number; closed: number };
+      byAssignee: Array<{ assigneeId: string; count: number }>;
+    };
+  };
+  expect(summaryPayload.summary.total).toBe(1);
+  expect(summaryPayload.summary.byStatus.open).toBe(1);
+  expect(summaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
+  const summaryExportResponse = await page.request.get('/api/tickets/summary/export');
+  expect(summaryExportResponse.ok()).toBe(true);
+  expect(summaryExportResponse.headers()['content-type']).toContain('text/csv');
+  const summaryCsv = await summaryExportResponse.text();
+  expect(summaryCsv).toContain('section,key,value');
+  expect(summaryCsv).toContain('total,tickets,1');
+  expect(summaryCsv).toContain('status,open,1');
+  expect(summaryCsv).toContain('assignee,support-owner,1');
 `
     : '';
 
@@ -1595,6 +1674,12 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
     entries.push(
       { relativePath: 'app/tickets/page.tsx', source: renderTicketsPage(customerFeatureOptions) },
       { relativePath: 'app/api/tickets/route.ts', source: renderTicketsRoute(customerFeatureOptions) },
+      ...(customerFeatureOptions.ticketReportingEnabled
+        ? [
+            { relativePath: 'app/api/tickets/summary/route.ts', source: renderTicketSummaryRoute() },
+            { relativePath: 'app/api/tickets/summary/export/route.ts', source: renderTicketSummaryExportRoute() }
+          ]
+        : []),
       ...(customerFeatureOptions.exportCsvEnabled
         ? [{ relativePath: 'app/api/tickets/export/route.ts', source: renderTicketExportRoute() }]
         : []),
