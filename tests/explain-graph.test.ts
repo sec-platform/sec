@@ -7,7 +7,7 @@ import { buildExplainGraph, writeExplainGraph } from '../platform/compiler/emit/
 import { initWorkspace, resolveWorkspace } from '../platform/orchestrator.ts';
 import { readJson, writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
-import type { AcceptanceCoverageReport, PolicyReport, ProvenanceFile, RepairPlan, UpgradePlan } from '../platform/shared/types.ts';
+import type { AcceptanceCoverageReport, LockFile, PolicyReport, ProvenanceFile, RepairPlan, UpgradePlan } from '../platform/shared/types.ts';
 
 const activeWorkspaces = new Set<string>();
 
@@ -250,7 +250,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
 
 test('explain graph links generated ticket runtime routes back to related blocks', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-runtime-attribution-');
-  const lock = {
+  const lock: LockFile = {
     formatVersion: '1',
     app: {
       name: 'customer-admin',
