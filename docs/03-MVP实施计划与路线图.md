@@ -602,6 +602,10 @@
            - `kind`。
            - `count`。
            - `paths`。
+         - uploadGroups 可被消费：
+           - review summary。
+           - `explain --json`。
+           - local source view。
          - 输出 lock 声明但缺失的 generated artifact。
          - 缺失项包含：
            - `path`。

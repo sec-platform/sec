@@ -419,9 +419,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
 
     const explainResult = await runCli(workspaceRoot, ['explain', '--json']);
     const explainPayload = JSON.parse(explainResult.stdout) as {
-      reviewSummary: { artifactSummary?: typeof manifest.summary };
+      reviewSummary: {
+        artifactSummary?: typeof manifest.summary & { uploadGroups?: typeof manifest.uploadGroups };
+      };
     };
-    expect(explainPayload.reviewSummary.artifactSummary).toEqual(manifest.summary);
+    expect(explainPayload.reviewSummary.artifactSummary).toMatchObject(manifest.summary);
+    expect(explainPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(manifest.uploadGroups);
 
     const lockWithMissingArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
     lockWithMissingArtifact.generatedPaths.push('generated/missing-diagnostic.json');
@@ -444,8 +447,16 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
 
     const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
     const explainWithMissingPayload = JSON.parse(explainWithMissingResult.stdout) as {
-      reviewSummary: { artifactSummary?: typeof manifest.summary & { missing?: typeof missingDiagnostics } };
+      reviewSummary: {
+        artifactSummary?: typeof manifest.summary & {
+          uploadGroups?: typeof manifest.uploadGroups;
+          missing?: typeof missingDiagnostics;
+        };
+      };
     };
+    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(
+      manifestWithMissing.uploadGroups
+    );
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(missingDiagnostics);
   });
 });

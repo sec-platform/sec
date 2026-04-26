@@ -180,6 +180,7 @@ async function readArtifactSummary(workspaceRoot: string): Promise<ReviewSummary
   const manifest = await readJson<CiArtifactManifest>(ciArtifactsPath);
   return {
     ...manifest.summary,
+    ...(manifest.uploadGroups.length > 0 ? { uploadGroups: manifest.uploadGroups } : {}),
     ...(manifest.missing.length > 0 ? { missing: manifest.missing } : {})
   };
 }
