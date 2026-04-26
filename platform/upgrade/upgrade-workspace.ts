@@ -122,6 +122,17 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
+  if (entry.kind === 'json-object-merge') {
+    ensureMigrationStringArray(entry.path, 'path', entryPath);
+    if (entry.path.length === 0) {
+      throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
+    }
+    if (!isJsonObject(entry.value)) {
+      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires value`);
+    }
+    return;
+  }
+
   if (entry.kind === 'slot-contract-update') {
     ensureMigrationString(entry.slotId, 'slotId', entryPath);
     if (entry.inputType !== undefined) {
@@ -188,6 +199,10 @@ function ensureJsonObject(config: unknown, label: string): Record<string, unknow
     throw new CompilerError('UPGRADE-MIGRATION-009', `${label} target must contain a JSON object`);
   }
   return config as Record<string, unknown>;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; value?: unknown; operation?: 'set' | 'delete' }>): unknown {
@@ -280,6 +295,45 @@ function applyJsonArrayRemove(config: unknown, entry: Extract<UpgradeMigrationEn
   return config;
 }
 
+function mergeJsonObjects(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(source)) {
+    const existing = target[key];
+    if (isJsonObject(existing) && isJsonObject(value)) {
+      mergeJsonObjects(existing, value);
+      continue;
+    }
+    target[key] = value;
+  }
+}
+
+function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-object-merge' }>): unknown {
+  if (entry.path.length === 0) {
+    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
+  }
+  const root = ensureJsonObject(config, 'JSON object merge');
+  let current = root;
+  for (const segment of entry.path.slice(0, -1)) {
+    const next = current[segment];
+    if (next !== undefined && !isJsonObject(next)) {
+      throw new CompilerError('UPGRADE-MIGRATION-013', 'JSON object merge parent must be an object');
+    }
+    if (next === undefined) {
+      current[segment] = {};
+    }
+    current = current[segment] as Record<string, unknown>;
+  }
+
+  const key = entry.path[entry.path.length - 1];
+  const target = current[key];
+  if (target !== undefined && !isJsonObject(target)) {
+    throw new CompilerError('UPGRADE-MIGRATION-013', 'JSON object merge target must be an object');
+  }
+  const targetObject = isJsonObject(target) ? target : {};
+  mergeJsonObjects(targetObject, entry.value);
+  current[key] = targetObject;
+  return config;
+}
+
 export async function applyMigrationEntries(
   projectRoot: string,
   targetManifestRoot: string,
@@ -320,6 +374,13 @@ export async function applyMigrationEntries(
         continue;
       }
       const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
+      await writeJson(targetPath, config);
+      continue;
+    }
+
+    if (entry.kind === 'json-object-merge') {
+      const config = applyJsonObjectMerge((await pathExists(targetPath)) ? await readJson<unknown>(targetPath) : {}, entry);
+      await ensureDir(path.dirname(targetPath));
       await writeJson(targetPath, config);
       continue;
     }
