@@ -115,6 +115,8 @@ test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000
   expect(graph.edges.some((edge) => edge.type === 'violates')).toBe(false);
   expect(graph.overlays.coverage.blocks.every((entry) => Array.isArray(entry.coveredBy))).toBe(true);
   expect(reviewSummary.formatVersion).toBe('2');
+  expect(reviewSummary.ciSummary.status).toBe('passed');
+  expect(reviewSummary.ciSummary.failureCount).toBe(0);
   expect(reviewSummary.failurePoints).toEqual([]);
   expect(reviewSummary.regressionRisks).toEqual([]);
   expect(reviewSummary.conflictHints).toEqual([]);
@@ -252,6 +254,15 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
 
   const reviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
     formatVersion: '2';
+    ciSummary: {
+      status: 'passed' | 'attention' | 'failed';
+      failureCount: number;
+      regressionRiskCount: number;
+      conflictHintCount: number;
+      impactedBlockCount: number;
+      impactedSlotCount: number;
+      runtimeEntryCount: number;
+    };
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
     installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;
@@ -267,6 +278,11 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       message: 'disk-only <failure> & "point"'
     }
   ];
+  reviewSummary.ciSummary = {
+    ...reviewSummary.ciSummary,
+    status: 'failed',
+    failureCount: reviewSummary.failurePoints.length
+  };
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
 
   const coverage = JSON.parse(await fs.readFile(acceptanceCoveragePath, 'utf8')) as {
@@ -409,6 +425,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('href="source-view.html" aria-current="page"');
   expect(slotRuleView).toContain('href="source-view.html"');
   expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
+  expect(sourceView).toContain('CI Summary');
+  expect(sourceView).toContain('<td>Status</td><td>failed</td>');
   expect(sourceView).toContain('Vertical Summary');
   expect(sourceView).toContain('Block Combination Summary');
   expect(sourceView).toContain('Failure Focus');

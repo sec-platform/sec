@@ -236,6 +236,10 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
 
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+    expect(summary.ciSummary.status).toBe('failed');
+    expect(summary.ciSummary.failureCount).toBe(1);
+    expect(summary.ciSummary.regressionRiskCount).toBeGreaterThanOrEqual(2);
+    expect(summary.ciSummary.conflictHintCount).toBe(4);
     expect(summary.conflictHints).toEqual([
       {
         kind: 'repair-plan-present',

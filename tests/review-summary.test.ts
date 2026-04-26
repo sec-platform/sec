@@ -129,6 +129,15 @@ test('writeReviewSummary persists generated path in lock', async () => {
   const persistedLock = await readJson<LockFile>(lockPath);
   const persistedSummary = await readJson<typeof summary>(reviewSummaryPath);
 
+  expect(summary.ciSummary).toEqual({
+    status: 'passed',
+    failureCount: 0,
+    regressionRiskCount: 0,
+    conflictHintCount: 0,
+    impactedBlockCount: 0,
+    impactedSlotCount: 0,
+    runtimeEntryCount: 0
+  });
   expect(summary.conflictHints).toEqual([]);
   expect(persistedSummary).toEqual(summary);
   expect(persistedLock.generatedPaths).toEqual(['generated/review-summary.json']);
@@ -155,6 +164,8 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
   expect(summary.formatVersion).toBe('2');
+  expect(summary.ciSummary.status).toBe('failed');
+  expect(summary.ciSummary.failureCount).toBeGreaterThanOrEqual(2);
   expect(summary.failurePoints).toEqual(
     expect.arrayContaining([
       {

@@ -268,11 +268,20 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
 
     const payload = JSON.parse(result.stdout) as {
       graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
-      reviewSummary: { formatVersion: string; impactedBlocks: string[]; failurePoints: unknown[] };
+      reviewSummary: {
+        formatVersion: string;
+        ciSummary: { status: string; failureCount: number };
+        impactedBlocks: string[];
+        failurePoints: unknown[];
+      };
     };
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
     expect(payload.graph.edges.length).toBeGreaterThan(0);
     expect(payload.reviewSummary.formatVersion).toBe('2');
+    expect(payload.reviewSummary.ciSummary).toMatchObject({
+      status: 'passed',
+      failureCount: 0
+    });
     expect(payload.reviewSummary.impactedBlocks).toEqual(
       expect.arrayContaining([
         'auth/basic-session',
