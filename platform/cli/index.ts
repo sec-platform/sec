@@ -17,7 +17,9 @@ import { getWorkspacePaths } from '../shared/paths.ts';
 import {
   cleanDependencyEnvironment,
   formatDependencyEnvironmentStatus,
+  formatDoctorReport,
   getDependencyEnvironmentStatus,
+  getDoctorReport,
   relinkProjectDependencies,
   warmupDependencyEnvironment,
   type DependencyCleanOptions
@@ -33,7 +35,8 @@ const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dr
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
-  '  platform deps clean [--project|--shared|--npm-cache|--all]'
+  '  platform deps clean [--project|--shared|--npm-cache]',
+  '  platform deps clean --all --force'
 ].join('\n');
 
 function assertNoArgs(command: string, args: string[]): void {
@@ -124,6 +127,17 @@ function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
       options.all = true;
       continue;
     }
+    if (flag === '--force') {
+      options.force = true;
+      continue;
+    }
+    throw new Error(DEPS_USAGE);
+  }
+
+  if (options.all && options.force !== true) {
+    throw new Error(DEPS_USAGE);
+  }
+  if (!options.all && options.force) {
     throw new Error(DEPS_USAGE);
   }
 
@@ -241,8 +255,8 @@ async function main(): Promise<void> {
     }
     case 'doctor': {
       assertNoArgs('doctor', args);
-      const status = await getDependencyEnvironmentStatus(process.cwd());
-      console.log(formatDependencyEnvironmentStatus(status));
+      const report = await getDoctorReport(process.cwd());
+      console.log(formatDoctorReport(report));
       return;
     }
     case 'deps':

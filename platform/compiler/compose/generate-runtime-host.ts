@@ -1480,6 +1480,7 @@ export function TicketCommentForm({ ticketId, ticketTitle }: TicketCommentFormPr
 function renderTicketWorklogForm(): string {
   return `'use client';
 
+import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 
 interface TicketWorklogFormProps {
@@ -1488,6 +1489,7 @@ interface TicketWorklogFormProps {
 }
 
 export function TicketWorklogForm({ ticketId, ticketTitle }: TicketWorklogFormProps) {
+  const router = useRouter();
   const [minutes, setMinutes] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -1516,7 +1518,7 @@ export function TicketWorklogForm({ ticketId, ticketTitle }: TicketWorklogFormPr
     setMinutes('');
     setNote('');
     setPending(false);
-    window.location.reload();
+    router.refresh();
   }
 
   return (
@@ -2077,9 +2079,12 @@ function renderTicketRuntimeAcceptanceTest(options: {
 `;
   const worklogAssertions = options.worklogEnabled
     ? `
+  const expectedWorklogResponse = page.waitForResponse((response) => response.url().includes('/api/tickets/1/worklogs') && response.request().method() === 'POST');
   await createdTicket.getByLabel('Worklog minutes for Escalate onboarding issue').fill('45');
   await createdTicket.getByLabel('Worklog note for Escalate onboarding issue').fill('Investigated customer setup logs');
   await createdTicket.getByRole('button', { name: 'Add worklog for Escalate onboarding issue' }).click();
+  const createdWorklogResponse = await expectedWorklogResponse;
+  expect(createdWorklogResponse.ok()).toBe(true);
   await expect(createdTicket).toContainText('Total worklog minutes: 45');
   await expect(createdTicket).toContainText('45m by user-tenant-a-admin: Investigated customer setup logs');
   const worklogResponse = await page.request.get('/api/tickets/1/worklogs');

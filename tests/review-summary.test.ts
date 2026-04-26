@@ -167,7 +167,7 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
         lane: 'fast',
         kind: 'policy',
         artifactPath: 'generated/policy-report.json',
-        message: 'Policy tenant-scope-required: Entity customer queries must derive tenant context and filter by tenantId.'
+        message: 'Policy tenant-scope-required: Tenant-scoped queries must derive tenant context and filter by tenantId.'
       }
     ])
   );

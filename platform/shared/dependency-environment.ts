@@ -7,12 +7,14 @@ import { loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
 export type DependencyEnvironmentMode = 'cold' | 'warm-shared' | 'warm-project' | 'dirty' | 'stale';
 export type DependencyEntryKind = 'missing' | 'physical' | 'link';
+export type DoctorCheckStatus = 'ok' | 'warn' | 'fail';
 
 export interface DependencyEntryStatus {
   path: string;
   exists: boolean;
   kind: DependencyEntryKind;
   sizeBytes: number;
+  entryCount?: number;
   target?: string;
 }
 
@@ -33,10 +35,23 @@ export interface DependencyCleanOptions {
   shared?: boolean;
   npmCache?: boolean;
   all?: boolean;
+  force?: boolean;
 }
 
 export interface DependencyEnvironmentOptions {
   sharedDepsRoot?: string;
+}
+
+export interface DoctorCheck {
+  id: string;
+  status: DoctorCheckStatus;
+  message: string;
+}
+
+export interface DoctorReport {
+  status: DoctorCheckStatus;
+  checks: DoctorCheck[];
+  dependencies: DependencyEnvironmentStatus;
 }
 
 async function safeRealpath(targetPath: string): Promise<string | undefined> {
@@ -47,41 +62,20 @@ async function safeRealpath(targetPath: string): Promise<string | undefined> {
   }
 }
 
-async function entrySize(targetPath: string): Promise<number> {
+async function shallowEntryCount(targetPath: string): Promise<number | undefined> {
+  try {
+    const entries = await fs.readdir(targetPath, { withFileTypes: true });
+    return entries.length;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readEntryStatus(targetPath: string): Promise<DependencyEntryStatus> {
   let stat: Awaited<ReturnType<typeof fs.lstat>>;
   try {
     stat = await fs.lstat(targetPath);
   } catch {
-    return 0;
-  }
-
-  if (stat.isSymbolicLink()) {
-    return 0;
-  }
-
-  if (!stat.isDirectory()) {
-    return stat.size;
-  }
-
-  let total = 0;
-  let entries: Array<import('node:fs').Dirent>;
-  try {
-    entries = await fs.readdir(targetPath, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-
-  for (const entry of entries) {
-    const entryPath = path.join(targetPath, entry.name);
-    const entryStat = await fs.lstat(entryPath).catch(() => null);
-    total += entryStat?.size ?? 0;
-  }
-
-  return total;
-}
-
-async function readEntryStatus(targetPath: string): Promise<DependencyEntryStatus> {
-  if (!(await pathExists(targetPath))) {
     return {
       path: targetPath,
       exists: false,
@@ -90,13 +84,13 @@ async function readEntryStatus(targetPath: string): Promise<DependencyEntryStatu
     };
   }
 
-  const stat = await fs.lstat(targetPath);
   const target = await safeRealpath(targetPath);
   return {
     path: targetPath,
     exists: true,
     kind: stat.isSymbolicLink() ? 'link' : 'physical',
-    sizeBytes: await entrySize(targetPath),
+    sizeBytes: stat.size,
+    entryCount: stat.isDirectory() ? await shallowEntryCount(targetPath) : undefined,
     target
   };
 }
@@ -159,6 +153,65 @@ function recommendAction(mode: DependencyEnvironmentMode): string {
   }
 }
 
+function combineDoctorStatus(checks: DoctorCheck[]): DoctorCheckStatus {
+  if (checks.some((check) => check.status === 'fail')) {
+    return 'fail';
+  }
+  if (checks.some((check) => check.status === 'warn')) {
+    return 'warn';
+  }
+  return 'ok';
+}
+
+function dependencyDoctorCheck(status: DependencyEnvironmentStatus): DoctorCheck {
+  if (status.mode === 'warm-project') {
+    return {
+      id: 'runtime-dependencies',
+      status: 'ok',
+      message: 'Runtime dependencies are warm and project dependencies use the shared cache.'
+    };
+  }
+
+  if (status.mode === 'dirty' || status.mode === 'stale') {
+    return {
+      id: 'runtime-dependencies',
+      status: 'warn',
+      message: `Runtime dependencies are ${status.mode}; run ${status.recommendedAction}.`
+    };
+  }
+
+  return {
+    id: 'runtime-dependencies',
+    status: 'warn',
+    message: `Runtime dependencies are ${status.mode}; run ${status.recommendedAction}.`
+  };
+}
+
+async function executableCheck(id: string, executableName: string, optional: boolean): Promise<DoctorCheck> {
+  const pathEntries = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const candidates = process.platform === 'win32'
+    ? [`${executableName}.cmd`, `${executableName}.exe`, executableName]
+    : [executableName];
+
+  for (const pathEntry of pathEntries) {
+    for (const candidate of candidates) {
+      if (await pathExists(path.join(pathEntry, candidate))) {
+        return {
+          id,
+          status: 'ok',
+          message: `${executableName} is available.`
+        };
+      }
+    }
+  }
+
+  return {
+    id,
+    status: optional ? 'warn' : 'fail',
+    message: `${executableName} is ${optional ? 'not available; fallback paths may be slower.' : 'required but not available.'}`
+  };
+}
+
 export async function getDependencyEnvironmentStatus(
   workspaceRoot = process.cwd(),
   options: DependencyEnvironmentOptions = {}
@@ -194,6 +247,44 @@ export async function getDependencyEnvironmentStatus(
     ...statusWithoutMode,
     mode,
     recommendedAction: recommendAction(mode)
+  };
+}
+
+export async function getDoctorReport(
+  workspaceRoot = process.cwd(),
+  options: DependencyEnvironmentOptions = {}
+): Promise<DoctorReport> {
+  const paths = getWorkspacePaths(workspaceRoot);
+  const dependencies = await getDependencyEnvironmentStatus(workspaceRoot, options);
+  const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
+  const checks: DoctorCheck[] = [
+    {
+      id: 'node-version',
+      status: nodeMajor >= 22 ? 'ok' : 'fail',
+      message: `Node.js ${process.versions.node} detected; Node.js 22 or newer is required.`
+    },
+    await executableCheck('bun', 'bun', true),
+    {
+      id: 'workspace-plan',
+      status: (await pathExists(paths.planPath)) ? 'ok' : 'warn',
+      message: (await pathExists(paths.planPath))
+        ? 'Workspace plan exists.'
+        : 'Workspace plan is missing; run platform init before product development.'
+    },
+    {
+      id: 'project-package',
+      status: (await pathExists(paths.projectPackagePath)) ? 'ok' : 'warn',
+      message: (await pathExists(paths.projectPackagePath))
+        ? 'Project package manifest exists.'
+        : 'Project package manifest is missing; run platform compose or platform verify when runtime checks are needed.'
+    },
+    dependencyDoctorCheck(dependencies)
+  ];
+
+  return {
+    status: combineDoctorStatus(checks),
+    checks,
+    dependencies
   };
 }
 
@@ -257,21 +348,38 @@ export function formatBytes(value: number): string {
   return `${size.toFixed(1)} PB`;
 }
 
+export function formatEntryStatus(status: DependencyEntryStatus): string {
+  const base = `${status.kind}, metadata ${formatBytes(status.sizeBytes)}`;
+  return status.entryCount === undefined ? base : `${base}, ${status.entryCount} top-level entries`;
+}
+
 export function formatDependencyEnvironmentStatus(status: DependencyEnvironmentStatus): string {
   const lines = [
     'Runtime dependency status',
     `Mode: ${status.mode}`,
     `Manifest hash: ${status.manifestHash}`,
-    `Root node_modules: ${status.rootNodeModules.kind}, ${formatBytes(status.rootNodeModules.sizeBytes)}`,
-    `Shared deps: ${status.sharedNodeModules.kind}, ${formatBytes(status.sharedNodeModules.sizeBytes)}`,
-    `Project node_modules: ${status.projectNodeModules.kind}, ${formatBytes(status.projectNodeModules.sizeBytes)}`,
-    `NPM cache: ${status.npmCache.kind}, ${formatBytes(status.npmCache.sizeBytes)}`,
+    `Root node_modules: ${formatEntryStatus(status.rootNodeModules)}`,
+    `Shared deps: ${formatEntryStatus(status.sharedNodeModules)}`,
+    `Project node_modules: ${formatEntryStatus(status.projectNodeModules)}`,
+    `NPM cache: ${formatEntryStatus(status.npmCache)}`,
     `Recommended action: ${status.recommendedAction}`
   ];
 
   if (status.projectNodeModules.target && status.projectNodeModules.kind === 'link') {
     lines.splice(6, 0, `Project node_modules target: ${status.projectNodeModules.target}`);
   }
+
+  return `${lines.join('\n')}\n`;
+}
+
+export function formatDoctorReport(report: DoctorReport): string {
+  const lines = [
+    'Developer environment doctor',
+    `Status: ${report.status}`,
+    ...report.checks.map((check) => `[${check.status}] ${check.id}: ${check.message}`),
+    '',
+    formatDependencyEnvironmentStatus(report.dependencies).trimEnd()
+  ];
 
   return `${lines.join('\n')}\n`;
 }
