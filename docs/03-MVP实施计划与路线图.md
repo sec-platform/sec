@@ -634,6 +634,12 @@
            - `--paths --kind view` view 上传路径。
            - `--paths --json --kind view` 结构化分组路径。
          - CI workflow 直接消费 `--paths`。
+         - CI workflow 直接消费 `--paths --kind governance`。
+         - CI workflow 直接消费 `--paths --kind view`。
+         - CI artifact upload 已拆分：
+           - governance artifacts。
+           - local views。
+           - runtime test results。
          - 输出 artifact 相对路径。
          - 输出 artifact kind。
          - 输出 uploadName。

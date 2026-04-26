@@ -81,22 +81,34 @@ jobs:
         run: |
           node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
-          $paths = @(node ./platform/cli/index.ts artifacts --paths)
+          $governancePaths = @(node ./platform/cli/index.ts artifacts --paths --kind governance)
+          $viewPaths = @(node ./platform/cli/index.ts artifacts --paths --kind view)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing generated artifacts: $($missing -join ', ')"
           }
-          "paths<<EOF" >> $env:GITHUB_OUTPUT
-          $paths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "governance_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $governancePaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "view_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $viewPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
 
-      - name: Upload fast diagnostics
+      - name: Upload fast governance diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: compiler-fast-diagnostics
+          name: compiler-fast-governance-diagnostics
           if-no-files-found: warn
-          path: ${{ steps.fast_artifacts.outputs.paths }}
+          path: ${{ steps.fast_artifacts.outputs.governance_paths }}
+
+      - name: Upload fast local views
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-fast-local-views
+          if-no-files-found: warn
+          path: ${{ steps.fast_artifacts.outputs.view_paths }}
 
   compiler-full:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -186,22 +198,46 @@ jobs:
         run: |
           node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
-          $paths = @(node ./platform/cli/index.ts artifacts --paths)
+          $governancePaths = @(node ./platform/cli/index.ts artifacts --paths --kind governance)
+          $viewPaths = @(node ./platform/cli/index.ts artifacts --paths --kind view)
+          $testPaths = @()
           if (Test-Path project/test-results) {
-            $paths += 'project/test-results/**'
+            $testPaths += 'project/test-results/**'
           }
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing generated artifacts: $($missing -join ', ')"
           }
-          "paths<<EOF" >> $env:GITHUB_OUTPUT
-          $paths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "governance_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $governancePaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "view_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $viewPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "test_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $testPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
 
-      - name: Upload generated artifacts
+      - name: Upload governance artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: compiler-generated-artifacts
+          name: compiler-governance-artifacts
           if-no-files-found: warn
-          path: ${{ steps.full_artifacts.outputs.paths }}
+          path: ${{ steps.full_artifacts.outputs.governance_paths }}
+
+      - name: Upload local views
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-local-views
+          if-no-files-found: warn
+          path: ${{ steps.full_artifacts.outputs.view_paths }}
+
+      - name: Upload runtime test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-runtime-test-results
+          if-no-files-found: ignore
+          path: ${{ steps.full_artifacts.outputs.test_paths }}
