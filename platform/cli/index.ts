@@ -31,7 +31,7 @@ const USAGE = 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
-const REPAIR_USAGE = 'Usage: platform repair [--dry-run]';
+const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view])';
@@ -90,14 +90,21 @@ function parseLaneArg(args: string[]): VerificationLane {
   throw new Error(VERIFY_USAGE);
 }
 
-function parseRepairArgs(args: string[]): { dryRun: boolean } {
-  if (args.length === 0) {
-    return { dryRun: false };
+function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean } {
+  let dryRun = false;
+  let json = false;
+  for (const flag of args) {
+    if (flag === '--dry-run' && !dryRun) {
+      dryRun = true;
+      continue;
+    }
+    if (flag === '--json' && !json) {
+      json = true;
+      continue;
+    }
+    throw new Error(REPAIR_USAGE);
   }
-  if (args.length === 1 && args[0] === '--dry-run') {
-    return { dryRun: true };
-  }
-  throw new Error(REPAIR_USAGE);
+  return { dryRun, json };
 }
 
 function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: string; dryRun: boolean; json: boolean } {
@@ -294,6 +301,10 @@ async function main(): Promise<void> {
     case 'repair': {
       const repairArgs = parseRepairArgs(args);
       const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: repairArgs.dryRun });
+      if (repairArgs.json) {
+        console.log(JSON.stringify(repairPlan, null, 2));
+        return;
+      }
       const suffix = repairPlan.status === 'applied' ? '; verify pending' : repairArgs.dryRun ? ' (dry-run)' : '';
       console.log(`Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks)${suffix}`);
       return;
