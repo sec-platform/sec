@@ -264,6 +264,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       runtimeEntryCount: number;
     };
     artifactSummary?: {
+      artifactStatus?: 'passed' | 'attention';
       artifactCount: number;
       governanceCount: number;
       viewCount: number;
@@ -293,6 +294,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     failureCount: reviewSummary.failurePoints.length
   };
   reviewSummary.artifactSummary = {
+    artifactStatus: 'attention',
     artifactCount: 7,
     governanceCount: 5,
     viewCount: 2,
@@ -485,6 +487,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
   expect(sourceView).toContain('CI Summary');
   expect(sourceView).toContain('<td>Status</td><td>failed</td>');
+  expect(sourceView).toContain('<td>Artifact Status</td><td>attention</td>');
   expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
   expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
   expect(sourceView).toContain('Missing Reason Summary');

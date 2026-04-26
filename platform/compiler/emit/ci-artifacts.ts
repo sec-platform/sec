@@ -24,6 +24,7 @@ interface GeneratedPathResult {
 }
 
 export interface CiArtifactSummary {
+  artifactStatus: 'passed' | 'attention';
   artifactCount: number;
   governanceCount: number;
   viewCount: number;
@@ -185,6 +186,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     formatVersion: '1',
     root: 'project',
     summary: {
+      artifactStatus: sortedMissing.length > 0 ? 'attention' : 'passed',
       artifactCount: entries.length,
       governanceCount: entries.filter((entry) => entry.kind === 'governance').length,
       viewCount: entries.filter((entry) => entry.kind === 'view').length,
@@ -213,6 +215,7 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
         formatVersion: '1',
         root: 'project',
         summary: {
+          artifactStatus: 'passed',
           artifactCount: 0,
           governanceCount: 0,
           viewCount: 0,

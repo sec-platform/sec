@@ -598,6 +598,9 @@
          - 输出 artifact kind。
          - 输出 uploadName。
          - 输出 summary 计数字段。
+         - 输出 artifactStatus：
+           - `passed`。
+           - `attention`。
          - 输出 uploadGroups：
            - `kind`。
            - `count`。
