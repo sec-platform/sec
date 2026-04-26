@@ -74,15 +74,30 @@ jobs:
       - name: Verify fast lane
         run: node ./platform/cli/index.ts verify --lane fast
 
+      - name: Generate fast artifact manifest
+        if: failure()
+        id: fast_artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force project/generated | Out-Null
+          node ./platform/cli/index.ts artifacts --json > project/generated/ci-artifacts.json
+          $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
+          $paths = @('project/generated/ci-artifacts.json')
+          $paths += @($manifest.artifacts | ForEach-Object { "project/$($_.path)" })
+          if ($manifest.missing.Count -gt 0) {
+            Write-Warning "Missing generated artifacts: $($manifest.missing -join ', ')"
+          }
+          "paths<<EOF" >> $env:GITHUB_OUTPUT
+          $paths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+
       - name: Upload fast diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: compiler-fast-diagnostics
           if-no-files-found: warn
-          path: |
-            project/generated/**
-            project/provenance.json
+          path: ${{ steps.fast_artifacts.outputs.paths }}
 
   compiler-full:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -165,14 +180,30 @@ jobs:
       - name: Explain project
         run: node ./platform/cli/index.ts explain
 
+      - name: Generate artifact manifest
+        if: always()
+        id: full_artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force project/generated | Out-Null
+          node ./platform/cli/index.ts artifacts --json > project/generated/ci-artifacts.json
+          $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
+          $paths = @('project/generated/ci-artifacts.json')
+          $paths += @($manifest.artifacts | ForEach-Object { "project/$($_.path)" })
+          if (Test-Path project/test-results) {
+            $paths += 'project/test-results/**'
+          }
+          if ($manifest.missing.Count -gt 0) {
+            Write-Warning "Missing generated artifacts: $($manifest.missing -join ', ')"
+          }
+          "paths<<EOF" >> $env:GITHUB_OUTPUT
+          $paths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+
       - name: Upload generated artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: compiler-generated-artifacts
           if-no-files-found: warn
-          path: |
-            project/generated/**
-            project/provenance.json
-            project/graph.lock.json
-            project/test-results/**
+          path: ${{ steps.full_artifacts.outputs.paths }}
