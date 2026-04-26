@@ -283,6 +283,9 @@
          - 显示 task failure point issue type。
          - 显示 task failure point repairable 状态。
          - 显示 task failure point message。
+         - blocked 场景保持失败退出码。
+         - blocked 场景 stdout 输出普通文本摘要。
+         - blocked 场景 stderr 保留错误上下文。
          - 显示最多前三个 blocker 摘要。
    - 当前阶段拆分：
      - 阶段 1：细化 failure point 归因。
