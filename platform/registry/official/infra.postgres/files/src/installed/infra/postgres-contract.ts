@@ -22,6 +22,11 @@ export const POSTGRES_CONTRACT = {
       name: 'audit_entries',
       tenantScoped: true,
       columns: ['actor_id', 'tenant_id', 'action', 'entity', 'entity_id', 'occurred_at']
+    },
+    {
+      name: 'tickets',
+      tenantScoped: true,
+      columns: ['id', 'tenant_id', 'title', 'description', 'status', 'assignee_id', 'created_by', 'updated_at']
     }
   ]
 } as const;

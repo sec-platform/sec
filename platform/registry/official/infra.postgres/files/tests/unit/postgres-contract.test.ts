@@ -8,7 +8,8 @@ export async function runSuite() {
     'customers',
     'customer_attachments',
     'email_notifications',
-    'audit_entries'
+    'audit_entries',
+    'tickets'
   ]);
   assert.equal(POSTGRES_CONTRACT.tables.every((table) => table.tenantScoped), true);
 }

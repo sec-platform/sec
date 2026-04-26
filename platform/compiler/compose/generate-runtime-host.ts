@@ -174,6 +174,7 @@ function renderRuntimeUnitTest(options: {
   postgresEnabled: boolean;
   rbacEnabled: boolean;
   tableFilterEnabled: boolean;
+  ticketEnabled: boolean;
 }): string {
   const imports = [
     `import { beforeEach, describe, expect, it } from 'vitest';`,
@@ -199,8 +200,11 @@ function renderRuntimeUnitTest(options: {
   const filterAssertions = options.tableFilterEnabled
     ? `\n    expect(filterCustomers(listCustomers(database, tenantA), { search: 'ACME' })).toHaveLength(1);\n    expect(filterCustomers(listCustomers(database, tenantA), { company: 'Unknown' })).toHaveLength(1);\n`
     : '';
+  const postgresTables = options.ticketEnabled
+    ? `\n      'customers',\n      'customer_attachments',\n      'email_notifications',\n      'audit_entries',\n      'tickets'\n    `
+    : `\n      'customers',\n      'customer_attachments',\n      'email_notifications',\n      'audit_entries'\n    `;
   const postgresAssertions = options.postgresEnabled
-    ? `\n    expect(getRuntimeStore().persistence).toBe('postgres-contract');\n    expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual([\n      'customers',\n      'customer_attachments',\n      'email_notifications',\n      'audit_entries'\n    ]);\n`
+    ? `\n    expect(getRuntimeStore().persistence).toBe('postgres-contract');\n    expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual([${postgresTables}]);\n`
     : '';
   const rbacAssertions = options.rbacEnabled
     ? `\n    expect(canAccessWorkspace(tenantA, tenantA.tenantId)).toEqual({ allowed: true, reason: 'allowed' });\n    expect(canAccessWorkspace(tenantA, tenantB.tenantId)).toEqual({ allowed: false, reason: 'tenant-mismatch' });\n`
@@ -247,7 +251,8 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
     notifyEmailEnabled: hasBlock(lock, 'notify/email-basic'),
     postgresEnabled: hasBlock(lock, 'infra/postgres'),
     rbacEnabled: hasBlock(lock, 'rbac/basic'),
-    tableFilterEnabled: hasBlock(lock, 'table/filter-search')
+    tableFilterEnabled: hasBlock(lock, 'table/filter-search'),
+    ticketEnabled: hasBlock(lock, 'ticket/basic')
   };
   const entries: Array<{ relativePath: string; source: string }> = [
     { relativePath: 'app/layout.tsx', source: renderLayout() },
