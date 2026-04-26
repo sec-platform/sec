@@ -598,6 +598,10 @@
          - 输出 artifact kind。
          - 输出 uploadName。
          - 输出 summary 计数字段。
+         - 输出 uploadGroups：
+           - `kind`。
+           - `count`。
+           - `paths`。
          - 输出 lock 声明但缺失的 generated artifact。
          - 缺失项包含：
            - `path`。
