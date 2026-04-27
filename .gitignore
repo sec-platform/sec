@@ -29,3 +29,4 @@ project/.runtime-deps.stamp.json
 .tmp/
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+.VSCodeCounter/
