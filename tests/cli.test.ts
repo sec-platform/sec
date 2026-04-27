@@ -550,13 +550,13 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
 test('CLI exposes error protocol as text and JSON contracts', async () => {
   const contract = buildErrorProtocolContract();
   expect(formatErrorProtocolContract(contract)).toContain('Error protocol active');
-  expect(formatErrorProtocolContract(contract)).toContain('Example upgrade-error; code=UPGRADE-CONFLICT-001');
+  expect(formatErrorProtocolContract(contract)).toContain('Example upgrade-conflict-error; code=UPGRADE-CONFLICT-001');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
     status: 'active',
     command: 'npm run platform -- contract errors --json',
-    exampleCount: 6,
+    exampleCount: 11,
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
     examples: expect.arrayContaining([
       expect.objectContaining({
@@ -568,7 +568,15 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         })
       }),
       expect.objectContaining({
-        id: 'verify-error',
+        id: 'verify-blocked-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'composition',
+          suggestedActions: ['run-platform-resolve', 'run-platform-compose', 'run-platform-adapt', 'retry-platform-verify']
+        })
+      }),
+      expect.objectContaining({
+        id: 'verify-acceptance-error',
         output: expect.objectContaining({
           recoverable: false,
           issueType: 'spec',
@@ -576,7 +584,47 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         })
       }),
       expect.objectContaining({
-        id: 'upgrade-error',
+        id: 'repair-preflight-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'composition',
+          suggestedActions: ['run-platform-verify', 'retry-platform-repair-dry-run']
+        })
+      }),
+      expect.objectContaining({
+        id: 'repair-plan-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'slot',
+          suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run']
+        })
+      }),
+      expect.objectContaining({
+        id: 'upgrade-noop-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'composition',
+          suggestedActions: ['choose-different-upgrade-target']
+        })
+      }),
+      expect.objectContaining({
+        id: 'upgrade-blocked-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'composition',
+          suggestedActions: ['choose-compatible-upgrade-target', 'run-platform-upgrade-dry-run']
+        })
+      }),
+      expect.objectContaining({
+        id: 'upgrade-migration-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'composition',
+          suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration']
+        })
+      }),
+      expect.objectContaining({
+        id: 'upgrade-conflict-error',
         output: expect.objectContaining({
           recoverable: true,
           issueType: 'composition',
@@ -591,15 +639,15 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Error protocol active');
-    expect(textResult.stdout).toContain('Example repair-error; code=REPAIR-BLOCKED-001');
+    expect(textResult.stdout).toContain('Example repair-plan-error; code=REPAIR-BLOCKED-001');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'errors', '--json']);
     expect(jsonResult.code).toBe(0);
     expect(jsonResult.stderr).toBe('');
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
-      exampleCount: 6,
-      suggestedActionCount: 9
+      exampleCount: 11,
+      suggestedActionCount: 18
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'errors', '--json', '--compact']);
@@ -608,7 +656,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
-      exampleCount: 6
+      exampleCount: 11
     });
   });
 });
