@@ -227,6 +227,7 @@
      - `config-rewrite` JSON 配置迁移：
        - `set`
        - `delete`
+       - 执行期要求目标存在且是 JSON 文件。
      - `json-array-append/remove` JSON 数组迁移。
      - `json-object-merge` JSON 对象合并迁移。
      - `text-append` 文本追加迁移：

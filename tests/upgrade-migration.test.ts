@@ -275,6 +275,46 @@ test('config-rewrite migration deletes nested JSON configuration keys', async ()
   }
 });
 
+test('config-rewrite migration rejects missing JSON targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
+        configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }])
+      ])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-016'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('config-rewrite migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
+        configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }])
+      ])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('json-array-append migration appends unique items to nested arrays', async () => {
   const workspaceRoot = await createWorkspace();
   try {
