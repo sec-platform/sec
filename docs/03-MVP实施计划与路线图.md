@@ -439,7 +439,7 @@
          - apply：执行阶段 migration 失败时写入 `upgrade-diagnostics.json` 并保留回滚语义。
          - diagnostics：通过 phase 区分 planning/apply，并进入 review summary 与本地视图。
          - diagnostics：归类到 `migration-file-operations`。
-         - diagnostics：apply 阶段失败保留 migration id/kind/source/target 归因，并进入 review failure point 与 CLI explain 文案。
+         - diagnostics：apply 阶段失败保留 migration id/kind/source/target 归因，并进入 review failure point、CLI explain 与 review summary CLI 文案。
        - slot 合同前后兼容性检查：
          - 状态：done。
          - plan：`migration-slot-contracts` preflight check。

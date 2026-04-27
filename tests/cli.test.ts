@@ -1440,6 +1440,56 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         runtimeEntries: ['app/customers/page.tsx'],
         groupSummaries: []
       },
+      upgradeSummary: {
+        status: 'blocked',
+        blockId: 'auth/basic-session',
+        fromVersion: '0.1.0',
+        toVersion: '0.1.1',
+        preflightCheckCount: 1,
+        preflightEvidenceCount: 1,
+        migrationCount: 1,
+        migrationKindCounts: {
+          'file-replace': 1
+        },
+        requiresVerification: true,
+        requiresVerificationCount: 1,
+        impactCount: 1,
+        impacts: ['src/installed/auth/session.ts'],
+        verificationSummaries: [{ id: 'required', count: 1 }],
+        preflightSummaries: [{ group: 'migration', checkCount: 1, evidenceCount: 1 }],
+        migrationSummaries: [
+          {
+            id: 'mig-auth-session-refresh',
+            kind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            reason: 'Refresh auth session implementation.',
+            requiresVerification: true,
+            source: 'files/src/installed/auth/session.ts'
+          }
+        ],
+        migrationOperationSummaries: [
+          {
+            id: 'mig-auth-session-refresh',
+            kind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            role: 'file',
+            source: 'files/src/installed/auth/session.ts'
+          }
+        ],
+        diagnostics: {
+          status: 'blocked',
+          phase: 'apply',
+          failedCheck: 'migration-file-operations',
+          errorCode: 'UPGRADE-MIGRATION-016',
+          message: 'file-replace target "src/installed/auth/session.ts" is missing',
+          details: {
+            migrationId: 'mig-auth-session-refresh',
+            migrationKind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            source: 'files/src/installed/auth/session.ts'
+          }
+        }
+      },
       impactedBlocks: ['entity/customer-basic'],
       impactedSlots: ['customer_normalizer'],
       failurePoints: [],
@@ -1458,6 +1508,12 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Provenance artifacts=5; registry=2; unverified=3');
     expect(textResult.stdout).toContain('Artifacts attention; total=4; missing=1; contracts=1');
     expect(textResult.stdout).toContain('Stages: verification=passed, coverage=failed, artifacts=attention, review=passed');
+    expect(textResult.stdout).toContain(
+      'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true'
+    );
+    expect(textResult.stdout).toContain(
+      'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts'
+    );
 
     const jsonResult = await runCli(workspaceRoot, ['review', 'summary', '--json']);
     expect(jsonResult.code).toBe(0);
@@ -1466,7 +1522,16 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       formatVersion: '2',
       chainSummary: { status: 'attention', stageCount: 4 },
       coverageSummary: { status: 'failed', uncoveredBlocks: ['tenant/basic-workspace'] },
-      provenanceSummary: { artifactCount: 5 }
+      provenanceSummary: { artifactCount: 5 },
+      upgradeSummary: {
+        status: 'blocked',
+        diagnostics: {
+          phase: 'apply',
+          details: {
+            migrationId: 'mig-auth-session-refresh'
+          }
+        }
+      }
     });
 
     const compactResult = await runCli(workspaceRoot, ['review', 'summary', '--json', '--compact']);

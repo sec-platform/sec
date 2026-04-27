@@ -868,7 +868,7 @@ function formatReviewSummaryContract(summary: ReviewSummary): string {
   const coverage = summary.coverageSummary;
   const provenance = summary.provenanceSummary;
   const artifacts = summary.artifactSummary;
-  return [
+  const lines = [
     [
       `Review summary ${summary.chainSummary.status}`,
       `format=${summary.formatVersion}`,
@@ -907,7 +907,33 @@ function formatReviewSummaryContract(summary: ReviewSummary): string {
     `Stages: ${summary.chainSummary.stageSummaries
       .map((stage) => `${stage.id}=${stage.status}`)
       .join(', ') || 'none'}`
-  ].join('\n');
+  ];
+
+  const upgrade = summary.upgradeSummary;
+  if (upgrade) {
+    lines.push(
+      [
+        `Upgrade ${upgrade.status}`,
+        `${upgrade.blockId} ${upgrade.fromVersion ? `${upgrade.fromVersion} -> ${upgrade.toVersion}` : `target ${upgrade.toVersion}`}`,
+        `migrations=${upgrade.migrationCount}`,
+        `impacts=${upgrade.impactCount}`,
+        `requiresVerification=${upgrade.requiresVerification}`
+      ].join('; ')
+    );
+    if (upgrade.diagnostics) {
+      lines.push(
+        [
+          `Upgrade diagnostics ${upgrade.diagnostics.phase}`,
+          upgrade.diagnostics.failedCheck,
+          upgrade.diagnostics.errorCode,
+          upgrade.diagnostics.message,
+          `attribution=${formatUpgradeDiagnosticsDetails(upgrade.diagnostics.details)}`
+        ].join('; ')
+      );
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
