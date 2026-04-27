@@ -2110,6 +2110,12 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
         forbiddenOperationCount: 4,
         testCount: 2,
         failureTargetCount: 0,
+        sourceSlotStatus: 'filled',
+        sourceWritableZones: ['custom/'],
+        sourceProvenanceHints: {
+          generator: 'mock-local-synthesizer',
+          verifiedBy: []
+        },
         writeBounds: ['custom/customer_normalizer.ts'],
         requiredSymbols: ['normalizeCustomerInput'],
         forbiddenOperations: [

@@ -197,7 +197,10 @@ function buildNoSlotBlocker(failurePoints: RepairFailurePoint[]): RepairBlocker 
   };
 }
 
-function buildRepairTaskReview(task: Omit<RepairTask, 'review'>): RepairTask['review'] {
+function buildRepairTaskReview(
+  task: Omit<RepairTask, 'review'>,
+  envelope: ReturnType<typeof buildTaskEnvelope>
+): RepairTask['review'] {
   const failureTargets = sortedUniqueTargets(task.failurePoints.flatMap((point) => point.targetIds ?? []));
   return {
     allowedPathCount: task.allowedPaths.length,
@@ -205,6 +208,12 @@ function buildRepairTaskReview(task: Omit<RepairTask, 'review'>): RepairTask['re
     forbiddenOperationCount: task.forbiddenOperations.length,
     testCount: task.testsToPass.length,
     failureTargetCount: failureTargets.length,
+    sourceSlotStatus: envelope.sourceSlot.status,
+    sourceWritableZones: [...envelope.sourceSlot.writableZones],
+    sourceProvenanceHints: {
+      generator: envelope.sourceSlot.provenanceHints.generator,
+      verifiedBy: [...envelope.sourceSlot.provenanceHints.verifiedBy]
+    },
     writeBounds: [...task.allowedPaths],
     requiredSymbols: [...task.requiredSymbols],
     forbiddenOperations: [...task.forbiddenOperations],
@@ -258,7 +267,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
       };
       return {
         ...repairTask,
-        review: buildRepairTaskReview(repairTask)
+        review: buildRepairTaskReview(repairTask, envelope)
       };
     });
 

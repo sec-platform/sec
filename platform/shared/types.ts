@@ -416,6 +416,12 @@ export interface TaskEnvelope {
   phase: 'adapt';
   targetBlock: string;
   targetFile: string;
+  sourceSlot: {
+    id: string;
+    status: SlotTask['status'];
+    writableZones: string[];
+    provenanceHints: SlotProvenanceHints;
+  };
   allowedPaths: string[];
   requiredSymbols: string[];
   forbiddenOperations: string[];
@@ -1047,6 +1053,9 @@ export interface RepairTaskReview {
   forbiddenOperationCount: number;
   testCount: number;
   failureTargetCount: number;
+  sourceSlotStatus?: SlotTask['status'];
+  sourceWritableZones?: string[];
+  sourceProvenanceHints?: SlotProvenanceHints;
   writeBounds: string[];
   requiredSymbols: string[];
   forbiddenOperations: string[];
