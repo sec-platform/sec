@@ -510,6 +510,7 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'config-rewrite') {
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
       const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
       await writeJson(targetPath, config);
       continue;
@@ -619,7 +620,13 @@ async function collectMigrationTargetEvidence(
 async function statFileMigrationTarget(
   targetPath: string,
   target: string,
-  kind: 'delete-file' | 'text-replace' | 'text-replace-regex' | 'text-append' | 'slot-contract-update' = 'delete-file',
+  kind:
+    | 'config-rewrite'
+    | 'delete-file'
+    | 'text-replace'
+    | 'text-replace-regex'
+    | 'text-append'
+    | 'slot-contract-update' = 'delete-file',
   options: { allowMissing?: boolean } = {}
 ): Promise<'file' | 'missing'> {
   let stats;
@@ -957,16 +964,18 @@ async function collectJsonStructureEvidence(
       migrationId: entry.id,
       role: 'target'
     });
+    if (entry.kind === 'config-rewrite') {
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+      const config = await readJson<unknown>(targetPath);
+      ensureJsonObject(config, 'Config rewrite preflight');
+      evidence.push(`${entry.id}:target:object`);
+      continue;
+    }
     if (!(await pathExists(targetPath))) {
       evidence.push(`${entry.id}:target:missing`);
       continue;
     }
     const config = await readJson<unknown>(targetPath);
-    if (entry.kind === 'config-rewrite') {
-      ensureJsonObject(config, 'Config rewrite preflight');
-      evidence.push(`${entry.id}:target:object`);
-      continue;
-    }
     const target = readJsonPath(config, entry.path);
     if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
       if (target !== undefined && !Array.isArray(target)) {
