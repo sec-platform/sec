@@ -389,7 +389,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       impacts: string[];
       preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
       migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
-      diagnostics?: { status: 'blocked'; failedCheck: string; errorCode: string; message: string };
+      diagnostics?: { status: 'blocked'; failedCheck: string; errorCode: string; message: string; details?: unknown };
     };
     policySummary?: {
       status: 'passed' | 'failed' | 'skipped';
@@ -708,7 +708,11 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       status: 'blocked',
       failedCheck: 'override-conflicts',
       errorCode: 'UPGRADE-CONFLICT-001',
-      message: 'Override <hotfix> & blocks upgrade'
+      message: 'Override <hotfix> & blocks upgrade',
+      details: {
+        failedCheck: 'override-conflicts',
+        overrideId: 'manual-auth-session-hotfix'
+      }
     }
   };
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
@@ -795,7 +799,11 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         targetVersion: '0.1.1',
         failedCheck: 'override-conflicts',
         errorCode: 'UPGRADE-CONFLICT-001',
-        message: 'Override <hotfix> & blocks upgrade'
+        message: 'Override <hotfix> & blocks upgrade',
+        details: {
+          failedCheck: 'override-conflicts',
+          overrideId: 'manual-auth-session-hotfix'
+        }
       },
       null,
       2
@@ -967,6 +975,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('Upgrade Diagnostics');
   expect(sourceView).toContain('UPGRADE-CONFLICT-001');
   expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
+  expect(sourceView).toContain('manual-auth-session-hotfix');
+  expect(sourceView).toContain('&quot;failedCheck&quot;: &quot;override-conflicts&quot;');
   expect(sourceView).toContain('Repair Summary');
   expect(sourceView).toContain('<td>Status</td><td>pending</td>');
   expect(sourceView).toContain('<td>Changed Previews</td><td>1</td>');

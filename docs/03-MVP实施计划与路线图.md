@@ -217,6 +217,11 @@
          - 状态：done。
          - plan：`migration-targets` preflight check。
          - evidence：记录每个 migration 的 source/target 是 `exists` 还是 `missing`。
+         - diagnostics：project path escape 归类到 `migration-targets`。
+         - details：记录 migration id。
+         - details：记录 source/target role。
+         - details：记录逃逸 path。
+         - details：记录 root 类型。
        - file operation 可执行性检查：
          - 状态：done。
          - plan：`migration-file-operations` preflight check。

@@ -706,6 +706,140 @@ test('upgrade dry-run records rename file migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade records migration target path escape diagnostics before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-target-escape-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-target-escape',
+          kind: 'text-append',
+          entry: 'migrations/target-escape.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'target-escape.json'), {
+    id: 'mig-target-escape',
+    kind: 'text-append',
+    reason: 'Attempt to write outside the generated project.',
+    target: '../outside-project.md',
+    content: '- should be rejected.\n'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-004',
+    details: {
+      failedCheck: 'migration-targets',
+      migrationId: 'mig-target-escape',
+      path: '../outside-project.md',
+      role: 'target',
+      root: 'project'
+    }
+  });
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    details?: unknown;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-targets',
+    errorCode: 'UPGRADE-MIGRATION-004',
+    details: {
+      failedCheck: 'migration-targets',
+      migrationId: 'mig-target-escape',
+      path: '../outside-project.md',
+      role: 'target',
+      root: 'project'
+    }
+  });
+});
+
+test('upgrade records migration manifest source escape diagnostics before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-source-escape-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-source-escape',
+          kind: 'file-replace',
+          entry: 'migrations/source-escape.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'source-escape.json'), {
+    id: 'mig-source-escape',
+    kind: 'file-replace',
+    reason: 'Attempt to read outside the target manifest root.',
+    source: '../outside-source.ts',
+    target: 'src/installed/private/slot-contract.ts'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-005',
+    details: {
+      failedCheck: 'migration-file-operations',
+      migrationId: 'mig-source-escape',
+      path: '../outside-source.ts',
+      role: 'manifest-source',
+      root: 'manifest'
+    }
+  });
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    details?: unknown;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-file-operations',
+    errorCode: 'UPGRADE-MIGRATION-005',
+    details: {
+      failedCheck: 'migration-file-operations',
+      migrationId: 'mig-source-escape',
+      path: '../outside-source.ts',
+      role: 'manifest-source',
+      root: 'manifest'
+    }
+  });
+});
+
 test('upgrade rejects missing delete file targets before planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-file-missing-');
 

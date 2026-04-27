@@ -33,6 +33,10 @@ function renderJsonCard(title: string, value: unknown): string {
   return `<section class="card"><h2>${escapeHtml(title)}</h2><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></section>`;
 }
 
+function renderJsonPre(value: unknown): string {
+  return `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+}
+
 function renderCiSummaryCard(review: ReviewSummary): string {
   const nonzeroMissingReasonCount = review.artifactSummary?.missingReasonCounts
     ? Object.values(review.artifactSummary.missingReasonCounts).filter((count) => count > 0).length
@@ -748,6 +752,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
           <td>${escapeHtml(upgrade.diagnostics.failedCheck)}</td>
           <td>${escapeHtml(upgrade.diagnostics.errorCode)}</td>
           <td>${escapeHtml(upgrade.diagnostics.message)}</td>
+          <td>${upgrade.diagnostics.details === undefined ? 'none' : renderJsonPre(upgrade.diagnostics.details)}</td>
         </tr>`
     : '';
 
@@ -775,7 +780,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
         ${diagnosticsRows
           ? `<h3>Upgrade Blocker Summary</h3>
             <table>
-              <thead><tr><th>Failed Check</th><th>Error</th><th>Message</th></tr></thead>
+              <thead><tr><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
               <tbody>${diagnosticsRows}</tbody>
             </table>`
           : ''}
@@ -886,11 +891,12 @@ function renderUpgradeDiagnosticsTable(diagnostics: UpgradeDiagnostics | null): 
     return '';
   }
 
+  const detailsCell = diagnostics.details === undefined ? 'none' : renderJsonPre(diagnostics.details);
   return `<section class="card">
         <h2>Upgrade Diagnostics</h2>
         <table>
-          <thead><tr><th>Status</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th></tr></thead>
-          <tbody><tr><td>${escapeHtml(diagnostics.status)}</td><td>${escapeHtml(diagnostics.blockId)}</td><td>${escapeHtml(diagnostics.targetVersion)}</td><td>${escapeHtml(diagnostics.failedCheck)}</td><td>${escapeHtml(diagnostics.errorCode)}</td><td>${escapeHtml(diagnostics.message)}</td></tr></tbody>
+          <thead><tr><th>Status</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
+          <tbody><tr><td>${escapeHtml(diagnostics.status)}</td><td>${escapeHtml(diagnostics.blockId)}</td><td>${escapeHtml(diagnostics.targetVersion)}</td><td>${escapeHtml(diagnostics.failedCheck)}</td><td>${escapeHtml(diagnostics.errorCode)}</td><td>${escapeHtml(diagnostics.message)}</td><td>${detailsCell}</td></tr></tbody>
         </table>
       </section>`;
 }
