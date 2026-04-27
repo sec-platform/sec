@@ -745,6 +745,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
     ['Preflight Checks', String(upgrade.preflightCheckCount)],
     ['Preflight Evidence', String(upgrade.preflightEvidenceCount)],
     ['Migrations', String(upgrade.migrationCount)],
+    ['Operations', String(upgrade.migrationOperationSummaries.length)],
     ['Impacts', String(upgrade.impactCount)],
     ['Requires Verification', String(upgrade.requiresVerification)],
     ['Verification Migrations', String(upgrade.requiresVerificationCount)]
@@ -764,6 +765,16 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
     .join('');
+  const operationRoleRows = renderTaxonomyRows(
+    Object.entries(
+      upgrade.migrationOperationSummaries.reduce<Record<string, number>>((counts, operation) => {
+        counts[operation.role] = (counts[operation.role] ?? 0) + 1;
+        return counts;
+      }, {})
+    )
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, count]) => ({ id, count }))
+  );
   const verificationRows = renderTaxonomyRows(upgrade.verificationSummaries);
   const migrationRows = upgrade.migrationSummaries
     .map(
@@ -777,6 +788,35 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
           <td>${escapeHtml(migration.reason)}</td>
         </tr>`
     )
+    .join('');
+  const operationRows = upgrade.migrationOperationSummaries
+    .map((operation) => {
+      const details = [
+        operation.source ? `source=${operation.source}` : '',
+        operation.slotId ? `slot=${operation.slotId}` : '',
+        operation.inputType ? `input=${operation.inputType}` : '',
+        operation.outputType ? `output=${operation.outputType}` : '',
+        operation.writableZones ? `writable=${operation.writableZones.join(', ')}` : '',
+        operation.path ? `path=${operation.path.join('.')}` : '',
+        operation.updateCount === undefined ? '' : `updates=${operation.updateCount}`,
+        operation.itemCount === undefined ? '' : `items=${operation.itemCount}`,
+        operation.valueKeyCount === undefined ? '' : `valueKeys=${operation.valueKeyCount}`,
+        operation.contentLength === undefined ? '' : `contentLength=${operation.contentLength}`,
+        operation.searchLength === undefined ? '' : `searchLength=${operation.searchLength}`,
+        operation.replacementLength === undefined ? '' : `replacementLength=${operation.replacementLength}`,
+        operation.pattern ? `pattern=${operation.pattern}` : '',
+        operation.flags ? `flags=${operation.flags}` : ''
+      ]
+        .filter((detail) => detail.length > 0)
+        .join('; ') || 'none';
+      return `<tr>
+          <td>${escapeHtml(operation.id)}</td>
+          <td>${escapeHtml(operation.kind)}</td>
+          <td>${escapeHtml(operation.role)}</td>
+          <td>${escapeHtml(operation.target)}</td>
+          <td>${escapeHtml(details)}</td>
+        </tr>`;
+    })
     .join('');
   const diagnosticsRows = upgrade.diagnostics
     ? `<tr>
@@ -803,6 +843,11 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
           <thead><tr><th>Kind</th><th>Count</th></tr></thead>
           <tbody>${kindRows || '<tr><td colspan="2">No upgrade migration kinds.</td></tr>'}</tbody>
         </table>
+        <h3>Upgrade Operation Role Summary</h3>
+        <table>
+          <thead><tr><th>Role</th><th>Count</th></tr></thead>
+          <tbody>${operationRoleRows || '<tr><td colspan="2">No upgrade operation roles.</td></tr>'}</tbody>
+        </table>
         <h3>Upgrade Verification Summary</h3>
         <table>
           <thead><tr><th>Verification</th><th>Count</th></tr></thead>
@@ -812,6 +857,11 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
         <table>
           <thead><tr><th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th></tr></thead>
           <tbody>${migrationRows || '<tr><td colspan="7">No upgrade migrations.</td></tr>'}</tbody>
+        </table>
+        <h3>Upgrade Migration Operation Summary</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Kind</th><th>Role</th><th>Target</th><th>Details</th></tr></thead>
+          <tbody>${operationRows || '<tr><td colspan="5">No upgrade migration operations.</td></tr>'}</tbody>
         </table>
         ${diagnosticsRows
           ? `<h3>Upgrade Blocker Summary</h3>
