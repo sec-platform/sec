@@ -326,7 +326,9 @@
        - 显示 plan 状态。
        - 显示 migration 数量。
        - 显示 preflight check 数量。
+       - 显示 preflight evidence 聚合数量。
        - 显示 migration kind 计数。
+       - 显示 migration operation role 计数。
        - 显示 impact 文件列表。
        - 显示 requires verification 聚合结果。
        - 显示最多前三条 migration id。
