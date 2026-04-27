@@ -392,6 +392,16 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         removedLines: number;
         failurePointCount: number;
         targetIds: string[];
+        allowedPathCount: number;
+        requiredSymbolCount: number;
+        forbiddenOperationCount: number;
+        testCount: number;
+        failureTargetCount: number;
+        writeBounds: string[];
+        requiredSymbols: string[];
+        forbiddenOperations: string[];
+        testsToPass: string[];
+        failureTargets: string[];
       }>;
       blockerSummaries: Array<{
         blockerId: string;
@@ -677,7 +687,17 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         addedLines: 4,
         removedLines: 1,
         failurePointCount: 1,
-        targetIds: ['customer-normalizer.test.ts']
+        targetIds: ['customer-normalizer.test.ts'],
+        allowedPathCount: 1,
+        requiredSymbolCount: 1,
+        forbiddenOperationCount: 1,
+        testCount: 0,
+        failureTargetCount: 1,
+        writeBounds: ['custom/customer_normalizer.ts'],
+        requiredSymbols: ['normalizeCustomerInput'],
+        forbiddenOperations: ['write outside custom/customer_normalizer.ts'],
+        testsToPass: [],
+        failureTargets: ['customer-normalizer.test.ts']
       }
     ],
     blockerSummaries: [
@@ -1094,6 +1114,9 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>slot-target</td>');
   expect(sourceView).toContain('<td>customer-normalizer.test.ts</td>');
   expect(sourceView).toContain('Repair Task Summary');
+  expect(sourceView).toContain('<th>Write Bounds</th>');
+  expect(sourceView).toContain('<th>Symbols</th>');
+  expect(sourceView).toContain('<th>Tests</th>');
   expect(sourceView).toContain('Repair Blocker Summary');
   expect(sourceView).toContain('Repair Plan');
   expect(sourceView).toContain('requires verification: false');

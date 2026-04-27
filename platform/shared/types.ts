@@ -827,6 +827,16 @@ export interface ReviewRepairTaskSummary {
   removedLines: number;
   failurePointCount: number;
   targetIds: string[];
+  allowedPathCount: number;
+  requiredSymbolCount: number;
+  forbiddenOperationCount: number;
+  testCount: number;
+  failureTargetCount: number;
+  writeBounds: string[];
+  requiredSymbols: string[];
+  forbiddenOperations: string[];
+  testsToPass: string[];
+  failureTargets: string[];
 }
 
 export interface ReviewRepairBlockerSummary {
@@ -1031,6 +1041,19 @@ export interface RepairBlocker {
   failurePoints: RepairFailurePoint[];
 }
 
+export interface RepairTaskReview {
+  allowedPathCount: number;
+  requiredSymbolCount: number;
+  forbiddenOperationCount: number;
+  testCount: number;
+  failureTargetCount: number;
+  writeBounds: string[];
+  requiredSymbols: string[];
+  forbiddenOperations: string[];
+  testsToPass: string[];
+  failureTargets: string[];
+}
+
 export interface RepairTask {
   taskId: string;
   taskKind: 'repair-slot';
@@ -1045,6 +1068,7 @@ export interface RepairTask {
   testsToPass: string[];
   failureSummary: string;
   failurePoints: RepairFailurePoint[];
+  review?: RepairTaskReview;
   preview?: RepairTaskPreview;
 }
 

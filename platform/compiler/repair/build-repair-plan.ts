@@ -197,6 +197,22 @@ function buildNoSlotBlocker(failurePoints: RepairFailurePoint[]): RepairBlocker 
   };
 }
 
+function buildRepairTaskReview(task: Omit<RepairTask, 'review'>): RepairTask['review'] {
+  const failureTargets = sortedUniqueTargets(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+  return {
+    allowedPathCount: task.allowedPaths.length,
+    requiredSymbolCount: task.requiredSymbols.length,
+    forbiddenOperationCount: task.forbiddenOperations.length,
+    testCount: task.testsToPass.length,
+    failureTargetCount: failureTargets.length,
+    writeBounds: [...task.allowedPaths],
+    requiredSymbols: [...task.requiredSymbols],
+    forbiddenOperations: [...task.forbiddenOperations],
+    testsToPass: [...task.testsToPass],
+    failureTargets
+  };
+}
+
 function blockedRepairPlan(blockers: RepairBlocker[]): RepairPlan {
   return {
     formatVersion: '1',
@@ -225,7 +241,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
     .filter((task) => task.status === 'filled' || task.status === 'verified' || task.status === 'failed')
     .map((task) => {
       const envelope = buildTaskEnvelope(plan, lock, task);
-      return {
+      const repairTask: Omit<RepairTask, 'review'> = {
         taskId: `repair_slot_${task.id}`,
         taskKind: 'repair-slot',
         category: 'slot-rewrite',
@@ -239,6 +255,10 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
         testsToPass: envelope.testsToPass,
         failureSummary: summarizeFailure(report),
         failurePoints
+      };
+      return {
+        ...repairTask,
+        review: buildRepairTaskReview(repairTask)
       };
     });
 

@@ -210,7 +210,17 @@ test('review summary surfaces pending repair tasks', async () => {
         addedLines: 0,
         removedLines: 0,
         failurePointCount: 1,
-        targetIds: ['zeta.test.ts']
+        targetIds: ['zeta.test.ts'],
+        allowedPathCount: 1,
+        requiredSymbolCount: 1,
+        forbiddenOperationCount: 0,
+        testCount: 0,
+        failureTargetCount: 1,
+        writeBounds: ['custom/alpha.ts'],
+        requiredSymbols: ['alpha'],
+        forbiddenOperations: [],
+        testsToPass: [],
+        failureTargets: ['zeta.test.ts']
       },
       {
         taskId: 'repair_slot_zeta',
@@ -222,7 +232,17 @@ test('review summary surfaces pending repair tasks', async () => {
         addedLines: 3,
         removedLines: 1,
         failurePointCount: 1,
-        targetIds: ['zeta.test.ts']
+        targetIds: ['zeta.test.ts'],
+        allowedPathCount: 1,
+        requiredSymbolCount: 1,
+        forbiddenOperationCount: 0,
+        testCount: 0,
+        failureTargetCount: 1,
+        writeBounds: ['custom/zeta.ts'],
+        requiredSymbols: ['zeta'],
+        forbiddenOperations: [],
+        testsToPass: [],
+        failureTargets: ['zeta.test.ts']
       }
     ]);
     expect(summary.repairSummary?.blockerSummaries).toEqual([

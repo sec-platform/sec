@@ -868,7 +868,10 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
           <td>${escapeHtml(task.previewStatus)}</td>
           <td>${escapeHtml(`${task.addedLines}/-${task.removedLines}`)}</td>
           <td>${escapeHtml(String(task.failurePointCount))}</td>
-          <td>${escapeHtml(task.targetIds.join(', ') || 'none')}</td>
+          <td>${escapeHtml(task.writeBounds.join(', ') || 'none')}</td>
+          <td>${escapeHtml(task.requiredSymbols.join(', ') || 'none')}</td>
+          <td>${escapeHtml(task.testsToPass.join(', ') || 'none')}</td>
+          <td>${escapeHtml(task.failureTargets.join(', ') || 'none')}</td>
         </tr>`
     )
     .join('');
@@ -924,8 +927,8 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
         </table>
         <h3>Repair Task Summary</h3>
         <table>
-          <thead><tr><th>Task</th><th>Category</th><th>Preview</th><th>Delta</th><th>Failure Points</th><th>Targets</th></tr></thead>
-          <tbody>${taskRows || '<tr><td colspan="6">No repair tasks.</td></tr>'}</tbody>
+          <thead><tr><th>Task</th><th>Category</th><th>Preview</th><th>Delta</th><th>Failure Points</th><th>Write Bounds</th><th>Symbols</th><th>Tests</th><th>Failure Targets</th></tr></thead>
+          <tbody>${taskRows || '<tr><td colspan="9">No repair tasks.</td></tr>'}</tbody>
         </table>
         <h3>Repair Blocker Summary</h3>
         <table>
