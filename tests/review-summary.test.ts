@@ -562,6 +562,53 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       runtimeEntries: ['app/tickets/page.tsx']
     }
   ]);
+  expect(summary.installImpactSummary).toEqual({
+    impactCount: 3,
+    blockCount: 3,
+    actionKindCount: 1,
+    sourceRootCount: 3,
+    targetPathCount: 4,
+    verticalCount: 1,
+    runtimeEntryCount: 3,
+    groupCount: 1,
+    blocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic'],
+    actionKinds: ['copy'],
+    sourceRoots: ['export.csv-basic', 'reporting.ticket-summary', 'ticket.basic'],
+    targetPaths: [
+      'app/api/tickets/export/route.ts',
+      'app/api/tickets/summary/route.ts',
+      'app/tickets/page.tsx',
+      'src/installed/reporting/ticket-summary.ts'
+    ],
+    verticals: ['ticket'],
+    runtimeEntries: [
+      'app/api/tickets/export/route.ts',
+      'app/api/tickets/summary/route.ts',
+      'app/tickets/page.tsx'
+    ],
+    groupSummaries: [
+      {
+        vertical: 'ticket',
+        blockCount: 3,
+        actionKindCount: 1,
+        runtimeEntryCount: 3,
+        targetPathCount: 4,
+        blocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic'],
+        actionKinds: ['copy'],
+        runtimeEntries: [
+          'app/api/tickets/export/route.ts',
+          'app/api/tickets/summary/route.ts',
+          'app/tickets/page.tsx'
+        ],
+        targetPaths: [
+          'app/api/tickets/export/route.ts',
+          'app/api/tickets/summary/route.ts',
+          'app/tickets/page.tsx',
+          'src/installed/reporting/ticket-summary.ts'
+        ]
+      }
+    ]
+  });
   expect(summary.changeSources.find((source) => source.path === 'app/api/tickets/summary/export/route.ts')).toEqual({
     path: 'app/api/tickets/summary/export/route.ts',
     originType: 'generated',

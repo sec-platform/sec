@@ -350,46 +350,26 @@ function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
 }
 
 function renderInstallImpactCard(review: ReviewSummary): string {
-  const impactGroups = new Map<
-    string,
-    { vertical: string; blocks: Set<string>; actions: Set<string>; runtimeEntries: Set<string>; targets: Set<string> }
-  >();
-  for (const impact of review.installImpacts) {
-    const verticals = impact.verticals.length > 0 ? impact.verticals : ['none'];
-    for (const vertical of verticals) {
-      let group = impactGroups.get(vertical);
-      if (!group) {
-        group = {
-          vertical,
-          blocks: new Set<string>(),
-          actions: new Set<string>(),
-          runtimeEntries: new Set<string>(),
-          targets: new Set<string>()
-        };
-        impactGroups.set(vertical, group);
-      }
-      group.blocks.add(impact.blockId);
-      for (const action of impact.actionKinds) {
-        group.actions.add(action);
-      }
-      for (const runtimeEntry of impact.runtimeEntries) {
-        group.runtimeEntries.add(runtimeEntry);
-      }
-      for (const targetPath of impact.targetPaths) {
-        group.targets.add(targetPath);
-      }
-    }
-  }
-
-  const groupRows = [...impactGroups.values()]
-    .sort((left, right) => left.vertical.localeCompare(right.vertical))
+  const summaryRows = [
+    ['Impacts', String(review.installImpactSummary.impactCount)],
+    ['Blocks', String(review.installImpactSummary.blockCount)],
+    ['Action Kinds', String(review.installImpactSummary.actionKindCount)],
+    ['Source Roots', String(review.installImpactSummary.sourceRootCount)],
+    ['Target Paths', String(review.installImpactSummary.targetPathCount)],
+    ['Verticals', String(review.installImpactSummary.verticalCount)],
+    ['Runtime Entries', String(review.installImpactSummary.runtimeEntryCount)],
+    ['Groups', String(review.installImpactSummary.groupCount)]
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+  const groupRows = review.installImpactSummary.groupSummaries
     .map(
       (group) => `<tr>
           <td>${escapeHtml(group.vertical)}</td>
-          <td>${escapeHtml(String(group.blocks.size))}</td>
-          <td>${escapeHtml(formatList(group.actions))}</td>
+          <td>${escapeHtml(String(group.blockCount))}</td>
+          <td>${escapeHtml(formatList(group.actionKinds))}</td>
           <td>${escapeHtml(formatList(group.runtimeEntries))}</td>
-          <td>${escapeHtml(formatList(group.targets))}</td>
+          <td>${escapeHtml(formatList(group.targetPaths))}</td>
         </tr>`
     )
     .join('');
@@ -408,6 +388,10 @@ function renderInstallImpactCard(review: ReviewSummary): string {
 
   return `<section class="card">
         <h2>Install Impact Summary</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>${summaryRows}</tbody>
+        </table>
         <h3>Impact Groups</h3>
         <table>
           <thead><tr><th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
