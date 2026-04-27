@@ -281,6 +281,9 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(textResult.stdout).toContain('Provenance origins:');
     expect(textResult.stdout).toContain('block=');
     expect(textResult.stdout).toContain('slot=');
+    expect(textResult.stdout).toContain('Provenance detail: artifacts:');
+    expect(textResult.stdout).toContain('registry:');
+    expect(textResult.stdout).toContain('unverified:');
     expect(textResult.stdout).toContain(
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
     );
@@ -309,6 +312,14 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
           uncoveredSlotCount: number;
           blockSummaries: Array<{ id: string; coveredByCount: number; coveredBy: string[] }>;
           slotSummaries: Array<{ id: string; coveredByCount: number; coveredBy: string[] }>;
+        };
+        provenanceSummary?: {
+          artifactCount: number;
+          overrideArtifactCount: number;
+          registryArtifactCount: number;
+          unverifiedArtifactCount: number;
+          originSummaries: Array<{ originType: string; count: number; paths: string[] }>;
+          generatedPassSummaries: Array<{ pass: string; count: number; paths: string[] }>;
         };
         policySummary?: {
           status: string;
@@ -356,6 +367,28 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
         coveredBy: ['tenant_only_sees_own_customers', 'user_can_create_customer']
       })
     ]);
+    expect(payload.reviewSummary.provenanceSummary).toMatchObject({
+      overrideArtifactCount: 0,
+      registryArtifactCount: expect.any(Number),
+      unverifiedArtifactCount: expect.any(Number),
+      originSummaries: expect.arrayContaining([
+        expect.objectContaining({
+          originType: 'block',
+          count: expect.any(Number)
+        }),
+        expect.objectContaining({
+          originType: 'slot',
+          count: expect.any(Number)
+        })
+      ]),
+      generatedPassSummaries: expect.arrayContaining([
+        expect.objectContaining({
+          pass: 'compose',
+          count: expect.any(Number)
+        })
+      ])
+    });
+    expect(payload.reviewSummary.provenanceSummary?.artifactCount).toBeGreaterThan(0);
     expect(payload.reviewSummary.policySummary).toMatchObject({
       status: 'passed',
       officialPolicyCount: 1,

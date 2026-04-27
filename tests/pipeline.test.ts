@@ -117,6 +117,16 @@ test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000
   expect(reviewSummary.formatVersion).toBe('2');
   expect(reviewSummary.ciSummary.status).toBe('passed');
   expect(reviewSummary.ciSummary.failureCount).toBe(0);
+  expect(reviewSummary.provenanceSummary).toMatchObject({
+    overrideArtifactCount: 0,
+    registryArtifactCount: expect.any(Number),
+    unverifiedArtifactCount: expect.any(Number),
+    originSummaries: expect.arrayContaining([
+      expect.objectContaining({ originType: 'block' }),
+      expect.objectContaining({ originType: 'slot' })
+    ])
+  });
+  expect(reviewSummary.provenanceSummary?.artifactCount).toBeGreaterThan(0);
   expect(reviewSummary.coverageSummary).toMatchObject({
     status: 'passed',
     blockCount: 3,
@@ -316,6 +326,25 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         coveredBy: string[];
       }>;
     };
+    provenanceSummary?: {
+      artifactCount: number;
+      verifiedArtifactCount: number;
+      unverifiedArtifactCount: number;
+      overrideArtifactCount: number;
+      registryArtifactCount: number;
+      generatedPassCount: number;
+      originSummaries: Array<{ originType: string; count: number; paths: string[] }>;
+      overrideSummaries: Array<{ overrideStatus: string; count: number; paths: string[] }>;
+      registrySummaries: Array<{
+        registrySourceId: string;
+        registryKind?: string;
+        registryLocation?: string;
+        count: number;
+        paths: string[];
+      }>;
+      generatedPassSummaries: Array<{ pass: string; count: number; paths: string[] }>;
+      unverifiedArtifacts: string[];
+    };
     repairSummary?: {
       status: 'pending' | 'applied' | 'skipped' | 'blocked';
       sourceVerificationStatus: 'passed' | 'failed';
@@ -403,6 +432,60 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     ...reviewSummary.ciSummary,
     status: 'failed',
     failureCount: reviewSummary.failurePoints.length
+  };
+  reviewSummary.provenanceSummary = {
+    artifactCount: 4,
+    verifiedArtifactCount: 1,
+    unverifiedArtifactCount: 3,
+    overrideArtifactCount: 1,
+    registryArtifactCount: 1,
+    generatedPassCount: 3,
+    originSummaries: [
+      {
+        originType: 'block',
+        count: 1,
+        paths: ['src/installed/auth/session.ts']
+      },
+      {
+        originType: 'override',
+        count: 1,
+        paths: ['app/tickets/page.tsx']
+      }
+    ],
+    overrideSummaries: [
+      {
+        overrideStatus: 'manual',
+        count: 1,
+        paths: ['app/tickets/page.tsx']
+      },
+      {
+        overrideStatus: 'none',
+        count: 3,
+        paths: ['custom/customer_normalizer.ts', 'generated/review-summary.json', 'src/installed/auth/session.ts']
+      }
+    ],
+    registrySummaries: [
+      {
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        count: 1,
+        paths: ['src/installed/auth/session.ts']
+      }
+    ],
+    generatedPassSummaries: [
+      {
+        pass: 'compose',
+        count: 2,
+        paths: ['app/tickets/page.tsx', 'src/installed/auth/session.ts']
+      },
+      {
+        pass: 'review',
+        count: 1,
+        paths: ['generated/review-summary.json']
+      }
+    ],
+    unverifiedArtifacts: ['app/tickets/page.tsx', 'custom/customer_normalizer.ts', 'generated/review-summary.json']
   };
   reviewSummary.coverageSummary = {
     status: 'failed',
@@ -769,6 +852,13 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Upload Groups</td><td>2</td>');
   expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
   expect(sourceView).toContain('<td>Missing Reason Types</td><td>1</td>');
+  expect(sourceView).toContain('Provenance Summary');
+  expect(sourceView).toContain('<td>Artifacts</td><td>4</td>');
+  expect(sourceView).toContain('<td>Override Artifacts</td><td>1</td>');
+  expect(sourceView).toContain('Provenance Origin Summary');
+  expect(sourceView).toContain('Provenance Override Summary');
+  expect(sourceView).toContain('Provenance Registry Summary');
+  expect(sourceView).toContain('app/tickets/page.tsx');
   expect(sourceView).toContain('Acceptance Coverage Summary');
   expect(sourceView).toContain('<td>Acceptance Passed</td><td>2</td>');
   expect(sourceView).toContain('<td>Covered Blocks</td><td>1</td>');

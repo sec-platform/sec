@@ -15,10 +15,12 @@ import type {
   AcceptanceCoverageReport,
   LockFile,
   ProvenanceFile,
+  ProvenanceOriginType,
   ReviewConflictHint,
   ReviewInstallImpact,
   PolicyReport,
   RepairPlan,
+  OverrideStatus,
   ReviewFailurePoint,
   ReviewRegressionRisk,
   ReviewSummary,
@@ -186,6 +188,15 @@ async function readArtifactSummary(workspaceRoot: string): Promise<ReviewSummary
   };
 }
 
+function countBy<T>(values: T[], key: (value: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const value of values) {
+    const groupKey = key(value);
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), value]);
+  }
+  return groups;
+}
+
 function buildCoverageSummary(coverage: AcceptanceCoverageReport): ReviewSummary['coverageSummary'] {
   const blockSummaries = coverage.blocks
     .map((entry) => ({
@@ -220,6 +231,56 @@ function buildCoverageSummary(coverage: AcceptanceCoverageReport): ReviewSummary
     uncoveredSlots: unique(coverage.uncoveredSlots),
     blockSummaries,
     slotSummaries
+  };
+}
+
+function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['provenanceSummary'] {
+  const originSummaries = [...countBy(provenance.artifacts, (artifact) => artifact.originType).entries()]
+    .map(([originType, artifacts]) => ({
+      originType: originType as ProvenanceOriginType,
+      count: artifacts.length,
+      paths: unique(artifacts.map((artifact) => artifact.path))
+    }))
+    .sort((left, right) => left.originType.localeCompare(right.originType));
+  const overrideSummaries = [...countBy(provenance.artifacts, (artifact) => artifact.overrideStatus).entries()]
+    .map(([overrideStatus, artifacts]) => ({
+      overrideStatus: overrideStatus as OverrideStatus,
+      count: artifacts.length,
+      paths: unique(artifacts.map((artifact) => artifact.path))
+    }))
+    .sort((left, right) => left.overrideStatus.localeCompare(right.overrideStatus));
+  const registryArtifacts = provenance.artifacts.filter((artifact) => artifact.registrySourceId);
+  const registrySummaries = [...countBy(registryArtifacts, (artifact) => artifact.registrySourceId ?? '').entries()]
+    .map(([registrySourceId, artifacts]) => ({
+      registrySourceId,
+      ...(artifacts[0].registryKind ? { registryKind: artifacts[0].registryKind } : {}),
+      ...(artifacts[0].registryLocation ? { registryLocation: artifacts[0].registryLocation } : {}),
+      count: artifacts.length,
+      paths: unique(artifacts.map((artifact) => artifact.path))
+    }))
+    .sort((left, right) => left.registrySourceId.localeCompare(right.registrySourceId));
+  const generatedPassArtifacts = provenance.artifacts.filter((artifact) => artifact.generatedByPass);
+  const generatedPassSummaries = [...countBy(generatedPassArtifacts, (artifact) => artifact.generatedByPass ?? '').entries()]
+    .map(([pass, artifacts]) => ({
+      pass,
+      count: artifacts.length,
+      paths: unique(artifacts.map((artifact) => artifact.path))
+    }))
+    .sort((left, right) => left.pass.localeCompare(right.pass));
+  const unverifiedArtifacts = provenance.artifacts.filter((artifact) => artifact.verifiedBy.length === 0);
+
+  return {
+    artifactCount: provenance.artifacts.length,
+    verifiedArtifactCount: provenance.artifacts.length - unverifiedArtifacts.length,
+    unverifiedArtifactCount: unverifiedArtifacts.length,
+    overrideArtifactCount: provenance.artifacts.filter((artifact) => artifact.overrideStatus !== 'none').length,
+    registryArtifactCount: registryArtifacts.length,
+    generatedPassCount: generatedPassSummaries.length,
+    originSummaries,
+    overrideSummaries,
+    registrySummaries,
+    generatedPassSummaries,
+    unverifiedArtifacts: unique(unverifiedArtifacts.map((artifact) => artifact.path))
   };
 }
 
@@ -487,6 +548,7 @@ export async function buildReviewSummary(
     ? await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath)
     : null;
   const coverageSummary = buildCoverageSummary(coverage);
+  const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = buildPolicySummary(policyReport);
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
   const upgradeSummary = buildUpgradeSummary(upgradePlan, upgradeDiagnostics);
@@ -728,6 +790,7 @@ export async function buildReviewSummary(
     ),
     ...(artifactSummary ? { artifactSummary } : {}),
     coverageSummary,
+    provenanceSummary,
     ...(policySummary ? { policySummary } : {}),
     ...(repairSummary ? { repairSummary } : {}),
     ...(upgradeSummary ? { upgradeSummary } : {}),

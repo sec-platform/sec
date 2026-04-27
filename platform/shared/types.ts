@@ -686,6 +686,46 @@ export interface ReviewCoverageSummary {
   slotSummaries: ReviewCoverageTargetSummary[];
 }
 
+export interface ReviewProvenanceOriginSummary {
+  originType: ProvenanceOriginType;
+  count: number;
+  paths: string[];
+}
+
+export interface ReviewProvenanceOverrideSummary {
+  overrideStatus: OverrideStatus;
+  count: number;
+  paths: string[];
+}
+
+export interface ReviewProvenanceRegistrySummary {
+  registrySourceId: string;
+  registryKind?: RegistryKind;
+  registryLocation?: RegistryLocation;
+  count: number;
+  paths: string[];
+}
+
+export interface ReviewProvenancePassSummary {
+  pass: string;
+  count: number;
+  paths: string[];
+}
+
+export interface ReviewProvenanceSummary {
+  artifactCount: number;
+  verifiedArtifactCount: number;
+  unverifiedArtifactCount: number;
+  overrideArtifactCount: number;
+  registryArtifactCount: number;
+  generatedPassCount: number;
+  originSummaries: ReviewProvenanceOriginSummary[];
+  overrideSummaries: ReviewProvenanceOverrideSummary[];
+  registrySummaries: ReviewProvenanceRegistrySummary[];
+  generatedPassSummaries: ReviewProvenancePassSummary[];
+  unverifiedArtifacts: string[];
+}
+
 export interface ReviewRepairTaskSummary {
   taskId: string;
   sourceSlotId: string;
@@ -805,6 +845,7 @@ export interface ReviewSummary {
   ciSummary: ReviewCiSummary;
   artifactSummary?: ReviewArtifactSummary;
   coverageSummary?: ReviewCoverageSummary;
+  provenanceSummary?: ReviewProvenanceSummary;
   repairSummary?: ReviewRepairSummary;
   upgradeSummary?: ReviewUpgradeSummary;
   policySummary?: ReviewPolicySummary;

@@ -493,6 +493,90 @@ function renderPolicyViolationsTable(policyReport: PolicyReport): string {
       </section>`;
 }
 
+function renderProvenanceSummaryCard(review: ReviewSummary): string {
+  const provenance = review.provenanceSummary;
+  if (!provenance) {
+    return '';
+  }
+
+  const rows = [
+    ['Artifacts', String(provenance.artifactCount)],
+    ['Verified Artifacts', String(provenance.verifiedArtifactCount)],
+    ['Unverified Artifacts', String(provenance.unverifiedArtifactCount)],
+    ['Override Artifacts', String(provenance.overrideArtifactCount)],
+    ['Registry Artifacts', String(provenance.registryArtifactCount)],
+    ['Generated Passes', String(provenance.generatedPassCount)]
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+  const originRows = provenance.originSummaries
+    .map(
+      (origin) => `<tr>
+          <td>${escapeHtml(origin.originType)}</td>
+          <td>${escapeHtml(String(origin.count))}</td>
+          <td>${escapeHtml(origin.paths.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+  const overrideRows = provenance.overrideSummaries
+    .map(
+      (override) => `<tr>
+          <td>${escapeHtml(override.overrideStatus)}</td>
+          <td>${escapeHtml(String(override.count))}</td>
+          <td>${escapeHtml(override.paths.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+  const registryRows = provenance.registrySummaries
+    .map(
+      (registry) => `<tr>
+          <td>${escapeHtml(registry.registrySourceId)}</td>
+          <td>${escapeHtml(registry.registryKind ?? 'unknown')}</td>
+          <td>${escapeHtml(registry.registryLocation ?? 'unknown')}</td>
+          <td>${escapeHtml(String(registry.count))}</td>
+          <td>${escapeHtml(registry.paths.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+  const generatedPassRows = provenance.generatedPassSummaries
+    .map(
+      (summary) => `<tr>
+          <td>${escapeHtml(summary.pass)}</td>
+          <td>${escapeHtml(String(summary.count))}</td>
+          <td>${escapeHtml(summary.paths.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Provenance Summary</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3>Provenance Origin Summary</h3>
+        <table>
+          <thead><tr><th>Origin</th><th>Count</th><th>Paths</th></tr></thead>
+          <tbody>${originRows || '<tr><td colspan="3">No provenance origins.</td></tr>'}</tbody>
+        </table>
+        <h3>Provenance Override Summary</h3>
+        <table>
+          <thead><tr><th>Status</th><th>Count</th><th>Paths</th></tr></thead>
+          <tbody>${overrideRows || '<tr><td colspan="3">No overrides.</td></tr>'}</tbody>
+        </table>
+        <h3>Provenance Registry Summary</h3>
+        <table>
+          <thead><tr><th>Source</th><th>Kind</th><th>Location</th><th>Count</th><th>Paths</th></tr></thead>
+          <tbody>${registryRows || '<tr><td colspan="5">No registry provenance.</td></tr>'}</tbody>
+        </table>
+        <h3>Provenance Generated Pass Summary</h3>
+        <table>
+          <thead><tr><th>Pass</th><th>Count</th><th>Paths</th></tr></thead>
+          <tbody>${generatedPassRows || '<tr><td colspan="3">No generated pass provenance.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderCoverageSummaryCard(review: ReviewSummary): string {
   const coverage = review.coverageSummary;
   if (!coverage) {
@@ -997,6 +1081,7 @@ function renderSourceView(
       ${renderFailureFocusCard(review)}
       ${renderReviewRuntimeAttributionCard(review)}
       ${renderInstallImpactCard(review)}
+      ${renderProvenanceSummaryCard(review)}
       ${renderCoverageSummaryCard(review)}
       ${renderPolicySummaryCard(review)}
       ${renderPolicySourcesTable(policyReport)}
