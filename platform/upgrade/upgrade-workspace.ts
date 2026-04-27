@@ -156,7 +156,11 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
-  if (entry.kind === 'create-directory' || entry.kind === 'delete-file') {
+  if (
+    entry.kind === 'create-directory' ||
+    entry.kind === 'delete-file' ||
+    entry.kind === 'delete-directory'
+  ) {
     return;
   }
 
@@ -419,6 +423,11 @@ async function removeFileMigrationTarget(targetPath: string, target: string): Pr
   await fs.rm(targetPath);
 }
 
+async function removeDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
+  await statDirectoryMigrationTarget(targetPath, target);
+  await fs.rm(targetPath, { recursive: true });
+}
+
 async function renameFileMigrationTarget(
   sourcePath: string,
   targetPath: string,
@@ -538,6 +547,11 @@ export async function applyMigrationEntries(
       continue;
     }
 
+    if (entry.kind === 'delete-directory') {
+      await removeDirectoryMigrationTarget(targetPath, entry.target);
+      continue;
+    }
+
     if (entry.kind === 'rename-file') {
       const sourcePath = resolveProjectPath(projectRoot, entry.source, {
         migrationId: entry.id,
@@ -589,6 +603,18 @@ async function statFileMigrationTarget(targetPath: string, target: string): Prom
   }
   if (!stats.isFile()) {
     throw new CompilerError('UPGRADE-MIGRATION-017', `Delete-file target "${target}" must be a file`);
+  }
+}
+
+async function statDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(targetPath);
+  } catch {
+    throw new CompilerError('UPGRADE-MIGRATION-025', `Delete-directory target "${target}" is missing`);
+  }
+  if (!stats.isDirectory()) {
+    throw new CompilerError('UPGRADE-MIGRATION-026', `Delete-directory target "${target}" must be a directory`);
   }
 }
 
@@ -668,6 +694,16 @@ async function collectFileOperationEvidence(
         entry.target
       );
       evidence.push(`${entry.id}:target:file`);
+    }
+    if (entry.kind === 'delete-directory') {
+      await statDirectoryMigrationTarget(
+        resolveProjectPath(projectRoot, entry.target, {
+          migrationId: entry.id,
+          role: 'target'
+        }),
+        entry.target
+      );
+      evidence.push(`${entry.id}:target:directory`);
     }
     if (entry.kind === 'rename-file') {
       const sourcePath = resolveProjectPath(projectRoot, entry.source, {
@@ -970,7 +1006,9 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
     code === 'UPGRADE-MIGRATION-019' ||
     code === 'UPGRADE-MIGRATION-020' ||
     code === 'UPGRADE-MIGRATION-023' ||
-    code === 'UPGRADE-MIGRATION-024'
+    code === 'UPGRADE-MIGRATION-024' ||
+    code === 'UPGRADE-MIGRATION-025' ||
+    code === 'UPGRADE-MIGRATION-026'
   ) {
     return 'migration-file-operations';
   }

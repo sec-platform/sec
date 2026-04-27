@@ -619,6 +619,162 @@ test('upgrade dry-run records delete file migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade dry-run records delete directory migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-directory-plan-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-delete-obsolete-report-dir',
+          kind: 'delete-directory',
+          entry: 'migrations/delete-obsolete-report-dir.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'delete-obsolete-report-dir.json'), {
+    id: 'mig-delete-obsolete-report-dir',
+    kind: 'delete-directory',
+    reason: 'Remove obsolete generated report directory from previous upgrades.',
+    target: 'generated/reports/obsolete'
+  });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'obsolete', 'daily.json'), {
+    status: 'obsolete'
+  });
+
+  const { upgradePlan } = await upgradeWorkspace(
+    workspaceRoot,
+    'private/slot-contract',
+    '0.2.0',
+    { dryRun: true }
+  );
+
+  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.impacts).toEqual([
+    'generated/reports/obsolete',
+    'src/installed/private/slot-contract.ts'
+  ]);
+  expect(upgradePlan.migrationKindCounts).toEqual({
+    'delete-directory': 1
+  });
+  expect(upgradePlan.preflightChecks).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'migration-file-operations',
+        status: 'passed',
+        evidence: ['mig-delete-obsolete-report-dir:target:directory']
+      })
+    ])
+  );
+  expect(upgradePlan.migrationSummaries).toEqual([
+    {
+      id: 'mig-delete-obsolete-report-dir',
+      kind: 'delete-directory',
+      target: 'generated/reports/obsolete',
+      reason: 'Remove obsolete generated report directory from previous upgrades.',
+      requiresVerification: false
+    }
+  ]);
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
+test('delete directory migrations remove project directories recursively', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-directory-apply-');
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'obsolete', 'daily.json'), {
+    status: 'obsolete'
+  });
+
+  await applyMigrationEntries(
+    projectRoot,
+    projectRoot,
+    ['generated/reports/obsolete'],
+    [
+      {
+        id: 'mig-delete-obsolete-report-dir',
+        kind: 'delete-directory',
+        reason: 'Remove obsolete generated report directory from previous upgrades.',
+        target: 'generated/reports/obsolete'
+      }
+    ]
+  );
+
+  await expect(
+    fs.readFile(
+      path.join(projectRoot, 'generated', 'reports', 'obsolete', 'daily.json'),
+      'utf8'
+    )
+  ).rejects.toThrow();
+});
+
+test('upgrade rejects delete directory migrations when target is not a directory', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-directory-file-target-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, projectRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-delete-obsolete-report-dir',
+          kind: 'delete-directory',
+          entry: 'migrations/delete-obsolete-report-dir.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'delete-obsolete-report-dir.json'), {
+    id: 'mig-delete-obsolete-report-dir',
+    kind: 'delete-directory',
+    reason: 'Remove obsolete generated report directory from previous upgrades.',
+    target: 'generated/reports/obsolete'
+  });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'obsolete'), {
+    status: 'not-a-directory'
+  });
+
+  await expect(
+    upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })
+  ).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-026'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain(
+    '"failedCheck": "migration-file-operations"'
+  );
+});
+
 test('upgrade dry-run records copy directory migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-copy-directory-plan-');
 
