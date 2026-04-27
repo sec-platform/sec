@@ -69,7 +69,7 @@ Use these entry commands for normal development:
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
-- `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract
+- `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract with refresh and diff commands
 - `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including runner command, aggregated artifact paths, and score dimensions
 - `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry

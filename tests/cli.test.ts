@@ -326,6 +326,9 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
 
   expect(formatReferenceCheck(report)).toContain('Reference workspace drifted');
   expect(formatReferenceCheck(report)).toContain(
+    'Commands: refresh=npm run reference:refresh; diff=git diff --name-only --exit-code -- project'
+  );
+  expect(formatReferenceCheck(report)).toContain(
     'Changed paths: project/app.plan.yaml, project/generated/review-summary.json'
   );
   expect(JSON.stringify(report)).not.toContain('\n');

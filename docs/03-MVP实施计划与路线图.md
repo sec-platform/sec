@@ -160,7 +160,7 @@
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
      - reference 无漂移 gate：done。
        - `platform reference check` 作为正式 CLI 入口。
-       - `platform reference check --json [--compact]` 输出稳定 reference drift 合同。
+       - `platform reference check --json [--compact]` 输出稳定 reference drift 合同，普通文本同步展示 refresh/diff 复现命令。
        - `npm run reference:check` 复用正式 CLI 入口。
        - gate 通过 `reference:refresh` 刷新后运行 `git diff --name-only --exit-code -- project`。
        - 失败时直接暴露 reference workspace 与编译主链的不一致。

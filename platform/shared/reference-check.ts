@@ -71,6 +71,7 @@ export async function buildReferenceCheckReport(options: {
 export function formatReferenceCheck(report: ReferenceCheckReport): string {
   return [
     `Reference workspace ${report.status}`,
+    `Commands: refresh=${report.refreshCommand}; diff=${report.diffCommand}`,
     `Refresh: exit=${report.refreshExitCode}; diff: exit=${report.diffExitCode}`,
     `Changed paths: ${report.changedPathCount > 0 ? report.changedPaths.join(', ') : 'none'}`,
     `Recommended action: ${report.recommendedAction}`
