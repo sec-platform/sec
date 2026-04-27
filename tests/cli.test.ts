@@ -588,7 +588,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'npm run platform -- artifacts --paths --json --compact --kind view',
       'npm run platform -- artifacts --paths --json --compact --kind test'
     ],
-    stepCount: 7,
+    stepCount: 9,
     steps: expect.arrayContaining([
       expect.objectContaining({
         id: 'pr-fast-verify',
@@ -606,6 +606,18 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         ])
       }),
       expect.objectContaining({
+        id: 'slow-test-budget',
+        phase: 'quality',
+        command: 'npm run platform -- test budget --json --compact',
+        produces: []
+      }),
+      expect.objectContaining({
+        id: 'benchmark-task-suite',
+        phase: 'quality',
+        command: 'npm run platform -- benchmark suite --json --compact',
+        produces: []
+      }),
+      expect.objectContaining({
         id: 'governance-artifacts',
         phase: 'artifacts',
         command: 'npm run platform -- artifacts --paths --json --compact --kind governance'
@@ -619,6 +631,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('CI contract active');
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
+    expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
+    expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'ci', '--json']);
     expect(jsonResult.code).toBe(0);
@@ -626,7 +640,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
       defaultGate: 'pr-fast-verify',
-      stepCount: 7
+      stepCount: 9
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'ci', '--json', '--compact']);
