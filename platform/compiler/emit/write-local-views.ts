@@ -819,6 +819,15 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
     .join('');
   const categoryRows = renderTaxonomyRows(repair.taskCategorySummaries);
+  const targetRows = repair.targetSummaries
+    .map(
+      (target) => `<tr>
+          <td>${escapeHtml(target.targetType)}</td>
+          <td>${escapeHtml(target.id)}</td>
+          <td>${escapeHtml(String(target.count))}</td>
+        </tr>`
+    )
+    .join('');
   const taskRows = repair.taskSummaries
     .map(
       (task) => `<tr>
@@ -875,6 +884,11 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
         <table>
           <thead><tr><th>Category</th><th>Count</th></tr></thead>
           <tbody>${categoryRows || '<tr><td colspan="2">No repair task categories.</td></tr>'}</tbody>
+        </table>
+        <h3>Repair Target Attribution Summary</h3>
+        <table>
+          <thead><tr><th>Type</th><th>Target</th><th>Count</th></tr></thead>
+          <tbody>${targetRows || '<tr><td colspan="3">No repair target attribution.</td></tr>'}</tbody>
         </table>
         <h3>Repair Task Summary</h3>
         <table>

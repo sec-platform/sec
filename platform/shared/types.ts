@@ -817,6 +817,20 @@ export interface ReviewRepairFailureTaxonomySummary {
   repairabilitySummaries: ReviewRepairFailureTaxonomyEntry[];
 }
 
+export type ReviewRepairTargetType =
+  | 'generated-file'
+  | 'slot-target'
+  | 'acceptance-case'
+  | 'policy-target'
+  | 'runtime-target'
+  | 'unknown';
+
+export interface ReviewRepairTargetSummary {
+  id: string;
+  targetType: ReviewRepairTargetType;
+  count: number;
+}
+
 export interface ReviewRepairSummary {
   status: 'pending' | 'applied' | 'skipped' | 'blocked';
   sourceVerificationStatus: 'passed' | 'failed';
@@ -827,6 +841,7 @@ export interface ReviewRepairSummary {
   changedPreviewCount: number;
   failurePointCount: number;
   failureTaxonomy: ReviewRepairFailureTaxonomySummary;
+  targetSummaries: ReviewRepairTargetSummary[];
   taskCategorySummaries: ReviewRepairFailureTaxonomyEntry[];
   targetFiles: string[];
   taskSummaries: ReviewRepairTaskSummary[];
