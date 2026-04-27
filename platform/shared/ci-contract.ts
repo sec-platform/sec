@@ -12,6 +12,7 @@ export type CiContract = {
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
+  qualityCommands: string[];
   artifactUploadCommands: string[];
   stepCount: number;
   steps: CiContractStep[];
@@ -97,6 +98,9 @@ export function buildCiContract(): CiContract {
     command: 'npm run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    qualityCommands: ciSteps
+      .filter((step) => step.phase === 'quality')
+      .map((step) => step.command),
     artifactUploadCommands: ciSteps
       .filter((step) => step.phase === 'artifacts')
       .map((step) => step.command),
@@ -114,6 +118,7 @@ export function formatCiContract(contract: CiContract): string {
     `Command: ${contract.command}`,
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
+    `Quality commands: ${contract.qualityCommands.join(', ')}`,
     `Artifact uploads: ${contract.artifactUploadCommands.join(', ')}`,
     `Steps: ${contract.stepCount}`,
     ...contract.steps.map((step) => [
