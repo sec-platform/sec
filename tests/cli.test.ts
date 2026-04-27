@@ -137,7 +137,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|contract>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|contract>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -910,6 +910,87 @@ test('CLI exposes verification report as text and JSON contracts', { timeout: 12
         status: 'passed',
         requestedLane: 'fast'
       }
+    });
+  });
+});
+
+test('CLI exposes provenance registry as text and JSON contracts', { timeout: 120000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--lane', 'all'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Locked project\n',
+      stderr: ''
+    });
+
+    const textResult = await runCli(workspaceRoot, ['provenance', 'registry']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Provenance registry; artifacts=');
+    expect(textResult.stdout).toContain('Origins: block=');
+    expect(textResult.stdout).toContain('slot=');
+    expect(textResult.stdout).toContain('Registry sources: official=');
+    expect(textResult.stdout).toContain('origin=slot:');
+
+    const jsonResult = await runCli(workspaceRoot, ['provenance', 'registry', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    const provenance = JSON.parse(jsonResult.stdout) as {
+      formatVersion: string;
+      artifacts: Array<{
+        path: string;
+        originType: string;
+        registrySourceId?: string;
+        verifiedBy: string[];
+        overrideStatus: string;
+      }>;
+    };
+    expect(provenance.formatVersion).toBe('1');
+    expect(provenance.artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'custom/customer_normalizer.ts',
+          originType: 'slot',
+          overrideStatus: 'none'
+        }),
+        expect.objectContaining({
+          path: 'src/installed/entity/customer-service.ts',
+          originType: 'block',
+          registrySourceId: 'official'
+        })
+      ])
+    );
+
+    const compactResult = await runCli(workspaceRoot, ['provenance', 'registry', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      formatVersion: '1',
+      artifacts: expect.any(Array)
     });
   });
 });
@@ -2456,6 +2537,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform verification report [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['provenance'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform provenance registry [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['provenance', 'registry', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform provenance registry [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['provenance', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform provenance registry [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
       code: 1,
