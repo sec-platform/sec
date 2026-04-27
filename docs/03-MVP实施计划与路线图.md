@@ -127,7 +127,10 @@
        - `platform artifacts --paths --kind contract` 输出可上传 contract 清单。
        - `platform artifacts --paths --json --kind contract` 输出结构化 contract 清单。
        - contract 清单从 `generated/*-contract.json` 和 artifact summary 派生。
-     - artifact / graph / review golden output。
+     - artifact / graph / review golden output：active。
+       - `platform explain --json --compact` 输出稳定单行 JSON 合同。
+       - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
+       - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
      - dogfood 样例工作区。
      - benchmark 与慢测预算。
      - 重复概念删除和命名收敛。

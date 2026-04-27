@@ -47,7 +47,7 @@ const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
-const EXPLAIN_USAGE = 'Usage: platform explain [--json]';
+const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -183,12 +183,18 @@ function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: str
   return { blockId, targetVersion, dryRun, json };
 }
 
-function parseExplainArgs(args: string[]): { json: boolean } {
+function parseExplainArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
-    return { json: false };
+    return { json: false, compact: false };
   }
-  if (args.length === 1 && args[0] === '--json') {
-    return { json: true };
+  if (args[0] !== '--json') {
+    throw new Error(EXPLAIN_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
   }
   throw new Error(EXPLAIN_USAGE);
 }
@@ -675,7 +681,7 @@ async function main(): Promise<void> {
       const explainArgs = parseExplainArgs(args);
       const { graph, reviewSummary } = await explainWorkspace(process.cwd());
       if (explainArgs.json) {
-        console.log(JSON.stringify({ graph, reviewSummary }, null, 2));
+        console.log(JSON.stringify({ graph, reviewSummary }, null, explainArgs.compact ? 0 : 2));
         return;
       }
       console.log(formatExplainSummary(graph, reviewSummary));
