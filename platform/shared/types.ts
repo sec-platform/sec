@@ -765,8 +765,11 @@ export interface ReviewProvenanceSummary {
   unverifiedArtifacts: string[];
 }
 
+export type RepairTaskCategory = 'slot-rewrite' | 'config-repair' | 'generated-artifact-refresh';
+
 export interface ReviewRepairTaskSummary {
   taskId: string;
+  category: RepairTaskCategory;
   sourceSlotId: string;
   targetBlock: string;
   targetFile: string;
@@ -807,6 +810,7 @@ export interface ReviewRepairSummary {
   changedPreviewCount: number;
   failurePointCount: number;
   failureTaxonomy: ReviewRepairFailureTaxonomySummary;
+  taskCategorySummaries: ReviewRepairFailureTaxonomyEntry[];
   targetFiles: string[];
   taskSummaries: ReviewRepairTaskSummary[];
   blockerSummaries: ReviewRepairBlockerSummary[];
@@ -953,6 +957,7 @@ export interface RepairBlocker {
 export interface RepairTask {
   taskId: string;
   taskKind: 'repair-slot';
+  category?: RepairTaskCategory;
   phase: 'repair';
   sourceSlotId: string;
   targetBlock: string;

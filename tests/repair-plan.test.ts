@@ -264,6 +264,7 @@ test('repair plan includes structured failure points for slot and spec failures'
   expect(repairPlan.status).toBe('pending');
   expect(repairPlan.requiresVerification).toBe(false);
   expect(repairPlan.tasks).toHaveLength(1);
+  expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
   expect(repairPlan.tasks[0].failureSummary).toBe('build=passed; unit=failed; acceptance=failed; policy=failed; runtime=skipped');
   expect(repairPlan.tasks[0].failurePoints).toEqual(
     expect.arrayContaining([

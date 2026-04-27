@@ -473,6 +473,7 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `blockers: ${repair.blockerCount}`,
         `changed previews: ${repair.changedPreviewCount}`,
         `requires verification: ${repair.requiresVerification}`,
+        `categories: ${formatSummaryEntries(repair.taskCategorySummaries)}`,
         `issues: ${formatSummaryEntries(repair.failureTaxonomy.issueTypeSummaries)}`,
         `repairability: ${formatSummaryEntries(repair.failureTaxonomy.repairabilitySummaries)}`
       ].join('; ')

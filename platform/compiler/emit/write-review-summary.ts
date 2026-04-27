@@ -16,6 +16,7 @@ import type {
   LockFile,
   ProvenanceFile,
   ProvenanceOriginType,
+  RepairTaskCategory,
   ReviewConflictHint,
   ReviewInstallImpact,
   PolicyReport,
@@ -311,15 +312,21 @@ function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewS
   };
 }
 
+function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCategory {
+  return task.category ?? 'slot-rewrite';
+}
+
 function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummary'] {
   const taskSummaries = repairPlan.tasks
     .map((task) => {
+      const category = repairTaskCategory(task);
       const targetIds = unique(task.failurePoints.flatMap((point) => point.targetIds ?? []));
       const previewStatus: 'changed' | 'unchanged' | 'missing' = task.preview
         ? task.preview.changed ? 'changed' : 'unchanged'
         : 'missing';
       return {
         taskId: task.taskId,
+        category,
         sourceSlotId: task.sourceSlotId,
         targetBlock: task.targetBlock,
         targetFile: task.targetFile,
@@ -354,6 +361,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
       blockerSummaries.reduce((total, blocker) => total + blocker.failurePointCount, 0)
     ),
     failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
+    taskCategorySummaries: summarizeRepairTaxonomy(repairPlan.tasks.map(repairTaskCategory)),
     targetFiles: unique(repairPlan.tasks.map((task) => task.targetFile)),
     taskSummaries,
     blockerSummaries

@@ -328,6 +328,15 @@
        - 人工决策点。
      - repair blocker 进入 review summary。
      - repair blocker 进入 local view。
+     - repair task category 归因：
+       - 当前 slot repair task 归类为 `slot-rewrite`。
+       - 预留 `config-repair`。
+       - 预留 `generated-artifact-refresh`。
+       - category 进入 repair plan。
+       - category summary 进入 review summary。
+       - category summary 进入 CLI explain。
+       - category summary 进入 local Source View。
+       - 旧 repair plan artifact 缺少 category 时按 `slot-rewrite` 兼容展示。
      - repair plan CLI JSON 输出：
        - `repair --json`。
        - `repair --dry-run --json`。
@@ -378,9 +387,17 @@
        - acceptance case。
        - policy target。
      - 切口 B：把 repair task 拆成明确类别：
-       - slot rewrite。
-       - config repair。
-       - generated artifact refresh。
+       - 状态：done。
+       - 当前类别：
+         - `slot-rewrite`。
+       - 预留类别：
+         - `config-repair`。
+         - `generated-artifact-refresh`。
+       - 输出位置：
+         - `generated/repair-plan.json`。
+         - `generated/review-summary.json`。
+         - CLI explain 文本。
+         - Source View。
      - 切口 C：补 repair 阻断解释：
        - 状态：done。
        - 为什么不可修。
