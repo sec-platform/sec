@@ -25,7 +25,7 @@ import {
   buildReferenceCheckReport,
   formatReferenceCheck
 } from '../platform/shared/reference-check.ts';
-import type { RepairPlan, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
+import type { RepairPlan, ReviewSummary, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
 function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -137,7 +137,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|contract>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|contract>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -991,6 +991,144 @@ test('CLI exposes provenance registry as text and JSON contracts', { timeout: 12
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       formatVersion: '1',
       artifacts: expect.any(Array)
+    });
+  });
+});
+
+test('CLI exposes review summary as text and JSON contracts', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
+    await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
+    const reviewSummary: ReviewSummary = {
+      formatVersion: '2',
+      ciSummary: {
+        status: 'attention',
+        failureCount: 1,
+        regressionRiskCount: 2,
+        conflictHintCount: 3,
+        impactedBlockCount: 1,
+        impactedSlotCount: 1,
+        runtimeEntryCount: 1
+      },
+      chainSummary: {
+        status: 'attention',
+        stageCount: 4,
+        passedStageCount: 2,
+        attentionStageCount: 1,
+        failedStageCount: 1,
+        stageSummaries: [
+          { id: 'verification', status: 'passed', detail: 'lane=all; failed=none' },
+          { id: 'coverage', status: 'failed', detail: 'blocks=1/2; slots=1/1' },
+          { id: 'artifacts', status: 'attention', detail: 'total=4; missing=1' },
+          { id: 'review', status: 'passed', detail: 'review-summary=generated' }
+        ]
+      },
+      artifactSummary: {
+        artifactStatus: 'attention',
+        artifactCount: 4,
+        governanceCount: 3,
+        viewCount: 1,
+        contractCount: 1,
+        missingCount: 1
+      },
+      coverageSummary: {
+        status: 'failed',
+        acceptancePassedCount: 1,
+        blockCount: 2,
+        slotCount: 1,
+        coveredBlockCount: 1,
+        coveredSlotCount: 1,
+        uncoveredBlockCount: 1,
+        uncoveredSlotCount: 0,
+        acceptancePassed: ['smoke'],
+        uncoveredBlocks: ['tenant/basic-workspace'],
+        uncoveredSlots: [],
+        blockSummaries: [],
+        slotSummaries: []
+      },
+      provenanceSummary: {
+        artifactCount: 5,
+        verifiedArtifactCount: 2,
+        unverifiedArtifactCount: 3,
+        overrideArtifactCount: 1,
+        registryArtifactCount: 2,
+        generatedPassCount: 2,
+        originSummaries: [],
+        overrideSummaries: [],
+        registrySummaries: [],
+        generatedPassSummaries: [],
+        unverifiedArtifacts: ['custom/customer_normalizer.ts']
+      },
+      changeSources: [
+        {
+          path: 'custom/customer_normalizer.ts',
+          originType: 'slot',
+          originId: 'customer_normalizer'
+        }
+      ],
+      runtimeEntries: [
+        {
+          path: 'app/customers/page.tsx',
+          kind: 'page',
+          vertical: 'customer',
+          relatedBlocks: ['entity/customer-basic']
+        }
+      ],
+      verticalSlices: [],
+      installImpacts: [],
+      installImpactSummary: {
+        impactCount: 1,
+        blockCount: 1,
+        actionKindCount: 1,
+        sourceRootCount: 1,
+        targetPathCount: 1,
+        verticalCount: 1,
+        runtimeEntryCount: 1,
+        groupCount: 1,
+        blocks: ['entity/customer-basic'],
+        actionKinds: ['copy'],
+        sourceRoots: ['files'],
+        targetPaths: ['src/installed/entity/customer-service.ts'],
+        verticals: ['customer'],
+        runtimeEntries: ['app/customers/page.tsx'],
+        groupSummaries: []
+      },
+      impactedBlocks: ['entity/customer-basic'],
+      impactedSlots: ['customer_normalizer'],
+      failurePoints: [],
+      regressionRisks: [],
+      conflictHints: []
+    };
+    await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
+
+    const textResult = await runCli(workspaceRoot, ['review', 'summary']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Review summary attention; format=2; stages=2/4; attention=1; failed=1');
+    expect(textResult.stdout).toContain('CI attention; failures=1; risks=2; conflicts=3');
+    expect(textResult.stdout).toContain('Impact blocks=1; slots=1; runtime=1; changeSources=1');
+    expect(textResult.stdout).toContain('Coverage failed; blocks=1/2; slots=1/1');
+    expect(textResult.stdout).toContain('Provenance artifacts=5; registry=2; unverified=3');
+    expect(textResult.stdout).toContain('Artifacts attention; total=4; missing=1; contracts=1');
+    expect(textResult.stdout).toContain('Stages: verification=passed, coverage=failed, artifacts=attention, review=passed');
+
+    const jsonResult = await runCli(workspaceRoot, ['review', 'summary', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+      formatVersion: '2',
+      chainSummary: { status: 'attention', stageCount: 4 },
+      coverageSummary: { status: 'failed', uncoveredBlocks: ['tenant/basic-workspace'] },
+      provenanceSummary: { artifactCount: 5 }
+    });
+
+    const compactResult = await runCli(workspaceRoot, ['review', 'summary', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      formatVersion: '2',
+      chainSummary: { status: 'attention' }
     });
   });
 });
@@ -2552,6 +2690,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform provenance registry [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['review'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform review summary [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['review', 'summary', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform review summary [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['review', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform review summary [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
       code: 1,
