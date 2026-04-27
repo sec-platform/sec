@@ -615,6 +615,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'npm run platform -- test budget --json --compact',
       'npm run platform -- benchmark suite --json --compact'
     ],
+    diagnosticCommands: [
+      'npm run platform -- review summary --json --compact',
+      'npm run platform -- explain --json --compact'
+    ],
     artifactUploadCommands: [
       'npm run platform -- artifacts --paths --json --compact --kind governance',
       'npm run platform -- artifacts --paths --json --compact --kind view',
@@ -665,6 +669,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain(
       'Quality commands: npm run platform -- test budget --json --compact, npm run platform -- benchmark suite --json --compact'
     );
+    expect(textResult.stdout).toContain(
+      'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- explain --json --compact'
+    );
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
     expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
@@ -679,6 +686,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- test budget --json --compact',
         'npm run platform -- benchmark suite --json --compact'
       ],
+      diagnosticCommands: [
+        'npm run platform -- review summary --json --compact',
+        'npm run platform -- explain --json --compact'
+      ],
       stepCount: 9
     });
 
@@ -692,6 +703,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       qualityCommands: [
         'npm run platform -- test budget --json --compact',
         'npm run platform -- benchmark suite --json --compact'
+      ],
+      diagnosticCommands: [
+        'npm run platform -- review summary --json --compact',
+        'npm run platform -- explain --json --compact'
       ]
     });
   });

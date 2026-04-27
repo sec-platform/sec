@@ -50,7 +50,7 @@ Use these entry commands for normal development:
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list
 - `npm run platform -- contract errors`: inspect the error protocol contract
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract
-- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including verify gates, top-level quality commands, diagnostics, and artifact uploads
+- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including verify gates, top-level quality and diagnostic commands, and artifact uploads
 - `npm run platform -- test budget`: inspect the fast/runtime/all slow-test budget
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract
 - `npm run platform -- policy report`: inspect the latest policy governance report
@@ -123,7 +123,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run reference:check`: run the formal reference drift gate through `platform reference check`
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract
-- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including verify gates, top-level quality commands, diagnostics, and artifact uploads
+- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including verify gates, top-level quality and diagnostic commands, and artifact uploads
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
