@@ -611,6 +611,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     command: 'npm run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    verifyCommands: [
+      'npm run platform -- verify --json --compact',
+      'npm run platform -- verify --lane all --json --compact'
+    ],
     qualityCommands: [
       'npm run platform -- test budget --json --compact',
       'npm run platform -- benchmark suite --json --compact'
@@ -667,6 +671,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('CI contract active');
     expect(textResult.stdout).toContain(
+      'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact'
+    );
+    expect(textResult.stdout).toContain(
       'Quality commands: npm run platform -- test budget --json --compact, npm run platform -- benchmark suite --json --compact'
     );
     expect(textResult.stdout).toContain(
@@ -682,6 +689,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
       defaultGate: 'pr-fast-verify',
+      verifyCommands: [
+        'npm run platform -- verify --json --compact',
+        'npm run platform -- verify --lane all --json --compact'
+      ],
       qualityCommands: [
         'npm run platform -- test budget --json --compact',
         'npm run platform -- benchmark suite --json --compact'
@@ -700,6 +711,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
       fullRuntimeGate: 'full-runtime-verify',
+      verifyCommands: [
+        'npm run platform -- verify --json --compact',
+        'npm run platform -- verify --lane all --json --compact'
+      ],
       qualityCommands: [
         'npm run platform -- test budget --json --compact',
         'npm run platform -- benchmark suite --json --compact'
