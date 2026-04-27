@@ -272,6 +272,12 @@ test('repair plan includes structured failure points for slot and spec failures'
     forbiddenOperationCount: 4,
     testCount: 2,
     failureTargetCount: 3,
+    sourceSlotStatus: 'filled',
+    sourceWritableZones: ['custom/customer_normalizer.ts'],
+    sourceProvenanceHints: {
+      generator: 'mock-local-synthesizer',
+      verifiedBy: []
+    },
     writeBounds: ['custom/customer_normalizer.ts'],
     requiredSymbols: ['normalizeCustomerInput'],
     forbiddenOperations: [

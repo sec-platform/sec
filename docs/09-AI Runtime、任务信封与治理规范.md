@@ -52,6 +52,14 @@ taskKind: adapter-slot
 phase: adapt
 targetBlock: entity/customer-basic
 targetFile: custom/customer_normalizer.ts
+sourceSlot:
+  id: customer_normalizer
+  status: filled
+  writableZones:
+    - custom/
+  provenanceHints:
+    generator: mock-local-synthesizer
+    verifiedBy: []
 allowedPaths:
   - custom/customer_normalizer.ts
 requiredSymbols:
@@ -85,7 +93,8 @@ expectedOutput:
 | `phase` | 是 | 所属 pass |
 | `targetBlock` | 否 | 相关 block |
 | `targetFile` | 是 | 主要目标文件 |
-| `allowedPaths[]` | 是 | 唯一允许写入路径 |
+| `sourceSlot` | 是 | 来自 `graph.lock.json` 的 slot 状态、writable zones 与 provenance hints |
+| `allowedPaths[]` | 是 | 从 `targetFile` 收窄出的实际允许写入文件，且必须落在 `sourceSlot.writableZones` 内 |
 | `requiredSymbols[]` | 否 | 必须保留或导出的符号 |
 | `forbiddenOperations[]` | 是 | 禁止操作集合 |
 | `inputContracts` | 否 | 类型、schema、约束 |
@@ -98,6 +107,7 @@ expectedOutput:
 ### 强制检查
 
 - 写回前必须校验目标文件路径在 `allowedPaths` 之内。
+- `allowedPaths` 必须收窄到具体 `targetFile`，且目标必须落在 `sourceSlot.writableZones` 内；repair review 也必须回显同一写入边界和 provenance hints。
 - 写回后必须重新解析导出符号，验证 `requiredSymbols` 仍存在。
 - 若 diff 触及未授权路径，立即失败并标记 `SLOT-WRITE-001`。
 

@@ -181,7 +181,9 @@
          - `project/generated/explain-graph.json`
          - `project/generated/review-summary.json`
        - P0：建立 benchmark/task-suite 最小合同，先通过 `platform benchmark suite --json [--compact]` 冻结任务集与评分维度，再扩 runner。
-       - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐。
+       - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐：active。
+        - TaskEnvelope `sourceSlot` 已回显 lock 中 slot 状态、writable zones 与 provenance hints。
+        - repair plan review 已回显同一 envelope 写入边界与 source provenance，供 dry-run JSON 审查。
        - P1：增加 reference workspace 无漂移 gate，证明 checked-in `project/` 与主链刷新结果一致。
        - P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。
          - fast：默认本地 verify 与定向命名测试；禁止 Next build、Playwright install、浏览器 acceptance。

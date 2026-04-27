@@ -11,6 +11,15 @@ export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask
     phase: 'adapt',
     targetBlock: task.block,
     targetFile: task.target,
+    sourceSlot: {
+      id: task.id,
+      status: task.status,
+      writableZones: [...task.writableZones],
+      provenanceHints: {
+        generator: task.provenanceHints.generator,
+        verifiedBy: [...task.provenanceHints.verifiedBy]
+      }
+    },
     allowedPaths: [task.target],
     requiredSymbols: [task.symbol],
     forbiddenOperations: [
