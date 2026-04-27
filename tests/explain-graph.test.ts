@@ -227,6 +227,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
   const diagnostics: UpgradeDiagnostics = {
     formatVersion: '1',
     status: 'blocked',
+    phase: 'planning',
     blockId: 'entity/customer-basic',
     targetVersion: '0.2.0',
     failedCheck: 'override-conflicts',

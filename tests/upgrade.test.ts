@@ -549,11 +549,13 @@ test('upgrade apply writes diagnostics when migration execution fails after plan
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 
   const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    phase: string;
     failedCheck: string;
     errorCode: string;
     message: string;
   };
   expect(diagnostics).toMatchObject({
+    phase: 'apply',
     failedCheck: 'migration-file-operations',
     errorCode: 'UPGRADE-MIGRATION-016',
     message: 'slot-contract-update target "custom/customer_normalizer.ts" is missing'

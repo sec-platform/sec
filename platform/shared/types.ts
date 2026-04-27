@@ -925,8 +925,11 @@ export interface ReviewUpgradeVerificationSummary {
   count: number;
 }
 
+export type UpgradeDiagnosticsPhase = 'planning' | 'apply';
+
 export interface ReviewUpgradeDiagnosticsSummary {
   status: 'blocked';
+  phase: UpgradeDiagnosticsPhase;
   failedCheck: string;
   errorCode: string;
   message: string;
@@ -1162,6 +1165,7 @@ export interface UpgradePlan {
 export interface UpgradeDiagnostics {
   formatVersion: string;
   status: 'blocked';
+  phase: UpgradeDiagnosticsPhase;
   blockId: string;
   targetVersion: string;
   failedCheck: UpgradePreflightCheckId | 'target-manifest' | 'plan-block';

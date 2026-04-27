@@ -1096,6 +1096,7 @@ async function writeUpgradeDiagnostics(
   workspaceRoot: string,
   blockId: string,
   targetVersion: string,
+  phase: UpgradeDiagnostics['phase'],
   error: CompilerError,
   lock: LockFile | null
 ): Promise<void> {
@@ -1104,6 +1105,7 @@ async function writeUpgradeDiagnostics(
   await writeJson(upgradeDiagnosticsPath, {
     formatVersion: '1',
     status: 'blocked',
+    phase,
     blockId,
     targetVersion,
     failedCheck: classifyPreflightFailure(error.code),
@@ -1375,7 +1377,7 @@ export async function upgradeWorkspace(
     upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, preflightChecks, impacts, migrations, migrationEntries);
   } catch (error) {
     if (error instanceof CompilerError) {
-      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, error, existingLock);
+      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'planning', error, existingLock);
     }
     throw error;
   }
@@ -1419,7 +1421,7 @@ export async function upgradeWorkspace(
   } catch (error) {
     await restoreProject(projectRoot, backupRoot);
     if (error instanceof CompilerError) {
-      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, error, existingLock);
+      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'apply', error, existingLock);
     }
     throw error;
   } finally {

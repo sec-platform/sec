@@ -459,7 +459,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         pattern?: string;
         flags?: string;
       }>;
-      diagnostics?: { status: 'blocked'; failedCheck: string; errorCode: string; message: string; details?: unknown };
+      diagnostics?: { status: 'blocked'; phase: 'planning' | 'apply'; failedCheck: string; errorCode: string; message: string; details?: unknown };
     };
     policySummary?: {
       status: 'passed' | 'failed' | 'skipped';
@@ -840,6 +840,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     ],
     diagnostics: {
       status: 'blocked',
+      phase: 'planning',
       failedCheck: 'override-conflicts',
       errorCode: 'UPGRADE-CONFLICT-001',
       message: 'Override <hotfix> & blocks upgrade',
@@ -1133,6 +1134,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<th>ID</th><th>Kind</th><th>Role</th><th>Target</th><th>Details</th>');
   expect(sourceView).toContain('source=files/src/installed/auth/session.ts; contentLength=128');
   expect(sourceView).toContain('Upgrade Blocker Summary');
+  expect(sourceView).toContain('<th>Phase</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th>');
+  expect(sourceView).toContain('<td>planning</td>');
   expect(sourceView).toContain('Upgrade Plan');
   expect(sourceView).toContain('Preflight Summary');
   expect(sourceView).toContain('<td>migration</td><td>2</td><td>1</td>');
@@ -1146,6 +1149,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('auth/basic-session 0.1.0 -&gt; 0.1.1 (planned)');
   expect(sourceView).toContain('Refresh &lt;session&gt; &amp; expose version metadata.');
   expect(sourceView).toContain('Upgrade Diagnostics');
+  expect(sourceView).toContain('<th>Status</th><th>Phase</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th>');
   expect(sourceView).toContain('UPGRADE-CONFLICT-001');
   expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
   expect(sourceView).toContain('manual-auth-session-hotfix');
