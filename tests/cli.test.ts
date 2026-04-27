@@ -7,6 +7,10 @@ import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../platform/shared/benchmark-contract.ts';
+import {
+  buildContractFreezeContract,
+  formatContractFreezeContract
+} from '../platform/shared/contract-freeze-contract.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import {
   buildTestBudgetContract,
@@ -129,7 +133,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|contract>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -483,6 +487,58 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       defaultLane: 'fast'
+    });
+  });
+});
+
+test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
+  const contract = buildContractFreezeContract();
+  expect(formatContractFreezeContract(contract)).toContain('Contract freeze active');
+  expect(formatContractFreezeContract(contract)).toContain('Target tests/cli.test.ts; pattern=');
+  expect(JSON.stringify(contract)).not.toContain('\n');
+  expect(contract).toMatchObject({
+    formatVersion: '1',
+    status: 'active',
+    command: 'npm run test:contract-freeze',
+    targetCount: 3,
+    targets: expect.arrayContaining([
+      expect.objectContaining({
+        file: 'tests/cli.test.ts',
+        testNamePattern: expect.stringContaining('CLI exposes contract freeze target list as text and JSON contracts')
+      }),
+      expect.objectContaining({
+        file: 'tests/project-runtime.test.ts',
+        testNamePattern: expect.stringContaining('test budget and benchmark contracts document slow lanes')
+      }),
+      expect.objectContaining({
+        file: 'tests/pipeline.test.ts',
+        testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
+      })
+    ])
+  });
+
+  await withTempWorkspace(async (workspaceRoot) => {
+    const textResult = await runCli(workspaceRoot, ['contract', 'freeze']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Contract freeze active');
+    expect(textResult.stdout).toContain('Target tests/pipeline.test.ts; pattern=v0.1 pipeline runs end to end');
+
+    const jsonResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+      status: 'active',
+      targetCount: 3
+    });
+
+    const compactResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      status: 'active',
+      targetCount: 3
     });
   });
 });
@@ -1922,6 +1978,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform contract freeze [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['contract', 'freeze', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform contract freeze [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['contract', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform contract freeze [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
