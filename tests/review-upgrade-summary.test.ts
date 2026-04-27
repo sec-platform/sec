@@ -502,7 +502,73 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
       lane: 'all',
       kind: 'upgrade',
       artifactPath: 'generated/upgrade-diagnostics.json',
-      message: 'Upgrade blocked at migration-targets: UPGRADE-MIGRATION-004 Migration path "../outside-project.md" escapes project root'
+      message: 'Upgrade blocked at migration-targets: UPGRADE-MIGRATION-004 Migration path "../outside-project.md" escapes project root; migration=mig-target-escape; target=../outside-project.md'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('review summary includes apply migration attribution in upgrade failure points', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-review-upgrade-apply-diagnostics-'));
+  try {
+    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+    const diagnostics: UpgradeDiagnostics = {
+      formatVersion: '1',
+      status: 'blocked',
+      phase: 'apply',
+      blockId: 'private/slot-contract',
+      targetVersion: '0.2.0',
+      failedCheck: 'migration-file-operations',
+      errorCode: 'UPGRADE-MIGRATION-016',
+      message: 'slot-contract-update target "custom/customer_normalizer.ts" is missing',
+      details: {
+        migrationId: 'mig-customer-normalizer-contract',
+        migrationKind: 'slot-contract-update',
+        slotId: 'customer_normalizer',
+        target: 'custom/customer_normalizer.ts'
+      }
+    };
+
+    await writeJson(upgradeDiagnosticsPath, diagnostics);
+
+    const summary = await buildReviewSummary(
+      workspaceRoot,
+      {
+        formatVersion: '1',
+        app: {
+          name: 'customer-admin',
+          stack: 'nextjs-ts-prisma-sqlite',
+          mode: 'single-tenant'
+        },
+        resolvedBlocks: [],
+        resolvedCapabilities: [],
+        installPlan: [],
+        slotTasks: [],
+        generatedPaths: [],
+        acceptancePlan: [],
+        passStatus: {
+          parse: 'succeeded',
+          align: 'succeeded',
+          resolve: 'succeeded',
+          compose: 'succeeded',
+          adapt: 'succeeded',
+          verify: 'succeeded',
+          repair: 'skipped',
+          lock: 'succeeded',
+          emit: 'succeeded'
+        }
+      },
+      { formatVersion: '1', artifacts: [] },
+      buildPassingReport(),
+      buildPassingCoverage()
+    );
+
+    expect(summary.failurePoints).toContainEqual({
+      lane: 'all',
+      kind: 'upgrade',
+      artifactPath: 'generated/upgrade-diagnostics.json',
+      message: 'Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "custom/customer_normalizer.ts" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=custom/customer_normalizer.ts; slot=customer_normalizer'
     });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });

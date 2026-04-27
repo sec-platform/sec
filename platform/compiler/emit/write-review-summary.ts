@@ -528,6 +528,41 @@ function preflightSummaryGroup(checkId: string): string {
   return checkId.startsWith('migration-') ? 'migration' : checkId.split('-')[0];
 }
 
+function readDiagnosticsString(details: unknown, key: string): string | null {
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
+    return null;
+  }
+  const value = (details as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function formatUpgradeDiagnosticsAttribution(details: unknown): string {
+  const migrationId = readDiagnosticsString(details, 'migrationId');
+  if (!migrationId) {
+    return '';
+  }
+
+  const role = readDiagnosticsString(details, 'role');
+  const path = readDiagnosticsString(details, 'path');
+  const migrationKind = readDiagnosticsString(details, 'migrationKind');
+  const target = readDiagnosticsString(details, 'target') ?? (role === 'target' ? path : null);
+  const source = readDiagnosticsString(details, 'source') ?? (role === 'source' ? path : null);
+  const slotId = readDiagnosticsString(details, 'slotId');
+  const parts = [
+    `migration=${migrationId}`,
+    migrationKind ? `kind=${migrationKind}` : null,
+    target ? `target=${target}` : null,
+    source ? `source=${source}` : null,
+    slotId ? `slot=${slotId}` : null
+  ].filter((part): part is string => part !== null);
+
+  return `; ${parts.join('; ')}`;
+}
+
+function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics): string {
+  return `Upgrade blocked at ${diagnostics.failedCheck}: ${diagnostics.errorCode} ${diagnostics.message}${formatUpgradeDiagnosticsAttribution(diagnostics.details)}`;
+}
+
 function buildPolicySummary(policyReport: PolicyReport | null): ReviewSummary['policySummary'] {
   if (!policyReport) {
     return undefined;
@@ -1006,7 +1041,7 @@ export async function buildReviewSummary(
     addFailurePoint(failurePoints, {
       lane: 'all',
       kind: 'upgrade',
-      message: `Upgrade blocked at ${upgradeDiagnostics.failedCheck}: ${upgradeDiagnostics.errorCode} ${upgradeDiagnostics.message}`,
+      message: formatUpgradeDiagnosticsFailureMessage(upgradeDiagnostics),
       artifactPath: 'generated/upgrade-diagnostics.json'
     });
   }
