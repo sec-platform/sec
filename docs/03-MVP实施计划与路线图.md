@@ -150,7 +150,7 @@
        - dogfood 入口复用 `reference:refresh`，不复制第二套样例流程。
      - benchmark 与慢测预算：active。
        - `platform test budget` 作为正式 fast/runtime/all lane 慢测边界合同入口。
-       - `platform test budget --json [--compact]` 输出稳定慢测预算合同。
+       - `platform test budget --json [--compact]` 输出稳定慢测预算合同，包含顶层 command、laneCount 与 slowLaneIds。
        - `npm run test:budget` 复用正式 CLI 输出 slow-test budget JSON 合同。
        - `platform benchmark suite` 作为正式 benchmark/task-suite 合同入口。
        - `platform benchmark suite --json [--compact]` 输出稳定 benchmark/task-suite 合同，包含顶层 runner command、artifactPathCount、artifactPaths 与评分维度。

@@ -118,6 +118,9 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(runnerSource).not.toContain('reference-clean');
   expect(runnerSource).not.toContain('benchmark-contract');
   expect(runnerSource).not.toContain('test-budget');
+  expect(testBudgetContractSource).toContain("command: 'npm run platform -- test budget --json'");
+  expect(testBudgetContractSource).toContain('laneCount');
+  expect(testBudgetContractSource).toContain('slowLaneIds');
   expect(testBudgetContractSource).toContain("id: 'fast'");
   expect(testBudgetContractSource).toContain('nextBuild: false');
   expect(testBudgetContractSource).toContain('playwright: false');

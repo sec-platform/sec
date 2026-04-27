@@ -7,7 +7,10 @@ export type TestBudgetLane = {
 
 export type TestBudgetContract = {
   formatVersion: '1';
+  command: string;
   defaultLane: TestBudgetLane['id'];
+  laneCount: number;
+  slowLaneIds: TestBudgetLane['id'][];
   lanes: TestBudgetLane[];
   localDefault: string;
   fullRuntimeGate: string;
@@ -35,10 +38,14 @@ const testBudgetLanes: TestBudgetLane[] = [
 ];
 
 export function buildTestBudgetContract(): TestBudgetContract {
+  const lanes = testBudgetLanes.map((lane) => ({ ...lane }));
   return {
     formatVersion: '1',
+    command: 'npm run platform -- test budget --json',
     defaultLane: 'fast',
-    lanes: testBudgetLanes.map((lane) => ({ ...lane })),
+    laneCount: lanes.length,
+    slowLaneIds: lanes.filter((lane) => lane.nextBuild || lane.playwright).map((lane) => lane.id),
+    lanes,
     localDefault: 'fast lane plus targeted named tests',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
@@ -47,6 +54,9 @@ export function buildTestBudgetContract(): TestBudgetContract {
 export function formatTestBudgetContract(contract: TestBudgetContract): string {
   return [
     `Test budget default lane: ${contract.defaultLane}`,
+    `Command: ${contract.command}`,
+    `Lanes: ${contract.laneCount}`,
+    `Slow lanes: ${contract.slowLaneIds.join(', ')}`,
     `Local default: ${contract.localDefault}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
     ...contract.lanes.map((lane) => [

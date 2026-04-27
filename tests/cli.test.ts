@@ -493,7 +493,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
+    command: 'npm run platform -- test budget --json',
     defaultLane: 'fast',
+    laneCount: 3,
+    slowLaneIds: ['all'],
     lanes: [
       {
         id: 'fast',
@@ -523,13 +526,19 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Test budget default lane: fast');
+    expect(textResult.stdout).toContain('Command: npm run platform -- test budget --json');
+    expect(textResult.stdout).toContain('Lanes: 3');
+    expect(textResult.stdout).toContain('Slow lanes: all');
     expect(textResult.stdout).toContain('Lane fast; nextBuild=false; playwright=false');
 
     const jsonResult = await runCli(workspaceRoot, ['test', 'budget', '--json']);
     expect(jsonResult.code).toBe(0);
     expect(jsonResult.stderr).toBe('');
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+      command: 'npm run platform -- test budget --json',
       defaultLane: 'fast',
+      laneCount: 3,
+      slowLaneIds: ['all'],
       lanes: expect.arrayContaining([
         expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
       ])
@@ -540,7 +549,9 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     expect(compactResult.stderr).toBe('');
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      defaultLane: 'fast'
+      defaultLane: 'fast',
+      laneCount: 3,
+      slowLaneIds: ['all']
     });
   });
 });
