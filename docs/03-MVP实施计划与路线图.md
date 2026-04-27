@@ -435,6 +435,7 @@
          - target：确认 migration target 与目标 slot target 一致。
          - input/output：确认 migration 声明与目标 slot 合同一致。
          - writableZones：确认 migration 声明与目标 slot 写入边界一致。
+         - apply：执行期确认 custom slot target 仍存在且是文件，不改写用户 custom 实现。
          - diagnostics：归类到 `migration-slot-contracts`。
      - 切口 D：把每类 migration 的影响面写入：
        - 状态：done。

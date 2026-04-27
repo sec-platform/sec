@@ -581,6 +581,7 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'slot-contract-update') {
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
       continue;
     }
 
@@ -616,7 +617,7 @@ async function collectMigrationTargetEvidence(
 async function statFileMigrationTarget(
   targetPath: string,
   target: string,
-  kind: 'delete-file' | 'text-replace' | 'text-replace-regex' | 'text-append' = 'delete-file',
+  kind: 'delete-file' | 'text-replace' | 'text-replace-regex' | 'text-append' | 'slot-contract-update' = 'delete-file',
   options: { allowMissing?: boolean } = {}
 ): Promise<'file' | 'missing'> {
   let stats;
