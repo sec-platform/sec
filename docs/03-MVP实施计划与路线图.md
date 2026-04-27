@@ -425,6 +425,7 @@
          - copy-file：确认 manifest source 存在且是文件。
          - copy-directory：确认 manifest source 存在且是目录。
          - copy-directory：执行期拒绝已被文件占用的 target，避免泄露底层 fs 错误。
+         - create-directory：执行期允许已有目录并拒绝文件占用 target。
          - delete-file：确认 target 存在且是文件。
          - delete-directory：确认 target 存在且是目录。
          - rename-file：确认 source 存在且是文件。
