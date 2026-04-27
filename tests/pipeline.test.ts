@@ -256,6 +256,7 @@ test('compose refreshes runtime host scaffold for an existing workspace baseline
     'npm run build && npm run test:unit && npm run test:acceptance'
   );
   expect(projectPackage.scripts['verify:runtime']).toBe('npm run verify:runtime:full');
+  await expect(fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8')).resolves.toContain('workers: 1');
 });
 
 test('write-local-views consumes generated artifacts from disk', { timeout: 120000 }, async () => {

@@ -7,11 +7,14 @@ import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../sh
 
 type RuntimeVerificationMode = 'service' | 'full';
 
-function generatePort(): number {
+function generatePort(projectRoot: string): number {
   const basePort = 3000;
   const workerId = parseInt(process.env.VITEST_POOL_ID ?? '0', 10);
-  const processId = process.pid % 100;
-  return basePort + workerId * 100 + processId;
+  const pathHash = [...projectRoot].reduce(
+    (hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000,
+    0
+  );
+  return basePort + workerId * 1000 + pathHash;
 }
 
 function npmCommand(): string {
@@ -180,7 +183,7 @@ export async function runRuntimeVerification(
     return lane;
   }
 
-  const testPort = generatePort();
+  const testPort = generatePort(projectRoot);
   const acceptanceResult = await timed('playwright test', () =>
     runCommand(npmCommand(), ['run', 'test:acceptance'], {
       cwd: projectRoot,
