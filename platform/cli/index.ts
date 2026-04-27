@@ -709,6 +709,11 @@ function formatUpgradeMigrationDetails(
     ...(operation?.updateCount !== undefined ? [`updates=${operation.updateCount}`] : []),
     ...(operation?.itemCount !== undefined ? [`items=${operation.itemCount}`] : []),
     ...(operation?.valueKeyCount !== undefined ? [`valueKeys=${operation.valueKeyCount}`] : []),
+    ...(operation?.contentLength !== undefined ? [`contentLength=${operation.contentLength}`] : []),
+    ...(operation?.searchLength !== undefined ? [`searchLength=${operation.searchLength}`] : []),
+    ...(operation?.replacementLength !== undefined ? [`replacementLength=${operation.replacementLength}`] : []),
+    ...(operation?.pattern ? [`pattern=${operation.pattern}`] : []),
+    ...(operation?.flags ? [`flags=${operation.flags}`] : []),
     `requiresVerification=${migration.requiresVerification}`
   ];
 }

@@ -30,6 +30,7 @@ import {
   formatReferenceCheck
 } from '../platform/shared/reference-check.ts';
 import type { RepairPlan, ReviewSummary, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
+import { writeJson } from '../platform/shared/fs.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
 function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -2686,6 +2687,100 @@ test('CLI emits blocked repair JSON for CI consumers', { timeout: 20000 }, async
     expect(compactResult.stderr).toContain('REPAIR-BLOCKED-001');
     expect(compactResult.stdout).not.toContain('\n  "status"');
     expect(JSON.parse(compactResult.stdout)).toEqual(repairPlan);
+  });
+});
+
+test('CLI emits text migration operation details in upgrade summaries', { timeout: 40000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+
+    const { privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
+    const blockRoot = path.join(privateRegistryRoot, 'private.text-upgrade');
+    const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
+    await fs.mkdir(path.join(blockRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
+    await fs.mkdir(path.join(versionRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
+    await fs.mkdir(path.join(versionRoot, 'migrations'), { recursive: true });
+    await fs.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), 'status: pending\n', 'utf8');
+    await fs.writeFile(
+      path.join(blockRoot, 'files', 'src', 'installed', 'private', 'text-upgrade.ts'),
+      'export const TEXT_UPGRADE_BLOCK_VERSION = \'0.1.0\';\n',
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(versionRoot, 'files', 'src', 'installed', 'private', 'text-upgrade.ts'),
+      'export const TEXT_UPGRADE_BLOCK_VERSION = \'0.2.0\';\n',
+      'utf8'
+    );
+    const baseManifest = {
+      id: 'private/text-upgrade',
+      version: '0.1.0',
+      kind: 'governance',
+      stackProfiles: ['nextjs-ts-prisma-sqlite'],
+      requires: [],
+      provides: ['private/text-upgrade'],
+      conflicts: [],
+      installs: [
+        {
+          kind: 'copy',
+          from: 'files/src/installed/private/text-upgrade.ts',
+          to: 'src/installed/private/text-upgrade.ts'
+        }
+      ],
+      pins: {
+        inputs: [],
+        outputs: []
+      },
+      slots: [],
+      acceptance: [],
+      routes: []
+    };
+    await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), baseManifest);
+    await writeYaml(path.join(versionRoot, 'block.manifest.yaml'), {
+      ...baseManifest,
+      version: '0.2.0',
+      upgrade: {
+        from: ['0.1.x'],
+        migrations: [
+          {
+            id: 'mig-upgrade-notes-regex',
+            kind: 'text-replace-regex',
+            entry: 'migrations/upgrade-notes-regex.json',
+            fromVersion: '0.1.0',
+            toVersion: '0.2.0',
+            requiresVerification: true
+          }
+        ]
+      }
+    });
+    await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes-regex.json'), {
+      id: 'mig-upgrade-notes-regex',
+      kind: 'text-replace-regex',
+      reason: 'Replace upgrade notes marker.',
+      target: 'docs/upgrade-notes.md',
+      pattern: 'status: pending',
+      replacement: 'status: applied',
+      flags: 'g'
+    });
+    await expect(runCli(workspaceRoot, ['add', 'private/text-upgrade'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Added block private/text-upgrade@0.1.0 from private (private)\n',
+      stderr: ''
+    });
+
+    const textResult = await runCli(workspaceRoot, ['upgrade', 'private/text-upgrade', '0.2.0', '--dry-run']);
+
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Operation roles: text=1');
+    expect(textResult.stdout).toContain('Migration mig-upgrade-notes-regex: text-replace-regex;');
+    expect(textResult.stdout).toContain(
+      'target=docs/upgrade-notes.md; role=text; replacementLength=15; pattern=status: pending; flags=g; requiresVerification=true'
+    );
   });
 });
 
