@@ -50,6 +50,7 @@ const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])';
+const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps relink project',
@@ -238,6 +239,22 @@ function parseArtifactsArgs(
     return { mode: 'json', compact: true };
   }
   throw new Error(ARTIFACTS_USAGE);
+}
+
+function parseDoctorArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(DOCTOR_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(DOCTOR_USAGE);
 }
 
 function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
@@ -724,8 +741,12 @@ async function main(): Promise<void> {
       return;
     }
     case 'doctor': {
-      assertNoArgs('doctor', args);
+      const doctorArgs = parseDoctorArgs(args);
       const report = await getDoctorReport(process.cwd());
+      if (doctorArgs.json) {
+        console.log(JSON.stringify(report, null, doctorArgs.compact ? 0 : 2));
+        return;
+      }
       console.log(formatDoctorReport(report));
       return;
     }

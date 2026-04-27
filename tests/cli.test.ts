@@ -162,7 +162,7 @@ test('CLI defaults verification to the fast lane', { timeout: 20000 }, async () 
   });
 });
 
-test('CLI exposes developer dependency environment entrypoints', async () => {
+test('CLI exposes doctor as text and JSON readiness contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const doctor = await runCli(workspaceRoot, ['doctor']);
     expect(doctor.code).toBe(0);
@@ -171,6 +171,35 @@ test('CLI exposes developer dependency environment entrypoints', async () => {
     expect(doctor.stdout).toContain('node-version');
     expect(doctor.stdout).toContain('runtime-dependencies');
 
+    const doctorJson = await runCli(workspaceRoot, ['doctor', '--json']);
+    expect(doctorJson.code).toBe(0);
+    expect(doctorJson.stderr).toBe('');
+    expect(JSON.parse(doctorJson.stdout)).toMatchObject({
+      status: expect.any(String),
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'node-version' }),
+        expect.objectContaining({ id: 'bun' }),
+        expect.objectContaining({ id: 'runtime-dependencies' })
+      ]),
+      dependencies: expect.objectContaining({
+        mode: expect.any(String),
+        recommendedAction: expect.any(String)
+      })
+    });
+
+    const doctorCompact = await runCli(workspaceRoot, ['doctor', '--json', '--compact']);
+    expect(doctorCompact.code).toBe(0);
+    expect(doctorCompact.stderr).toBe('');
+    expect(doctorCompact.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(doctorCompact.stdout)).toMatchObject({
+      status: expect.any(String),
+      dependencies: expect.objectContaining({ mode: expect.any(String) })
+    });
+  });
+});
+
+test('CLI exposes dependency environment maintenance entrypoints', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
     const depsStatus = await runCli(workspaceRoot, ['deps', 'status']);
     expect(depsStatus.code).toBe(0);
     expect(depsStatus.stderr).toBe('');
@@ -1555,6 +1584,21 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
       code: 1,
       stdout: '',
       stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
+    });
+    await expect(runCli(workspaceRoot, ['doctor', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform doctor [--json [--compact]]\n'
+    });
+    await expect(runCli(workspaceRoot, ['doctor', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform doctor [--json [--compact]]\n'
+    });
+    await expect(runCli(workspaceRoot, ['doctor', '--json', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform doctor [--json [--compact]]\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
