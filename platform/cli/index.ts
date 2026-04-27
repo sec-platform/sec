@@ -358,7 +358,7 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
 }
 
 function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
-  const { artifactSummary, ciSummary, coverageSummary } = reviewSummary;
+  const { artifactSummary, ciSummary, coverageSummary, provenanceSummary } = reviewSummary;
   const uncoveredBlocks = coverageSummary?.uncoveredBlockCount ?? graph.overlays.coverage.blocks.filter(
     (block) => block.coveredBy.length === 0
   ).length;
@@ -400,6 +400,17 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `acceptance passed: ${coverageSummary.acceptancePassedCount}`,
         `covered blocks: ${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`,
         `covered slots: ${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`
+      ].join('; ')
+    );
+  }
+
+  if (provenanceSummary) {
+    lines.push(
+      [
+        `Provenance detail: artifacts: ${provenanceSummary.artifactCount}`,
+        `overrides: ${provenanceSummary.overrideArtifactCount}`,
+        `registry: ${provenanceSummary.registryArtifactCount}`,
+        `unverified: ${provenanceSummary.unverifiedArtifactCount}`
       ].join('; ')
     );
   }

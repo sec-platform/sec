@@ -47,9 +47,9 @@
 | 单槽位合成 | done | `customer_normalizer` slot 通过 task envelope 限定写入边界。 |
 | fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
-| provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
+| provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 review summary、CLI explain 和本地视图 provenance 摘要。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
-| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、acceptance coverage、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
+| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
@@ -528,7 +528,79 @@
      - CLI explain 能一眼看到覆盖比例。
      - local view 能审查 block/slot 覆盖明细。
 
-5. **计划与进度显式化**
+5. **provenance 可审查化**
+   - 状态：done
+   - 总目标：
+     - 让 provenance 不只作为原始 artifact 列表存在。
+     - 让来源、覆盖、registry 和 generated pass 能被 review/CLI/local view 直接消费。
+     - 为后续团队 review assist 提供文件来源可信度摘要。
+   - 已完成：
+     - provenance summary 进入 `generated/review-summary.json`：
+       - artifact count。
+       - verified artifact count。
+       - unverified artifact count。
+       - override artifact count。
+       - registry artifact count。
+       - generated pass count。
+     - origin summary：
+       - origin type。
+       - count。
+       - paths。
+     - override summary：
+       - override status。
+       - count。
+       - paths。
+     - registry summary：
+       - registry source id。
+       - registry kind。
+       - registry location。
+       - count。
+       - paths。
+     - generated pass summary：
+       - pass。
+       - count。
+       - paths。
+     - CLI `explain` 普通文本显示：
+       - artifact count。
+       - override count。
+       - registry count。
+       - unverified count。
+     - local Source View 显示：
+       - Provenance Summary。
+       - Provenance Origin Summary。
+       - Provenance Override Summary。
+       - Provenance Registry Summary。
+       - Provenance Generated Pass Summary。
+   - 当前阶段拆分：
+     - 阶段 1：provenance artifacts 到 review summary。
+     - 阶段 2：review summary 到 CLI explain。
+     - 阶段 3：review summary 到 local Source View。
+   - 连续功能切口：
+     - 切口 A：统一 provenance 数量口径：
+       - artifact。
+       - verified/unverified。
+       - override。
+       - registry。
+       - generated pass。
+     - 切口 B：统一 provenance 分组口径：
+       - origin summaries。
+       - override summaries。
+       - registry summaries。
+       - generated pass summaries。
+     - 切口 C：把 provenance 放到审查入口：
+       - review summary JSON。
+       - CLI explain 文本。
+       - local Source View HTML。
+   - 每个切口的验证口径：
+     - `tests/review-provenance-summary.test.ts`。
+     - `tests/cli.test.ts`。
+     - `tests/pipeline.test.ts`。
+   - 完成定义：
+     - review summary 能独立说明 artifact 来源结构。
+     - CLI explain 能一眼看到 provenance 风险面。
+     - local view 能审查 origin/override/registry/pass 明细。
+
+6. **计划与进度显式化**
    - 状态：active
    - 总目标：
      - 把未来计划和当前进度固定在 repo 文档中。
