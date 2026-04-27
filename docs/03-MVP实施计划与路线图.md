@@ -406,8 +406,8 @@
        - schema/JSON 结构检查：
          - 状态：done。
          - plan：`migration-json-structure` preflight check。
-         - 阻断：已有 array target 非数组时阻断。
-         - 阻断：已有 object merge target 非对象时阻断。
+         - 阻断：已有 array target 或父路径非对象时阻断。
+         - 阻断：已有 object merge target 或父路径非对象时阻断。
          - diagnostics：归类到 `migration-json-structure`。
        - text replacement pattern 检查：
          - 状态：done。
