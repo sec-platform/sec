@@ -765,7 +765,7 @@ test('config-rewrite migration rejects empty update paths', async () => {
   }
 });
 
-test('slot-contract-update migration records contract impact without changing files', async () => {
+test('slot-contract-update migration verifies custom slot target without changing files', async () => {
   const workspaceRoot = await createWorkspace();
   try {
     const projectRoot = path.join(workspaceRoot, 'project');
@@ -777,6 +777,52 @@ test('slot-contract-update migration records contract impact without changing fi
     await applyMigrationEntries(projectRoot, manifestRoot, ['custom/customer_normalizer.ts'], [slotContractUpdate('custom/customer_normalizer.ts')]);
 
     await expect(fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe('export const marker = true;\n');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('slot-contract-update migration rejects missing custom slot targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(
+        projectRoot,
+        manifestRoot,
+        ['custom/customer_normalizer.ts'],
+        [slotContractUpdate('custom/customer_normalizer.ts')]
+      )
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-016'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('slot-contract-update migration rejects directory custom slot targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(
+        projectRoot,
+        manifestRoot,
+        ['custom/customer_normalizer.ts'],
+        [slotContractUpdate('custom/customer_normalizer.ts')]
+      )
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
