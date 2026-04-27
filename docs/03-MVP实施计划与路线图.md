@@ -190,7 +190,7 @@
          - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
-         - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单。
+         - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单，并为每个 target 暴露可复现 `bun test` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/conflict 的真实错误码样例。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。

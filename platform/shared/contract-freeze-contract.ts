@@ -1,5 +1,6 @@
 export type ContractFreezeTarget = {
   file: string;
+  command: string;
   testNamePattern?: string;
 };
 
@@ -11,11 +12,25 @@ export type ContractFreezeContract = {
   targets: ContractFreezeTarget[];
 };
 
+function buildTargetCommand(file: string, testNamePattern?: string): string {
+  return testNamePattern
+    ? `bun test ${file} --test-name-pattern "${testNamePattern}"`
+    : `bun test ${file}`;
+}
+
+function contractFreezeTarget(file: string, testNamePattern?: string): ContractFreezeTarget {
+  return {
+    file,
+    command: buildTargetCommand(file, testNamePattern),
+    ...(testNamePattern ? { testNamePattern } : {})
+  };
+}
+
 export function getContractFreezeTargets(): ContractFreezeTarget[] {
   return [
-    {
-      file: 'tests/cli.test.ts',
-      testNamePattern: [
+    contractFreezeTarget(
+      'tests/cli.test.ts',
+      [
         'CLI prints usage for missing or unknown commands',
         'CLI exposes doctor as text and JSON readiness contracts',
         'CLI exposes dependency environment maintenance entrypoints',
@@ -38,20 +53,20 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
         'CLI emits artifact manifest JSON for CI upload consumers',
         'CLI reports argument usage errors'
       ].join('|')
-    },
-    {
-      file: 'tests/project-runtime.test.ts',
-      testNamePattern: [
+    ),
+    contractFreezeTarget(
+      'tests/project-runtime.test.ts',
+      [
         'root package exposes demo scripts through the existing platform chain',
         'test budget and benchmark contracts document slow lanes and task-suite scope',
         'error protocol, closed loop entry, and test lane map stay frozen in developer contracts',
         'reference refresh and shared cache contract stay anchored in repo metadata'
       ].join('|')
-    },
-    {
-      file: 'tests/pipeline.test.ts',
-      testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
-    }
+    ),
+    contractFreezeTarget(
+      'tests/pipeline.test.ts',
+      'v0.1 pipeline runs end to end in a temporary workspace'
+    )
   ];
 }
 
@@ -62,7 +77,10 @@ export function buildContractFreezeContract(): ContractFreezeContract {
     status: 'active',
     command: 'npm run test:contract-freeze',
     targetCount: targets.length,
-    targets: targets.map((target) => ({ ...target }))
+    targets: targets.map((target) => ({
+      ...target,
+      ...(target.testNamePattern ? { testNamePattern: target.testNamePattern } : {})
+    }))
   };
 }
 
@@ -73,6 +91,7 @@ export function formatContractFreezeContract(contract: ContractFreezeContract): 
     `Targets: ${contract.targetCount}`,
     ...contract.targets.map((target) => [
       `Target ${target.file}`,
+      `command=${target.command}`,
       `pattern=${target.testNamePattern ?? 'all'}`
     ].join('; '))
   ].join('\n');
