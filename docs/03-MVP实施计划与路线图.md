@@ -135,7 +135,10 @@
        - `npm run dogfood:reference` 刷新当前参考工作区。
        - `npm run dogfood:governance` 输出结构化治理 artifact 路径合同。
        - dogfood 入口复用 `reference:refresh`，不复制第二套样例流程。
-     - benchmark 与慢测预算。
+     - benchmark 与慢测预算：active。
+       - `npm run test:budget` 输出 fast/runtime/all lane 慢测边界合同。
+       - fast/runtime 不运行 Next build 或 Playwright。
+       - all lane 才允许 Next build、Playwright install 和 browser acceptance。
      - 重复概念删除和命名收敛。
    - 暂停条件：
      - 连续新增内部 summary/expose/diagnostics 但没有外部闭环提升。

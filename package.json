@@ -13,6 +13,7 @@
     "test": "bun ./platform/dev-runner.ts test",
     "test:watch": "bun ./platform/dev-runner.ts test --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
+    "test:budget": "bun ./platform/dev-runner.ts test-budget",
     "test:bun": "bun test tests/",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
