@@ -519,6 +519,18 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
       slotId: 'customer_normalizer'
     }
   ]);
+  expect(upgradePlan.migrationOperations).toEqual([
+    {
+      id: 'mig-customer-normalizer-contract',
+      kind: 'slot-contract-update',
+      target: 'custom/customer_normalizer.ts',
+      role: 'slot',
+      slotId: 'customer_normalizer',
+      inputType: 'CustomerInputV2',
+      outputType: 'CustomerRecordInput',
+      writableZones: ['custom/customer_normalizer.ts']
+    }
+  ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 });

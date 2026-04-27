@@ -1247,7 +1247,10 @@ function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradePlan['mig
     kind: entry.kind,
     target: entry.target,
     role: 'slot',
-    slotId: entry.slotId
+    slotId: entry.slotId,
+    ...(entry.inputType ? { inputType: entry.inputType } : {}),
+    ...(entry.outputType ? { outputType: entry.outputType } : {}),
+    ...(entry.writableZones ? { writableZones: [...entry.writableZones] } : {})
   };
 }
 

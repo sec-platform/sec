@@ -293,7 +293,7 @@
        - 文件/目录迁移暴露 source。
        - JSON 迁移暴露 path、update/item/value key 计数。
        - text 迁移暴露 content/search/replacement/pattern/flags 摘要。
-       - slot 迁移暴露 slotId。
+       - slot 迁移暴露 slotId、inputType、outputType 与 writableZones。
      - upgrade plan 到本地视图的摘要呈现。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：
