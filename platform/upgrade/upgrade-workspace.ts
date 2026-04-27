@@ -1071,6 +1071,20 @@ function readJsonPath(config: unknown, pathSegments: string[]): unknown {
   return current;
 }
 
+function assertJsonParentPath(config: unknown, pathSegments: string[], errorCode: string, message: string): void {
+  let current = config;
+  for (const segment of pathSegments.slice(0, -1)) {
+    if (!isJsonObject(current)) {
+      return;
+    }
+    const next = current[segment];
+    if (next !== undefined && !isJsonObject(next)) {
+      throw new CompilerError(errorCode, message);
+    }
+    current = next;
+  }
+}
+
 async function collectTextPatternEvidence(
   projectRoot: string,
   migrationEntries: UpgradeMigrationEntry[]
@@ -1127,14 +1141,27 @@ async function collectJsonStructureEvidence(
       continue;
     }
     const config = await readJson<unknown>(targetPath);
-    const target = readJsonPath(config, entry.path);
     if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
+      assertJsonParentPath(
+        config,
+        entry.path,
+        'UPGRADE-MIGRATION-012',
+        `JSON array migration parent must be an object for "${entry.target}"`
+      );
+      const target = readJsonPath(config, entry.path);
       if (target !== undefined && !Array.isArray(target)) {
         throw new CompilerError('UPGRADE-MIGRATION-012', `JSON array migration target must be an array for "${entry.target}"`);
       }
       evidence.push(`${entry.id}:target:${target === undefined ? 'missing' : 'array'}`);
       continue;
     }
+    assertJsonParentPath(
+      config,
+      entry.path,
+      'UPGRADE-MIGRATION-013',
+      `JSON object merge parent must be an object for "${entry.target}"`
+    );
+    const target = readJsonPath(config, entry.path);
     if (target !== undefined && !isJsonObject(target)) {
       throw new CompilerError('UPGRADE-MIGRATION-013', `JSON object merge target must be an object for "${entry.target}"`);
     }
