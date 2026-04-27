@@ -58,11 +58,12 @@ import type {
   RuntimeVerificationLaneReport,
   ReviewSummary,
   UpgradePlan,
-  VerificationLane
+  VerificationLane,
+  VerificationReport
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -82,6 +83,7 @@ const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
 const POLICY_USAGE = 'Usage: platform policy report [--json [--compact]]';
 const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact]]';
 const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
+const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -410,6 +412,22 @@ function parseRuntimeOutputArgs(args: string[]): { json: boolean; compact: boole
   throw new Error(RUNTIME_USAGE);
 }
 
+function parseVerificationOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(VERIFICATION_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(VERIFICATION_USAGE);
+}
+
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
@@ -683,6 +701,29 @@ function formatRuntimeReport(report: RuntimeVerificationLaneReport): string {
     formatRuntimeStep('Build', report.build),
     formatRuntimeStep('Unit', report.unit),
     formatRuntimeStep('Acceptance', report.acceptance)
+  ].join('\n');
+}
+
+function formatVerificationReport(report: VerificationReport): string {
+  return [
+    [
+      `Verification report ${report.summary.status}`,
+      `requestedLane=${report.summary.requestedLane}`,
+      `failedLanes=${formatList(report.summary.failedLanes)}`
+    ].join('; '),
+    [
+      `Fast: ${report.fast.status}`,
+      `build=${report.fast.build.status}`,
+      `unit=${report.fast.unit.status}`,
+      `acceptance=${report.fast.acceptance.status}`,
+      `policy=${report.fast.policy.status}`
+    ].join('; '),
+    [
+      `Runtime: ${report.runtime.status}`,
+      `build=${report.runtime.build.status}`,
+      `unit=${report.runtime.unit.status}`,
+      `acceptance=${report.runtime.acceptance.status}`
+    ].join('; ')
   ].join('\n');
 }
 
@@ -1072,6 +1113,26 @@ async function runRuntimeCommand(args: string[]): Promise<void> {
   console.log(formatRuntimeReport(report));
 }
 
+async function runVerificationCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'report') {
+    throw new Error(VERIFICATION_USAGE);
+  }
+
+  const outputArgs = parseVerificationOutputArgs(args.slice(1));
+  const { verificationReportPath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(verificationReportPath))) {
+    throw new Error('Verification report not found; run platform verify first');
+  }
+
+  const report = await readJson<VerificationReport>(verificationReportPath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatVerificationReport(report));
+}
+
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
   if (contractKind !== 'freeze' && contractKind !== 'errors') {
@@ -1251,6 +1312,9 @@ async function main(): Promise<void> {
       return;
     case 'runtime':
       await runRuntimeCommand(args);
+      return;
+    case 'verification':
+      await runVerificationCommand(args);
       return;
     case 'contract':
       await runContractCommand(args);

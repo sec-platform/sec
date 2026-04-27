@@ -58,6 +58,8 @@ Use these entry commands for normal development:
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
 - `npm run platform -- runtime report`: inspect the latest runtime verification report
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
+- `npm run platform -- verification report`: inspect the latest verification report
+- `npm run platform -- verification report --json --compact`: emit the compact verification report
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
 - `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract
 - `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
@@ -116,6 +118,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
+- `npm run platform -- verification report --json --compact`: emit the compact verification report
 - `npm run platform -- reference check --json --compact`: emit the compact reference drift contract
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract
 - `npm run platform -- resolve`
