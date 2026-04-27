@@ -137,7 +137,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|contract>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|contract>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -781,6 +781,70 @@ test('CLI exposes acceptance coverage as text and JSON contracts', { timeout: 12
       status: 'passed',
       uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'],
       uncoveredSlots: ['customer_normalizer']
+    });
+  });
+});
+
+test('CLI exposes runtime report as text and JSON contracts', { timeout: 120000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+
+    const textResult = await runCli(workspaceRoot, ['runtime', 'report']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Runtime report passed');
+    expect(textResult.stdout).toContain('Build: skipped; passed=0; failed=0; command=npm run build');
+    expect(textResult.stdout).toContain('Unit: passed; passed=');
+    expect(textResult.stdout).toContain('failed=0; command=npm run test:unit');
+    expect(textResult.stdout).toContain('Acceptance: skipped; passed=0; failed=0; command=npm run test:acceptance');
+
+    const jsonResult = await runCli(workspaceRoot, ['runtime', 'report', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    const runtimeReport = JSON.parse(jsonResult.stdout) as {
+      status: string;
+      build: { status: string };
+      unit: { status: string; failed: string[] };
+      acceptance: { status: string };
+    };
+    expect(runtimeReport).toMatchObject({
+      status: 'passed',
+      build: { status: 'skipped' },
+      unit: { status: 'passed', failed: [] },
+      acceptance: { status: 'skipped' }
+    });
+
+    const compactResult = await runCli(workspaceRoot, ['runtime', 'report', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      status: 'passed',
+      build: { status: 'skipped' },
+      acceptance: { status: 'skipped' }
     });
   });
 });
@@ -2297,6 +2361,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform acceptance coverage [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['runtime'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform runtime report [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['runtime', 'report', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform runtime report [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['runtime', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform runtime report [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
       code: 1,

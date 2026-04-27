@@ -55,13 +55,14 @@ import type {
   ExplainGraph,
   PolicyReport,
   RepairPlan,
+  RuntimeVerificationLaneReport,
   ReviewSummary,
   UpgradePlan,
   VerificationLane
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -80,6 +81,7 @@ const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
 const POLICY_USAGE = 'Usage: platform policy report [--json [--compact]]';
 const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact]]';
+const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -392,6 +394,22 @@ function parseAcceptanceOutputArgs(args: string[]): { json: boolean; compact: bo
   throw new Error(ACCEPTANCE_USAGE);
 }
 
+function parseRuntimeOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(RUNTIME_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(RUNTIME_USAGE);
+}
+
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
@@ -645,6 +663,27 @@ function formatAcceptanceCoverage(report: AcceptanceCoverageReport): string {
     );
   }
   return lines.join('\n');
+}
+
+function formatRuntimeStep(
+  label: string,
+  step: RuntimeVerificationLaneReport['build']
+): string {
+  return [
+    `${label}: ${step.status}`,
+    `passed=${step.passed.length}`,
+    `failed=${step.failed.length}`,
+    `command=${step.command ?? 'none'}`
+  ].join('; ');
+}
+
+function formatRuntimeReport(report: RuntimeVerificationLaneReport): string {
+  return [
+    `Runtime report ${report.status}`,
+    formatRuntimeStep('Build', report.build),
+    formatRuntimeStep('Unit', report.unit),
+    formatRuntimeStep('Acceptance', report.acceptance)
+  ].join('\n');
 }
 
 function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
@@ -1013,6 +1052,26 @@ async function runAcceptanceCommand(args: string[]): Promise<void> {
   console.log(formatAcceptanceCoverage(report));
 }
 
+async function runRuntimeCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'report') {
+    throw new Error(RUNTIME_USAGE);
+  }
+
+  const outputArgs = parseRuntimeOutputArgs(args.slice(1));
+  const { runtimeReportPath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(runtimeReportPath))) {
+    throw new Error('Runtime report not found; run platform verify first');
+  }
+
+  const report = await readJson<RuntimeVerificationLaneReport>(runtimeReportPath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatRuntimeReport(report));
+}
+
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
   if (contractKind !== 'freeze' && contractKind !== 'errors') {
@@ -1189,6 +1248,9 @@ async function main(): Promise<void> {
       return;
     case 'acceptance':
       await runAcceptanceCommand(args);
+      return;
+    case 'runtime':
+      await runRuntimeCommand(args);
       return;
     case 'contract':
       await runContractCommand(args);
