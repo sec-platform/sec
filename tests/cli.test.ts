@@ -530,12 +530,22 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(testPathsJsonResult.code).toBe(0);
     expect(testPathsJsonResult.stderr).toBe('');
     expect(JSON.parse(testPathsJsonResult.stdout)).toEqual({
+      formatVersion: '1',
+      root: 'project',
+      kind: 'test',
       artifactStatus: 'attention',
       count: 1,
       paths: ['project/test-results/**'],
       byKind: {
         test: 1
       },
+      uploadGroups: [
+        {
+          kind: 'test',
+          count: 1,
+          paths: ['project/test-results/**']
+        }
+      ],
       missingCount: 1,
       missingReasonCounts: {
         'declared-generated-missing': 1,
@@ -623,14 +633,21 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(pathsJsonResult.code).toBe(0);
     expect(pathsJsonResult.stderr).toBe('');
     const pathsJson = JSON.parse(pathsJsonResult.stdout) as {
+      formatVersion: string;
+      root: string;
+      kind: string;
       artifactStatus: 'passed' | 'attention';
       count: number;
       paths: string[];
       byKind: Record<string, number>;
+      uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
       missingCount: number;
       missingReasonCounts: Record<string, number>;
       missing: typeof fixedMissingDiagnostics;
     };
+    expect(pathsJson.formatVersion).toBe('1');
+    expect(pathsJson.root).toBe('project');
+    expect(pathsJson.kind).toBe('all');
     expect(pathsJson.artifactStatus).toBe('attention');
     expect(pathsJson.count).toBe(uploadPaths.length);
     expect(pathsJson.paths).toEqual(uploadPaths);
@@ -639,6 +656,19 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     );
     expect(pathsJson.byKind.test).toBe(1);
     expect(Object.values(pathsJson.byKind).reduce((total, count) => total + count, 0)).toBe(
+      uploadPaths.length
+    );
+    expect(pathsJson.uploadGroups).toContainEqual({
+      kind: 'test',
+      count: 1,
+      paths: ['project/test-results/**']
+    });
+    expect(pathsJson.uploadGroups).toContainEqual({
+      kind: 'view',
+      count: pathsJson.byKind.view,
+      paths: uploadPaths.filter((pathEntry) => pathEntry.includes('/views/'))
+    });
+    expect(pathsJson.uploadGroups.reduce((total, group) => total + group.count, 0)).toBe(
       uploadPaths.length
     );
     expect(pathsJson.missingCount).toBe(fixedMissingDiagnostics.length);
@@ -667,13 +697,27 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(viewPathsJsonResult.code).toBe(0);
     expect(viewPathsJsonResult.stderr).toBe('');
     const viewPathsJson = JSON.parse(viewPathsJsonResult.stdout) as {
+      formatVersion: string;
+      root: string;
+      kind: string;
       count: number;
       paths: string[];
       byKind: Record<string, number>;
+      uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
     };
+    expect(viewPathsJson.formatVersion).toBe('1');
+    expect(viewPathsJson.root).toBe('project');
+    expect(viewPathsJson.kind).toBe('view');
     expect(viewPathsJson.paths).toEqual(['project/generated/views/slot-rule-view.html']);
     expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
     expect(viewPathsJson.byKind).toEqual({ view: 1 });
+    expect(viewPathsJson.uploadGroups).toEqual([
+      {
+        kind: 'view',
+        count: 1,
+        paths: ['project/generated/views/slot-rule-view.html']
+      }
+    ]);
     expect(viewPathsJson.paths).not.toContain('project/generated/ci-artifacts.json');
 
   });
