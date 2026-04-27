@@ -659,7 +659,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     artifactUploadCommands: [
       'npm run platform -- artifacts --paths --json --compact --kind governance',
       'npm run platform -- artifacts --paths --json --compact --kind view',
-      'npm run platform -- artifacts --paths --json --compact --kind test'
+      'npm run platform -- artifacts --paths --json --compact --kind test',
+      'npm run platform -- artifacts --paths --json --compact --kind contract'
     ],
     artifactPathCount: 6,
     artifactPaths: [
@@ -670,7 +671,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'project/generated/runtime-report.json',
       'project/generated/verification-report.json'
     ],
-    stepCount: 9,
+    stepCount: 10,
     steps: expect.arrayContaining([
       expect.objectContaining({
         id: 'pr-fast-verify',
@@ -703,6 +704,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         id: 'governance-artifacts',
         phase: 'artifacts',
         command: 'npm run platform -- artifacts --paths --json --compact --kind governance'
+      }),
+      expect.objectContaining({
+        id: 'contract-artifacts',
+        phase: 'artifacts',
+        command: 'npm run platform -- artifacts --paths --json --compact --kind contract'
       })
     ])
   });
@@ -721,6 +727,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain(
       'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- explain --json --compact'
     );
+    expect(textResult.stdout).toContain(
+      'Artifact uploads: npm run platform -- artifacts --paths --json --compact --kind governance, npm run platform -- artifacts --paths --json --compact --kind view, npm run platform -- artifacts --paths --json --compact --kind test, npm run platform -- artifacts --paths --json --compact --kind contract'
+    );
     expect(textResult.stdout).toContain('Artifact paths: 6');
     expect(textResult.stdout).toContain(
       'Artifact path list: project/generated/acceptance-coverage.json, project/generated/ci-artifacts.json, project/generated/explain-graph.json, project/generated/review-summary.json, project/generated/runtime-report.json, project/generated/verification-report.json'
@@ -728,6 +737,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
     expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
+    expect(textResult.stdout).toContain('Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'ci', '--json']);
     expect(jsonResult.code).toBe(0);
@@ -752,7 +762,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'project/generated/ci-artifacts.json',
         'project/generated/verification-report.json'
       ]),
-      stepCount: 9
+      stepCount: 10
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'ci', '--json', '--compact']);

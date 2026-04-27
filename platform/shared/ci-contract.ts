@@ -92,6 +92,13 @@ const ciSteps: CiContractStep[] = [
     command: 'npm run platform -- artifacts --paths --json --compact --kind test',
     purpose: 'Emit upload paths for runtime test artifacts.',
     produces: ['project/generated/ci-artifacts.json']
+  },
+  {
+    id: 'contract-artifacts',
+    phase: 'artifacts',
+    command: 'npm run platform -- artifacts --paths --json --compact --kind contract',
+    purpose: 'Emit upload paths for contract artifacts.',
+    produces: ['project/generated/ci-artifacts.json']
   }
 ];
 
