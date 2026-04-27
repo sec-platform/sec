@@ -25,6 +25,19 @@ function normalizeStatus(code: number): VerificationStatus {
   return code === 0 ? 'passed' : 'failed';
 }
 
+function appendCommandOutput(
+  logs: RuntimeVerificationLaneReport['logs'],
+  result: {
+    code: number;
+    stdout: string;
+    stderr: string;
+  },
+  passedSummary: string
+): void {
+  logs.stdout += result.code === 0 ? `${passedSummary}\n` : result.stdout;
+  logs.stderr += result.stderr;
+}
+
 function relativeFiles(rootDir: string, files: string[]): string[] {
   return files
     .map((file) => path.relative(rootDir, file).replaceAll('\\', '/'))
@@ -113,8 +126,7 @@ export async function runRuntimeVerification(
       failed: buildResult.code === 0 ? [] : ['next build'],
       command: 'npm run build'
     };
-    lane.logs.stdout += buildResult.stdout;
-    lane.logs.stderr += buildResult.stderr;
+    appendCommandOutput(lane.logs, buildResult, 'runtime-build:passed');
 
     if (buildResult.code !== 0) {
       return lane;
@@ -142,8 +154,7 @@ export async function runRuntimeVerification(
       failed: unitResult.code === 0 ? [] : runtimeUnitFiles,
       command: 'npm run test:unit'
     };
-    lane.logs.stdout += unitResult.stdout;
-    lane.logs.stderr += unitResult.stderr;
+    appendCommandOutput(lane.logs, unitResult, `runtime-unit:passed ${runtimeUnitFiles.join(',')}`);
     lane.status = normalizeStatus(unitResult.code);
 
     if (unitResult.code !== 0) {
@@ -168,8 +179,7 @@ export async function runRuntimeVerification(
   }
 
   const browserInstallResult = await timed('playwright install', () => ensurePlaywrightBrowser(projectRoot, baseEnv));
-  lane.logs.stdout += browserInstallResult.stdout;
-  lane.logs.stderr += browserInstallResult.stderr;
+  appendCommandOutput(lane.logs, browserInstallResult, 'playwright-install:passed');
   if (browserInstallResult.code !== 0) {
     lane.acceptance = {
       status: 'failed',
@@ -199,8 +209,7 @@ export async function runRuntimeVerification(
     failed: acceptanceResult.code === 0 ? [] : runtimeAcceptanceFiles,
     command: 'npm run test:acceptance'
   };
-  lane.logs.stdout += acceptanceResult.stdout;
-  lane.logs.stderr += acceptanceResult.stderr;
+  appendCommandOutput(lane.logs, acceptanceResult, `runtime-acceptance:passed ${runtimeAcceptanceFiles.join(',')}`);
   lane.status = normalizeStatus(acceptanceResult.code);
 
   return lane;
