@@ -1549,6 +1549,8 @@ main().catch((error: unknown) => {
   const protocol = buildErrorProtocol(failure);
   console.error(protocol.code, protocol.message);
   console.error(JSON.stringify({
+    code: protocol.code,
+    message: protocol.message,
     recoverable: protocol.recoverable,
     issueType: protocol.issueType,
     suggestedActions: protocol.suggestedActions,

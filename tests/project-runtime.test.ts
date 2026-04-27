@@ -243,6 +243,8 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(protocolContractSource).toContain("id: 'verify-blocked-error'");
   expect(protocolContractSource).toContain("id: 'repair-preflight-error'");
   expect(protocolContractSource).toContain("id: 'upgrade-conflict-error'");
+  expect(cliSource).toContain('code: protocol.code');
+  expect(cliSource).toContain('message: protocol.message');
   expect(cliSource).toContain('recoverable: protocol.recoverable');
   expect(cliSource).toContain('issueType: protocol.issueType');
   expect(cliSource).toContain('suggestedActions: protocol.suggestedActions');
