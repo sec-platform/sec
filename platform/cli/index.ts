@@ -535,6 +535,7 @@ async function main(): Promise<void> {
             paths: pathSummary.paths,
             byKind: pathSummary.byKind,
             missingCount: manifest.missing.length,
+            missingReasonCounts: manifest.summary.missingReasonCounts,
             missing: manifest.missing
           }, null, 2));
           return;
