@@ -112,7 +112,8 @@
    - 状态：active。
    - 目标：从高强度功能扩张切到可发布、可演示、可验证的成熟推进。
    - 优先切口：
-     - CLI 入门 demo 路径。
+     - CLI 入门 demo 路径：active。
+     - CLI usage 暴露 readiness、quickstart、CI artifacts：done。
      - 每日可演示版本清单。
      - E2E 验收矩阵。
      - JSON contract 冻结清单。
