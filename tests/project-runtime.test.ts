@@ -77,6 +77,10 @@ test('root package exposes demo scripts through the existing platform chain', as
   expect(rootPackage.scripts['demo:governance']).toBe(
     'npm run demo:quickstart && npm run platform -- artifacts --paths --kind governance'
   );
+  expect(rootPackage.scripts['dogfood:reference']).toBe('npm run reference:refresh');
+  expect(rootPackage.scripts['dogfood:governance']).toBe(
+    'npm run dogfood:reference && npm run platform -- artifacts --paths --json'
+  );
   expect(rootPackage.scripts['reference:refresh']).toBe(
     [
       'npm run platform -- resolve',
