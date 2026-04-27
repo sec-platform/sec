@@ -20,7 +20,9 @@ export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask
       'change_exports'
     ],
     inputContracts: {
-      description: slot.description
+      description: slot.description,
+      inputType: 'CustomerInput',
+      outputType: 'NormalizedCustomerInput'
     },
     testsToPass: [
       'tests/unit/customer-normalizer.test.ts',
