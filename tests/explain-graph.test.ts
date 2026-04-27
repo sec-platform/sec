@@ -1,13 +1,20 @@
 import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import { buildExplainGraph, writeExplainGraph } from '../platform/compiler/emit/write-explain-graph.ts';
 import { initWorkspace, resolveWorkspace } from '../platform/orchestrator.ts';
 import { readJson, writeJson } from '../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../platform/shared/paths.ts';
-import type { AcceptanceCoverageReport, LockFile, PolicyReport, ProvenanceFile, RepairPlan, UpgradePlan } from '../platform/shared/types.ts';
+import type {
+  AcceptanceCoverageReport,
+  LockFile,
+  PolicyReport,
+  ProvenanceFile,
+  RepairPlan,
+  UpgradeDiagnostics,
+  UpgradePlan
+} from '../platform/shared/types.ts';
 
 const activeWorkspaces = new Set<string>();
 
@@ -22,7 +29,9 @@ afterAll(async () => {
 });
 
 async function createWorkspace(prefix: string): Promise<string> {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+  await fs.mkdir(workspaceParent, { recursive: true });
+  const workspaceRoot = await fs.mkdtemp(path.join(workspaceParent, prefix));
   activeWorkspaces.add(workspaceRoot);
   return workspaceRoot;
 }
@@ -153,8 +162,8 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       {
         id: 'impact-scan',
         status: 'passed',
-        message: '1 upgrade impacts calculated',
-        evidence: ['custom/customer_normalizer.ts']
+        message: '2 upgrade impacts calculated',
+        evidence: ['custom/customer_normalizer.ts', 'upgrade.metadata.json']
       },
       {
         id: 'override-conflicts',
@@ -163,7 +172,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         evidence: []
       }
     ],
-    impacts: ['custom/customer_normalizer.ts'],
+    impacts: ['custom/customer_normalizer.ts', 'upgrade.metadata.json'],
     migrations: [
       {
         id: 'mig-customer-normalizer-contract',
@@ -186,19 +195,70 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       }
     ]
   };
+  const diagnostics: UpgradeDiagnostics = {
+    formatVersion: '1',
+    status: 'blocked',
+    blockId: 'entity/customer-basic',
+    targetVersion: '0.2.0',
+    failedCheck: 'override-conflicts',
+    errorCode: 'UPGRADE-CONFLICT-001',
+    message: 'Override conflicts with upgrade'
+  };
 
-  const graph = await buildExplainGraph(workspaceRoot, lock, { formatVersion: '1', artifacts: [] }, emptyCoverage(), null, upgradePlan);
+  const graph = await buildExplainGraph(
+    workspaceRoot,
+    lock,
+    { formatVersion: '1', artifacts: [] },
+    emptyCoverage(),
+    null,
+    upgradePlan,
+    null,
+    diagnostics
+  );
 
   expect(graph.nodes).toEqual(
     expect.arrayContaining([
+      {
+        id: 'upgrade:entity/customer-basic:0.2.0',
+        type: 'upgrade',
+        label: 'entity/customer-basic 0.1.0 -> 0.2.0'
+      },
+      {
+        id: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        type: 'upgrade',
+        label: 'mig-customer-normalizer-contract'
+      },
+      {
+        id: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
+        type: 'upgrade',
+        label: 'UPGRADE-CONFLICT-001'
+      },
       { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
-      { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
+      { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' },
+      { id: 'file:upgrade.metadata.json', type: 'file', label: 'upgrade.metadata.json' }
     ])
   );
   expect(graph.edges).toEqual(
     expect.arrayContaining([
+      { from: 'upgrade:entity/customer-basic:0.2.0', to: 'block:entity/customer-basic', type: 'connects_to' },
+      { from: 'upgrade:entity/customer-basic:0.2.0', to: 'file:upgrade.metadata.json', type: 'writes_to' },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0',
+        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        type: 'depends_on'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        to: 'file:custom/customer_normalizer.ts',
+        type: 'writes_to'
+      },
       { from: 'block:entity/customer-basic', to: 'slot:customer_normalizer', type: 'connects_to' },
-      { from: 'slot:customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
+      { from: 'slot:customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
+        to: 'upgrade:entity/customer-basic:0.2.0',
+        type: 'connects_to'
+      }
     ])
   );
 });

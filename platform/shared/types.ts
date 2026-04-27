@@ -11,7 +11,18 @@ export type ProvenanceOriginType = 'block' | 'slot' | 'generated' | 'override';
 export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
 export type OverrideSource = 'manual' | 'rule-backed';
 export type OverrideApplyPhase = 'compose' | 'adapt';
-export type ExplainNodeType = 'app' | 'block' | 'capability' | 'pin' | 'slot' | 'file' | 'acceptance' | 'policy' | 'override' | 'repair';
+export type ExplainNodeType =
+  | 'app'
+  | 'block'
+  | 'capability'
+  | 'pin'
+  | 'slot'
+  | 'file'
+  | 'acceptance'
+  | 'policy'
+  | 'override'
+  | 'repair'
+  | 'upgrade';
 export type ExplainEdgeType =
   | 'depends_on'
   | 'provides'
