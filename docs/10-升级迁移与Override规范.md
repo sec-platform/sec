@@ -118,9 +118,21 @@ overrides:
 
 - `codemod`
 - `file-replace`
-- `prisma-migration`
+- `copy-file`
+- `copy-directory`
+- `rename-file`
+- `create-directory`
+- `delete-file`
+- `delete-directory`
 - `config-rewrite`
+- `json-array-append`
+- `json-array-remove`
+- `json-object-merge`
+- `text-append`
+- `text-replace`
+- `text-replace-regex`
 - `slot-contract-update`
+- `prisma-migration`
 
 ### migration 合同字段
 
