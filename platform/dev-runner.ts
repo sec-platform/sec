@@ -6,8 +6,56 @@ import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|benchmark-contract|reference-clean|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|contract-freeze|benchmark-contract|reference-clean|clean-test-workspaces> [args...]');
   process.exit(1);
+}
+
+type ContractFreezeTarget = {
+  file: string;
+  testNamePattern?: string;
+};
+
+function contractFreezeTargets(): ContractFreezeTarget[] {
+  return [
+    {
+      file: 'tests/cli.test.ts',
+      testNamePattern: [
+        'CLI prints usage for missing or unknown commands',
+        'CLI exposes doctor as text and JSON readiness contracts',
+        'CLI exposes dependency environment maintenance entrypoints',
+        'CLI emits explain JSON for CI consumers',
+        'CLI emits artifact manifest JSON for CI upload consumers',
+        'CLI reports argument usage errors'
+      ].join('|')
+    },
+    {
+      file: 'tests/project-runtime.test.ts',
+      testNamePattern: [
+        'root package exposes demo scripts through the existing platform chain',
+        'test budget and benchmark contracts document slow lanes and task-suite scope',
+        'error protocol, closed loop entry, and test lane map stay frozen in developer contracts',
+        'reference refresh and shared cache contract stay anchored in repo metadata'
+      ].join('|')
+    },
+    {
+      file: 'tests/pipeline.test.ts',
+      testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
+    }
+  ];
+}
+
+async function runContractFreeze(): Promise<number> {
+  for (const target of contractFreezeTargets()) {
+    const args = ['test', target.file];
+    if (target.testNamePattern) {
+      args.push('--test-name-pattern', target.testNamePattern);
+    }
+    const code = await runDevCommand('bun', args, process.env);
+    if (code !== 0) {
+      return code;
+    }
+  }
+  return 0;
 }
 
 function testBudgetContract(): object {
@@ -189,7 +237,9 @@ async function main(): Promise<void> {
         ? await runDevCommand(commandPath(binPath, 'tsc'), ['--noEmit', '-p', 'tsconfig.json', ...args], env)
         : target === 'test'
           ? await runDevCommand(commandPath(binPath, 'vitest'), ['run', ...args], env)
-          : usage();
+          : target === 'contract-freeze'
+            ? await runContractFreeze()
+            : usage();
 
     process.exitCode = code;
   });

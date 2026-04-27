@@ -84,10 +84,11 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run check`: TypeScript typecheck plus the main test suite
 - `npm test`: run the Node test suite directly
 - `npm run test:budget`: print the fast/runtime/all lane slow-test budget contract
+- `npm run test:contract-freeze`: run the CLI/script/governance contract freeze suite
 - `npm run test:benchmark-contract`: print the benchmark/task-suite contract
 - `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
 - `npm run demo:governance`: run quickstart and print governance artifact upload paths
-- `npm run demo:closed-loop`: run quickstart, full verification, governance artifact paths, and compact explain JSON in one product loop
+- `npm run demo:closed-loop`: run the primary product closed loop of quickstart, full verification, governance artifact paths, and compact explain JSON
 - `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
 - `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`

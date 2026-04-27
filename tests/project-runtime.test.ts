@@ -103,6 +103,7 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   const runnerSource = await fs.readFile(path.join(compilerRoot, 'platform', 'dev-runner.ts'), 'utf8');
 
   expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
+  expect(rootPackage.scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
   expect(rootPackage.scripts['test:benchmark-contract']).toBe('bun ./platform/dev-runner.ts benchmark-contract');
   expect(rootPackage.scripts['reference:check']).toBe('bun ./platform/dev-runner.ts reference-clean');
   expect(runnerSource).toContain("id: 'fast'");
@@ -143,6 +144,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   const protocolSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'error-protocol.ts'), 'utf8');
 
   expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
+  expect(rootPackage.scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
   expect(rootPackage.scripts['test:benchmark-contract']).toBe('bun ./platform/dev-runner.ts benchmark-contract');
   expect(rootPackage.scripts['reference:check']).toBe('bun ./platform/dev-runner.ts reference-clean');
   expect(rootPackage.scripts['demo:closed-loop']).toContain('npm run platform -- verify --lane all');

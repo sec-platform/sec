@@ -39,6 +39,14 @@ async function withTempWorkspace<T>(callback: (workspaceRoot: string) => Promise
   }
 }
 
+function usageErrorStderr(usage: string): string {
+  return [
+    `UNEXPECTED ${usage}`,
+    '{"recoverable":true,"issueType":"usage","suggestedActions":["retry-with-supported-arguments"]}',
+    ''
+  ].join('\n');
+}
+
 async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
   const blockRoot = path.join(privateRegistryRoot, 'private.banner-basic');
@@ -110,9 +118,9 @@ test('CLI prints usage for missing or unknown commands', async () => {
       expect(result.stdout).toContain(
         'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>'
       );
+      expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
-      expect(result.stdout).toContain('Quickstart: platform init --reset -> resolve -> compose -> adapt -> verify -> lock -> explain');
-      expect(result.stdout).toContain('CI artifacts: platform artifacts --paths --kind governance');
+      expect(result.stdout).toContain('Governance paths: platform artifacts --paths --kind governance');
     }
   });
 });
@@ -1508,122 +1516,122 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['init', '--unknown'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform init [--reset]\n'
+      stderr: usageErrorStderr('Usage: platform init [--reset]')
     });
     await expect(runCli(workspaceRoot, ['init', '--reset', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform init [--reset]\n'
+      stderr: usageErrorStderr('Usage: platform init [--reset]')
     });
     await expect(runCli(workspaceRoot, ['add'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform add <block-id>\n'
+      stderr: usageErrorStderr('Usage: platform add <block-id>')
     });
     await expect(runCli(workspaceRoot, ['add', 'entity/customer-basic', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform add <block-id>\n'
+      stderr: usageErrorStderr('Usage: platform add <block-id>')
     });
     await expect(runCli(workspaceRoot, ['repair', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform repair [--dry-run] [--json]\n'
+      stderr: usageErrorStderr('Usage: platform repair [--dry-run] [--json]')
     });
     await expect(runCli(workspaceRoot, ['repair', '--dry-run', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform repair [--dry-run] [--json]\n'
+      stderr: usageErrorStderr('Usage: platform repair [--dry-run] [--json]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]\n'
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]\n'
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--dry-run', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]\n'
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]')
     });
     await expect(runCli(workspaceRoot, ['explain', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform explain [--json [--compact]]\n'
+      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['explain', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform explain [--json [--compact]]\n'
+      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['explain', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform explain [--json [--compact]]\n'
+      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['doctor', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform doctor [--json [--compact]]\n'
+      stderr: usageErrorStderr('Usage: platform doctor [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['doctor', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform doctor [--json [--compact]]\n'
+      stderr: usageErrorStderr('Usage: platform doctor [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['doctor', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform doctor [--json [--compact]]\n'
+      stderr: usageErrorStderr('Usage: platform doctor [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform verify [--lane fast|runtime|all]\n'
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform verify [--lane fast|runtime|all]\n'
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
     });
     await expect(runCli(workspaceRoot, ['verify', 'fast'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform verify [--lane fast|runtime|all]\n'
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform verify [--lane fast|runtime|all]\n'
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
     });
     await expect(runCli(workspaceRoot, ['resolve', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform resolve\n'
+      stderr: usageErrorStderr('Usage: platform resolve')
     });
   });
 });

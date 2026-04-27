@@ -117,9 +117,10 @@
        - `npm run demo:governance`：在 quickstart 后列出 governance artifact 上传清单。
        - `npm run demo:closed-loop`：运行 quickstart -> verify --lane all -> governance artifact paths -> explain --json --compact。
        - `npm run reference:refresh`：保留为不重置项目的主链刷新入口。
-     - CLI usage 暴露 readiness、quickstart、CI artifacts：done。
-      - `platform doctor --json` 输出结构化 readiness contract。
-      - `platform doctor --json --compact` 输出稳定单行 readiness contract。
+     - CLI usage 暴露 closed loop、readiness、governance paths：done。
+       - `platform doctor --json` 输出结构化 readiness contract。
+       - `platform doctor --json --compact` 输出稳定单行 readiness contract。
+       - CLI 首屏把 `npm run demo:closed-loop` 固定为唯一主闭环叙事入口。
      - 每日可演示版本清单：active。
        - quickstart 主链可运行。
        - governance artifact 清单可输出。
@@ -176,6 +177,7 @@
          - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
+        - `npm run test:contract-freeze` 固定运行 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - reference drift：固定由 `npm run reference:check` 守护 checked-in `project/`。
          - benchmark：固定由 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。
