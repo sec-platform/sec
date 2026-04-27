@@ -304,6 +304,11 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
 
     const payload = JSON.parse(result.stdout) as {
       graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
+      e2eMatrix: {
+        status: string;
+        rowCount: number;
+        rows: Array<{ stage: string; status: string; detail: string; evidence: string[] }>;
+      };
       reviewSummary: {
         formatVersion: string;
         ciSummary: { status: string; failureCount: number };
@@ -365,6 +370,10 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       };
     };
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      e2eMatrix: {
+        status: 'attention',
+        rowCount: 4
+      },
       reviewSummary: {
         formatVersion: '2',
         chainSummary: { stageCount: 4 }
@@ -372,6 +381,16 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     });
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
     expect(payload.graph.edges.length).toBeGreaterThan(0);
+    expect(payload.e2eMatrix).toMatchObject({
+      status: 'attention',
+      rowCount: 4,
+      rows: [
+        { stage: 'verification', status: 'passed', evidence: ['ci=passed', 'failures=0'] },
+        { stage: 'coverage', status: 'passed', evidence: ['blocks=3/3', 'slots=1/1'] },
+        { stage: 'artifacts', status: 'attention', evidence: ['artifacts=missing'] },
+        { stage: 'review', status: 'passed', evidence: ['review-summary=generated'] }
+      ]
+    });
     expect(payload.reviewSummary.formatVersion).toBe('2');
     expect(payload.reviewSummary.ciSummary).toMatchObject({
       status: 'passed',
