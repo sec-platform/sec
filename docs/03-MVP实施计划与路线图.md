@@ -117,6 +117,8 @@
        - `npm run demo:governance`：在 quickstart 后列出 governance artifact 上传清单。
        - `npm run reference:refresh`：保留为不重置项目的主链刷新入口。
      - CLI usage 暴露 readiness、quickstart、CI artifacts：done。
+      - `platform doctor --json` 输出结构化 readiness contract。
+      - `platform doctor --json --compact` 输出稳定单行 readiness contract。
      - 每日可演示版本清单：active。
        - quickstart 主链可运行。
        - governance artifact 清单可输出。
