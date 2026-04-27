@@ -702,6 +702,7 @@
            - `--paths` 上传路径列表。
            - `--paths --json` 结构化路径列表。
            - `--paths --json` 输出 `byKind` 计数汇总。
+           - `--paths --json` 输出 `artifactStatus`。
            - `--paths --json` 输出 `missingCount`。
            - `--paths --json` 输出 `missingReasonCounts`。
            - `--paths --json` 输出 `missing` 诊断列表。
