@@ -238,7 +238,8 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       migrationKind: 'slot-contract-update',
       entry: 'migrations/customer-normalizer-contract.json',
       entryId: 'mig-customer-normalizer-contract-entry',
-      entryKind: 'text-replace'
+      entryKind: 'text-replace',
+      rollbackStatus: 'restored'
     }
   };
 
@@ -279,6 +280,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         id: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         type: 'upgrade',
         label: 'UPGRADE-CONFLICT-001'
+      },
+      {
+        id: 'upgrade:entity/customer-basic:0.2.0:rollback:restored',
+        type: 'upgrade',
+        label: 'rollback restored'
       },
       { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' },
@@ -334,6 +340,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         to: 'file:migrations/customer-normalizer-contract.json',
+        type: 'connects_to'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
+        to: 'upgrade:entity/customer-basic:0.2.0:rollback:restored',
         type: 'connects_to'
       }
     ])

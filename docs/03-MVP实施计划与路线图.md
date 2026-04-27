@@ -499,7 +499,8 @@
          - migration 到 target file 的连接。
          - migration 到 verification category 的连接。
          - diagnostics 到 plan 的连接。
-        - diagnostics 到失败 migration 的连接。
+         - diagnostics 到失败 migration 的连接。
+         - diagnostics 到 rollback restored 状态的连接。
        - Upgrade Plan 增加 Preflight Summary。
        - Upgrade Plan 增加 Operation Role Summary 与 Migration Operations 明细。
        - 按 preflight group 汇总 checks 数量和 evidence 数量。

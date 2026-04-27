@@ -411,6 +411,21 @@ export async function buildExplainGraph(
         type: 'connects_to'
       });
     }
+
+    const rollbackStatus = readUpgradeDiagnosticsString(upgradeDiagnostics, 'rollbackStatus');
+    if (rollbackStatus) {
+      const rollbackNodeId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:rollback:${rollbackStatus}`;
+      pushNode(nodes, {
+        id: rollbackNodeId,
+        type: 'upgrade',
+        label: `rollback ${rollbackStatus}`
+      });
+      pushEdge(edges, {
+        from: diagnosticsNodeId,
+        to: rollbackNodeId,
+        type: 'connects_to'
+      });
+    }
   }
 
   if (repairPlan) {
