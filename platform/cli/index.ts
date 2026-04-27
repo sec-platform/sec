@@ -64,7 +64,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -86,6 +86,7 @@ const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact
 const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
 const PROVENANCE_USAGE = 'Usage: platform provenance registry [--json [--compact]]';
+const REVIEW_USAGE = 'Usage: platform review summary [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -446,6 +447,22 @@ function parseProvenanceOutputArgs(args: string[]): { json: boolean; compact: bo
   throw new Error(PROVENANCE_USAGE);
 }
 
+function parseReviewOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(REVIEW_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(REVIEW_USAGE);
+}
+
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
@@ -782,6 +799,52 @@ function formatProvenanceRegistry(provenance: ProvenanceFile): string {
     );
   }
   return lines.join('\n');
+}
+
+function formatReviewSummaryContract(summary: ReviewSummary): string {
+  const coverage = summary.coverageSummary;
+  const provenance = summary.provenanceSummary;
+  const artifacts = summary.artifactSummary;
+  return [
+    [
+      `Review summary ${summary.chainSummary.status}`,
+      `format=${summary.formatVersion}`,
+      `stages=${summary.chainSummary.passedStageCount}/${summary.chainSummary.stageCount}`,
+      `attention=${summary.chainSummary.attentionStageCount}`,
+      `failed=${summary.chainSummary.failedStageCount}`
+    ].join('; '),
+    [
+      `CI ${summary.ciSummary.status}`,
+      `failures=${summary.ciSummary.failureCount}`,
+      `risks=${summary.ciSummary.regressionRiskCount}`,
+      `conflicts=${summary.ciSummary.conflictHintCount}`
+    ].join('; '),
+    [
+      `Impact blocks=${summary.impactedBlocks.length}`,
+      `slots=${summary.impactedSlots.length}`,
+      `runtime=${summary.runtimeEntries.length}`,
+      `changeSources=${summary.changeSources.length}`
+    ].join('; '),
+    [
+      `Coverage ${coverage?.status ?? 'missing'}`,
+      `blocks=${coverage ? `${coverage.coveredBlockCount}/${coverage.blockCount}` : 'missing'}`,
+      `slots=${coverage ? `${coverage.coveredSlotCount}/${coverage.slotCount}` : 'missing'}`
+    ].join('; '),
+    [
+      `Provenance artifacts=${provenance?.artifactCount ?? 0}`,
+      `registry=${provenance?.registryArtifactCount ?? 0}`,
+      `unverified=${provenance?.unverifiedArtifactCount ?? 0}`
+    ].join('; '),
+    [
+      `Artifacts ${artifacts?.artifactStatus ?? 'missing'}`,
+      `total=${artifacts?.artifactCount ?? 0}`,
+      `missing=${artifacts?.missingCount ?? 0}`,
+      `contracts=${artifacts?.contractCount ?? 0}`
+    ].join('; '),
+    `Stages: ${summary.chainSummary.stageSummaries
+      .map((stage) => `${stage.id}=${stage.status}`)
+      .join(', ') || 'none'}`
+  ].join('\n');
 }
 
 function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
@@ -1210,6 +1273,26 @@ async function runProvenanceCommand(args: string[]): Promise<void> {
   console.log(formatProvenanceRegistry(provenance));
 }
 
+async function runReviewCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'summary') {
+    throw new Error(REVIEW_USAGE);
+  }
+
+  const outputArgs = parseReviewOutputArgs(args.slice(1));
+  const { reviewSummaryPath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(reviewSummaryPath))) {
+    throw new Error('Review summary not found; run platform explain first');
+  }
+
+  const summary = await readJson<ReviewSummary>(reviewSummaryPath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(summary, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatReviewSummaryContract(summary));
+}
+
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
   if (contractKind !== 'freeze' && contractKind !== 'errors') {
@@ -1395,6 +1478,9 @@ async function main(): Promise<void> {
       return;
     case 'provenance':
       await runProvenanceCommand(args);
+      return;
+    case 'review':
+      await runReviewCommand(args);
       return;
     case 'contract':
       await runContractCommand(args);
