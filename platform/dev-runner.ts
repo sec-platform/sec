@@ -6,7 +6,7 @@ import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|contract-freeze|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|contract-freeze|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -25,6 +25,7 @@ function contractFreezeTargets(): ContractFreezeTarget[] {
         'CLI exposes dependency environment maintenance entrypoints',
         'CLI exposes reference drift check as text and JSON contracts',
         'CLI exposes benchmark task-suite as text and JSON contracts',
+        'CLI exposes test budget as text and JSON contracts',
         'CLI emits explain JSON for CI consumers',
         'CLI emits artifact manifest JSON for CI upload consumers',
         'CLI reports argument usage errors'
@@ -58,35 +59,6 @@ async function runContractFreeze(): Promise<number> {
     }
   }
   return 0;
-}
-
-function testBudgetContract(): object {
-  return {
-    formatVersion: '1',
-    defaultLane: 'fast',
-    lanes: [
-      {
-        id: 'fast',
-        nextBuild: false,
-        playwright: false,
-        command: 'npm run platform -- verify'
-      },
-      {
-        id: 'runtime',
-        nextBuild: false,
-        playwright: false,
-        command: 'npm run platform -- verify --lane runtime'
-      },
-      {
-        id: 'all',
-        nextBuild: true,
-        playwright: true,
-        command: 'npm run platform -- verify --lane all'
-      }
-    ],
-    localDefault: 'fast lane plus targeted named tests',
-    fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
-  };
 }
 
 function commandPath(binPath: string, base: string): string {
@@ -151,11 +123,6 @@ async function main(): Promise<void> {
 
   if (target === 'clean-test-workspaces') {
     await cleanTestWorkspaces();
-    return;
-  }
-
-  if (target === 'test-budget') {
-    console.log(JSON.stringify(testBudgetContract(), null, 2));
     return;
   }
 

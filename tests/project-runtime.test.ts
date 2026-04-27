@@ -105,20 +105,25 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
     path.join(compilerRoot, 'platform', 'shared', 'benchmark-contract.ts'),
     'utf8'
   );
+  const testBudgetContractSource = await fs.readFile(
+    path.join(compilerRoot, 'platform', 'shared', 'test-budget-contract.ts'),
+    'utf8'
+  );
   const referenceCheckSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'reference-check.ts'), 'utf8');
 
-  expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
+  expect(rootPackage.scripts['test:budget']).toBe('npm run platform -- test budget --json');
   expect(rootPackage.scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
   expect(rootPackage.scripts['test:benchmark-contract']).toBe('npm run platform -- benchmark suite --json');
   expect(rootPackage.scripts['reference:check']).toBe('npm run platform -- reference check');
   expect(runnerSource).not.toContain('reference-clean');
   expect(runnerSource).not.toContain('benchmark-contract');
-  expect(runnerSource).toContain("id: 'fast'");
-  expect(runnerSource).toContain('nextBuild: false');
-  expect(runnerSource).toContain('playwright: false');
-  expect(runnerSource).toContain("id: 'all'");
-  expect(runnerSource).toContain('nextBuild: true');
-  expect(runnerSource).toContain('playwright: true');
+  expect(runnerSource).not.toContain('test-budget');
+  expect(testBudgetContractSource).toContain("id: 'fast'");
+  expect(testBudgetContractSource).toContain('nextBuild: false');
+  expect(testBudgetContractSource).toContain('playwright: false');
+  expect(testBudgetContractSource).toContain("id: 'all'");
+  expect(testBudgetContractSource).toContain('nextBuild: true');
+  expect(testBudgetContractSource).toContain('playwright: true');
   expect(benchmarkContractSource).toContain("suiteId: 'engineering-compiler-core'");
   expect(benchmarkContractSource).toContain("id: 'add-block'");
   expect(benchmarkContractSource).toContain("id: 'repair-slot'");
@@ -152,7 +157,8 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   const protocolSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'error-protocol.ts'), 'utf8');
   const processSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'process.ts'), 'utf8');
 
-  expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
+  expect(rootPackage.scripts['test:budget']).toBe('npm run platform -- test budget --json');
+  expect(rootPackage.scripts['test:budget']).not.toContain('dev-runner');
   expect(rootPackage.scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
   expect(rootPackage.scripts['test:benchmark-contract']).toBe('npm run platform -- benchmark suite --json');
   expect(rootPackage.scripts['test:benchmark-contract']).not.toContain('dev-runner');
@@ -164,12 +170,14 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(routeMap).toContain('P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。');
   expect(routeMap).toContain('platform deps status --json [--compact]');
   expect(routeMap).toContain('platform artifacts --paths --json --compact --kind governance|view|test|contract');
+  expect(routeMap).toContain('platform test budget --json [--compact]');
   expect(routeMap).toContain('platform reference check --json [--compact]');
   expect(routeMap).toContain('platform benchmark suite --json [--compact]');
   expect(routeMap).toContain('project/generated/review-summary.json');
   expect(readme).toContain('Run the full product closed loop with `npm run demo:closed-loop`.');
   expect(readme).toContain('npm run platform -- deps status --json --compact');
   expect(readme).toContain('npm run platform -- artifacts --paths --json --compact --kind governance');
+  expect(readme).toContain('npm run platform -- test budget --json --compact');
   expect(readme).toContain('npm run platform -- reference check');
   expect(readme).toContain('npm run platform -- reference check --json --compact');
   expect(readme).toContain('npm run platform -- benchmark suite --json --compact');

@@ -14,7 +14,7 @@
     "test": "bun ./platform/dev-runner.ts test",
     "test:watch": "bun ./platform/dev-runner.ts test --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
-    "test:budget": "bun ./platform/dev-runner.ts test-budget",
+    "test:budget": "npm run platform -- test budget --json",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
     "test:benchmark-contract": "npm run platform -- benchmark suite --json",
     "reference:check": "npm run platform -- reference check",
