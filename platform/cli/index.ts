@@ -54,6 +54,7 @@ import type {
   AcceptanceCoverageReport,
   ExplainGraph,
   PolicyReport,
+  ProvenanceFile,
   RepairPlan,
   RuntimeVerificationLaneReport,
   ReviewSummary,
@@ -63,7 +64,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -84,6 +85,7 @@ const POLICY_USAGE = 'Usage: platform policy report [--json [--compact]]';
 const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact]]';
 const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
+const PROVENANCE_USAGE = 'Usage: platform provenance registry [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -428,6 +430,22 @@ function parseVerificationOutputArgs(args: string[]): { json: boolean; compact: 
   throw new Error(VERIFICATION_USAGE);
 }
 
+function parseProvenanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(PROVENANCE_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(PROVENANCE_USAGE);
+}
+
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
@@ -725,6 +743,45 @@ function formatVerificationReport(report: VerificationReport): string {
       `acceptance=${report.runtime.acceptance.status}`
     ].join('; ')
   ].join('\n');
+}
+
+function formatProvenanceRegistry(provenance: ProvenanceFile): string {
+  const registryArtifacts = provenance.artifacts.filter((artifact) => artifact.registrySourceId);
+  const unverifiedArtifacts = provenance.artifacts.filter((artifact) => artifact.verifiedBy.length === 0);
+  const overrideArtifacts = provenance.artifacts.filter((artifact) => artifact.overrideStatus !== 'none');
+  const generatedPasses = uniqueSorted(
+    provenance.artifacts.map((artifact) => artifact.generatedByPass ?? '')
+  );
+  const lines = [
+    [
+      'Provenance registry',
+      `artifacts=${provenance.artifacts.length}`,
+      `registry=${registryArtifacts.length}`,
+      `overrides=${overrideArtifacts.length}`,
+      `unverified=${unverifiedArtifacts.length}`
+    ].join('; '),
+    `Origins: ${formatCounts(provenance.artifacts.map((artifact) => artifact.originType))}`,
+    `Registry sources: ${formatCounts(registryArtifacts.map((artifact) => artifact.registrySourceId ?? 'unknown'))}`,
+    `Generated passes: ${formatList(generatedPasses)}`
+  ];
+  const sampleArtifacts = [
+    ...provenance.artifacts.filter((artifact) => artifact.originType === 'block').slice(0, 2),
+    ...provenance.artifacts.filter((artifact) => artifact.originType === 'slot').slice(0, 2),
+    ...provenance.artifacts.filter((artifact) => artifact.originType === 'override').slice(0, 2),
+    ...provenance.artifacts.filter((artifact) => artifact.originType === 'generated').slice(0, 2)
+  ].slice(0, 5);
+  for (const artifact of sampleArtifacts) {
+    lines.push(
+      [
+        `Artifact ${artifact.path}`,
+        `origin=${artifact.originType}:${artifact.originId}`,
+        `registry=${artifact.registrySourceId ?? 'none'}`,
+        `verifiedBy=${formatList(artifact.verifiedBy)}`,
+        `override=${artifact.overrideStatus}`
+      ].join('; ')
+    );
+  }
+  return lines.join('\n');
 }
 
 function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
@@ -1133,6 +1190,26 @@ async function runVerificationCommand(args: string[]): Promise<void> {
   console.log(formatVerificationReport(report));
 }
 
+async function runProvenanceCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'registry') {
+    throw new Error(PROVENANCE_USAGE);
+  }
+
+  const outputArgs = parseProvenanceOutputArgs(args.slice(1));
+  const { provenancePath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(provenancePath))) {
+    throw new Error('Provenance registry not found; run platform adapt or lock first');
+  }
+
+  const provenance = await readJson<ProvenanceFile>(provenancePath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(provenance, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatProvenanceRegistry(provenance));
+}
+
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
   if (contractKind !== 'freeze' && contractKind !== 'errors') {
@@ -1315,6 +1392,9 @@ async function main(): Promise<void> {
       return;
     case 'verification':
       await runVerificationCommand(args);
+      return;
+    case 'provenance':
+      await runProvenanceCommand(args);
       return;
     case 'contract':
       await runContractCommand(args);
