@@ -14,6 +14,7 @@ import type {
   PolicyReport,
   ProvenanceFile,
   RepairPlan,
+  UpgradeDiagnostics,
   UpgradePlan
 } from '../../shared/types.ts';
 
@@ -45,6 +46,14 @@ async function readUpgradePlan(workspaceRoot: string): Promise<UpgradePlan | nul
   return readJson<UpgradePlan>(upgradePlanPath);
 }
 
+async function readUpgradeDiagnostics(workspaceRoot: string): Promise<UpgradeDiagnostics | null> {
+  const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  if (!(await pathExists(upgradeDiagnosticsPath))) {
+    return null;
+  }
+  return readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
+}
+
 async function readRepairPlan(workspaceRoot: string): Promise<RepairPlan | null> {
   const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
   if (!(await pathExists(repairPlanPath))) {
@@ -60,7 +69,8 @@ export async function buildExplainGraph(
   coverage: AcceptanceCoverageReport,
   policyReport: PolicyReport | null,
   upgradePlan: UpgradePlan | null = null,
-  repairPlan: RepairPlan | null = null
+  repairPlan: RepairPlan | null = null,
+  upgradeDiagnostics: UpgradeDiagnostics | null = null
 ): Promise<ExplainGraph> {
   const nodes: ExplainGraphNode[] = [];
   const edges: ExplainGraphEdge[] = [];
@@ -245,21 +255,69 @@ export async function buildExplainGraph(
   }
 
   if (upgradePlan) {
+    const upgradeNodeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}`;
+    pushNode(nodes, {
+      id: `block:${upgradePlan.blockId}`,
+      type: 'block',
+      label: upgradePlan.blockId
+    });
+    pushNode(nodes, {
+      id: upgradeNodeId,
+      type: 'upgrade',
+      label: `${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+    });
+    pushEdge(edges, {
+      from: upgradeNodeId,
+      to: `block:${upgradePlan.blockId}`,
+      type: 'connects_to'
+    });
+
+    for (const impact of upgradePlan.impacts) {
+      const fileNodeId = `file:${impact}`;
+      pushNode(nodes, {
+        id: fileNodeId,
+        type: 'file',
+        label: impact
+      });
+      pushEdge(edges, {
+        from: upgradeNodeId,
+        to: fileNodeId,
+        type: 'writes_to'
+      });
+    }
+
     for (const migration of upgradePlan.migrationSummaries) {
-      if (migration.kind !== 'slot-contract-update' || !migration.slotId) {
-        continue;
-      }
-      const slotNodeId = `slot:${migration.slotId}`;
+      const migrationNodeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}:migration:${migration.id}`;
       const fileNodeId = `file:${migration.target}`;
       pushNode(nodes, {
-        id: slotNodeId,
-        type: 'slot',
-        label: migration.slotId
+        id: migrationNodeId,
+        type: 'upgrade',
+        label: migration.id
       });
       pushNode(nodes, {
         id: fileNodeId,
         type: 'file',
         label: migration.target
+      });
+      pushEdge(edges, {
+        from: upgradeNodeId,
+        to: migrationNodeId,
+        type: 'depends_on'
+      });
+      pushEdge(edges, {
+        from: migrationNodeId,
+        to: fileNodeId,
+        type: 'writes_to'
+      });
+
+      if (migration.kind !== 'slot-contract-update' || !migration.slotId) {
+        continue;
+      }
+      const slotNodeId = `slot:${migration.slotId}`;
+      pushNode(nodes, {
+        id: slotNodeId,
+        type: 'slot',
+        label: migration.slotId
       });
       pushEdge(edges, {
         from: `block:${upgradePlan.blockId}`,
@@ -272,6 +330,26 @@ export async function buildExplainGraph(
         type: 'writes_to'
       });
     }
+  }
+
+  if (upgradeDiagnostics) {
+    const diagnosticsNodeId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:diagnostics`;
+    const planNodeId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}`;
+    pushNode(nodes, {
+      id: `block:${upgradeDiagnostics.blockId}`,
+      type: 'block',
+      label: upgradeDiagnostics.blockId
+    });
+    pushNode(nodes, {
+      id: diagnosticsNodeId,
+      type: 'upgrade',
+      label: upgradeDiagnostics.errorCode
+    });
+    pushEdge(edges, {
+      from: diagnosticsNodeId,
+      to: upgradePlan ? planNodeId : `block:${upgradeDiagnostics.blockId}`,
+      type: 'connects_to'
+    });
   }
 
   if (repairPlan) {
@@ -382,7 +460,8 @@ export async function writeExplainGraph(
     coverage,
     await readPolicyReport(workspaceRoot),
     await readUpgradePlan(workspaceRoot),
-    await readRepairPlan(workspaceRoot)
+    await readRepairPlan(workspaceRoot),
+    await readUpgradeDiagnostics(workspaceRoot)
   );
 
   await fs.writeFile(explainGraphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');

@@ -129,6 +129,7 @@
      - 迁移 `requiresVerification` 到 plan/review 的显式传播。
      - 升级迁移 entry schema 校验。
      - slot 合同变化与 explain graph 的连接。
+     - upgrade plan/migration/diagnostics 到 explain graph 的一等归因节点。
      - upgrade plan 到本地视图的摘要呈现。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：
@@ -257,7 +258,15 @@
          - Upgrade Migration Kind Summary。
          - Upgrade Migration Summary。
          - Upgrade Blocker Summary。
-       - explain graph。
+       - explain graph：
+         - upgrade plan 节点。
+         - upgrade migration 节点。
+         - upgrade diagnostics 节点。
+         - plan 到 block 的连接。
+         - plan 到 impact file 的连接。
+         - plan 到 migration 的连接。
+         - migration 到 target file 的连接。
+         - diagnostics 到 plan 的连接。
        - Upgrade Plan 增加 Preflight Summary。
        - 按 preflight group 汇总 checks 数量和 evidence 数量。
    - 每个切口的验证口径：
