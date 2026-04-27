@@ -30,6 +30,8 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
         'CLI exposes verification report as text and JSON contracts',
         'CLI exposes provenance registry as text and JSON contracts',
         'CLI exposes review summary as text and JSON contracts',
+        'CLI emits repair dry-run JSON for CI consumers',
+        'CLI emits blocked repair JSON for CI consumers',
         'CLI emits upgrade dry-run JSON for CI consumers',
         'CLI emits explain JSON for CI consumers',
         'CLI emits artifact manifest JSON for CI upload consumers',

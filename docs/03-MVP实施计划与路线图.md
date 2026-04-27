@@ -526,8 +526,8 @@
        - category 进入 explain graph。
        - 旧 repair plan artifact 缺少 category 时按 `slot-rewrite` 兼容展示。
      - repair plan CLI JSON 输出：
-       - `repair --json`。
-       - `repair --dry-run --json`。
+       - `repair --json [--compact]`。
+       - `repair --dry-run --json [--compact]`。
        - 输出机器可解析 `RepairPlan`。
        - 保持普通文本输出不变。
        - dry-run JSON 会写入 `generated/repair-plan.json`。

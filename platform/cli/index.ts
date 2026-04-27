@@ -73,7 +73,7 @@ const USAGE = [
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
-const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json]';
+const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
@@ -184,9 +184,10 @@ function parseLaneArg(args: string[]): VerificationLane {
   throw new Error(VERIFY_USAGE);
 }
 
-function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean } {
+function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean; compact: boolean } {
   let dryRun = false;
   let json = false;
+  let compact = false;
   for (const flag of args) {
     if (flag === '--dry-run' && !dryRun) {
       dryRun = true;
@@ -196,9 +197,13 @@ function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean } {
       json = true;
       continue;
     }
+    if (flag === '--compact' && json && !compact) {
+      compact = true;
+      continue;
+    }
     throw new Error(REPAIR_USAGE);
   }
-  return { dryRun, json };
+  return { dryRun, json, compact };
 }
 
 function parseUpgradeArgs(
@@ -1374,7 +1379,7 @@ async function main(): Promise<void> {
       try {
         const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: repairArgs.dryRun });
         if (repairArgs.json) {
-          console.log(JSON.stringify(repairPlan, null, 2));
+          console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
           return;
         }
         console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
@@ -1383,7 +1388,7 @@ async function main(): Promise<void> {
         const repairPlan = await readWrittenRepairPlan(process.cwd());
         if (repairPlan) {
           if (repairArgs.json) {
-            console.log(JSON.stringify(repairPlan, null, 2));
+            console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
           } else {
             console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
           }
