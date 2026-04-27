@@ -223,7 +223,8 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
           kind: 'file-replace',
           target: 'src/installed/auth/session.ts',
           reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
-          requiresVerification: true
+          requiresVerification: true,
+          source: 'files/src/installed/auth/session.ts'
         }
       ]
     };
@@ -338,6 +339,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       {
         id: 'mig-auth-session-refresh',
         kind: 'file-replace',
+        source: 'files/src/installed/auth/session.ts',
         target: 'src/installed/auth/session.ts',
         reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
         requiresVerification: true

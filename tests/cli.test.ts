@@ -1179,7 +1179,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       'Migration mig-auth-session-refresh: file-replace;'
     );
     expect(textResult.stdout).toContain(
-      'target=src/installed/auth/session.ts; requiresVerification=true'
+      'target=src/installed/auth/session.ts; source=files/src/installed/auth/session.ts; requiresVerification=true'
     );
     expect(textResult.stdout).toContain(
       'Migration mig-auth-session-upgrade-metadata: json-array-append;'
@@ -1266,6 +1266,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
         'auth/basic-session 0.1.0 -> 0.1.1',
         'migrations: 2',
         'impacts: 2',
+        'sources: 1',
+        'slots: 0',
         'requires verification: true',
         'verification: required=1, skipped=1'
       ].join('; ')
@@ -1289,7 +1291,13 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
           impacts: string[];
           verificationSummaries: Array<{ id: string; count: number }>;
           preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
-          migrationSummaries: Array<{ id: string; kind: string; target: string; requiresVerification: boolean }>;
+          migrationSummaries: Array<{
+            id: string;
+            kind: string;
+            source?: string;
+            target: string;
+            requiresVerification: boolean;
+          }>;
         };
       };
     };
@@ -1326,6 +1334,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
         expect.objectContaining({
           id: 'mig-auth-session-refresh',
           kind: 'file-replace',
+          source: 'files/src/installed/auth/session.ts',
           target: 'src/installed/auth/session.ts',
           requiresVerification: true
         })

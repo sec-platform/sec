@@ -399,7 +399,14 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       impacts: string[];
       verificationSummaries: Array<{ id: string; count: number }>;
       preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
-      migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
+      migrationSummaries: Array<{
+        id: string;
+        kind: string;
+        source?: string;
+        target: string;
+        reason: string;
+        requiresVerification: boolean;
+      }>;
       diagnostics?: { status: 'blocked'; failedCheck: string; errorCode: string; message: string; details?: unknown };
     };
     policySummary?: {
@@ -736,7 +743,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         kind: 'file-replace',
         target: 'src/installed/auth/session.ts',
         reason: 'Refresh <session> & expose version metadata.',
-        requiresVerification: true
+        requiresVerification: true,
+        source: 'files/src/installed/auth/session.ts'
       }
     ],
     diagnostics: {
@@ -1000,6 +1008,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>required</td><td>1</td>');
   expect(sourceView).toContain('<td>skipped</td><td>0</td>');
   expect(sourceView).toContain('Upgrade Migration Summary');
+  expect(sourceView).toContain(
+    '<th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th>'
+  );
+  expect(sourceView).toContain('files/src/installed/auth/session.ts');
   expect(sourceView).toContain('Upgrade Blocker Summary');
   expect(sourceView).toContain('Upgrade Plan');
   expect(sourceView).toContain('Preflight Summary');

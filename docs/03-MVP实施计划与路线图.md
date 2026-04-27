@@ -157,6 +157,7 @@
      - upgrade migration verification 分布进入 review summary。
      - upgrade migration verification 分布进入 CLI explain。
      - upgrade migration verification 分布进入本地 Source View。
+     - upgrade migration source/slot 明细进入 CLI explain 和本地 Source View。
      - upgrade plan 到本地视图的摘要呈现。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：
@@ -304,6 +305,8 @@
          - block/version 范围。
          - migration 数量。
          - impact 数量。
+         - migration source 数量。
+         - migration slot 数量。
          - requires verification 状态。
          - verification required/skipped 分布。
        - local views：
@@ -312,6 +315,8 @@
          - Upgrade Migration Kind Summary。
          - Upgrade Verification Summary。
          - Upgrade Migration Summary。
+         - migration source 明细列。
+         - migration slot 明细列。
          - Upgrade Blocker Summary。
        - explain graph：
          - upgrade plan 节点。

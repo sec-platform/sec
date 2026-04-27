@@ -205,7 +205,14 @@ test('upgrade advances an official block version and preserves a passing pipelin
     preflightChecks: Array<{ id: string; status: string; message: string; evidence: string[] }>;
     impacts: string[];
     migrationKindCounts: Record<string, number>;
-    migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
+    migrationSummaries: Array<{
+      id: string;
+      kind: string;
+      source?: string;
+      target: string;
+      reason: string;
+      requiresVerification: boolean;
+    }>;
   };
   expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
   expect(persistedUpgradePlan.status).toBe('applied');
@@ -258,7 +265,8 @@ test('upgrade advances an official block version and preserves a passing pipelin
       kind: 'file-replace',
       target: 'src/installed/auth/session.ts',
       reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
-      requiresVerification: true
+      requiresVerification: true,
+      source: 'files/src/installed/auth/session.ts'
     },
     {
       id: 'mig-auth-session-upgrade-metadata',
@@ -410,7 +418,8 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       kind: 'file-replace',
       target: 'src/installed/auth/session.ts',
       reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
-      requiresVerification: true
+      requiresVerification: true,
+      source: 'files/src/installed/auth/session.ts'
     },
     {
       id: 'mig-auth-session-upgrade-metadata',

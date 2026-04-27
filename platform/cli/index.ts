@@ -336,6 +336,16 @@ function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
   return lines.join('\n');
 }
 
+function formatUpgradeMigrationDetails(migration: UpgradePlan['migrationSummaries'][number]): string[] {
+  return [
+    `Migration ${migration.id}: ${migration.kind}`,
+    `target=${migration.target}`,
+    ...(migration.source ? [`source=${migration.source}`] : []),
+    ...(migration.slotId ? [`slot=${migration.slotId}`] : []),
+    `requiresVerification=${migration.requiresVerification}`
+  ];
+}
+
 function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
   const suffix = dryRun ? ' (dry-run)' : '';
   const migrationKinds = Object.entries(upgradePlan.migrationKindCounts)
@@ -356,13 +366,7 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
     `Requires verification: ${requiresVerificationCount > 0} (${requiresVerificationCount} migrations)`
   ];
   for (const migration of upgradePlan.migrationSummaries.slice(0, 3)) {
-    lines.push(
-      [
-        `Migration ${migration.id}: ${migration.kind}`,
-        `target=${migration.target}`,
-        `requiresVerification=${migration.requiresVerification}`
-      ].join('; ')
-    );
+    lines.push(formatUpgradeMigrationDetails(migration).join('; '));
   }
   for (const check of upgradePlan.preflightChecks.slice(0, 3)) {
     lines.push(
@@ -511,6 +515,8 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `${upgrade.blockId} ${versionRange}`,
         `migrations: ${upgrade.migrationCount}`,
         `impacts: ${upgrade.impactCount}`,
+        `sources: ${upgrade.migrationSummaries.filter((migration) => migration.source).length}`,
+        `slots: ${upgrade.migrationSummaries.filter((migration) => migration.slotId).length}`,
         `requires verification: ${upgrade.requiresVerification}`,
         `verification: ${formatSummaryEntries(upgrade.verificationSummaries)}`
       ].join('; ')
