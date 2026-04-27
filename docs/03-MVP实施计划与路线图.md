@@ -150,7 +150,9 @@
        - dogfood 入口复用 `reference:refresh`，不复制第二套样例流程。
      - benchmark 与慢测预算：active。
        - `npm run test:budget` 输出 fast/runtime/all lane 慢测边界合同。
-       - `npm run test:benchmark-contract` 输出最小 benchmark/task-suite 合同。
+       - `platform benchmark suite` 作为正式 benchmark/task-suite 合同入口。
+       - `platform benchmark suite --json [--compact]` 输出稳定 benchmark/task-suite 合同。
+       - `npm run test:benchmark-contract` 复用正式 CLI 输出最小 benchmark/task-suite JSON 合同。
        - fast/runtime 不运行 Next build 或 Playwright。
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
      - reference 无漂移 gate：done。
@@ -176,7 +178,7 @@
          - `project/generated/acceptance-coverage.json`
          - `project/generated/explain-graph.json`
          - `project/generated/review-summary.json`
-       - P0：建立 benchmark/task-suite 最小合同，先冻结任务集与评分维度，再扩 runner。
+       - P0：建立 benchmark/task-suite 最小合同，先通过 `platform benchmark suite --json [--compact]` 冻结任务集与评分维度，再扩 runner。
        - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐。
        - P1：增加 reference workspace 无漂移 gate，证明 checked-in `project/` 与主链刷新结果一致。
        - P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。
@@ -186,7 +188,7 @@
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `npm run test:contract-freeze` 固定运行 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。
-         - benchmark：固定由 `npm run test:benchmark-contract` 冻结任务集与评分维度。
+         - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。
          - `shared/types.ts`：按 plan、manifest、lock、verify、policy、provenance、review、repair、upgrade、explain 十个上下文拆分；当前保留 barrel。

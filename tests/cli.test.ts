@@ -3,6 +3,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import {
+  buildBenchmarkTaskSuiteContract,
+  formatBenchmarkTaskSuiteContract
+} from '../platform/shared/benchmark-contract.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import {
   assertReferenceCheckClean,
@@ -121,7 +125,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -351,6 +355,71 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     recommendedAction: 'inspect-git-diff-command'
   });
   expect(() => assertReferenceCheckClean(diffFailedReport)).toThrow('reference diff command failed');
+});
+
+test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
+  const contract = buildBenchmarkTaskSuiteContract();
+  expect(formatBenchmarkTaskSuiteContract(contract)).toContain(
+    'Benchmark suite engineering-compiler-core (active)'
+  );
+  expect(formatBenchmarkTaskSuiteContract(contract)).toContain(
+    'Task add-block: install one capability block into a clean workspace; gate=resolve compose adapt verify lock explain'
+  );
+  expect(JSON.stringify(contract)).not.toContain('\n');
+  expect(contract).toMatchObject({
+    formatVersion: '1',
+    suiteId: 'engineering-compiler-core',
+    status: 'active',
+    taskCount: 5,
+    tasks: expect.arrayContaining([
+      expect.objectContaining({
+        id: 'add-block',
+        gate: 'resolve compose adapt verify lock explain',
+        scoreFocus: ['success-rate', 'files-touched', 'verification-status']
+      }),
+      expect.objectContaining({
+        id: 'repair-slot',
+        gate: 'repair verify',
+        scoreFocus: ['repairability', 'attempt-count', 'verification-status']
+      }),
+      expect.objectContaining({
+        id: 'override-conflict',
+        gate: 'upgrade --dry-run',
+        scoreFocus: ['conflict-detection', 'machine-recoverability']
+      })
+    ]),
+    scoreDimensions: expect.arrayContaining([
+      'success-rate',
+      'wall-time',
+      'verification-status',
+      'machine-recoverability'
+    ])
+  });
+
+  await withTempWorkspace(async (workspaceRoot) => {
+    const textResult = await runCli(workspaceRoot, ['benchmark', 'suite']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Benchmark suite engineering-compiler-core (active)');
+    expect(textResult.stdout).toContain('Task override-conflict: surface one override conflict during upgrade planning');
+
+    const jsonResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+      suiteId: 'engineering-compiler-core',
+      taskCount: 5
+    });
+
+    const compactResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      suiteId: 'engineering-compiler-core',
+      taskCount: 5
+    });
+  });
 });
 
 test('CLI adds private registry blocks and preserves registry metadata on resolve', { timeout: 20000 }, async () => {
@@ -1758,6 +1827,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform reference check [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['benchmark'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform benchmark suite [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['benchmark', 'suite', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform benchmark suite [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['benchmark', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform benchmark suite [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
