@@ -2304,6 +2304,70 @@ test('upgrade rejects invalid text replace regex patterns before planning', asyn
   await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-text-patterns"');
 });
 
+test('upgrade rejects empty config rewrite paths before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-empty-config-path-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-empty-config-path',
+          kind: 'config-rewrite',
+          entry: 'migrations/empty-config-path.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'empty-config-path.json'), {
+    id: 'mig-empty-config-path',
+    kind: 'config-rewrite',
+    reason: 'Reject config rewrites without a concrete target path.',
+    target: 'package.json',
+    updates: [
+      {
+        path: [],
+        value: 'invalid'
+      }
+    ]
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-010',
+    details: {
+      failedCheck: 'migration-entries',
+      migrationId: 'mig-empty-config-path',
+      migrationKind: 'config-rewrite',
+      entry: 'migrations/empty-config-path.json'
+    }
+  });
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    details?: unknown;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-entries',
+    errorCode: 'UPGRADE-MIGRATION-010',
+    details: {
+      migrationId: 'mig-empty-config-path',
+      migrationKind: 'config-rewrite',
+      entry: 'migrations/empty-config-path.json'
+    }
+  });
+});
+
 test('upgrade rejects malformed text append migration entries before planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-malformed-text-append-');
 
