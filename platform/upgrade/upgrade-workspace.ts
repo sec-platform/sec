@@ -1418,6 +1418,9 @@ export async function upgradeWorkspace(
     return { plan, lock, upgradePlan };
   } catch (error) {
     await restoreProject(projectRoot, backupRoot);
+    if (error instanceof CompilerError) {
+      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, error, existingLock);
+    }
     throw error;
   } finally {
     await removeDir(backupRoot);

@@ -535,6 +535,31 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 });
 
+test('upgrade apply writes diagnostics when migration execution fails after planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-apply-diagnostics-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { planPath, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const beforePlan = await fs.readFile(planPath, 'utf8');
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0')).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-016'
+  });
+  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    message: string;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-file-operations',
+    errorCode: 'UPGRADE-MIGRATION-016',
+    message: 'slot-contract-update target "custom/customer_normalizer.ts" is missing'
+  });
+});
+
 test('upgrade dry-run records create directory migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-create-directory-plan-');
 
