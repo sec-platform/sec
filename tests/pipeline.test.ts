@@ -83,10 +83,13 @@ test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000
 
   const runtimeReport = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'runtime-report.json'), 'utf8')
-  ) as { status: string; build: { status: string }; acceptance: { status: string } };
+  ) as { status: string; build: { status: string }; acceptance: { status: string }; logs: { stdout: string } };
   expect(runtimeReport.status).toBe('passed');
   expect(runtimeReport.build.status).toBe('passed');
   expect(runtimeReport.acceptance.status).toBe('passed');
+  expect(runtimeReport.logs.stdout).toContain('runtime-build:passed');
+  expect(runtimeReport.logs.stdout).not.toContain('Duration');
+  expect(runtimeReport.logs.stdout).not.toContain('Start at');
 
   const coverage = JSON.parse(
     await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'acceptance-coverage.json'), 'utf8')
