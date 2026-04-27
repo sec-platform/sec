@@ -40,9 +40,9 @@ import type {
 const USAGE = [
   'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>',
   '',
+  'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
-  'Quickstart: platform init --reset -> resolve -> compose -> adapt -> verify -> lock -> explain',
-  'CI artifacts: platform artifacts --paths --kind governance'
+  'Governance paths: platform artifacts --paths --kind governance'
 ].join('\n');
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';

@@ -17,16 +17,6 @@ export function buildErrorProtocol(error: {
   const code = error.code ?? 'UNEXPECTED';
   const message = error.message ?? 'Unexpected failure';
 
-  if (code === 'UNEXPECTED') {
-    return {
-      code,
-      message,
-      recoverable: false,
-      issueType: 'kernel',
-      suggestedActions: ['inspect-cli-stack', 'collect-error-output']
-    };
-  }
-
   if (message.startsWith('Usage: platform')) {
     return {
       code,
@@ -34,6 +24,16 @@ export function buildErrorProtocol(error: {
       recoverable: true,
       issueType: 'usage',
       suggestedActions: ['retry-with-supported-arguments']
+    };
+  }
+
+  if (code === 'UNEXPECTED') {
+    return {
+      code,
+      message,
+      recoverable: false,
+      issueType: 'kernel',
+      suggestedActions: ['inspect-cli-stack', 'collect-error-output']
     };
   }
 
