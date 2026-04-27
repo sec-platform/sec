@@ -147,6 +147,12 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
+  if (entry.kind === 'text-replace') {
+    ensureMigrationString(entry.search, 'search', entryPath);
+    ensureMigrationString(entry.replacement, 'replacement', entryPath);
+    return;
+  }
+
   if (entry.kind === 'text-replace-regex') {
     ensureMigrationString(entry.pattern, 'pattern', entryPath);
     ensureMigrationString(entry.replacement, 'replacement', entryPath);
@@ -406,6 +412,13 @@ function buildTextReplaceRegex(entry: Extract<UpgradeMigrationEntry, { kind: 'te
   }
 }
 
+function applyTextReplace(source: string, entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace' }>): string {
+  if (!source.includes(entry.search)) {
+    throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
+  }
+  return source.split(entry.search).join(entry.replacement);
+}
+
 function applyTextReplaceRegex(
   source: string,
   entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace-regex' }>
@@ -531,7 +544,15 @@ export async function applyMigrationEntries(
       continue;
     }
 
+    if (entry.kind === 'text-replace') {
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+      const source = await fs.readFile(targetPath, 'utf8');
+      await fs.writeFile(targetPath, applyTextReplace(source, entry), 'utf8');
+      continue;
+    }
+
     if (entry.kind === 'text-replace-regex') {
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
       const source = await fs.readFile(targetPath, 'utf8');
       await fs.writeFile(targetPath, applyTextReplaceRegex(source, entry), 'utf8');
       continue;
@@ -594,15 +615,19 @@ async function collectMigrationTargetEvidence(
   return evidence.sort((left, right) => left.localeCompare(right));
 }
 
-async function statFileMigrationTarget(targetPath: string, target: string): Promise<void> {
+async function statFileMigrationTarget(
+  targetPath: string,
+  target: string,
+  kind: 'delete-file' | 'text-replace' | 'text-replace-regex' = 'delete-file'
+): Promise<void> {
   let stats;
   try {
     stats = await fs.stat(targetPath);
   } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-016', `Delete-file target "${target}" is missing`);
+    throw new CompilerError('UPGRADE-MIGRATION-016', `${kind} target "${target}" is missing`);
   }
   if (!stats.isFile()) {
-    throw new CompilerError('UPGRADE-MIGRATION-017', `Delete-file target "${target}" must be a file`);
+    throw new CompilerError('UPGRADE-MIGRATION-017', `${kind} target "${target}" must be a file`);
   }
 }
 
@@ -835,13 +860,31 @@ function readJsonPath(config: unknown, pathSegments: string[]): unknown {
   return current;
 }
 
-function collectTextPatternEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
+async function collectTextPatternEvidence(
+  projectRoot: string,
+  migrationEntries: UpgradeMigrationEntry[]
+): Promise<string[]> {
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
-    if (entry.kind !== 'text-replace-regex') {
+    if (entry.kind !== 'text-replace' && entry.kind !== 'text-replace-regex') {
       continue;
     }
-    const pattern = buildTextReplaceRegex(entry);
+    const pattern = entry.kind === 'text-replace-regex' ? buildTextReplaceRegex(entry) : null;
+    const targetPath = resolveProjectPath(projectRoot, entry.target, {
+      migrationId: entry.id,
+      role: 'target'
+    });
+    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+    const source = await fs.readFile(targetPath, 'utf8');
+    if (entry.kind === 'text-replace') {
+      applyTextReplace(source, entry);
+      evidence.push(`${entry.id}:literal:${entry.search.length}`);
+      continue;
+    }
+    if (!pattern || !pattern.test(source)) {
+      throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
+    }
+    pattern.lastIndex = 0;
     evidence.push(`${entry.id}:flags:${pattern.flags}`);
   }
   return evidence.sort((left, right) => left.localeCompare(right));
@@ -991,7 +1034,7 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
   if (code === 'UPGRADE-MIGRATION-012' || code === 'UPGRADE-MIGRATION-013') {
     return 'migration-json-structure';
   }
-  if (code === 'UPGRADE-MIGRATION-014') {
+  if (code === 'UPGRADE-MIGRATION-014' || code === 'UPGRADE-MIGRATION-015') {
     return 'migration-text-patterns';
   }
   if (code === 'UPGRADE-MIGRATION-021' || code === 'UPGRADE-MIGRATION-022') {
@@ -1155,7 +1198,7 @@ export async function upgradeWorkspace(
     );
     const jsonShapeEvidence = collectJsonShapeEvidence(migrationEntries);
     const jsonStructureEvidence = await collectJsonStructureEvidence(projectRoot, migrationEntries);
-    const textPatternEvidence = collectTextPatternEvidence(migrationEntries);
+    const textPatternEvidence = await collectTextPatternEvidence(projectRoot, migrationEntries);
     const slotContractEvidence = collectSlotContractEvidence(targetEntry.manifest.slots, migrationEntries);
     const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
     const preflightChecks = buildUpgradePreflightChecks(

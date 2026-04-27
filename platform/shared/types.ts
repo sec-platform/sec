@@ -181,6 +181,15 @@ export interface UpgradeTextAppendMigrationEntry {
   content: string;
 }
 
+export interface UpgradeTextReplaceMigrationEntry {
+  id: string;
+  kind: 'text-replace';
+  reason: string;
+  target: string;
+  search: string;
+  replacement: string;
+}
+
 export interface UpgradeTextReplaceRegexMigrationEntry {
   id: string;
   kind: 'text-replace-regex';
@@ -240,6 +249,7 @@ export type UpgradeMigrationEntry =
   | UpgradeJsonArrayRemoveMigrationEntry
   | UpgradeJsonObjectMergeMigrationEntry
   | UpgradeTextAppendMigrationEntry
+  | UpgradeTextReplaceMigrationEntry
   | UpgradeTextReplaceRegexMigrationEntry
   | UpgradeCreateDirectoryMigrationEntry
   | UpgradeDeleteFileMigrationEntry
