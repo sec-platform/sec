@@ -191,6 +191,7 @@
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、verify、repair、upgrade 与 kernel 错误分类样例。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
+         - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
          - `npm run test:contract-freeze` 固定运行 `platform contract freeze` 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。
@@ -725,6 +726,8 @@
      - 让 block/slot 覆盖状态进入 review、CLI 和本地视图。
      - 为后续团队 review assist 提供覆盖缺口的稳定摘要。
    - 已完成：
+     - `platform acceptance coverage` 提供最新 acceptance coverage report 文本 inspect 入口。
+     - `platform acceptance coverage --json [--compact]` 提供稳定机器可读合同，直接消费最新 `generated/acceptance-coverage.json`。
      - coverage summary 进入 `generated/review-summary.json`：
        - status。
        - acceptance passed count。

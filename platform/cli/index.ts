@@ -51,6 +51,7 @@ import {
 } from '../shared/reference-check.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
+  AcceptanceCoverageReport,
   ExplainGraph,
   PolicyReport,
   RepairPlan,
@@ -60,7 +61,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -78,6 +79,7 @@ const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
 const POLICY_USAGE = 'Usage: platform policy report [--json [--compact]]';
+const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -374,6 +376,22 @@ function parsePolicyOutputArgs(args: string[]): { json: boolean; compact: boolea
   throw new Error(POLICY_USAGE);
 }
 
+function parseAcceptanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(ACCEPTANCE_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(ACCEPTANCE_USAGE);
+}
+
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
@@ -585,6 +603,44 @@ function formatPolicyReport(report: NonNullable<ReviewSummary['policySummary']>)
         `severity=${violation.severity}`,
         `files=${formatList(violation.files)}`,
         violation.message
+      ].join('; ')
+    );
+  }
+  return lines.join('\n');
+}
+
+function formatAcceptanceCoverage(report: AcceptanceCoverageReport): string {
+  const coveredBlockCount = report.blocks.filter((block) => !block.uncovered).length;
+  const coveredSlotCount = report.slots.filter((slot) => !slot.uncovered).length;
+  const lines = [
+    [
+      `Acceptance coverage ${report.status}`,
+      `acceptancePassed=${report.acceptancePassed.length}`,
+      `blocks=${coveredBlockCount}/${report.blocks.length}`,
+      `slots=${coveredSlotCount}/${report.slots.length}`,
+      `uncoveredBlocks=${report.uncoveredBlocks.length}`,
+      `uncoveredSlots=${report.uncoveredSlots.length}`
+    ].join('; '),
+    `Uncovered blocks: ${formatList(report.uncoveredBlocks)}`,
+    `Uncovered slots: ${formatList(report.uncoveredSlots)}`
+  ];
+  for (const block of report.blocks.slice(0, 3)) {
+    lines.push(
+      [
+        `Block ${block.id}`,
+        `declared=${block.declaredAcceptance.length}`,
+        `coveredBy=${formatList(block.coveredBy)}`,
+        `uncovered=${block.uncovered}`
+      ].join('; ')
+    );
+  }
+  for (const slot of report.slots.slice(0, 3)) {
+    lines.push(
+      [
+        `Slot ${slot.id}`,
+        `declared=${slot.declaredAcceptance.length}`,
+        `coveredBy=${formatList(slot.coveredBy)}`,
+        `uncovered=${slot.uncovered}`
       ].join('; ')
     );
   }
@@ -937,6 +993,26 @@ async function runPolicyCommand(args: string[]): Promise<void> {
   }));
 }
 
+async function runAcceptanceCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'coverage') {
+    throw new Error(ACCEPTANCE_USAGE);
+  }
+
+  const outputArgs = parseAcceptanceOutputArgs(args.slice(1));
+  const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(acceptanceCoveragePath))) {
+    throw new Error('Acceptance coverage report not found; run platform verify first');
+  }
+
+  const report = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatAcceptanceCoverage(report));
+}
+
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
   if (contractKind !== 'freeze' && contractKind !== 'errors') {
@@ -1110,6 +1186,9 @@ async function main(): Promise<void> {
       return;
     case 'policy':
       await runPolicyCommand(args);
+      return;
+    case 'acceptance':
+      await runAcceptanceCommand(args);
       return;
     case 'contract':
       await runContractCommand(args);
