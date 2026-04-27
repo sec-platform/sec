@@ -31,6 +31,8 @@ export interface CiArtifactSummary {
   governanceCount: number;
   viewCount: number;
   testCount: number;
+  contractCount: number;
+  contractPaths: string[];
   missingCount: number;
   missingReasonCounts: Record<CiArtifactMissingEntry['reason'], number>;
 }
@@ -109,6 +111,10 @@ function artifactKindFor(artifactPath: string): CiArtifactKind {
     return 'test';
   }
   return 'governance';
+}
+
+function isContractArtifactPath(artifactPath: string): boolean {
+  return artifactPath.startsWith('generated/') && artifactPath.endsWith('-contract.json');
 }
 
 function buildUploadGroups(entries: CiArtifactEntry[]): CiArtifactUploadGroup[] {
@@ -202,6 +208,9 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   }
 
   const sortedMissing = generatedPathResult.lockExists ? uniqueSortedMissing(missing) : [];
+  const contractPaths = uniqueSorted(entries
+    .map((entry) => entry.path)
+    .filter(isContractArtifactPath));
   return {
     formatVersion: '1',
     root: 'project',
@@ -211,6 +220,8 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
       governanceCount: entries.filter((entry) => entry.kind === 'governance').length,
       viewCount: entries.filter((entry) => entry.kind === 'view').length,
       testCount: entries.filter((entry) => entry.kind === 'test').length,
+      contractCount: contractPaths.length,
+      contractPaths,
       missingCount: sortedMissing.length,
       missingReasonCounts: buildMissingReasonCounts(sortedMissing)
     },

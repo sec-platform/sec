@@ -54,7 +54,7 @@
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`copy-file`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace`、`text-replace-regex`、`create-directory`、`delete-file`、`delete-directory`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、review summary、CLI explain 和本地视图治理摘要。 |
-| 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
+| 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json`、contract artifact 摘要和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 | 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
 
 ### 开发者入口与依赖环境策略
@@ -1380,6 +1380,7 @@
 - C2：把 repair、upgrade 从“能出结果”推进到“能审查边界与失败原因”。
 - C3：把官方块矩阵扩到业务块与治理块组合。
 - C4：补齐 `PostgreSQL` contract 与本地治理产物基线。
+- C5：冻结复杂度、性能、E2E 验收和 JSON contract 治理面。
 
 ### 连续功能切口
 
@@ -1409,6 +1410,17 @@
   - policy violation 归因。
   - acceptance coverage 缺口聚合。
   - override 冲突与 upgrade 冲突并列呈现。
+- 切口 F：复杂度 / 性能 / E2E / contract 治理冻结：
+  - 重复概念检查。
+  - 命名漂移检查。
+  - 类似逻辑分散检查。
+  - 测试胶水逻辑检查。
+  - 过度抽象检查。
+  - compiler -> registry -> upgrade/repair -> verification -> explain/report 链路验收矩阵。
+  - CLI 普通文本 contract。
+  - JSON summary contract。
+  - artifact contract 汇总。
+  - 性能预算与慢测分层。
 
 ### 推荐新增官方块
 
@@ -1442,6 +1454,7 @@
 - 再完成切口 B、C：把 upgrade/repair 补到可审查。
 - 然后推进切口 D：持续扩 ticket vertical。
 - 最后推进切口 E：把 governance 联动收束到统一口径。
+- 穿插推进切口 F：每轮密集功能后做复杂度、性能、E2E 与 contract 冻结检查。
 
 ### 验证口径
 

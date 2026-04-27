@@ -461,7 +461,8 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
       [
         `Artifacts: ${artifactSummary.artifactStatus ?? 'passed'}`,
         `total: ${artifactSummary.artifactCount}`,
-        `missing: ${artifactSummary.missingCount}`
+        `missing: ${artifactSummary.missingCount}`,
+        `contracts: ${artifactSummary.contractCount ?? 0}`
       ].join('; '),
       `Upload groups: ${formatList(uploadGroups)}`
     );

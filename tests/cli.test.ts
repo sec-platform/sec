@@ -525,6 +525,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         governanceCount: number;
         viewCount: number;
         testCount: number;
+        contractCount: number;
+        contractPaths: string[];
         missingCount: number;
         missingReasonCounts: Record<string, number>;
       };
@@ -543,6 +545,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       governanceCount: manifest.artifacts.filter((artifact) => artifact.kind === 'governance').length,
       viewCount: manifest.artifacts.filter((artifact) => artifact.kind === 'view').length,
       testCount: manifest.artifacts.filter((artifact) => artifact.kind === 'test').length,
+      contractCount: 0,
+      contractPaths: [],
       missingCount: 0,
       missingReasonCounts: {
         'declared-generated-missing': 0,
@@ -629,6 +633,35 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     };
     expect(explainPayload.reviewSummary.artifactSummary).toMatchObject(manifest.summary);
     expect(explainPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(manifest.uploadGroups);
+
+    const contractArtifactPath = path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json');
+    await fs.mkdir(path.dirname(contractArtifactPath), { recursive: true });
+    await fs.writeFile(contractArtifactPath, '{"provider":"postgres"}\n', 'utf8');
+    const lockWithContractArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
+    lockWithContractArtifact.generatedPaths.push('generated/postgres-contract.json');
+    await fs.writeFile(lockPath, `${JSON.stringify(lockWithContractArtifact, null, 2)}\n`, 'utf8');
+
+    const contractResult = await runCli(workspaceRoot, ['artifacts', '--json']);
+    expect(contractResult.code).toBe(0);
+    expect(contractResult.stderr).toBe('');
+    const contractManifest = JSON.parse(contractResult.stdout) as typeof manifest;
+    expect(contractManifest.summary).toMatchObject({
+      contractCount: 1,
+      contractPaths: ['generated/postgres-contract.json']
+    });
+
+    const explainWithContractResult = await runCli(workspaceRoot, ['explain']);
+    expect(explainWithContractResult.code).toBe(0);
+    expect(explainWithContractResult.stderr).toBe('');
+    expect(explainWithContractResult.stdout).toContain('contracts: 1');
+
+    const contractReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
+      artifactSummary?: typeof contractManifest.summary;
+    };
+    expect(contractReviewSummary.artifactSummary).toMatchObject({
+      contractCount: 1,
+      contractPaths: ['generated/postgres-contract.json']
+    });
 
     const lockWithMissingArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
     lockWithMissingArtifact.generatedPaths.push('generated/missing-diagnostic.json');
