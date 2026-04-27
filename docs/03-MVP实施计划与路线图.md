@@ -402,7 +402,7 @@
          - plan：`migration-json-shapes` preflight check。
          - array：记录 path 与 items 数量。
          - object：记录 path 与 value key 数量。
-         - config：记录 updates 数量。
+         - config：记录 updates 数量，并在 planning 阶段阻断空 update path。
        - schema/JSON 结构检查：
          - 状态：done。
          - plan：`migration-json-structure` preflight check。

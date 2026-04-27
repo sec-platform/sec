@@ -139,6 +139,9 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
         throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[]`);
       }
       ensureMigrationStringArray(update.path, 'updates[].path', entryPath);
+      if (update.path.length === 0) {
+        throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
+      }
       if (update.operation !== undefined && update.operation !== 'set' && update.operation !== 'delete') {
         throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].operation`);
       }
