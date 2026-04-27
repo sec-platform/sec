@@ -189,6 +189,7 @@
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单。
+         - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、verify、repair、upgrade 与 kernel 错误分类样例。
          - `npm run test:contract-freeze` 固定运行 `platform contract freeze` 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。

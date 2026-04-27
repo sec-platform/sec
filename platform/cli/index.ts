@@ -37,6 +37,10 @@ import {
 } from '../shared/contract-freeze-contract.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
 import {
+  buildErrorProtocolContract,
+  formatErrorProtocolContract
+} from '../shared/error-protocol-contract.ts';
+import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../shared/test-budget-contract.ts';
@@ -72,7 +76,7 @@ const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
-const CONTRACT_USAGE = 'Usage: platform contract freeze [--json [--compact]]';
+const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps status [--json [--compact]]',
@@ -797,18 +801,28 @@ async function runTestCommand(args: string[]): Promise<void> {
 }
 
 async function runContractCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'freeze') {
+  const [contractKind, ...outputRawArgs] = args;
+  if (contractKind !== 'freeze' && contractKind !== 'errors') {
     throw new Error(CONTRACT_USAGE);
   }
 
-  const outputArgs = parseContractOutputArgs(args.slice(1));
-  const contract = buildContractFreezeContract();
+  const outputArgs = parseContractOutputArgs(outputRawArgs);
+  if (contractKind === 'freeze') {
+    const contract = buildContractFreezeContract();
+    if (outputArgs.json) {
+      console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+      return;
+    }
+    console.log(formatContractFreezeContract(contract));
+    return;
+  }
+
+  const contract = buildErrorProtocolContract();
   if (outputArgs.json) {
     console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
     return;
   }
-
-  console.log(formatContractFreezeContract(contract));
+  console.log(formatErrorProtocolContract(contract));
 }
 
 async function main(): Promise<void> {
