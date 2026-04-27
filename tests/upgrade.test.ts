@@ -1432,6 +1432,83 @@ test('upgrade dry-run records rename file migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade rejects duplicate migration ids before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-duplicate-migration-id-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-duplicate-report',
+          kind: 'text-append',
+          entry: 'migrations/append-report-a.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        },
+        {
+          id: 'mig-duplicate-report',
+          kind: 'text-append',
+          entry: 'migrations/append-report-b.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'append-report-a.json'), {
+    id: 'mig-duplicate-report',
+    kind: 'text-append',
+    reason: 'Append first report note.',
+    target: 'generated/reports/notes.md',
+    content: '- first note\n'
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'append-report-b.json'), {
+    id: 'mig-duplicate-report',
+    kind: 'text-append',
+    reason: 'Append second report note.',
+    target: 'generated/reports/notes.md',
+    content: '- second note\n'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-029',
+    details: {
+      failedCheck: 'migration-entries',
+      migrationId: 'mig-duplicate-report',
+      entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
+    }
+  });
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    details?: unknown;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-entries',
+    errorCode: 'UPGRADE-MIGRATION-029',
+    details: {
+      migrationId: 'mig-duplicate-report',
+      entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
+    }
+  });
+});
+
 test('upgrade records migration target path escape diagnostics before planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-target-escape-');
 

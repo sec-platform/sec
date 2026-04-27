@@ -200,6 +200,19 @@ async function loadMigrationEntries(
   migrations: UpgradeMigration[]
 ): Promise<UpgradeMigrationEntry[]> {
   const entries: UpgradeMigrationEntry[] = [];
+  const seenMigrationEntries = new Map<string, string>();
+  for (const migration of migrations) {
+    const existingEntry = seenMigrationEntries.get(migration.id);
+    if (existingEntry !== undefined) {
+      throw new CompilerError('UPGRADE-MIGRATION-029', `Migration "${migration.id}" is declared more than once`, {
+        failedCheck: 'migration-entries',
+        migrationId: migration.id,
+        entries: [existingEntry, migration.entry]
+      });
+    }
+    seenMigrationEntries.set(migration.id, migration.entry);
+  }
+
   for (const migration of migrations) {
     const entryPath = path.join(targetManifestRoot, migration.entry);
     if (!(await pathExists(entryPath))) {
