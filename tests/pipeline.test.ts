@@ -998,6 +998,16 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
             reason: 'Refresh <session> & expose version metadata.',
             requiresVerification: true
           }
+        ],
+        migrationOperations: [
+          {
+            id: 'mig-auth-session-refresh',
+            kind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            role: 'file',
+            source: 'files/src/installed/auth/session.ts',
+            contentLength: 128
+          }
         ]
       },
       null,
@@ -1128,6 +1138,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>migration</td><td>2</td><td>1</td>');
   expect(sourceView).toContain('Migration Kind Summary');
   expect(sourceView).toContain('<td>file-replace</td><td>1</td>');
+  expect(sourceView).toContain('Operation Role Summary');
+  expect(sourceView).toContain('Migration Operations');
   expect(sourceView).toContain('Preflight Checks');
   expect(sourceView).toContain('version-range');
   expect(sourceView).toContain('impact-scan');

@@ -13,6 +13,7 @@ import type {
   RepairPlan,
   ReviewSummary,
   UpgradeDiagnostics,
+  UpgradeMigrationOperation,
   UpgradePlan,
   VerificationReport
 } from '../../shared/types.ts';
@@ -765,16 +766,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
     .join('');
-  const operationRoleRows = renderTaxonomyRows(
-    Object.entries(
-      upgrade.migrationOperationSummaries.reduce<Record<string, number>>((counts, operation) => {
-        counts[operation.role] = (counts[operation.role] ?? 0) + 1;
-        return counts;
-      }, {})
-    )
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([id, count]) => ({ id, count }))
-  );
+  const operationRoleRows = renderUpgradeOperationRoleRows(upgrade.migrationOperationSummaries);
   const verificationRows = renderTaxonomyRows(upgrade.verificationSummaries);
   const migrationRows = upgrade.migrationSummaries
     .map(
@@ -789,35 +781,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
         </tr>`
     )
     .join('');
-  const operationRows = upgrade.migrationOperationSummaries
-    .map((operation) => {
-      const details = [
-        operation.source ? `source=${operation.source}` : '',
-        operation.slotId ? `slot=${operation.slotId}` : '',
-        operation.inputType ? `input=${operation.inputType}` : '',
-        operation.outputType ? `output=${operation.outputType}` : '',
-        operation.writableZones ? `writable=${operation.writableZones.join(', ')}` : '',
-        operation.path ? `path=${operation.path.join('.')}` : '',
-        operation.updateCount === undefined ? '' : `updates=${operation.updateCount}`,
-        operation.itemCount === undefined ? '' : `items=${operation.itemCount}`,
-        operation.valueKeyCount === undefined ? '' : `valueKeys=${operation.valueKeyCount}`,
-        operation.contentLength === undefined ? '' : `contentLength=${operation.contentLength}`,
-        operation.searchLength === undefined ? '' : `searchLength=${operation.searchLength}`,
-        operation.replacementLength === undefined ? '' : `replacementLength=${operation.replacementLength}`,
-        operation.pattern ? `pattern=${operation.pattern}` : '',
-        operation.flags ? `flags=${operation.flags}` : ''
-      ]
-        .filter((detail) => detail.length > 0)
-        .join('; ') || 'none';
-      return `<tr>
-          <td>${escapeHtml(operation.id)}</td>
-          <td>${escapeHtml(operation.kind)}</td>
-          <td>${escapeHtml(operation.role)}</td>
-          <td>${escapeHtml(operation.target)}</td>
-          <td>${escapeHtml(details)}</td>
-        </tr>`;
-    })
-    .join('');
+  const operationRows = renderUpgradeOperationRows(upgrade.migrationOperationSummaries);
   const diagnosticsRows = upgrade.diagnostics
     ? `<tr>
           <td>${escapeHtml(upgrade.diagnostics.failedCheck)}</td>
@@ -876,6 +840,51 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
 function renderTaxonomyRows(entries: Array<{ id: string; count: number }>): string {
   return entries
     .map((entry) => `<tr><td>${escapeHtml(entry.id)}</td><td>${escapeHtml(String(entry.count))}</td></tr>`)
+    .join('');
+}
+
+function renderUpgradeOperationRoleRows(operations: UpgradeMigrationOperation[]): string {
+  return renderTaxonomyRows(
+    Object.entries(
+      operations.reduce<Record<string, number>>((counts, operation) => {
+        counts[operation.role] = (counts[operation.role] ?? 0) + 1;
+        return counts;
+      }, {})
+    )
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, count]) => ({ id, count }))
+  );
+}
+
+function renderUpgradeOperationRows(operations: UpgradeMigrationOperation[]): string {
+  return operations
+    .map((operation) => {
+      const details = [
+        operation.source ? `source=${operation.source}` : '',
+        operation.slotId ? `slot=${operation.slotId}` : '',
+        operation.inputType ? `input=${operation.inputType}` : '',
+        operation.outputType ? `output=${operation.outputType}` : '',
+        operation.writableZones ? `writable=${operation.writableZones.join(', ')}` : '',
+        operation.path ? `path=${operation.path.join('.')}` : '',
+        operation.updateCount === undefined ? '' : `updates=${operation.updateCount}`,
+        operation.itemCount === undefined ? '' : `items=${operation.itemCount}`,
+        operation.valueKeyCount === undefined ? '' : `valueKeys=${operation.valueKeyCount}`,
+        operation.contentLength === undefined ? '' : `contentLength=${operation.contentLength}`,
+        operation.searchLength === undefined ? '' : `searchLength=${operation.searchLength}`,
+        operation.replacementLength === undefined ? '' : `replacementLength=${operation.replacementLength}`,
+        operation.pattern ? `pattern=${operation.pattern}` : '',
+        operation.flags ? `flags=${operation.flags}` : ''
+      ]
+        .filter((detail) => detail.length > 0)
+        .join('; ') || 'none';
+      return `<tr>
+          <td>${escapeHtml(operation.id)}</td>
+          <td>${escapeHtml(operation.kind)}</td>
+          <td>${escapeHtml(operation.role)}</td>
+          <td>${escapeHtml(operation.target)}</td>
+          <td>${escapeHtml(details)}</td>
+        </tr>`;
+    })
     .join('');
 }
 
@@ -1096,6 +1105,8 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
     .join('');
+  const operationRoleRows = renderUpgradeOperationRoleRows(upgradePlan.migrationOperations);
+  const operationRows = renderUpgradeOperationRows(upgradePlan.migrationOperations);
   const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
   const preflightGroups = upgradePlan.preflightChecks.reduce<Record<string, { checks: number; evidence: number }>>(
     (groups, check) => {
@@ -1139,10 +1150,20 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
           <thead><tr><th>Kind</th><th>Count</th></tr></thead>
           <tbody>${migrationKindRows}</tbody>
         </table>
+        <h3>Operation Role Summary</h3>
+        <table>
+          <thead><tr><th>Role</th><th>Count</th></tr></thead>
+          <tbody>${operationRoleRows || '<tr><td colspan="2">No upgrade plan operation roles.</td></tr>'}</tbody>
+        </table>
         <h3>Migrations</h3>
         <table>
           <thead><tr><th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th></tr></thead>
           <tbody>${migrationRows}</tbody>
+        </table>
+        <h3>Migration Operations</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Kind</th><th>Role</th><th>Target</th><th>Details</th></tr></thead>
+          <tbody>${operationRows || '<tr><td colspan="5">No upgrade plan migration operations.</td></tr>'}</tbody>
         </table>
         <h3>Impacts</h3>
         <table>
