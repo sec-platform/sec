@@ -93,6 +93,11 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
   expect(graph.nodes.some((node) => node.id === 'override:customer-normalizer-manual')).toBe(true);
   expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
   expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
+  expect(graph.edges).toContainEqual({
+    from: 'policy:tenant-scope-required',
+    to: 'file:src/installed/entity/customer-service.ts',
+    type: 'connects_to'
+  });
   expect(
     graph.edges.some(
       (edge) =>
