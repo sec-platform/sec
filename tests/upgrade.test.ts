@@ -576,7 +576,8 @@ test('upgrade apply writes diagnostics when migration execution fails after plan
       migrationId: 'mig-customer-normalizer-contract',
       migrationKind: 'slot-contract-update',
       slotId: 'customer_normalizer',
-      target: 'custom/customer_normalizer.ts'
+      target: 'custom/customer_normalizer.ts',
+      rollbackStatus: 'restored'
     }
   });
 });

@@ -593,7 +593,8 @@ test('review summary includes apply migration attribution in upgrade failure poi
         migrationId: 'mig-customer-normalizer-contract',
         migrationKind: 'slot-contract-update',
         slotId: 'customer_normalizer',
-        target: 'custom/customer_normalizer.ts'
+        target: 'custom/customer_normalizer.ts',
+        rollbackStatus: 'restored'
       }
     };
 
@@ -635,7 +636,7 @@ test('review summary includes apply migration attribution in upgrade failure poi
       lane: 'all',
       kind: 'upgrade',
       artifactPath: 'generated/upgrade-diagnostics.json',
-      message: 'Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "custom/customer_normalizer.ts" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=custom/customer_normalizer.ts; slot=customer_normalizer'
+      message: 'Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "custom/customer_normalizer.ts" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=custom/customer_normalizer.ts; slot=customer_normalizer; rollback=restored'
     });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });

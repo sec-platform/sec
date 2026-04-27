@@ -551,6 +551,7 @@ function formatUpgradeDiagnosticsAttribution(details: unknown): string {
   const entry = readDiagnosticsString(details, 'entry');
   const entryId = readDiagnosticsString(details, 'entryId');
   const entryKind = readDiagnosticsString(details, 'entryKind');
+  const rollbackStatus = readDiagnosticsString(details, 'rollbackStatus');
   const parts = [
     `migration=${migrationId}`,
     migrationKind ? `kind=${migrationKind}` : null,
@@ -559,7 +560,8 @@ function formatUpgradeDiagnosticsAttribution(details: unknown): string {
     entryKind ? `entryKind=${entryKind}` : null,
     target ? `target=${target}` : null,
     source ? `source=${source}` : null,
-    slotId ? `slot=${slotId}` : null
+    slotId ? `slot=${slotId}` : null,
+    rollbackStatus ? `rollback=${rollbackStatus}` : null
   ].filter((part): part is string => part !== null);
 
   return `; ${parts.join('; ')}`;
