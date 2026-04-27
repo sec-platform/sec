@@ -16,6 +16,8 @@ export type CiContract = {
   qualityCommands: string[];
   diagnosticCommands: string[];
   artifactUploadCommands: string[];
+  artifactPathCount: number;
+  artifactPaths: string[];
   stepCount: number;
   steps: CiContractStep[];
 };
@@ -94,6 +96,10 @@ const ciSteps: CiContractStep[] = [
 ];
 
 export function buildCiContract(): CiContract {
+  const artifactPaths = [...new Set(ciSteps.flatMap((step) => step.produces))].sort((left, right) =>
+    left.localeCompare(right)
+  );
+
   return {
     formatVersion: '1',
     status: 'active',
@@ -112,6 +118,8 @@ export function buildCiContract(): CiContract {
     artifactUploadCommands: ciSteps
       .filter((step) => step.phase === 'artifacts')
       .map((step) => step.command),
+    artifactPathCount: artifactPaths.length,
+    artifactPaths,
     stepCount: ciSteps.length,
     steps: ciSteps.map((step) => ({
       ...step,
@@ -130,6 +138,8 @@ export function formatCiContract(contract: CiContract): string {
     `Quality commands: ${contract.qualityCommands.join(', ')}`,
     `Diagnostic commands: ${contract.diagnosticCommands.join(', ')}`,
     `Artifact uploads: ${contract.artifactUploadCommands.join(', ')}`,
+    `Artifact paths: ${contract.artifactPathCount}`,
+    `Artifact path list: ${contract.artifactPaths.join(', ')}`,
     `Steps: ${contract.stepCount}`,
     ...contract.steps.map((step) => [
       `Step ${step.id}`,
