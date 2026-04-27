@@ -282,6 +282,9 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
     );
     expect(textResult.stdout).toContain('Impacted: 3 blocks, 1 slots,');
+    expect(textResult.stdout).toContain(
+      'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
+    );
 
     const result = await runCli(workspaceRoot, ['explain', '--json']);
     expect(result.code).toBe(0);
@@ -292,6 +295,16 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       reviewSummary: {
         formatVersion: string;
         ciSummary: { status: string; failureCount: number };
+        policySummary?: {
+          status: string;
+          officialPolicyCount: number;
+          projectPolicyCount: number;
+          mergedPolicyCount: number;
+          sourceCount: number;
+          violationCount: number;
+          sourceSummaries: Array<{ scope: string; path: string; policyIds: string[] }>;
+          mergedSummaries: Array<{ id: string; targetCount: number; targets: string[] }>;
+        };
         impactedBlocks: string[];
         failurePoints: unknown[];
       };
@@ -302,6 +315,33 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(payload.reviewSummary.ciSummary).toMatchObject({
       status: 'passed',
       failureCount: 0
+    });
+    expect(payload.reviewSummary.policySummary).toMatchObject({
+      status: 'passed',
+      officialPolicyCount: 1,
+      projectPolicyCount: 0,
+      mergedPolicyCount: 1,
+      sourceCount: 2,
+      violationCount: 0,
+      sourceSummaries: [
+        {
+          scope: 'official',
+          path: 'platform/policies/official/policy.spec.yaml',
+          policyIds: ['tenant-scope-required']
+        },
+        {
+          scope: 'project',
+          path: 'project/policies/policy.spec.yaml',
+          policyIds: []
+        }
+      ],
+      mergedSummaries: [
+        {
+          id: 'tenant-scope-required',
+          targetCount: 1,
+          targets: ['src/installed/entity/customer-service.ts']
+        }
+      ]
     });
     expect(payload.reviewSummary.impactedBlocks).toEqual(
       expect.arrayContaining([

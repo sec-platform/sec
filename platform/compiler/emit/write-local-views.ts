@@ -493,6 +493,86 @@ function renderPolicyViolationsTable(policyReport: PolicyReport): string {
       </section>`;
 }
 
+function renderPolicySummaryCard(review: ReviewSummary): string {
+  const policy = review.policySummary;
+  if (!policy) {
+    return '';
+  }
+
+  const rows = [
+    ['Status', policy.status],
+    ['Official Policies', String(policy.officialPolicyCount)],
+    ['Project Policies', String(policy.projectPolicyCount)],
+    ['Merged Policies', String(policy.mergedPolicyCount)],
+    ['Policy Sources', String(policy.sourceCount)],
+    ['Violations', String(policy.violationCount)]
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+  const severityRows = Object.entries(policy.severityCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([severity, count]) => `<tr><td>${escapeHtml(severity)}</td><td>${escapeHtml(String(count))}</td></tr>`)
+    .join('');
+  const sourceRows = policy.sourceSummaries
+    .map(
+      (source) => `<tr>
+          <td>${escapeHtml(source.scope)}</td>
+          <td>${escapeHtml(source.path)}</td>
+          <td>${escapeHtml(source.policyIds.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+  const mergedRows = policy.mergedSummaries
+    .map(
+      (merged) => `<tr>
+          <td>${escapeHtml(merged.id)}</td>
+          <td>${escapeHtml(merged.sourceScope)}</td>
+          <td>${escapeHtml(String(merged.targetCount))}</td>
+          <td>${escapeHtml(merged.targets.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+  const violationRows = policy.violationSummaries
+    .map(
+      (violation) => `<tr>
+          <td>${escapeHtml(violation.id)}</td>
+          <td>${escapeHtml(violation.severity)}</td>
+          <td>${escapeHtml(String(violation.fileCount))}</td>
+          <td>${escapeHtml(violation.files.join(', ') || 'none')}</td>
+          <td>${escapeHtml(violation.message)}</td>
+        </tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Policy Summary</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3>Policy Severity Summary</h3>
+        <table>
+          <thead><tr><th>Severity</th><th>Count</th></tr></thead>
+          <tbody>${severityRows || '<tr><td colspan="2">No policy violations.</td></tr>'}</tbody>
+        </table>
+        <h3>Policy Source Summary</h3>
+        <table>
+          <thead><tr><th>Scope</th><th>Path</th><th>Policy IDs</th></tr></thead>
+          <tbody>${sourceRows || '<tr><td colspan="3">No policy sources.</td></tr>'}</tbody>
+        </table>
+        <h3>Policy Merge Summary</h3>
+        <table>
+          <thead><tr><th>Policy</th><th>Scope</th><th>Targets</th><th>Target Paths</th></tr></thead>
+          <tbody>${mergedRows || '<tr><td colspan="4">No merged policies.</td></tr>'}</tbody>
+        </table>
+        <h3>Policy Violation Summary</h3>
+        <table>
+          <thead><tr><th>Policy</th><th>Severity</th><th>Files</th><th>File Paths</th><th>Message</th></tr></thead>
+          <tbody>${violationRows || '<tr><td colspan="5">No policy violations.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderUpgradeSummaryCard(review: ReviewSummary): string {
   const upgrade = review.upgradeSummary;
   if (!upgrade) {
@@ -859,6 +939,7 @@ function renderSourceView(
       ${renderFailureFocusCard(review)}
       ${renderReviewRuntimeAttributionCard(review)}
       ${renderInstallImpactCard(review)}
+      ${renderPolicySummaryCard(review)}
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradeSummaryCard(review)}

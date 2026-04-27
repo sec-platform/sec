@@ -48,12 +48,12 @@
 | fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
-| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair 节点、policy violation 边、slot 合同升级影响边、repair task 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
-| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 upgrade impact。 |
+| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
+| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
-| policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位和 violation report。 |
+| policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、review summary、CLI explain 和本地视图治理摘要。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 | 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
 
@@ -386,7 +386,83 @@
        - 为什么不能修。
        - 修后还需验证什么。
 
-3. **计划与进度显式化**
+3. **policy governance 可审查化**
+   - 状态：done
+   - 总目标：
+     - 让 policy gate 不只输出 pass/fail。
+     - 让官方策略、项目策略、合并策略和 violation 都能被 review/CLI/local view 消费。
+     - 为后续 policy center 和团队 review assist 提供稳定结构化口径。
+   - 已完成：
+     - policy report 读取进入 review summary。
+     - policy governance summary 进入 `generated/review-summary.json`：
+       - `status`。
+       - official policy 数量。
+       - project policy 数量。
+       - merged policy 数量。
+       - source 数量。
+       - violation 数量。
+       - severity counts。
+     - policy source summary：
+       - scope。
+       - path。
+       - policy IDs。
+     - merged policy summary：
+       - policy id。
+       - source scope。
+       - source path。
+       - target count。
+       - target paths。
+     - violation summary：
+       - policy id。
+       - severity。
+       - rule。
+       - file count。
+       - files。
+       - appliesTo。
+       - message。
+       - source scope/path。
+     - CLI `explain` 普通文本显示：
+       - policy status。
+       - official count。
+       - project count。
+       - merged count。
+       - violation count。
+     - local Source View 显示：
+       - Policy Summary。
+       - Policy Severity Summary。
+       - Policy Source Summary。
+       - Policy Merge Summary。
+       - Policy Violation Summary。
+   - 当前阶段拆分：
+     - 阶段 1：policy report 到 review summary。
+     - 阶段 2：review summary 到 CLI explain。
+     - 阶段 3：review summary 到 local Source View。
+   - 连续功能切口：
+     - 切口 A：统一 policy 数量口径：
+       - official。
+       - project。
+       - merged。
+       - source。
+       - violation。
+     - 切口 B：统一 policy 明细口径：
+       - source summaries。
+       - merged summaries。
+       - violation summaries。
+       - severity counts。
+     - 切口 C：把 policy governance 放到审查入口：
+       - review summary JSON。
+       - CLI explain 文本。
+       - local Source View HTML。
+   - 每个切口的验证口径：
+     - `tests/review-policy-summary.test.ts`。
+     - `tests/cli.test.ts`。
+     - `tests/pipeline.test.ts`。
+   - 完成定义：
+     - review summary 能独立说明 policy merge 与 violation 状态。
+     - CLI explain 能一眼看到 policy governance 总览。
+     - local view 能审查 source/merge/violation 明细。
+
+4. **计划与进度显式化**
    - 状态：active
    - 总目标：
      - 把未来计划和当前进度固定在 repo 文档中。

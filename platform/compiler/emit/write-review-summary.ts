@@ -17,6 +17,7 @@ import type {
   ProvenanceFile,
   ReviewConflictHint,
   ReviewInstallImpact,
+  PolicyReport,
   RepairPlan,
   ReviewFailurePoint,
   ReviewRegressionRisk,
@@ -237,6 +238,65 @@ function preflightSummaryGroup(checkId: string): string {
   return checkId.startsWith('migration-') ? 'migration' : checkId.split('-')[0];
 }
 
+function buildPolicySummary(policyReport: PolicyReport | null): ReviewSummary['policySummary'] {
+  if (!policyReport) {
+    return undefined;
+  }
+
+  const sourceSummaries = [
+    ...policyReport.official.sources.map((source) => ({
+      scope: 'official' as const,
+      path: source.path,
+      policyIds: unique(source.policyIds)
+    })),
+    ...policyReport.project.sources.map((source) => ({
+      scope: 'project' as const,
+      path: source.path,
+      policyIds: unique(source.policyIds)
+    }))
+  ].sort((left, right) => `${left.scope}:${left.path}`.localeCompare(`${right.scope}:${right.path}`));
+  const severityCounts = policyReport.violations.reduce<NonNullable<ReviewSummary['policySummary']>['severityCounts']>(
+    (counts, violation) => {
+      counts[violation.severity] = (counts[violation.severity] ?? 0) + 1;
+      return counts;
+    },
+    {}
+  );
+
+  return {
+    status: policyReport.status,
+    officialPolicyCount: policyReport.official.policies.length,
+    projectPolicyCount: policyReport.project.policies.length,
+    mergedPolicyCount: policyReport.merged.policies.length,
+    sourceCount: sourceSummaries.length,
+    violationCount: policyReport.violations.length,
+    severityCounts,
+    sourceSummaries,
+    mergedSummaries: policyReport.merged.policies
+      .map((policy) => ({
+        id: policy.id,
+        sourceScope: policy.sourceScope,
+        sourcePath: policy.sourcePath,
+        targetCount: policy.targets.length,
+        targets: unique(policy.targets)
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    violationSummaries: policyReport.violations
+      .map((violation) => ({
+        id: violation.id,
+        severity: violation.severity,
+        rule: violation.rule,
+        fileCount: violation.files.length,
+        files: unique(violation.files),
+        appliesTo: unique(violation.appliesTo),
+        message: violation.message,
+        sourceScope: violation.sourceScope,
+        sourcePath: violation.sourcePath
+      }))
+      .sort((left, right) => `${left.id}:${left.rule}:${left.message}`.localeCompare(`${right.id}:${right.rule}:${right.message}`))
+  };
+}
+
 function buildUpgradeSummary(
   upgradePlan: UpgradePlan | null,
   diagnostics: UpgradeDiagnostics | null
@@ -375,8 +435,11 @@ export async function buildReviewSummary(
   report: VerificationReport,
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
-  const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+  const { policyReportPath, repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
+  const policyReport = (await pathExists(policyReportPath))
+    ? await readJson<PolicyReport>(policyReportPath)
+    : null;
   const repairPlan = (await pathExists(repairPlanPath))
     ? await readJson<RepairPlan>(repairPlanPath)
     : null;
@@ -386,6 +449,7 @@ export async function buildReviewSummary(
   const upgradeDiagnostics = (await pathExists(upgradeDiagnosticsPath))
     ? await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath)
     : null;
+  const policySummary = buildPolicySummary(policyReport);
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
   const upgradeSummary = buildUpgradeSummary(upgradePlan, upgradeDiagnostics);
   const failurePoints: ReviewFailurePoint[] = [];
@@ -625,6 +689,7 @@ export async function buildReviewSummary(
       runtimeEntries
     ),
     ...(artifactSummary ? { artifactSummary } : {}),
+    ...(policySummary ? { policySummary } : {}),
     ...(repairSummary ? { repairSummary } : {}),
     ...(upgradeSummary ? { upgradeSummary } : {}),
     changeSources: provenance.artifacts.map((artifact) => {
