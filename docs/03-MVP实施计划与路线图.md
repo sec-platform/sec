@@ -46,10 +46,10 @@
 | 官方块母例 | done | `auth/basic-session`、`tenant/basic-workspace`、`entity/customer-basic` 支撑 Customer Admin 闭环。 |
 | 单槽位合成 | done | `customer_normalizer` slot 通过 task envelope 限定写入边界。 |
 | fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report。 |
-| acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断。 |
+| acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
-| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
+| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、acceptance coverage、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
@@ -462,7 +462,73 @@
      - CLI explain 能一眼看到 policy governance 总览。
      - local view 能审查 source/merge/violation 明细。
 
-4. **计划与进度显式化**
+4. **acceptance coverage 可审查化**
+   - 状态：done
+   - 总目标：
+     - 让 acceptance coverage 不只存在于 graph overlay 和原始 JSON。
+     - 让 block/slot 覆盖状态进入 review、CLI 和本地视图。
+     - 为后续团队 review assist 提供覆盖缺口的稳定摘要。
+   - 已完成：
+     - coverage summary 进入 `generated/review-summary.json`：
+       - status。
+       - acceptance passed count。
+       - block count。
+       - slot count。
+       - covered block/slot count。
+       - uncovered block/slot count。
+       - acceptance passed IDs。
+       - uncovered block IDs。
+       - uncovered slot IDs。
+     - block coverage summary：
+       - block id。
+       - declared acceptance count。
+       - covered by count。
+       - declared acceptance IDs。
+       - covered by IDs。
+     - slot coverage summary：
+       - slot id。
+       - declared acceptance count。
+       - covered by count。
+       - declared acceptance IDs。
+       - covered by IDs。
+     - CLI `explain` 普通文本显示：
+       - coverage status。
+       - acceptance passed count。
+       - covered blocks ratio。
+       - covered slots ratio。
+     - local Source View 显示：
+       - Acceptance Coverage Summary。
+       - Block Coverage Summary。
+       - Slot Coverage Summary。
+   - 当前阶段拆分：
+     - 阶段 1：coverage report 到 review summary。
+     - 阶段 2：review summary 到 CLI explain。
+     - 阶段 3：review summary 到 local Source View。
+   - 连续功能切口：
+     - 切口 A：统一 coverage 数量口径：
+       - acceptance passed。
+       - total blocks/slots。
+       - covered blocks/slots。
+       - uncovered blocks/slots。
+     - 切口 B：统一 coverage 明细口径：
+       - block summaries。
+       - slot summaries。
+       - declared acceptance IDs。
+       - covered by IDs。
+     - 切口 C：把 coverage 放到审查入口：
+       - review summary JSON。
+       - CLI explain 文本。
+       - local Source View HTML。
+   - 每个切口的验证口径：
+     - `tests/review-coverage-summary.test.ts`。
+     - `tests/cli.test.ts`。
+     - `tests/pipeline.test.ts`。
+   - 完成定义：
+     - review summary 能独立说明 acceptance 覆盖状态。
+     - CLI explain 能一眼看到覆盖比例。
+     - local view 能审查 block/slot 覆盖明细。
+
+5. **计划与进度显式化**
    - 状态：active
    - 总目标：
      - 把未来计划和当前进度固定在 repo 文档中。

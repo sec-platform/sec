@@ -662,6 +662,30 @@ export interface ReviewArtifactSummary {
   missing?: ReviewArtifactMissingEntry[];
 }
 
+export interface ReviewCoverageTargetSummary {
+  id: string;
+  declaredAcceptanceCount: number;
+  coveredByCount: number;
+  declaredAcceptance: string[];
+  coveredBy: string[];
+}
+
+export interface ReviewCoverageSummary {
+  status: VerificationStatus;
+  acceptancePassedCount: number;
+  blockCount: number;
+  slotCount: number;
+  coveredBlockCount: number;
+  coveredSlotCount: number;
+  uncoveredBlockCount: number;
+  uncoveredSlotCount: number;
+  acceptancePassed: string[];
+  uncoveredBlocks: string[];
+  uncoveredSlots: string[];
+  blockSummaries: ReviewCoverageTargetSummary[];
+  slotSummaries: ReviewCoverageTargetSummary[];
+}
+
 export interface ReviewRepairTaskSummary {
   taskId: string;
   sourceSlotId: string;
@@ -780,6 +804,7 @@ export interface ReviewSummary {
   formatVersion: '2';
   ciSummary: ReviewCiSummary;
   artifactSummary?: ReviewArtifactSummary;
+  coverageSummary?: ReviewCoverageSummary;
   repairSummary?: ReviewRepairSummary;
   upgradeSummary?: ReviewUpgradeSummary;
   policySummary?: ReviewPolicySummary;

@@ -358,20 +358,22 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
 }
 
 function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
-  const { artifactSummary, ciSummary } = reviewSummary;
-  const uncoveredBlocks = graph.overlays.coverage.blocks.filter(
+  const { artifactSummary, ciSummary, coverageSummary } = reviewSummary;
+  const uncoveredBlocks = coverageSummary?.uncoveredBlockCount ?? graph.overlays.coverage.blocks.filter(
     (block) => block.coveredBy.length === 0
   ).length;
-  const uncoveredSlots = graph.overlays.coverage.slots.filter(
+  const uncoveredSlots = coverageSummary?.uncoveredSlotCount ?? graph.overlays.coverage.slots.filter(
     (slot) => slot.coveredBy.length === 0
   ).length;
+  const blockCount = coverageSummary?.blockCount ?? graph.overlays.coverage.blocks.length;
+  const slotCount = coverageSummary?.slotCount ?? graph.overlays.coverage.slots.length;
   const lines = [
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
     `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
     `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
     [
-      `Coverage: ${graph.overlays.coverage.blocks.length} blocks`,
-      `${graph.overlays.coverage.slots.length} slots`,
+      `Coverage: ${blockCount} blocks`,
+      `${slotCount} slots`,
       `uncovered blocks=${uncoveredBlocks}`,
       `uncovered slots=${uncoveredSlots}`
     ].join('; '),
@@ -390,6 +392,17 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
       `${ciSummary.runtimeEntryCount} runtime entries`
     ].join(', ')
   ];
+
+  if (coverageSummary) {
+    lines.push(
+      [
+        `Coverage detail: ${coverageSummary.status}`,
+        `acceptance passed: ${coverageSummary.acceptancePassedCount}`,
+        `covered blocks: ${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`,
+        `covered slots: ${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`
+      ].join('; ')
+    );
+  }
 
   if (artifactSummary) {
     const uploadGroups = artifactSummary.uploadGroups?.map(

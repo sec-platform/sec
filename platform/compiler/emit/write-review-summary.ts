@@ -186,6 +186,43 @@ async function readArtifactSummary(workspaceRoot: string): Promise<ReviewSummary
   };
 }
 
+function buildCoverageSummary(coverage: AcceptanceCoverageReport): ReviewSummary['coverageSummary'] {
+  const blockSummaries = coverage.blocks
+    .map((entry) => ({
+      id: entry.id,
+      declaredAcceptanceCount: entry.declaredAcceptance.length,
+      coveredByCount: entry.coveredBy.length,
+      declaredAcceptance: unique(entry.declaredAcceptance),
+      coveredBy: unique(entry.coveredBy)
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const slotSummaries = coverage.slots
+    .map((entry) => ({
+      id: entry.id,
+      declaredAcceptanceCount: entry.declaredAcceptance.length,
+      coveredByCount: entry.coveredBy.length,
+      declaredAcceptance: unique(entry.declaredAcceptance),
+      coveredBy: unique(entry.coveredBy)
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  return {
+    status: coverage.status,
+    acceptancePassedCount: coverage.acceptancePassed.length,
+    blockCount: coverage.blocks.length,
+    slotCount: coverage.slots.length,
+    coveredBlockCount: coverage.blocks.length - coverage.uncoveredBlocks.length,
+    coveredSlotCount: coverage.slots.length - coverage.uncoveredSlots.length,
+    uncoveredBlockCount: coverage.uncoveredBlocks.length,
+    uncoveredSlotCount: coverage.uncoveredSlots.length,
+    acceptancePassed: unique(coverage.acceptancePassed),
+    uncoveredBlocks: unique(coverage.uncoveredBlocks),
+    uncoveredSlots: unique(coverage.uncoveredSlots),
+    blockSummaries,
+    slotSummaries
+  };
+}
+
 function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummary'] {
   const taskSummaries = repairPlan.tasks
     .map((task) => {
@@ -449,6 +486,7 @@ export async function buildReviewSummary(
   const upgradeDiagnostics = (await pathExists(upgradeDiagnosticsPath))
     ? await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath)
     : null;
+  const coverageSummary = buildCoverageSummary(coverage);
   const policySummary = buildPolicySummary(policyReport);
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
   const upgradeSummary = buildUpgradeSummary(upgradePlan, upgradeDiagnostics);
@@ -689,6 +727,7 @@ export async function buildReviewSummary(
       runtimeEntries
     ),
     ...(artifactSummary ? { artifactSummary } : {}),
+    coverageSummary,
     ...(policySummary ? { policySummary } : {}),
     ...(repairSummary ? { repairSummary } : {}),
     ...(upgradeSummary ? { upgradeSummary } : {}),
