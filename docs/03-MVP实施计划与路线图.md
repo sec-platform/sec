@@ -112,9 +112,16 @@
    - 状态：active。
    - 目标：从高强度功能扩张切到可发布、可演示、可验证的成熟推进。
    - 优先切口：
-     - CLI 入门 demo 路径：active。
+     - CLI 入门 demo 路径：done。
+       - `npm run demo:quickstart`：重置样例项目并刷新主链治理产物。
+       - `npm run demo:governance`：在 quickstart 后列出 governance artifact 上传清单。
+       - `npm run reference:refresh`：保留为不重置项目的主链刷新入口。
      - CLI usage 暴露 readiness、quickstart、CI artifacts：done。
-     - 每日可演示版本清单。
+     - 每日可演示版本清单：active。
+       - quickstart 主链可运行。
+       - governance artifact 清单可输出。
+       - review summary 能展示 E2E chain summary。
+       - explain graph 能展示 policy/pin/override/repair/upgrade 归因。
      - E2E 验收矩阵。
      - JSON contract 冻结清单。
      - artifact / graph / review golden output。

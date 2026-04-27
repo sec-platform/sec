@@ -68,6 +68,27 @@ test('ensureSharedDepsReady serializes concurrent installs behind one lock', asy
   });
 });
 
+test('root package exposes demo scripts through the existing platform chain', async () => {
+  const rootPackage = JSON.parse(await fs.readFile(path.join(compilerRoot, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+
+  expect(rootPackage.scripts['demo:quickstart']).toBe('npm run platform -- init --reset && npm run reference:refresh');
+  expect(rootPackage.scripts['demo:governance']).toBe(
+    'npm run demo:quickstart && npm run platform -- artifacts --paths --kind governance'
+  );
+  expect(rootPackage.scripts['reference:refresh']).toBe(
+    [
+      'npm run platform -- resolve',
+      'npm run platform -- compose',
+      'npm run platform -- adapt',
+      'npm run platform -- verify --lane all',
+      'npm run platform -- lock',
+      'npm run platform -- explain'
+    ].join(' && ')
+  );
+});
+
 test('project and shared runtime manifests derive versions from the root package.json', async () => {
   const workspaceRoot = await createTempRoot('engineering-compiler-runtime-manifest-');
   const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
