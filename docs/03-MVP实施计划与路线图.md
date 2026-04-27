@@ -52,7 +52,7 @@
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
-| migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
+| migration 类型 | active | 已支持 `file-replace`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、review summary、CLI explain 和本地视图治理摘要。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json` 和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 | 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
@@ -116,6 +116,13 @@
        - 可创建嵌套目标目录。
        - dry-run plan 可展示 impact 和 migration summary。
        - 执行器单测覆盖目录落盘。
+     - `copy-directory` 目录复制迁移：
+       - 可从目标 manifest root 读取目录。
+       - 可递归复制嵌套文件到 project 目标目录。
+       - source 缺失会阻断。
+       - source 不是目录会阻断。
+       - dry-run plan 可展示 target impact。
+       - migration summary 可展示 manifest source。
      - `delete-file` 文件删除迁移：
        - 可删除已存在文件。
        - 目标是目录时会阻断。
@@ -175,6 +182,12 @@
          - 状态：done。
          - 执行：创建嵌套目标目录。
          - plan：dry-run 记录目录 impact。
+       - copy-directory：
+         - 状态：done。
+         - 执行：从 manifest source 目录递归复制。
+         - safety：source 必须存在且必须是目录。
+         - plan：dry-run 记录目标目录 impact。
+         - summary：记录 manifest source。
        - delete-file：
          - 状态：done。
          - 执行：删除目标文件。
@@ -230,6 +243,7 @@
          - 状态：done。
          - plan：`migration-file-operations` preflight check。
          - file-replace：确认 manifest source 存在。
+         - copy-directory：确认 manifest source 存在且是目录。
          - delete-file：确认 target 存在且是文件。
          - rename-file：确认 source 存在且是文件。
          - rename-file：确认 target 未被占用。

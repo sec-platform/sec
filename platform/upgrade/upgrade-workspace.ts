@@ -96,7 +96,7 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
   ensureMigrationString(entry.reason, 'reason', entryPath);
   ensureMigrationString(entry.target, 'target', entryPath);
 
-  if (entry.kind === 'file-replace') {
+  if (entry.kind === 'file-replace' || entry.kind === 'copy-directory') {
     ensureMigrationString(entry.source, 'source', entryPath);
     return;
   }
@@ -478,6 +478,16 @@ export async function applyMigrationEntries(
       continue;
     }
 
+    if (entry.kind === 'copy-directory') {
+      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
+        migrationId: entry.id,
+        role: 'manifest-source'
+      });
+      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+      await copyRecursive(sourcePath, targetPath);
+      continue;
+    }
+
     if (entry.kind === 'config-rewrite') {
       const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
       await writeJson(targetPath, config);
@@ -596,6 +606,18 @@ async function statRenameMigrationSource(sourcePath: string, source: string): Pr
   }
 }
 
+async function statCopyDirectoryMigrationSource(sourcePath: string, source: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(sourcePath);
+  } catch {
+    throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`);
+  }
+  if (!stats.isDirectory()) {
+    throw new CompilerError('UPGRADE-MIGRATION-023', `Copy-directory source "${source}" must be a directory`);
+  }
+}
+
 async function collectFileOperationEvidence(
   projectRoot: string,
   targetManifestRoot: string,
@@ -612,6 +634,14 @@ async function collectFileOperationEvidence(
         throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
       }
       evidence.push(`${entry.id}:manifest-source:exists`);
+    }
+    if (entry.kind === 'copy-directory') {
+      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
+        migrationId: entry.id,
+        role: 'manifest-source'
+      });
+      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+      evidence.push(`${entry.id}:manifest-source:directory`);
     }
     if (entry.kind === 'delete-file') {
       await statFileMigrationTarget(
@@ -922,7 +952,8 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
     code === 'UPGRADE-MIGRATION-017' ||
     code === 'UPGRADE-MIGRATION-018' ||
     code === 'UPGRADE-MIGRATION-019' ||
-    code === 'UPGRADE-MIGRATION-020'
+    code === 'UPGRADE-MIGRATION-020' ||
+    code === 'UPGRADE-MIGRATION-023'
   ) {
     return 'migration-file-operations';
   }
@@ -1000,7 +1031,7 @@ function buildUpgradePlan(
         reason: entry.reason,
         requiresVerification: migration?.requiresVerification ?? true,
         ...(entry.kind === 'slot-contract-update' ? { slotId: entry.slotId } : {}),
-        ...(entry.kind === 'rename-file' ? { source: entry.source } : {})
+        ...(entry.kind === 'rename-file' || entry.kind === 'copy-directory' ? { source: entry.source } : {})
       };
     })
   };
