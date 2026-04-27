@@ -8,6 +8,8 @@ export type ContractFreezeContract = {
   formatVersion: '1';
   status: 'active';
   command: string;
+  targetFileCount: number;
+  targetFiles: string[];
   targetCount: number;
   targets: ContractFreezeTarget[];
 };
@@ -73,10 +75,16 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
 
 export function buildContractFreezeContract(): ContractFreezeContract {
   const targets = getContractFreezeTargets();
+  const targetFiles = [...new Set(targets.map((target) => target.file))].sort((left, right) =>
+    left.localeCompare(right)
+  );
+
   return {
     formatVersion: '1',
     status: 'active',
     command: 'npm run test:contract-freeze',
+    targetFileCount: targetFiles.length,
+    targetFiles,
     targetCount: targets.length,
     targets: targets.map((target) => ({
       ...target,
@@ -89,6 +97,8 @@ export function formatContractFreezeContract(contract: ContractFreezeContract): 
   return [
     `Contract freeze ${contract.status}`,
     `Command: ${contract.command}`,
+    `Target files: ${contract.targetFileCount}`,
+    `Target file list: ${contract.targetFiles.join(', ')}`,
     `Targets: ${contract.targetCount}`,
     ...contract.targets.map((target) => [
       `Target ${target.file}`,

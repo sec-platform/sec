@@ -575,6 +575,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     formatVersion: '1',
     status: 'active',
     command: 'npm run test:contract-freeze',
+    targetFileCount: 3,
+    targetFiles: ['tests/cli.test.ts', 'tests/pipeline.test.ts', 'tests/project-runtime.test.ts'],
     targetCount: 3,
     targets: expect.arrayContaining([
       expect.objectContaining({
@@ -600,6 +602,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Contract freeze active');
+    expect(textResult.stdout).toContain('Target files: 3');
+    expect(textResult.stdout).toContain('Target file list: tests/cli.test.ts, tests/pipeline.test.ts, tests/project-runtime.test.ts');
     expect(textResult.stdout).toContain('Target tests/pipeline.test.ts; command=bun test tests/pipeline.test.ts --test-name-pattern');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json']);
@@ -607,6 +611,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(jsonResult.stderr).toBe('');
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
+      targetFileCount: 3,
+      targetFiles: ['tests/cli.test.ts', 'tests/pipeline.test.ts', 'tests/project-runtime.test.ts'],
       targetCount: 3
     });
 
@@ -616,6 +622,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
+      targetFileCount: 3,
       targetCount: 3
     });
   });
