@@ -126,8 +126,11 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(testBudgetContractSource).toContain('playwright: true');
   expect(benchmarkContractSource).toContain("suiteId: 'engineering-compiler-core'");
   expect(benchmarkContractSource).toContain("id: 'add-block'");
+  expect(benchmarkContractSource).toContain("command: 'npm run demo:quickstart'");
   expect(benchmarkContractSource).toContain("id: 'repair-slot'");
+  expect(benchmarkContractSource).toContain("project/generated/repair-plan.json");
   expect(benchmarkContractSource).toContain("id: 'override-conflict'");
+  expect(benchmarkContractSource).toContain("project/generated/upgrade-diagnostics.json");
   expect(referenceCheckSource).toContain("['diff', '--name-only', '--exit-code', '--', 'project']");
   expect(referenceCheckSource).toContain("['run', 'reference:refresh']");
 });

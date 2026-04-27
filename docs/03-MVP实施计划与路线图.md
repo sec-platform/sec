@@ -180,7 +180,7 @@
          - `project/generated/acceptance-coverage.json`
          - `project/generated/explain-graph.json`
          - `project/generated/review-summary.json`
-       - P0：建立 benchmark/task-suite 最小合同，先通过 `platform benchmark suite --json [--compact]` 冻结任务集与评分维度，再扩 runner。
+       - P0：建立 benchmark/task-suite 最小合同，先通过 `platform benchmark suite --json [--compact]` 冻结任务集、runner command、artifact paths 与评分维度，再扩 runner。
        - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐：active。
         - TaskEnvelope `sourceSlot` 已回显 lock 中 slot 状态、writable zones 与 provenance hints。
         - repair plan review 已回显同一 envelope 写入边界与 source provenance，供 dry-run JSON 审查。

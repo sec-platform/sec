@@ -387,16 +387,32 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       expect.objectContaining({
         id: 'add-block',
         gate: 'resolve compose adapt verify lock explain',
+        command: 'npm run demo:quickstart',
+        artifactPaths: expect.arrayContaining([
+          'project/graph.lock.json',
+          'project/generated/verification-report.json',
+          'project/generated/explain-graph.json'
+        ]),
         scoreFocus: ['success-rate', 'files-touched', 'verification-status']
       }),
       expect.objectContaining({
         id: 'repair-slot',
         gate: 'repair verify',
+        command: 'npm run platform -- repair --dry-run --json --compact',
+        artifactPaths: expect.arrayContaining([
+          'project/generated/repair-plan.json',
+          'project/provenance.json'
+        ]),
         scoreFocus: ['repairability', 'attempt-count', 'verification-status']
       }),
       expect.objectContaining({
         id: 'override-conflict',
         gate: 'upgrade --dry-run',
+        command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+        artifactPaths: expect.arrayContaining([
+          'project/overrides/override.manifest.yaml',
+          'project/generated/upgrade-diagnostics.json'
+        ]),
         scoreFocus: ['conflict-detection', 'machine-recoverability']
       })
     ]),
@@ -414,6 +430,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Benchmark suite engineering-compiler-core (active)');
     expect(textResult.stdout).toContain('Task override-conflict: surface one override conflict during upgrade planning');
+    expect(textResult.stdout).toContain('command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact');
+    expect(textResult.stdout).toContain('artifacts=project/overrides/override.manifest.yaml, project/generated/upgrade-diagnostics.json, project/generated/review-summary.json');
 
     const jsonResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json']);
     expect(jsonResult.code).toBe(0);
