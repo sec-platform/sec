@@ -277,6 +277,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
       {
         taskId: 'repair_customer_normalizer',
         taskKind: 'repair-slot',
+        category: 'slot-rewrite',
         phase: 'repair',
         sourceSlotId: 'customer_normalizer',
         targetBlock: 'entity/customer-basic',
@@ -296,12 +297,14 @@ test('explain graph connects repair tasks to slots and files', async () => {
   expect(graph.nodes).toEqual(
     expect.arrayContaining([
       { id: 'repair:repair_customer_normalizer', type: 'repair', label: 'repair_customer_normalizer' },
+      { id: 'repair-category:slot-rewrite', type: 'repair', label: 'slot-rewrite' },
       { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
     ])
   );
   expect(graph.edges).toEqual(
     expect.arrayContaining([
+      { from: 'repair:repair_customer_normalizer', to: 'repair-category:slot-rewrite', type: 'depends_on' },
       { from: 'repair:repair_customer_normalizer', to: 'slot:customer_normalizer', type: 'connects_to' },
       { from: 'repair:repair_customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
     ])

@@ -355,12 +355,19 @@ export async function buildExplainGraph(
   if (repairPlan) {
     for (const task of repairPlan.tasks) {
       const repairNodeId = `repair:${task.taskId}`;
+      const category = task.category ?? 'slot-rewrite';
+      const categoryNodeId = `repair-category:${category}`;
       const slotNodeId = `slot:${task.sourceSlotId}`;
       const fileNodeId = `file:${task.targetFile}`;
       pushNode(nodes, {
         id: repairNodeId,
         type: 'repair',
         label: task.taskId
+      });
+      pushNode(nodes, {
+        id: categoryNodeId,
+        type: 'repair',
+        label: category
       });
       pushNode(nodes, {
         id: slotNodeId,
@@ -371,6 +378,11 @@ export async function buildExplainGraph(
         id: fileNodeId,
         type: 'file',
         label: task.targetFile
+      });
+      pushEdge(edges, {
+        from: repairNodeId,
+        to: categoryNodeId,
+        type: 'depends_on'
       });
       pushEdge(edges, {
         from: repairNodeId,
