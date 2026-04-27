@@ -13,6 +13,7 @@ export type CiContract = {
   defaultGate: string;
   fullRuntimeGate: string;
   qualityCommands: string[];
+  diagnosticCommands: string[];
   artifactUploadCommands: string[];
   stepCount: number;
   steps: CiContractStep[];
@@ -101,6 +102,9 @@ export function buildCiContract(): CiContract {
     qualityCommands: ciSteps
       .filter((step) => step.phase === 'quality')
       .map((step) => step.command),
+    diagnosticCommands: ciSteps
+      .filter((step) => step.phase === 'diagnostics')
+      .map((step) => step.command),
     artifactUploadCommands: ciSteps
       .filter((step) => step.phase === 'artifacts')
       .map((step) => step.command),
@@ -119,6 +123,7 @@ export function formatCiContract(contract: CiContract): string {
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
     `Quality commands: ${contract.qualityCommands.join(', ')}`,
+    `Diagnostic commands: ${contract.diagnosticCommands.join(', ')}`,
     `Artifact uploads: ${contract.artifactUploadCommands.join(', ')}`,
     `Steps: ${contract.stepCount}`,
     ...contract.steps.map((step) => [
