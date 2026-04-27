@@ -182,7 +182,8 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       }
     ],
     migrationKindCounts: {
-      'slot-contract-update': 1
+      'slot-contract-update': 1,
+      'text-append': 1
     },
     migrationSummaries: [
       {
@@ -192,6 +193,13 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         reason: 'Update customer normalizer input contract to v2.',
         requiresVerification: true,
         slotId: 'customer_normalizer'
+      },
+      {
+        id: 'mig-upgrade-metadata',
+        kind: 'text-append',
+        target: 'upgrade.metadata.json',
+        reason: 'Record upgrade metadata.',
+        requiresVerification: false
       }
     ]
   };
@@ -229,6 +237,16 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         label: 'mig-customer-normalizer-contract'
       },
       {
+        id: 'upgrade-verification:required',
+        type: 'upgrade',
+        label: 'verification required'
+      },
+      {
+        id: 'upgrade-verification:skipped',
+        type: 'upgrade',
+        label: 'verification skipped'
+      },
+      {
         id: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         type: 'upgrade',
         label: 'UPGRADE-CONFLICT-001'
@@ -249,7 +267,22 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       },
       {
         from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        to: 'upgrade-verification:required',
+        type: 'depends_on'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
         to: 'file:custom/customer_normalizer.ts',
+        type: 'writes_to'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-upgrade-metadata',
+        to: 'upgrade-verification:skipped',
+        type: 'depends_on'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-upgrade-metadata',
+        to: 'file:upgrade.metadata.json',
         type: 'writes_to'
       },
       { from: 'block:entity/customer-basic', to: 'slot:customer_normalizer', type: 'connects_to' },

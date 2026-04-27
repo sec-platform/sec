@@ -289,10 +289,18 @@ export async function buildExplainGraph(
     for (const migration of upgradePlan.migrationSummaries) {
       const migrationNodeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}:migration:${migration.id}`;
       const fileNodeId = `file:${migration.target}`;
+      const verificationNodeId = migration.requiresVerification
+        ? 'upgrade-verification:required'
+        : 'upgrade-verification:skipped';
       pushNode(nodes, {
         id: migrationNodeId,
         type: 'upgrade',
         label: migration.id
+      });
+      pushNode(nodes, {
+        id: verificationNodeId,
+        type: 'upgrade',
+        label: migration.requiresVerification ? 'verification required' : 'verification skipped'
       });
       pushNode(nodes, {
         id: fileNodeId,
@@ -302,6 +310,11 @@ export async function buildExplainGraph(
       pushEdge(edges, {
         from: upgradeNodeId,
         to: migrationNodeId,
+        type: 'depends_on'
+      });
+      pushEdge(edges, {
+        from: migrationNodeId,
+        to: verificationNodeId,
         type: 'depends_on'
       });
       pushEdge(edges, {
