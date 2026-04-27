@@ -193,7 +193,7 @@
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单，并为每个 target 暴露可复现 `bun test` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/conflict 的真实错误码样例。
-         - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、顶层 quality commands、顶层 diagnostic commands 与 artifact upload 路径入口。
+         - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、顶层 quality commands、顶层 diagnostic commands、artifact upload 路径入口与聚合 produced artifact paths。
         - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
