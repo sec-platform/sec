@@ -224,6 +224,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(readme).toContain('Governance contract freeze currently covers:');
   expect(readme).toContain('project/generated/explain-graph.json');
   expect(protocolSource).toContain("issueType: 'usage' | 'spec' | 'composition' | 'slot' | 'kernel'");
+  expect(protocolSource).toContain('artifactPaths: string[]');
   expect(processSource).not.toContain("shell: process.platform === 'win32'");
   expect(protocolSource).toContain("code.startsWith('VERIFY-BLOCKED-')");
   expect(protocolSource).toContain("code.startsWith('VERIFY-')");
@@ -234,12 +235,15 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(protocolSource).toContain("code.startsWith('UPGRADE-MIGRATION-')");
   expect(protocolSource).toContain("code.startsWith('UPGRADE-')");
   expect(protocolContractSource).toContain("command: 'npm run platform -- contract errors --json'");
+  expect(protocolContractSource).toContain('artifactPathCount');
+  expect(protocolContractSource).toContain('artifactPaths');
   expect(protocolContractSource).toContain("id: 'verify-blocked-error'");
   expect(protocolContractSource).toContain("id: 'repair-preflight-error'");
   expect(protocolContractSource).toContain("id: 'upgrade-conflict-error'");
   expect(cliSource).toContain('recoverable: protocol.recoverable');
   expect(cliSource).toContain('issueType: protocol.issueType');
   expect(cliSource).toContain('suggestedActions: protocol.suggestedActions');
+  expect(cliSource).toContain('artifactPaths: protocol.artifactPaths');
 });
 
 test('project and shared runtime manifests derive versions from the root package.json', async () => {
