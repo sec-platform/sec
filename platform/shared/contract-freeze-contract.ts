@@ -38,6 +38,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
         'CLI exposes benchmark task-suite as text and JSON contracts',
         'CLI exposes test budget as text and JSON contracts',
         'CLI exposes contract freeze target list as text and JSON contracts',
+        'CLI exposes CI command contract as text and JSON contracts',
         'CLI exposes error protocol as text and JSON contracts',
         'CLI exposes policy report as text and JSON contracts',
         'CLI exposes acceptance coverage as text and JSON contracts',

@@ -32,6 +32,10 @@ import {
   formatBenchmarkTaskSuiteContract
 } from '../shared/benchmark-contract.ts';
 import {
+  buildCiContract,
+  formatCiContract
+} from '../shared/ci-contract.ts';
+import {
   buildContractFreezeContract,
   formatContractFreezeContract
 } from '../shared/contract-freeze-contract.ts';
@@ -87,7 +91,7 @@ const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
 const PROVENANCE_USAGE = 'Usage: platform provenance registry [--json [--compact]]';
 const REVIEW_USAGE = 'Usage: platform review summary [--json [--compact]]';
-const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
+const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors|ci> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps status [--json [--compact]]',
@@ -1325,7 +1329,7 @@ async function runReviewCommand(args: string[]): Promise<void> {
 
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
-  if (contractKind !== 'freeze' && contractKind !== 'errors') {
+  if (contractKind !== 'freeze' && contractKind !== 'errors' && contractKind !== 'ci') {
     throw new Error(CONTRACT_USAGE);
   }
 
@@ -1337,6 +1341,16 @@ async function runContractCommand(args: string[]): Promise<void> {
       return;
     }
     console.log(formatContractFreezeContract(contract));
+    return;
+  }
+
+  if (contractKind === 'ci') {
+    const contract = buildCiContract();
+    if (outputArgs.json) {
+      console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+      return;
+    }
+    console.log(formatCiContract(contract));
     return;
   }
 
