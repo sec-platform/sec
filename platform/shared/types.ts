@@ -1099,6 +1099,9 @@ export interface UpgradeMigrationOperation {
   role: UpgradeMigrationOperationRole;
   source?: string;
   slotId?: string;
+  inputType?: string;
+  outputType?: string;
+  writableZones?: string[];
   path?: string[];
   updateCount?: number;
   itemCount?: number;
