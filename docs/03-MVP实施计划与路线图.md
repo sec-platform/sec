@@ -67,7 +67,7 @@
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy target/violation 边、slot 合同升级影响边、repair task/category 归因边、upgrade verification 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints、E2E chain summary，并暴露 review summary CLI、repair、upgrade verification、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
-| upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
+| upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、planning/apply 阶段阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`copy-file`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace`、`text-replace-regex`、`create-directory`、`delete-file`、`delete-directory`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、policy report CLI、review summary、CLI explain 和本地视图治理摘要。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json`、contract artifact 摘要和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
@@ -427,6 +427,7 @@
          - delete-directory：确认 target 存在且是目录。
          - rename-file：确认 source 存在且是文件。
          - rename-file：确认 target 未被占用。
+         - apply：执行阶段 migration 失败时写入 `upgrade-diagnostics.json` 并保留回滚语义。
          - diagnostics：归类到 `migration-file-operations`。
        - slot 合同前后兼容性检查：
          - 状态：done。
