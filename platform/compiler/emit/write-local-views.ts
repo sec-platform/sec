@@ -493,6 +493,89 @@ function renderPolicyViolationsTable(policyReport: PolicyReport): string {
       </section>`;
 }
 
+function renderUpgradeSummaryCard(review: ReviewSummary): string {
+  const upgrade = review.upgradeSummary;
+  if (!upgrade) {
+    return '';
+  }
+
+  const rows = [
+    ['Status', upgrade.status],
+    ['Block', upgrade.blockId],
+    ['From Version', upgrade.fromVersion ?? 'unknown'],
+    ['To Version', upgrade.toVersion],
+    ['Preflight Checks', String(upgrade.preflightCheckCount)],
+    ['Preflight Evidence', String(upgrade.preflightEvidenceCount)],
+    ['Migrations', String(upgrade.migrationCount)],
+    ['Impacts', String(upgrade.impactCount)],
+    ['Requires Verification', String(upgrade.requiresVerification)],
+    ['Verification Migrations', String(upgrade.requiresVerificationCount)]
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+  const preflightRows = upgrade.preflightSummaries
+    .map(
+      (summary) => `<tr>
+          <td>${escapeHtml(summary.group)}</td>
+          <td>${escapeHtml(String(summary.checkCount))}</td>
+          <td>${escapeHtml(String(summary.evidenceCount))}</td>
+        </tr>`
+    )
+    .join('');
+  const kindRows = Object.entries(upgrade.migrationKindCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
+    .join('');
+  const migrationRows = upgrade.migrationSummaries
+    .map(
+      (migration) => `<tr>
+          <td>${escapeHtml(migration.id)}</td>
+          <td>${escapeHtml(migration.kind)}</td>
+          <td>${escapeHtml(migration.target)}</td>
+          <td>${escapeHtml(String(migration.requiresVerification))}</td>
+          <td>${escapeHtml(migration.reason)}</td>
+        </tr>`
+    )
+    .join('');
+  const diagnosticsRows = upgrade.diagnostics
+    ? `<tr>
+          <td>${escapeHtml(upgrade.diagnostics.failedCheck)}</td>
+          <td>${escapeHtml(upgrade.diagnostics.errorCode)}</td>
+          <td>${escapeHtml(upgrade.diagnostics.message)}</td>
+        </tr>`
+    : '';
+
+  return `<section class="card">
+        <h2>Upgrade Summary</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3>Upgrade Preflight Summary</h3>
+        <table>
+          <thead><tr><th>Group</th><th>Checks</th><th>Evidence Items</th></tr></thead>
+          <tbody>${preflightRows || '<tr><td colspan="3">No upgrade preflight checks.</td></tr>'}</tbody>
+        </table>
+        <h3>Upgrade Migration Kind Summary</h3>
+        <table>
+          <thead><tr><th>Kind</th><th>Count</th></tr></thead>
+          <tbody>${kindRows || '<tr><td colspan="2">No upgrade migration kinds.</td></tr>'}</tbody>
+        </table>
+        <h3>Upgrade Migration Summary</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Kind</th><th>Target</th><th>Requires Verification</th><th>Reason</th></tr></thead>
+          <tbody>${migrationRows || '<tr><td colspan="5">No upgrade migrations.</td></tr>'}</tbody>
+        </table>
+        ${diagnosticsRows
+          ? `<h3>Upgrade Blocker Summary</h3>
+            <table>
+              <thead><tr><th>Failed Check</th><th>Error</th><th>Message</th></tr></thead>
+              <tbody>${diagnosticsRows}</tbody>
+            </table>`
+          : ''}
+      </section>`;
+}
+
 function renderRepairSummaryCard(review: ReviewSummary): string {
   const repair = review.repairSummary;
   if (!repair) {
@@ -778,6 +861,7 @@ function renderSourceView(
       ${renderInstallImpactCard(review)}
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}
+      ${renderUpgradeSummaryCard(review)}
       ${renderUpgradePlanTable(upgradePlan)}
       ${renderUpgradeDiagnosticsTable(upgradeDiagnostics)}
       ${renderRepairSummaryCard(review)}

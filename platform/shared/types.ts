@@ -685,11 +685,53 @@ export interface ReviewRepairSummary {
   blockerSummaries: ReviewRepairBlockerSummary[];
 }
 
+export interface ReviewUpgradePreflightSummary {
+  group: string;
+  checkCount: number;
+  evidenceCount: number;
+}
+
+export interface ReviewUpgradeMigrationSummary {
+  id: string;
+  kind: string;
+  target: string;
+  reason: string;
+  requiresVerification: boolean;
+  source?: string;
+  slotId?: string;
+}
+
+export interface ReviewUpgradeDiagnosticsSummary {
+  status: 'blocked';
+  failedCheck: string;
+  errorCode: string;
+  message: string;
+}
+
+export interface ReviewUpgradeSummary {
+  status: 'planned' | 'applied' | 'blocked';
+  blockId: string;
+  fromVersion?: string;
+  toVersion: string;
+  preflightCheckCount: number;
+  preflightEvidenceCount: number;
+  migrationCount: number;
+  migrationKindCounts: Record<string, number>;
+  requiresVerification: boolean;
+  requiresVerificationCount: number;
+  impactCount: number;
+  impacts: string[];
+  preflightSummaries: ReviewUpgradePreflightSummary[];
+  migrationSummaries: ReviewUpgradeMigrationSummary[];
+  diagnostics?: ReviewUpgradeDiagnosticsSummary;
+}
+
 export interface ReviewSummary {
   formatVersion: '2';
   ciSummary: ReviewCiSummary;
   artifactSummary?: ReviewArtifactSummary;
   repairSummary?: ReviewRepairSummary;
+  upgradeSummary?: ReviewUpgradeSummary;
   changeSources: Array<{
     path: string;
     originType: ProvenanceOriginType;

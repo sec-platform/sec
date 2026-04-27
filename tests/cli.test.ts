@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
-import type { RepairPlan, VerificationReport } from '../platform/shared/types.ts';
+import type { RepairPlan, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
 function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -1008,14 +1008,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
 
-    const upgradePlan = JSON.parse(result.stdout) as {
-      blockId: string;
-      fromVersion: string;
-      toVersion: string;
-      status: string;
-      migrationKindCounts: Record<string, number>;
-      impacts: string[];
-    };
+    const upgradePlan = JSON.parse(result.stdout) as UpgradePlan;
     expect(upgradePlan).toMatchObject({
       blockId: 'auth/basic-session',
       fromVersion: '0.1.0',
@@ -1027,6 +1020,116 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       }
     });
     expect(upgradePlan.impacts).toEqual(['src/installed/auth/session.ts', 'upgrade.metadata.json']);
+
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+
+    const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
+      passStatus: { verify: string };
+    };
+    lock.passStatus.verify = 'succeeded';
+    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+
+    const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
+    report.unit.status = 'passed';
+    report.unit.passed = [];
+    report.acceptance.status = 'passed';
+    report.acceptance.passed = [];
+    report.acceptance.failed = [];
+    report.policy.status = 'passed';
+    report.policy.violations = [];
+    report.fast.status = 'passed';
+    report.summary.status = 'passed';
+    report.summary.requestedLane = 'all';
+    report.summary.failedLanes = [];
+    await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+
+    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Locked project\n',
+      stderr: ''
+    });
+
+    const explainText = await runCli(workspaceRoot, ['explain']);
+    expect(explainText.code).toBe(0);
+    expect(explainText.stderr).toBe('');
+    expect(explainText.stdout).toContain(
+      'Upgrade: planned; auth/basic-session 0.1.0 -> 0.1.1; migrations: 2; impacts: 2; requires verification: true'
+    );
+
+    const explainJson = await runCli(workspaceRoot, ['explain', '--json']);
+    expect(explainJson.code).toBe(0);
+    expect(explainJson.stderr).toBe('');
+    const explainPayload = JSON.parse(explainJson.stdout) as {
+      reviewSummary: {
+        upgradeSummary?: {
+          status: string;
+          blockId: string;
+          preflightCheckCount: number;
+          preflightEvidenceCount: number;
+          migrationCount: number;
+          migrationKindCounts: Record<string, number>;
+          requiresVerification: boolean;
+          requiresVerificationCount: number;
+          impactCount: number;
+          impacts: string[];
+          preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
+          migrationSummaries: Array<{ id: string; kind: string; target: string; requiresVerification: boolean }>;
+        };
+      };
+    };
+    expect(explainPayload.reviewSummary.upgradeSummary).toMatchObject({
+      status: 'planned',
+      blockId: 'auth/basic-session',
+      preflightCheckCount: upgradePlan.preflightChecks.length,
+      migrationCount: 2,
+      migrationKindCounts: {
+        'file-replace': 1,
+        'json-array-append': 1
+      },
+      requiresVerification: true,
+      requiresVerificationCount: 1,
+      impactCount: 2,
+      impacts: ['src/installed/auth/session.ts', 'upgrade.metadata.json']
+    });
+    expect(explainPayload.reviewSummary.upgradeSummary?.preflightEvidenceCount).toBeGreaterThan(0);
+    expect(explainPayload.reviewSummary.upgradeSummary?.preflightSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          group: 'migration',
+          checkCount: expect.any(Number),
+          evidenceCount: expect.any(Number)
+        })
+      ])
+    );
+    expect(explainPayload.reviewSummary.upgradeSummary?.migrationSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'mig-auth-session-refresh',
+          kind: 'file-replace',
+          target: 'src/installed/auth/session.ts',
+          requiresVerification: true
+        })
+      ])
+    );
   });
 });
 
