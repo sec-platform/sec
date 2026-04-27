@@ -6,7 +6,7 @@ import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|contract-freeze|benchmark-contract|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|contract-freeze|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -24,6 +24,7 @@ function contractFreezeTargets(): ContractFreezeTarget[] {
         'CLI exposes doctor as text and JSON readiness contracts',
         'CLI exposes dependency environment maintenance entrypoints',
         'CLI exposes reference drift check as text and JSON contracts',
+        'CLI exposes benchmark task-suite as text and JSON contracts',
         'CLI emits explain JSON for CI consumers',
         'CLI emits artifact manifest JSON for CI upload consumers',
         'CLI reports argument usage errors'
@@ -85,58 +86,6 @@ function testBudgetContract(): object {
     ],
     localDefault: 'fast lane plus targeted named tests',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
-  };
-}
-
-function benchmarkContract(): object {
-  return {
-    formatVersion: '1',
-    suiteId: 'engineering-compiler-core',
-    status: 'active',
-    taskCount: 5,
-    tasks: [
-      {
-        id: 'add-block',
-        goal: 'install one capability block into a clean workspace',
-        gate: 'resolve compose adapt verify lock explain',
-        scoreFocus: ['success-rate', 'files-touched', 'verification-status']
-      },
-      {
-        id: 'repair-slot',
-        goal: 'repair one slot issue within task-envelope write bounds',
-        gate: 'repair verify',
-        scoreFocus: ['repairability', 'attempt-count', 'verification-status']
-      },
-      {
-        id: 'policy-violation',
-        goal: 'detect and explain one project policy violation',
-        gate: 'verify explain',
-        scoreFocus: ['diagnostic-precision', 'explainability']
-      },
-      {
-        id: 'upgrade-dry-run',
-        goal: 'preview one governed block upgrade and impact summary',
-        gate: 'upgrade --dry-run explain',
-        scoreFocus: ['upgrade-safety', 'impact-coverage']
-      },
-      {
-        id: 'override-conflict',
-        goal: 'surface one override conflict during upgrade planning',
-        gate: 'upgrade --dry-run',
-        scoreFocus: ['conflict-detection', 'machine-recoverability']
-      }
-    ],
-    scoreDimensions: [
-      'success-rate',
-      'attempt-count',
-      'wall-time',
-      'files-touched',
-      'verification-status',
-      'explainability',
-      'repairability',
-      'upgrade-safety',
-      'machine-recoverability'
-    ]
   };
 }
 
@@ -207,11 +156,6 @@ async function main(): Promise<void> {
 
   if (target === 'test-budget') {
     console.log(JSON.stringify(testBudgetContract(), null, 2));
-    return;
-  }
-
-  if (target === 'benchmark-contract') {
-    console.log(JSON.stringify(benchmarkContract(), null, 2));
     return;
   }
 

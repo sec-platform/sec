@@ -27,6 +27,10 @@ import {
   warmupDependencyEnvironment,
   type DependencyCleanOptions
 } from '../shared/dependency-environment.ts';
+import {
+  buildBenchmarkTaskSuiteContract,
+  formatBenchmarkTaskSuiteContract
+} from '../shared/benchmark-contract.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
 import {
   assertReferenceCheckClean,
@@ -43,7 +47,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -58,6 +62,7 @@ const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
+const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps status [--json [--compact]]',
@@ -287,6 +292,22 @@ function parseReferenceOutputArgs(args: string[]): { json: boolean; compact: boo
     return { json: true, compact: true };
   }
   throw new Error(REFERENCE_USAGE);
+}
+
+function parseBenchmarkOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(BENCHMARK_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(BENCHMARK_USAGE);
 }
 
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -694,6 +715,21 @@ async function runReferenceCommand(args: string[]): Promise<void> {
   assertReferenceCheckClean(report);
 }
 
+async function runBenchmarkCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'suite') {
+    throw new Error(BENCHMARK_USAGE);
+  }
+
+  const outputArgs = parseBenchmarkOutputArgs(args.slice(1));
+  const contract = buildBenchmarkTaskSuiteContract();
+  if (outputArgs.json) {
+    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatBenchmarkTaskSuiteContract(contract));
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
@@ -833,6 +869,9 @@ async function main(): Promise<void> {
       return;
     case 'reference':
       await runReferenceCommand(args);
+      return;
+    case 'benchmark':
+      await runBenchmarkCommand(args);
       return;
     default:
       console.log(USAGE);

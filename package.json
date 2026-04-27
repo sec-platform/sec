@@ -16,7 +16,7 @@
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
     "test:budget": "bun ./platform/dev-runner.ts test-budget",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
-    "test:benchmark-contract": "bun ./platform/dev-runner.ts benchmark-contract",
+    "test:benchmark-contract": "npm run platform -- benchmark suite --json",
     "reference:check": "npm run platform -- reference check",
     "test:bun": "bun test tests/",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",

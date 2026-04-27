@@ -1,0 +1,90 @@
+export type BenchmarkTask = {
+  id: string;
+  goal: string;
+  gate: string;
+  scoreFocus: string[];
+};
+
+export type BenchmarkTaskSuiteContract = {
+  formatVersion: '1';
+  suiteId: string;
+  status: 'active';
+  taskCount: number;
+  tasks: BenchmarkTask[];
+  scoreDimensions: string[];
+};
+
+const benchmarkTasks: BenchmarkTask[] = [
+  {
+    id: 'add-block',
+    goal: 'install one capability block into a clean workspace',
+    gate: 'resolve compose adapt verify lock explain',
+    scoreFocus: ['success-rate', 'files-touched', 'verification-status']
+  },
+  {
+    id: 'repair-slot',
+    goal: 'repair one slot issue within task-envelope write bounds',
+    gate: 'repair verify',
+    scoreFocus: ['repairability', 'attempt-count', 'verification-status']
+  },
+  {
+    id: 'policy-violation',
+    goal: 'detect and explain one project policy violation',
+    gate: 'verify explain',
+    scoreFocus: ['diagnostic-precision', 'explainability']
+  },
+  {
+    id: 'upgrade-dry-run',
+    goal: 'preview one governed block upgrade and impact summary',
+    gate: 'upgrade --dry-run explain',
+    scoreFocus: ['upgrade-safety', 'impact-coverage']
+  },
+  {
+    id: 'override-conflict',
+    goal: 'surface one override conflict during upgrade planning',
+    gate: 'upgrade --dry-run',
+    scoreFocus: ['conflict-detection', 'machine-recoverability']
+  }
+];
+
+const scoreDimensions = [
+  'success-rate',
+  'attempt-count',
+  'wall-time',
+  'files-touched',
+  'verification-status',
+  'explainability',
+  'repairability',
+  'upgrade-safety',
+  'machine-recoverability'
+];
+
+export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
+  return {
+    formatVersion: '1',
+    suiteId: 'engineering-compiler-core',
+    status: 'active',
+    taskCount: benchmarkTasks.length,
+    tasks: benchmarkTasks.map((task) => ({
+      ...task,
+      scoreFocus: [...task.scoreFocus]
+    })),
+    scoreDimensions: [...scoreDimensions]
+  };
+}
+
+export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteContract): string {
+  const lines = [
+    `Benchmark suite ${contract.suiteId} (${contract.status})`,
+    `Tasks: ${contract.taskCount}`,
+    `Score dimensions: ${contract.scoreDimensions.join(', ')}`
+  ];
+
+  for (const task of contract.tasks) {
+    lines.push(
+      `Task ${task.id}: ${task.goal}; gate=${task.gate}; score=${task.scoreFocus.join(', ')}`
+    );
+  }
+
+  return lines.join('\n');
+}
