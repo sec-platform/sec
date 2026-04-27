@@ -227,6 +227,7 @@
        - 可追加到已有文件。
        - 可创建缺失目标文件。
        - 缺少 `content` 会在 planning 前被 schema 校验阻断。
+       - 目标已存在但不是文件时会在 dry-run preflight 阶段阻断。
      - `text-replace` 文本字面量替换迁移：
        - 可替换所有匹配字面量文本。
        - 缺少 `search` / `replacement` 会阻断。
@@ -364,6 +365,7 @@
          - 状态：done。
          - 执行：追加文本并创建缺失目标文件。
          - 校验：缺少 `content` 时阻断。
+         - preflight：目标已存在但不是文件时阻断。
        - text-replace：
          - 状态：done。
          - 执行：替换所有匹配字面量文本。
