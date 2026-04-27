@@ -234,7 +234,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
     errorCode: 'UPGRADE-CONFLICT-001',
     message: 'Override conflicts with upgrade',
     details: {
-      migrationId: 'mig-customer-normalizer-contract'
+      migrationId: 'mig-customer-normalizer-contract',
+      migrationKind: 'slot-contract-update',
+      entry: 'migrations/customer-normalizer-contract.json',
+      entryId: 'mig-customer-normalizer-contract-entry',
+      entryKind: 'text-replace'
     }
   };
 
@@ -278,6 +282,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       },
       { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' },
+      {
+        id: 'file:migrations/customer-normalizer-contract.json',
+        type: 'file',
+        label: 'migrations/customer-normalizer-contract.json'
+      },
       { id: 'file:upgrade.metadata.json', type: 'file', label: 'upgrade.metadata.json' }
     ])
   );
@@ -320,6 +329,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        type: 'connects_to'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
+        to: 'file:migrations/customer-normalizer-contract.json',
         type: 'connects_to'
       }
     ])

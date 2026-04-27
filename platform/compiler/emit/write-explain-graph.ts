@@ -62,13 +62,13 @@ async function readRepairPlan(workspaceRoot: string): Promise<RepairPlan | null>
   return readJson<RepairPlan>(repairPlanPath);
 }
 
-function readUpgradeDiagnosticsMigrationId(diagnostics: UpgradeDiagnostics): string | null {
+function readUpgradeDiagnosticsString(diagnostics: UpgradeDiagnostics, key: string): string | null {
   const details = diagnostics.details;
   if (typeof details !== 'object' || details === null || Array.isArray(details)) {
     return null;
   }
-  const migrationId = (details as { migrationId?: unknown }).migrationId;
-  return typeof migrationId === 'string' && migrationId.length > 0 ? migrationId : null;
+  const value = (details as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 export async function buildExplainGraph(
@@ -388,11 +388,26 @@ export async function buildExplainGraph(
       to: upgradePlan ? planNodeId : `block:${upgradeDiagnostics.blockId}`,
       type: 'connects_to'
     });
-    const migrationId = readUpgradeDiagnosticsMigrationId(upgradeDiagnostics);
+    const migrationId = readUpgradeDiagnosticsString(upgradeDiagnostics, 'migrationId');
     if (upgradePlan && migrationId) {
       pushEdge(edges, {
         from: diagnosticsNodeId,
         to: `${planNodeId}:migration:${migrationId}`,
+        type: 'connects_to'
+      });
+    }
+
+    const entry = readUpgradeDiagnosticsString(upgradeDiagnostics, 'entry');
+    if (entry) {
+      const entryNodeId = `file:${entry}`;
+      pushNode(nodes, {
+        id: entryNodeId,
+        type: 'file',
+        label: entry
+      });
+      pushEdge(edges, {
+        from: diagnosticsNodeId,
+        to: entryNodeId,
         type: 'connects_to'
       });
     }
