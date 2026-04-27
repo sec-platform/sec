@@ -450,6 +450,9 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(textResult.stdout).toContain('Benchmark suite engineering-compiler-core (active)');
     expect(textResult.stdout).toContain('Command: npm run platform -- benchmark suite --json');
     expect(textResult.stdout).toContain('Artifact paths: 11');
+    expect(textResult.stdout).toContain(
+      'Artifact path list: project/generated/acceptance-coverage.json, project/generated/explain-graph.json, project/generated/policy-report.json, project/generated/repair-plan.json, project/generated/review-summary.json, project/generated/upgrade-diagnostics.json, project/generated/upgrade-plan.json, project/generated/verification-report.json, project/graph.lock.json, project/overrides/override.manifest.yaml, project/provenance.json'
+    );
     expect(textResult.stdout).toContain('Task override-conflict: surface one override conflict during upgrade planning');
     expect(textResult.stdout).toContain('command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact');
     expect(textResult.stdout).toContain('artifacts=project/overrides/override.manifest.yaml, project/generated/upgrade-diagnostics.json, project/generated/review-summary.json');

@@ -124,6 +124,7 @@ export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteCon
     `Command: ${contract.command}`,
     `Tasks: ${contract.taskCount}`,
     `Artifact paths: ${contract.artifactPathCount}`,
+    `Artifact path list: ${contract.artifactPaths.join(', ')}`,
     `Score dimensions: ${contract.scoreDimensions.join(', ')}`
   ];
 
