@@ -163,6 +163,12 @@
        - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐。
        - P1：增加 reference workspace 无漂移 gate，证明 checked-in `project/` 与主链刷新结果一致。
        - P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。
+         - fast：默认本地 verify 与定向命名测试；禁止 Next build、Playwright install、浏览器 acceptance。
+         - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
+         - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
+         - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
+         - reference drift：固定由 `npm run reference:check` 守护 checked-in `project/`。
+         - benchmark：固定由 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。
          - `shared/types.ts`：按 plan、manifest、lock、verify、policy、provenance、review、repair、upgrade、explain 十个上下文拆分；当前保留 barrel。

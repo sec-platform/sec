@@ -130,6 +130,27 @@ test('task envelope schema stays aligned with documented AI slot contracts', asy
   expect(envelopeBuilder).toContain("'change_exports'");
 });
 
+test('error protocol and test lane map stay frozen in developer contracts', async () => {
+  const rootPackage = JSON.parse(await fs.readFile(path.join(compilerRoot, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  const routeMap = await fs.readFile(path.join(compilerRoot, 'docs', '03-MVP实施计划与路线图.md'), 'utf8');
+  const cliSource = await fs.readFile(path.join(compilerRoot, 'platform', 'cli', 'index.ts'), 'utf8');
+  const protocolSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'error-protocol.ts'), 'utf8');
+
+  expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
+  expect(rootPackage.scripts['test:benchmark-contract']).toBe('bun ./platform/dev-runner.ts benchmark-contract');
+  expect(rootPackage.scripts['reference:check']).toBe('bun ./platform/dev-runner.ts reference-clean');
+  expect(routeMap).toContain('P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。');
+  expect(protocolSource).toContain("issueType: 'usage' | 'spec' | 'composition' | 'slot' | 'kernel'");
+  expect(protocolSource).toContain("code.startsWith('VERIFY-')");
+  expect(protocolSource).toContain("code.startsWith('REPAIR-')");
+  expect(protocolSource).toContain("code.startsWith('UPGRADE-')");
+  expect(cliSource).toContain('recoverable: protocol.recoverable');
+  expect(cliSource).toContain('issueType: protocol.issueType');
+  expect(cliSource).toContain('suggestedActions: protocol.suggestedActions');
+});
+
 test('project and shared runtime manifests derive versions from the root package.json', async () => {
   const workspaceRoot = await createTempRoot('engineering-compiler-runtime-manifest-');
   const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');

@@ -27,6 +27,7 @@ import {
   warmupDependencyEnvironment,
   type DependencyCleanOptions
 } from '../shared/dependency-environment.ts';
+import { buildErrorProtocol } from '../shared/error-protocol.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   ExplainGraph,
@@ -760,9 +761,15 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   const failure = error as { code?: string; message?: string; details?: unknown };
-  console.error(failure.code ?? 'UNEXPECTED', failure.message ?? String(error));
-  if (failure.details) {
-    console.error(JSON.stringify(failure.details, null, 2));
+  const protocol = buildErrorProtocol(failure);
+  console.error(protocol.code, protocol.message);
+  console.error(JSON.stringify({
+    recoverable: protocol.recoverable,
+    issueType: protocol.issueType,
+    suggestedActions: protocol.suggestedActions
+  }));
+  if (protocol.details) {
+    console.error(JSON.stringify(protocol.details, null, 2));
   }
   process.exit(1);
 });
