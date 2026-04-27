@@ -414,6 +414,7 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
   ).length;
   const blockCount = coverageSummary?.blockCount ?? graph.overlays.coverage.blocks.length;
   const slotCount = coverageSummary?.slotCount ?? graph.overlays.coverage.slots.length;
+  const e2eMatrix = buildE2eMatrix(reviewSummary);
   const lines = [
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
     `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
@@ -439,6 +440,9 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
       `attention: ${chainSummary.attentionStageCount}`,
       `failed: ${chainSummary.failedStageCount}`
     ].join('; '),
+    ...e2eMatrix.rows.map(
+      (row) => `E2E ${row.stage}: ${row.status}; ${row.detail}; evidence=${row.evidence.join(', ') || 'none'}`
+    ),
     [
       `Impacted: ${ciSummary.impactedBlockCount} blocks`,
       `${ciSummary.impactedSlotCount} slots`,

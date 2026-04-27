@@ -1113,5 +1113,12 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).not.toContain('disk-only <failure>');
   expect(sourceView).not.toContain('Refresh <session>');
   expect(sourceView).not.toContain('unit <failed>');
+  expect(slotRuleView).toContain('E2E Chain Summary');
+  expect(slotRuleView).toContain('<th>Evidence</th>');
+  expect(slotRuleView).toContain('<td>verification</td>');
+  expect(slotRuleView).toContain('<td>ci=failed, failures=1</td>');
+  expect(slotRuleView).toContain('<td>blocks=1/2, slots=1/1</td>');
+  expect(slotRuleView).toContain('<td>total=7, missing=1</td>');
+  expect(slotRuleView).toContain('<td>review-summary=generated</td>');
   expect(slotRuleView).toContain('disk-driven-acceptance');
 });
