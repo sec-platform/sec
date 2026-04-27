@@ -12,6 +12,7 @@ export type CiContract = {
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
+  verifyCommands: string[];
   qualityCommands: string[];
   diagnosticCommands: string[];
   artifactUploadCommands: string[];
@@ -99,6 +100,9 @@ export function buildCiContract(): CiContract {
     command: 'npm run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    verifyCommands: ciSteps
+      .filter((step) => step.phase === 'verify')
+      .map((step) => step.command),
     qualityCommands: ciSteps
       .filter((step) => step.phase === 'quality')
       .map((step) => step.command),
@@ -122,6 +126,7 @@ export function formatCiContract(contract: CiContract): string {
     `Command: ${contract.command}`,
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
+    `Verify commands: ${contract.verifyCommands.join(', ')}`,
     `Quality commands: ${contract.qualityCommands.join(', ')}`,
     `Diagnostic commands: ${contract.diagnosticCommands.join(', ')}`,
     `Artifact uploads: ${contract.artifactUploadCommands.join(', ')}`,
