@@ -232,7 +232,10 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
     targetVersion: '0.2.0',
     failedCheck: 'override-conflicts',
     errorCode: 'UPGRADE-CONFLICT-001',
-    message: 'Override conflicts with upgrade'
+    message: 'Override conflicts with upgrade',
+    details: {
+      migrationId: 'mig-customer-normalizer-contract'
+    }
   };
 
   const graph = await buildExplainGraph(
@@ -312,6 +315,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         to: 'upgrade:entity/customer-basic:0.2.0',
+        type: 'connects_to'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
+        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
         type: 'connects_to'
       }
     ])

@@ -62,6 +62,15 @@ async function readRepairPlan(workspaceRoot: string): Promise<RepairPlan | null>
   return readJson<RepairPlan>(repairPlanPath);
 }
 
+function readUpgradeDiagnosticsMigrationId(diagnostics: UpgradeDiagnostics): string | null {
+  const details = diagnostics.details;
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
+    return null;
+  }
+  const migrationId = (details as { migrationId?: unknown }).migrationId;
+  return typeof migrationId === 'string' && migrationId.length > 0 ? migrationId : null;
+}
+
 export async function buildExplainGraph(
   workspaceRoot: string,
   lock: LockFile,
@@ -379,6 +388,14 @@ export async function buildExplainGraph(
       to: upgradePlan ? planNodeId : `block:${upgradeDiagnostics.blockId}`,
       type: 'connects_to'
     });
+    const migrationId = readUpgradeDiagnosticsMigrationId(upgradeDiagnostics);
+    if (upgradePlan && migrationId) {
+      pushEdge(edges, {
+        from: diagnosticsNodeId,
+        to: `${planNodeId}:migration:${migrationId}`,
+        type: 'connects_to'
+      });
+    }
   }
 
   if (repairPlan) {
