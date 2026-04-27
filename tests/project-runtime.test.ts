@@ -103,15 +103,15 @@ test('project and shared runtime manifests derive versions from the root package
   expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
 });
 
-test('project base keeps Playwright traces for failed runtime acceptance', async () => {
+test('project base keeps Playwright traces and serializes runtime acceptance', async () => {
   const workspaceRoot = await createTempRoot('engineering-compiler-runtime-trace-');
 
   await ensureProjectBase(workspaceRoot);
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  await expect(fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8')).resolves.toContain(
-    "trace: 'retain-on-failure'"
-  );
+  const playwrightConfig = await fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8');
+  expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
+  expect(playwrightConfig).toContain('workers: 1');
 });
 
 test('dependency bridge reuses the shared runtime cache when the project has no node_modules', async () => {

@@ -85,6 +85,10 @@
   - Next build。
   - runtime unit。
   - Playwright acceptance。
+  - Playwright acceptance 串行执行。
+  - 每个 workspace 派生独立 `TEST_PORT`。
+  - 避免同一内存 runtime store 被多 spec 并发污染。
+  - 避免同进程连续验证复用旧 workspace dev server。
 
 ### 当前 active 工作包
 
