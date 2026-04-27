@@ -67,7 +67,14 @@ async function withTempWorkspace<T>(callback: (workspaceRoot: string) => Promise
 function usageErrorStderr(usage: string): string {
   return [
     `UNEXPECTED ${usage}`,
-    '{"recoverable":true,"issueType":"usage","suggestedActions":["retry-with-supported-arguments"],"artifactPaths":[]}',
+    JSON.stringify({
+      code: 'UNEXPECTED',
+      message: usage,
+      recoverable: true,
+      issueType: 'usage',
+      suggestedActions: ['retry-with-supported-arguments'],
+      artifactPaths: []
+    }),
     ''
   ].join('\n');
 }

@@ -206,7 +206,7 @@
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
-       - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域；当前已暴露 suggestedActions 与 diagnostic artifact paths。
+       - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域；当前已在 stderr JSON 暴露 code、message、suggestedActions 与 diagnostic artifact paths。
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。
          - `shared/types.ts`：按 plan、manifest、lock、verify、policy、provenance、review、repair、upgrade、explain 十个上下文拆分；当前保留 barrel。
          - `orchestrator.ts`：后续收敛为 workspace lifecycle、pipeline workflow、artifact/governance workflow 三层；当前文件只保留门面角色。
