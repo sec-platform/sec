@@ -169,6 +169,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
 
     expect(repairPlan.status).toBe('applied');
     expect(repairPlan.requiresVerification).toBe(true);
+    expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
     expect(repairPlan.tasks[0].allowedPaths).toEqual(['custom/customer_normalizer.ts']);
     expect(writtenSource).toContain('// @generated task:fill_slot_customer_normalizer');
     expect(writtenSource).toContain('export function normalizeCustomerInput');
@@ -177,6 +178,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     expect(persistedLock.passStatus.verify).toBe('pending');
     expect(persistedRepairPlan.status).toBe('applied');
     expect(persistedRepairPlan.requiresVerification).toBe(true);
+    expect(persistedRepairPlan.tasks[0].category).toBe('slot-rewrite');
     expect(persistedLock.slotTasks[0].status).toBe('filled');
     expect(persistedLock.generatedPaths).toContain('generated/repair-plan.json');
     expect(persistedRepairPlan.tasks[0].failurePoints).toEqual(
@@ -205,6 +207,7 @@ test('repair dry-run writes a pending plan without touching source or verificati
 
     expect(repairPlan.status).toBe('pending');
     expect(repairPlan.requiresVerification).toBe(false);
+    expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
     expect(repairPlan.tasks[0].preview).toMatchObject({
       beforeLines: 1,
       changed: true
@@ -273,7 +276,10 @@ test('repair CLI reports applied plans as verify pending', async () => {
     const result = await runCli(workspaceRoot, ['repair']);
 
     expect(result.code).toBe(0);
-    expect(result.stdout.trim()).toBe('Repair applied (1 tasks); verify pending');
+    expect(result.stdout).toContain('Repair applied (1 tasks, 0 blockers); verify pending');
+    expect(result.stdout).toContain('Source verification: failed; requires verification: true');
+    expect(result.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
+    expect(result.stdout).toContain('Failure fast/unit; issue=slot; repairable=true; unit assertion failed');
     expect(result.stderr).toBe('');
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -288,7 +294,11 @@ test('repair CLI reports dry-run plans without applying them', async () => {
     const result = await runCli(workspaceRoot, ['repair', '--dry-run']);
 
     expect(result.code).toBe(0);
-    expect(result.stdout.trim()).toBe('Repair pending (1 tasks) (dry-run)');
+    expect(result.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
+    expect(result.stdout).toContain('Source verification: failed; requires verification: false');
+    expect(result.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
+    expect(result.stdout).toContain('Preview repair_slot_customer_normalizer: changed=true;');
+    expect(result.stdout).toContain('Failure fast/unit; issue=slot; repairable=true; unit assertion failed');
     expect(result.stderr).toBe('');
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });

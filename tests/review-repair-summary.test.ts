@@ -86,6 +86,7 @@ test('review summary surfaces pending repair tasks', async () => {
         {
           taskId: 'repair_slot_zeta',
           taskKind: 'repair-slot',
+          category: 'slot-rewrite',
           phase: 'repair',
           sourceSlotId: 'zeta',
           targetBlock: 'entity/customer-basic',
@@ -187,11 +188,13 @@ test('review summary surfaces pending repair tasks', async () => {
           { id: 'repairable', count: 2 }
         ]
       },
+      taskCategorySummaries: [{ id: 'slot-rewrite', count: 2 }],
       targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
     });
     expect(summary.repairSummary?.taskSummaries).toEqual([
       {
         taskId: 'repair_slot_alpha',
+        category: 'slot-rewrite',
         sourceSlotId: 'alpha',
         targetBlock: 'entity/customer-basic',
         targetFile: 'custom/alpha.ts',
@@ -203,6 +206,7 @@ test('review summary surfaces pending repair tasks', async () => {
       },
       {
         taskId: 'repair_slot_zeta',
+        category: 'slot-rewrite',
         sourceSlotId: 'zeta',
         targetBlock: 'entity/customer-basic',
         targetFile: 'custom/zeta.ts',

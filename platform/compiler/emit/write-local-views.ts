@@ -812,10 +812,12 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
   ]
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
     .join('');
+  const categoryRows = renderTaxonomyRows(repair.taskCategorySummaries);
   const taskRows = repair.taskSummaries
     .map(
       (task) => `<tr>
           <td>${escapeHtml(task.taskId)}</td>
+          <td>${escapeHtml(task.category)}</td>
           <td>${escapeHtml(task.previewStatus)}</td>
           <td>${escapeHtml(`${task.addedLines}/-${task.removedLines}`)}</td>
           <td>${escapeHtml(String(task.failurePointCount))}</td>
@@ -863,10 +865,15 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
             <tbody>${repairabilityRows || '<tr><td colspan="2">No repairability states.</td></tr>'}</tbody>
           </table>
         </div>
+        <h3>Repair Task Category Summary</h3>
+        <table>
+          <thead><tr><th>Category</th><th>Count</th></tr></thead>
+          <tbody>${categoryRows || '<tr><td colspan="2">No repair task categories.</td></tr>'}</tbody>
+        </table>
         <h3>Repair Task Summary</h3>
         <table>
-          <thead><tr><th>Task</th><th>Preview</th><th>Delta</th><th>Failure Points</th><th>Targets</th></tr></thead>
-          <tbody>${taskRows || '<tr><td colspan="5">No repair tasks.</td></tr>'}</tbody>
+          <thead><tr><th>Task</th><th>Category</th><th>Preview</th><th>Delta</th><th>Failure Points</th><th>Targets</th></tr></thead>
+          <tbody>${taskRows || '<tr><td colspan="6">No repair tasks.</td></tr>'}</tbody>
         </table>
         <h3>Repair Blocker Summary</h3>
         <table>
@@ -900,7 +907,19 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
         ? `${task.preview.changed ? 'changed' : 'unchanged'}; +${task.preview.addedLines}/-${task.preview.removedLines}; ${task.preview.beforeLines} -> ${task.preview.afterLines} lines`
         : '';
       const targets = task.failurePoints.flatMap((point) => point.targetIds ?? []).join(', ');
-      return `<tr><td>${escapeHtml(task.taskId)}</td><td>${escapeHtml(task.sourceSlotId)}</td><td>${escapeHtml(task.targetBlock)}</td><td>${escapeHtml(task.targetFile)}</td><td>${escapeHtml(task.allowedPaths.join(', '))}</td><td>${escapeHtml(task.requiredSymbols.join(', '))}</td><td>${escapeHtml(task.forbiddenOperations.join(', '))}</td><td>${escapeHtml(task.failureSummary)}</td><td>${escapeHtml(targets)}</td><td>${escapeHtml(preview)}</td></tr>`;
+      return `<tr>
+          <td>${escapeHtml(task.taskId)}</td>
+          <td>${escapeHtml(task.category ?? 'slot-rewrite')}</td>
+          <td>${escapeHtml(task.sourceSlotId)}</td>
+          <td>${escapeHtml(task.targetBlock)}</td>
+          <td>${escapeHtml(task.targetFile)}</td>
+          <td>${escapeHtml(task.allowedPaths.join(', '))}</td>
+          <td>${escapeHtml(task.requiredSymbols.join(', '))}</td>
+          <td>${escapeHtml(task.forbiddenOperations.join(', '))}</td>
+          <td>${escapeHtml(task.failureSummary)}</td>
+          <td>${escapeHtml(targets)}</td>
+          <td>${escapeHtml(preview)}</td>
+        </tr>`;
     })
     .join('');
 
@@ -909,7 +928,21 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
         <p>${escapeHtml(repairPlan.status)} | source verification: ${escapeHtml(repairPlan.sourceVerificationStatus)} | requires verification: ${escapeHtml(String(repairPlan.requiresVerification))}</p>
         ${blockerTable}
         <table>
-          <thead><tr><th>Task</th><th>Slot</th><th>Block</th><th>Target File</th><th>Allowed Paths</th><th>Required Symbols</th><th>Forbidden Operations</th><th>Failure Summary</th><th>Failure Targets</th><th>Preview</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Category</th>
+              <th>Slot</th>
+              <th>Block</th>
+              <th>Target File</th>
+              <th>Allowed Paths</th>
+              <th>Required Symbols</th>
+              <th>Forbidden Operations</th>
+              <th>Failure Summary</th>
+              <th>Failure Targets</th>
+              <th>Preview</th>
+            </tr>
+          </thead>
           <tbody>${taskRows}</tbody>
         </table>
       </section>`;

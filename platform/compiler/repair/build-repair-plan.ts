@@ -228,6 +228,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
       return {
         taskId: `repair_slot_${task.id}`,
         taskKind: 'repair-slot',
+        category: 'slot-rewrite',
         phase: 'repair',
         sourceSlotId: task.id,
         targetBlock: task.block,

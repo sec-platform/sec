@@ -361,12 +361,14 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         issueTypeSummaries: Array<{ id: string; count: number }>;
         repairabilitySummaries: Array<{ id: string; count: number }>;
       };
+      taskCategorySummaries: Array<{ id: string; count: number }>;
       targetFiles: string[];
       taskSummaries: Array<{
         taskId: string;
         sourceSlotId: string;
         targetBlock: string;
         targetFile: string;
+        category: string;
         previewStatus: 'changed' | 'unchanged' | 'missing';
         addedLines: number;
         removedLines: number;
@@ -614,6 +616,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         { id: 'repairable', count: 1 }
       ]
     },
+    taskCategorySummaries: [{ id: 'slot-rewrite', count: 1 }],
     targetFiles: ['custom/customer_normalizer.ts'],
     taskSummaries: [
       {
@@ -621,6 +624,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         sourceSlotId: 'customer_normalizer',
         targetBlock: 'entity/customer-basic',
         targetFile: 'custom/customer_normalizer.ts',
+        category: 'slot-rewrite',
         previewStatus: 'changed',
         addedLines: 4,
         removedLines: 1,
@@ -1007,6 +1011,9 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<th>Issue Type</th><th>Count</th>');
   expect(sourceView).toContain('<td>spec</td><td>1</td>');
   expect(sourceView).toContain('<td>repairable</td><td>1</td>');
+  expect(sourceView).toContain('Repair Task Category Summary');
+  expect(sourceView).toContain('<th>Category</th><th>Count</th>');
+  expect(sourceView).toContain('<td>slot-rewrite</td><td>1</td>');
   expect(sourceView).toContain('Repair Task Summary');
   expect(sourceView).toContain('Repair Blocker Summary');
   expect(sourceView).toContain('Repair Plan');
@@ -1022,6 +1029,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('normalizeCustomerInput');
   expect(sourceView).toContain('write outside custom/customer_normalizer.ts');
   expect(sourceView).toContain('Failure Targets');
+  expect(sourceView).toContain('Category');
   expect(sourceView).toContain('customer-normalizer.test.ts');
   expect(sourceView).toContain('changed; +4/-1; 1 -&gt; 4 lines');
   expect(sourceView).toContain('repair_customer_normalizer');
