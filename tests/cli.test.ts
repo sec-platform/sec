@@ -806,6 +806,17 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     ]);
     expect(contractPathsJsonResult.code).toBe(0);
     expect(contractPathsJsonResult.stderr).toBe('');
+    const contractPathsCompactResult = await runCli(workspaceRoot, [
+      'artifacts',
+      '--paths',
+      '--json',
+      '--compact',
+      '--kind',
+      'contract'
+    ]);
+    expect(contractPathsCompactResult.code).toBe(0);
+    expect(contractPathsCompactResult.stderr).toBe('');
+    expect(contractPathsCompactResult.stdout.trim()).not.toContain('\n');
     const contractPathsJson = JSON.parse(contractPathsJsonResult.stdout) as {
       kind: string;
       count: number;
@@ -826,6 +837,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         }
       ]
     });
+    expect(JSON.parse(contractPathsCompactResult.stdout)).toEqual(contractPathsJson);
 
     const explainWithContractResult = await runCli(workspaceRoot, ['explain']);
     expect(explainWithContractResult.code).toBe(0);
@@ -1627,22 +1639,27 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])')
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
+    });
+    await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
     });
     await expect(runCli(workspaceRoot, ['doctor', '--extra'])).resolves.toMatchObject({
       code: 1,
