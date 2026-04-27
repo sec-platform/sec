@@ -531,6 +531,7 @@ async function main(): Promise<void> {
         const pathSummary = artifactUploadPathSummary(manifest, artifactsArgs.kind);
         if (artifactsArgs.json) {
           console.log(JSON.stringify({
+            artifactStatus: manifest.summary.artifactStatus,
             count: pathSummary.paths.length,
             paths: pathSummary.paths,
             byKind: pathSummary.byKind,

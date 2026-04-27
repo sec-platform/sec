@@ -530,6 +530,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(testPathsJsonResult.code).toBe(0);
     expect(testPathsJsonResult.stderr).toBe('');
     expect(JSON.parse(testPathsJsonResult.stdout)).toEqual({
+      artifactStatus: 'attention',
       count: 1,
       paths: ['project/test-results/**'],
       byKind: {
@@ -622,6 +623,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(pathsJsonResult.code).toBe(0);
     expect(pathsJsonResult.stderr).toBe('');
     const pathsJson = JSON.parse(pathsJsonResult.stdout) as {
+      artifactStatus: 'passed' | 'attention';
       count: number;
       paths: string[];
       byKind: Record<string, number>;
@@ -629,6 +631,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       missingReasonCounts: Record<string, number>;
       missing: typeof fixedMissingDiagnostics;
     };
+    expect(pathsJson.artifactStatus).toBe('attention');
     expect(pathsJson.count).toBe(uploadPaths.length);
     expect(pathsJson.paths).toEqual(uploadPaths);
     expect(pathsJson.byKind.view).toBe(
