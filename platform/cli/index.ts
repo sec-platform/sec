@@ -74,7 +74,7 @@ const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json]';
-const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
+const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
@@ -201,7 +201,9 @@ function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean } {
   return { dryRun, json };
 }
 
-function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: string; dryRun: boolean; json: boolean } {
+function parseUpgradeArgs(
+  args: string[]
+): { blockId: string; targetVersion: string; dryRun: boolean; json: boolean; compact: boolean } {
   if (args.length < 2) {
     throw new Error(UPGRADE_USAGE);
   }
@@ -209,6 +211,7 @@ function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: str
   const [blockId, targetVersion, ...flags] = args;
   let dryRun = false;
   let json = false;
+  let compact = false;
   for (const flag of flags) {
     if (flag === '--dry-run' && !dryRun) {
       dryRun = true;
@@ -218,10 +221,14 @@ function parseUpgradeArgs(args: string[]): { blockId: string; targetVersion: str
       json = true;
       continue;
     }
+    if (flag === '--compact' && json && !compact) {
+      compact = true;
+      continue;
+    }
     throw new Error(UPGRADE_USAGE);
   }
 
-  return { blockId, targetVersion, dryRun, json };
+  return { blockId, targetVersion, dryRun, json, compact };
 }
 
 function parseExplainArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -1390,7 +1397,7 @@ async function main(): Promise<void> {
         dryRun: upgradeArgs.dryRun
       });
       if (upgradeArgs.json) {
-        console.log(JSON.stringify(upgradePlan, null, 2));
+        console.log(JSON.stringify(upgradePlan, null, upgradeArgs.compact ? 0 : 2));
         return;
       }
       console.log(formatUpgradeSummary(upgradePlan, upgradeArgs.dryRun));
