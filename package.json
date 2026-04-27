@@ -14,6 +14,8 @@
     "test:watch": "bun ./platform/dev-runner.ts test --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
     "test:budget": "bun ./platform/dev-runner.ts test-budget",
+    "test:benchmark-contract": "bun ./platform/dev-runner.ts benchmark-contract",
+    "reference:check": "bun ./platform/dev-runner.ts reference-clean",
     "test:bun": "bun test tests/",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
