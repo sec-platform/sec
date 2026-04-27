@@ -49,7 +49,7 @@
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 review summary、CLI explain 和本地视图 provenance 摘要。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
-| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
+| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
@@ -600,7 +600,82 @@
      - CLI explain 能一眼看到 provenance 风险面。
      - local view 能审查 origin/override/registry/pass 明细。
 
-6. **计划与进度显式化**
+6. **install impact 可审查化**
+   - 状态：done
+   - 总目标：
+     - 让安装影响不只停留在逐 block 明细。
+     - 让纵切面、动作、runtime entry 和目标路径聚合可被 review/CLI/local view 直接消费。
+     - 为后续团队 review assist 提供“本次组合影响面”的稳定摘要。
+   - 已完成：
+     - install impact summary 进入 `generated/review-summary.json`：
+       - impact count。
+       - block count。
+       - action kind count。
+       - source root count。
+       - target path count。
+       - vertical count。
+       - runtime entry count。
+       - group count。
+     - install impact 全局集合：
+       - blocks。
+       - action kinds。
+       - source roots。
+       - target paths。
+       - verticals。
+       - runtime entries。
+     - install impact group summary：
+       - vertical。
+       - block count。
+       - action kind count。
+       - runtime entry count。
+       - target path count。
+       - blocks。
+       - action kinds。
+       - runtime entries。
+       - target paths。
+     - CLI `explain` 普通文本显示：
+       - impact count。
+       - group count。
+       - action kinds。
+       - runtime entry count。
+       - target path count。
+     - local Source View 显示：
+       - Install Impact Summary 指标表。
+       - Impact Groups。
+       - Impact Details。
+   - 当前阶段拆分：
+     - 阶段 1：install impacts 到 review summary 聚合。
+     - 阶段 2：review summary 到 CLI explain。
+     - 阶段 3：review summary 到 local Source View。
+   - 连续功能切口：
+     - 切口 A：统一 install impact 数量口径：
+       - impacts。
+       - blocks。
+       - actions。
+       - sources。
+       - targets。
+       - verticals。
+       - runtime entries。
+     - 切口 B：统一纵切面分组口径：
+       - vertical。
+       - blocks。
+       - actions。
+       - runtime entries。
+       - targets。
+     - 切口 C：把 install impact 放到审查入口：
+       - review summary JSON。
+       - CLI explain 文本。
+       - local Source View HTML。
+   - 每个切口的验证口径：
+     - `tests/review-summary.test.ts`。
+     - `tests/cli.test.ts`。
+     - `tests/pipeline.test.ts`。
+   - 完成定义：
+     - review summary 能独立说明安装影响聚合面。
+     - CLI explain 能一眼看到安装影响大小。
+     - local view 能审查 vertical/action/runtime/target 分组。
+
+7. **计划与进度显式化**
    - 状态：active
    - 总目标：
      - 把未来计划和当前进度固定在 repo 文档中。

@@ -358,7 +358,13 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
 }
 
 function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
-  const { artifactSummary, ciSummary, coverageSummary, provenanceSummary } = reviewSummary;
+  const {
+    artifactSummary,
+    ciSummary,
+    coverageSummary,
+    installImpactSummary,
+    provenanceSummary
+  } = reviewSummary;
   const uncoveredBlocks = coverageSummary?.uncoveredBlockCount ?? graph.overlays.coverage.blocks.filter(
     (block) => block.coveredBy.length === 0
   ).length;
@@ -403,6 +409,16 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
       ].join('; ')
     );
   }
+
+  lines.push(
+    [
+      `Install impact: ${installImpactSummary.impactCount} impacts`,
+      `groups: ${installImpactSummary.groupCount}`,
+      `actions: ${installImpactSummary.actionKinds.join(', ') || 'none'}`,
+      `runtime entries: ${installImpactSummary.runtimeEntryCount}`,
+      `targets: ${installImpactSummary.targetPathCount}`
+    ].join('; ')
+  );
 
   if (provenanceSummary) {
     lines.push(

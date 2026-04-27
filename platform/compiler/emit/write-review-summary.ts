@@ -526,6 +526,73 @@ function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
   return [...impacts.values()].sort((left, right) => left.blockId.localeCompare(right.blockId));
 }
 
+function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): ReviewSummary['installImpactSummary'] {
+  const blocks = unique(installImpacts.map((impact) => impact.blockId));
+  const actionKinds = unique(installImpacts.flatMap((impact) => impact.actionKinds));
+  const sourceRoots = unique(installImpacts.flatMap((impact) => impact.sourceRoots));
+  const targetPaths = unique(installImpacts.flatMap((impact) => impact.targetPaths));
+  const verticals = unique(installImpacts.flatMap((impact) => impact.verticals));
+  const runtimeEntries = unique(installImpacts.flatMap((impact) => impact.runtimeEntries));
+  const groups = new Map<
+    string,
+    {
+      blocks: string[];
+      actionKinds: string[];
+      runtimeEntries: string[];
+      targetPaths: string[];
+    }
+  >();
+
+  for (const impact of installImpacts) {
+    const impactVerticals = impact.verticals.length > 0 ? impact.verticals : ['none'];
+    for (const vertical of impactVerticals) {
+      const group = groups.get(vertical) ?? {
+        blocks: [],
+        actionKinds: [],
+        runtimeEntries: [],
+        targetPaths: []
+      };
+      group.blocks = unique([...group.blocks, impact.blockId]);
+      group.actionKinds = unique([...group.actionKinds, ...impact.actionKinds]);
+      group.runtimeEntries = unique([...group.runtimeEntries, ...impact.runtimeEntries]);
+      group.targetPaths = unique([...group.targetPaths, ...impact.targetPaths]);
+      groups.set(vertical, group);
+    }
+  }
+
+  const groupSummaries = [...groups.entries()]
+    .map(([vertical, group]) => ({
+      vertical,
+      blockCount: group.blocks.length,
+      actionKindCount: group.actionKinds.length,
+      runtimeEntryCount: group.runtimeEntries.length,
+      targetPathCount: group.targetPaths.length,
+      blocks: group.blocks,
+      actionKinds: group.actionKinds,
+      runtimeEntries: group.runtimeEntries,
+      targetPaths: group.targetPaths
+    }))
+    .sort((left, right) => left.vertical.localeCompare(right.vertical));
+
+  return {
+    impactCount: installImpacts.length,
+    blockCount: blocks.length,
+    actionKindCount: actionKinds.length,
+    sourceRootCount: sourceRoots.length,
+    targetPathCount: targetPaths.length,
+    verticalCount: verticals.length,
+    runtimeEntryCount: runtimeEntries.length,
+    groupCount: groupSummaries.length,
+    blocks,
+    actionKinds,
+    sourceRoots,
+    targetPaths,
+    verticals,
+    runtimeEntries,
+    groupSummaries
+  };
+}
+
 export async function buildReviewSummary(
   workspaceRoot: string,
   lock: LockFile,
@@ -772,6 +839,7 @@ export async function buildReviewSummary(
   const runtimeEntryByPath = new Map(runtimeEntries.map((entry) => [entry.path, entry]));
   const artifactSummary = await readArtifactSummary(workspaceRoot);
   const installImpacts = buildInstallImpacts(lock);
+  const installImpactSummary = buildInstallImpactSummary(installImpacts);
   const impactedBlocks = unique(lock.resolvedBlocks.map((block) => block.id));
   const impactedSlots = unique(lock.slotTasks.map((task) => task.id));
   const sortedFailurePoints = [...failurePoints].sort(compareFailurePoints);
@@ -819,6 +887,7 @@ export async function buildReviewSummary(
     runtimeEntries,
     verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
     installImpacts,
+    installImpactSummary,
     impactedBlocks,
     impactedSlots,
     failurePoints: sortedFailurePoints,

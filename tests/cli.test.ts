@@ -284,6 +284,8 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(textResult.stdout).toContain('Provenance detail: artifacts:');
     expect(textResult.stdout).toContain('registry:');
     expect(textResult.stdout).toContain('unverified:');
+    expect(textResult.stdout).toContain('Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;');
+    expect(textResult.stdout).toContain('runtime entries: 0; targets: 6');
     expect(textResult.stdout).toContain(
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
     );
@@ -330,6 +332,21 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
           violationCount: number;
           sourceSummaries: Array<{ scope: string; path: string; policyIds: string[] }>;
           mergedSummaries: Array<{ id: string; targetCount: number; targets: string[] }>;
+        };
+        installImpactSummary: {
+          impactCount: number;
+          groupCount: number;
+          blockCount: number;
+          actionKinds: string[];
+          runtimeEntryCount: number;
+          targetPathCount: number;
+          groupSummaries: Array<{
+            vertical: string;
+            blockCount: number;
+            actionKinds: string[];
+            runtimeEntries: string[];
+            targetPaths: string[];
+          }>;
         };
         impactedBlocks: string[];
         failurePoints: unknown[];
@@ -415,6 +432,38 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
           targets: ['src/installed/entity/customer-service.ts']
         }
       ]
+    });
+    expect(payload.reviewSummary.installImpactSummary).toMatchObject({
+      impactCount: 3,
+      groupCount: 2,
+      blockCount: 3,
+      actionKinds: ['copy', 'merge-prisma'],
+      runtimeEntryCount: 0,
+      targetPathCount: 6,
+      groupSummaries: expect.arrayContaining([
+        expect.objectContaining({
+          vertical: 'customer',
+          blockCount: 1,
+          actionKinds: ['copy', 'merge-prisma'],
+          runtimeEntries: [],
+          targetPaths: expect.arrayContaining([
+            'prisma/schema.prisma',
+            'src/installed/entity/customer-service.ts',
+            'tests/acceptance/customer-flow.test.ts',
+            'tests/unit/customer-normalizer.test.ts'
+          ])
+        }),
+        expect.objectContaining({
+          vertical: 'none',
+          blockCount: 2,
+          actionKinds: ['copy'],
+          runtimeEntries: [],
+          targetPaths: expect.arrayContaining([
+            'src/installed/auth/session.ts',
+            'src/installed/tenant/context.ts'
+          ])
+        })
+      ])
     });
     expect(payload.reviewSummary.impactedBlocks).toEqual(
       expect.arrayContaining([

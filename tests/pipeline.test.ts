@@ -416,6 +416,33 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
     installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;
+    installImpactSummary: {
+      impactCount: number;
+      blockCount: number;
+      actionKindCount: number;
+      sourceRootCount: number;
+      targetPathCount: number;
+      verticalCount: number;
+      runtimeEntryCount: number;
+      groupCount: number;
+      blocks: string[];
+      actionKinds: string[];
+      sourceRoots: string[];
+      targetPaths: string[];
+      verticals: string[];
+      runtimeEntries: string[];
+      groupSummaries: Array<{
+        vertical: string;
+        blockCount: number;
+        actionKindCount: number;
+        runtimeEntryCount: number;
+        targetPathCount: number;
+        blocks: string[];
+        actionKinds: string[];
+        runtimeEntries: string[];
+        targetPaths: string[];
+      }>;
+    };
     failurePoints: Array<{ lane: 'fast' | 'runtime' | 'all'; kind: string; artifactPath: string; message: string }>;
     regressionRisks: unknown[];
     conflictHints: unknown[];
@@ -893,6 +920,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>customer</td>\n          <td>api</td>');
   expect(sourceView).toContain('entity/customer-basic');
   expect(sourceView).toContain('Install Impact Summary');
+  expect(sourceView).toContain('<td>Impacts</td><td>3</td>');
+  expect(sourceView).toContain('<td>Target Paths</td><td>6</td>');
   expect(sourceView).toContain('Impact Groups');
   expect(sourceView).toContain('Impact Details');
   expect(sourceView).toContain('Policy Summary');
