@@ -1101,6 +1101,129 @@ function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Re
   }, {});
 }
 
+function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradePlan['migrationOperations'][number] {
+  if (entry.kind === 'file-replace' || entry.kind === 'copy-file') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'file',
+      source: entry.source
+    };
+  }
+
+  if (entry.kind === 'copy-directory') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'directory',
+      source: entry.source
+    };
+  }
+
+  if (entry.kind === 'create-directory' || entry.kind === 'delete-directory') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'directory'
+    };
+  }
+
+  if (entry.kind === 'delete-file') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'file'
+    };
+  }
+
+  if (entry.kind === 'rename-file') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'file',
+      source: entry.source
+    };
+  }
+
+  if (entry.kind === 'config-rewrite') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'json',
+      updateCount: entry.updates.length
+    };
+  }
+
+  if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'json',
+      path: [...entry.path],
+      itemCount: entry.items.length
+    };
+  }
+
+  if (entry.kind === 'json-object-merge') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'json',
+      path: [...entry.path],
+      valueKeyCount: Object.keys(entry.value).length
+    };
+  }
+
+  if (entry.kind === 'text-append') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'text',
+      contentLength: entry.content.length
+    };
+  }
+
+  if (entry.kind === 'text-replace') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'text',
+      searchLength: entry.search.length,
+      replacementLength: entry.replacement.length
+    };
+  }
+
+  if (entry.kind === 'text-replace-regex') {
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      target: entry.target,
+      role: 'text',
+      pattern: entry.pattern,
+      replacementLength: entry.replacement.length,
+      ...(entry.flags ? { flags: entry.flags } : {})
+    };
+  }
+
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    target: entry.target,
+    role: 'slot',
+    slotId: entry.slotId
+  };
+}
+
 function buildUpgradePlan(
   blockId: string,
   fromVersion: string,
@@ -1138,7 +1261,8 @@ function buildUpgradePlan(
             : {}
         )
       };
-    })
+    }),
+    migrationOperations: migrationEntries.map(buildMigrationOperation)
   };
 }
 

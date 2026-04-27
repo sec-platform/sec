@@ -1668,10 +1668,13 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       'Migration mig-auth-session-refresh: file-replace;'
     );
     expect(textResult.stdout).toContain(
-      'target=src/installed/auth/session.ts; source=files/src/installed/auth/session.ts; requiresVerification=true'
+      'target=src/installed/auth/session.ts; source=files/src/installed/auth/session.ts; role=file; requiresVerification=true'
     );
     expect(textResult.stdout).toContain(
       'Migration mig-auth-session-upgrade-metadata: json-array-append;'
+    );
+    expect(textResult.stdout).toContain(
+      'target=upgrade.metadata.json; role=json; path=upgradedBlocks; items=1; requiresVerification=false'
     );
     expect(textResult.stdout).toContain('Preflight version-range: passed; evidence=');
     expect(textResult.stdout).toContain('Preflight migration-entries: passed; evidence=');
@@ -1698,6 +1701,23 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       }
     });
     expect(upgradePlan.impacts).toEqual(['src/installed/auth/session.ts', 'upgrade.metadata.json']);
+    expect(upgradePlan.migrationOperations).toEqual([
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        role: 'file',
+        source: 'files/src/installed/auth/session.ts'
+      },
+      {
+        id: 'mig-auth-session-upgrade-metadata',
+        kind: 'json-array-append',
+        target: 'upgrade.metadata.json',
+        role: 'json',
+        path: ['upgradedBlocks'],
+        itemCount: 1
+      }
+    ]);
 
     await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
       code: 0,
