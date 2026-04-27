@@ -48,6 +48,8 @@ function renderCiSummaryCard(review: ReviewSummary): string {
         ['Governance Artifacts', String(review.artifactSummary.governanceCount)],
         ['View Artifacts', String(review.artifactSummary.viewCount)],
         ['Test Artifacts', String(review.artifactSummary.testCount ?? 0)],
+        ['Contract Artifacts', String(review.artifactSummary.contractCount ?? 0)],
+        ['Contract Paths', review.artifactSummary.contractPaths?.join(', ') || 'none'],
         ['Upload Groups', String(review.artifactSummary.uploadGroups?.length ?? 0)],
         ['Missing Artifacts', String(review.artifactSummary.missingCount)],
         ['Missing Reason Types', String(nonzeroMissingReasonCount)]

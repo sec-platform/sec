@@ -295,6 +295,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       artifactCount: number;
       governanceCount: number;
       viewCount: number;
+      contractCount?: number;
+      contractPaths?: string[];
       missingCount: number;
       missingReasonCounts?: Record<string, number>;
       uploadGroups?: Array<{ kind: string; count: number; paths: string[] }>;
@@ -579,6 +581,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     artifactCount: 7,
     governanceCount: 5,
     viewCount: 2,
+    contractCount: 1,
+    contractPaths: ['generated/postgres-contract.json'],
     missingCount: 1,
     missingReasonCounts: {
       'declared-generated-missing': 1,
@@ -954,6 +958,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('slot &lt;coverage&gt; &amp; smoke');
   expect(sourceView).toContain('Missing Reason Summary');
   expect(sourceView).toContain('declared-generated-missing');
+  expect(sourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
+  expect(sourceView).toContain('<td>Contract Paths</td><td>generated/postgres-contract.json</td>');
   expect(sourceView).toContain('Artifact Upload Groups');
   expect(sourceView).toContain('generated/review-summary.json, generated/ci-artifacts.json');
   expect(sourceView).toContain('generated/views/source-view.html, generated/views/slot-rule-view.html');

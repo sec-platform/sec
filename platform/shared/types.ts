@@ -722,6 +722,8 @@ export interface ReviewArtifactSummary {
   governanceCount: number;
   viewCount: number;
   testCount?: number;
+  contractCount?: number;
+  contractPaths?: string[];
   missingCount: number;
   missingReasonCounts?: Record<string, number>;
   uploadGroups?: ReviewArtifactUploadGroup[];
