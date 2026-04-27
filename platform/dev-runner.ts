@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { getContractFreezeTargets } from './shared/contract-freeze-contract.ts';
 import { ensureSharedDepsReady } from './shared/project-runtime.ts';
 import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
@@ -10,45 +11,8 @@ function usage(): never {
   process.exit(1);
 }
 
-type ContractFreezeTarget = {
-  file: string;
-  testNamePattern?: string;
-};
-
-function contractFreezeTargets(): ContractFreezeTarget[] {
-  return [
-    {
-      file: 'tests/cli.test.ts',
-      testNamePattern: [
-        'CLI prints usage for missing or unknown commands',
-        'CLI exposes doctor as text and JSON readiness contracts',
-        'CLI exposes dependency environment maintenance entrypoints',
-        'CLI exposes reference drift check as text and JSON contracts',
-        'CLI exposes benchmark task-suite as text and JSON contracts',
-        'CLI exposes test budget as text and JSON contracts',
-        'CLI emits explain JSON for CI consumers',
-        'CLI emits artifact manifest JSON for CI upload consumers',
-        'CLI reports argument usage errors'
-      ].join('|')
-    },
-    {
-      file: 'tests/project-runtime.test.ts',
-      testNamePattern: [
-        'root package exposes demo scripts through the existing platform chain',
-        'test budget and benchmark contracts document slow lanes and task-suite scope',
-        'error protocol, closed loop entry, and test lane map stay frozen in developer contracts',
-        'reference refresh and shared cache contract stay anchored in repo metadata'
-      ].join('|')
-    },
-    {
-      file: 'tests/pipeline.test.ts',
-      testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
-    }
-  ];
-}
-
 async function runContractFreeze(): Promise<number> {
-  for (const target of contractFreezeTargets()) {
+  for (const target of getContractFreezeTargets()) {
     const args = ['test', target.file];
     if (target.testNamePattern) {
       args.push('--test-name-pattern', target.testNamePattern);

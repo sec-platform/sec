@@ -31,6 +31,10 @@ import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../shared/benchmark-contract.ts';
+import {
+  buildContractFreezeContract,
+  formatContractFreezeContract
+} from '../shared/contract-freeze-contract.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
 import {
   buildTestBudgetContract,
@@ -51,7 +55,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -68,6 +72,7 @@ const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
+const CONTRACT_USAGE = 'Usage: platform contract freeze [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps status [--json [--compact]]',
@@ -329,6 +334,22 @@ function parseTestOutputArgs(args: string[]): { json: boolean; compact: boolean 
     return { json: true, compact: true };
   }
   throw new Error(TEST_USAGE);
+}
+
+function parseContractOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(CONTRACT_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(CONTRACT_USAGE);
 }
 
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -766,6 +787,21 @@ async function runTestCommand(args: string[]): Promise<void> {
   console.log(formatTestBudgetContract(contract));
 }
 
+async function runContractCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'freeze') {
+    throw new Error(CONTRACT_USAGE);
+  }
+
+  const outputArgs = parseContractOutputArgs(args.slice(1));
+  const contract = buildContractFreezeContract();
+  if (outputArgs.json) {
+    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatContractFreezeContract(contract));
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
@@ -911,6 +947,9 @@ async function main(): Promise<void> {
       return;
     case 'test':
       await runTestCommand(args);
+      return;
+    case 'contract':
+      await runContractCommand(args);
       return;
     default:
       console.log(USAGE);
