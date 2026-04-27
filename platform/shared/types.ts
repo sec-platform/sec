@@ -118,6 +118,14 @@ export interface UpgradeFileReplaceMigrationEntry {
   target: string;
 }
 
+export interface UpgradeCopyFileMigrationEntry {
+  id: string;
+  kind: 'copy-file';
+  reason: string;
+  source: string;
+  target: string;
+}
+
 export interface UpgradeCopyDirectoryMigrationEntry {
   id: string;
   kind: 'copy-directory';
@@ -218,6 +226,7 @@ export interface UpgradeSlotContractUpdateMigrationEntry {
 
 export type UpgradeMigrationEntry =
   | UpgradeFileReplaceMigrationEntry
+  | UpgradeCopyFileMigrationEntry
   | UpgradeCopyDirectoryMigrationEntry
   | UpgradeConfigRewriteMigrationEntry
   | UpgradeJsonArrayAppendMigrationEntry
