@@ -43,6 +43,7 @@ Use these entry commands for normal development:
 
 - `npm run platform -- doctor`: inspect local developer environment and dependency health
 - `npm run platform -- deps status`: inspect dependency cache/link status
+- `npm run platform -- deps status --json --compact`: emit a machine-readable dependency environment contract
 - `npm run platform -- deps warmup`: prepare shared runtime dependencies
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
 - `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry

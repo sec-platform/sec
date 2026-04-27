@@ -85,8 +85,11 @@
 - Workbench/IDE 插件至少要复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain` 这些命令入口，而不是旁路实现另一套规则。
 - `platform doctor` 用于检查本地依赖环境、缓存状态和推荐动作。
 - `platform deps status` 输出 root/shared/project/npm cache 的状态、元数据大小、顶层条目数量、链接关系和 cold/warm/dirty/stale 模式；为保证每次检查足够快，禁止递归扫描 `node_modules` 计算真实总字节数。
+- `platform deps status --json [--compact]` 输出稳定依赖环境合同，供 CI、Workbench 和 IDE 插件直接消费。
 - `platform deps warmup` 预热 `.shared-deps`，作为 generated project runtime 的共享实体依赖层。
+- `platform deps warmup --json [--compact]` 输出预热后的依赖环境合同。
 - `platform deps relink project` 让 `project/node_modules` 优先回到指向 `.shared-deps/node_modules` 的 junction，减少实体依赖副本；当前 relink 目标只支持 `project`，未来如需扩展目标必须保持命令参数向后兼容。
+- `platform deps relink project --json [--compact]` 输出 relink 后的依赖环境合同。
 - `platform deps clean --project|--shared|--npm-cache` 提供单层受控清理入口，避免开发者手动删除内部目录后破坏 stamp 状态。
 - `platform deps clean --all --force` 才能清理全部依赖层；这是刻意的强制确认口径，因为它会导致下一次 runtime verification 重新预热依赖。
 - 本地推荐依赖布局是保留根 `node_modules` 给 compiler 自身使用，保留 `.shared-deps/node_modules` 给 generated project runtime 使用，`project/node_modules` 默认只作为链接。
@@ -120,6 +123,7 @@
      - CLI usage 暴露 closed loop、readiness、governance paths：done。
        - `platform doctor --json` 输出结构化 readiness contract。
        - `platform doctor --json --compact` 输出稳定单行 readiness contract。
+       - `platform deps status|warmup|relink project --json [--compact]` 输出稳定依赖环境合同。
        - CLI 首屏把 `npm run demo:closed-loop` 固定为唯一主闭环叙事入口。
      - 每日可演示版本清单：active。
        - quickstart 主链可运行。
@@ -177,7 +181,7 @@
          - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
-        - `npm run test:contract-freeze` 固定运行 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
+         - `npm run test:contract-freeze` 固定运行 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - reference drift：固定由 `npm run reference:check` 守护 checked-in `project/`。
          - benchmark：固定由 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。

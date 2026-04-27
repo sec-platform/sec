@@ -54,7 +54,9 @@ const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
-  '  platform deps relink project',
+  '  platform deps status [--json [--compact]]',
+  '  platform deps warmup [--json [--compact]]',
+  '  platform deps relink project [--json [--compact]]',
   '  platform deps clean [--project|--shared|--npm-cache]',
   '  platform deps clean --all --force'
 ].join('\n');
@@ -256,6 +258,22 @@ function parseDoctorArgs(args: string[]): { json: boolean; compact: boolean } {
     return { json: true, compact: true };
   }
   throw new Error(DOCTOR_USAGE);
+}
+
+function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(DEPS_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(DEPS_USAGE);
 }
 
 function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
@@ -587,22 +605,35 @@ async function runDepsCommand(args: string[]): Promise<void> {
   const [subcommand, ...subArgs] = args;
   switch (subcommand) {
     case 'status': {
-      assertNoArgs('deps status', subArgs);
+      const outputArgs = parseDepsOutputArgs(subArgs);
       const status = await getDependencyEnvironmentStatus(process.cwd());
+      if (outputArgs.json) {
+        console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
+        return;
+      }
       console.log(formatDependencyEnvironmentStatus(status));
       return;
     }
     case 'warmup': {
-      assertNoArgs('deps warmup', subArgs);
+      const outputArgs = parseDepsOutputArgs(subArgs);
       const status = await warmupDependencyEnvironment(process.cwd());
+      if (outputArgs.json) {
+        console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
+        return;
+      }
       console.log(formatDependencyEnvironmentStatus(status));
       return;
     }
     case 'relink': {
-      if (subArgs.length !== 1 || subArgs[0] !== 'project') {
+      if (subArgs[0] !== 'project') {
         throw new Error(DEPS_USAGE);
       }
+      const outputArgs = parseDepsOutputArgs(subArgs.slice(1));
       const status = await relinkProjectDependencies(process.cwd());
+      if (outputArgs.json) {
+        console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
+        return;
+      }
       console.log(formatDependencyEnvironmentStatus(status));
       return;
     }
