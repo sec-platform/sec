@@ -584,6 +584,35 @@ function summarizeById(
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function readObjectString(value: unknown, key: string): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === 'string' && field.length > 0 ? field : null;
+}
+
+function formatUpgradeDiagnosticsDetails(details: unknown): string {
+  const migrationId = readObjectString(details, 'migrationId');
+  if (!migrationId) {
+    return 'none';
+  }
+
+  const role = readObjectString(details, 'role');
+  const path = readObjectString(details, 'path');
+  const migrationKind = readObjectString(details, 'migrationKind');
+  const target = readObjectString(details, 'target') ?? (role === 'target' ? path : null);
+  const source = readObjectString(details, 'source') ?? (role === 'source' ? path : null);
+  const slotId = readObjectString(details, 'slotId');
+  return formatList([
+    `migration=${migrationId}`,
+    migrationKind ? `kind=${migrationKind}` : '',
+    target ? `target=${target}` : '',
+    source ? `source=${source}` : '',
+    slotId ? `slot=${slotId}` : ''
+  ].filter((part) => part.length > 0));
+}
+
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.length > 0))]
     .sort((left, right) => left.localeCompare(right));
@@ -1072,6 +1101,17 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `verification: ${formatSummaryEntries(upgrade.verificationSummaries)}`
       ].join('; ')
     );
+    if (upgrade.diagnostics) {
+      lines.push(
+        [
+          `Upgrade diagnostics: ${upgrade.diagnostics.phase}`,
+          upgrade.diagnostics.failedCheck,
+          upgrade.diagnostics.errorCode,
+          upgrade.diagnostics.message,
+          `attribution: ${formatUpgradeDiagnosticsDetails(upgrade.diagnostics.details)}`
+        ].join('; ')
+      );
+    }
   }
 
   return lines.join('\n');
