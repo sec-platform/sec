@@ -534,7 +534,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       paths: ['project/test-results/**'],
       byKind: {
         test: 1
-      }
+      },
+      missingCount: 1,
+      missing: lockMissingDiagnostics
     });
 
     const testManifestResult = await runCli(workspaceRoot, ['artifacts', '--json']);
@@ -618,6 +620,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       count: number;
       paths: string[];
       byKind: Record<string, number>;
+      missingCount: number;
+      missing: typeof fixedMissingDiagnostics;
     };
     expect(pathsJson.count).toBe(uploadPaths.length);
     expect(pathsJson.paths).toEqual(uploadPaths);
@@ -628,6 +632,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(Object.values(pathsJson.byKind).reduce((total, count) => total + count, 0)).toBe(
       uploadPaths.length
     );
+    expect(pathsJson.missingCount).toBe(fixedMissingDiagnostics.length);
+    expect(pathsJson.missing).toEqual(fixedMissingDiagnostics);
 
     const governancePathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']);
     expect(governancePathsResult.code).toBe(0);
