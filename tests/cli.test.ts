@@ -288,6 +288,10 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
     );
     expect(textResult.stdout).toContain('Chain: attention; stages: 3/4; attention: 1; failed: 0');
+    expect(textResult.stdout).toContain('E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0');
+    expect(textResult.stdout).toContain('E2E coverage: passed; blocks=3/3; slots=1/1; evidence=blocks=3/3, slots=1/1');
+    expect(textResult.stdout).toContain('E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing');
+    expect(textResult.stdout).toContain('E2E review: passed; review-summary=generated; evidence=review-summary=generated');
     expect(textResult.stdout).toContain('Impacted: 3 blocks, 1 slots,');
     expect(textResult.stdout).toContain(
       'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'

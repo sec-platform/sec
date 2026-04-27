@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { e2eStageEvidence } from '../../shared/review-matrix.ts';
+import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 import type {
   AcceptanceCoverageReport,
@@ -36,6 +36,25 @@ function renderJsonCard(title: string, value: unknown): string {
 
 function renderJsonPre(value: unknown): string {
   return `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+}
+
+function renderE2eChainSummarySection(review: ReviewSummary): string {
+  const chainRows = buildE2eMatrix(review).rows
+    .map(
+      (stage) => `<tr>
+          <td>${escapeHtml(stage.stage)}</td>
+          <td>${escapeHtml(stage.status)}</td>
+          <td>${escapeHtml(stage.detail)}</td>
+          <td>${escapeHtml(stage.evidence.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+
+  return `<h3>E2E Chain Summary</h3>
+        <table>
+          <thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead>
+          <tbody>${chainRows}</tbody>
+        </table>`;
 }
 
 function renderCiSummaryCard(review: ReviewSummary): string {
@@ -90,16 +109,6 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           <tbody>${missingReasonRows}</tbody>
         </table>`
     : '';
-  const chainRows = review.chainSummary.stageSummaries
-    .map(
-      (stage) => `<tr>
-          <td>${escapeHtml(stage.id)}</td>
-          <td>${escapeHtml(stage.status)}</td>
-          <td>${escapeHtml(stage.detail)}</td>
-          <td>${escapeHtml(e2eStageEvidence(review, stage.id).join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
   const uploadGroupRows = review.artifactSummary?.uploadGroups?.length
     ? review.artifactSummary.uploadGroups
         .map(
@@ -143,11 +152,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <h3>E2E Chain Summary</h3>
-        <table>
-          <thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead>
-          <tbody>${chainRows}</tbody>
-        </table>
+        ${renderE2eChainSummarySection(review)}
         ${missingReasonTable}
         ${uploadGroupTable}
         ${missingTable}
@@ -1242,6 +1247,9 @@ function renderSlotRuleView(
             }).join('')}
           </tbody>
         </table>
+      </section>
+      <section class="card">
+        ${renderE2eChainSummarySection(review)}
       </section>
       ${renderPolicyViolationsTable(policyReport)}
       ${renderJsonCard('Acceptance Coverage', coverage)}

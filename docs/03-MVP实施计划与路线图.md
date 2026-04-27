@@ -126,7 +126,7 @@
        - `platform explain --json` 输出 `e2eMatrix`。
        - 矩阵行复用 verification、coverage、artifacts、review 四个 chain stage。
        - evidence 从现有 review summary 派生，不新增执行流程。
-       - `generated/views/source-view.html` 复用同一 evidence helper 展示 E2E Chain Summary 证据列。
+       - `generated/views/source-view.html` 与 `generated/views/slot-rule-view.html` 复用同一 evidence helper 展示 E2E Chain Summary 证据列。
      - JSON contract 冻结清单：done。
        - `platform artifacts --paths --kind contract` 输出可上传 contract 清单。
        - `platform artifacts --paths --json --kind contract` 输出结构化 contract 清单。
