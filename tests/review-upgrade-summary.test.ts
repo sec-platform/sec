@@ -226,6 +226,15 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
           requiresVerification: true,
           source: 'files/src/installed/auth/session.ts'
         }
+      ],
+      migrationOperations: [
+        {
+          id: 'mig-auth-session-refresh',
+          kind: 'file-replace',
+          target: 'src/installed/auth/session.ts',
+          role: 'file',
+          source: 'files/src/installed/auth/session.ts'
+        }
       ]
     };
     const upgradeDiagnostics: UpgradeDiagnostics = {

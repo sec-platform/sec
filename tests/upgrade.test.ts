@@ -213,6 +213,15 @@ test('upgrade advances an official block version and preserves a passing pipelin
       reason: string;
       requiresVerification: boolean;
     }>;
+    migrationOperations: Array<{
+      id: string;
+      kind: string;
+      target: string;
+      role: string;
+      source?: string;
+      path?: string[];
+      itemCount?: number;
+    }>;
   };
   expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
   expect(persistedUpgradePlan.status).toBe('applied');
@@ -274,6 +283,23 @@ test('upgrade advances an official block version and preserves a passing pipelin
       target: 'upgrade.metadata.json',
       reason: 'Record auth session upgrade metadata in package configuration.',
       requiresVerification: false
+    }
+  ]);
+  expect(persistedUpgradePlan.migrationOperations).toEqual([
+    {
+      id: 'mig-auth-session-refresh',
+      kind: 'file-replace',
+      target: 'src/installed/auth/session.ts',
+      role: 'file',
+      source: 'files/src/installed/auth/session.ts'
+    },
+    {
+      id: 'mig-auth-session-upgrade-metadata',
+      kind: 'json-array-append',
+      target: 'upgrade.metadata.json',
+      role: 'json',
+      path: ['upgradedBlocks'],
+      itemCount: 1
     }
   ]);
 
@@ -427,6 +453,23 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       target: 'upgrade.metadata.json',
       reason: 'Record auth session upgrade metadata in package configuration.',
       requiresVerification: false
+    }
+  ]);
+  expect(upgradePlan.migrationOperations).toEqual([
+    {
+      id: 'mig-auth-session-refresh',
+      kind: 'file-replace',
+      target: 'src/installed/auth/session.ts',
+      role: 'file',
+      source: 'files/src/installed/auth/session.ts'
+    },
+    {
+      id: 'mig-auth-session-upgrade-metadata',
+      kind: 'json-array-append',
+      target: 'upgrade.metadata.json',
+      role: 'json',
+      path: ['upgradedBlocks'],
+      itemCount: 1
     }
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);

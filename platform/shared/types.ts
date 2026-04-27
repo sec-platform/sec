@@ -1057,6 +1057,26 @@ export interface RepairPlan {
   blockers?: RepairBlocker[];
 }
 
+export type UpgradeMigrationOperationRole = 'file' | 'directory' | 'json' | 'text' | 'slot';
+
+export interface UpgradeMigrationOperation {
+  id: string;
+  kind: string;
+  target: string;
+  role: UpgradeMigrationOperationRole;
+  source?: string;
+  slotId?: string;
+  path?: string[];
+  updateCount?: number;
+  itemCount?: number;
+  valueKeyCount?: number;
+  contentLength?: number;
+  searchLength?: number;
+  replacementLength?: number;
+  pattern?: string;
+  flags?: string;
+}
+
 export interface UpgradeMigrationSummary {
   id: string;
   kind: string;
@@ -1097,6 +1117,7 @@ export interface UpgradePlan {
   migrations: UpgradeMigration[];
   migrationKindCounts: Record<string, number>;
   migrationSummaries: UpgradeMigrationSummary[];
+  migrationOperations: UpgradeMigrationOperation[];
 }
 
 export interface UpgradeDiagnostics {

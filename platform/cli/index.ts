@@ -482,12 +482,20 @@ function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
   return lines.join('\n');
 }
 
-function formatUpgradeMigrationDetails(migration: UpgradePlan['migrationSummaries'][number]): string[] {
+function formatUpgradeMigrationDetails(
+  migration: UpgradePlan['migrationSummaries'][number],
+  operation: UpgradePlan['migrationOperations'][number] | undefined
+): string[] {
   return [
     `Migration ${migration.id}: ${migration.kind}`,
     `target=${migration.target}`,
     ...(migration.source ? [`source=${migration.source}`] : []),
     ...(migration.slotId ? [`slot=${migration.slotId}`] : []),
+    ...(operation ? [`role=${operation.role}`] : []),
+    ...(operation?.path ? [`path=${operation.path.join('.')}`] : []),
+    ...(operation?.updateCount !== undefined ? [`updates=${operation.updateCount}`] : []),
+    ...(operation?.itemCount !== undefined ? [`items=${operation.itemCount}`] : []),
+    ...(operation?.valueKeyCount !== undefined ? [`valueKeys=${operation.valueKeyCount}`] : []),
     `requiresVerification=${migration.requiresVerification}`
   ];
 }
@@ -511,8 +519,9 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
     `Impacts: ${formatList(upgradePlan.impacts)}`,
     `Requires verification: ${requiresVerificationCount > 0} (${requiresVerificationCount} migrations)`
   ];
+  const operationsById = new Map(upgradePlan.migrationOperations.map((operation) => [operation.id, operation]));
   for (const migration of upgradePlan.migrationSummaries.slice(0, 3)) {
-    lines.push(formatUpgradeMigrationDetails(migration).join('; '));
+    lines.push(formatUpgradeMigrationDetails(migration, operationsById.get(migration.id)).join('; '));
   }
   for (const check of upgradePlan.preflightChecks.slice(0, 3)) {
     lines.push(

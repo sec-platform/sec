@@ -201,6 +201,22 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         reason: 'Record upgrade metadata.',
         requiresVerification: false
       }
+    ],
+    migrationOperations: [
+      {
+        id: 'mig-customer-normalizer-contract',
+        kind: 'slot-contract-update',
+        target: 'custom/customer_normalizer.ts',
+        role: 'slot',
+        slotId: 'customer_normalizer'
+      },
+      {
+        id: 'mig-upgrade-metadata',
+        kind: 'text-append',
+        target: 'upgrade.metadata.json',
+        role: 'text',
+        contentLength: 24
+      }
     ]
   };
   const diagnostics: UpgradeDiagnostics = {

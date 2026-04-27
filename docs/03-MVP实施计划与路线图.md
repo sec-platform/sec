@@ -276,6 +276,13 @@
      - upgrade migration verification 分布进入 CLI explain。
      - upgrade migration verification 分布进入本地 Source View。
      - upgrade migration source/slot 明细进入 CLI explain 和本地 Source View。
+     - upgrade plan `migrationOperations` 结构化操作明细：
+       - 状态：done。
+       - 稳定暴露每条 migration 的 role。
+       - 文件/目录迁移暴露 source。
+       - JSON 迁移暴露 path、update/item/value key 计数。
+       - text 迁移暴露 content/search/replacement/pattern/flags 摘要。
+       - slot 迁移暴露 slotId。
      - upgrade plan 到本地视图的摘要呈现。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：
