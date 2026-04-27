@@ -558,6 +558,7 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'create-directory') {
+      await statCreateDirectoryMigrationTarget(targetPath, entry.target);
       await ensureDir(targetPath);
       continue;
     }
@@ -658,6 +659,18 @@ async function statDirectoryMigrationTarget(targetPath: string, target: string):
   }
   if (!stats.isDirectory()) {
     throw new CompilerError('UPGRADE-MIGRATION-026', `Delete-directory target "${target}" must be a directory`);
+  }
+}
+
+async function statCreateDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(targetPath);
+  } catch {
+    return;
+  }
+  if (!stats.isDirectory()) {
+    throw new CompilerError('UPGRADE-MIGRATION-028', `Create-directory target "${target}" must be a directory when it already exists`);
   }
 }
 

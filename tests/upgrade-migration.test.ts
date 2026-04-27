@@ -504,6 +504,45 @@ test('create-directory migration creates nested target directories', async () =>
   }
 });
 
+test('create-directory migration keeps existing directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    const target = 'generated/reports/snapshots';
+    await fs.mkdir(path.join(projectRoot, target), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await applyMigrationEntries(projectRoot, manifestRoot, [target], [createDirectory(target)]);
+
+    const stats = await fs.stat(path.join(projectRoot, target));
+    expect(stats.isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('create-directory migration rejects file targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    const target = 'generated/reports/snapshots';
+    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await fs.writeFile(path.join(projectRoot, target), 'occupied\n', 'utf8');
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, [target], [createDirectory(target)])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-028'
+    });
+    await expect(fs.readFile(path.join(projectRoot, target), 'utf8')).resolves.toBe('occupied\n');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('delete-file migration removes existing file targets', async () => {
   const workspaceRoot = await createWorkspace();
   try {
