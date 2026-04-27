@@ -614,6 +614,7 @@ function buildUpgradeSummary(
       ],
       preflightSummaries: [],
       migrationSummaries: [],
+      migrationOperationSummaries: [],
       diagnostics: {
         status: diagnostics.status,
         failedCheck: diagnostics.failedCheck,
@@ -679,6 +680,13 @@ function buildUpgradeSummary(
         requiresVerification: migration.requiresVerification,
         ...(migration.source ? { source: migration.source } : {}),
         ...(migration.slotId ? { slotId: migration.slotId } : {})
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    migrationOperationSummaries: plan.migrationOperations
+      .map((operation) => ({
+        ...operation,
+        ...(operation.writableZones ? { writableZones: [...operation.writableZones] } : {}),
+        ...(operation.path ? { path: [...operation.path] } : {})
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
     ...(diagnostics

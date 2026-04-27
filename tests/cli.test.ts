@@ -2619,6 +2619,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
         'auth/basic-session 0.1.0 -> 0.1.1',
         'migrations: 2',
         'impacts: 2',
+        'operations: 2',
+        'operation roles: file=1, json=1',
         'sources: 1',
         'slots: 0',
         'requires verification: true',
@@ -2651,6 +2653,15 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
             target: string;
             requiresVerification: boolean;
           }>;
+          migrationOperationSummaries: Array<{
+            id: string;
+            kind: string;
+            target: string;
+            role: string;
+            source?: string;
+            path?: string[];
+            itemCount?: number;
+          }>;
         };
       };
     };
@@ -2667,6 +2678,23 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       requiresVerificationCount: 1,
       impactCount: 2,
       impacts: ['src/installed/auth/session.ts', 'upgrade.metadata.json'],
+      migrationOperationSummaries: [
+        {
+          id: 'mig-auth-session-refresh',
+          kind: 'file-replace',
+          target: 'src/installed/auth/session.ts',
+          role: 'file',
+          source: 'files/src/installed/auth/session.ts'
+        },
+        {
+          id: 'mig-auth-session-upgrade-metadata',
+          kind: 'json-array-append',
+          target: 'upgrade.metadata.json',
+          role: 'json',
+          path: ['upgradedBlocks'],
+          itemCount: 1
+        }
+      ],
       verificationSummaries: [
         { id: 'required', count: 1 },
         { id: 'skipped', count: 1 }
