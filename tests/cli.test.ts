@@ -101,21 +101,19 @@ async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
 
 test('CLI prints usage for missing or unknown commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, [])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['unknown'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['unknown', '--flag'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>\n',
-      stderr: ''
-    });
+    for (const args of [[], ['unknown'], ['unknown', '--flag']]) {
+      const result = await runCli(workspaceRoot, args);
+      expect(result).toMatchObject({
+        code: 0,
+        stderr: ''
+      });
+      expect(result.stdout).toContain(
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>'
+      );
+      expect(result.stdout).toContain('Readiness: platform doctor');
+      expect(result.stdout).toContain('Quickstart: platform init --reset -> resolve -> compose -> adapt -> verify -> lock -> explain');
+      expect(result.stdout).toContain('CI artifacts: platform artifacts --paths --kind governance');
+    }
   });
 });
 
