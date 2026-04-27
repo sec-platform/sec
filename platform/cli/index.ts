@@ -50,7 +50,7 @@ const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
-const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])';
+const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -213,14 +213,21 @@ function parseArtifactPathKind(value: string): ArtifactPathKind {
 
 function parseArtifactsArgs(
   args: string[]
-): { mode: 'json'; compact: boolean } | { mode: 'paths'; json: boolean; kind?: ArtifactPathKind } {
+):
+  | { mode: 'json'; compact: boolean }
+  | { mode: 'paths'; json: boolean; compact: boolean; kind?: ArtifactPathKind } {
   if (args[0] === '--paths') {
     let json = false;
+    let compact = false;
     let kind: ArtifactPathKind | undefined;
     for (let index = 1; index < args.length; index += 1) {
       const flag = args[index];
       if (flag === '--json' && !json) {
         json = true;
+        continue;
+      }
+      if (flag === '--compact' && json && !compact) {
+        compact = true;
         continue;
       }
       if (flag === '--kind' && !kind && index + 1 < args.length) {
@@ -230,7 +237,7 @@ function parseArtifactsArgs(
       }
       throw new Error(ARTIFACTS_USAGE);
     }
-    return { mode: 'paths', json, ...(kind ? { kind } : {}) };
+    return { mode: 'paths', json, compact, ...(kind ? { kind } : {}) };
   }
   if (args[0] !== '--json') {
     throw new Error(ARTIFACTS_USAGE);
@@ -763,7 +770,7 @@ async function main(): Promise<void> {
             missingCount: manifest.missing.length,
             missingReasonCounts: manifest.summary.missingReasonCounts,
             missing: manifest.missing
-          }, null, 2));
+          }, null, artifactsArgs.compact ? 0 : 2));
           return;
         }
         console.log(pathSummary.paths.join('\n'));

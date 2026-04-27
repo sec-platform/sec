@@ -46,6 +46,7 @@ Use these entry commands for normal development:
 - `npm run platform -- deps status --json --compact`: emit a machine-readable dependency environment contract
 - `npm run platform -- deps warmup`: prepare shared runtime dependencies
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
+- `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts
 - `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry
 - `npm run platform -- deps clean --all --force`: remove project, shared, and npm-cache dependency state; this intentionally causes the next runtime verification to warm dependencies again
 - `npm run platform -- add <block-id>`: add official or private blocks
