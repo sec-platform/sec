@@ -172,6 +172,21 @@ test('review summary surfaces pending repair tasks', async () => {
       previewCount: 1,
       changedPreviewCount: 1,
       failurePointCount: 3,
+      failureTaxonomy: {
+        laneSummaries: [{ id: 'fast', count: 3 }],
+        kindSummaries: [
+          { id: 'policy', count: 1 },
+          { id: 'unit', count: 2 }
+        ],
+        issueTypeSummaries: [
+          { id: 'slot', count: 2 },
+          { id: 'spec', count: 1 }
+        ],
+        repairabilitySummaries: [
+          { id: 'blocked', count: 1 },
+          { id: 'repairable', count: 2 }
+        ]
+      },
       targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
     });
     expect(summary.repairSummary?.taskSummaries).toEqual([

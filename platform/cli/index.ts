@@ -278,6 +278,12 @@ function formatCounts(values: string[]): string {
   );
 }
 
+function formatSummaryEntries(entries: Array<{ id: string; count: number }>): string {
+  return entries.length > 0
+    ? entries.map((entry) => `${entry.id}=${entry.count}`).join(', ')
+    : 'none';
+}
+
 function formatRepairFailurePoint(failure: RepairPlan['tasks'][number]['failurePoints'][number]): string {
   return [
     `Failure ${failure.lane}/${failure.kind}`,
@@ -466,7 +472,9 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `tasks: ${repair.taskCount}`,
         `blockers: ${repair.blockerCount}`,
         `changed previews: ${repair.changedPreviewCount}`,
-        `requires verification: ${repair.requiresVerification}`
+        `requires verification: ${repair.requiresVerification}`,
+        `issues: ${formatSummaryEntries(repair.failureTaxonomy.issueTypeSummaries)}`,
+        `repairability: ${formatSummaryEntries(repair.failureTaxonomy.repairabilitySummaries)}`
       ].join('; ')
     );
   }

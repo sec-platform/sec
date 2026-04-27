@@ -336,6 +336,14 @@
          - blocked 场景保持失败退出码。
          - blocked 场景 stdout 输出普通文本摘要。
          - blocked 场景 stderr 保留错误上下文。
+         - repair failure taxonomy 汇总：
+           - lane 分布。
+           - kind 分布。
+           - issue type 分布。
+           - repairability 分布。
+         - repair failure taxonomy 进入 review summary。
+         - repair failure taxonomy 进入 CLI explain 摘要。
+         - repair failure taxonomy 进入 local Source View。
          - 显示最多前三个 blocker 摘要。
          - 显示 blocker failure point lane/kind。
          - 显示 blocker failure point issue type。

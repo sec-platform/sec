@@ -787,6 +787,12 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
       </section>`;
 }
 
+function renderTaxonomyRows(entries: Array<{ id: string; count: number }>): string {
+  return entries
+    .map((entry) => `<tr><td>${escapeHtml(entry.id)}</td><td>${escapeHtml(String(entry.count))}</td></tr>`)
+    .join('');
+}
+
 function renderRepairSummaryCard(review: ReviewSummary): string {
   const repair = review.repairSummary;
   if (!repair) {
@@ -827,6 +833,10 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
         </tr>`
     )
     .join('');
+  const laneRows = renderTaxonomyRows(repair.failureTaxonomy.laneSummaries);
+  const kindRows = renderTaxonomyRows(repair.failureTaxonomy.kindSummaries);
+  const issueRows = renderTaxonomyRows(repair.failureTaxonomy.issueTypeSummaries);
+  const repairabilityRows = renderTaxonomyRows(repair.failureTaxonomy.repairabilitySummaries);
 
   return `<section class="card">
         <h2>Repair Summary</h2>
@@ -834,6 +844,25 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
+        <h3>Repair Failure Taxonomy</h3>
+        <div class="grid">
+          <table>
+            <thead><tr><th>Lane</th><th>Count</th></tr></thead>
+            <tbody>${laneRows || '<tr><td colspan="2">No failure lanes.</td></tr>'}</tbody>
+          </table>
+          <table>
+            <thead><tr><th>Kind</th><th>Count</th></tr></thead>
+            <tbody>${kindRows || '<tr><td colspan="2">No failure kinds.</td></tr>'}</tbody>
+          </table>
+          <table>
+            <thead><tr><th>Issue Type</th><th>Count</th></tr></thead>
+            <tbody>${issueRows || '<tr><td colspan="2">No issue types.</td></tr>'}</tbody>
+          </table>
+          <table>
+            <thead><tr><th>Repairability</th><th>Count</th></tr></thead>
+            <tbody>${repairabilityRows || '<tr><td colspan="2">No repairability states.</td></tr>'}</tbody>
+          </table>
+        </div>
         <h3>Repair Task Summary</h3>
         <table>
           <thead><tr><th>Task</th><th>Preview</th><th>Delta</th><th>Failure Points</th><th>Targets</th></tr></thead>

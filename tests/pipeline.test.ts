@@ -354,6 +354,12 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       previewCount: number;
       changedPreviewCount: number;
       failurePointCount: number;
+      failureTaxonomy: {
+        laneSummaries: Array<{ id: string; count: number }>;
+        kindSummaries: Array<{ id: string; count: number }>;
+        issueTypeSummaries: Array<{ id: string; count: number }>;
+        repairabilitySummaries: Array<{ id: string; count: number }>;
+      };
       targetFiles: string[];
       taskSummaries: Array<{
         taskId: string;
@@ -592,6 +598,21 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     previewCount: 1,
     changedPreviewCount: 1,
     failurePointCount: 2,
+    failureTaxonomy: {
+      laneSummaries: [{ id: 'fast', count: 2 }],
+      kindSummaries: [
+        { id: 'policy', count: 1 },
+        { id: 'unit', count: 1 }
+      ],
+      issueTypeSummaries: [
+        { id: 'slot', count: 1 },
+        { id: 'spec', count: 1 }
+      ],
+      repairabilitySummaries: [
+        { id: 'blocked', count: 1 },
+        { id: 'repairable', count: 1 }
+      ]
+    },
     targetFiles: ['custom/customer_normalizer.ts'],
     taskSummaries: [
       {
@@ -981,6 +1002,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Status</td><td>pending</td>');
   expect(sourceView).toContain('<td>Changed Previews</td><td>1</td>');
   expect(sourceView).toContain('<td>Failure Points</td><td>2</td>');
+  expect(sourceView).toContain('Repair Failure Taxonomy');
+  expect(sourceView).toContain('<th>Issue Type</th><th>Count</th>');
+  expect(sourceView).toContain('<td>spec</td><td>1</td>');
+  expect(sourceView).toContain('<td>repairable</td><td>1</td>');
   expect(sourceView).toContain('Repair Task Summary');
   expect(sourceView).toContain('Repair Blocker Summary');
   expect(sourceView).toContain('Repair Plan');
