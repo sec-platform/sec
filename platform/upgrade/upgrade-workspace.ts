@@ -455,6 +455,192 @@ async function renameFileMigrationTarget(
   await fs.rename(sourcePath, targetPath);
 }
 
+function migrationErrorDetails(entry: UpgradeMigrationEntry): Record<string, unknown> {
+  return {
+    migrationId: entry.id,
+    migrationKind: entry.kind,
+    target: entry.target,
+    ...('source' in entry ? { source: entry.source } : {}),
+    ...('slotId' in entry ? { slotId: entry.slotId } : {})
+  };
+}
+
+function isPlainObjectDetails(details: unknown): details is Record<string, unknown> {
+  return (
+    typeof details === 'object' &&
+    details !== null &&
+    !Array.isArray(details) &&
+    Object.getPrototypeOf(details) === Object.prototype
+  );
+}
+
+function normalizeCauseDetails(details: unknown): unknown {
+  if (details instanceof Error) {
+    return {
+      name: details.name,
+      message: details.message
+    };
+  }
+  return details;
+}
+
+function withMigrationErrorDetails(entry: UpgradeMigrationEntry, error: CompilerError): CompilerError {
+  const details = migrationErrorDetails(entry);
+  if (isEmptyDiagnosticsDetails(error.details)) {
+    return new CompilerError(error.code, error.message, details);
+  }
+  if (isPlainObjectDetails(error.details)) {
+    return new CompilerError(error.code, error.message, {
+      ...details,
+      ...error.details
+    });
+  }
+  return new CompilerError(error.code, error.message, {
+    ...details,
+    causeDetails: normalizeCauseDetails(error.details)
+  });
+}
+
+async function applyMigrationEntry(
+  projectRoot: string,
+  targetManifestRoot: string,
+  impacts: string[],
+  entry: UpgradeMigrationEntry
+): Promise<void> {
+  if (!impacts.includes(entry.target)) {
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-007',
+      `Migration target "${entry.target}" is outside upgrade impacts`,
+      migrationPathDetails('migration-targets', entry.target, 'project', {
+        migrationId: entry.id,
+        role: 'target'
+      })
+    );
+  }
+  if (entry.kind === 'rename-file' && !impacts.includes(entry.source)) {
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-007',
+      `Migration source "${entry.source}" is outside upgrade impacts`,
+      migrationPathDetails('migration-targets', entry.source, 'project', {
+        migrationId: entry.id,
+        role: 'source'
+      })
+    );
+  }
+  const targetPath = resolveProjectPath(projectRoot, entry.target, {
+    migrationId: entry.id,
+    role: 'target'
+  });
+
+  if (entry.kind === 'file-replace' || entry.kind === 'copy-file') {
+    const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
+      migrationId: entry.id,
+      role: 'manifest-source'
+    });
+    await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
+    await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+    await ensureDir(path.dirname(targetPath));
+    await fs.copyFile(sourcePath, targetPath);
+    return;
+  }
+
+  if (entry.kind === 'copy-directory') {
+    const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
+      migrationId: entry.id,
+      role: 'manifest-source'
+    });
+    await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+    await statCopyDirectoryMigrationTarget(targetPath, entry.target);
+    await copyRecursive(sourcePath, targetPath);
+    return;
+  }
+
+  if (entry.kind === 'config-rewrite') {
+    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+    const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
+    await writeJson(targetPath, config);
+    return;
+  }
+
+  if (entry.kind === 'json-array-append') {
+    const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+    const config = applyJsonArrayAppend(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
+    await ensureDir(path.dirname(targetPath));
+    await writeJson(targetPath, config);
+    return;
+  }
+
+  if (entry.kind === 'json-array-remove') {
+    const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+    if (targetStatus === 'missing') {
+      return;
+    }
+    const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
+    await writeJson(targetPath, config);
+    return;
+  }
+
+  if (entry.kind === 'json-object-merge') {
+    const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+    const config = applyJsonObjectMerge(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
+    await ensureDir(path.dirname(targetPath));
+    await writeJson(targetPath, config);
+    return;
+  }
+
+  if (entry.kind === 'text-append') {
+    await appendTextMigrationTarget(targetPath, entry.target, entry.content);
+    return;
+  }
+
+  if (entry.kind === 'text-replace') {
+    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+    const source = await fs.readFile(targetPath, 'utf8');
+    await fs.writeFile(targetPath, applyTextReplace(source, entry), 'utf8');
+    return;
+  }
+
+  if (entry.kind === 'text-replace-regex') {
+    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+    const source = await fs.readFile(targetPath, 'utf8');
+    await fs.writeFile(targetPath, applyTextReplaceRegex(source, entry), 'utf8');
+    return;
+  }
+
+  if (entry.kind === 'create-directory') {
+    await statCreateDirectoryMigrationTarget(targetPath, entry.target);
+    await ensureDir(targetPath);
+    return;
+  }
+
+  if (entry.kind === 'delete-file') {
+    await removeFileMigrationTarget(targetPath, entry.target);
+    return;
+  }
+
+  if (entry.kind === 'delete-directory') {
+    await removeDirectoryMigrationTarget(targetPath, entry.target);
+    return;
+  }
+
+  if (entry.kind === 'rename-file') {
+    const sourcePath = resolveProjectPath(projectRoot, entry.source, {
+      migrationId: entry.id,
+      role: 'source'
+    });
+    await renameFileMigrationTarget(sourcePath, targetPath, entry.source, entry.target);
+    return;
+  }
+
+  if (entry.kind === 'slot-contract-update') {
+    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+    return;
+  }
+
+  const unsupportedEntry = entry as { kind: string };
+  throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
+}
+
 export async function applyMigrationEntries(
   projectRoot: string,
   targetManifestRoot: string,
@@ -462,138 +648,14 @@ export async function applyMigrationEntries(
   entries: UpgradeMigrationEntry[]
 ): Promise<void> {
   for (const entry of entries) {
-    if (!impacts.includes(entry.target)) {
-      throw new CompilerError(
-        'UPGRADE-MIGRATION-007',
-        `Migration target "${entry.target}" is outside upgrade impacts`,
-        migrationPathDetails('migration-targets', entry.target, 'project', {
-          migrationId: entry.id,
-          role: 'target'
-        })
-      );
-    }
-    if (entry.kind === 'rename-file' && !impacts.includes(entry.source)) {
-      throw new CompilerError(
-        'UPGRADE-MIGRATION-007',
-        `Migration source "${entry.source}" is outside upgrade impacts`,
-        migrationPathDetails('migration-targets', entry.source, 'project', {
-          migrationId: entry.id,
-          role: 'source'
-        })
-      );
-    }
-    const targetPath = resolveProjectPath(projectRoot, entry.target, {
-      migrationId: entry.id,
-      role: 'target'
-    });
-
-    if (entry.kind === 'file-replace' || entry.kind === 'copy-file') {
-      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
-        migrationId: entry.id,
-        role: 'manifest-source'
-      });
-      await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
-      await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      await ensureDir(path.dirname(targetPath));
-      await fs.copyFile(sourcePath, targetPath);
-      continue;
-    }
-
-    if (entry.kind === 'copy-directory') {
-      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
-        migrationId: entry.id,
-        role: 'manifest-source'
-      });
-      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
-      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
-      await copyRecursive(sourcePath, targetPath);
-      continue;
-    }
-
-    if (entry.kind === 'config-rewrite') {
-      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-      const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
-      await writeJson(targetPath, config);
-      continue;
-    }
-
-    if (entry.kind === 'json-array-append') {
-      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      const config = applyJsonArrayAppend(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
-      await ensureDir(path.dirname(targetPath));
-      await writeJson(targetPath, config);
-      continue;
-    }
-
-    if (entry.kind === 'json-array-remove') {
-      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      if (targetStatus === 'missing') {
-        continue;
+    try {
+      await applyMigrationEntry(projectRoot, targetManifestRoot, impacts, entry);
+    } catch (error) {
+      if (error instanceof CompilerError) {
+        throw withMigrationErrorDetails(entry, error);
       }
-      const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
-      await writeJson(targetPath, config);
-      continue;
+      throw error;
     }
-
-    if (entry.kind === 'json-object-merge') {
-      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      const config = applyJsonObjectMerge(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
-      await ensureDir(path.dirname(targetPath));
-      await writeJson(targetPath, config);
-      continue;
-    }
-
-    if (entry.kind === 'text-append') {
-      await appendTextMigrationTarget(targetPath, entry.target, entry.content);
-      continue;
-    }
-
-    if (entry.kind === 'text-replace') {
-      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-      const source = await fs.readFile(targetPath, 'utf8');
-      await fs.writeFile(targetPath, applyTextReplace(source, entry), 'utf8');
-      continue;
-    }
-
-    if (entry.kind === 'text-replace-regex') {
-      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-      const source = await fs.readFile(targetPath, 'utf8');
-      await fs.writeFile(targetPath, applyTextReplaceRegex(source, entry), 'utf8');
-      continue;
-    }
-
-    if (entry.kind === 'create-directory') {
-      await statCreateDirectoryMigrationTarget(targetPath, entry.target);
-      await ensureDir(targetPath);
-      continue;
-    }
-
-    if (entry.kind === 'delete-file') {
-      await removeFileMigrationTarget(targetPath, entry.target);
-      continue;
-    }
-
-    if (entry.kind === 'delete-directory') {
-      await removeDirectoryMigrationTarget(targetPath, entry.target);
-      continue;
-    }
-
-    if (entry.kind === 'rename-file') {
-      const sourcePath = resolveProjectPath(projectRoot, entry.source, {
-        migrationId: entry.id,
-        role: 'source'
-      });
-      await renameFileMigrationTarget(sourcePath, targetPath, entry.source, entry.target);
-      continue;
-    }
-
-    if (entry.kind === 'slot-contract-update') {
-      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-      continue;
-    }
-
-    const unsupportedEntry = entry as { kind: string };
-    throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
   }
 }
 
@@ -765,7 +827,6 @@ async function collectFileOperationEvidence(
           ? `${entry.id}:manifest-source:exists`
           : `${entry.id}:manifest-source:file`
       );
-      evidence.push(`${entry.id}:target:available`);
     }
     if (entry.kind === 'copy-directory') {
       const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
@@ -1130,7 +1191,9 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
     code === 'UPGRADE-MIGRATION-023' ||
     code === 'UPGRADE-MIGRATION-024' ||
     code === 'UPGRADE-MIGRATION-025' ||
-    code === 'UPGRADE-MIGRATION-026'
+    code === 'UPGRADE-MIGRATION-026' ||
+    code === 'UPGRADE-MIGRATION-027' ||
+    code === 'UPGRADE-MIGRATION-028'
   ) {
     return 'migration-file-operations';
   }
