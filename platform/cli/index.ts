@@ -64,6 +64,17 @@ type ArtifactPathUploadGroup = {
   paths: string[];
 };
 
+type E2eMatrix = {
+  status: ReviewSummary['chainSummary']['status'];
+  rowCount: number;
+  rows: Array<{
+    stage: string;
+    status: string;
+    detail: string;
+    evidence: string[];
+  }>;
+};
+
 function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
   kind?: ArtifactPathKind
@@ -109,6 +120,40 @@ function artifactUploadPathSummary(
     .filter((group) => group.count > 0);
 
   return { paths, byKind, uploadGroups };
+}
+
+function buildE2eMatrix(reviewSummary: ReviewSummary): E2eMatrix {
+  const evidenceByStage: Record<string, string[]> = {
+    verification: [
+      `ci=${reviewSummary.ciSummary.status}`,
+      `failures=${reviewSummary.ciSummary.failureCount}`
+    ],
+    coverage: reviewSummary.coverageSummary
+      ? [
+          `blocks=${reviewSummary.coverageSummary.coveredBlockCount}/${reviewSummary.coverageSummary.blockCount}`,
+          `slots=${reviewSummary.coverageSummary.coveredSlotCount}/${reviewSummary.coverageSummary.slotCount}`
+        ]
+      : ['coverage=missing'],
+    artifacts: reviewSummary.artifactSummary
+      ? [
+          `total=${reviewSummary.artifactSummary.artifactCount}`,
+          `missing=${reviewSummary.artifactSummary.missingCount}`
+        ]
+      : ['artifacts=missing'],
+    review: ['review-summary=generated']
+  };
+  const rows = reviewSummary.chainSummary.stageSummaries.map((stage) => ({
+    stage: stage.id,
+    status: stage.status,
+    detail: stage.detail,
+    evidence: evidenceByStage[stage.id] ?? []
+  }));
+
+  return {
+    status: reviewSummary.chainSummary.status,
+    rowCount: rows.length,
+    rows
+  };
 }
 
 function assertNoArgs(command: string, args: string[]): void {
@@ -681,7 +726,11 @@ async function main(): Promise<void> {
       const explainArgs = parseExplainArgs(args);
       const { graph, reviewSummary } = await explainWorkspace(process.cwd());
       if (explainArgs.json) {
-        console.log(JSON.stringify({ graph, reviewSummary }, null, explainArgs.compact ? 0 : 2));
+        console.log(JSON.stringify(
+          { graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) },
+          null,
+          explainArgs.compact ? 0 : 2
+        ));
         return;
       }
       console.log(formatExplainSummary(graph, reviewSummary));
