@@ -208,20 +208,48 @@ async function loadMigrationEntries(
   return entries;
 }
 
-function resolveProjectPath(projectRoot: string, relativePath: string): string {
+type MigrationPathContext = {
+  migrationId?: string;
+  role?: 'source' | 'target' | 'manifest-source';
+};
+
+function migrationPathDetails(
+  failedCheck: UpgradePreflightCheck['id'],
+  relativePath: string,
+  root: 'project' | 'manifest',
+  context: MigrationPathContext = {}
+): Record<string, unknown> {
+  return {
+    failedCheck,
+    root,
+    path: relativePath,
+    ...(context.migrationId ? { migrationId: context.migrationId } : {}),
+    ...(context.role ? { role: context.role } : {})
+  };
+}
+
+function resolveProjectPath(projectRoot: string, relativePath: string, context: MigrationPathContext = {}): string {
   const resolvedPath = path.resolve(projectRoot, relativePath);
   const projectRootWithSeparator = `${projectRoot}${path.sep}`;
   if (resolvedPath !== projectRoot && !resolvedPath.startsWith(projectRootWithSeparator)) {
-    throw new CompilerError('UPGRADE-MIGRATION-004', `Migration path "${relativePath}" escapes project root`);
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-004',
+      `Migration path "${relativePath}" escapes project root`,
+      migrationPathDetails('migration-targets', relativePath, 'project', context)
+    );
   }
   return resolvedPath;
 }
 
-function resolveManifestPath(manifestRoot: string, relativePath: string): string {
+function resolveManifestPath(manifestRoot: string, relativePath: string, context: MigrationPathContext = {}): string {
   const resolvedPath = path.resolve(manifestRoot, relativePath);
   const manifestRootWithSeparator = `${manifestRoot}${path.sep}`;
   if (resolvedPath !== manifestRoot && !resolvedPath.startsWith(manifestRootWithSeparator)) {
-    throw new CompilerError('UPGRADE-MIGRATION-005', `Migration source "${relativePath}" escapes manifest root`);
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-005',
+      `Migration source "${relativePath}" escapes manifest root`,
+      migrationPathDetails('migration-file-operations', relativePath, 'manifest', context)
+    );
   }
   return resolvedPath;
 }
@@ -415,19 +443,33 @@ export async function applyMigrationEntries(
     if (!impacts.includes(entry.target)) {
       throw new CompilerError(
         'UPGRADE-MIGRATION-007',
-        `Migration target "${entry.target}" is outside upgrade impacts`
+        `Migration target "${entry.target}" is outside upgrade impacts`,
+        migrationPathDetails('migration-targets', entry.target, 'project', {
+          migrationId: entry.id,
+          role: 'target'
+        })
       );
     }
     if (entry.kind === 'rename-file' && !impacts.includes(entry.source)) {
       throw new CompilerError(
         'UPGRADE-MIGRATION-007',
-        `Migration source "${entry.source}" is outside upgrade impacts`
+        `Migration source "${entry.source}" is outside upgrade impacts`,
+        migrationPathDetails('migration-targets', entry.source, 'project', {
+          migrationId: entry.id,
+          role: 'source'
+        })
       );
     }
-    const targetPath = resolveProjectPath(projectRoot, entry.target);
+    const targetPath = resolveProjectPath(projectRoot, entry.target, {
+      migrationId: entry.id,
+      role: 'target'
+    });
 
     if (entry.kind === 'file-replace') {
-      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source);
+      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
+        migrationId: entry.id,
+        role: 'manifest-source'
+      });
       if (!(await pathExists(sourcePath))) {
         throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
       }
@@ -489,7 +531,10 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'rename-file') {
-      const sourcePath = resolveProjectPath(projectRoot, entry.source);
+      const sourcePath = resolveProjectPath(projectRoot, entry.source, {
+        migrationId: entry.id,
+        role: 'source'
+      });
       await renameFileMigrationTarget(sourcePath, targetPath, entry.source, entry.target);
       continue;
     }
@@ -509,7 +554,7 @@ async function describeMigrationPathStatus(
   role: 'source' | 'target',
   relativePath: string
 ): Promise<string> {
-  const exists = await pathExists(resolveProjectPath(projectRoot, relativePath));
+  const exists = await pathExists(resolveProjectPath(projectRoot, relativePath, { migrationId, role }));
   return `${migrationId}:${role}:${relativePath}:${exists ? 'exists' : 'missing'}`;
 }
 
@@ -559,19 +604,36 @@ async function collectFileOperationEvidence(
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
     if (entry.kind === 'file-replace') {
-      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source);
+      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
+        migrationId: entry.id,
+        role: 'manifest-source'
+      });
       if (!(await pathExists(sourcePath))) {
         throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
       }
       evidence.push(`${entry.id}:manifest-source:exists`);
     }
     if (entry.kind === 'delete-file') {
-      await statFileMigrationTarget(resolveProjectPath(projectRoot, entry.target), entry.target);
+      await statFileMigrationTarget(
+        resolveProjectPath(projectRoot, entry.target, {
+          migrationId: entry.id,
+          role: 'target'
+        }),
+        entry.target
+      );
       evidence.push(`${entry.id}:target:file`);
     }
     if (entry.kind === 'rename-file') {
-      await statRenameMigrationSource(resolveProjectPath(projectRoot, entry.source), entry.source);
-      if (await pathExists(resolveProjectPath(projectRoot, entry.target))) {
+      const sourcePath = resolveProjectPath(projectRoot, entry.source, {
+        migrationId: entry.id,
+        role: 'source'
+      });
+      const targetPath = resolveProjectPath(projectRoot, entry.target, {
+        migrationId: entry.id,
+        role: 'target'
+      });
+      await statRenameMigrationSource(sourcePath, entry.source);
+      if (await pathExists(targetPath)) {
         throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
       }
       evidence.push(`${entry.id}:source:file`);
@@ -712,7 +774,10 @@ async function collectJsonStructureEvidence(
     if (!isJsonMigrationEntry(entry)) {
       continue;
     }
-    const targetPath = resolveProjectPath(projectRoot, entry.target);
+    const targetPath = resolveProjectPath(projectRoot, entry.target, {
+      migrationId: entry.id,
+      role: 'target'
+    });
     if (!(await pathExists(targetPath))) {
       evidence.push(`${entry.id}:target:missing`);
       continue;
@@ -818,6 +883,16 @@ function buildUpgradePreflightChecks(
   ];
 }
 
+function isEmptyDiagnosticsDetails(details: unknown): boolean {
+  if (details === undefined || details === null) {
+    return true;
+  }
+  if (typeof details !== 'object' || Array.isArray(details)) {
+    return false;
+  }
+  return Object.getPrototypeOf(details) === Object.prototype && Object.keys(details).length === 0;
+}
+
 function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck'] {
   if (code === 'UPGRADE-BLOCKED-003') {
     return 'plan-block';
@@ -827,6 +902,9 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
   }
   if (code === 'UPGRADE-NOOP-001' || code === 'UPGRADE-BLOCKED-001' || code === 'UPGRADE-BLOCKED-002') {
     return 'version-range';
+  }
+  if (code === 'UPGRADE-MIGRATION-004' || code === 'UPGRADE-MIGRATION-007') {
+    return 'migration-targets';
   }
   if (code === 'UPGRADE-MIGRATION-012' || code === 'UPGRADE-MIGRATION-013') {
     return 'migration-json-structure';
@@ -838,6 +916,7 @@ function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck
     return 'migration-slot-contracts';
   }
   if (
+    code === 'UPGRADE-MIGRATION-005' ||
     code === 'UPGRADE-MIGRATION-008' ||
     code === 'UPGRADE-MIGRATION-016' ||
     code === 'UPGRADE-MIGRATION-017' ||
@@ -864,6 +943,7 @@ async function writeUpgradeDiagnostics(
   lock: LockFile | null
 ): Promise<void> {
   const { lockPath, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const details = isEmptyDiagnosticsDetails(error.details) ? undefined : error.details;
   await writeJson(upgradeDiagnosticsPath, {
     formatVersion: '1',
     status: 'blocked',
@@ -871,7 +951,8 @@ async function writeUpgradeDiagnostics(
     targetVersion,
     failedCheck: classifyPreflightFailure(error.code),
     errorCode: error.code,
-    message: error.message
+    message: error.message,
+    ...(details === undefined ? {} : { details })
   } satisfies UpgradeDiagnostics);
   if (!lock) {
     return;

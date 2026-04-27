@@ -811,6 +811,7 @@ export interface ReviewUpgradeDiagnosticsSummary {
   failedCheck: string;
   errorCode: string;
   message: string;
+  details?: unknown;
 }
 
 export interface ReviewUpgradeSummary {
@@ -1002,6 +1003,7 @@ export interface UpgradeDiagnostics {
   failedCheck: UpgradePreflightCheckId | 'target-manifest' | 'plan-block';
   errorCode: string;
   message: string;
+  details?: unknown;
 }
 
 export interface OverrideEntry {

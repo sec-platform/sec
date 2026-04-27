@@ -422,7 +422,8 @@ function buildUpgradeSummary(
         status: diagnostics.status,
         failedCheck: diagnostics.failedCheck,
         errorCode: diagnostics.errorCode,
-        message: diagnostics.message
+        message: diagnostics.message,
+        ...(diagnostics.details === undefined ? {} : { details: diagnostics.details })
       }
     };
   }
@@ -485,7 +486,8 @@ function buildUpgradeSummary(
             status: diagnostics.status,
             failedCheck: diagnostics.failedCheck,
             errorCode: diagnostics.errorCode,
-            message: diagnostics.message
+            message: diagnostics.message,
+            ...(diagnostics.details === undefined ? {} : { details: diagnostics.details })
           }
         }
       : {})

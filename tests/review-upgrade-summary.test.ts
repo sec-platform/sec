@@ -16,6 +16,48 @@ import type {
   VerificationReport
 } from '../platform/shared/types.ts';
 
+function buildPassingReport(): VerificationReport {
+  return {
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      status: 'passed',
+      build: { status: 'passed' },
+      unit: { status: 'passed', passed: [] },
+      acceptance: { status: 'passed', passed: [], failed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      status: 'skipped',
+      build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
+      unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
+      acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
+      logs: { stdout: '', stderr: '' }
+    },
+    summary: {
+      status: 'passed',
+      requestedLane: 'fast',
+      failedLanes: []
+    },
+    logs: { stdout: '', stderr: '' }
+  };
+}
+
+function buildPassingCoverage(): AcceptanceCoverageReport {
+  return {
+    formatVersion: '1',
+    status: 'passed',
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
+}
+
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-review-upgrade-'));
   try {
@@ -192,7 +234,11 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       targetVersion: '0.1.1',
       failedCheck: 'override-conflicts',
       errorCode: 'UPGRADE-CONFLICT-001',
-      message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
+      message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"',
+      details: {
+        failedCheck: 'override-conflicts',
+        overrideId: 'manual-auth-session-hotfix'
+      }
     };
     const repairPlan: RepairPlan = {
       formatVersion: '1',
@@ -259,7 +305,11 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         status: 'blocked',
         failedCheck: 'override-conflicts',
         errorCode: 'UPGRADE-CONFLICT-001',
-        message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
+        message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"',
+        details: {
+          failedCheck: 'override-conflicts',
+          overrideId: 'manual-auth-session-hotfix'
+        }
       }
     });
     expect(summary.upgradeSummary?.preflightSummaries).toEqual([
@@ -356,6 +406,88 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         }
       ])
     );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('review summary preserves upgrade diagnostics details without an upgrade plan', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-review-upgrade-diagnostics-'));
+  try {
+    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+    const lock: LockFile = {
+      formatVersion: '1',
+      app: {
+        name: 'customer-admin',
+        stack: 'nextjs-ts-prisma-sqlite',
+        mode: 'single-tenant'
+      },
+      resolvedBlocks: [],
+      resolvedCapabilities: [],
+      installPlan: [],
+      slotTasks: [],
+      generatedPaths: [],
+      acceptancePlan: [],
+      passStatus: {
+        parse: 'succeeded',
+        align: 'succeeded',
+        resolve: 'succeeded',
+        compose: 'succeeded',
+        adapt: 'succeeded',
+        verify: 'succeeded',
+        repair: 'skipped',
+        lock: 'succeeded',
+        emit: 'succeeded'
+      }
+    };
+    const diagnostics: UpgradeDiagnostics = {
+      formatVersion: '1',
+      status: 'blocked',
+      blockId: 'private/slot-contract',
+      targetVersion: '0.2.0',
+      failedCheck: 'migration-targets',
+      errorCode: 'UPGRADE-MIGRATION-004',
+      message: 'Migration path "../outside-project.md" escapes project root',
+      details: {
+        failedCheck: 'migration-targets',
+        migrationId: 'mig-target-escape',
+        path: '../outside-project.md',
+        role: 'target',
+        root: 'project'
+      }
+    };
+
+    await writeJson(upgradeDiagnosticsPath, diagnostics);
+
+    const summary = await buildReviewSummary(
+      workspaceRoot,
+      lock,
+      { formatVersion: '1', artifacts: [] },
+      buildPassingReport(),
+      buildPassingCoverage()
+    );
+
+    expect(summary.upgradeSummary).toMatchObject({
+      status: 'blocked',
+      blockId: 'private/slot-contract',
+      toVersion: '0.2.0',
+      diagnostics: {
+        failedCheck: 'migration-targets',
+        errorCode: 'UPGRADE-MIGRATION-004',
+        details: {
+          migrationId: 'mig-target-escape',
+          path: '../outside-project.md',
+          role: 'target',
+          root: 'project'
+        }
+      }
+    });
+    expect(summary.failurePoints).toContainEqual({
+      lane: 'all',
+      kind: 'upgrade',
+      artifactPath: 'generated/upgrade-diagnostics.json',
+      message: 'Upgrade blocked at migration-targets: UPGRADE-MIGRATION-004 Migration path "../outside-project.md" escapes project root'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
