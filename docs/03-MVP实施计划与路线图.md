@@ -301,6 +301,7 @@
        - 状态聚合。
        - preflight 聚合。
        - migration 聚合。
+       - migration operation 明细聚合。
        - impact 聚合。
        - diagnostics 聚合。
      - upgrade trajectory 进入 CLI explain 摘要。
@@ -443,6 +444,7 @@
          - preflight group 聚合。
          - migration kind 计数。
          - migration summary。
+         - migration operation summary。
          - requires verification 聚合。
          - verification required/skipped 分布。
          - impact 聚合。

@@ -918,6 +918,8 @@ export interface ReviewUpgradeMigrationSummary {
   slotId?: string;
 }
 
+export type ReviewUpgradeMigrationOperationSummary = UpgradeMigrationOperation;
+
 export interface ReviewUpgradeVerificationSummary {
   id: 'required' | 'skipped';
   count: number;
@@ -947,6 +949,7 @@ export interface ReviewUpgradeSummary {
   verificationSummaries: ReviewUpgradeVerificationSummary[];
   preflightSummaries: ReviewUpgradePreflightSummary[];
   migrationSummaries: ReviewUpgradeMigrationSummary[];
+  migrationOperationSummaries: ReviewUpgradeMigrationOperationSummary[];
   diagnostics?: ReviewUpgradeDiagnosticsSummary;
 }
 
