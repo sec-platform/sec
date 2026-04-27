@@ -64,6 +64,7 @@ Use these entry commands for normal development:
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
 - `npm run platform -- review summary`: inspect the latest review summary
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract
+- `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
 - `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract
 - `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
@@ -125,6 +126,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- verification report --json --compact`: emit the compact verification report
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract
+- `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract
 - `npm run platform -- reference check --json --compact`: emit the compact reference drift contract
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract
 - `npm run platform -- resolve`

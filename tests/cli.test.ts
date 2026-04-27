@@ -2307,6 +2307,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(result.stderr).toBe('');
 
     const upgradePlan = JSON.parse(result.stdout) as UpgradePlan;
+    expect(result.stdout).toContain('\n  "blockId": "auth/basic-session"');
     expect(upgradePlan).toMatchObject({
       blockId: 'auth/basic-session',
       fromVersion: '0.1.0',
@@ -2335,6 +2336,19 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
         itemCount: 1
       }
     ]);
+
+    const compactResult = await runCli(workspaceRoot, [
+      'upgrade',
+      'auth/basic-session',
+      '0.1.1',
+      '--dry-run',
+      '--json',
+      '--compact'
+    ]);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout).not.toContain('\n  "blockId"');
+    expect(JSON.parse(compactResult.stdout)).toEqual(upgradePlan);
 
     await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
       code: 0,
@@ -2504,17 +2518,27 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]')
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]')
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--dry-run', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json]')
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--json', '--compact', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['explain', '--extra'])).resolves.toMatchObject({
       code: 1,
