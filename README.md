@@ -60,6 +60,7 @@ Use these entry commands for normal development:
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
 - `npm run platform -- verification report`: inspect the latest verification report
 - `npm run platform -- verification report --json --compact`: emit the compact verification report
+- `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
 - `npm run platform -- provenance registry`: inspect the latest provenance registry
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
 - `npm run platform -- review summary`: inspect the latest review summary
@@ -75,6 +76,7 @@ Use these entry commands for normal development:
 - `npm run platform -- add <block-id>`: add official or private blocks
 - `npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt`: refresh compiled project artifacts
 - `npm run platform -- verify`: run the default fast lane with generated runtime service tests
+- `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
 - `npm run platform -- verify --lane fast|runtime|all`: choose a specific verification lane; full Playwright runtime acceptance only runs in all
 - `npm run platform -- repair`: create or apply bounded repairs from verification failures
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run`: review upgrade impact before applying it
@@ -125,6 +127,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
 - `npm run platform -- verification report --json --compact`: emit the compact verification report
+- `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract

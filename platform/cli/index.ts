@@ -72,7 +72,7 @@ const USAGE = [
 ].join('\n');
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
-const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all]';
+const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
@@ -168,20 +168,35 @@ function parseResetArg(args: string[]): boolean {
   throw new Error(INIT_USAGE);
 }
 
-function parseLaneArg(args: string[]): VerificationLane {
-  if (args.length === 0) {
-    return 'fast';
-  }
-  if (args.length !== 2 || args[0] !== '--lane') {
-    throw new Error(VERIFY_USAGE);
-  }
-
-  const value = args[1];
+function parseLaneValue(value: string): VerificationLane {
   if (value === 'fast' || value === 'runtime' || value === 'all') {
     return value;
   }
-
   throw new Error(VERIFY_USAGE);
+}
+
+function parseVerifyArgs(args: string[]): { lane: VerificationLane; json: boolean; compact: boolean } {
+  let lane: VerificationLane = 'fast';
+  let json = false;
+  let compact = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index];
+    if (flag === '--lane' && index + 1 < args.length) {
+      lane = parseLaneValue(args[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (flag === '--json' && !json) {
+      json = true;
+      continue;
+    }
+    if (flag === '--compact' && json && !compact) {
+      compact = true;
+      continue;
+    }
+    throw new Error(VERIFY_USAGE);
+  }
+  return { lane, json, compact };
 }
 
 function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean; compact: boolean } {
@@ -1370,7 +1385,15 @@ async function main(): Promise<void> {
       console.log('Adapted slots');
       return;
     case 'verify': {
-      const { report } = await verifyWorkspace(process.cwd(), { lane: parseLaneArg(args) });
+      const verifyArgs = parseVerifyArgs(args);
+      const { report } = await verifyWorkspace(process.cwd(), {
+        lane: verifyArgs.lane,
+        emitTiming: !verifyArgs.json
+      });
+      if (verifyArgs.json) {
+        console.log(JSON.stringify(report, null, verifyArgs.compact ? 0 : 2));
+        return;
+      }
       console.log(`Verification ${report.summary.status} (${report.summary.requestedLane})`);
       return;
     }

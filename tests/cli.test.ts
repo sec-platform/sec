@@ -849,6 +849,62 @@ test('CLI exposes runtime report as text and JSON contracts', { timeout: 120000 
   });
 });
 
+test('CLI runs verify with JSON output for CI consumers', { timeout: 120000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    const verifyResult = await runCli(workspaceRoot, ['verify', '--lane', 'fast']);
+    expect(verifyResult.code).toBe(0);
+    expect(verifyResult.stderr).toBe('');
+    expect(verifyResult.stdout).toContain('Verification passed (fast)\n');
+
+    const verifyJsonResult = await runCli(workspaceRoot, ['verify', '--lane', 'fast', '--json']);
+    expect(verifyJsonResult.code).toBe(0);
+    expect(verifyJsonResult.stderr).toBe('');
+    expect(verifyJsonResult.stdout).toContain('\n  "summary"');
+    const directVerificationReport = JSON.parse(verifyJsonResult.stdout) as VerificationReport;
+    expect(directVerificationReport).toMatchObject({
+      summary: {
+        status: 'passed',
+        requestedLane: 'fast',
+        failedLanes: []
+      },
+      fast: { status: 'passed', policy: { status: 'passed' } },
+      runtime: { status: 'passed', acceptance: { status: 'skipped' } }
+    });
+
+    const verifyCompactResult = await runCli(workspaceRoot, ['verify', '--json', '--compact']);
+    expect(verifyCompactResult.code).toBe(0);
+    expect(verifyCompactResult.stderr).toBe('');
+    expect(verifyCompactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(verifyCompactResult.stdout)).toMatchObject({
+      summary: {
+        status: 'passed',
+        requestedLane: 'fast'
+      }
+    });
+
+  });
+});
+
 test('CLI exposes verification report as text and JSON contracts', { timeout: 120000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
@@ -886,11 +942,7 @@ test('CLI exposes verification report as text and JSON contracts', { timeout: 12
     const jsonResult = await runCli(workspaceRoot, ['verification', 'report', '--json']);
     expect(jsonResult.code).toBe(0);
     expect(jsonResult.stderr).toBe('');
-    const verificationReport = JSON.parse(jsonResult.stdout) as {
-      summary: { status: string; requestedLane: string; failedLanes: string[] };
-      fast: { status: string; policy: { status: string } };
-      runtime: { status: string; acceptance: { status: string } };
-    };
+    const verificationReport = JSON.parse(jsonResult.stdout) as VerificationReport;
     expect(verificationReport).toMatchObject({
       summary: {
         status: 'passed',
@@ -2777,22 +2829,32 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', 'fast'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all]')
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--json', '--compact', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['resolve', '--extra'])).resolves.toMatchObject({
       code: 1,

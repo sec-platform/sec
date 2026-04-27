@@ -184,11 +184,11 @@ export async function adaptWorkspace(
 
 export async function verifyWorkspace(
   workspaceRoot = process.cwd(),
-  options: { lane?: VerificationLane } = {}
+  options: { lane?: VerificationLane; emitTiming?: boolean } = {}
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(lockPath);
-  const report = await verifyProject(workspaceRoot, lock, options.lane ?? 'all');
+  const report = await verifyProject(workspaceRoot, lock, options.lane ?? 'all', { emitTiming: options.emitTiming });
   return { lock, report };
 }
 

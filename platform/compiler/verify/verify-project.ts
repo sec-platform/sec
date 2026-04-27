@@ -268,7 +268,8 @@ function ensureGeneratedPaths(lock: LockFile): void {
 export async function verifyProject(
   workspaceRoot: string,
   lock: LockFile,
-  lane: VerificationLane = 'all'
+  lane: VerificationLane = 'all',
+  options: { emitTiming?: boolean } = {}
 ): Promise<VerificationReport> {
   const {
     projectRoot,
@@ -287,7 +288,7 @@ export async function verifyProject(
     lane === 'runtime' ? { lane: createSkippedFastLane(), failure: null } : await runFastVerification(workspaceRoot, projectRoot);
   const shouldRunRuntime = fastResult.lane.status === 'passed' || lane === 'runtime';
   const runtimeLane = shouldRunRuntime
-    ? await runRuntimeVerification(projectRoot, lane === 'all' ? 'full' : 'service')
+    ? await runRuntimeVerification(projectRoot, lane === 'all' ? 'full' : 'service', { emitTiming: options.emitTiming })
     : createSkippedRuntimeLane();
   const summary = summarizeReport(lane, fastResult.lane, runtimeLane);
   const report: VerificationReport = {
