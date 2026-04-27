@@ -25,7 +25,6 @@ export async function runCommand(
     const child = spawn(command, args, {
       cwd: options.cwd,
       env,
-      shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
