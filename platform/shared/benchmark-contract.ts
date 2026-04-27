@@ -11,8 +11,11 @@ export type BenchmarkTaskSuiteContract = {
   formatVersion: '1';
   suiteId: string;
   status: 'active';
+  command: string;
   taskCount: number;
   tasks: BenchmarkTask[];
+  artifactPathCount: number;
+  artifactPaths: string[];
   scoreDimensions: string[];
 };
 
@@ -92,16 +95,25 @@ const scoreDimensions = [
   'machine-recoverability'
 ];
 
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
 export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
+  const artifactPaths = uniqueSorted(benchmarkTasks.flatMap((task) => task.artifactPaths));
   return {
     formatVersion: '1',
     suiteId: 'engineering-compiler-core',
     status: 'active',
+    command: 'npm run platform -- benchmark suite --json',
     taskCount: benchmarkTasks.length,
     tasks: benchmarkTasks.map((task) => ({
       ...task,
+      artifactPaths: [...task.artifactPaths],
       scoreFocus: [...task.scoreFocus]
     })),
+    artifactPathCount: artifactPaths.length,
+    artifactPaths,
     scoreDimensions: [...scoreDimensions]
   };
 }
@@ -109,7 +121,9 @@ export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
 export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteContract): string {
   const lines = [
     `Benchmark suite ${contract.suiteId} (${contract.status})`,
+    `Command: ${contract.command}`,
     `Tasks: ${contract.taskCount}`,
+    `Artifact paths: ${contract.artifactPathCount}`,
     `Score dimensions: ${contract.scoreDimensions.join(', ')}`
   ];
 

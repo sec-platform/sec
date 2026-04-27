@@ -386,7 +386,22 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     formatVersion: '1',
     suiteId: 'engineering-compiler-core',
     status: 'active',
+    command: 'npm run platform -- benchmark suite --json',
     taskCount: 5,
+    artifactPathCount: 11,
+    artifactPaths: [
+      'project/generated/acceptance-coverage.json',
+      'project/generated/explain-graph.json',
+      'project/generated/policy-report.json',
+      'project/generated/repair-plan.json',
+      'project/generated/review-summary.json',
+      'project/generated/upgrade-diagnostics.json',
+      'project/generated/upgrade-plan.json',
+      'project/generated/verification-report.json',
+      'project/graph.lock.json',
+      'project/overrides/override.manifest.yaml',
+      'project/provenance.json'
+    ],
     tasks: expect.arrayContaining([
       expect.objectContaining({
         id: 'add-block',
@@ -433,6 +448,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Benchmark suite engineering-compiler-core (active)');
+    expect(textResult.stdout).toContain('Command: npm run platform -- benchmark suite --json');
+    expect(textResult.stdout).toContain('Artifact paths: 11');
     expect(textResult.stdout).toContain('Task override-conflict: surface one override conflict during upgrade planning');
     expect(textResult.stdout).toContain('command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact');
     expect(textResult.stdout).toContain('artifacts=project/overrides/override.manifest.yaml, project/generated/upgrade-diagnostics.json, project/generated/review-summary.json');
@@ -442,7 +459,14 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(jsonResult.stderr).toBe('');
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       suiteId: 'engineering-compiler-core',
-      taskCount: 5
+      command: 'npm run platform -- benchmark suite --json',
+      taskCount: 5,
+      artifactPathCount: 11,
+      artifactPaths: expect.arrayContaining([
+        'project/generated/review-summary.json',
+        'project/generated/upgrade-plan.json',
+        'project/provenance.json'
+      ])
     });
 
     const compactResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json', '--compact']);
@@ -451,7 +475,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       suiteId: 'engineering-compiler-core',
-      taskCount: 5
+      taskCount: 5,
+      artifactPathCount: 11
     });
   });
 });

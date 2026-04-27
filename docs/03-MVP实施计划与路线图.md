@@ -153,7 +153,7 @@
        - `platform test budget --json [--compact]` 输出稳定慢测预算合同。
        - `npm run test:budget` 复用正式 CLI 输出 slow-test budget JSON 合同。
        - `platform benchmark suite` 作为正式 benchmark/task-suite 合同入口。
-       - `platform benchmark suite --json [--compact]` 输出稳定 benchmark/task-suite 合同。
+       - `platform benchmark suite --json [--compact]` 输出稳定 benchmark/task-suite 合同，包含顶层 runner command、artifactPathCount、artifactPaths 与评分维度。
        - `npm run test:benchmark-contract` 复用正式 CLI 输出最小 benchmark/task-suite JSON 合同。
        - fast/runtime 不运行 Next build 或 Playwright。
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
@@ -180,7 +180,7 @@
          - `project/generated/acceptance-coverage.json`
          - `project/generated/explain-graph.json`
          - `project/generated/review-summary.json`
-       - P0：建立 benchmark/task-suite 最小合同，先通过 `platform benchmark suite --json [--compact]` 冻结任务集、runner command、artifact paths 与评分维度，再扩 runner。
+       - P0：建立 benchmark/task-suite 最小合同，已通过 `platform benchmark suite --json [--compact]` 冻结任务集、顶层 runner command、聚合 artifact paths 与评分维度，再扩 runner。
        - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐：active。
         - TaskEnvelope `sourceSlot` 已回显 lock 中 slot 状态、writable zones 与 provenance hints。
         - repair plan review 已回显同一 envelope 写入边界与 source provenance，供 dry-run JSON 审查。
