@@ -70,6 +70,14 @@ Workbench and IDE integrations must preserve this boundary:
 - `tests/`: pipeline, registry, and repair coverage
 - `docs/`: design notes, implementation specs, and rollout material
 
+## Command Entry Taxonomy
+
+- `npm run platform -- <command>`: raw compiler CLI entry for targeted operations.
+- `npm run reference:*`: refresh the checked-in `project/` workspace without resetting it.
+- `npm run demo:*`: reset or package a user-facing demo path from the reference workspace.
+- `npm run dogfood:*`: exercise the checked-in reference workspace as the product dogfood surface.
+- `npm run test:*`: run development verification or print verification budget contracts.
+
 ## Common Commands
 
 - `npm run check`: TypeScript typecheck plus the main test suite

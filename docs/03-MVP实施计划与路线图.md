@@ -139,7 +139,12 @@
        - `npm run test:budget` 输出 fast/runtime/all lane 慢测边界合同。
        - fast/runtime 不运行 Next build 或 Playwright。
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
-     - 重复概念删除和命名收敛。
+     - 重复概念删除和命名收敛：active。
+       - `platform`：原始 CLI 操作入口。
+       - `reference`：不重置的主链刷新入口。
+       - `demo`：面向用户演示的重置/打包入口。
+       - `dogfood`：针对当前参考项目的自用验证入口。
+       - `test`：开发验证和预算合同入口。
    - 暂停条件：
      - 连续新增内部 summary/expose/diagnostics 但没有外部闭环提升。
      - 新增概念不能映射到用户路径或稳定 contract。
