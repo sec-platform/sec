@@ -318,7 +318,7 @@
      - 升级检查结果在 review/local view 中的聚合。
      - 升级前置检查失败的结构化诊断 artifact。
      - 升级诊断在 review/local view 中的聚合。
-     - upgrade diagnostics 进入 lock/provenance 产物清单。
+     - upgrade plan/diagnostics 进入 lock/provenance 产物清单。
      - CLI `platform upgrade <block-id> <target-version> --dry-run --json [--compact]` 可输出机器可解析 plan，供团队 CI 直接消费单行合同。
      - upgrade CLI 普通文本摘要：
        - 显示 block 升级版本。

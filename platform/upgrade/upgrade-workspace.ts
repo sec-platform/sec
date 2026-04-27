@@ -1229,6 +1229,14 @@ function isEmptyDiagnosticsDetails(details: unknown): boolean {
   return Object.getPrototypeOf(details) === Object.prototype && Object.keys(details).length === 0;
 }
 
+async function recordUpgradeGeneratedArtifact(workspaceRoot: string, lock: LockFile, artifactPath: string): Promise<void> {
+  if (!lock.generatedPaths.includes(artifactPath)) {
+    lock.generatedPaths.push(artifactPath);
+    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
+  }
+  await writeProvenance(workspaceRoot, lock);
+}
+
 function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck'] {
   if (code === 'UPGRADE-BLOCKED-003') {
     return 'plan-block';
@@ -1285,7 +1293,7 @@ async function writeUpgradeDiagnostics(
   error: CompilerError,
   lock: LockFile | null
 ): Promise<void> {
-  const { lockPath, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
   const details = isEmptyDiagnosticsDetails(error.details) ? undefined : error.details;
   await writeJson(upgradeDiagnosticsPath, {
     formatVersion: '1',
@@ -1301,12 +1309,7 @@ async function writeUpgradeDiagnostics(
   if (!lock) {
     return;
   }
-  if (!lock.generatedPaths.includes('generated/upgrade-diagnostics.json')) {
-    lock.generatedPaths.push('generated/upgrade-diagnostics.json');
-    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
-  }
-  await writeProvenance(workspaceRoot, lock);
+  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'generated/upgrade-diagnostics.json');
 }
 
 function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Record<string, number> {
@@ -1569,6 +1572,7 @@ export async function upgradeWorkspace(
   if (options.dryRun) {
     const lock = await readJson<LockFile>(lockPath);
     await writeJson(upgradePlanPath, upgradePlan);
+    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'generated/upgrade-plan.json');
     return { plan, lock, upgradePlan };
   }
 
@@ -1593,12 +1597,7 @@ export async function upgradeWorkspace(
     await lockProject(workspaceRoot, lock);
     lock = await readJson<LockFile>(lockPath);
 
-    if (!lock.generatedPaths.includes('generated/upgrade-plan.json')) {
-      lock.generatedPaths.push('generated/upgrade-plan.json');
-      lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-      await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
-      await writeProvenance(workspaceRoot, lock);
-    }
+    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'generated/upgrade-plan.json');
 
     upgradePlan.status = 'applied';
     await writeJson(upgradePlanPath, upgradePlan);
