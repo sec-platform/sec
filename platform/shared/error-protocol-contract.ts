@@ -1,3 +1,4 @@
+import type { CompilerErrorDetails } from './errors.ts';
 import { buildErrorProtocol, type ErrorProtocol } from './error-protocol.ts';
 
 export type ErrorProtocolExample = {
@@ -5,6 +6,7 @@ export type ErrorProtocolExample = {
   input: {
     code?: string;
     message: string;
+    details?: CompilerErrorDetails;
   };
   output: ErrorProtocol;
 };
@@ -67,6 +69,17 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
     message: 'Migration path "../outside-project.md" escapes project root'
   },
   {
+    id: 'upgrade-rollback-error',
+    code: 'UPGRADE-MIGRATION-016',
+    message: 'slot-contract-update target "custom/customer_normalizer.ts" is missing',
+    details: {
+      migrationId: 'mig-customer-normalizer-contract',
+      migrationKind: 'slot-contract-update',
+      target: 'custom/customer_normalizer.ts',
+      rollbackStatus: 'restored'
+    }
+  },
+  {
     id: 'upgrade-conflict-error',
     code: 'UPGRADE-CONFLICT-001',
     message: 'Override "manual-auth-session-hotfix" conflicts with upgrade of "auth/basic-session"'
@@ -83,7 +96,8 @@ export function buildErrorProtocolContract(): ErrorProtocolContract {
     id: example.id,
     input: {
       ...(example.code ? { code: example.code } : {}),
-      message: example.message
+      message: example.message,
+      ...(example.details ? { details: example.details } : {})
     },
     output: buildErrorProtocol(example)
   }));
