@@ -182,6 +182,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(routeMap).toContain('platform verification report --json [--compact]');
   expect(routeMap).toContain('platform provenance registry --json [--compact]');
   expect(routeMap).toContain('platform review summary --json [--compact]');
+  expect(routeMap).toContain('repair --dry-run --json [--compact]');
   expect(routeMap).toContain('platform upgrade <block-id> <target-version> --dry-run --json [--compact]');
   expect(routeMap).toContain('platform test budget --json [--compact]');
   expect(routeMap).toContain('platform reference check --json [--compact]');
@@ -198,6 +199,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(readme).toContain('npm run platform -- verification report --json --compact');
   expect(readme).toContain('npm run platform -- provenance registry --json --compact');
   expect(readme).toContain('npm run platform -- review summary --json --compact');
+  expect(readme).toContain('npm run platform -- repair --dry-run --json --compact');
   expect(readme).toContain('npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact');
   expect(readme).toContain('npm run platform -- test budget --json --compact');
   expect(readme).toContain('npm run platform -- reference check');
