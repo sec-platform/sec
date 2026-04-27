@@ -516,7 +516,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
   expect(formatContractFreezeContract(contract)).toContain('Contract freeze active');
-  expect(formatContractFreezeContract(contract)).toContain('Target tests/cli.test.ts; pattern=');
+  expect(formatContractFreezeContract(contract)).toContain('Target tests/cli.test.ts; command=bun test tests/cli.test.ts --test-name-pattern');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
@@ -526,14 +526,17 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     targets: expect.arrayContaining([
       expect.objectContaining({
         file: 'tests/cli.test.ts',
+        command: expect.stringContaining('bun test tests/cli.test.ts --test-name-pattern'),
         testNamePattern: expect.stringContaining('CLI exposes contract freeze target list as text and JSON contracts')
       }),
       expect.objectContaining({
         file: 'tests/project-runtime.test.ts',
+        command: expect.stringContaining('bun test tests/project-runtime.test.ts --test-name-pattern'),
         testNamePattern: expect.stringContaining('test budget and benchmark contracts document slow lanes')
       }),
       expect.objectContaining({
         file: 'tests/pipeline.test.ts',
+        command: 'bun test tests/pipeline.test.ts --test-name-pattern "v0.1 pipeline runs end to end in a temporary workspace"',
         testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
       })
     ])
@@ -544,7 +547,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Contract freeze active');
-    expect(textResult.stdout).toContain('Target tests/pipeline.test.ts; pattern=v0.1 pipeline runs end to end');
+    expect(textResult.stdout).toContain('Target tests/pipeline.test.ts; command=bun test tests/pipeline.test.ts --test-name-pattern');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json']);
     expect(jsonResult.code).toBe(0);
