@@ -509,6 +509,73 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
   }
 });
 
+test('review summary includes entry migration attribution in upgrade failure points', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-review-upgrade-entry-diagnostics-'));
+  try {
+    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+    const diagnostics: UpgradeDiagnostics = {
+      formatVersion: '1',
+      status: 'blocked',
+      phase: 'planning',
+      blockId: 'private/slot-contract',
+      targetVersion: '0.2.0',
+      failedCheck: 'migration-entries',
+      errorCode: 'UPGRADE-MIGRATION-003',
+      message: 'Migration entry "migrations/mismatched-entry.json" does not match manifest metadata',
+      details: {
+        migrationId: 'mig-expected-entry',
+        migrationKind: 'text-append',
+        entry: 'migrations/mismatched-entry.json',
+        entryId: 'mig-actual-entry',
+        entryKind: 'text-replace'
+      }
+    };
+
+    await writeJson(upgradeDiagnosticsPath, diagnostics);
+
+    const summary = await buildReviewSummary(
+      workspaceRoot,
+      {
+        formatVersion: '1',
+        app: {
+          name: 'customer-admin',
+          stack: 'nextjs-ts-prisma-sqlite',
+          mode: 'single-tenant'
+        },
+        resolvedBlocks: [],
+        resolvedCapabilities: [],
+        installPlan: [],
+        slotTasks: [],
+        generatedPaths: [],
+        acceptancePlan: [],
+        passStatus: {
+          parse: 'succeeded',
+          align: 'succeeded',
+          resolve: 'succeeded',
+          compose: 'succeeded',
+          adapt: 'succeeded',
+          verify: 'succeeded',
+          repair: 'skipped',
+          lock: 'succeeded',
+          emit: 'succeeded'
+        }
+      },
+      { formatVersion: '1', artifacts: [] },
+      buildPassingReport(),
+      buildPassingCoverage()
+    );
+
+    expect(summary.failurePoints).toContainEqual({
+      lane: 'all',
+      kind: 'upgrade',
+      artifactPath: 'generated/upgrade-diagnostics.json',
+      message: 'Upgrade blocked at migration-entries: UPGRADE-MIGRATION-003 Migration entry "migrations/mismatched-entry.json" does not match manifest metadata; migration=mig-expected-entry; kind=text-append; entry=migrations/mismatched-entry.json; entryId=mig-actual-entry; entryKind=text-replace'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('review summary includes apply migration attribution in upgrade failure points', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-review-upgrade-apply-diagnostics-'));
   try {
