@@ -35,6 +35,10 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   await ensureDir(path.join(projectRoot, 'prisma'));
   await ensureDir(privateRegistryRoot);
 
+  for (const overrideDir of ['rules', 'patches', 'manifests']) {
+    await writeText(path.join(projectRoot, 'overrides', overrideDir, '.gitkeep'), '\n');
+  }
+
   const runtimeDependencySpec = await loadRuntimeDependencySpec();
   await writeJson(projectPackagePath, {
     ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),

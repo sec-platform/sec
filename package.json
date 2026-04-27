@@ -17,7 +17,7 @@
     "test:budget": "bun ./platform/dev-runner.ts test-budget",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
     "test:benchmark-contract": "bun ./platform/dev-runner.ts benchmark-contract",
-    "reference:check": "bun ./platform/dev-runner.ts reference-clean",
+    "reference:check": "npm run platform -- reference check",
     "test:bun": "bun test tests/",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",

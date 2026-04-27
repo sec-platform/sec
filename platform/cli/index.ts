@@ -28,6 +28,11 @@ import {
   type DependencyCleanOptions
 } from '../shared/dependency-environment.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
+import {
+  assertReferenceCheckClean,
+  buildReferenceCheckReport,
+  formatReferenceCheck
+} from '../shared/reference-check.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   ExplainGraph,
@@ -38,7 +43,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -52,6 +57,7 @@ const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dr
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
+const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps status [--json [--compact]]',
@@ -265,6 +271,22 @@ function parseDoctorArgs(args: string[]): { json: boolean; compact: boolean } {
     return { json: true, compact: true };
   }
   throw new Error(DOCTOR_USAGE);
+}
+
+function parseReferenceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(REFERENCE_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(REFERENCE_USAGE);
 }
 
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -655,6 +677,23 @@ async function runDepsCommand(args: string[]): Promise<void> {
   }
 }
 
+async function runReferenceCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'check') {
+    throw new Error(REFERENCE_USAGE);
+  }
+
+  const outputArgs = parseReferenceOutputArgs(args.slice(1));
+  const report = await buildReferenceCheckReport();
+
+  if (outputArgs.json) {
+    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+  } else {
+    console.log(formatReferenceCheck(report));
+  }
+
+  assertReferenceCheckClean(report);
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
@@ -791,6 +830,9 @@ async function main(): Promise<void> {
     }
     case 'deps':
       await runDepsCommand(args);
+      return;
+    case 'reference':
+      await runReferenceCommand(args);
       return;
     default:
       console.log(USAGE);

@@ -6,7 +6,7 @@ import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|contract-freeze|benchmark-contract|reference-clean|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|contract-freeze|benchmark-contract|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -23,6 +23,7 @@ function contractFreezeTargets(): ContractFreezeTarget[] {
         'CLI prints usage for missing or unknown commands',
         'CLI exposes doctor as text and JSON readiness contracts',
         'CLI exposes dependency environment maintenance entrypoints',
+        'CLI exposes reference drift check as text and JSON contracts',
         'CLI emits explain JSON for CI consumers',
         'CLI emits artifact manifest JSON for CI upload consumers',
         'CLI reports argument usage errors'
@@ -211,16 +212,6 @@ async function main(): Promise<void> {
 
   if (target === 'benchmark-contract') {
     console.log(JSON.stringify(benchmarkContract(), null, 2));
-    return;
-  }
-
-  if (target === 'reference-clean') {
-    const code = await runDevCommand('npm', ['run', 'demo:quickstart'], process.env);
-    if (code !== 0) {
-      process.exitCode = code;
-      return;
-    }
-    process.exitCode = await runDevCommand('git', ['diff', '--exit-code', '--', 'project'], process.env);
     return;
   }
 

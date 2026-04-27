@@ -1,35 +1,582 @@
 {
   "formatVersion": "2",
+  "ciSummary": {
+    "status": "passed",
+    "failureCount": 0,
+    "regressionRiskCount": 0,
+    "conflictHintCount": 0,
+    "impactedBlockCount": 10,
+    "impactedSlotCount": 1,
+    "runtimeEntryCount": 9
+  },
+  "chainSummary": {
+    "status": "attention",
+    "stageCount": 4,
+    "passedStageCount": 3,
+    "attentionStageCount": 1,
+    "failedStageCount": 0,
+    "stageSummaries": [
+      {
+        "id": "verification",
+        "status": "passed",
+        "detail": "lane=all; failed=none"
+      },
+      {
+        "id": "coverage",
+        "status": "passed",
+        "detail": "blocks=10/10; slots=1/1"
+      },
+      {
+        "id": "artifacts",
+        "status": "attention",
+        "detail": "total=0; missing=0"
+      },
+      {
+        "id": "review",
+        "status": "passed",
+        "detail": "review-summary=generated"
+      }
+    ]
+  },
+  "coverageSummary": {
+    "status": "passed",
+    "acceptancePassedCount": 11,
+    "blockCount": 10,
+    "slotCount": 1,
+    "coveredBlockCount": 10,
+    "coveredSlotCount": 1,
+    "uncoveredBlockCount": 0,
+    "uncoveredSlotCount": 0,
+    "acceptancePassed": [
+      "audit_entry_can_be_created",
+      "customer_can_be_exported",
+      "customer_can_upload_attachment",
+      "customer_creation_sends_email_notification",
+      "customer_list_can_be_filtered",
+      "postgres_contract_is_available",
+      "tenant_only_sees_own_customers",
+      "user_can_access_authorized_route",
+      "user_can_create_customer",
+      "user_can_list_customers",
+      "user_can_login"
+    ],
+    "uncoveredBlocks": [],
+    "uncoveredSlots": [],
+    "blockSummaries": [
+      {
+        "id": "audit/basic",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "audit_entry_can_be_created"
+        ],
+        "coveredBy": [
+          "audit_entry_can_be_created"
+        ]
+      },
+      {
+        "id": "auth/basic-session",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "user_can_login"
+        ],
+        "coveredBy": [
+          "user_can_login"
+        ]
+      },
+      {
+        "id": "entity/customer-basic",
+        "declaredAcceptanceCount": 3,
+        "coveredByCount": 3,
+        "declaredAcceptance": [
+          "tenant_only_sees_own_customers",
+          "user_can_create_customer",
+          "user_can_list_customers"
+        ],
+        "coveredBy": [
+          "tenant_only_sees_own_customers",
+          "user_can_create_customer",
+          "user_can_list_customers"
+        ]
+      },
+      {
+        "id": "export/csv-basic",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "customer_can_be_exported"
+        ],
+        "coveredBy": [
+          "customer_can_be_exported"
+        ]
+      },
+      {
+        "id": "file/upload",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "customer_can_upload_attachment"
+        ],
+        "coveredBy": [
+          "customer_can_upload_attachment"
+        ]
+      },
+      {
+        "id": "infra/postgres",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "postgres_contract_is_available"
+        ],
+        "coveredBy": [
+          "postgres_contract_is_available"
+        ]
+      },
+      {
+        "id": "notify/email-basic",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "customer_creation_sends_email_notification"
+        ],
+        "coveredBy": [
+          "customer_creation_sends_email_notification"
+        ]
+      },
+      {
+        "id": "rbac/basic",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "user_can_access_authorized_route"
+        ],
+        "coveredBy": [
+          "user_can_access_authorized_route"
+        ]
+      },
+      {
+        "id": "table/filter-search",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "customer_list_can_be_filtered"
+        ],
+        "coveredBy": [
+          "customer_list_can_be_filtered"
+        ]
+      },
+      {
+        "id": "tenant/basic-workspace",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "tenant_only_sees_own_customers"
+        ],
+        "coveredBy": [
+          "tenant_only_sees_own_customers"
+        ]
+      }
+    ],
+    "slotSummaries": [
+      {
+        "id": "customer_normalizer",
+        "declaredAcceptanceCount": 2,
+        "coveredByCount": 2,
+        "declaredAcceptance": [
+          "tenant_only_sees_own_customers",
+          "user_can_create_customer"
+        ],
+        "coveredBy": [
+          "tenant_only_sees_own_customers",
+          "user_can_create_customer"
+        ]
+      }
+    ]
+  },
+  "provenanceSummary": {
+    "artifactCount": 54,
+    "verifiedArtifactCount": 20,
+    "unverifiedArtifactCount": 34,
+    "overrideArtifactCount": 0,
+    "registryArtifactCount": 21,
+    "generatedPassCount": 5,
+    "originSummaries": [
+      {
+        "originType": "block",
+        "count": 21,
+        "paths": [
+          "generated/postgres-contract.json",
+          "prisma/schema.prisma",
+          "src/installed/audit/logger.ts",
+          "src/installed/auth/authorize.ts",
+          "src/installed/auth/session.ts",
+          "src/installed/entity/customer-service.ts",
+          "src/installed/export/customer-csv.ts",
+          "src/installed/file/customer-attachments.ts",
+          "src/installed/infra/postgres-contract.ts",
+          "src/installed/notify/email-outbox.ts",
+          "src/installed/table/customer-filter.ts",
+          "src/installed/tenant/context.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-export.test.ts",
+          "tests/unit/customer-filter.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/email-outbox.test.ts",
+          "tests/unit/postgres-contract.test.ts",
+          "tests/unit/rbac-authorize.test.ts"
+        ]
+      },
+      {
+        "originType": "generated",
+        "count": 32,
+        "paths": [
+          "app/api/customers/[customerId]/attachments/route.ts",
+          "app/api/customers/route.ts",
+          "app/api/session/current/route.ts",
+          "app/api/session/login/route.ts",
+          "app/api/session/logout/route.ts",
+          "app/customers/page.tsx",
+          "app/globals.css",
+          "app/layout.tsx",
+          "app/login/page.tsx",
+          "app/page.tsx",
+          "app/workspace/page.tsx",
+          "components/customer-attachment-form.tsx",
+          "components/customer-form.tsx",
+          "components/login-form.tsx",
+          "components/logout-button.tsx",
+          "generated/acceptance-coverage.json",
+          "generated/block-usage-map.json",
+          "generated/explain-graph.json",
+          "generated/install-manifest.json",
+          "generated/policy-report.json",
+          "generated/routes.ts",
+          "generated/runtime-report.json",
+          "generated/verification-report.json",
+          "lib/session.ts",
+          "lib/store.ts",
+          "next-env.d.ts",
+          "next.config.mjs",
+          "package.json",
+          "provenance.json",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tsconfig.json"
+        ]
+      },
+      {
+        "originType": "slot",
+        "count": 1,
+        "paths": [
+          "custom/customer_normalizer.ts"
+        ]
+      }
+    ],
+    "overrideSummaries": [
+      {
+        "overrideStatus": "none",
+        "count": 54,
+        "paths": [
+          "app/api/customers/[customerId]/attachments/route.ts",
+          "app/api/customers/route.ts",
+          "app/api/session/current/route.ts",
+          "app/api/session/login/route.ts",
+          "app/api/session/logout/route.ts",
+          "app/customers/page.tsx",
+          "app/globals.css",
+          "app/layout.tsx",
+          "app/login/page.tsx",
+          "app/page.tsx",
+          "app/workspace/page.tsx",
+          "components/customer-attachment-form.tsx",
+          "components/customer-form.tsx",
+          "components/login-form.tsx",
+          "components/logout-button.tsx",
+          "custom/customer_normalizer.ts",
+          "generated/acceptance-coverage.json",
+          "generated/block-usage-map.json",
+          "generated/explain-graph.json",
+          "generated/install-manifest.json",
+          "generated/policy-report.json",
+          "generated/postgres-contract.json",
+          "generated/routes.ts",
+          "generated/runtime-report.json",
+          "generated/verification-report.json",
+          "lib/session.ts",
+          "lib/store.ts",
+          "next-env.d.ts",
+          "next.config.mjs",
+          "package.json",
+          "prisma/schema.prisma",
+          "provenance.json",
+          "src/installed/audit/logger.ts",
+          "src/installed/auth/authorize.ts",
+          "src/installed/auth/session.ts",
+          "src/installed/entity/customer-service.ts",
+          "src/installed/export/customer-csv.ts",
+          "src/installed/file/customer-attachments.ts",
+          "src/installed/infra/postgres-contract.ts",
+          "src/installed/notify/email-outbox.ts",
+          "src/installed/table/customer-filter.ts",
+          "src/installed/tenant/context.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-export.test.ts",
+          "tests/unit/customer-filter.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/email-outbox.test.ts",
+          "tests/unit/postgres-contract.test.ts",
+          "tests/unit/rbac-authorize.test.ts",
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "registrySummaries": [
+      {
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "count": 21,
+        "paths": [
+          "generated/postgres-contract.json",
+          "prisma/schema.prisma",
+          "src/installed/audit/logger.ts",
+          "src/installed/auth/authorize.ts",
+          "src/installed/auth/session.ts",
+          "src/installed/entity/customer-service.ts",
+          "src/installed/export/customer-csv.ts",
+          "src/installed/file/customer-attachments.ts",
+          "src/installed/infra/postgres-contract.ts",
+          "src/installed/notify/email-outbox.ts",
+          "src/installed/table/customer-filter.ts",
+          "src/installed/tenant/context.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-export.test.ts",
+          "tests/unit/customer-filter.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/email-outbox.test.ts",
+          "tests/unit/postgres-contract.test.ts",
+          "tests/unit/rbac-authorize.test.ts"
+        ]
+      }
+    ],
+    "generatedPassSummaries": [
+      {
+        "pass": "adapt",
+        "count": 1,
+        "paths": [
+          "custom/customer_normalizer.ts"
+        ]
+      },
+      {
+        "pass": "compose",
+        "count": 47,
+        "paths": [
+          "app/api/customers/[customerId]/attachments/route.ts",
+          "app/api/customers/route.ts",
+          "app/api/session/current/route.ts",
+          "app/api/session/login/route.ts",
+          "app/api/session/logout/route.ts",
+          "app/customers/page.tsx",
+          "app/globals.css",
+          "app/layout.tsx",
+          "app/login/page.tsx",
+          "app/page.tsx",
+          "app/workspace/page.tsx",
+          "components/customer-attachment-form.tsx",
+          "components/customer-form.tsx",
+          "components/login-form.tsx",
+          "components/logout-button.tsx",
+          "generated/block-usage-map.json",
+          "generated/install-manifest.json",
+          "generated/postgres-contract.json",
+          "generated/routes.ts",
+          "lib/session.ts",
+          "lib/store.ts",
+          "next-env.d.ts",
+          "next.config.mjs",
+          "package.json",
+          "prisma/schema.prisma",
+          "src/installed/audit/logger.ts",
+          "src/installed/auth/authorize.ts",
+          "src/installed/auth/session.ts",
+          "src/installed/entity/customer-service.ts",
+          "src/installed/export/customer-csv.ts",
+          "src/installed/file/customer-attachments.ts",
+          "src/installed/infra/postgres-contract.ts",
+          "src/installed/notify/email-outbox.ts",
+          "src/installed/table/customer-filter.ts",
+          "src/installed/tenant/context.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-export.test.ts",
+          "tests/unit/customer-filter.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/email-outbox.test.ts",
+          "tests/unit/postgres-contract.test.ts",
+          "tests/unit/rbac-authorize.test.ts",
+          "tsconfig.json"
+        ]
+      },
+      {
+        "pass": "explain",
+        "count": 1,
+        "paths": [
+          "generated/explain-graph.json"
+        ]
+      },
+      {
+        "pass": "lock",
+        "count": 1,
+        "paths": [
+          "provenance.json"
+        ]
+      },
+      {
+        "pass": "verify",
+        "count": 4,
+        "paths": [
+          "generated/acceptance-coverage.json",
+          "generated/policy-report.json",
+          "generated/runtime-report.json",
+          "generated/verification-report.json"
+        ]
+      }
+    ],
+    "unverifiedArtifacts": [
+      "app/api/customers/[customerId]/attachments/route.ts",
+      "app/api/customers/route.ts",
+      "app/api/session/current/route.ts",
+      "app/api/session/login/route.ts",
+      "app/api/session/logout/route.ts",
+      "app/customers/page.tsx",
+      "app/globals.css",
+      "app/layout.tsx",
+      "app/login/page.tsx",
+      "app/page.tsx",
+      "app/workspace/page.tsx",
+      "components/customer-attachment-form.tsx",
+      "components/customer-form.tsx",
+      "components/login-form.tsx",
+      "components/logout-button.tsx",
+      "generated/acceptance-coverage.json",
+      "generated/block-usage-map.json",
+      "generated/explain-graph.json",
+      "generated/install-manifest.json",
+      "generated/policy-report.json",
+      "generated/routes.ts",
+      "generated/runtime-report.json",
+      "generated/verification-report.json",
+      "lib/session.ts",
+      "lib/store.ts",
+      "next-env.d.ts",
+      "next.config.mjs",
+      "package.json",
+      "provenance.json",
+      "src/installed/auth/session.ts",
+      "src/installed/tenant/context.ts",
+      "tests/runtime/acceptance/customer-flow.spec.ts",
+      "tests/runtime/unit/customer-runtime.test.ts",
+      "tsconfig.json"
+    ]
+  },
+  "policySummary": {
+    "status": "passed",
+    "officialPolicyCount": 1,
+    "projectPolicyCount": 0,
+    "mergedPolicyCount": 1,
+    "sourceCount": 2,
+    "violationCount": 0,
+    "severityCounts": {},
+    "sourceSummaries": [
+      {
+        "scope": "official",
+        "path": "platform/policies/official/policy.spec.yaml",
+        "policyIds": [
+          "tenant-scope-required"
+        ]
+      },
+      {
+        "scope": "project",
+        "path": "project/policies/policy.spec.yaml",
+        "policyIds": []
+      }
+    ],
+    "mergedSummaries": [
+      {
+        "id": "tenant-scope-required",
+        "sourceScope": "official",
+        "sourcePath": "platform/policies/official/policy.spec.yaml",
+        "targetCount": 1,
+        "targets": [
+          "src/installed/entity/customer-service.ts"
+        ]
+      }
+    ],
+    "violationSummaries": []
+  },
   "changeSources": [
     {
       "path": "app/api/customers/[customerId]/attachments/route.ts",
       "originType": "generated",
-      "originId": "app/api/customers/[customerId]/attachments/route.ts"
+      "originId": "app/api/customers/[customerId]/attachments/route.ts",
+      "runtimeKind": "api",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
     },
     {
       "path": "app/api/customers/route.ts",
       "originType": "generated",
-      "originId": "app/api/customers/route.ts"
+      "originId": "app/api/customers/route.ts",
+      "runtimeKind": "api",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
     },
     {
       "path": "app/api/session/current/route.ts",
       "originType": "generated",
-      "originId": "app/api/session/current/route.ts"
+      "originId": "app/api/session/current/route.ts",
+      "runtimeKind": "api",
+      "relatedBlocks": []
     },
     {
       "path": "app/api/session/login/route.ts",
       "originType": "generated",
-      "originId": "app/api/session/login/route.ts"
+      "originId": "app/api/session/login/route.ts",
+      "runtimeKind": "api",
+      "relatedBlocks": []
     },
     {
       "path": "app/api/session/logout/route.ts",
       "originType": "generated",
-      "originId": "app/api/session/logout/route.ts"
+      "originId": "app/api/session/logout/route.ts",
+      "runtimeKind": "api",
+      "relatedBlocks": []
     },
     {
       "path": "app/customers/page.tsx",
       "originType": "generated",
-      "originId": "app/customers/page.tsx"
+      "originId": "app/customers/page.tsx",
+      "runtimeKind": "page",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
     },
     {
       "path": "app/globals.css",
@@ -44,17 +591,23 @@
     {
       "path": "app/login/page.tsx",
       "originType": "generated",
-      "originId": "app/login/page.tsx"
+      "originId": "app/login/page.tsx",
+      "runtimeKind": "page",
+      "relatedBlocks": []
     },
     {
       "path": "app/page.tsx",
       "originType": "generated",
-      "originId": "app/page.tsx"
+      "originId": "app/page.tsx",
+      "runtimeKind": "page",
+      "relatedBlocks": []
     },
     {
       "path": "app/workspace/page.tsx",
       "originType": "generated",
-      "originId": "app/workspace/page.tsx"
+      "originId": "app/workspace/page.tsx",
+      "runtimeKind": "page",
+      "relatedBlocks": []
     },
     {
       "path": "components/customer-attachment-form.tsx",
@@ -109,12 +662,10 @@
     {
       "path": "generated/postgres-contract.json",
       "originType": "block",
-      "originId": "infra/postgres"
-    },
-    {
-      "path": "generated/review-summary.json",
-      "originType": "generated",
-      "originId": "generated/review-summary.json"
+      "originId": "infra/postgres",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "generated/routes.ts",
@@ -130,16 +681,6 @@
       "path": "generated/verification-report.json",
       "originType": "generated",
       "originId": "generated/verification-report.json"
-    },
-    {
-      "path": "generated/views/slot-rule-view.html",
-      "originType": "generated",
-      "originId": "generated/views/slot-rule-view.html"
-    },
-    {
-      "path": "generated/views/source-view.html",
-      "originType": "generated",
-      "originId": "generated/views/source-view.html"
     },
     {
       "path": "lib/session.ts",
@@ -169,7 +710,10 @@
     {
       "path": "prisma/schema.prisma",
       "originType": "block",
-      "originId": "entity/customer-basic"
+      "originId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "provenance.json",
@@ -179,57 +723,90 @@
     {
       "path": "src/installed/audit/logger.ts",
       "originType": "block",
-      "originId": "audit/basic"
+      "originId": "audit/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/auth/authorize.ts",
       "originType": "block",
-      "originId": "rbac/basic"
+      "originId": "rbac/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/auth/session.ts",
       "originType": "block",
-      "originId": "auth/basic-session"
+      "originId": "auth/basic-session",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/entity/customer-service.ts",
       "originType": "block",
-      "originId": "entity/customer-basic"
+      "originId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/export/customer-csv.ts",
       "originType": "block",
-      "originId": "export/csv-basic"
+      "originId": "export/csv-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/file/customer-attachments.ts",
       "originType": "block",
-      "originId": "file/upload"
+      "originId": "file/upload",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/infra/postgres-contract.ts",
       "originType": "block",
-      "originId": "infra/postgres"
+      "originId": "infra/postgres",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/notify/email-outbox.ts",
       "originType": "block",
-      "originId": "notify/email-basic"
+      "originId": "notify/email-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/table/customer-filter.ts",
       "originType": "block",
-      "originId": "table/filter-search"
+      "originId": "table/filter-search",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "src/installed/tenant/context.ts",
       "originType": "block",
-      "originId": "tenant/basic-workspace"
+      "originId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/acceptance/customer-flow.test.ts",
       "originType": "block",
-      "originId": "entity/customer-basic"
+      "originId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/runtime/acceptance/customer-flow.spec.ts",
@@ -244,42 +821,66 @@
     {
       "path": "tests/unit/audit-log.test.ts",
       "originType": "block",
-      "originId": "audit/basic"
+      "originId": "audit/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/customer-attachments.test.ts",
       "originType": "block",
-      "originId": "file/upload"
+      "originId": "file/upload",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/customer-export.test.ts",
       "originType": "block",
-      "originId": "export/csv-basic"
+      "originId": "export/csv-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/customer-filter.test.ts",
       "originType": "block",
-      "originId": "table/filter-search"
+      "originId": "table/filter-search",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/customer-normalizer.test.ts",
       "originType": "block",
-      "originId": "entity/customer-basic"
+      "originId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/email-outbox.test.ts",
       "originType": "block",
-      "originId": "notify/email-basic"
+      "originId": "notify/email-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/postgres-contract.test.ts",
       "originType": "block",
-      "originId": "infra/postgres"
+      "originId": "infra/postgres",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/rbac-authorize.test.ts",
       "originType": "block",
-      "originId": "rbac/basic"
+      "originId": "rbac/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tsconfig.json",
@@ -287,6 +888,366 @@
       "originId": "tsconfig.json"
     }
   ],
+  "runtimeEntries": [
+    {
+      "path": "app/api/customers/[customerId]/attachments/route.ts",
+      "kind": "api",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
+    },
+    {
+      "path": "app/api/customers/route.ts",
+      "kind": "api",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
+    },
+    {
+      "path": "app/api/session/current/route.ts",
+      "kind": "api",
+      "relatedBlocks": []
+    },
+    {
+      "path": "app/api/session/login/route.ts",
+      "kind": "api",
+      "relatedBlocks": []
+    },
+    {
+      "path": "app/api/session/logout/route.ts",
+      "kind": "api",
+      "relatedBlocks": []
+    },
+    {
+      "path": "app/customers/page.tsx",
+      "kind": "page",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
+    },
+    {
+      "path": "app/login/page.tsx",
+      "kind": "page",
+      "relatedBlocks": []
+    },
+    {
+      "path": "app/page.tsx",
+      "kind": "page",
+      "relatedBlocks": []
+    },
+    {
+      "path": "app/workspace/page.tsx",
+      "kind": "page",
+      "relatedBlocks": []
+    }
+  ],
+  "verticalSlices": [
+    {
+      "id": "customer",
+      "runtimeEntries": [
+        "app/api/customers/[customerId]/attachments/route.ts",
+        "app/api/customers/route.ts",
+        "app/customers/page.tsx"
+      ],
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
+    }
+  ],
+  "installImpacts": [
+    {
+      "blockId": "audit/basic",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "audit.basic"
+      ],
+      "targetPaths": [
+        "src/installed/audit/logger.ts",
+        "tests/unit/audit-log.test.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "auth/basic-session",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "auth.basic-session"
+      ],
+      "targetPaths": [
+        "src/installed/auth/session.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "entity/customer-basic",
+      "actionKinds": [
+        "copy",
+        "merge-prisma"
+      ],
+      "sourceRoots": [
+        "entity.customer-basic"
+      ],
+      "targetPaths": [
+        "prisma/schema.prisma",
+        "src/installed/entity/customer-service.ts",
+        "tests/acceptance/customer-flow.test.ts",
+        "tests/unit/customer-normalizer.test.ts"
+      ],
+      "verticals": [
+        "customer"
+      ],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "export/csv-basic",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "export.csv-basic"
+      ],
+      "targetPaths": [
+        "src/installed/export/customer-csv.ts",
+        "tests/unit/customer-export.test.ts"
+      ],
+      "verticals": [
+        "customer"
+      ],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "file/upload",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "file.upload"
+      ],
+      "targetPaths": [
+        "src/installed/file/customer-attachments.ts",
+        "tests/unit/customer-attachments.test.ts"
+      ],
+      "verticals": [
+        "customer"
+      ],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "infra/postgres",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "infra.postgres"
+      ],
+      "targetPaths": [
+        "generated/postgres-contract.json",
+        "src/installed/infra/postgres-contract.ts",
+        "tests/unit/postgres-contract.test.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "notify/email-basic",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "notify.email-basic"
+      ],
+      "targetPaths": [
+        "src/installed/notify/email-outbox.ts",
+        "tests/unit/email-outbox.test.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "rbac/basic",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "rbac.basic"
+      ],
+      "targetPaths": [
+        "src/installed/auth/authorize.ts",
+        "tests/unit/rbac-authorize.test.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "table/filter-search",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "table.filter-search"
+      ],
+      "targetPaths": [
+        "src/installed/table/customer-filter.ts",
+        "tests/unit/customer-filter.test.ts"
+      ],
+      "verticals": [
+        "customer"
+      ],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "tenant/basic-workspace",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "tenant.basic-workspace"
+      ],
+      "targetPaths": [
+        "src/installed/tenant/context.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    }
+  ],
+  "installImpactSummary": {
+    "impactCount": 10,
+    "blockCount": 10,
+    "actionKindCount": 2,
+    "sourceRootCount": 10,
+    "targetPathCount": 21,
+    "verticalCount": 1,
+    "runtimeEntryCount": 0,
+    "groupCount": 2,
+    "blocks": [
+      "audit/basic",
+      "auth/basic-session",
+      "entity/customer-basic",
+      "export/csv-basic",
+      "file/upload",
+      "infra/postgres",
+      "notify/email-basic",
+      "rbac/basic",
+      "table/filter-search",
+      "tenant/basic-workspace"
+    ],
+    "actionKinds": [
+      "copy",
+      "merge-prisma"
+    ],
+    "sourceRoots": [
+      "audit.basic",
+      "auth.basic-session",
+      "entity.customer-basic",
+      "export.csv-basic",
+      "file.upload",
+      "infra.postgres",
+      "notify.email-basic",
+      "rbac.basic",
+      "table.filter-search",
+      "tenant.basic-workspace"
+    ],
+    "targetPaths": [
+      "generated/postgres-contract.json",
+      "prisma/schema.prisma",
+      "src/installed/audit/logger.ts",
+      "src/installed/auth/authorize.ts",
+      "src/installed/auth/session.ts",
+      "src/installed/entity/customer-service.ts",
+      "src/installed/export/customer-csv.ts",
+      "src/installed/file/customer-attachments.ts",
+      "src/installed/infra/postgres-contract.ts",
+      "src/installed/notify/email-outbox.ts",
+      "src/installed/table/customer-filter.ts",
+      "src/installed/tenant/context.ts",
+      "tests/acceptance/customer-flow.test.ts",
+      "tests/unit/audit-log.test.ts",
+      "tests/unit/customer-attachments.test.ts",
+      "tests/unit/customer-export.test.ts",
+      "tests/unit/customer-filter.test.ts",
+      "tests/unit/customer-normalizer.test.ts",
+      "tests/unit/email-outbox.test.ts",
+      "tests/unit/postgres-contract.test.ts",
+      "tests/unit/rbac-authorize.test.ts"
+    ],
+    "verticals": [
+      "customer"
+    ],
+    "runtimeEntries": [],
+    "groupSummaries": [
+      {
+        "vertical": "customer",
+        "blockCount": 4,
+        "actionKindCount": 2,
+        "runtimeEntryCount": 0,
+        "targetPathCount": 10,
+        "blocks": [
+          "entity/customer-basic",
+          "export/csv-basic",
+          "file/upload",
+          "table/filter-search"
+        ],
+        "actionKinds": [
+          "copy",
+          "merge-prisma"
+        ],
+        "runtimeEntries": [],
+        "targetPaths": [
+          "prisma/schema.prisma",
+          "src/installed/entity/customer-service.ts",
+          "src/installed/export/customer-csv.ts",
+          "src/installed/file/customer-attachments.ts",
+          "src/installed/table/customer-filter.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-export.test.ts",
+          "tests/unit/customer-filter.test.ts",
+          "tests/unit/customer-normalizer.test.ts"
+        ]
+      },
+      {
+        "vertical": "none",
+        "blockCount": 6,
+        "actionKindCount": 1,
+        "runtimeEntryCount": 0,
+        "targetPathCount": 11,
+        "blocks": [
+          "audit/basic",
+          "auth/basic-session",
+          "infra/postgres",
+          "notify/email-basic",
+          "rbac/basic",
+          "tenant/basic-workspace"
+        ],
+        "actionKinds": [
+          "copy"
+        ],
+        "runtimeEntries": [],
+        "targetPaths": [
+          "generated/postgres-contract.json",
+          "src/installed/audit/logger.ts",
+          "src/installed/auth/authorize.ts",
+          "src/installed/auth/session.ts",
+          "src/installed/infra/postgres-contract.ts",
+          "src/installed/notify/email-outbox.ts",
+          "src/installed/tenant/context.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/email-outbox.test.ts",
+          "tests/unit/postgres-contract.test.ts",
+          "tests/unit/rbac-authorize.test.ts"
+        ]
+      }
+    ]
+  },
   "impactedBlocks": [
     "audit/basic",
     "auth/basic-session",

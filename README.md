@@ -47,6 +47,8 @@ Use these entry commands for normal development:
 - `npm run platform -- deps warmup`: prepare shared runtime dependencies
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
 - `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts
+- `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
+- `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract
 - `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry
 - `npm run platform -- deps clean --all --force`: remove project, shared, and npm-cache dependency state; this intentionally causes the next runtime verification to warm dependencies again
 - `npm run platform -- add <block-id>`: add official or private blocks
@@ -94,7 +96,8 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
 - `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
-- `npm run reference:check`: refresh the reference workspace and fail on checked-in drift
+- `npm run reference:check`: run the formal reference drift gate through `platform reference check`
+- `npm run platform -- reference check --json --compact`: emit the compact reference drift contract
 - `npm run platform -- resolve`
 - `npm run platform -- compose`
 - `npm run platform -- adapt`

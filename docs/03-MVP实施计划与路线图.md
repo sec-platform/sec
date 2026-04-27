@@ -153,9 +153,11 @@
        - `npm run test:benchmark-contract` 输出最小 benchmark/task-suite 合同。
        - fast/runtime 不运行 Next build 或 Playwright。
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
-     - reference 无漂移 gate：active。
-       - `npm run reference:check` 作为 checked-in `project/` 无漂移验证入口。
-       - gate 通过 `demo:quickstart` 刷新后运行 `git diff --exit-code -- project`。
+     - reference 无漂移 gate：done。
+       - `platform reference check` 作为正式 CLI 入口。
+       - `platform reference check --json [--compact]` 输出稳定 reference drift 合同。
+       - `npm run reference:check` 复用正式 CLI 入口。
+       - gate 通过 `reference:refresh` 刷新后运行 `git diff --name-only --exit-code -- project`。
        - 失败时直接暴露 reference workspace 与编译主链的不一致。
      - 重复概念删除和命名收敛：active。
        - `platform`：原始 CLI 操作入口。
@@ -183,7 +185,7 @@
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `npm run test:contract-freeze` 固定运行 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
-         - reference drift：固定由 `npm run reference:check` 守护 checked-in `project/`。
+         - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。
          - benchmark：固定由 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。

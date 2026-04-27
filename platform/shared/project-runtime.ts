@@ -3,7 +3,7 @@ import path from 'node:path';
 import { compilerRoot } from './paths.ts';
 import { ensureDir, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
 import { CompilerError } from './errors.ts';
-import { runCommand, type CommandResult } from './process.ts';
+import { resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
@@ -28,10 +28,6 @@ export interface RuntimeDependencyInstallOptions {
   sharedDepsRoot?: string;
   skipSharedDepsWarmup?: boolean;
   sleep?: (ms: number) => Promise<void>;
-}
-
-function npmCommand(): string {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
 function pathEnvKey(): string {
@@ -160,7 +156,8 @@ async function runInstallWithFallback(
     return { packageManager: 'bun', result: bunResult };
   }
 
-  const npmResult = await commandRunner(npmCommand(), npmArgs, {
+  const npmInvocation = resolveNpmInvocation(npmArgs);
+  const npmResult = await commandRunner(npmInvocation.command, npmInvocation.args, {
     cwd: workingDirectory,
     env: buildEnv()
   });
