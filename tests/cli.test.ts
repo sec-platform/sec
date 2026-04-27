@@ -137,7 +137,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|contract>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|contract>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -641,6 +641,68 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
       registrySourceId: 'private',
       registryKind: 'private',
       registryLocation: 'workspace'
+    });
+  });
+});
+
+test('CLI exposes policy report as text and JSON contracts', { timeout: 120000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+
+    const textResult = await runCli(workspaceRoot, ['policy', 'report']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Policy report passed; official=1; project=0; merged=1; violations=0');
+    expect(textResult.stdout).toContain('Policy tenant-scope-required; scope=official; source=platform/policies/official/policy.spec.yaml; targets=src/installed/entity/customer-service.ts');
+
+    const jsonResult = await runCli(workspaceRoot, ['policy', 'report', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    const policyReport = JSON.parse(jsonResult.stdout) as {
+      status: string;
+      merged: { policies: Array<{ id: string; targets: string[] }> };
+      violations: unknown[];
+    };
+    expect(policyReport).toMatchObject({
+      status: 'passed',
+      violations: []
+    });
+    expect(policyReport.merged.policies).toEqual([
+      expect.objectContaining({
+        id: 'tenant-scope-required',
+        targets: ['src/installed/entity/customer-service.ts']
+      })
+    ]);
+
+    const compactResult = await runCli(workspaceRoot, ['policy', 'report', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      status: 'passed'
     });
   });
 });
@@ -2127,6 +2189,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['policy'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform policy report [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['policy', 'report', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform policy report [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['policy', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform policy report [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
       code: 1,

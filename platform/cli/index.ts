@@ -52,6 +52,7 @@ import {
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   ExplainGraph,
+  PolicyReport,
   RepairPlan,
   ReviewSummary,
   UpgradePlan,
@@ -59,7 +60,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -76,6 +77,7 @@ const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
+const POLICY_USAGE = 'Usage: platform policy report [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -356,6 +358,22 @@ function parseContractOutputArgs(args: string[]): { json: boolean; compact: bool
   throw new Error(CONTRACT_USAGE);
 }
 
+function parsePolicyOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(POLICY_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(POLICY_USAGE);
+}
+
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
@@ -533,6 +551,44 @@ function formatUpgradeMigrationDetails(
     ...(operation?.valueKeyCount !== undefined ? [`valueKeys=${operation.valueKeyCount}`] : []),
     `requiresVerification=${migration.requiresVerification}`
   ];
+}
+
+function formatPolicyReport(report: NonNullable<ReviewSummary['policySummary']>): string {
+  const severity = Object.entries(report.severityCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([level, count]) => `${level}=${count}`);
+  const lines = [
+    [
+      `Policy report ${report.status}`,
+      `official=${report.officialPolicyCount}`,
+      `project=${report.projectPolicyCount}`,
+      `merged=${report.mergedPolicyCount}`,
+      `violations=${report.violationCount}`
+    ].join('; '),
+    `Sources: ${report.sourceCount}`,
+    `Severity: ${formatList(severity)}`
+  ];
+  for (const policy of report.mergedSummaries.slice(0, 3)) {
+    lines.push(
+      [
+        `Policy ${policy.id}`,
+        `scope=${policy.sourceScope}`,
+        `source=${policy.sourcePath}`,
+        `targets=${formatList(policy.targets)}`
+      ].join('; ')
+    );
+  }
+  for (const violation of report.violationSummaries.slice(0, 3)) {
+    lines.push(
+      [
+        `Violation ${violation.id}`,
+        `severity=${violation.severity}`,
+        `files=${formatList(violation.files)}`,
+        violation.message
+      ].join('; ')
+    );
+  }
+  return lines.join('\n');
 }
 
 function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
@@ -831,6 +887,56 @@ async function runTestCommand(args: string[]): Promise<void> {
   console.log(formatTestBudgetContract(contract));
 }
 
+async function runPolicyCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'report') {
+    throw new Error(POLICY_USAGE);
+  }
+
+  const outputArgs = parsePolicyOutputArgs(args.slice(1));
+  const { policyReportPath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(policyReportPath))) {
+    throw new Error('Policy report not found; run platform verify first');
+  }
+
+  const report = await readJson<PolicyReport>(policyReportPath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatPolicyReport({
+    status: report.status,
+    officialPolicyCount: report.official.policies.length,
+    projectPolicyCount: report.project.policies.length,
+    mergedPolicyCount: report.merged.policies.length,
+    sourceCount: report.official.sources.length + report.project.sources.length,
+    violationCount: report.violations.length,
+    severityCounts: report.violations.reduce<Record<string, number>>((counts, violation) => {
+      counts[violation.severity] = (counts[violation.severity] ?? 0) + 1;
+      return counts;
+    }, {}),
+    sourceSummaries: [],
+    mergedSummaries: report.merged.policies.map((policy) => ({
+      id: policy.id,
+      sourceScope: policy.sourceScope,
+      sourcePath: policy.sourcePath,
+      targetCount: policy.targets.length,
+      targets: policy.targets
+    })),
+    violationSummaries: report.violations.map((violation) => ({
+      id: violation.id,
+      severity: violation.severity,
+      rule: violation.rule,
+      fileCount: violation.files.length,
+      files: violation.files,
+      appliesTo: violation.appliesTo,
+      message: violation.message,
+      sourceScope: violation.sourceScope,
+      sourcePath: violation.sourcePath
+    }))
+  }));
+}
+
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
   if (contractKind !== 'freeze' && contractKind !== 'errors') {
@@ -1001,6 +1107,9 @@ async function main(): Promise<void> {
       return;
     case 'test':
       await runTestCommand(args);
+      return;
+    case 'policy':
+      await runPolicyCommand(args);
       return;
     case 'contract':
       await runContractCommand(args);

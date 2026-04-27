@@ -176,6 +176,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(routeMap).toContain('platform artifacts --paths --json --compact --kind governance|view|test|contract');
   expect(routeMap).toContain('platform contract freeze --json [--compact]');
   expect(routeMap).toContain('platform contract errors --json [--compact]');
+  expect(routeMap).toContain('platform policy report --json [--compact]');
   expect(routeMap).toContain('platform test budget --json [--compact]');
   expect(routeMap).toContain('platform reference check --json [--compact]');
   expect(routeMap).toContain('platform benchmark suite --json [--compact]');
@@ -185,6 +186,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(readme).toContain('npm run platform -- artifacts --paths --json --compact --kind governance');
   expect(readme).toContain('npm run platform -- contract freeze --json --compact');
   expect(readme).toContain('npm run platform -- contract errors --json --compact');
+  expect(readme).toContain('npm run platform -- policy report --json --compact');
   expect(readme).toContain('npm run platform -- test budget --json --compact');
   expect(readme).toContain('npm run platform -- reference check');
   expect(readme).toContain('npm run platform -- reference check --json --compact');

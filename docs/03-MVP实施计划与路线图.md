@@ -69,7 +69,7 @@
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`copy-file`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace`、`text-replace-regex`、`create-directory`、`delete-file`、`delete-directory`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
-| policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、review summary、CLI explain 和本地视图治理摘要。 |
+| policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、policy report CLI、review summary、CLI explain 和本地视图治理摘要。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json`、contract artifact 摘要和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 | 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
 
@@ -190,6 +190,7 @@
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、verify、repair、upgrade 与 kernel 错误分类样例。
+         - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `npm run test:contract-freeze` 固定运行 `platform contract freeze` 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。
@@ -645,6 +646,8 @@
      - 为后续 policy center 和团队 review assist 提供稳定结构化口径。
    - 已完成：
      - policy report 读取进入 review summary。
+     - `platform policy report` 提供最新 policy governance report 文本 inspect 入口。
+     - `platform policy report --json [--compact]` 提供稳定机器可读合同，直接消费最新 `generated/policy-report.json`。
      - policy governance summary 进入 `generated/review-summary.json`：
        - `status`。
        - official policy 数量。
