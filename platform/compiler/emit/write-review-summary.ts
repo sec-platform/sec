@@ -233,6 +233,107 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
   };
 }
 
+function preflightSummaryGroup(checkId: string): string {
+  return checkId.startsWith('migration-') ? 'migration' : checkId.split('-')[0];
+}
+
+function buildUpgradeSummary(
+  upgradePlan: UpgradePlan | null,
+  diagnostics: UpgradeDiagnostics | null
+): ReviewSummary['upgradeSummary'] {
+  if (!upgradePlan && !diagnostics) {
+    return undefined;
+  }
+
+  if (!upgradePlan && diagnostics) {
+    return {
+      status: 'blocked',
+      blockId: diagnostics.blockId,
+      toVersion: diagnostics.targetVersion,
+      preflightCheckCount: 0,
+      preflightEvidenceCount: 0,
+      migrationCount: 0,
+      migrationKindCounts: {},
+      requiresVerification: false,
+      requiresVerificationCount: 0,
+      impactCount: 0,
+      impacts: [],
+      preflightSummaries: [],
+      migrationSummaries: [],
+      diagnostics: {
+        status: diagnostics.status,
+        failedCheck: diagnostics.failedCheck,
+        errorCode: diagnostics.errorCode,
+        message: diagnostics.message
+      }
+    };
+  }
+
+  const plan = upgradePlan as UpgradePlan;
+  const migrationKindCounts = Object.keys(plan.migrationKindCounts).length > 0
+    ? plan.migrationKindCounts
+    : plan.migrationSummaries.reduce<Record<string, number>>((counts, migration) => {
+        counts[migration.kind] = (counts[migration.kind] ?? 0) + 1;
+        return counts;
+      }, {});
+  const preflightGroups = plan.preflightChecks.reduce<Map<string, { checkCount: number; evidenceCount: number }>>(
+    (groups, check) => {
+      const group = preflightSummaryGroup(check.id);
+      const current = groups.get(group) ?? { checkCount: 0, evidenceCount: 0 };
+      current.checkCount += 1;
+      current.evidenceCount += check.evidence.length;
+      groups.set(group, current);
+      return groups;
+    },
+    new Map()
+  );
+  const requiresVerificationCount = plan.migrationSummaries.filter(
+    (migration) => migration.requiresVerification
+  ).length;
+
+  return {
+    status: diagnostics ? 'blocked' : plan.status,
+    blockId: plan.blockId,
+    fromVersion: plan.fromVersion,
+    toVersion: plan.toVersion,
+    preflightCheckCount: plan.preflightChecks.length,
+    preflightEvidenceCount: plan.preflightChecks.reduce(
+      (total, check) => total + check.evidence.length,
+      0
+    ),
+    migrationCount: plan.migrationSummaries.length,
+    migrationKindCounts,
+    requiresVerification: requiresVerificationCount > 0 || plan.status === 'applied',
+    requiresVerificationCount,
+    impactCount: plan.impacts.length,
+    impacts: unique(plan.impacts),
+    preflightSummaries: [...preflightGroups.entries()]
+      .map(([group, summary]) => ({ group, ...summary }))
+      .sort((left, right) => left.group.localeCompare(right.group)),
+    migrationSummaries: plan.migrationSummaries
+      .map((migration) => ({
+        id: migration.id,
+        kind: migration.kind,
+        target: migration.target,
+        reason: migration.reason,
+        requiresVerification: migration.requiresVerification,
+        ...(migration.source ? { source: migration.source } : {}),
+        ...(migration.slotId ? { slotId: migration.slotId } : {})
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    ...(diagnostics
+      ? {
+          diagnostics: {
+            status: diagnostics.status,
+            failedCheck: diagnostics.failedCheck,
+            errorCode: diagnostics.errorCode,
+            message: diagnostics.message
+          }
+        }
+      : {})
+  };
+}
+
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
   const impacts = new Map<string, ReviewInstallImpact>();
 
@@ -279,7 +380,14 @@ export async function buildReviewSummary(
   const repairPlan = (await pathExists(repairPlanPath))
     ? await readJson<RepairPlan>(repairPlanPath)
     : null;
+  const upgradePlan = (await pathExists(upgradePlanPath))
+    ? await readJson<UpgradePlan>(upgradePlanPath)
+    : null;
+  const upgradeDiagnostics = (await pathExists(upgradeDiagnosticsPath))
+    ? await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath)
+    : null;
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
+  const upgradeSummary = buildUpgradeSummary(upgradePlan, upgradeDiagnostics);
   const failurePoints: ReviewFailurePoint[] = [];
   const regressionRisks: ReviewRegressionRisk[] = [];
   const conflictHints: ReviewConflictHint[] = [];
@@ -415,8 +523,7 @@ export async function buildReviewSummary(
     }
   }
 
-  if (await pathExists(upgradePlanPath)) {
-    const upgradePlan = await readJson<UpgradePlan>(upgradePlanPath);
+  if (upgradePlan) {
     addConflictHint(conflictHints, {
       kind: 'upgrade-plan-present',
       relatedId: upgradePlan.blockId,
@@ -451,12 +558,11 @@ export async function buildReviewSummary(
     }
   }
 
-  if (await pathExists(upgradeDiagnosticsPath)) {
-    const diagnostics = await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
+  if (upgradeDiagnostics) {
     addFailurePoint(failurePoints, {
       lane: 'all',
       kind: 'upgrade',
-      message: `Upgrade blocked at ${diagnostics.failedCheck}: ${diagnostics.errorCode} ${diagnostics.message}`,
+      message: `Upgrade blocked at ${upgradeDiagnostics.failedCheck}: ${upgradeDiagnostics.errorCode} ${upgradeDiagnostics.message}`,
       artifactPath: 'generated/upgrade-diagnostics.json'
     });
   }
@@ -520,6 +626,7 @@ export async function buildReviewSummary(
     ),
     ...(artifactSummary ? { artifactSummary } : {}),
     ...(repairSummary ? { repairSummary } : {}),
+    ...(upgradeSummary ? { upgradeSummary } : {}),
     changeSources: provenance.artifacts.map((artifact) => {
       const runtimeEntry = runtimeEntryByPath.get(artifact.path);
       return {

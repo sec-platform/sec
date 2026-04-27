@@ -240,6 +240,59 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
     expect(summary.ciSummary.failureCount).toBe(1);
     expect(summary.ciSummary.regressionRiskCount).toBeGreaterThanOrEqual(2);
     expect(summary.ciSummary.conflictHintCount).toBe(4);
+    expect(summary.upgradeSummary).toMatchObject({
+      status: 'blocked',
+      blockId: 'auth/basic-session',
+      fromVersion: '0.1.0',
+      toVersion: '0.1.1',
+      preflightCheckCount: 10,
+      preflightEvidenceCount: 5,
+      migrationCount: 1,
+      migrationKindCounts: {
+        'file-replace': 1
+      },
+      requiresVerification: true,
+      requiresVerificationCount: 1,
+      impactCount: 1,
+      impacts: ['src/installed/auth/session.ts'],
+      diagnostics: {
+        status: 'blocked',
+        failedCheck: 'override-conflicts',
+        errorCode: 'UPGRADE-CONFLICT-001',
+        message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
+      }
+    });
+    expect(summary.upgradeSummary?.preflightSummaries).toEqual([
+      {
+        group: 'impact',
+        checkCount: 1,
+        evidenceCount: 1
+      },
+      {
+        group: 'migration',
+        checkCount: 7,
+        evidenceCount: 3
+      },
+      {
+        group: 'override',
+        checkCount: 1,
+        evidenceCount: 0
+      },
+      {
+        group: 'version',
+        checkCount: 1,
+        evidenceCount: 1
+      }
+    ]);
+    expect(summary.upgradeSummary?.migrationSummaries).toEqual([
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
+        requiresVerification: true
+      }
+    ]);
     expect(summary.conflictHints).toEqual([
       {
         kind: 'repair-plan-present',
@@ -284,6 +337,16 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
 
     const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+    expect(appliedSummary.upgradeSummary).toMatchObject({
+      status: 'blocked',
+      blockId: 'auth/basic-session',
+      requiresVerification: true,
+      requiresVerificationCount: 1,
+      diagnostics: {
+        failedCheck: 'override-conflicts',
+        errorCode: 'UPGRADE-CONFLICT-001'
+      }
+    });
     expect(appliedSummary.conflictHints).toEqual(
       expect.arrayContaining([
         {

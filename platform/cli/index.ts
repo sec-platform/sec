@@ -418,6 +418,22 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
     );
   }
 
+  if (reviewSummary.upgradeSummary) {
+    const upgrade = reviewSummary.upgradeSummary;
+    const versionRange = upgrade.fromVersion
+      ? `${upgrade.fromVersion} -> ${upgrade.toVersion}`
+      : `target ${upgrade.toVersion}`;
+    lines.push(
+      [
+        `Upgrade: ${upgrade.status}`,
+        `${upgrade.blockId} ${versionRange}`,
+        `migrations: ${upgrade.migrationCount}`,
+        `impacts: ${upgrade.impactCount}`,
+        `requires verification: ${upgrade.requiresVerification}`
+      ].join('; ')
+    );
+  }
+
   return lines.join('\n');
 }
 

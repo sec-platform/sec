@@ -302,6 +302,23 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         failurePointCount: number;
       }>;
     };
+    upgradeSummary?: {
+      status: 'planned' | 'applied' | 'blocked';
+      blockId: string;
+      fromVersion?: string;
+      toVersion: string;
+      preflightCheckCount: number;
+      preflightEvidenceCount: number;
+      migrationCount: number;
+      migrationKindCounts: Record<string, number>;
+      requiresVerification: boolean;
+      requiresVerificationCount: number;
+      impactCount: number;
+      impacts: string[];
+      preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
+      migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
+      diagnostics?: { status: 'blocked'; failedCheck: string; errorCode: string; message: string };
+    };
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
     installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;
@@ -385,6 +402,49 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         failurePointCount: 1
       }
     ]
+  };
+  reviewSummary.upgradeSummary = {
+    status: 'blocked',
+    blockId: 'auth/basic-session',
+    fromVersion: '0.1.0',
+    toVersion: '0.1.1',
+    preflightCheckCount: 5,
+    preflightEvidenceCount: 3,
+    migrationCount: 1,
+    migrationKindCounts: {
+      'file-replace': 1
+    },
+    requiresVerification: true,
+    requiresVerificationCount: 1,
+    impactCount: 1,
+    impacts: ['src/installed/auth/session.ts'],
+    preflightSummaries: [
+      {
+        group: 'migration',
+        checkCount: 2,
+        evidenceCount: 1
+      },
+      {
+        group: 'override',
+        checkCount: 1,
+        evidenceCount: 0
+      }
+    ],
+    migrationSummaries: [
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        reason: 'Refresh <session> & expose version metadata.',
+        requiresVerification: true
+      }
+    ],
+    diagnostics: {
+      status: 'blocked',
+      failedCheck: 'override-conflicts',
+      errorCode: 'UPGRADE-CONFLICT-001',
+      message: 'Override <hotfix> & blocks upgrade'
+    }
   };
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
 
@@ -590,6 +650,16 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('customer');
   expect(sourceView).toContain('customers');
   expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
+  expect(sourceView).toContain('Upgrade Summary');
+  expect(sourceView).toContain('<td>Status</td><td>blocked</td>');
+  expect(sourceView).toContain('<td>Preflight Checks</td><td>5</td>');
+  expect(sourceView).toContain('<td>Preflight Evidence</td><td>3</td>');
+  expect(sourceView).toContain('<td>Verification Migrations</td><td>1</td>');
+  expect(sourceView).toContain('Upgrade Preflight Summary');
+  expect(sourceView).toContain('<td>override</td>');
+  expect(sourceView).toContain('Upgrade Migration Kind Summary');
+  expect(sourceView).toContain('Upgrade Migration Summary');
+  expect(sourceView).toContain('Upgrade Blocker Summary');
   expect(sourceView).toContain('Upgrade Plan');
   expect(sourceView).toContain('Preflight Summary');
   expect(sourceView).toContain('<td>migration</td><td>2</td><td>1</td>');

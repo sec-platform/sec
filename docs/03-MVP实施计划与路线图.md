@@ -131,6 +131,14 @@
      - slot 合同变化与 explain graph 的连接。
      - upgrade plan 到本地视图的摘要呈现。
      - upgrade plan 执行前检查清单。
+     - upgrade trajectory 进入 review summary：
+       - 状态聚合。
+       - preflight 聚合。
+       - migration 聚合。
+       - impact 聚合。
+       - diagnostics 聚合。
+     - upgrade trajectory 进入 CLI explain 摘要。
+     - upgrade trajectory 进入 local source view 摘要。
      - 升级检查结果在 review/local view 中的聚合。
      - 升级前置检查失败的结构化诊断 artifact。
      - 升级诊断在 review/local view 中的聚合。
@@ -225,12 +233,33 @@
          - writableZones：确认 migration 声明与目标 slot 写入边界一致。
          - diagnostics：归类到 `migration-slot-contracts`。
      - 切口 D：把每类 migration 的影响面写入：
-       - review summary。
-       - explain graph。
+       - 状态：done。
+       - review summary：
+         - upgrade status。
+         - block/version 范围。
+         - preflight check 总数。
+         - preflight evidence 总数。
+         - preflight group 聚合。
+         - migration kind 计数。
+         - migration summary。
+         - requires verification 聚合。
+         - impact 聚合。
+         - blocked diagnostics 聚合。
+       - CLI explain：
+         - upgrade status。
+         - block/version 范围。
+         - migration 数量。
+         - impact 数量。
+         - requires verification 状态。
        - local views：
-         - 状态：done。
-         - Upgrade Plan 增加 Preflight Summary。
-         - 按 preflight group 汇总 checks 数量和 evidence 数量。
+         - Upgrade Summary 卡片。
+         - Upgrade Preflight Summary。
+         - Upgrade Migration Kind Summary。
+         - Upgrade Migration Summary。
+         - Upgrade Blocker Summary。
+       - explain graph。
+       - Upgrade Plan 增加 Preflight Summary。
+       - 按 preflight group 汇总 checks 数量和 evidence 数量。
    - 每个切口的验证口径：
      - 单测覆盖新增 migration 执行器。
      - `upgrade.test.ts` 覆盖成功/阻断/回滚口径。
