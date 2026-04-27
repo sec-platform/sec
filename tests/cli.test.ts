@@ -611,6 +611,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     command: 'npm run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    qualityCommands: [
+      'npm run platform -- test budget --json --compact',
+      'npm run platform -- benchmark suite --json --compact'
+    ],
     artifactUploadCommands: [
       'npm run platform -- artifacts --paths --json --compact --kind governance',
       'npm run platform -- artifacts --paths --json --compact --kind view',
@@ -658,6 +662,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('CI contract active');
+    expect(textResult.stdout).toContain(
+      'Quality commands: npm run platform -- test budget --json --compact, npm run platform -- benchmark suite --json --compact'
+    );
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
     expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
@@ -668,6 +675,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
       defaultGate: 'pr-fast-verify',
+      qualityCommands: [
+        'npm run platform -- test budget --json --compact',
+        'npm run platform -- benchmark suite --json --compact'
+      ],
       stepCount: 9
     });
 
@@ -677,7 +688,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
-      fullRuntimeGate: 'full-runtime-verify'
+      fullRuntimeGate: 'full-runtime-verify',
+      qualityCommands: [
+        'npm run platform -- test budget --json --compact',
+        'npm run platform -- benchmark suite --json --compact'
+      ]
     });
   });
 });
