@@ -240,6 +240,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
     const upgradeDiagnostics: UpgradeDiagnostics = {
       formatVersion: '1',
       status: 'blocked',
+      phase: 'planning',
       blockId: 'auth/basic-session',
       targetVersion: '0.1.1',
       failedCheck: 'override-conflicts',
@@ -313,6 +314,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       impacts: ['src/installed/auth/session.ts'],
       diagnostics: {
         status: 'blocked',
+        phase: 'planning',
         failedCheck: 'override-conflicts',
         errorCode: 'UPGRADE-CONFLICT-001',
         message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"',
@@ -404,6 +406,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       requiresVerification: true,
       requiresVerificationCount: 1,
       diagnostics: {
+        phase: 'planning',
         failedCheck: 'override-conflicts',
         errorCode: 'UPGRADE-CONFLICT-001'
       }
@@ -454,6 +457,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
     const diagnostics: UpgradeDiagnostics = {
       formatVersion: '1',
       status: 'blocked',
+      phase: 'planning',
       blockId: 'private/slot-contract',
       targetVersion: '0.2.0',
       failedCheck: 'migration-targets',
@@ -483,6 +487,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
       blockId: 'private/slot-contract',
       toVersion: '0.2.0',
       diagnostics: {
+        phase: 'planning',
         failedCheck: 'migration-targets',
         errorCode: 'UPGRADE-MIGRATION-004',
         details: {

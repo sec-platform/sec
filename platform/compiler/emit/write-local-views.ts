@@ -784,6 +784,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
   const operationRows = renderUpgradeOperationRows(upgrade.migrationOperationSummaries);
   const diagnosticsRows = upgrade.diagnostics
     ? `<tr>
+          <td>${escapeHtml(upgrade.diagnostics.phase ?? 'planning')}</td>
           <td>${escapeHtml(upgrade.diagnostics.failedCheck)}</td>
           <td>${escapeHtml(upgrade.diagnostics.errorCode)}</td>
           <td>${escapeHtml(upgrade.diagnostics.message)}</td>
@@ -830,7 +831,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
         ${diagnosticsRows
           ? `<h3>Upgrade Blocker Summary</h3>
             <table>
-              <thead><tr><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
+              <thead><tr><th>Phase</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
               <tbody>${diagnosticsRows}</tbody>
             </table>`
           : ''}
@@ -1068,11 +1069,12 @@ function renderUpgradeDiagnosticsTable(diagnostics: UpgradeDiagnostics | null): 
   }
 
   const detailsCell = diagnostics.details === undefined ? 'none' : renderJsonPre(diagnostics.details);
+  const phase = diagnostics.phase ?? 'planning';
   return `<section class="card">
         <h2>Upgrade Diagnostics</h2>
         <table>
-          <thead><tr><th>Status</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
-          <tbody><tr><td>${escapeHtml(diagnostics.status)}</td><td>${escapeHtml(diagnostics.blockId)}</td><td>${escapeHtml(diagnostics.targetVersion)}</td><td>${escapeHtml(diagnostics.failedCheck)}</td><td>${escapeHtml(diagnostics.errorCode)}</td><td>${escapeHtml(diagnostics.message)}</td><td>${detailsCell}</td></tr></tbody>
+          <thead><tr><th>Status</th><th>Phase</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
+          <tbody><tr><td>${escapeHtml(diagnostics.status)}</td><td>${escapeHtml(phase)}</td><td>${escapeHtml(diagnostics.blockId)}</td><td>${escapeHtml(diagnostics.targetVersion)}</td><td>${escapeHtml(diagnostics.failedCheck)}</td><td>${escapeHtml(diagnostics.errorCode)}</td><td>${escapeHtml(diagnostics.message)}</td><td>${detailsCell}</td></tr></tbody>
         </table>
       </section>`;
 }

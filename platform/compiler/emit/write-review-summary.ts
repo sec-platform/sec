@@ -617,6 +617,7 @@ function buildUpgradeSummary(
       migrationOperationSummaries: [],
       diagnostics: {
         status: diagnostics.status,
+        phase: diagnostics.phase ?? 'planning',
         failedCheck: diagnostics.failedCheck,
         errorCode: diagnostics.errorCode,
         message: diagnostics.message,
@@ -693,6 +694,7 @@ function buildUpgradeSummary(
       ? {
           diagnostics: {
             status: diagnostics.status,
+            phase: diagnostics.phase ?? 'planning',
             failedCheck: diagnostics.failedCheck,
             errorCode: diagnostics.errorCode,
             message: diagnostics.message,
