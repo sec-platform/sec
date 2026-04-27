@@ -1,0 +1,112 @@
+export type CiContractStep = {
+  id: string;
+  phase: 'verify' | 'diagnostics' | 'artifacts';
+  command: string;
+  purpose: string;
+  produces: string[];
+};
+
+export type CiContract = {
+  formatVersion: '1';
+  status: 'active';
+  command: string;
+  defaultGate: string;
+  fullRuntimeGate: string;
+  artifactUploadCommands: string[];
+  stepCount: number;
+  steps: CiContractStep[];
+};
+
+const ciSteps: CiContractStep[] = [
+  {
+    id: 'pr-fast-verify',
+    phase: 'verify',
+    command: 'npm run platform -- verify --json --compact',
+    purpose: 'Run the default fast verification lane for pull requests.',
+    produces: ['project/generated/verification-report.json']
+  },
+  {
+    id: 'full-runtime-verify',
+    phase: 'verify',
+    command: 'npm run platform -- verify --lane all --json --compact',
+    purpose: 'Run the full runtime gate for release, demo, or scheduled CI.',
+    produces: [
+      'project/generated/verification-report.json',
+      'project/generated/runtime-report.json',
+      'project/generated/acceptance-coverage.json'
+    ]
+  },
+  {
+    id: 'diagnostic-review',
+    phase: 'diagnostics',
+    command: 'npm run platform -- review summary --json --compact',
+    purpose: 'Expose policy, provenance, repair, upgrade, and artifact review evidence.',
+    produces: ['project/generated/review-summary.json']
+  },
+  {
+    id: 'diagnostic-explain',
+    phase: 'diagnostics',
+    command: 'npm run platform -- explain --json --compact',
+    purpose: 'Expose the explain graph and review summary for failed CI triage.',
+    produces: [
+      'project/generated/explain-graph.json',
+      'project/generated/review-summary.json'
+    ]
+  },
+  {
+    id: 'governance-artifacts',
+    phase: 'artifacts',
+    command: 'npm run platform -- artifacts --paths --json --compact --kind governance',
+    purpose: 'Emit upload paths for governance artifacts.',
+    produces: ['project/generated/ci-artifacts.json']
+  },
+  {
+    id: 'view-artifacts',
+    phase: 'artifacts',
+    command: 'npm run platform -- artifacts --paths --json --compact --kind view',
+    purpose: 'Emit upload paths for generated view artifacts.',
+    produces: ['project/generated/ci-artifacts.json']
+  },
+  {
+    id: 'test-artifacts',
+    phase: 'artifacts',
+    command: 'npm run platform -- artifacts --paths --json --compact --kind test',
+    purpose: 'Emit upload paths for runtime test artifacts.',
+    produces: ['project/generated/ci-artifacts.json']
+  }
+];
+
+export function buildCiContract(): CiContract {
+  return {
+    formatVersion: '1',
+    status: 'active',
+    command: 'npm run platform -- contract ci --json',
+    defaultGate: 'pr-fast-verify',
+    fullRuntimeGate: 'full-runtime-verify',
+    artifactUploadCommands: ciSteps
+      .filter((step) => step.phase === 'artifacts')
+      .map((step) => step.command),
+    stepCount: ciSteps.length,
+    steps: ciSteps.map((step) => ({
+      ...step,
+      produces: [...step.produces]
+    }))
+  };
+}
+
+export function formatCiContract(contract: CiContract): string {
+  return [
+    `CI contract ${contract.status}`,
+    `Command: ${contract.command}`,
+    `Default gate: ${contract.defaultGate}`,
+    `Full runtime gate: ${contract.fullRuntimeGate}`,
+    `Artifact uploads: ${contract.artifactUploadCommands.join(', ')}`,
+    `Steps: ${contract.stepCount}`,
+    ...contract.steps.map((step) => [
+      `Step ${step.id}`,
+      `phase=${step.phase}`,
+      `command=${step.command}`,
+      `produces=${step.produces.join(', ')}`
+    ].join('; '))
+  ].join('\n');
+}

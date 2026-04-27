@@ -192,6 +192,7 @@
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单，并为每个 target 暴露可复现 `bun test` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/conflict 的真实错误码样例。
+         - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖 PR fast gate、full runtime gate、diagnostic review/explain 与 artifact upload 路径入口。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
          - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `generated/runtime-report.json`。
@@ -1678,7 +1679,9 @@
   - 版本冲突摘要。
 - 切口 C：团队 CI：
   - 状态：active。
-  - 标准命令序列。
+  - 标准命令序列：
+    - 状态：done。
+    - `platform contract ci --json [--compact]` 输出 PR fast gate、full runtime gate、diagnostic review/explain 与 artifact upload 标准入口。
   - artifact 上传清单：
     - 状态：done。
     - `platform artifacts --json` 生成清单。

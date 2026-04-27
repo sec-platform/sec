@@ -8,6 +8,10 @@ import {
   formatBenchmarkTaskSuiteContract
 } from '../platform/shared/benchmark-contract.ts';
 import {
+  buildCiContract,
+  formatCiContract
+} from '../platform/shared/ci-contract.ts';
+import {
   buildContractFreezeContract,
   formatContractFreezeContract
 } from '../platform/shared/contract-freeze-contract.ts';
@@ -564,6 +568,74 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
       targetCount: 3
+    });
+  });
+});
+
+test('CLI exposes CI command contract as text and JSON contracts', async () => {
+  const contract = buildCiContract();
+  expect(formatCiContract(contract)).toContain('CI contract active');
+  expect(formatCiContract(contract)).toContain('Step pr-fast-verify; phase=verify; command=npm run platform -- verify --json --compact');
+  expect(JSON.stringify(contract)).not.toContain('\n');
+  expect(contract).toMatchObject({
+    formatVersion: '1',
+    status: 'active',
+    command: 'npm run platform -- contract ci --json',
+    defaultGate: 'pr-fast-verify',
+    fullRuntimeGate: 'full-runtime-verify',
+    artifactUploadCommands: [
+      'npm run platform -- artifacts --paths --json --compact --kind governance',
+      'npm run platform -- artifacts --paths --json --compact --kind view',
+      'npm run platform -- artifacts --paths --json --compact --kind test'
+    ],
+    stepCount: 7,
+    steps: expect.arrayContaining([
+      expect.objectContaining({
+        id: 'pr-fast-verify',
+        phase: 'verify',
+        command: 'npm run platform -- verify --json --compact',
+        produces: ['project/generated/verification-report.json']
+      }),
+      expect.objectContaining({
+        id: 'full-runtime-verify',
+        phase: 'verify',
+        command: 'npm run platform -- verify --lane all --json --compact',
+        produces: expect.arrayContaining([
+          'project/generated/runtime-report.json',
+          'project/generated/acceptance-coverage.json'
+        ])
+      }),
+      expect.objectContaining({
+        id: 'governance-artifacts',
+        phase: 'artifacts',
+        command: 'npm run platform -- artifacts --paths --json --compact --kind governance'
+      })
+    ])
+  });
+
+  await withTempWorkspace(async (workspaceRoot) => {
+    const textResult = await runCli(workspaceRoot, ['contract', 'ci']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('CI contract active');
+    expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
+
+    const jsonResult = await runCli(workspaceRoot, ['contract', 'ci', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+      status: 'active',
+      defaultGate: 'pr-fast-verify',
+      stepCount: 7
+    });
+
+    const compactResult = await runCli(workspaceRoot, ['contract', 'ci', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      status: 'active',
+      fullRuntimeGate: 'full-runtime-verify'
     });
   });
 });
@@ -2884,22 +2956,22 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
     await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract', 'freeze', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract', 'errors', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract', 'status'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
