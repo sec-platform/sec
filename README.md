@@ -7,6 +7,8 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 - Install dependencies with `npm install`.
 - Run the full verification pass with `npm run check`.
 - Use the compiler CLI with `npm run platform -- <command>`.
+- Run the quickstart demo with `npm run demo:quickstart`.
+- Dogfood the reference workspace with `npm run dogfood:reference`.
 - Refresh the reference workspace and governance artifacts with `npm run reference:refresh`.
 
 ## Developer Entry Model
@@ -72,6 +74,10 @@ Workbench and IDE integrations must preserve this boundary:
 
 - `npm run check`: TypeScript typecheck plus the main test suite
 - `npm test`: run the Node test suite directly
+- `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
+- `npm run demo:governance`: run quickstart and print governance artifact upload paths
+- `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
+- `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
 - `npm run platform -- resolve`
 - `npm run platform -- compose`

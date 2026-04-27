@@ -131,7 +131,10 @@
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
-     - dogfood 样例工作区。
+     - dogfood 样例工作区：active。
+       - `npm run dogfood:reference` 刷新当前参考工作区。
+       - `npm run dogfood:governance` 输出结构化治理 artifact 路径合同。
+       - dogfood 入口复用 `reference:refresh`，不复制第二套样例流程。
      - benchmark 与慢测预算。
      - 重复概念删除和命名收敛。
    - 暂停条件：

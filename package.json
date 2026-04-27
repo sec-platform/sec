@@ -8,6 +8,8 @@
     "reference:refresh": "npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt && npm run platform -- verify --lane all && npm run platform -- lock && npm run platform -- explain",
     "demo:quickstart": "npm run platform -- init --reset && npm run reference:refresh",
     "demo:governance": "npm run demo:quickstart && npm run platform -- artifacts --paths --kind governance",
+    "dogfood:reference": "npm run reference:refresh",
+    "dogfood:governance": "npm run dogfood:reference && npm run platform -- artifacts --paths --json",
     "test": "bun ./platform/dev-runner.ts test",
     "test:watch": "bun ./platform/dev-runner.ts test --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
