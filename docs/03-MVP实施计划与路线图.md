@@ -48,7 +48,7 @@
 | fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 review summary、CLI explain 和本地视图 provenance 摘要。 |
-| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
+| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task/category 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
@@ -319,6 +319,7 @@
      - repair plan provenance/review 暴露。
      - repair plan 到本地视图的摘要呈现。
      - repair task 与 explain graph 的连接。
+     - repair category 与 explain graph 的连接。
      - repair 后自动要求重新 verify 的显式状态。
      - repair plan dry-run 模式。
      - repair plan 的执行前差异预览。
@@ -336,6 +337,7 @@
        - category summary 进入 review summary。
        - category summary 进入 CLI explain。
        - category summary 进入 local Source View。
+       - category 进入 explain graph。
        - 旧 repair plan artifact 缺少 category 时按 `slot-rewrite` 兼容展示。
      - repair plan CLI JSON 输出：
        - `repair --json`。
