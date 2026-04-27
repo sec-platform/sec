@@ -533,7 +533,9 @@ async function main(): Promise<void> {
           console.log(JSON.stringify({
             count: pathSummary.paths.length,
             paths: pathSummary.paths,
-            byKind: pathSummary.byKind
+            byKind: pathSummary.byKind,
+            missingCount: manifest.missing.length,
+            missing: manifest.missing
           }, null, 2));
           return;
         }
