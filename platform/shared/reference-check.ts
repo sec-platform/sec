@@ -3,10 +3,12 @@ import { compilerRoot } from './paths.ts';
 import { resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
 
 export type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'diff-failed';
+export type ReferenceCheckFailedStage = 'none' | 'refresh' | 'diff';
 
 export type ReferenceCheckReport = {
   formatVersion: '1';
   status: ReferenceCheckStatus;
+  failedStage: ReferenceCheckFailedStage;
   root: string;
   refreshCommand: string;
   refreshExitCode: number;
@@ -46,10 +48,16 @@ export async function buildReferenceCheckReport(options: {
       : diffResult.code === 1
         ? 'drifted'
         : 'diff-failed';
+  const failedStage: ReferenceCheckFailedStage = status === 'clean'
+    ? 'none'
+    : status === 'refresh-failed'
+      ? 'refresh'
+      : 'diff';
 
   return {
     formatVersion: '1',
     status,
+    failedStage,
     root,
     refreshCommand: 'npm run reference:refresh',
     refreshExitCode: refreshResult.code,
@@ -71,6 +79,7 @@ export async function buildReferenceCheckReport(options: {
 export function formatReferenceCheck(report: ReferenceCheckReport): string {
   return [
     `Reference workspace ${report.status}`,
+    `Failed stage: ${report.failedStage}`,
     `Commands: refresh=${report.refreshCommand}; diff=${report.diffCommand}`,
     `Refresh: exit=${report.refreshExitCode}; diff: exit=${report.diffExitCode}`,
     `Changed paths: ${report.changedPathCount > 0 ? report.changedPaths.join(', ') : 'none'}`,
