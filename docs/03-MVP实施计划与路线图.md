@@ -49,7 +49,7 @@
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 review summary、CLI explain 和本地视图 provenance 摘要。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task/category 归因边、upgrade verification 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
-| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints，并暴露 repair、upgrade、policy governance 摘要。 |
+| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints，并暴露 repair、upgrade verification、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace-regex`、`create-directory`、`delete-file`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
@@ -142,6 +142,9 @@
      - slot 合同变化与 explain graph 的连接。
      - upgrade plan/migration/diagnostics 到 explain graph 的一等归因节点。
      - upgrade migration requiresVerification 到 explain graph 的分类归因节点。
+     - upgrade migration verification 分布进入 review summary。
+     - upgrade migration verification 分布进入 CLI explain。
+     - upgrade migration verification 分布进入本地 Source View。
      - upgrade plan 到本地视图的摘要呈现。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：
@@ -268,6 +271,7 @@
          - migration kind 计数。
          - migration summary。
          - requires verification 聚合。
+         - verification required/skipped 分布。
          - impact 聚合。
          - blocked diagnostics 聚合。
        - CLI explain：
@@ -276,10 +280,12 @@
          - migration 数量。
          - impact 数量。
          - requires verification 状态。
+         - verification required/skipped 分布。
        - local views：
          - Upgrade Summary 卡片。
          - Upgrade Preflight Summary。
          - Upgrade Migration Kind Summary。
+         - Upgrade Verification Summary。
          - Upgrade Migration Summary。
          - Upgrade Blocker Summary。
        - explain graph：

@@ -832,6 +832,11 @@ export interface ReviewUpgradeMigrationSummary {
   slotId?: string;
 }
 
+export interface ReviewUpgradeVerificationSummary {
+  id: 'required' | 'skipped';
+  count: number;
+}
+
 export interface ReviewUpgradeDiagnosticsSummary {
   status: 'blocked';
   failedCheck: string;
@@ -853,6 +858,7 @@ export interface ReviewUpgradeSummary {
   requiresVerificationCount: number;
   impactCount: number;
   impacts: string[];
+  verificationSummaries: ReviewUpgradeVerificationSummary[];
   preflightSummaries: ReviewUpgradePreflightSummary[];
   migrationSummaries: ReviewUpgradeMigrationSummary[];
   diagnostics?: ReviewUpgradeDiagnosticsSummary;

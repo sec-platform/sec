@@ -452,6 +452,10 @@ function buildUpgradeSummary(
       requiresVerificationCount: 0,
       impactCount: 0,
       impacts: [],
+      verificationSummaries: [
+        { id: 'required', count: 0 },
+        { id: 'skipped', count: 0 }
+      ],
       preflightSummaries: [],
       migrationSummaries: [],
       diagnostics: {
@@ -485,6 +489,7 @@ function buildUpgradeSummary(
   const requiresVerificationCount = plan.migrationSummaries.filter(
     (migration) => migration.requiresVerification
   ).length;
+  const skippedVerificationCount = plan.migrationSummaries.length - requiresVerificationCount;
 
   return {
     status: diagnostics ? 'blocked' : plan.status,
@@ -502,6 +507,10 @@ function buildUpgradeSummary(
     requiresVerificationCount,
     impactCount: plan.impacts.length,
     impacts: unique(plan.impacts),
+    verificationSummaries: [
+      { id: 'required', count: requiresVerificationCount },
+      { id: 'skipped', count: skippedVerificationCount }
+    ],
     preflightSummaries: [...preflightGroups.entries()]
       .map(([group, summary]) => ({ group, ...summary }))
       .sort((left, right) => left.group.localeCompare(right.group)),

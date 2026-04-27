@@ -736,6 +736,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
     .join('');
+  const verificationRows = renderTaxonomyRows(upgrade.verificationSummaries);
   const migrationRows = upgrade.migrationSummaries
     .map(
       (migration) => `<tr>
@@ -771,6 +772,11 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
         <table>
           <thead><tr><th>Kind</th><th>Count</th></tr></thead>
           <tbody>${kindRows || '<tr><td colspan="2">No upgrade migration kinds.</td></tr>'}</tbody>
+        </table>
+        <h3>Upgrade Verification Summary</h3>
+        <table>
+          <thead><tr><th>Verification</th><th>Count</th></tr></thead>
+          <tbody>${verificationRows || '<tr><td colspan="2">No upgrade verification categories.</td></tr>'}</tbody>
         </table>
         <h3>Upgrade Migration Summary</h3>
         <table>

@@ -491,7 +491,8 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `${upgrade.blockId} ${versionRange}`,
         `migrations: ${upgrade.migrationCount}`,
         `impacts: ${upgrade.impactCount}`,
-        `requires verification: ${upgrade.requiresVerification}`
+        `requires verification: ${upgrade.requiresVerification}`,
+        `verification: ${formatSummaryEntries(upgrade.verificationSummaries)}`
       ].join('; ')
     );
   }
