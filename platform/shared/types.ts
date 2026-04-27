@@ -841,6 +841,11 @@ export interface ReviewRepairTargetSummary {
   count: number;
 }
 
+export interface ReviewRepairVerificationTrace {
+  pendingReason: 'repair-not-applied' | 'verify-required' | 'blocked' | 'none';
+  nextAction: 'apply-repair' | 'rerun-verify' | 'resolve-blocker' | 'none';
+}
+
 export interface ReviewRepairSummary {
   status: 'pending' | 'applied' | 'skipped' | 'blocked';
   sourceVerificationStatus: 'passed' | 'failed';
@@ -850,6 +855,7 @@ export interface ReviewRepairSummary {
   previewCount: number;
   changedPreviewCount: number;
   failurePointCount: number;
+  verificationTrace: ReviewRepairVerificationTrace;
   failureTaxonomy: ReviewRepairFailureTaxonomySummary;
   targetSummaries: ReviewRepairTargetSummary[];
   taskCategorySummaries: ReviewRepairFailureTaxonomyEntry[];

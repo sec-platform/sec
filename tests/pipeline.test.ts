@@ -355,6 +355,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       previewCount: number;
       changedPreviewCount: number;
       failurePointCount: number;
+      verificationTrace: {
+        pendingReason: 'repair-not-applied' | 'verify-required' | 'blocked' | 'none';
+        nextAction: 'apply-repair' | 'rerun-verify' | 'resolve-blocker' | 'none';
+      };
       failureTaxonomy: {
         laneSummaries: Array<{ id: string; count: number }>;
         kindSummaries: Array<{ id: string; count: number }>;
@@ -610,6 +614,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     previewCount: 1,
     changedPreviewCount: 1,
     failurePointCount: 2,
+    verificationTrace: {
+      pendingReason: 'repair-not-applied',
+      nextAction: 'apply-repair'
+    },
     failureTaxonomy: {
       laneSummaries: [{ id: 'fast', count: 2 }],
       kindSummaries: [
@@ -1032,6 +1040,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Status</td><td>pending</td>');
   expect(sourceView).toContain('<td>Changed Previews</td><td>1</td>');
   expect(sourceView).toContain('<td>Failure Points</td><td>2</td>');
+  expect(sourceView).toContain('<td>Trace Pending Reason</td><td>repair-not-applied</td>');
+  expect(sourceView).toContain('<td>Trace Next Action</td><td>apply-repair</td>');
   expect(sourceView).toContain('Repair Failure Taxonomy');
   expect(sourceView).toContain('<th>Issue Type</th><th>Count</th>');
   expect(sourceView).toContain('<td>spec</td><td>1</td>');

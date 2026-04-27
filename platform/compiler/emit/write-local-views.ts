@@ -816,6 +816,8 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
     ['Previews', String(repair.previewCount)],
     ['Changed Previews', String(repair.changedPreviewCount)],
     ['Failure Points', String(repair.failurePointCount)],
+    ['Trace Pending Reason', repair.verificationTrace.pendingReason],
+    ['Trace Next Action', repair.verificationTrace.nextAction],
     ['Target Files', repair.targetFiles.join(', ') || 'none']
   ]
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
