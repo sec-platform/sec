@@ -561,6 +561,23 @@ function withMigrationErrorDetails(entry: UpgradeMigrationEntry, error: Compiler
   });
 }
 
+function withRollbackDiagnostics(error: CompilerError): CompilerError {
+  const rollbackDetails = { rollbackStatus: 'restored' };
+  if (isEmptyDiagnosticsDetails(error.details)) {
+    return new CompilerError(error.code, error.message, rollbackDetails);
+  }
+  if (isPlainObjectDetails(error.details)) {
+    return new CompilerError(error.code, error.message, {
+      ...error.details,
+      ...rollbackDetails
+    });
+  }
+  return new CompilerError(error.code, error.message, {
+    ...rollbackDetails,
+    causeDetails: normalizeCauseDetails(error.details)
+  });
+}
+
 async function applyMigrationEntry(
   projectRoot: string,
   targetManifestRoot: string,
@@ -1635,7 +1652,9 @@ export async function upgradeWorkspace(
   } catch (error) {
     await restoreProject(projectRoot, backupRoot);
     if (error instanceof CompilerError) {
-      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'apply', error, existingLock);
+      const rollbackError = withRollbackDiagnostics(error);
+      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'apply', rollbackError, existingLock);
+      throw rollbackError;
     }
     throw error;
   } finally {

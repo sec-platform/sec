@@ -607,6 +607,7 @@ function formatUpgradeDiagnosticsDetails(details: unknown): string {
   const entry = readObjectString(details, 'entry');
   const entryId = readObjectString(details, 'entryId');
   const entryKind = readObjectString(details, 'entryKind');
+  const rollbackStatus = readObjectString(details, 'rollbackStatus');
   return formatList([
     `migration=${migrationId}`,
     migrationKind ? `kind=${migrationKind}` : '',
@@ -615,7 +616,8 @@ function formatUpgradeDiagnosticsDetails(details: unknown): string {
     entryKind ? `entryKind=${entryKind}` : '',
     target ? `target=${target}` : '',
     source ? `source=${source}` : '',
-    slotId ? `slot=${slotId}` : ''
+    slotId ? `slot=${slotId}` : '',
+    rollbackStatus ? `rollback=${rollbackStatus}` : ''
   ].filter((part) => part.length > 0));
 }
 

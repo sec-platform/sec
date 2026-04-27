@@ -1489,7 +1489,8 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
             entryId: 'mig-auth-session-refresh-entry',
             entryKind: 'copy-file',
             target: 'src/installed/auth/session.ts',
-            source: 'files/src/installed/auth/session.ts'
+            source: 'files/src/installed/auth/session.ts',
+            rollbackStatus: 'restored'
           }
         }
       },
@@ -1515,7 +1516,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true'
     );
     expect(textResult.stdout).toContain(
-      'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts'
+      'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
     );
 
     const jsonResult = await runCli(workspaceRoot, ['review', 'summary', '--json']);
@@ -2962,7 +2963,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
             migrationId: 'mig-auth-session-refresh',
             migrationKind: 'file-replace',
             target: 'src/installed/auth/session.ts',
-            source: 'files/src/installed/auth/session.ts'
+            source: 'files/src/installed/auth/session.ts',
+            rollbackStatus: 'restored'
           }
         },
         null,
@@ -2975,7 +2977,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(blockedExplainText.code).toBe(0);
     expect(blockedExplainText.stderr).toBe('');
     expect(blockedExplainText.stdout).toContain(
-      'Upgrade diagnostics: apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts'
+      'Upgrade diagnostics: apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
     );
   });
 });
