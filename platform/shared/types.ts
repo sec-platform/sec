@@ -694,6 +694,24 @@ export interface ReviewInstallImpactSummary {
   groupSummaries: ReviewInstallImpactGroupSummary[];
 }
 
+export type ReviewChainStageId = 'verification' | 'coverage' | 'artifacts' | 'review';
+export type ReviewChainStageStatus = 'passed' | 'attention' | 'failed';
+
+export interface ReviewChainStageSummary {
+  id: ReviewChainStageId;
+  status: ReviewChainStageStatus;
+  detail: string;
+}
+
+export interface ReviewChainSummary {
+  status: ReviewChainStageStatus;
+  stageCount: number;
+  passedStageCount: number;
+  attentionStageCount: number;
+  failedStageCount: number;
+  stageSummaries: ReviewChainStageSummary[];
+}
+
 export interface ReviewCiSummary {
   status: 'passed' | 'attention' | 'failed';
   failureCount: number;
@@ -956,6 +974,7 @@ export interface ReviewPolicySummary {
 export interface ReviewSummary {
   formatVersion: '2';
   ciSummary: ReviewCiSummary;
+  chainSummary: ReviewChainSummary;
   artifactSummary?: ReviewArtifactSummary;
   coverageSummary?: ReviewCoverageSummary;
   provenanceSummary?: ReviewProvenanceSummary;

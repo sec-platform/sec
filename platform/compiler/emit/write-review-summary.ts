@@ -176,6 +176,50 @@ function buildReviewCiSummary(
   };
 }
 
+function buildReviewChainSummary(
+  report: VerificationReport,
+  coverageSummary: NonNullable<ReviewSummary['coverageSummary']>,
+  artifactSummary: ReviewSummary['artifactSummary']
+): ReviewSummary['chainSummary'] {
+  const stageSummaries: ReviewSummary['chainSummary']['stageSummaries'] = [
+    {
+      id: 'verification',
+      status: report.summary.status,
+      detail: `lane=${report.summary.requestedLane}; failed=${report.summary.failedLanes.join(',') || 'none'}`
+    },
+    {
+      id: 'coverage',
+      status: coverageSummary.status === 'passed'
+        ? 'passed'
+        : coverageSummary.status === 'skipped'
+          ? 'attention'
+          : 'failed',
+      detail: `blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}; slots=${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`
+    },
+    {
+      id: 'artifacts',
+      status: artifactSummary?.artifactStatus ?? 'attention',
+      detail: `total=${artifactSummary?.artifactCount ?? 0}; missing=${artifactSummary?.missingCount ?? 0}`
+    },
+    {
+      id: 'review',
+      status: 'passed',
+      detail: 'review-summary=generated'
+    }
+  ];
+  const failedStageCount = stageSummaries.filter((stage) => stage.status === 'failed').length;
+  const attentionStageCount = stageSummaries.filter((stage) => stage.status === 'attention').length;
+
+  return {
+    status: failedStageCount > 0 ? 'failed' : attentionStageCount > 0 ? 'attention' : 'passed',
+    stageCount: stageSummaries.length,
+    passedStageCount: stageSummaries.filter((stage) => stage.status === 'passed').length,
+    attentionStageCount,
+    failedStageCount,
+    stageSummaries
+  };
+}
+
 async function readArtifactSummary(workspaceRoot: string): Promise<ReviewSummary['artifactSummary']> {
   const { ciArtifactsPath } = getWorkspacePaths(workspaceRoot);
   if (!(await pathExists(ciArtifactsPath))) {
@@ -198,7 +242,9 @@ function countBy<T>(values: T[], key: (value: T) => string): Map<string, T[]> {
   return groups;
 }
 
-function buildCoverageSummary(coverage: AcceptanceCoverageReport): ReviewSummary['coverageSummary'] {
+function buildCoverageSummary(
+  coverage: AcceptanceCoverageReport
+): NonNullable<ReviewSummary['coverageSummary']> {
   const blockSummaries = coverage.blocks
     .map((entry) => ({
       id: entry.id,
@@ -745,7 +791,7 @@ export async function buildReviewSummary(
   const upgradeDiagnostics = (await pathExists(upgradeDiagnosticsPath))
     ? await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath)
     : null;
-  const coverageSummary = buildCoverageSummary(coverage);
+  const coverageSummary: NonNullable<ReviewSummary['coverageSummary']> = buildCoverageSummary(coverage);
   const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = buildPolicySummary(policyReport);
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
@@ -987,6 +1033,7 @@ export async function buildReviewSummary(
       impactedSlots,
       runtimeEntries
     ),
+    chainSummary: buildReviewChainSummary(report, coverageSummary, artifactSummary),
     ...(artifactSummary ? { artifactSummary } : {}),
     coverageSummary,
     provenanceSummary,
