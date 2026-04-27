@@ -1,6 +1,6 @@
 export type CiContractStep = {
   id: string;
-  phase: 'verify' | 'diagnostics' | 'artifacts';
+  phase: 'verify' | 'quality' | 'diagnostics' | 'artifacts';
   command: string;
   purpose: string;
   produces: string[];
@@ -35,6 +35,20 @@ const ciSteps: CiContractStep[] = [
       'project/generated/runtime-report.json',
       'project/generated/acceptance-coverage.json'
     ]
+  },
+  {
+    id: 'slow-test-budget',
+    phase: 'quality',
+    command: 'npm run platform -- test budget --json --compact',
+    purpose: 'Expose the fast/runtime/all slow-test lane budget before selecting CI gates.',
+    produces: []
+  },
+  {
+    id: 'benchmark-task-suite',
+    phase: 'quality',
+    command: 'npm run platform -- benchmark suite --json --compact',
+    purpose: 'Expose the benchmark task-suite contract and scoring dimensions for scheduled quality jobs.',
+    produces: []
   },
   {
     id: 'diagnostic-review',
