@@ -670,6 +670,41 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       contractPaths: ['generated/postgres-contract.json']
     });
 
+    const contractPathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'contract']);
+    expect(contractPathsResult.code).toBe(0);
+    expect(contractPathsResult.stderr).toBe('');
+    expect(contractPathsResult.stdout.trim()).toBe('project/generated/postgres-contract.json');
+
+    const contractPathsJsonResult = await runCli(workspaceRoot, [
+      'artifacts',
+      '--paths',
+      '--json',
+      '--kind',
+      'contract'
+    ]);
+    expect(contractPathsJsonResult.code).toBe(0);
+    expect(contractPathsJsonResult.stderr).toBe('');
+    const contractPathsJson = JSON.parse(contractPathsJsonResult.stdout) as {
+      kind: string;
+      count: number;
+      paths: string[];
+      byKind: Record<string, number>;
+      uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
+    };
+    expect(contractPathsJson).toMatchObject({
+      kind: 'contract',
+      count: 1,
+      paths: ['project/generated/postgres-contract.json'],
+      byKind: { contract: 1 },
+      uploadGroups: [
+        {
+          kind: 'contract',
+          count: 1,
+          paths: ['project/generated/postgres-contract.json']
+        }
+      ]
+    });
+
     const explainWithContractResult = await runCli(workspaceRoot, ['explain']);
     expect(explainWithContractResult.code).toBe(0);
     expect(explainWithContractResult.stderr).toBe('');
@@ -1465,22 +1500,22 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test])\n'
+      stderr: 'UNEXPECTED Usage: platform artifacts (--json [--compact]|--paths [--json] [--kind governance|view|test|contract])\n'
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,
