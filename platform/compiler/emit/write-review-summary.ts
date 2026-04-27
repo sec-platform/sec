@@ -297,10 +297,7 @@ function summarizeRepairTaxonomy(values: string[]): Array<{ id: string; count: n
 }
 
 function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['failureTaxonomy'] {
-  const failurePoints = [
-    ...repairPlan.tasks.flatMap((task) => task.failurePoints),
-    ...(repairPlan.blockers ?? []).flatMap((blocker) => blocker.failurePoints)
-  ];
+  const failurePoints = repairFailurePoints(repairPlan);
 
   return {
     laneSummaries: summarizeRepairTaxonomy(failurePoints.map((point) => point.lane)),
@@ -310,6 +307,66 @@ function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewS
       failurePoints.map((point) => point.repairable ? 'repairable' : 'blocked')
     )
   };
+}
+
+function repairFailurePoints(repairPlan: RepairPlan) {
+  return [
+    ...repairPlan.tasks.flatMap((task) => task.failurePoints),
+    ...(repairPlan.blockers ?? []).flatMap((blocker) => blocker.failurePoints)
+  ];
+}
+
+function repairTargetType(
+  point: ReturnType<typeof repairFailurePoints>[number],
+  targetId: string
+): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'][number]['targetType'] {
+  if (targetId.startsWith('generated/')) {
+    return 'generated-file';
+  }
+  if (targetId.startsWith('custom/') || targetId.startsWith('src/')) {
+    return point.kind === 'policy' ? 'policy-target' : 'slot-target';
+  }
+  if (point.kind === 'acceptance' || targetId.endsWith('.spec.ts')) {
+    return 'acceptance-case';
+  }
+  if (point.kind === 'runtime-unit' || point.kind === 'runtime-acceptance') {
+    return 'runtime-target';
+  }
+  if (point.kind === 'policy') {
+    return 'policy-target';
+  }
+  if (point.issueType === 'slot') {
+    return 'slot-target';
+  }
+  return 'unknown';
+}
+
+function buildRepairTargetSummaries(
+  repairPlan: RepairPlan
+): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'] {
+  const counts = new Map<
+    string,
+    { targetType: ReturnType<typeof repairTargetType>; count: number }
+  >();
+  for (const point of repairFailurePoints(repairPlan)) {
+    for (const targetId of point.targetIds ?? []) {
+      const targetType = repairTargetType(point, targetId);
+      const key = `${targetType}:${targetId}`;
+      const current = counts.get(key) ?? { targetType, count: 0 };
+      current.count += 1;
+      counts.set(key, current);
+    }
+  }
+
+  return [...counts.entries()]
+    .map(([key, summary]) => ({
+      id: key.slice(summary.targetType.length + 1),
+      targetType: summary.targetType,
+      count: summary.count
+    }))
+    .sort((left, right) =>
+      `${left.targetType}:${left.id}`.localeCompare(`${right.targetType}:${right.id}`)
+    );
 }
 
 function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCategory {
@@ -361,6 +418,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
       blockerSummaries.reduce((total, blocker) => total + blocker.failurePointCount, 0)
     ),
     failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
+    targetSummaries: buildRepairTargetSummaries(repairPlan),
     taskCategorySummaries: summarizeRepairTaxonomy(repairPlan.tasks.map(repairTaskCategory)),
     targetFiles: unique(repairPlan.tasks.map((task) => task.targetFile)),
     taskSummaries,

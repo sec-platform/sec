@@ -188,6 +188,10 @@ test('review summary surfaces pending repair tasks', async () => {
           { id: 'repairable', count: 2 }
         ]
       },
+      targetSummaries: [
+        { id: 'tenant-scope-required', targetType: 'policy-target', count: 1 },
+        { id: 'zeta.test.ts', targetType: 'slot-target', count: 2 }
+      ],
       taskCategorySummaries: [{ id: 'slot-rewrite', count: 2 }],
       targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
     });

@@ -348,6 +348,10 @@
      - 结构化 failure points。
      - repairable 标记。
      - 失败点到 acceptance/policy/runtime 目标的映射。
+     - repair target attribution summary：
+       - target type 聚合进入 review summary。
+       - target type 聚合进入 CLI explain。
+       - target type 明细进入本地 Source View。
      - 本地视图中的 slot 写入边界展示。
      - 无可修 slot 的阻断错误。
      - repair plan provenance/review 暴露。
@@ -418,10 +422,16 @@
      - 阶段 3：细化 repair 后验证追踪。
    - 连续功能切口：
      - 切口 A：把 failure point 归因到更细粒度目标：
+       - 状态：done。
        - generated file。
        - slot target。
        - acceptance case。
        - policy target。
+       - runtime target。
+       - 输出位置：
+         - `generated/review-summary.json`。
+         - CLI explain 文本。
+         - Source View。
      - 切口 B：把 repair task 拆成明确类别：
        - 状态：done。
        - 当前类别：

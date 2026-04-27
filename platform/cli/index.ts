@@ -284,6 +284,18 @@ function formatSummaryEntries(entries: Array<{ id: string; count: number }>): st
     : 'none';
 }
 
+function summarizeById(
+  entries: Array<{ id: string; count: number }>
+): Array<{ id: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    counts.set(entry.id, (counts.get(entry.id) ?? 0) + entry.count);
+  }
+  return [...counts.entries()]
+    .map(([id, count]) => ({ id, count }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
 function formatRepairFailurePoint(failure: RepairPlan['tasks'][number]['failurePoints'][number]): string {
   return [
     `Failure ${failure.lane}/${failure.kind}`,
@@ -475,6 +487,14 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `requires verification: ${repair.requiresVerification}`,
         `categories: ${formatSummaryEntries(repair.taskCategorySummaries)}`,
         `issues: ${formatSummaryEntries(repair.failureTaxonomy.issueTypeSummaries)}`,
+        `targets: ${formatSummaryEntries(
+          summarizeById(
+            repair.targetSummaries.map((target) => ({
+              id: target.targetType,
+              count: target.count
+            }))
+          )
+        )}`,
         `repairability: ${formatSummaryEntries(repair.failureTaxonomy.repairabilitySummaries)}`
       ].join('; ')
     );

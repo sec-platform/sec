@@ -1000,7 +1000,17 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
     expect(explainText.code).toBe(0);
     expect(explainText.stderr).toBe('');
     expect(explainText.stdout).toContain(
-      'Repair: pending; tasks: 1; blockers: 0; changed previews: 0; requires verification: false; categories: slot-rewrite=1; issues: slot=1; repairability: repairable=1'
+      [
+        'Repair: pending',
+        'tasks: 1',
+        'blockers: 0',
+        'changed previews: 0',
+        'requires verification: false',
+        'categories: slot-rewrite=1',
+        'issues: slot=1',
+        'targets: none',
+        'repairability: repairable=1'
+      ].join('; ')
     );
 
     const explainJson = await runCli(workspaceRoot, ['explain', '--json']);
@@ -1021,6 +1031,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
             issueTypeSummaries: Array<{ id: string; count: number }>;
             repairabilitySummaries: Array<{ id: string; count: number }>;
           };
+          targetSummaries: Array<{ id: string; targetType: string; count: number }>;
           taskCategorySummaries: Array<{ id: string; count: number }>;
           targetFiles: string[];
         };
@@ -1039,6 +1050,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
         issueTypeSummaries: [{ id: 'slot', count: 1 }],
         repairabilitySummaries: [{ id: 'repairable', count: 1 }]
       },
+      targetSummaries: [],
       taskCategorySummaries: [{ id: 'slot-rewrite', count: 1 }],
       targetFiles: ['custom/customer_normalizer.ts']
     });

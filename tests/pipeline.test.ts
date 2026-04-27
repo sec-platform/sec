@@ -361,6 +361,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         issueTypeSummaries: Array<{ id: string; count: number }>;
         repairabilitySummaries: Array<{ id: string; count: number }>;
       };
+      targetSummaries: Array<{ id: string; targetType: string; count: number }>;
       taskCategorySummaries: Array<{ id: string; count: number }>;
       targetFiles: string[];
       taskSummaries: Array<{
@@ -617,6 +618,9 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         { id: 'repairable', count: 1 }
       ]
     },
+    targetSummaries: [
+      { id: 'customer-normalizer.test.ts', targetType: 'slot-target', count: 1 }
+    ],
     taskCategorySummaries: [{ id: 'slot-rewrite', count: 1 }],
     targetFiles: ['custom/customer_normalizer.ts'],
     taskSummaries: [
@@ -1023,6 +1027,10 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('Repair Task Category Summary');
   expect(sourceView).toContain('<th>Category</th><th>Count</th>');
   expect(sourceView).toContain('<td>slot-rewrite</td><td>1</td>');
+  expect(sourceView).toContain('Repair Target Attribution Summary');
+  expect(sourceView).toContain('<th>Type</th><th>Target</th><th>Count</th>');
+  expect(sourceView).toContain('<td>slot-target</td>');
+  expect(sourceView).toContain('<td>customer-normalizer.test.ts</td>');
   expect(sourceView).toContain('Repair Task Summary');
   expect(sourceView).toContain('Repair Blocker Summary');
   expect(sourceView).toContain('Repair Plan');
