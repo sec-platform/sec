@@ -504,6 +504,7 @@ export async function applyMigrationEntries(
         role: 'manifest-source'
       });
       await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
       await copyRecursive(sourcePath, targetPath);
       continue;
     }
@@ -697,6 +698,18 @@ async function statCopyDirectoryMigrationSource(sourcePath: string, source: stri
   }
   if (!stats.isDirectory()) {
     throw new CompilerError('UPGRADE-MIGRATION-023', `Copy-directory source "${source}" must be a directory`);
+  }
+}
+
+async function statCopyDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(targetPath);
+  } catch {
+    return;
+  }
+  if (!stats.isDirectory()) {
+    throw new CompilerError('UPGRADE-MIGRATION-027', `Copy-directory target "${target}" must be a directory when it already exists`);
   }
 }
 
