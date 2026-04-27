@@ -371,6 +371,24 @@ test('json-array-append migration rejects non-array targets', async () => {
   }
 });
 
+test('json-array-append migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('json-array-remove migration removes matching items from nested arrays', async () => {
   const workspaceRoot = await createWorkspace();
   try {
@@ -420,6 +438,24 @@ test('json-array-remove migration rejects non-array targets', async () => {
       applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-012'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('json-array-remove migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
     });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -501,6 +537,26 @@ test('json-object-merge migration creates missing JSON targets', async () => {
     await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
       `${JSON.stringify({ compiler: { upgrade: { enabled: true } } }, null, 2)}\n`
     );
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('json-object-merge migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
+        jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })
+      ])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
