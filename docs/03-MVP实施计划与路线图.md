@@ -258,6 +258,7 @@
        - 可复制到 project 目标文件路径。
        - source 缺失会阻断。
        - source 不是文件会阻断。
+       - 执行期拒绝目录目标。
        - dry-run plan 可展示 target impact。
        - migration summary 可展示 manifest source。
      - `copy-directory` 目录复制迁移：
@@ -426,8 +427,8 @@
        - file operation 可执行性检查：
          - 状态：done。
          - plan：`migration-file-operations` preflight check。
-         - file-replace：确认 manifest source 存在。
-         - copy-file：确认 manifest source 存在且是文件。
+         - file-replace：确认 manifest source 存在，执行期拒绝目录 target。
+         - copy-file：确认 manifest source 存在且是文件，执行期拒绝目录 target。
          - copy-directory：确认 manifest source 存在且是目录。
          - copy-directory：执行期拒绝已被文件占用的 target，避免泄露底层 fs 错误。
          - create-directory：执行期允许已有目录并拒绝文件占用 target。

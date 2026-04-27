@@ -21,6 +21,16 @@ function fileReplace(target: string, source = 'files/source.ts'): UpgradeMigrati
   };
 }
 
+function copyFile(target: string, source = 'files/source.ts'): UpgradeMigrationEntry {
+  return {
+    id: 'mig-test-copy-file',
+    kind: 'copy-file',
+    reason: 'test file copy',
+    source,
+    target
+  };
+}
+
 function copyDirectory(target: string, source = 'files/runtime'): UpgradeMigrationEntry {
   return {
     id: 'mig-test-copy-directory',
@@ -150,6 +160,56 @@ test('file-replace migration copies manifest source to impacted project target',
     await applyMigrationEntries(projectRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')]);
 
     await expect(fs.readFile(path.join(projectRoot, 'src', 'target.ts'), 'utf8')).resolves.toBe('export const version = "0.1.1";\n');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('file-replace migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
+    await fs.mkdir(path.join(projectRoot, 'src', 'target.ts'), { recursive: true });
+    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const version = "0.1.1";\n', 'utf8');
+
+    await expect(applyMigrationEntries(projectRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')])).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('copy-file migration copies manifest source to impacted project target', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
+    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const copied = true;\n', 'utf8');
+
+    await applyMigrationEntries(projectRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')]);
+
+    await expect(fs.readFile(path.join(projectRoot, 'src', 'copied.ts'), 'utf8')).resolves.toBe('export const copied = true;\n');
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('copy-file migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
+    await fs.mkdir(path.join(projectRoot, 'src', 'copied.ts'), { recursive: true });
+    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const copied = true;\n', 'utf8');
+
+    await expect(applyMigrationEntries(projectRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')])).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }

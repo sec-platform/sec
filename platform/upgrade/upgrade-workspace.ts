@@ -493,6 +493,7 @@ export async function applyMigrationEntries(
         role: 'manifest-source'
       });
       await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
       await ensureDir(path.dirname(targetPath));
       await fs.copyFile(sourcePath, targetPath);
       continue;
@@ -625,7 +626,9 @@ async function statFileMigrationTarget(
   target: string,
   kind:
     | 'config-rewrite'
+    | 'copy-file'
     | 'delete-file'
+    | 'file-replace'
     | 'json-array-append'
     | 'json-array-remove'
     | 'json-object-merge'
@@ -751,12 +754,18 @@ async function collectFileOperationEvidence(
         migrationId: entry.id,
         role: 'manifest-source'
       });
+      const targetPath = resolveProjectPath(projectRoot, entry.target, {
+        migrationId: entry.id,
+        role: 'target'
+      });
       await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
       evidence.push(
         entry.kind === 'file-replace'
           ? `${entry.id}:manifest-source:exists`
           : `${entry.id}:manifest-source:file`
       );
+      evidence.push(`${entry.id}:target:available`);
     }
     if (entry.kind === 'copy-directory') {
       const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
