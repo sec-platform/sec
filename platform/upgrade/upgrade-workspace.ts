@@ -517,14 +517,16 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'json-array-append') {
-      const config = applyJsonArrayAppend((await pathExists(targetPath)) ? await readJson<unknown>(targetPath) : {}, entry);
+      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+      const config = applyJsonArrayAppend(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
       await ensureDir(path.dirname(targetPath));
       await writeJson(targetPath, config);
       continue;
     }
 
     if (entry.kind === 'json-array-remove') {
-      if (!(await pathExists(targetPath))) {
+      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+      if (targetStatus === 'missing') {
         continue;
       }
       const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
@@ -533,7 +535,8 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'json-object-merge') {
-      const config = applyJsonObjectMerge((await pathExists(targetPath)) ? await readJson<unknown>(targetPath) : {}, entry);
+      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+      const config = applyJsonObjectMerge(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
       await ensureDir(path.dirname(targetPath));
       await writeJson(targetPath, config);
       continue;
@@ -623,6 +626,9 @@ async function statFileMigrationTarget(
   kind:
     | 'config-rewrite'
     | 'delete-file'
+    | 'json-array-append'
+    | 'json-array-remove'
+    | 'json-object-merge'
     | 'text-replace'
     | 'text-replace-regex'
     | 'text-append'
@@ -971,7 +977,8 @@ async function collectJsonStructureEvidence(
       evidence.push(`${entry.id}:target:object`);
       continue;
     }
-    if (!(await pathExists(targetPath))) {
+    const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+    if (targetStatus === 'missing') {
       evidence.push(`${entry.id}:target:missing`);
       continue;
     }

@@ -228,8 +228,12 @@
        - `set`
        - `delete`
        - 执行期要求目标存在且是 JSON 文件。
-     - `json-array-append/remove` JSON 数组迁移。
-     - `json-object-merge` JSON 对象合并迁移。
+     - `json-array-append/remove` JSON 数组迁移：
+       - 允许缺失目标按既有语义创建或跳过。
+       - 执行期拒绝目录目标。
+     - `json-object-merge` JSON 对象合并迁移：
+       - 可创建缺失目标。
+       - 执行期拒绝目录目标。
      - `text-append` 文本追加迁移：
        - 可追加到已有文件。
        - 可创建缺失目标文件。
