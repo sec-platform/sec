@@ -548,9 +548,15 @@ function formatUpgradeDiagnosticsAttribution(details: unknown): string {
   const target = readDiagnosticsString(details, 'target') ?? (role === 'target' ? path : null);
   const source = readDiagnosticsString(details, 'source') ?? (role === 'source' ? path : null);
   const slotId = readDiagnosticsString(details, 'slotId');
+  const entry = readDiagnosticsString(details, 'entry');
+  const entryId = readDiagnosticsString(details, 'entryId');
+  const entryKind = readDiagnosticsString(details, 'entryKind');
   const parts = [
     `migration=${migrationId}`,
     migrationKind ? `kind=${migrationKind}` : null,
+    entry ? `entry=${entry}` : null,
+    entryId ? `entryId=${entryId}` : null,
+    entryKind ? `entryKind=${entryKind}` : null,
     target ? `target=${target}` : null,
     source ? `source=${source}` : null,
     slotId ? `slot=${slotId}` : null

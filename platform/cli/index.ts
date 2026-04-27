@@ -604,9 +604,15 @@ function formatUpgradeDiagnosticsDetails(details: unknown): string {
   const target = readObjectString(details, 'target') ?? (role === 'target' ? path : null);
   const source = readObjectString(details, 'source') ?? (role === 'source' ? path : null);
   const slotId = readObjectString(details, 'slotId');
+  const entry = readObjectString(details, 'entry');
+  const entryId = readObjectString(details, 'entryId');
+  const entryKind = readObjectString(details, 'entryKind');
   return formatList([
     `migration=${migrationId}`,
     migrationKind ? `kind=${migrationKind}` : '',
+    entry ? `entry=${entry}` : '',
+    entryId ? `entryId=${entryId}` : '',
+    entryKind ? `entryKind=${entryKind}` : '',
     target ? `target=${target}` : '',
     source ? `source=${source}` : '',
     slotId ? `slot=${slotId}` : ''
