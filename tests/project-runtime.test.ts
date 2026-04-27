@@ -93,19 +93,26 @@ test('root package exposes demo scripts through the existing platform chain', as
   );
 });
 
-test('test budget command documents slow lane boundaries', async () => {
+test('test budget and benchmark contracts document slow lanes and task-suite scope', async () => {
   const rootPackage = JSON.parse(await fs.readFile(path.join(compilerRoot, 'package.json'), 'utf8')) as {
     scripts: Record<string, string>;
   };
   const runnerSource = await fs.readFile(path.join(compilerRoot, 'platform', 'dev-runner.ts'), 'utf8');
 
   expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
+  expect(rootPackage.scripts['test:benchmark-contract']).toBe('bun ./platform/dev-runner.ts benchmark-contract');
+  expect(rootPackage.scripts['reference:check']).toBe('bun ./platform/dev-runner.ts reference-clean');
   expect(runnerSource).toContain("id: 'fast'");
   expect(runnerSource).toContain('nextBuild: false');
   expect(runnerSource).toContain('playwright: false');
   expect(runnerSource).toContain("id: 'all'");
   expect(runnerSource).toContain('nextBuild: true');
   expect(runnerSource).toContain('playwright: true');
+  expect(runnerSource).toContain("suiteId: 'engineering-compiler-core'");
+  expect(runnerSource).toContain("id: 'add-block'");
+  expect(runnerSource).toContain("id: 'repair-slot'");
+  expect(runnerSource).toContain("id: 'override-conflict'");
+  expect(runnerSource).toContain("['diff', '--exit-code', '--', 'project']");
 });
 
 test('project and shared runtime manifests derive versions from the root package.json', async () => {

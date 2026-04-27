@@ -143,14 +143,29 @@
        - dogfood 入口复用 `reference:refresh`，不复制第二套样例流程。
      - benchmark 与慢测预算：active。
        - `npm run test:budget` 输出 fast/runtime/all lane 慢测边界合同。
+       - `npm run test:benchmark-contract` 输出最小 benchmark/task-suite 合同。
        - fast/runtime 不运行 Next build 或 Playwright。
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
+     - reference 无漂移 gate：active。
+       - `npm run reference:check` 作为 checked-in `project/` 无漂移验证入口。
+       - gate 通过 `demo:quickstart` 刷新后运行 `git diff --exit-code -- project`。
+       - 失败时直接暴露 reference workspace 与编译主链的不一致。
      - 重复概念删除和命名收敛：active。
        - `platform`：原始 CLI 操作入口。
        - `reference`：不重置的主链刷新入口。
        - `demo`：面向用户演示的重置/打包入口。
        - `dogfood`：针对当前参考项目的自用验证入口。
        - `test`：开发验证和预算合同入口。
+     - 收敛整改总表：active。
+       - P0：固定唯一主闭环，统一对外叙事到 quickstart -> verify --lane all -> artifacts -> explain。
+       - P0：冻结治理 contract 清单，覆盖 graph.lock、provenance、verification/runtime/policy/coverage、explain-graph、review-summary。
+       - P0：建立 benchmark/task-suite 最小合同，先冻结任务集与评分维度，再扩 runner。
+       - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐。
+       - P1：增加 reference workspace 无漂移 gate，证明 checked-in `project/` 与主链刷新结果一致。
+       - P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。
+       - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。
+       - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。
+       - P2：补规模测试、资产质量评分、trace/decision-log、安全模型文档。
    - 暂停条件：
      - 连续新增内部 summary/expose/diagnostics 但没有外部闭环提升。
      - 新增概念不能映射到用户路径或稳定 contract。
