@@ -635,6 +635,52 @@ test('upgrade dry-run records create directory migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade dry-run rejects create directory migrations when target is a file', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-create-directory-file-target-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, projectRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-create-snapshots-dir',
+          kind: 'create-directory',
+          entry: 'migrations/create-snapshots-dir.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'create-snapshots-dir.json'), {
+    id: 'mig-create-snapshots-dir',
+    kind: 'create-directory',
+    reason: 'Create snapshot directory for generated reports.',
+    target: 'generated/reports/snapshots'
+  });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'snapshots'), {
+    occupied: true
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-028'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
+});
+
 test('upgrade dry-run records delete file migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-file-plan-');
 
@@ -950,6 +996,56 @@ test('upgrade dry-run records copy directory migration impacts', async () => {
     }
   ]);
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+});
+
+test('upgrade dry-run rejects copy directory migrations when target is a file', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-copy-directory-file-target-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, projectRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-copy-report-templates',
+          kind: 'copy-directory',
+          entry: 'migrations/copy-report-templates.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'copy-report-templates.json'), {
+    id: 'mig-copy-report-templates',
+    kind: 'copy-directory',
+    reason: 'Copy report templates into generated report assets.',
+    source: 'files/generated/reports/templates',
+    target: 'generated/reports/templates'
+  });
+  await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'templates', 'daily.json'), {
+    report: 'daily'
+  });
+  await writeJson(path.join(projectRoot, 'generated', 'reports', 'templates'), {
+    occupied: true
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-027'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
 });
 
 test('upgrade dry-run records copy file migration impacts', async () => {

@@ -833,8 +833,22 @@ async function collectFileOperationEvidence(
         migrationId: entry.id,
         role: 'manifest-source'
       });
+      const targetPath = resolveProjectPath(projectRoot, entry.target, {
+        migrationId: entry.id,
+        role: 'target'
+      });
       await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
       evidence.push(`${entry.id}:manifest-source:directory`);
+    }
+    if (entry.kind === 'create-directory') {
+      await statCreateDirectoryMigrationTarget(
+        resolveProjectPath(projectRoot, entry.target, {
+          migrationId: entry.id,
+          role: 'target'
+        }),
+        entry.target
+      );
     }
     if (entry.kind === 'delete-file') {
       await statFileMigrationTarget(
