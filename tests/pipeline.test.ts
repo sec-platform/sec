@@ -273,6 +273,35 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       uploadGroups?: Array<{ kind: string; count: number; paths: string[] }>;
       missing?: Array<{ path: string; reason: string; declaredBy: string }>;
     };
+    repairSummary?: {
+      status: 'pending' | 'applied' | 'skipped' | 'blocked';
+      sourceVerificationStatus: 'passed' | 'failed';
+      requiresVerification: boolean;
+      taskCount: number;
+      blockerCount: number;
+      previewCount: number;
+      changedPreviewCount: number;
+      failurePointCount: number;
+      targetFiles: string[];
+      taskSummaries: Array<{
+        taskId: string;
+        sourceSlotId: string;
+        targetBlock: string;
+        targetFile: string;
+        previewStatus: 'changed' | 'unchanged' | 'missing';
+        addedLines: number;
+        removedLines: number;
+        failurePointCount: number;
+        targetIds: string[];
+      }>;
+      blockerSummaries: Array<{
+        blockerId: string;
+        boundary: string;
+        reason: string;
+        decisionRequired: string;
+        failurePointCount: number;
+      }>;
+    };
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
     installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;
@@ -321,6 +350,39 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         path: 'generated/missing-<artifact>.json',
         reason: 'declared-generated-missing',
         declaredBy: 'graph.lock.json'
+      }
+    ]
+  };
+  reviewSummary.repairSummary = {
+    status: 'pending',
+    sourceVerificationStatus: 'failed',
+    requiresVerification: false,
+    taskCount: 1,
+    blockerCount: 1,
+    previewCount: 1,
+    changedPreviewCount: 1,
+    failurePointCount: 2,
+    targetFiles: ['custom/customer_normalizer.ts'],
+    taskSummaries: [
+      {
+        taskId: 'repair_customer_normalizer',
+        sourceSlotId: 'customer_normalizer',
+        targetBlock: 'entity/customer-basic',
+        targetFile: 'custom/customer_normalizer.ts',
+        previewStatus: 'changed',
+        addedLines: 4,
+        removedLines: 1,
+        failurePointCount: 1,
+        targetIds: ['customer-normalizer.test.ts']
+      }
+    ],
+    blockerSummaries: [
+      {
+        blockerId: 'repair_blocker_policy',
+        boundary: 'spec',
+        reason: 'policy <boundary> & manual decision',
+        decisionRequired: 'Decide whether policy/spec or project code changes first',
+        failurePointCount: 1
       }
     ]
   };
@@ -541,6 +603,12 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('Upgrade Diagnostics');
   expect(sourceView).toContain('UPGRADE-CONFLICT-001');
   expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
+  expect(sourceView).toContain('Repair Summary');
+  expect(sourceView).toContain('<td>Status</td><td>pending</td>');
+  expect(sourceView).toContain('<td>Changed Previews</td><td>1</td>');
+  expect(sourceView).toContain('<td>Failure Points</td><td>2</td>');
+  expect(sourceView).toContain('Repair Task Summary');
+  expect(sourceView).toContain('Repair Blocker Summary');
   expect(sourceView).toContain('Repair Plan');
   expect(sourceView).toContain('requires verification: false');
   expect(sourceView).toContain('Blockers');

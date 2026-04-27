@@ -405,6 +405,19 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
     );
   }
 
+  if (reviewSummary.repairSummary) {
+    const repair = reviewSummary.repairSummary;
+    lines.push(
+      [
+        `Repair: ${repair.status}`,
+        `tasks: ${repair.taskCount}`,
+        `blockers: ${repair.blockerCount}`,
+        `changed previews: ${repair.changedPreviewCount}`,
+        `requires verification: ${repair.requiresVerification}`
+      ].join('; ')
+    );
+  }
+
   return lines.join('\n');
 }
 
