@@ -296,7 +296,7 @@
        - text 迁移暴露 content/search/replacement/pattern/flags 摘要。
        - slot 迁移暴露 slotId、inputType、outputType 与 writableZones。
        - review summary、CLI explain 与本地 Source View 均展示 operation evidence。
-     - upgrade plan 到本地视图的摘要呈现。
+     - upgrade plan 到本地视图的摘要呈现，包含 migration operation role 分布与明细。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：
        - 状态聚合。
@@ -483,6 +483,7 @@
          - migration 到 verification category 的连接。
          - diagnostics 到 plan 的连接。
        - Upgrade Plan 增加 Preflight Summary。
+       - Upgrade Plan 增加 Operation Role Summary 与 Migration Operations 明细。
        - 按 preflight group 汇总 checks 数量和 evidence 数量。
    - 每个切口的验证口径：
      - 单测覆盖新增 migration 执行器。
