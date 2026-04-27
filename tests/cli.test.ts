@@ -1484,6 +1484,9 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
     expect(textResult.stdout).toContain('Source verification: failed; requires verification: false');
     expect(textResult.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
     expect(textResult.stdout).toContain(
+      'Review repair_slot_customer_normalizer: writeBounds=custom/customer_normalizer.ts; symbols=normalizeCustomerInput; tests=tests/unit/customer-normalizer.test.ts, tests/acceptance/customer-flow.test.ts; forbidden=modify_other_files, add_dependencies, access_database, change_exports; failureTargets=none'
+    );
+    expect(textResult.stdout).toContain(
       'Preview repair_slot_customer_normalizer: changed=false; +0; -0;'
     );
     expect(textResult.stdout).toContain(
@@ -1511,7 +1514,27 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
       category: 'slot-rewrite',
       sourceSlotId: 'customer_normalizer',
       targetBlock: 'entity/customer-basic',
-      targetFile: 'custom/customer_normalizer.ts'
+      targetFile: 'custom/customer_normalizer.ts',
+      review: {
+        allowedPathCount: 1,
+        requiredSymbolCount: 1,
+        forbiddenOperationCount: 4,
+        testCount: 2,
+        failureTargetCount: 0,
+        writeBounds: ['custom/customer_normalizer.ts'],
+        requiredSymbols: ['normalizeCustomerInput'],
+        forbiddenOperations: [
+          'modify_other_files',
+          'add_dependencies',
+          'access_database',
+          'change_exports'
+        ],
+        testsToPass: [
+          'tests/unit/customer-normalizer.test.ts',
+          'tests/acceptance/customer-flow.test.ts'
+        ],
+        failureTargets: []
+      }
     });
     expect(repairPlan.tasks[0].failurePoints).toEqual([
       expect.objectContaining({
@@ -1589,6 +1612,19 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
           targetSummaries: Array<{ id: string; targetType: string; count: number }>;
           taskCategorySummaries: Array<{ id: string; count: number }>;
           targetFiles: string[];
+          taskSummaries: Array<{
+            taskId: string;
+            allowedPathCount: number;
+            requiredSymbolCount: number;
+            forbiddenOperationCount: number;
+            testCount: number;
+            failureTargetCount: number;
+            writeBounds: string[];
+            requiredSymbols: string[];
+            forbiddenOperations: string[];
+            testsToPass: string[];
+            failureTargets: string[];
+          }>;
         };
       };
     };
@@ -1611,7 +1647,30 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
       },
       targetSummaries: [],
       taskCategorySummaries: [{ id: 'slot-rewrite', count: 1 }],
-      targetFiles: ['custom/customer_normalizer.ts']
+      targetFiles: ['custom/customer_normalizer.ts'],
+      taskSummaries: [
+        expect.objectContaining({
+          taskId: 'repair_slot_customer_normalizer',
+          allowedPathCount: 1,
+          requiredSymbolCount: 1,
+          forbiddenOperationCount: 4,
+          testCount: 2,
+          failureTargetCount: 0,
+          writeBounds: ['custom/customer_normalizer.ts'],
+          requiredSymbols: ['normalizeCustomerInput'],
+          forbiddenOperations: [
+            'modify_other_files',
+            'add_dependencies',
+            'access_database',
+            'change_exports'
+          ],
+          testsToPass: [
+            'tests/unit/customer-normalizer.test.ts',
+            'tests/acceptance/customer-flow.test.ts'
+          ],
+          failureTargets: []
+        })
+      ]
     });
   });
 });

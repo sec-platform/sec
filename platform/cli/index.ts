@@ -446,6 +446,27 @@ function summarizeById(
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {
+  const failureTargets = uniqueSorted(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+  return task.review ?? {
+    allowedPathCount: task.allowedPaths.length,
+    requiredSymbolCount: task.requiredSymbols.length,
+    forbiddenOperationCount: task.forbiddenOperations.length,
+    testCount: task.testsToPass.length,
+    failureTargetCount: failureTargets.length,
+    writeBounds: [...task.allowedPaths],
+    requiredSymbols: [...task.requiredSymbols],
+    forbiddenOperations: [...task.forbiddenOperations],
+    testsToPass: [...task.testsToPass],
+    failureTargets
+  };
+}
+
 function formatRepairFailurePoint(failure: RepairPlan['tasks'][number]['failurePoints'][number]): string {
   return [
     `Failure ${failure.lane}/${failure.kind}`,
@@ -462,7 +483,17 @@ function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
     `Source verification: ${repairPlan.sourceVerificationStatus}; requires verification: ${repairPlan.requiresVerification}`
   ];
   for (const task of repairPlan.tasks.slice(0, 3)) {
+    const review = repairTaskReview(task);
     lines.push(`Task ${task.taskId}: ${task.targetBlock} -> ${task.targetFile}`);
+    lines.push(
+      [
+        `Review ${task.taskId}: writeBounds=${formatList(review.writeBounds)}`,
+        `symbols=${formatList(review.requiredSymbols)}`,
+        `tests=${formatList(review.testsToPass)}`,
+        `forbidden=${formatList(review.forbiddenOperations)}`,
+        `failureTargets=${formatList(review.failureTargets)}`
+      ].join('; ')
+    );
     if (task.preview) {
       lines.push(
         [

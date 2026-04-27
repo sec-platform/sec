@@ -266,6 +266,30 @@ test('repair plan includes structured failure points for slot and spec failures'
   expect(repairPlan.tasks).toHaveLength(1);
   expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
   expect(repairPlan.tasks[0].failureSummary).toBe('build=passed; unit=failed; acceptance=failed; policy=failed; runtime=skipped');
+  expect(repairPlan.tasks[0].review).toEqual({
+    allowedPathCount: 1,
+    requiredSymbolCount: 1,
+    forbiddenOperationCount: 4,
+    testCount: 2,
+    failureTargetCount: 3,
+    writeBounds: ['custom/customer_normalizer.ts'],
+    requiredSymbols: ['normalizeCustomerInput'],
+    forbiddenOperations: [
+      'modify_other_files',
+      'add_dependencies',
+      'access_database',
+      'change_exports'
+    ],
+    testsToPass: [
+      'tests/unit/customer-normalizer.test.ts',
+      'tests/acceptance/customer-flow.test.ts'
+    ],
+    failureTargets: [
+      'customer-flow.test.ts',
+      'src/installed/entity/customer-service.ts',
+      'tenant-scope-required'
+    ]
+  });
   expect(repairPlan.tasks[0].failurePoints).toEqual(
     expect.arrayContaining([
       expect.objectContaining({

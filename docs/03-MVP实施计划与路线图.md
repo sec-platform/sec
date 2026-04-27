@@ -612,6 +612,15 @@
          - Source View 展示 next action。
          - blocked 场景下 stdout 输出 blocked repair plan。
          - blocked 场景下 stderr 保留错误上下文。
+        - repair task 执行前审查摘要：done。
+        - `RepairTask.review` 暴露 write bounds。
+        - `RepairTask.review` 暴露 required symbols。
+        - `RepairTask.review` 暴露 forbidden operations。
+        - `RepairTask.review` 暴露 tests to pass。
+        - `RepairTask.review` 暴露 failure targets。
+        - repair CLI 普通文本展示执行前审查摘要。
+        - review summary task summary 展示同一审查摘要。
+        - local Source View 展示同一审查摘要。
    - 每个切口的验证口径：
      - `review-repair-summary.test.ts`。
      - `pipeline.test.ts`。

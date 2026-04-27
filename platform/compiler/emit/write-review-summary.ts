@@ -419,6 +419,22 @@ function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCatego
   return task.category ?? 'slot-rewrite';
 }
 
+function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {
+  const failureTargets = unique(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+  return task.review ?? {
+    allowedPathCount: task.allowedPaths.length,
+    requiredSymbolCount: task.requiredSymbols.length,
+    forbiddenOperationCount: task.forbiddenOperations.length,
+    testCount: task.testsToPass.length,
+    failureTargetCount: failureTargets.length,
+    writeBounds: unique(task.allowedPaths),
+    requiredSymbols: unique(task.requiredSymbols),
+    forbiddenOperations: unique(task.forbiddenOperations),
+    testsToPass: unique(task.testsToPass),
+    failureTargets
+  };
+}
+
 function buildRepairVerificationTrace(
   repairPlan: RepairPlan
 ): NonNullable<ReviewSummary['repairSummary']>['verificationTrace'] {
@@ -447,7 +463,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
   const taskSummaries = repairPlan.tasks
     .map((task) => {
       const category = repairTaskCategory(task);
-      const targetIds = unique(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+      const review = repairTaskReview(task);
       const previewStatus: 'changed' | 'unchanged' | 'missing' = task.preview
         ? task.preview.changed ? 'changed' : 'unchanged'
         : 'missing';
@@ -461,7 +477,17 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
         addedLines: task.preview?.addedLines ?? 0,
         removedLines: task.preview?.removedLines ?? 0,
         failurePointCount: task.failurePoints.length,
-        targetIds
+        targetIds: review.failureTargets,
+        allowedPathCount: review.allowedPathCount,
+        requiredSymbolCount: review.requiredSymbolCount,
+        forbiddenOperationCount: review.forbiddenOperationCount,
+        testCount: review.testCount,
+        failureTargetCount: review.failureTargetCount,
+        writeBounds: review.writeBounds,
+        requiredSymbols: review.requiredSymbols,
+        forbiddenOperations: review.forbiddenOperations,
+        testsToPass: review.testsToPass,
+        failureTargets: review.failureTargets
       };
     })
     .sort((left, right) => left.taskId.localeCompare(right.taskId));
