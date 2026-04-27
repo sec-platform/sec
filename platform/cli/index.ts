@@ -489,6 +489,7 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `blockers: ${repair.blockerCount}`,
         `changed previews: ${repair.changedPreviewCount}`,
         `requires verification: ${repair.requiresVerification}`,
+        `trace: ${repair.verificationTrace.pendingReason}->${repair.verificationTrace.nextAction}`,
         `categories: ${formatSummaryEntries(repair.taskCategorySummaries)}`,
         `issues: ${formatSummaryEntries(repair.failureTaxonomy.issueTypeSummaries)}`,
         `targets: ${formatSummaryEntries(

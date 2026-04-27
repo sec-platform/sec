@@ -476,11 +476,19 @@
        - review summary 聚合：done。
        - CLI explain 摘要：done。
        - local source view 摘要：done。
+       - 结构化 verification trace：done。
        - 已完成：
          - `repair --dry-run --json` 输出 preview 后的 repair plan。
          - JSON 输出保留 `requiresVerification`。
          - JSON 输出保留 repair task failure points。
          - JSON 输出可被 CI/review 工具直接解析。
+         - review summary 输出 `verificationTrace.pendingReason`。
+         - review summary 输出 `verificationTrace.nextAction`。
+         - `verificationTrace` 只表达结论和下一步动作。
+         - `verificationTrace` 不复制已有 status/count/requires 字段。
+         - CLI explain 展示 `pendingReason -> nextAction`。
+         - Source View 展示 pending reason。
+         - Source View 展示 next action。
          - blocked 场景下 stdout 输出 blocked repair plan。
          - blocked 场景下 stderr 保留错误上下文。
    - 每个切口的验证口径：

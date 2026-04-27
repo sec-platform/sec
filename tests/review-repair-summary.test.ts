@@ -173,6 +173,10 @@ test('review summary surfaces pending repair tasks', async () => {
       previewCount: 1,
       changedPreviewCount: 1,
       failurePointCount: 3,
+      verificationTrace: {
+        pendingReason: 'repair-not-applied',
+        nextAction: 'apply-repair'
+      },
       failureTaxonomy: {
         laneSummaries: [{ id: 'fast', count: 3 }],
         kindSummaries: [
@@ -266,7 +270,11 @@ test('review summary surfaces pending repair tasks', async () => {
       requiresVerification: true,
       taskCount: 2,
       blockerCount: 1,
-      changedPreviewCount: 1
+      changedPreviewCount: 1,
+      verificationTrace: {
+        pendingReason: 'verify-required',
+        nextAction: 'rerun-verify'
+      }
     });
     expect(appliedSummary.conflictHints).toEqual([
       {

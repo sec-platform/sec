@@ -1006,6 +1006,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
         'blockers: 0',
         'changed previews: 0',
         'requires verification: false',
+        'trace: repair-not-applied->apply-repair',
         'categories: slot-rewrite=1',
         'issues: slot=1',
         'targets: none',
@@ -1025,6 +1026,10 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
           previewCount: number;
           changedPreviewCount: number;
           failurePointCount: number;
+          verificationTrace: {
+            pendingReason: string;
+            nextAction: string;
+          };
           failureTaxonomy: {
             laneSummaries: Array<{ id: string; count: number }>;
             kindSummaries: Array<{ id: string; count: number }>;
@@ -1044,6 +1049,10 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
       previewCount: 1,
       changedPreviewCount: 0,
       failurePointCount: 1,
+      verificationTrace: {
+        pendingReason: 'repair-not-applied',
+        nextAction: 'apply-repair'
+      },
       failureTaxonomy: {
         laneSummaries: [{ id: 'fast', count: 1 }],
         kindSummaries: [{ id: 'unit', count: 1 }],

@@ -373,6 +373,30 @@ function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCatego
   return task.category ?? 'slot-rewrite';
 }
 
+function buildRepairVerificationTrace(
+  repairPlan: RepairPlan
+): NonNullable<ReviewSummary['repairSummary']>['verificationTrace'] {
+  const pendingReason = repairPlan.status === 'blocked'
+    ? 'blocked'
+    : repairPlan.requiresVerification
+      ? 'verify-required'
+      : repairPlan.status === 'pending'
+        ? 'repair-not-applied'
+        : 'none';
+  const nextAction = pendingReason === 'blocked'
+    ? 'resolve-blocker'
+    : pendingReason === 'verify-required'
+      ? 'rerun-verify'
+      : pendingReason === 'repair-not-applied'
+        ? 'apply-repair'
+        : 'none';
+
+  return {
+    pendingReason,
+    nextAction
+  };
+}
+
 function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummary'] {
   const taskSummaries = repairPlan.tasks
     .map((task) => {
@@ -404,6 +428,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
       failurePointCount: blocker.failurePoints.length
     }))
     .sort((left, right) => left.blockerId.localeCompare(right.blockerId));
+  const changedPreviewCount = repairPlan.tasks.filter((task) => task.preview?.changed).length;
 
   return {
     status: repairPlan.status,
@@ -412,11 +437,12 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
     taskCount: repairPlan.tasks.length,
     blockerCount: repairPlan.blockers?.length ?? 0,
     previewCount: repairPlan.tasks.filter((task) => task.preview).length,
-    changedPreviewCount: repairPlan.tasks.filter((task) => task.preview?.changed).length,
+    changedPreviewCount,
     failurePointCount: repairPlan.tasks.reduce(
       (total, task) => total + task.failurePoints.length,
       blockerSummaries.reduce((total, blocker) => total + blocker.failurePointCount, 0)
     ),
+    verificationTrace: buildRepairVerificationTrace(repairPlan),
     failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
     targetSummaries: buildRepairTargetSummaries(repairPlan),
     taskCategorySummaries: summarizeRepairTaxonomy(repairPlan.tasks.map(repairTaskCategory)),
