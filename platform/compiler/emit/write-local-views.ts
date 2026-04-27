@@ -742,7 +742,9 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
       (migration) => `<tr>
           <td>${escapeHtml(migration.id)}</td>
           <td>${escapeHtml(migration.kind)}</td>
+          <td>${escapeHtml(migration.source ?? 'none')}</td>
           <td>${escapeHtml(migration.target)}</td>
+          <td>${escapeHtml(migration.slotId ?? 'none')}</td>
           <td>${escapeHtml(String(migration.requiresVerification))}</td>
           <td>${escapeHtml(migration.reason)}</td>
         </tr>`
@@ -780,8 +782,8 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
         </table>
         <h3>Upgrade Migration Summary</h3>
         <table>
-          <thead><tr><th>ID</th><th>Kind</th><th>Target</th><th>Requires Verification</th><th>Reason</th></tr></thead>
-          <tbody>${migrationRows || '<tr><td colspan="5">No upgrade migrations.</td></tr>'}</tbody>
+          <thead><tr><th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th></tr></thead>
+          <tbody>${migrationRows || '<tr><td colspan="7">No upgrade migrations.</td></tr>'}</tbody>
         </table>
         ${diagnosticsRows
           ? `<h3>Upgrade Blocker Summary</h3>
@@ -990,8 +992,15 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
 
   const migrationRows = upgradePlan.migrationSummaries
     .map(
-      (migration) =>
-        `<tr><td>${escapeHtml(migration.id)}</td><td>${escapeHtml(migration.kind)}</td><td>${escapeHtml(migration.target)}</td><td>${escapeHtml(String(migration.requiresVerification))}</td><td>${escapeHtml(migration.reason)}</td></tr>`
+      (migration) => `<tr>
+          <td>${escapeHtml(migration.id)}</td>
+          <td>${escapeHtml(migration.kind)}</td>
+          <td>${escapeHtml(migration.source ?? 'none')}</td>
+          <td>${escapeHtml(migration.target)}</td>
+          <td>${escapeHtml(migration.slotId ?? 'none')}</td>
+          <td>${escapeHtml(String(migration.requiresVerification))}</td>
+          <td>${escapeHtml(migration.reason)}</td>
+        </tr>`
     )
     .join('');
   const migrationKindCounts =
@@ -1049,7 +1058,7 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
         </table>
         <h3>Migrations</h3>
         <table>
-          <thead><tr><th>ID</th><th>Kind</th><th>Target</th><th>Requires Verification</th><th>Reason</th></tr></thead>
+          <thead><tr><th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th></tr></thead>
           <tbody>${migrationRows}</tbody>
         </table>
         <h3>Impacts</h3>

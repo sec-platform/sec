@@ -1086,7 +1086,14 @@ function buildUpgradePlan(
         reason: entry.reason,
         requiresVerification: migration?.requiresVerification ?? true,
         ...(entry.kind === 'slot-contract-update' ? { slotId: entry.slotId } : {}),
-        ...(entry.kind === 'rename-file' || entry.kind === 'copy-file' || entry.kind === 'copy-directory' ? { source: entry.source } : {})
+        ...(
+          entry.kind === 'file-replace' ||
+          entry.kind === 'rename-file' ||
+          entry.kind === 'copy-file' ||
+          entry.kind === 'copy-directory'
+            ? { source: entry.source }
+            : {}
+        )
       };
     })
   };
