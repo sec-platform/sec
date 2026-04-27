@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import { e2eStageEvidence } from '../../shared/review-matrix.ts';
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 import type {
   AcceptanceCoverageReport,
@@ -95,6 +96,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           <td>${escapeHtml(stage.id)}</td>
           <td>${escapeHtml(stage.status)}</td>
           <td>${escapeHtml(stage.detail)}</td>
+          <td>${escapeHtml(e2eStageEvidence(review, stage.id).join(', ') || 'none')}</td>
         </tr>`
     )
     .join('');
@@ -143,7 +145,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
         </table>
         <h3>E2E Chain Summary</h3>
         <table>
-          <thead><tr><th>Stage</th><th>Status</th><th>Detail</th></tr></thead>
+          <thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead>
           <tbody>${chainRows}</tbody>
         </table>
         ${missingReasonTable}
