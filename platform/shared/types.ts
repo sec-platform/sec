@@ -421,6 +421,8 @@ export interface TaskEnvelope {
   forbiddenOperations: string[];
   inputContracts: {
     description: string;
+    inputType?: string;
+    outputType?: string;
   };
   testsToPass: string[];
   budget: {

@@ -115,6 +115,21 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(runnerSource).toContain("['diff', '--exit-code', '--', 'project']");
 });
 
+test('task envelope schema stays aligned with documented AI slot contracts', async () => {
+  const typesSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'types.ts'), 'utf8');
+  const envelopeBuilder = await fs.readFile(
+    path.join(compilerRoot, 'platform', 'compiler', 'synthesize', 'build-task-envelope.ts'),
+    'utf8'
+  );
+
+  expect(typesSource).toContain('inputType?: string;');
+  expect(typesSource).toContain('outputType?: string;');
+  expect(envelopeBuilder).toContain("inputType: 'CustomerInput'");
+  expect(envelopeBuilder).toContain("outputType: 'NormalizedCustomerInput'");
+  expect(envelopeBuilder).toContain("'modify_other_files'");
+  expect(envelopeBuilder).toContain("'change_exports'");
+});
+
 test('project and shared runtime manifests derive versions from the root package.json', async () => {
   const workspaceRoot = await createTempRoot('engineering-compiler-runtime-manifest-');
   const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
