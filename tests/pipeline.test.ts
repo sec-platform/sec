@@ -961,8 +961,13 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Chain Status</td><td>failed</td>');
   expect(sourceView).toContain('<td>Chain Stages</td><td>2/4</td>');
   expect(sourceView).toContain('E2E Chain Summary');
+  expect(sourceView).toContain('<th>Evidence</th>');
   expect(sourceView).toContain('<td>verification</td>');
   expect(sourceView).toContain('<td>lane=fast; failed=fast</td>');
+  expect(sourceView).toContain('<td>ci=failed, failures=1</td>');
+  expect(sourceView).toContain('<td>blocks=1/2, slots=1/1</td>');
+  expect(sourceView).toContain('<td>total=7, missing=1</td>');
+  expect(sourceView).toContain('<td>review-summary=generated</td>');
   expect(sourceView).toContain('<td>Artifact Status</td><td>attention</td>');
   expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
   expect(sourceView).toContain('<td>Upload Groups</td><td>2</td>');

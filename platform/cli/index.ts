@@ -27,6 +27,7 @@ import {
   warmupDependencyEnvironment,
   type DependencyCleanOptions
 } from '../shared/dependency-environment.ts';
+import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   ExplainGraph,
   RepairPlan,
@@ -62,17 +63,6 @@ type ArtifactPathUploadGroup = {
   kind: ArtifactPathKind;
   count: number;
   paths: string[];
-};
-
-type E2eMatrix = {
-  status: ReviewSummary['chainSummary']['status'];
-  rowCount: number;
-  rows: Array<{
-    stage: string;
-    status: string;
-    detail: string;
-    evidence: string[];
-  }>;
 };
 
 function artifactUploadPathSummary(
@@ -120,40 +110,6 @@ function artifactUploadPathSummary(
     .filter((group) => group.count > 0);
 
   return { paths, byKind, uploadGroups };
-}
-
-function buildE2eMatrix(reviewSummary: ReviewSummary): E2eMatrix {
-  const evidenceByStage: Record<string, string[]> = {
-    verification: [
-      `ci=${reviewSummary.ciSummary.status}`,
-      `failures=${reviewSummary.ciSummary.failureCount}`
-    ],
-    coverage: reviewSummary.coverageSummary
-      ? [
-          `blocks=${reviewSummary.coverageSummary.coveredBlockCount}/${reviewSummary.coverageSummary.blockCount}`,
-          `slots=${reviewSummary.coverageSummary.coveredSlotCount}/${reviewSummary.coverageSummary.slotCount}`
-        ]
-      : ['coverage=missing'],
-    artifacts: reviewSummary.artifactSummary
-      ? [
-          `total=${reviewSummary.artifactSummary.artifactCount}`,
-          `missing=${reviewSummary.artifactSummary.missingCount}`
-        ]
-      : ['artifacts=missing'],
-    review: ['review-summary=generated']
-  };
-  const rows = reviewSummary.chainSummary.stageSummaries.map((stage) => ({
-    stage: stage.id,
-    status: stage.status,
-    detail: stage.detail,
-    evidence: evidenceByStage[stage.id] ?? []
-  }));
-
-  return {
-    status: reviewSummary.chainSummary.status,
-    rowCount: rows.length,
-    rows
-  };
 }
 
 function assertNoArgs(command: string, args: string[]): void {
