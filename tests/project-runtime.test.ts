@@ -93,6 +93,21 @@ test('root package exposes demo scripts through the existing platform chain', as
   );
 });
 
+test('test budget command documents slow lane boundaries', async () => {
+  const rootPackage = JSON.parse(await fs.readFile(path.join(compilerRoot, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  const runnerSource = await fs.readFile(path.join(compilerRoot, 'platform', 'dev-runner.ts'), 'utf8');
+
+  expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
+  expect(runnerSource).toContain("id: 'fast'");
+  expect(runnerSource).toContain('nextBuild: false');
+  expect(runnerSource).toContain('playwright: false');
+  expect(runnerSource).toContain("id: 'all'");
+  expect(runnerSource).toContain('nextBuild: true');
+  expect(runnerSource).toContain('playwright: true');
+});
+
 test('project and shared runtime manifests derive versions from the root package.json', async () => {
   const workspaceRoot = await createTempRoot('engineering-compiler-runtime-manifest-');
   const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');

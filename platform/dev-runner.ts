@@ -6,8 +6,37 @@ import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test-budget|clean-test-workspaces> [args...]');
   process.exit(1);
+}
+
+function testBudgetContract(): object {
+  return {
+    formatVersion: '1',
+    defaultLane: 'fast',
+    lanes: [
+      {
+        id: 'fast',
+        nextBuild: false,
+        playwright: false,
+        command: 'npm run platform -- verify'
+      },
+      {
+        id: 'runtime',
+        nextBuild: false,
+        playwright: false,
+        command: 'npm run platform -- verify --lane runtime'
+      },
+      {
+        id: 'all',
+        nextBuild: true,
+        playwright: true,
+        command: 'npm run platform -- verify --lane all'
+      }
+    ],
+    localDefault: 'fast lane plus targeted named tests',
+    fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
+  };
 }
 
 function commandPath(binPath: string, base: string): string {
@@ -72,6 +101,11 @@ async function main(): Promise<void> {
 
   if (target === 'clean-test-workspaces') {
     await cleanTestWorkspaces();
+    return;
+  }
+
+  if (target === 'test-budget') {
+    console.log(JSON.stringify(testBudgetContract(), null, 2));
     return;
   }
 

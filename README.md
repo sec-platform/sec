@@ -74,6 +74,7 @@ Workbench and IDE integrations must preserve this boundary:
 
 - `npm run check`: TypeScript typecheck plus the main test suite
 - `npm test`: run the Node test suite directly
+- `npm run test:budget`: print the fast/runtime/all lane slow-test budget contract
 - `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
 - `npm run demo:governance`: run quickstart and print governance artifact upload paths
 - `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
