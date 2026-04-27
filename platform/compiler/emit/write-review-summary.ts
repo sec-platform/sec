@@ -284,6 +284,33 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
   };
 }
 
+function summarizeRepairTaxonomy(values: string[]): Array<{ id: string; count: number }> {
+  const counts = values.reduce<Map<string, number>>((summary, value) => {
+    summary.set(value, (summary.get(value) ?? 0) + 1);
+    return summary;
+  }, new Map());
+
+  return [...counts.entries()]
+    .map(([id, count]) => ({ id, count }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['failureTaxonomy'] {
+  const failurePoints = [
+    ...repairPlan.tasks.flatMap((task) => task.failurePoints),
+    ...(repairPlan.blockers ?? []).flatMap((blocker) => blocker.failurePoints)
+  ];
+
+  return {
+    laneSummaries: summarizeRepairTaxonomy(failurePoints.map((point) => point.lane)),
+    kindSummaries: summarizeRepairTaxonomy(failurePoints.map((point) => point.kind)),
+    issueTypeSummaries: summarizeRepairTaxonomy(failurePoints.map((point) => point.issueType)),
+    repairabilitySummaries: summarizeRepairTaxonomy(
+      failurePoints.map((point) => point.repairable ? 'repairable' : 'blocked')
+    )
+  };
+}
+
 function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummary'] {
   const taskSummaries = repairPlan.tasks
     .map((task) => {
@@ -326,6 +353,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
       (total, task) => total + task.failurePoints.length,
       blockerSummaries.reduce((total, blocker) => total + blocker.failurePointCount, 0)
     ),
+    failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
     targetFiles: unique(repairPlan.tasks.map((task) => task.targetFile)),
     taskSummaries,
     blockerSummaries

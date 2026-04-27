@@ -999,7 +999,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
     expect(explainText.code).toBe(0);
     expect(explainText.stderr).toBe('');
     expect(explainText.stdout).toContain(
-      'Repair: pending; tasks: 1; blockers: 0; changed previews: 0; requires verification: false'
+      'Repair: pending; tasks: 1; blockers: 0; changed previews: 0; requires verification: false; issues: slot=1; repairability: repairable=1'
     );
 
     const explainJson = await runCli(workspaceRoot, ['explain', '--json']);
@@ -1014,6 +1014,12 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
           previewCount: number;
           changedPreviewCount: number;
           failurePointCount: number;
+          failureTaxonomy: {
+            laneSummaries: Array<{ id: string; count: number }>;
+            kindSummaries: Array<{ id: string; count: number }>;
+            issueTypeSummaries: Array<{ id: string; count: number }>;
+            repairabilitySummaries: Array<{ id: string; count: number }>;
+          };
           targetFiles: string[];
         };
       };
@@ -1025,6 +1031,12 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
       previewCount: 1,
       changedPreviewCount: 0,
       failurePointCount: 1,
+      failureTaxonomy: {
+        laneSummaries: [{ id: 'fast', count: 1 }],
+        kindSummaries: [{ id: 'unit', count: 1 }],
+        issueTypeSummaries: [{ id: 'slot', count: 1 }],
+        repairabilitySummaries: [{ id: 'repairable', count: 1 }]
+      },
       targetFiles: ['custom/customer_normalizer.ts']
     });
   });

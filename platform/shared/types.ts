@@ -776,6 +776,18 @@ export interface ReviewRepairBlockerSummary {
   failurePointCount: number;
 }
 
+export interface ReviewRepairFailureTaxonomyEntry {
+  id: string;
+  count: number;
+}
+
+export interface ReviewRepairFailureTaxonomySummary {
+  laneSummaries: ReviewRepairFailureTaxonomyEntry[];
+  kindSummaries: ReviewRepairFailureTaxonomyEntry[];
+  issueTypeSummaries: ReviewRepairFailureTaxonomyEntry[];
+  repairabilitySummaries: ReviewRepairFailureTaxonomyEntry[];
+}
+
 export interface ReviewRepairSummary {
   status: 'pending' | 'applied' | 'skipped' | 'blocked';
   sourceVerificationStatus: 'passed' | 'failed';
@@ -785,6 +797,7 @@ export interface ReviewRepairSummary {
   previewCount: number;
   changedPreviewCount: number;
   failurePointCount: number;
+  failureTaxonomy: ReviewRepairFailureTaxonomySummary;
   targetFiles: string[];
   taskSummaries: ReviewRepairTaskSummary[];
   blockerSummaries: ReviewRepairBlockerSummary[];
