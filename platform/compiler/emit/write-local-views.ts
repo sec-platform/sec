@@ -493,6 +493,64 @@ function renderPolicyViolationsTable(policyReport: PolicyReport): string {
       </section>`;
 }
 
+function renderCoverageSummaryCard(review: ReviewSummary): string {
+  const coverage = review.coverageSummary;
+  if (!coverage) {
+    return '';
+  }
+
+  const rows = [
+    ['Status', coverage.status],
+    ['Acceptance Passed', String(coverage.acceptancePassedCount)],
+    ['Blocks', String(coverage.blockCount)],
+    ['Covered Blocks', String(coverage.coveredBlockCount)],
+    ['Uncovered Blocks', String(coverage.uncoveredBlockCount)],
+    ['Slots', String(coverage.slotCount)],
+    ['Covered Slots', String(coverage.coveredSlotCount)],
+    ['Uncovered Slots', String(coverage.uncoveredSlotCount)]
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+  const blockRows = coverage.blockSummaries
+    .map(
+      (block) => `<tr>
+          <td>${escapeHtml(block.id)}</td>
+          <td>${escapeHtml(String(block.declaredAcceptanceCount))}</td>
+          <td>${escapeHtml(String(block.coveredByCount))}</td>
+          <td>${escapeHtml(block.coveredBy.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+  const slotRows = coverage.slotSummaries
+    .map(
+      (slot) => `<tr>
+          <td>${escapeHtml(slot.id)}</td>
+          <td>${escapeHtml(String(slot.declaredAcceptanceCount))}</td>
+          <td>${escapeHtml(String(slot.coveredByCount))}</td>
+          <td>${escapeHtml(slot.coveredBy.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Acceptance Coverage Summary</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3>Block Coverage Summary</h3>
+        <table>
+          <thead><tr><th>Block</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead>
+          <tbody>${blockRows || '<tr><td colspan="4">No block coverage.</td></tr>'}</tbody>
+        </table>
+        <h3>Slot Coverage Summary</h3>
+        <table>
+          <thead><tr><th>Slot</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead>
+          <tbody>${slotRows || '<tr><td colspan="4">No slot coverage.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderPolicySummaryCard(review: ReviewSummary): string {
   const policy = review.policySummary;
   if (!policy) {
@@ -939,6 +997,7 @@ function renderSourceView(
       ${renderFailureFocusCard(review)}
       ${renderReviewRuntimeAttributionCard(review)}
       ${renderInstallImpactCard(review)}
+      ${renderCoverageSummaryCard(review)}
       ${renderPolicySummaryCard(review)}
       ${renderPolicySourcesTable(policyReport)}
       ${renderMergedPoliciesTable(policyReport)}

@@ -117,6 +117,22 @@ test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000
   expect(reviewSummary.formatVersion).toBe('2');
   expect(reviewSummary.ciSummary.status).toBe('passed');
   expect(reviewSummary.ciSummary.failureCount).toBe(0);
+  expect(reviewSummary.coverageSummary).toMatchObject({
+    status: 'passed',
+    blockCount: 3,
+    slotCount: 1,
+    coveredBlockCount: 3,
+    coveredSlotCount: 1,
+    uncoveredBlockCount: 0,
+    uncoveredSlotCount: 0,
+    slotSummaries: [
+      {
+        id: 'customer_normalizer',
+        coveredByCount: 2,
+        coveredBy: ['tenant_only_sees_own_customers', 'user_can_create_customer']
+      }
+    ]
+  });
   expect(reviewSummary.failurePoints).toEqual([]);
   expect(reviewSummary.regressionRisks).toEqual([]);
   expect(reviewSummary.conflictHints).toEqual([]);
@@ -273,6 +289,33 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       uploadGroups?: Array<{ kind: string; count: number; paths: string[] }>;
       missing?: Array<{ path: string; reason: string; declaredBy: string }>;
     };
+    coverageSummary?: {
+      status: 'passed' | 'failed' | 'skipped';
+      acceptancePassedCount: number;
+      blockCount: number;
+      slotCount: number;
+      coveredBlockCount: number;
+      coveredSlotCount: number;
+      uncoveredBlockCount: number;
+      uncoveredSlotCount: number;
+      acceptancePassed: string[];
+      uncoveredBlocks: string[];
+      uncoveredSlots: string[];
+      blockSummaries: Array<{
+        id: string;
+        declaredAcceptanceCount: number;
+        coveredByCount: number;
+        declaredAcceptance: string[];
+        coveredBy: string[];
+      }>;
+      slotSummaries: Array<{
+        id: string;
+        declaredAcceptanceCount: number;
+        coveredByCount: number;
+        declaredAcceptance: string[];
+        coveredBy: string[];
+      }>;
+    };
     repairSummary?: {
       status: 'pending' | 'applied' | 'skipped' | 'blocked';
       sourceVerificationStatus: 'passed' | 'failed';
@@ -360,6 +403,44 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     ...reviewSummary.ciSummary,
     status: 'failed',
     failureCount: reviewSummary.failurePoints.length
+  };
+  reviewSummary.coverageSummary = {
+    status: 'failed',
+    acceptancePassedCount: 2,
+    blockCount: 2,
+    slotCount: 1,
+    coveredBlockCount: 1,
+    coveredSlotCount: 1,
+    uncoveredBlockCount: 1,
+    uncoveredSlotCount: 0,
+    acceptancePassed: ['disk-driven-acceptance', 'slot <coverage> & smoke'],
+    uncoveredBlocks: ['entity/customer-basic'],
+    uncoveredSlots: [],
+    blockSummaries: [
+      {
+        id: 'entity/customer-basic',
+        declaredAcceptanceCount: 2,
+        coveredByCount: 1,
+        declaredAcceptance: ['disk-driven-acceptance', 'missing-block-coverage'],
+        coveredBy: ['disk-driven-acceptance']
+      },
+      {
+        id: 'tenant/basic-workspace',
+        declaredAcceptanceCount: 1,
+        coveredByCount: 0,
+        declaredAcceptance: ['missing-block-coverage'],
+        coveredBy: []
+      }
+    ],
+    slotSummaries: [
+      {
+        id: 'customer_normalizer',
+        declaredAcceptanceCount: 1,
+        coveredByCount: 1,
+        declaredAcceptance: ['slot <coverage> & smoke'],
+        coveredBy: ['slot <coverage> & smoke']
+      }
+    ]
   };
   reviewSummary.artifactSummary = {
     artifactStatus: 'attention',
@@ -688,6 +769,13 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Upload Groups</td><td>2</td>');
   expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
   expect(sourceView).toContain('<td>Missing Reason Types</td><td>1</td>');
+  expect(sourceView).toContain('Acceptance Coverage Summary');
+  expect(sourceView).toContain('<td>Acceptance Passed</td><td>2</td>');
+  expect(sourceView).toContain('<td>Covered Blocks</td><td>1</td>');
+  expect(sourceView).toContain('<td>Uncovered Blocks</td><td>1</td>');
+  expect(sourceView).toContain('Block Coverage Summary');
+  expect(sourceView).toContain('Slot Coverage Summary');
+  expect(sourceView).toContain('slot &lt;coverage&gt; &amp; smoke');
   expect(sourceView).toContain('Missing Reason Summary');
   expect(sourceView).toContain('declared-generated-missing');
   expect(sourceView).toContain('Artifact Upload Groups');

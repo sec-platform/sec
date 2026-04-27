@@ -275,6 +275,9 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(textResult.stdout).toContain('Coverage: 3 blocks; 1 slots;');
     expect(textResult.stdout).toContain('uncovered blocks=0');
     expect(textResult.stdout).toContain('uncovered slots=0');
+    expect(textResult.stdout).toContain('Coverage detail: passed;');
+    expect(textResult.stdout).toContain('covered blocks: 3/3');
+    expect(textResult.stdout).toContain('covered slots: 1/1');
     expect(textResult.stdout).toContain('Provenance origins:');
     expect(textResult.stdout).toContain('block=');
     expect(textResult.stdout).toContain('slot=');
@@ -295,6 +298,18 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       reviewSummary: {
         formatVersion: string;
         ciSummary: { status: string; failureCount: number };
+        coverageSummary?: {
+          status: string;
+          acceptancePassedCount: number;
+          blockCount: number;
+          slotCount: number;
+          coveredBlockCount: number;
+          coveredSlotCount: number;
+          uncoveredBlockCount: number;
+          uncoveredSlotCount: number;
+          blockSummaries: Array<{ id: string; coveredByCount: number; coveredBy: string[] }>;
+          slotSummaries: Array<{ id: string; coveredByCount: number; coveredBy: string[] }>;
+        };
         policySummary?: {
           status: string;
           officialPolicyCount: number;
@@ -316,6 +331,31 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       status: 'passed',
       failureCount: 0
     });
+    expect(payload.reviewSummary.coverageSummary).toMatchObject({
+      status: 'passed',
+      blockCount: 3,
+      slotCount: 1,
+      coveredBlockCount: 3,
+      coveredSlotCount: 1,
+      uncoveredBlockCount: 0,
+      uncoveredSlotCount: 0
+    });
+    expect(payload.reviewSummary.coverageSummary?.blockSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'entity/customer-basic',
+          coveredByCount: 3,
+          coveredBy: ['tenant_only_sees_own_customers', 'user_can_create_customer', 'user_can_list_customers']
+        })
+      ])
+    );
+    expect(payload.reviewSummary.coverageSummary?.slotSummaries).toEqual([
+      expect.objectContaining({
+        id: 'customer_normalizer',
+        coveredByCount: 2,
+        coveredBy: ['tenant_only_sees_own_customers', 'user_can_create_customer']
+      })
+    ]);
     expect(payload.reviewSummary.policySummary).toMatchObject({
       status: 'passed',
       officialPolicyCount: 1,
