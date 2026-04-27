@@ -297,6 +297,11 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
 
+    const compactResult = await runCli(workspaceRoot, ['explain', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+
     const payload = JSON.parse(result.stdout) as {
       graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
       reviewSummary: {
@@ -359,6 +364,12 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
         failurePoints: unknown[];
       };
     };
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      reviewSummary: {
+        formatVersion: '2',
+        chainSummary: { stageCount: 4 }
+      }
+    });
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
     expect(payload.graph.edges.length).toBeGreaterThan(0);
     expect(payload.reviewSummary.formatVersion).toBe('2');
@@ -1490,12 +1501,17 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
     await expect(runCli(workspaceRoot, ['explain', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform explain [--json]\n'
+      stderr: 'UNEXPECTED Usage: platform explain [--json [--compact]]\n'
+    });
+    await expect(runCli(workspaceRoot, ['explain', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'UNEXPECTED Usage: platform explain [--json [--compact]]\n'
     });
     await expect(runCli(workspaceRoot, ['explain', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: 'UNEXPECTED Usage: platform explain [--json]\n'
+      stderr: 'UNEXPECTED Usage: platform explain [--json [--compact]]\n'
     });
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
