@@ -2737,7 +2737,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       stderr: ''
     });
 
-    const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+    const { lockPath, upgradeDiagnosticsPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
       passStatus: { verify: string };
     };
@@ -2874,6 +2874,38 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
           requiresVerification: true
         })
       ])
+    );
+
+    await fs.writeFile(
+      upgradeDiagnosticsPath,
+      `${JSON.stringify(
+        {
+          formatVersion: '1',
+          status: 'blocked',
+          phase: 'apply',
+          blockId: 'auth/basic-session',
+          targetVersion: '0.1.1',
+          failedCheck: 'migration-file-operations',
+          errorCode: 'UPGRADE-MIGRATION-016',
+          message: 'file-replace target "src/installed/auth/session.ts" is missing',
+          details: {
+            migrationId: 'mig-auth-session-refresh',
+            migrationKind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            source: 'files/src/installed/auth/session.ts'
+          }
+        },
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+
+    const blockedExplainText = await runCli(workspaceRoot, ['explain']);
+    expect(blockedExplainText.code).toBe(0);
+    expect(blockedExplainText.stderr).toBe('');
+    expect(blockedExplainText.stdout).toContain(
+      'Upgrade diagnostics: apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts'
     );
   });
 });
