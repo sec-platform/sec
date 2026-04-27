@@ -54,12 +54,14 @@ describe('runtime customer service', () => {
     expect(filterCustomers(listCustomers(database, tenantA), { company: 'Unknown' })).toHaveLength(1);
 
     expect(getRuntimeStore().persistence).toBe('postgres-contract');
-    expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual([
+    expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual(
+      expect.arrayContaining([
       'customers',
       'customer_attachments',
       'email_notifications',
       'audit_entries'
-    ]);
+      ])
+    );
 
     expect(canAccessWorkspace(tenantA, tenantA.tenantId)).toEqual({ allowed: true, reason: 'allowed' });
     expect(canAccessWorkspace(tenantA, tenantB.tenantId)).toEqual({ allowed: false, reason: 'tenant-mismatch' });

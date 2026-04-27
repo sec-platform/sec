@@ -15,15 +15,11 @@
     "violations": []
   },
   "project": {
-    "policies": [
-      "tenant-scope-required"
-    ],
+    "policies": [],
     "sources": [
       {
         "path": "project/policies/policy.spec.yaml",
-        "policyIds": [
-          "tenant-scope-required"
-        ]
+        "policyIds": []
       }
     ],
     "violations": []
@@ -32,8 +28,11 @@
     "policies": [
       {
         "id": "tenant-scope-required",
-        "sourceScope": "project",
-        "sourcePath": "project/policies/policy.spec.yaml"
+        "sourceScope": "official",
+        "sourcePath": "platform/policies/official/policy.spec.yaml",
+        "targets": [
+          "src/installed/entity/customer-service.ts"
+        ]
       }
     ]
   },

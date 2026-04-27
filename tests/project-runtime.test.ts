@@ -101,11 +101,13 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
     scripts: Record<string, string>;
   };
   const runnerSource = await fs.readFile(path.join(compilerRoot, 'platform', 'dev-runner.ts'), 'utf8');
+  const referenceCheckSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'reference-check.ts'), 'utf8');
 
   expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
   expect(rootPackage.scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
   expect(rootPackage.scripts['test:benchmark-contract']).toBe('bun ./platform/dev-runner.ts benchmark-contract');
-  expect(rootPackage.scripts['reference:check']).toBe('bun ./platform/dev-runner.ts reference-clean');
+  expect(rootPackage.scripts['reference:check']).toBe('npm run platform -- reference check');
+  expect(runnerSource).not.toContain('reference-clean');
   expect(runnerSource).toContain("id: 'fast'");
   expect(runnerSource).toContain('nextBuild: false');
   expect(runnerSource).toContain('playwright: false');
@@ -116,7 +118,8 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(runnerSource).toContain("id: 'add-block'");
   expect(runnerSource).toContain("id: 'repair-slot'");
   expect(runnerSource).toContain("id: 'override-conflict'");
-  expect(runnerSource).toContain("['diff', '--exit-code', '--', 'project']");
+  expect(referenceCheckSource).toContain("['diff', '--name-only', '--exit-code', '--', 'project']");
+  expect(referenceCheckSource).toContain("['run', 'reference:refresh']");
 });
 
 test('task envelope schema stays aligned with documented AI slot contracts', async () => {
@@ -147,17 +150,21 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
   expect(rootPackage.scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
   expect(rootPackage.scripts['test:benchmark-contract']).toBe('bun ./platform/dev-runner.ts benchmark-contract');
-  expect(rootPackage.scripts['reference:check']).toBe('bun ./platform/dev-runner.ts reference-clean');
+  expect(rootPackage.scripts['reference:check']).toBe('npm run platform -- reference check');
+  expect(rootPackage.scripts['reference:check']).not.toContain('reference-clean');
   expect(rootPackage.scripts['demo:closed-loop']).toContain('npm run platform -- verify --lane all');
   expect(rootPackage.scripts['demo:closed-loop']).toContain('npm run platform -- artifacts --paths --kind governance');
   expect(rootPackage.scripts['demo:closed-loop']).toContain('npm run platform -- explain --json --compact');
   expect(routeMap).toContain('P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。');
   expect(routeMap).toContain('platform deps status --json [--compact]');
   expect(routeMap).toContain('platform artifacts --paths --json --compact --kind governance|view|test|contract');
+  expect(routeMap).toContain('platform reference check --json [--compact]');
   expect(routeMap).toContain('project/generated/review-summary.json');
   expect(readme).toContain('Run the full product closed loop with `npm run demo:closed-loop`.');
   expect(readme).toContain('npm run platform -- deps status --json --compact');
   expect(readme).toContain('npm run platform -- artifacts --paths --json --compact --kind governance');
+  expect(readme).toContain('npm run platform -- reference check');
+  expect(readme).toContain('npm run platform -- reference check --json --compact');
   expect(readme).toContain('Governance contract freeze currently covers:');
   expect(readme).toContain('project/generated/explain-graph.json');
   expect(protocolSource).toContain("issueType: 'usage' | 'spec' | 'composition' | 'slot' | 'kernel'");

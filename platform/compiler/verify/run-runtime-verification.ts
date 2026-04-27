@@ -2,7 +2,7 @@ import path from 'node:path';
 import { compilerRoot } from '../../shared/paths.ts';
 import { listFilesRecursive } from '../../shared/fs.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
-import { runCommand } from '../../shared/process.ts';
+import { resolveNpmInvocation, runCommand } from '../../shared/process.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/types.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
@@ -15,10 +15,6 @@ function generatePort(projectRoot: string): number {
     0
   );
   return basePort + workerId * 1000 + pathHash;
-}
-
-function npmCommand(): string {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
 function pathEnvKey(): string {
@@ -103,8 +99,9 @@ export async function runRuntimeVerification(
   };
 
   if (mode === 'full') {
+    const buildInvocation = resolveNpmInvocation(['run', 'build']);
     const buildResult = await timed('next build', () =>
-      runCommand(npmCommand(), ['run', 'build'], {
+      runCommand(buildInvocation.command, buildInvocation.args, {
         cwd: projectRoot,
         env: baseEnv
       })
@@ -132,8 +129,9 @@ export async function runRuntimeVerification(
       command: 'npm run test:unit'
     };
   } else {
+    const unitInvocation = resolveNpmInvocation(['run', 'test:unit']);
     const unitResult = await timed('vitest unit', () =>
-      runCommand(npmCommand(), ['run', 'test:unit'], {
+      runCommand(unitInvocation.command, unitInvocation.args, {
         cwd: projectRoot,
         env: baseEnv
       })
@@ -184,8 +182,9 @@ export async function runRuntimeVerification(
   }
 
   const testPort = generatePort(projectRoot);
+  const acceptanceInvocation = resolveNpmInvocation(['run', 'test:acceptance']);
   const acceptanceResult = await timed('playwright test', () =>
-    runCommand(npmCommand(), ['run', 'test:acceptance'], {
+    runCommand(acceptanceInvocation.command, acceptanceInvocation.args, {
       cwd: projectRoot,
       env: {
         ...baseEnv,

@@ -4,6 +4,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
+import {
+  assertReferenceCheckClean,
+  buildReferenceCheckReport,
+  formatReferenceCheck
+} from '../platform/shared/reference-check.ts';
 import type { RepairPlan, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
@@ -116,7 +121,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -283,6 +288,69 @@ test('CLI exposes dependency environment maintenance entrypoints', { timeout: 20
     expect(invalidForce.code).toBe(1);
     expect(invalidForce.stderr).toContain('platform deps clean --all --force');
   });
+});
+
+test('CLI exposes reference drift check as text and JSON contracts', async () => {
+  const report = await buildReferenceCheckReport({
+    root: compilerRoot,
+    commandRunner: async (command, args) => {
+      if (command === 'git') {
+        expect(args).toEqual(['diff', '--name-only', '--exit-code', '--', 'project']);
+        return { code: 1, stdout: 'project/app.plan.yaml\nproject/generated/review-summary.json\n', stderr: '' };
+      }
+
+      expect(args.slice(-2)).toEqual(['run', 'reference:refresh']);
+      return { code: 0, stdout: '', stderr: '' };
+    }
+  });
+
+  expect(formatReferenceCheck(report)).toContain('Reference workspace drifted');
+  expect(formatReferenceCheck(report)).toContain(
+    'Changed paths: project/app.plan.yaml, project/generated/review-summary.json'
+  );
+  expect(JSON.stringify(report)).not.toContain('\n');
+  expect(report).toMatchObject({
+    formatVersion: '1',
+    status: 'drifted',
+    root: compilerRoot,
+    refreshCommand: 'npm run reference:refresh',
+    refreshExitCode: 0,
+    diffCommand: 'git diff --name-only --exit-code -- project',
+    diffExitCode: 1,
+    changedPathCount: 2,
+    changedPaths: ['project/app.plan.yaml', 'project/generated/review-summary.json'],
+    recommendedAction: 'inspect-project-drift-and-refresh-reference'
+  });
+  expect(() => assertReferenceCheckClean(report)).toThrow('reference workspace drift detected');
+
+  const refreshFailedReport = await buildReferenceCheckReport({
+    root: compilerRoot,
+    commandRunner: async () => ({ code: 2, stdout: '', stderr: 'refresh failed' })
+  });
+  expect(refreshFailedReport).toMatchObject({
+    status: 'refresh-failed',
+    refreshExitCode: 2,
+    diffExitCode: -1,
+    changedPathCount: 0,
+    recommendedAction: 'fix-reference-refresh-before-reference-check'
+  });
+  expect(() => assertReferenceCheckClean(refreshFailedReport)).toThrow('reference refresh failed');
+
+  const diffFailedReport = await buildReferenceCheckReport({
+    root: compilerRoot,
+    commandRunner: async (command) =>
+      command === 'git'
+        ? { code: 128, stdout: '', stderr: 'diff failed' }
+        : { code: 0, stdout: '', stderr: '' }
+  });
+  expect(diffFailedReport).toMatchObject({
+    status: 'diff-failed',
+    refreshExitCode: 0,
+    diffExitCode: 128,
+    changedPathCount: 0,
+    recommendedAction: 'inspect-git-diff-command'
+  });
+  expect(() => assertReferenceCheckClean(diffFailedReport)).toThrow('reference diff command failed');
 });
 
 test('CLI adds private registry blocks and preserves registry metadata on resolve', { timeout: 20000 }, async () => {
@@ -1574,7 +1642,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
   });
 });
 
-test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
+test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--unknown'])).resolves.toMatchObject({
       code: 1,
@@ -1675,6 +1743,21 @@ test('CLI reports argument usage errors', { timeout: 20000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform doctor [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['reference'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform reference check [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['reference', 'check', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform reference check [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['reference', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform reference check [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,

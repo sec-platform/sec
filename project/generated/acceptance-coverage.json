@@ -68,14 +68,14 @@
     {
       "id": "entity/customer-basic",
       "declaredAcceptance": [
+        "tenant_only_sees_own_customers",
         "user_can_create_customer",
-        "user_can_list_customers",
-        "tenant_only_sees_own_customers"
+        "user_can_list_customers"
       ],
       "coveredBy": [
+        "tenant_only_sees_own_customers",
         "user_can_create_customer",
-        "user_can_list_customers",
-        "tenant_only_sees_own_customers"
+        "user_can_list_customers"
       ],
       "uncovered": false
     },
@@ -124,14 +124,12 @@
     {
       "id": "customer_normalizer",
       "declaredAcceptance": [
-        "user_can_create_customer",
-        "user_can_list_customers",
-        "tenant_only_sees_own_customers"
+        "tenant_only_sees_own_customers",
+        "user_can_create_customer"
       ],
       "coveredBy": [
-        "user_can_create_customer",
-        "user_can_list_customers",
-        "tenant_only_sees_own_customers"
+        "tenant_only_sees_own_customers",
+        "user_can_create_customer"
       ],
       "uncovered": false
     }

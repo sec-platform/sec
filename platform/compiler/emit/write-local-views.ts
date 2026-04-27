@@ -38,6 +38,10 @@ function renderJsonPre(value: unknown): string {
   return `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
 }
 
+function joinSections(sections: string[]): string {
+  return sections.filter((section) => section.length > 0).join('\n');
+}
+
 function renderE2eChainSummarySection(review: ReviewSummary): string {
   const chainRows = buildE2eMatrix(review).rows
     .map(
@@ -152,10 +156,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${renderE2eChainSummarySection(review)}
-        ${missingReasonTable}
-        ${uploadGroupTable}
-        ${missingTable}
+        ${joinSections([renderE2eChainSummarySection(review), missingReasonTable, uploadGroupTable, missingTable])}
       </section>`;
 }
 
@@ -1151,6 +1152,27 @@ function renderSourceView(
   upgradeDiagnostics: UpgradeDiagnostics | null,
   upgradePlan: UpgradePlan | null
 ): string {
+  const optionalSections = joinSections([
+    renderRuntimeEntriesTable(lock),
+    renderVerticalSummaryCard(lock, review),
+    renderBlockCombinationCard(lock, review),
+    renderFailureFocusCard(review),
+    renderReviewRuntimeAttributionCard(review),
+    renderInstallImpactCard(review),
+    renderProvenanceSummaryCard(review),
+    renderCoverageSummaryCard(review),
+    renderPolicySummaryCard(review),
+    renderPolicySourcesTable(policyReport),
+    renderMergedPoliciesTable(policyReport),
+    renderUpgradeSummaryCard(review),
+    renderUpgradePlanTable(upgradePlan),
+    renderUpgradeDiagnosticsTable(upgradeDiagnostics),
+    renderRepairSummaryCard(review),
+    renderRepairPlanTable(repairPlan),
+    renderReviewSummaryTables(review),
+    renderJsonCard('Explain Graph', { nodes: graph.nodes.length, edges: graph.edges.length })
+  ]);
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -1185,24 +1207,7 @@ function renderSourceView(
           </tbody>
         </table>
       </section>
-      ${renderRuntimeEntriesTable(lock)}
-      ${renderVerticalSummaryCard(lock, review)}
-      ${renderBlockCombinationCard(lock, review)}
-      ${renderFailureFocusCard(review)}
-      ${renderReviewRuntimeAttributionCard(review)}
-      ${renderInstallImpactCard(review)}
-      ${renderProvenanceSummaryCard(review)}
-      ${renderCoverageSummaryCard(review)}
-      ${renderPolicySummaryCard(review)}
-      ${renderPolicySourcesTable(policyReport)}
-      ${renderMergedPoliciesTable(policyReport)}
-      ${renderUpgradeSummaryCard(review)}
-      ${renderUpgradePlanTable(upgradePlan)}
-      ${renderUpgradeDiagnosticsTable(upgradeDiagnostics)}
-      ${renderRepairSummaryCard(review)}
-      ${renderRepairPlanTable(repairPlan)}
-      ${renderReviewSummaryTables(review)}
-      ${renderJsonCard('Explain Graph', { nodes: graph.nodes.length, edges: graph.edges.length })}
+      ${optionalSections}
     </main>
   </body>
 </html>`;
