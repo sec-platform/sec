@@ -10,7 +10,7 @@
     "demo:governance": "npm run demo:quickstart && npm run platform -- artifacts --paths --kind governance",
     "demo:closed-loop": "npm run demo:quickstart && npm run platform -- verify --lane all && npm run platform -- artifacts --paths --kind governance && npm run platform -- explain --json --compact",
     "dogfood:reference": "npm run reference:refresh",
-    "dogfood:governance": "npm run dogfood:reference && npm run platform -- artifacts --paths --json",
+    "dogfood:governance": "npm run dogfood:reference && npm run platform -- artifacts --paths --json --kind governance",
     "test": "bun ./platform/dev-runner.ts test",
     "test:watch": "bun ./platform/dev-runner.ts test --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
