@@ -33,6 +33,10 @@ import {
 } from '../shared/benchmark-contract.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
 import {
+  buildTestBudgetContract,
+  formatTestBudgetContract
+} from '../shared/test-budget-contract.ts';
+import {
   assertReferenceCheckClean,
   buildReferenceCheckReport,
   formatReferenceCheck
@@ -47,7 +51,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -63,6 +67,7 @@ const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
+const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps status [--json [--compact]]',
@@ -308,6 +313,22 @@ function parseBenchmarkOutputArgs(args: string[]): { json: boolean; compact: boo
     return { json: true, compact: true };
   }
   throw new Error(BENCHMARK_USAGE);
+}
+
+function parseTestOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(TEST_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(TEST_USAGE);
 }
 
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -730,6 +751,21 @@ async function runBenchmarkCommand(args: string[]): Promise<void> {
   console.log(formatBenchmarkTaskSuiteContract(contract));
 }
 
+async function runTestCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'budget') {
+    throw new Error(TEST_USAGE);
+  }
+
+  const outputArgs = parseTestOutputArgs(args.slice(1));
+  const contract = buildTestBudgetContract();
+  if (outputArgs.json) {
+    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatTestBudgetContract(contract));
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
@@ -872,6 +908,9 @@ async function main(): Promise<void> {
       return;
     case 'benchmark':
       await runBenchmarkCommand(args);
+      return;
+    case 'test':
+      await runTestCommand(args);
       return;
     default:
       console.log(USAGE);

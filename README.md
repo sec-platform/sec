@@ -47,6 +47,8 @@ Use these entry commands for normal development:
 - `npm run platform -- deps warmup`: prepare shared runtime dependencies
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
 - `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts
+- `npm run platform -- test budget`: inspect the fast/runtime/all slow-test budget
+- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
 - `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract
 - `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
@@ -89,7 +91,7 @@ Workbench and IDE integrations must preserve this boundary:
 
 - `npm run check`: TypeScript typecheck plus the main test suite
 - `npm test`: run the Node test suite directly
-- `npm run test:budget`: print the fast/runtime/all lane slow-test budget contract
+- `npm run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`
 - `npm run test:contract-freeze`: run the CLI/script/governance contract freeze suite
 - `npm run test:benchmark-contract`: print the formal benchmark/task-suite JSON contract through `platform benchmark suite`
 - `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
@@ -99,6 +101,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
 - `npm run reference:check`: run the formal reference drift gate through `platform reference check`
+- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract
 - `npm run platform -- reference check --json --compact`: emit the compact reference drift contract
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract
 - `npm run platform -- resolve`

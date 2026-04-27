@@ -9,6 +9,10 @@ import {
 } from '../platform/shared/benchmark-contract.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import {
+  buildTestBudgetContract,
+  formatTestBudgetContract
+} from '../platform/shared/test-budget-contract.ts';
+import {
   assertReferenceCheckClean,
   buildReferenceCheckReport,
   formatReferenceCheck
@@ -125,7 +129,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -418,6 +422,67 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       suiteId: 'engineering-compiler-core',
       taskCount: 5
+    });
+  });
+});
+
+test('CLI exposes test budget as text and JSON contracts', async () => {
+  const contract = buildTestBudgetContract();
+  expect(formatTestBudgetContract(contract)).toContain('Test budget default lane: fast');
+  expect(formatTestBudgetContract(contract)).toContain(
+    'Lane all; nextBuild=true; playwright=true; command=npm run platform -- verify --lane all'
+  );
+  expect(JSON.stringify(contract)).not.toContain('\n');
+  expect(contract).toMatchObject({
+    formatVersion: '1',
+    defaultLane: 'fast',
+    lanes: [
+      {
+        id: 'fast',
+        nextBuild: false,
+        playwright: false,
+        command: 'npm run platform -- verify'
+      },
+      {
+        id: 'runtime',
+        nextBuild: false,
+        playwright: false,
+        command: 'npm run platform -- verify --lane runtime'
+      },
+      {
+        id: 'all',
+        nextBuild: true,
+        playwright: true,
+        command: 'npm run platform -- verify --lane all'
+      }
+    ],
+    localDefault: 'fast lane plus targeted named tests',
+    fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
+  });
+
+  await withTempWorkspace(async (workspaceRoot) => {
+    const textResult = await runCli(workspaceRoot, ['test', 'budget']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Test budget default lane: fast');
+    expect(textResult.stdout).toContain('Lane fast; nextBuild=false; playwright=false');
+
+    const jsonResult = await runCli(workspaceRoot, ['test', 'budget', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+      defaultLane: 'fast',
+      lanes: expect.arrayContaining([
+        expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
+      ])
+    });
+
+    const compactResult = await runCli(workspaceRoot, ['test', 'budget', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      defaultLane: 'fast'
     });
   });
 });
@@ -1842,6 +1907,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform benchmark suite [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['test'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['test', 'budget', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['test', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,

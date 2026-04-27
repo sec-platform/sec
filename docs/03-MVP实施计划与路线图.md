@@ -149,7 +149,9 @@
        - `npm run dogfood:governance` 输出结构化治理 artifact 路径合同。
        - dogfood 入口复用 `reference:refresh`，不复制第二套样例流程。
      - benchmark 与慢测预算：active。
-       - `npm run test:budget` 输出 fast/runtime/all lane 慢测边界合同。
+       - `platform test budget` 作为正式 fast/runtime/all lane 慢测边界合同入口。
+       - `platform test budget --json [--compact]` 输出稳定慢测预算合同。
+       - `npm run test:budget` 复用正式 CLI 输出 slow-test budget JSON 合同。
        - `platform benchmark suite` 作为正式 benchmark/task-suite 合同入口。
        - `platform benchmark suite --json [--compact]` 输出稳定 benchmark/task-suite 合同。
        - `npm run test:benchmark-contract` 复用正式 CLI 输出最小 benchmark/task-suite JSON 合同。
@@ -187,6 +189,7 @@
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `npm run test:contract-freeze` 固定运行 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
+         - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。
