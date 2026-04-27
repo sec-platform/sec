@@ -1249,7 +1249,14 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(explainText.code).toBe(0);
     expect(explainText.stderr).toBe('');
     expect(explainText.stdout).toContain(
-      'Upgrade: planned; auth/basic-session 0.1.0 -> 0.1.1; migrations: 2; impacts: 2; requires verification: true'
+      [
+        'Upgrade: planned',
+        'auth/basic-session 0.1.0 -> 0.1.1',
+        'migrations: 2',
+        'impacts: 2',
+        'requires verification: true',
+        'verification: required=1, skipped=1'
+      ].join('; ')
     );
 
     const explainJson = await runCli(workspaceRoot, ['explain', '--json']);
@@ -1268,6 +1275,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
           requiresVerificationCount: number;
           impactCount: number;
           impacts: string[];
+          verificationSummaries: Array<{ id: string; count: number }>;
           preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
           migrationSummaries: Array<{ id: string; kind: string; target: string; requiresVerification: boolean }>;
         };
@@ -1285,7 +1293,11 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       requiresVerification: true,
       requiresVerificationCount: 1,
       impactCount: 2,
-      impacts: ['src/installed/auth/session.ts', 'upgrade.metadata.json']
+      impacts: ['src/installed/auth/session.ts', 'upgrade.metadata.json'],
+      verificationSummaries: [
+        { id: 'required', count: 1 },
+        { id: 'skipped', count: 1 }
+      ]
     });
     expect(explainPayload.reviewSummary.upgradeSummary?.preflightEvidenceCount).toBeGreaterThan(0);
     expect(explainPayload.reviewSummary.upgradeSummary?.preflightSummaries).toEqual(
