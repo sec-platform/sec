@@ -439,6 +439,26 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         reason: string;
         requiresVerification: boolean;
       }>;
+      migrationOperationSummaries: Array<{
+        id: string;
+        kind: string;
+        target: string;
+        role: 'file' | 'directory' | 'json' | 'text' | 'slot';
+        source?: string;
+        slotId?: string;
+        inputType?: string;
+        outputType?: string;
+        writableZones?: string[];
+        path?: string[];
+        updateCount?: number;
+        itemCount?: number;
+        valueKeyCount?: number;
+        contentLength?: number;
+        searchLength?: number;
+        replacementLength?: number;
+        pattern?: string;
+        flags?: string;
+      }>;
       diagnostics?: { status: 'blocked'; failedCheck: string; errorCode: string; message: string; details?: unknown };
     };
     policySummary?: {
@@ -808,6 +828,16 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         source: 'files/src/installed/auth/session.ts'
       }
     ],
+    migrationOperationSummaries: [
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        role: 'file',
+        source: 'files/src/installed/auth/session.ts',
+        contentLength: 128
+      }
+    ],
     diagnostics: {
       status: 'blocked',
       failedCheck: 'override-conflicts',
@@ -1073,9 +1103,13 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Preflight Checks</td><td>5</td>');
   expect(sourceView).toContain('<td>Preflight Evidence</td><td>3</td>');
   expect(sourceView).toContain('<td>Verification Migrations</td><td>1</td>');
+  expect(sourceView).toContain('<td>Operations</td><td>1</td>');
   expect(sourceView).toContain('Upgrade Preflight Summary');
   expect(sourceView).toContain('<td>override</td>');
   expect(sourceView).toContain('Upgrade Migration Kind Summary');
+  expect(sourceView).toContain('Upgrade Operation Role Summary');
+  expect(sourceView).toContain('<th>Role</th><th>Count</th>');
+  expect(sourceView).toContain('<td>file</td><td>1</td>');
   expect(sourceView).toContain('Upgrade Verification Summary');
   expect(sourceView).toContain('<th>Verification</th><th>Count</th>');
   expect(sourceView).toContain('<td>required</td><td>1</td>');
@@ -1085,6 +1119,9 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     '<th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th>'
   );
   expect(sourceView).toContain('files/src/installed/auth/session.ts');
+  expect(sourceView).toContain('Upgrade Migration Operation Summary');
+  expect(sourceView).toContain('<th>ID</th><th>Kind</th><th>Role</th><th>Target</th><th>Details</th>');
+  expect(sourceView).toContain('source=files/src/installed/auth/session.ts; contentLength=128');
   expect(sourceView).toContain('Upgrade Blocker Summary');
   expect(sourceView).toContain('Upgrade Plan');
   expect(sourceView).toContain('Preflight Summary');

@@ -295,6 +295,7 @@
        - JSON 迁移暴露 path、update/item/value key 计数。
        - text 迁移暴露 content/search/replacement/pattern/flags 摘要。
        - slot 迁移暴露 slotId、inputType、outputType 与 writableZones。
+       - review summary、CLI explain 与本地 Source View 均展示 operation evidence。
      - upgrade plan 到本地视图的摘要呈现。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：
@@ -462,10 +463,13 @@
          - Upgrade Summary 卡片。
          - Upgrade Preflight Summary。
          - Upgrade Migration Kind Summary。
+         - Upgrade Operation Role Summary。
          - Upgrade Verification Summary。
          - Upgrade Migration Summary。
+         - Upgrade Migration Operation Summary。
          - migration source 明细列。
          - migration slot 明细列。
+         - operation source/path/count/slot/文本字段明细。
          - Upgrade Blocker Summary。
        - explain graph：
          - upgrade plan 节点。
