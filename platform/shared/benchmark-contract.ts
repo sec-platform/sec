@@ -2,6 +2,8 @@ export type BenchmarkTask = {
   id: string;
   goal: string;
   gate: string;
+  command: string;
+  artifactPaths: string[];
   scoreFocus: string[];
 };
 
@@ -19,30 +21,61 @@ const benchmarkTasks: BenchmarkTask[] = [
     id: 'add-block',
     goal: 'install one capability block into a clean workspace',
     gate: 'resolve compose adapt verify lock explain',
+    command: 'npm run demo:quickstart',
+    artifactPaths: [
+      'project/graph.lock.json',
+      'project/provenance.json',
+      'project/generated/verification-report.json',
+      'project/generated/explain-graph.json'
+    ],
     scoreFocus: ['success-rate', 'files-touched', 'verification-status']
   },
   {
     id: 'repair-slot',
     goal: 'repair one slot issue within task-envelope write bounds',
     gate: 'repair verify',
+    command: 'npm run platform -- repair --dry-run --json --compact',
+    artifactPaths: [
+      'project/generated/repair-plan.json',
+      'project/generated/verification-report.json',
+      'project/provenance.json'
+    ],
     scoreFocus: ['repairability', 'attempt-count', 'verification-status']
   },
   {
     id: 'policy-violation',
     goal: 'detect and explain one project policy violation',
     gate: 'verify explain',
+    command: 'npm run platform -- policy report --json --compact',
+    artifactPaths: [
+      'project/generated/policy-report.json',
+      'project/generated/acceptance-coverage.json',
+      'project/generated/explain-graph.json'
+    ],
     scoreFocus: ['diagnostic-precision', 'explainability']
   },
   {
     id: 'upgrade-dry-run',
     goal: 'preview one governed block upgrade and impact summary',
     gate: 'upgrade --dry-run explain',
+    command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+    artifactPaths: [
+      'project/generated/upgrade-plan.json',
+      'project/generated/upgrade-diagnostics.json',
+      'project/generated/review-summary.json'
+    ],
     scoreFocus: ['upgrade-safety', 'impact-coverage']
   },
   {
     id: 'override-conflict',
     goal: 'surface one override conflict during upgrade planning',
     gate: 'upgrade --dry-run',
+    command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+    artifactPaths: [
+      'project/overrides/override.manifest.yaml',
+      'project/generated/upgrade-diagnostics.json',
+      'project/generated/review-summary.json'
+    ],
     scoreFocus: ['conflict-detection', 'machine-recoverability']
   }
 ];
@@ -82,7 +115,7 @@ export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteCon
 
   for (const task of contract.tasks) {
     lines.push(
-      `Task ${task.id}: ${task.goal}; gate=${task.gate}; score=${task.scoreFocus.join(', ')}`
+      `Task ${task.id}: ${task.goal}; gate=${task.gate}; command=${task.command}; artifacts=${task.artifactPaths.join(', ')}; score=${task.scoreFocus.join(', ')}`
     );
   }
 
