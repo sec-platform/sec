@@ -319,6 +319,28 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       migrationSummaries: Array<{ id: string; kind: string; target: string; reason: string; requiresVerification: boolean }>;
       diagnostics?: { status: 'blocked'; failedCheck: string; errorCode: string; message: string };
     };
+    policySummary?: {
+      status: 'passed' | 'failed' | 'skipped';
+      officialPolicyCount: number;
+      projectPolicyCount: number;
+      mergedPolicyCount: number;
+      sourceCount: number;
+      violationCount: number;
+      severityCounts: Record<string, number>;
+      sourceSummaries: Array<{ scope: 'official' | 'project'; path: string; policyIds: string[] }>;
+      mergedSummaries: Array<{ id: string; sourceScope: 'official' | 'project'; sourcePath: string; targetCount: number; targets: string[] }>;
+      violationSummaries: Array<{
+        id: string;
+        severity: string;
+        rule: string;
+        fileCount: number;
+        files: string[];
+        appliesTo: string[];
+        message: string;
+        sourceScope: 'official' | 'project';
+        sourcePath: string;
+      }>;
+    };
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
     installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;
@@ -400,6 +422,58 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         reason: 'policy <boundary> & manual decision',
         decisionRequired: 'Decide whether policy/spec or project code changes first',
         failurePointCount: 1
+      }
+    ]
+  };
+  reviewSummary.policySummary = {
+    status: 'failed',
+    officialPolicyCount: 1,
+    projectPolicyCount: 1,
+    mergedPolicyCount: 2,
+    sourceCount: 2,
+    violationCount: 1,
+    severityCounts: {
+      error: 1
+    },
+    sourceSummaries: [
+      {
+        scope: 'official',
+        path: 'platform/policies/official/policy.spec.yaml',
+        policyIds: ['tenant-scope-required']
+      },
+      {
+        scope: 'project',
+        path: 'project/policies/custom.spec.yaml',
+        policyIds: ['project-only']
+      }
+    ],
+    mergedSummaries: [
+      {
+        id: 'project-only',
+        sourceScope: 'project',
+        sourcePath: 'project/policies/custom.spec.yaml',
+        targetCount: 1,
+        targets: ['custom/customer_normalizer.ts']
+      },
+      {
+        id: 'tenant-scope-required',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml',
+        targetCount: 1,
+        targets: ['src/installed/entity/customer-service.ts']
+      }
+    ],
+    violationSummaries: [
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        rule: 'tenant_context_must_flow_to_query',
+        fileCount: 1,
+        files: ['src/installed/entity/customer-service.ts'],
+        appliesTo: ['entity/customer-basic'],
+        message: 'disk-only <policy> & violation',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml'
       }
     ]
   };
@@ -643,6 +717,19 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('Install Impact Summary');
   expect(sourceView).toContain('Impact Groups');
   expect(sourceView).toContain('Impact Details');
+  expect(sourceView).toContain('Policy Summary');
+  expect(sourceView).toContain('<td>Official Policies</td><td>1</td>');
+  expect(sourceView).toContain('<td>Project Policies</td><td>1</td>');
+  expect(sourceView).toContain('<td>Merged Policies</td><td>2</td>');
+  expect(sourceView).toContain('<td>Violations</td><td>1</td>');
+  expect(sourceView).toContain('Policy Severity Summary');
+  expect(sourceView).toContain('<td>error</td><td>1</td>');
+  expect(sourceView).toContain('Policy Source Summary');
+  expect(sourceView).toContain('project/policies/custom.spec.yaml');
+  expect(sourceView).toContain('Policy Merge Summary');
+  expect(sourceView).toContain('custom/customer_normalizer.ts');
+  expect(sourceView).toContain('Policy Violation Summary');
+  expect(sourceView).toContain('disk-only &lt;policy&gt; &amp; violation');
   expect(sourceView).toContain('<th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th>');
   expect(sourceView).toContain('<td>customer</td>\n          <td>1</td>');
   expect(sourceView).toContain('app/customers/page.tsx');

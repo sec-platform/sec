@@ -737,12 +737,52 @@ export interface ReviewUpgradeSummary {
   diagnostics?: ReviewUpgradeDiagnosticsSummary;
 }
 
+export interface ReviewPolicySourceSummary {
+  scope: PolicySourceScope;
+  path: string;
+  policyIds: string[];
+}
+
+export interface ReviewPolicyMergedSummary {
+  id: string;
+  sourceScope: PolicySourceScope;
+  sourcePath: string;
+  targetCount: number;
+  targets: string[];
+}
+
+export interface ReviewPolicyViolationSummary {
+  id: string;
+  severity: PolicySeverity;
+  rule: string;
+  fileCount: number;
+  files: string[];
+  appliesTo: string[];
+  message: string;
+  sourceScope: PolicySourceScope;
+  sourcePath: string;
+}
+
+export interface ReviewPolicySummary {
+  status: 'passed' | 'failed' | 'skipped';
+  officialPolicyCount: number;
+  projectPolicyCount: number;
+  mergedPolicyCount: number;
+  sourceCount: number;
+  violationCount: number;
+  severityCounts: Partial<Record<PolicySeverity, number>>;
+  sourceSummaries: ReviewPolicySourceSummary[];
+  mergedSummaries: ReviewPolicyMergedSummary[];
+  violationSummaries: ReviewPolicyViolationSummary[];
+}
+
 export interface ReviewSummary {
   formatVersion: '2';
   ciSummary: ReviewCiSummary;
   artifactSummary?: ReviewArtifactSummary;
   repairSummary?: ReviewRepairSummary;
   upgradeSummary?: ReviewUpgradeSummary;
+  policySummary?: ReviewPolicySummary;
   changeSources: Array<{
     path: string;
     originType: ProvenanceOriginType;

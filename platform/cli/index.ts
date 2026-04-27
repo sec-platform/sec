@@ -405,6 +405,19 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
     );
   }
 
+  if (reviewSummary.policySummary) {
+    const policy = reviewSummary.policySummary;
+    lines.push(
+      [
+        `Policy: ${policy.status}`,
+        `official: ${policy.officialPolicyCount}`,
+        `project: ${policy.projectPolicyCount}`,
+        `merged: ${policy.mergedPolicyCount}`,
+        `violations: ${policy.violationCount}`
+      ].join('; ')
+    );
+  }
+
   if (reviewSummary.repairSummary) {
     const repair = reviewSummary.repairSummary;
     lines.push(
