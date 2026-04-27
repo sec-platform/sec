@@ -288,7 +288,7 @@
      - upgrade dry-run 入口。
      - `slot-contract-update` 计划与影响面记录。
      - 迁移 `requiresVerification` 到 plan/review 的显式传播。
-     - 升级迁移 entry schema 校验，包含重复 migration id 的 planning 阶段阻断。
+     - 升级迁移 entry schema 校验，包含重复 migration id 的 planning 阶段阻断和 entry id/kind/path diagnostics 归因。
      - slot 合同变化与 explain graph 的连接。
      - upgrade plan/migration/diagnostics 到 explain graph 的一等归因节点。
      - upgrade migration requiresVerification 到 explain graph 的分类归因节点。

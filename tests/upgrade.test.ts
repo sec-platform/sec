@@ -1432,6 +1432,132 @@ test('upgrade dry-run records rename file migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade records missing migration entry diagnostics before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-missing-migration-entry-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-missing-entry-file',
+          kind: 'text-append',
+          entry: 'migrations/missing-entry-file.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-002',
+    details: {
+      failedCheck: 'migration-entries',
+      migrationId: 'mig-missing-entry-file',
+      migrationKind: 'text-append',
+      entry: 'migrations/missing-entry-file.json'
+    }
+  });
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    details?: unknown;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-entries',
+    errorCode: 'UPGRADE-MIGRATION-002',
+    details: {
+      migrationId: 'mig-missing-entry-file',
+      migrationKind: 'text-append',
+      entry: 'migrations/missing-entry-file.json'
+    }
+  });
+});
+
+test('upgrade records mismatched migration entry metadata diagnostics before planning', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-mismatched-migration-entry-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-expected-entry',
+          kind: 'text-append',
+          entry: 'migrations/mismatched-entry.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'mismatched-entry.json'), {
+    id: 'mig-actual-entry',
+    kind: 'text-replace',
+    reason: 'Use mismatched metadata.',
+    target: 'generated/reports/notes.md',
+    search: 'pending',
+    replacement: 'applied'
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-003',
+    details: {
+      failedCheck: 'migration-entries',
+      migrationId: 'mig-expected-entry',
+      migrationKind: 'text-append',
+      entry: 'migrations/mismatched-entry.json',
+      entryId: 'mig-actual-entry',
+      entryKind: 'text-replace'
+    }
+  });
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    details?: unknown;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-entries',
+    errorCode: 'UPGRADE-MIGRATION-003',
+    details: {
+      migrationId: 'mig-expected-entry',
+      migrationKind: 'text-append',
+      entry: 'migrations/mismatched-entry.json',
+      entryId: 'mig-actual-entry',
+      entryKind: 'text-replace'
+    }
+  });
+});
+
 test('upgrade rejects duplicate migration ids before planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-duplicate-migration-id-');
 
@@ -1951,11 +2077,29 @@ test('upgrade rejects malformed literal text replace migration entries before pl
   await expect(
     upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })
   ).rejects.toMatchObject({
-    code: 'UPGRADE-MIGRATION-011'
+    code: 'UPGRADE-MIGRATION-011',
+    details: {
+      failedCheck: 'migration-entries',
+      migrationId: 'mig-upgrade-notes-literal',
+      migrationKind: 'text-replace',
+      entry: 'migrations/upgrade-notes-literal.json'
+    }
   });
-  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain(
-    '"failedCheck": "migration-entries"'
-  );
+
+  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+    failedCheck: string;
+    errorCode: string;
+    details?: unknown;
+  };
+  expect(diagnostics).toMatchObject({
+    failedCheck: 'migration-entries',
+    errorCode: 'UPGRADE-MIGRATION-011',
+    details: {
+      migrationId: 'mig-upgrade-notes-literal',
+      migrationKind: 'text-replace',
+      entry: 'migrations/upgrade-notes-literal.json'
+    }
+  });
 });
 
 test('upgrade rejects literal text replace migrations when search text is missing', async () => {

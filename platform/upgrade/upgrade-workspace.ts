@@ -37,6 +37,31 @@ function matchesUpgradeRange(version: string, range: string): boolean {
   return false;
 }
 
+function migrationManifestDetails(migration: UpgradeMigration): Record<string, unknown> {
+  return {
+    failedCheck: 'migration-entries',
+    migrationId: migration.id,
+    migrationKind: migration.kind,
+    ...(migration.entry ? { entry: migration.entry } : {})
+  };
+}
+
+function withMigrationManifestDetails(migration: UpgradeMigration, error: CompilerError): CompilerError {
+  if (isEmptyDiagnosticsDetails(error.details)) {
+    return new CompilerError(error.code, error.message, migrationManifestDetails(migration));
+  }
+  if (isPlainObjectDetails(error.details)) {
+    return new CompilerError(error.code, error.message, {
+      ...migrationManifestDetails(migration),
+      ...error.details
+    });
+  }
+  return new CompilerError(error.code, error.message, {
+    ...migrationManifestDetails(migration),
+    causeDetails: normalizeCauseDetails(error.details)
+  });
+}
+
 function ensureUpgradeAllowed(currentVersion: string, targetVersion: string, migrations: UpgradeMigration[], from: string[]): void {
   if (currentVersion === targetVersion) {
     throw new CompilerError('UPGRADE-NOOP-001', `Block is already at version "${targetVersion}"`);
@@ -52,7 +77,11 @@ function ensureUpgradeAllowed(currentVersion: string, targetVersion: string, mig
   }
   for (const migration of migrations) {
     if (!migration.entry) {
-      throw new CompilerError('UPGRADE-MIGRATION-001', `Migration "${migration.id}" is missing entry`);
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-001',
+        `Migration "${migration.id}" is missing entry`,
+        migrationManifestDetails(migration)
+      );
     }
   }
 }
@@ -205,8 +234,7 @@ async function loadMigrationEntries(
     const existingEntry = seenMigrationEntries.get(migration.id);
     if (existingEntry !== undefined) {
       throw new CompilerError('UPGRADE-MIGRATION-029', `Migration "${migration.id}" is declared more than once`, {
-        failedCheck: 'migration-entries',
-        migrationId: migration.id,
+        ...migrationManifestDetails(migration),
         entries: [existingEntry, migration.entry]
       });
     }
@@ -218,13 +246,29 @@ async function loadMigrationEntries(
     if (!(await pathExists(entryPath))) {
       throw new CompilerError(
         'UPGRADE-MIGRATION-002',
-        `Migration entry "${migration.entry}" for "${blockId}@${targetVersion}" is missing`
+        `Migration entry "${migration.entry}" for "${blockId}@${targetVersion}" is missing`,
+        migrationManifestDetails(migration)
       );
     }
     const entry = await readJson<UpgradeMigrationEntry>(entryPath);
-    validateMigrationEntry(entry, migration.entry);
+    try {
+      validateMigrationEntry(entry, migration.entry);
+    } catch (error) {
+      if (error instanceof CompilerError) {
+        throw withMigrationManifestDetails(migration, error);
+      }
+      throw error;
+    }
     if (entry.id !== migration.id || entry.kind !== migration.kind) {
-      throw new CompilerError('UPGRADE-MIGRATION-003', `Migration entry "${migration.entry}" does not match manifest metadata`);
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-003',
+        `Migration entry "${migration.entry}" does not match manifest metadata`,
+        {
+          ...migrationManifestDetails(migration),
+          entryId: entry.id,
+          entryKind: entry.kind
+        }
+      );
     }
     entries.push(entry);
   }
