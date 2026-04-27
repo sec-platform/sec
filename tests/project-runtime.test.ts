@@ -184,6 +184,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(routeMap).toContain('platform deps status --json [--compact]');
   expect(routeMap).toContain('platform artifacts --paths --json --compact --kind governance|view|test|contract');
   expect(routeMap).toContain('platform contract freeze --json [--compact]');
+  expect(routeMap).toContain('test target files');
   expect(routeMap).toContain('platform contract errors --json [--compact]');
   expect(routeMap).toContain('platform contract ci --json [--compact]');
   expect(routeMap).toContain('顶层 verify commands');
