@@ -334,6 +334,7 @@
        - 显示最多前三条 migration id。
        - 显示最多前三条 migration kind。
        - 显示最多前三条 migration target。
+       - 显示最多前三条 text migration operation content/search/replacement/pattern/flags 摘要。
        - 显示最多前三条 migration requiresVerification。
        - 显示最多前三条 preflight check id。
        - 显示最多前三条 preflight check status。
