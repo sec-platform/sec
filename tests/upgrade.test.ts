@@ -1570,6 +1570,46 @@ test('upgrade dry-run records text append migration impacts', async () => {
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
+test('upgrade rejects text append migrations when target is a directory', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-text-append-directory-target-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot, projectRoot, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-upgrade-notes',
+          kind: 'text-append',
+          entry: 'migrations/upgrade-notes.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes.json'), {
+    id: 'mig-upgrade-notes',
+    kind: 'text-append',
+    reason: 'Append upgrade notes.',
+    target: 'docs/upgrade-notes.md',
+    content: '- text append migration applied.\n'
+  });
+  await fs.mkdir(path.join(projectRoot, 'docs', 'upgrade-notes.md'), { recursive: true });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-017'
+  });
+  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
+});
+
 test('upgrade dry-run records literal text replace migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-text-replace-plan-');
 

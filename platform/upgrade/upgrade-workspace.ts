@@ -538,9 +538,7 @@ export async function applyMigrationEntries(
     }
 
     if (entry.kind === 'text-append') {
-      const existingContent = (await pathExists(targetPath)) ? await fs.readFile(targetPath, 'utf8') : '';
-      await ensureDir(path.dirname(targetPath));
-      await fs.writeFile(targetPath, `${existingContent}${entry.content}`, 'utf8');
+      await appendTextMigrationTarget(targetPath, entry.target, entry.content);
       continue;
     }
 
@@ -618,16 +616,34 @@ async function collectMigrationTargetEvidence(
 async function statFileMigrationTarget(
   targetPath: string,
   target: string,
-  kind: 'delete-file' | 'text-replace' | 'text-replace-regex' = 'delete-file'
-): Promise<void> {
+  kind: 'delete-file' | 'text-replace' | 'text-replace-regex' | 'text-append' = 'delete-file',
+  options: { allowMissing?: boolean } = {}
+): Promise<'file' | 'missing'> {
   let stats;
   try {
     stats = await fs.stat(targetPath);
   } catch {
+    if (options.allowMissing) {
+      return 'missing';
+    }
     throw new CompilerError('UPGRADE-MIGRATION-016', `${kind} target "${target}" is missing`);
   }
   if (!stats.isFile()) {
     throw new CompilerError('UPGRADE-MIGRATION-017', `${kind} target "${target}" must be a file`);
+  }
+  return 'file';
+}
+
+async function appendTextMigrationTarget(targetPath: string, target: string, content: string): Promise<void> {
+  await ensureDir(path.dirname(targetPath));
+  try {
+    await fs.appendFile(targetPath, content, 'utf8');
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException;
+    if (failure.code === 'EISDIR' || failure.code === 'EPERM' || failure.code === 'ENOTDIR') {
+      throw new CompilerError('UPGRADE-MIGRATION-017', `text-append target "${target}" must be a file`);
+    }
+    throw error;
   }
 }
 
@@ -745,6 +761,17 @@ async function collectFileOperationEvidence(
       }
       evidence.push(`${entry.id}:source:file`);
       evidence.push(`${entry.id}:target:available`);
+    }
+    if (entry.kind === 'text-append') {
+      evidence.push(`${entry.id}:target:${await statFileMigrationTarget(
+        resolveProjectPath(projectRoot, entry.target, {
+          migrationId: entry.id,
+          role: 'target'
+        }),
+        entry.target,
+        entry.kind,
+        { allowMissing: true }
+      )}`);
     }
   }
   return evidence.sort((left, right) => left.localeCompare(right));

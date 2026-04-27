@@ -659,6 +659,26 @@ test('text-append migration creates missing text targets', async () => {
   }
 });
 
+test('text-append migration rejects directory targets', async () => {
+  const workspaceRoot = await createWorkspace();
+  try {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    await fs.mkdir(path.join(projectRoot, 'docs', 'upgrade-notes.md'), { recursive: true });
+    await fs.mkdir(manifestRoot, { recursive: true });
+
+    await expect(
+      applyMigrationEntries(projectRoot, manifestRoot, ['docs/upgrade-notes.md'], [
+        textAppend('docs/upgrade-notes.md', '- first note\n')
+      ])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-017'
+    });
+  } finally {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('text-replace-regex migration replaces all matching text by default', async () => {
   const workspaceRoot = await createWorkspace();
   try {
