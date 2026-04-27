@@ -123,7 +123,10 @@
        - review summary 能展示 E2E chain summary。
        - explain graph 能展示 policy/pin/override/repair/upgrade 归因。
      - E2E 验收矩阵。
-     - JSON contract 冻结清单。
+     - JSON contract 冻结清单：done。
+       - `platform artifacts --paths --kind contract` 输出可上传 contract 清单。
+       - `platform artifacts --paths --json --kind contract` 输出结构化 contract 清单。
+       - contract 清单从 `generated/*-contract.json` 和 artifact summary 派生。
      - artifact / graph / review golden output。
      - dogfood 样例工作区。
      - benchmark 与慢测预算。
