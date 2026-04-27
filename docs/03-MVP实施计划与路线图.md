@@ -194,6 +194,7 @@
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单，并为每个 target 暴露可复现 `bun test` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/conflict 的真实错误码样例。
          - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、顶层 quality commands、顶层 diagnostic commands 与 artifact upload 路径入口。
+        - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
          - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `generated/runtime-report.json`。
@@ -205,7 +206,7 @@
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`。
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
-       - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域。
+       - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域；当前已暴露 suggestedActions 与 diagnostic artifact paths。
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。
          - `shared/types.ts`：按 plan、manifest、lock、verify、policy、provenance、review、repair、upgrade、explain 十个上下文拆分；当前保留 barrel。
          - `orchestrator.ts`：后续收敛为 workspace lifecycle、pipeline workflow、artifact/governance workflow 三层；当前文件只保留门面角色。

@@ -752,6 +752,14 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     command: 'npm run platform -- contract errors --json',
     exampleCount: 11,
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
+    artifactPathCount: 5,
+    artifactPaths: [
+      'project/generated/repair-plan.json',
+      'project/generated/review-summary.json',
+      'project/generated/upgrade-diagnostics.json',
+      'project/generated/upgrade-plan.json',
+      'project/generated/verification-report.json'
+    ],
     examples: expect.arrayContaining([
       expect.objectContaining({
         id: 'usage-error',
@@ -774,7 +782,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         output: expect.objectContaining({
           recoverable: false,
           issueType: 'spec',
-          suggestedActions: ['inspect-verification-report', 'run-platform-explain']
+          suggestedActions: ['inspect-verification-report', 'run-platform-explain'],
+          artifactPaths: ['project/generated/verification-report.json', 'project/generated/review-summary.json']
         })
       }),
       expect.objectContaining({
@@ -790,7 +799,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         output: expect.objectContaining({
           recoverable: true,
           issueType: 'slot',
-          suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run']
+          suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'],
+          artifactPaths: ['project/generated/repair-plan.json', 'project/generated/review-summary.json']
         })
       }),
       expect.objectContaining({
@@ -814,7 +824,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         output: expect.objectContaining({
           recoverable: true,
           issueType: 'composition',
-          suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration']
+          suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'],
+          artifactPaths: ['project/generated/upgrade-diagnostics.json', 'project/generated/upgrade-plan.json']
         })
       }),
       expect.objectContaining({
@@ -822,7 +833,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         output: expect.objectContaining({
           recoverable: true,
           issueType: 'composition',
-          suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics']
+          suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'],
+          artifactPaths: ['project/generated/upgrade-diagnostics.json', 'project/generated/upgrade-plan.json']
         })
       })
     ])
@@ -833,6 +845,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Error protocol active');
+    expect(textResult.stdout).toContain('Artifact paths: 5');
+    expect(textResult.stdout).toContain('Artifact path list: project/generated/repair-plan.json, project/generated/review-summary.json, project/generated/upgrade-diagnostics.json, project/generated/upgrade-plan.json, project/generated/verification-report.json');
     expect(textResult.stdout).toContain('Example repair-plan-error; code=REPAIR-BLOCKED-001');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'errors', '--json']);
@@ -841,7 +855,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
       exampleCount: 11,
-      suggestedActionCount: 18
+      suggestedActionCount: 18,
+      artifactPathCount: 5
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'errors', '--json', '--compact']);
@@ -850,7 +865,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
-      exampleCount: 11
+      exampleCount: 11,
+      artifactPathCount: 5
     });
   });
 });

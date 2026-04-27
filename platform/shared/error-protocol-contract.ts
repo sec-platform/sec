@@ -17,6 +17,8 @@ export type ErrorProtocolContract = {
   examples: ErrorProtocolExample[];
   issueTypes: ErrorProtocol['issueType'][];
   suggestedActionCount: number;
+  artifactPathCount: number;
+  artifactPaths: string[];
 };
 
 const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = [
@@ -89,6 +91,9 @@ export function buildErrorProtocolContract(): ErrorProtocolContract {
     (left, right) => left.localeCompare(right)
   );
   const suggestedActions = new Set(examples.flatMap((example) => example.output.suggestedActions));
+  const artifactPaths = [...new Set(examples.flatMap((example) => example.output.artifactPaths))].sort(
+    (left, right) => left.localeCompare(right)
+  );
 
   return {
     formatVersion: '1',
@@ -97,7 +102,9 @@ export function buildErrorProtocolContract(): ErrorProtocolContract {
     exampleCount: examples.length,
     examples,
     issueTypes,
-    suggestedActionCount: suggestedActions.size
+    suggestedActionCount: suggestedActions.size,
+    artifactPathCount: artifactPaths.length,
+    artifactPaths
   };
 }
 
@@ -108,6 +115,8 @@ export function formatErrorProtocolContract(contract: ErrorProtocolContract): st
     `Examples: ${contract.exampleCount}`,
     `Issue types: ${contract.issueTypes.join(', ')}`,
     `Suggested actions: ${contract.suggestedActionCount}`,
+    `Artifact paths: ${contract.artifactPathCount}`,
+    `Artifact path list: ${contract.artifactPaths.join(', ')}`,
     ...contract.examples.map((example) => [
       `Example ${example.id}`,
       `code=${example.output.code}`,

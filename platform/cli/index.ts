@@ -1551,7 +1551,8 @@ main().catch((error: unknown) => {
   console.error(JSON.stringify({
     recoverable: protocol.recoverable,
     issueType: protocol.issueType,
-    suggestedActions: protocol.suggestedActions
+    suggestedActions: protocol.suggestedActions,
+    artifactPaths: protocol.artifactPaths
   }));
   if (protocol.details) {
     console.error(JSON.stringify(protocol.details, null, 2));
