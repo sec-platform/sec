@@ -52,10 +52,20 @@ const DEPS_USAGE = [
 
 type ArtifactPathKind = 'governance' | 'view' | 'test';
 
+type ArtifactPathUploadGroup = {
+  kind: ArtifactPathKind;
+  count: number;
+  paths: string[];
+};
+
 function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
   kind?: ArtifactPathKind
-): { paths: string[]; byKind: Partial<Record<ArtifactPathKind, number>> } {
+): {
+  paths: string[];
+  byKind: Partial<Record<ArtifactPathKind, number>>;
+  uploadGroups: ArtifactPathUploadGroup[];
+} {
   const artifacts = kind
     ? manifest.artifacts.filter((artifact) => artifact.kind === kind)
     : manifest.artifacts;
@@ -78,7 +88,16 @@ function artifactUploadPathSummary(
       byKind[pathKind] = (byKind[pathKind] ?? 0) + 1;
     }
   }
-  return { paths, byKind };
+
+  const uploadGroups = (['governance', 'view', 'test'] as const)
+    .map((groupKind) => ({
+      kind: groupKind,
+      count: paths.filter((path) => kindByPath.get(path) === groupKind).length,
+      paths: paths.filter((path) => kindByPath.get(path) === groupKind)
+    }))
+    .filter((group) => group.count > 0);
+
+  return { paths, byKind, uploadGroups };
 }
 
 function assertNoArgs(command: string, args: string[]): void {
@@ -531,10 +550,14 @@ async function main(): Promise<void> {
         const pathSummary = artifactUploadPathSummary(manifest, artifactsArgs.kind);
         if (artifactsArgs.json) {
           console.log(JSON.stringify({
+            formatVersion: manifest.formatVersion,
+            root: manifest.root,
+            kind: artifactsArgs.kind ?? 'all',
             artifactStatus: manifest.summary.artifactStatus,
             count: pathSummary.paths.length,
             paths: pathSummary.paths,
             byKind: pathSummary.byKind,
+            uploadGroups: pathSummary.uploadGroups,
             missingCount: manifest.missing.length,
             missingReasonCounts: manifest.summary.missingReasonCounts,
             missing: manifest.missing

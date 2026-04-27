@@ -701,7 +701,11 @@
            - `--json --compact` 单行 JSON。
            - `--paths` 上传路径列表。
            - `--paths --json` 结构化路径列表。
+           - `--paths --json` 输出 `formatVersion`。
+           - `--paths --json` 输出 `root`。
+           - `--paths --json` 输出 `kind`。
            - `--paths --json` 输出 `byKind` 计数汇总。
+           - `--paths --json` 输出 `uploadGroups`。
            - `--paths --json` 输出 `artifactStatus`。
            - `--paths --json` 输出 `missingCount`。
            - `--paths --json` 输出 `missingReasonCounts`。
