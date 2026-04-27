@@ -950,6 +950,10 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
   const requiresVerificationCount = upgradePlan.migrationSummaries.filter(
     (migration) => migration.requiresVerification
   ).length;
+  const preflightEvidenceCount = upgradePlan.preflightChecks.reduce(
+    (count, check) => count + check.evidence.length,
+    0
+  );
   const lines = [
     `Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`,
     [
@@ -958,7 +962,9 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
       `preflight checks: ${upgradePlan.preflightChecks.length}`
     ].join('; '),
     `Migration kinds: ${formatList(migrationKinds)}`,
+    `Operation roles: ${formatCounts(upgradePlan.migrationOperations.map((operation) => operation.role))}`,
     `Impacts: ${formatList(upgradePlan.impacts)}`,
+    `Preflight evidence: ${preflightEvidenceCount}`,
     `Requires verification: ${requiresVerificationCount > 0} (${requiresVerificationCount} migrations)`
   ];
   const operationsById = new Map(upgradePlan.migrationOperations.map((operation) => [operation.id, operation]));

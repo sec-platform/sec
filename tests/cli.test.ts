@@ -2712,9 +2712,11 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(textResult.stdout).toContain(
       'Migration kinds: file-replace=1, json-array-append=1'
     );
+    expect(textResult.stdout).toContain('Operation roles: file=1, json=1');
     expect(textResult.stdout).toContain(
       'Impacts: src/installed/auth/session.ts, upgrade.metadata.json'
     );
+    expect(textResult.stdout).toContain('Preflight evidence: 10');
     expect(textResult.stdout).toContain('Requires verification: true (1 migrations)');
     expect(textResult.stdout).toContain(
       'Migration mig-auth-session-refresh: file-replace;'
