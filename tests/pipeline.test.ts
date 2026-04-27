@@ -114,6 +114,11 @@ test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000
   expect(graph.nodes.some((node) => node.id === 'slot:customer_normalizer')).toBe(true);
   expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
   expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
+  expect(graph.edges).toContainEqual({
+    from: 'policy:tenant-scope-required',
+    to: 'file:src/installed/entity/customer-service.ts',
+    type: 'connects_to'
+  });
   expect(graph.edges.some((edge) => edge.type === 'writes_to' && edge.to === 'file:custom/customer_normalizer.ts')).toBe(true);
   expect(graph.edges.some((edge) => edge.type === 'violates')).toBe(false);
   expect(graph.overlays.coverage.blocks.every((entry) => Array.isArray(entry.coveredBy))).toBe(true);

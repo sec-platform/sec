@@ -223,12 +223,28 @@ export async function buildExplainGraph(
   }
 
   if (policyReport) {
+    const blockIds = new Set(lock.resolvedBlocks.map((block) => block.id));
     for (const policy of policyReport.merged.policies) {
+      const policyNodeId = `policy:${policy.id}`;
       pushNode(nodes, {
-        id: `policy:${policy.id}`,
+        id: policyNodeId,
         type: 'policy',
         label: policy.id
       });
+      for (const target of policy.targets) {
+        const targetIsBlock = blockIds.has(target);
+        const targetNodeId = targetIsBlock ? `block:${target}` : `file:${target}`;
+        pushNode(nodes, {
+          id: targetNodeId,
+          type: targetIsBlock ? 'block' : 'file',
+          label: target
+        });
+        pushEdge(edges, {
+          from: policyNodeId,
+          to: targetNodeId,
+          type: 'connects_to'
+        });
+      }
     }
 
     for (const violation of policyReport.violations) {

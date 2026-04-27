@@ -64,7 +64,7 @@
 | fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 review summary、CLI explain 和本地视图 provenance 摘要。 |
-| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy violation 边、slot 合同升级影响边、repair task/category 归因边、upgrade verification 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
+| explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy target/violation 边、slot 合同升级影响边、repair task/category 归因边、upgrade verification 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints、E2E chain summary，并暴露 repair、upgrade verification、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、阻断诊断、verify、lock/provenance 更新和回滚。 |
@@ -661,6 +661,8 @@
        - policy id。
        - source scope。
        - source path。
+       - targets。
+     - explain graph 连接 merged policy targets 到 `file:*` 或 `block:*` 节点。
        - target count。
        - target paths。
      - violation summary：

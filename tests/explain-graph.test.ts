@@ -126,6 +126,11 @@ test('explain graph includes pins, policies, and policy violation edges without 
 
   expect(graph.nodes.some((node) => node.id === 'pin:entity/customer-basic:input:tenant_context')).toBe(true);
   expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
+  expect(graph.edges).toContainEqual({
+    from: 'policy:tenant-scope-required',
+    to: 'file:src/installed/entity/customer-service.ts',
+    type: 'connects_to'
+  });
   const violationEdges = graph.edges.filter(
     (edge) =>
       edge.from === 'file:src/installed/entity/customer-service.ts' &&
