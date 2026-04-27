@@ -319,9 +319,12 @@
        - 需要人工决策的点。
      - 切口 D：补 repair 前后 diff/verify trace：
        - 状态：active。
-       - preview。
-       - applied result。
-       - verify pending state。
+       - preview：done。
+       - applied result：done。
+       - verify pending state：done。
+       - review summary 聚合：done。
+       - CLI explain 摘要：done。
+       - local source view 摘要：done。
        - 已完成：
          - `repair --dry-run --json` 输出 preview 后的 repair plan。
          - JSON 输出保留 `requiresVerification`。

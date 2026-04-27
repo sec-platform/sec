@@ -816,6 +816,55 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
 
     const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
     expect(writtenRepairPlan).toEqual(repairPlan);
+
+    lock.passStatus.verify = 'succeeded';
+    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    report.unit.status = 'passed';
+    report.fast.status = 'passed';
+    report.fast.unit.status = 'passed';
+    report.summary.status = 'passed';
+    report.summary.requestedLane = 'all';
+    report.summary.failedLanes = [];
+    await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+
+    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Locked project\n',
+      stderr: ''
+    });
+
+    const explainText = await runCli(workspaceRoot, ['explain']);
+    expect(explainText.code).toBe(0);
+    expect(explainText.stderr).toBe('');
+    expect(explainText.stdout).toContain(
+      'Repair: pending; tasks: 1; blockers: 0; changed previews: 0; requires verification: false'
+    );
+
+    const explainJson = await runCli(workspaceRoot, ['explain', '--json']);
+    expect(explainJson.code).toBe(0);
+    expect(explainJson.stderr).toBe('');
+    const explainPayload = JSON.parse(explainJson.stdout) as {
+      reviewSummary: {
+        repairSummary?: {
+          status: string;
+          taskCount: number;
+          blockerCount: number;
+          previewCount: number;
+          changedPreviewCount: number;
+          failurePointCount: number;
+          targetFiles: string[];
+        };
+      };
+    };
+    expect(explainPayload.reviewSummary.repairSummary).toMatchObject({
+      status: 'pending',
+      taskCount: 1,
+      blockerCount: 0,
+      previewCount: 1,
+      changedPreviewCount: 0,
+      failurePointCount: 1,
+      targetFiles: ['custom/customer_normalizer.ts']
+    });
   });
 });
 

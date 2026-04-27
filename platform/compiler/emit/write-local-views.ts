@@ -493,6 +493,66 @@ function renderPolicyViolationsTable(policyReport: PolicyReport): string {
       </section>`;
 }
 
+function renderRepairSummaryCard(review: ReviewSummary): string {
+  const repair = review.repairSummary;
+  if (!repair) {
+    return '';
+  }
+
+  const rows = [
+    ['Status', repair.status],
+    ['Source Verification', repair.sourceVerificationStatus],
+    ['Requires Verification', String(repair.requiresVerification)],
+    ['Tasks', String(repair.taskCount)],
+    ['Blockers', String(repair.blockerCount)],
+    ['Previews', String(repair.previewCount)],
+    ['Changed Previews', String(repair.changedPreviewCount)],
+    ['Failure Points', String(repair.failurePointCount)],
+    ['Target Files', repair.targetFiles.join(', ') || 'none']
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+  const taskRows = repair.taskSummaries
+    .map(
+      (task) => `<tr>
+          <td>${escapeHtml(task.taskId)}</td>
+          <td>${escapeHtml(task.previewStatus)}</td>
+          <td>${escapeHtml(`${task.addedLines}/-${task.removedLines}`)}</td>
+          <td>${escapeHtml(String(task.failurePointCount))}</td>
+          <td>${escapeHtml(task.targetIds.join(', ') || 'none')}</td>
+        </tr>`
+    )
+    .join('');
+  const blockerRows = repair.blockerSummaries
+    .map(
+      (blocker) => `<tr>
+          <td>${escapeHtml(blocker.blockerId)}</td>
+          <td>${escapeHtml(blocker.boundary)}</td>
+          <td>${escapeHtml(String(blocker.failurePointCount))}</td>
+          <td>${escapeHtml(blocker.reason)}</td>
+        </tr>`
+    )
+    .join('');
+
+  return `<section class="card">
+        <h2>Repair Summary</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3>Repair Task Summary</h3>
+        <table>
+          <thead><tr><th>Task</th><th>Preview</th><th>Delta</th><th>Failure Points</th><th>Targets</th></tr></thead>
+          <tbody>${taskRows || '<tr><td colspan="5">No repair tasks.</td></tr>'}</tbody>
+        </table>
+        <h3>Repair Blocker Summary</h3>
+        <table>
+          <thead><tr><th>Blocker</th><th>Boundary</th><th>Failure Points</th><th>Reason</th></tr></thead>
+          <tbody>${blockerRows || '<tr><td colspan="4">No repair blockers.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
   if (!repairPlan) {
     return '';
@@ -720,6 +780,7 @@ function renderSourceView(
       ${renderMergedPoliciesTable(policyReport)}
       ${renderUpgradePlanTable(upgradePlan)}
       ${renderUpgradeDiagnosticsTable(upgradeDiagnostics)}
+      ${renderRepairSummaryCard(review)}
       ${renderRepairPlanTable(repairPlan)}
       ${renderReviewSummaryTables(review)}
       ${renderJsonCard('Explain Graph', { nodes: graph.nodes.length, edges: graph.edges.length })}

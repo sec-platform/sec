@@ -185,6 +185,54 @@ async function readArtifactSummary(workspaceRoot: string): Promise<ReviewSummary
   };
 }
 
+function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummary'] {
+  const taskSummaries = repairPlan.tasks
+    .map((task) => {
+      const targetIds = unique(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+      const previewStatus: 'changed' | 'unchanged' | 'missing' = task.preview
+        ? task.preview.changed ? 'changed' : 'unchanged'
+        : 'missing';
+      return {
+        taskId: task.taskId,
+        sourceSlotId: task.sourceSlotId,
+        targetBlock: task.targetBlock,
+        targetFile: task.targetFile,
+        previewStatus,
+        addedLines: task.preview?.addedLines ?? 0,
+        removedLines: task.preview?.removedLines ?? 0,
+        failurePointCount: task.failurePoints.length,
+        targetIds
+      };
+    })
+    .sort((left, right) => left.taskId.localeCompare(right.taskId));
+  const blockerSummaries = (repairPlan.blockers ?? [])
+    .map((blocker) => ({
+      blockerId: blocker.blockerId,
+      boundary: blocker.boundary,
+      reason: blocker.reason,
+      decisionRequired: blocker.decisionRequired,
+      failurePointCount: blocker.failurePoints.length
+    }))
+    .sort((left, right) => left.blockerId.localeCompare(right.blockerId));
+
+  return {
+    status: repairPlan.status,
+    sourceVerificationStatus: repairPlan.sourceVerificationStatus,
+    requiresVerification: repairPlan.requiresVerification,
+    taskCount: repairPlan.tasks.length,
+    blockerCount: repairPlan.blockers?.length ?? 0,
+    previewCount: repairPlan.tasks.filter((task) => task.preview).length,
+    changedPreviewCount: repairPlan.tasks.filter((task) => task.preview?.changed).length,
+    failurePointCount: repairPlan.tasks.reduce(
+      (total, task) => total + task.failurePoints.length,
+      blockerSummaries.reduce((total, blocker) => total + blocker.failurePointCount, 0)
+    ),
+    targetFiles: unique(repairPlan.tasks.map((task) => task.targetFile)),
+    taskSummaries,
+    blockerSummaries
+  };
+}
+
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
   const impacts = new Map<string, ReviewInstallImpact>();
 
@@ -228,6 +276,10 @@ export async function buildReviewSummary(
 ): Promise<ReviewSummary> {
   const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
+  const repairPlan = (await pathExists(repairPlanPath))
+    ? await readJson<RepairPlan>(repairPlanPath)
+    : null;
+  const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
   const failurePoints: ReviewFailurePoint[] = [];
   const regressionRisks: ReviewRegressionRisk[] = [];
   const conflictHints: ReviewConflictHint[] = [];
@@ -409,8 +461,7 @@ export async function buildReviewSummary(
     });
   }
 
-  if (await pathExists(repairPlanPath)) {
-    const repairPlan = await readJson<RepairPlan>(repairPlanPath);
+  if (repairPlan) {
     if (repairPlan.requiresVerification) {
       addRegressionRisk(regressionRisks, {
         kind: 'repair-verification',
@@ -468,6 +519,7 @@ export async function buildReviewSummary(
       runtimeEntries
     ),
     ...(artifactSummary ? { artifactSummary } : {}),
+    ...(repairSummary ? { repairSummary } : {}),
     changeSources: provenance.artifacts.map((artifact) => {
       const runtimeEntry = runtimeEntryByPath.get(artifact.path);
       return {

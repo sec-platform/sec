@@ -651,10 +651,45 @@ export interface ReviewArtifactSummary {
   missing?: ReviewArtifactMissingEntry[];
 }
 
+export interface ReviewRepairTaskSummary {
+  taskId: string;
+  sourceSlotId: string;
+  targetBlock: string;
+  targetFile: string;
+  previewStatus: 'changed' | 'unchanged' | 'missing';
+  addedLines: number;
+  removedLines: number;
+  failurePointCount: number;
+  targetIds: string[];
+}
+
+export interface ReviewRepairBlockerSummary {
+  blockerId: string;
+  boundary: string;
+  reason: string;
+  decisionRequired: string;
+  failurePointCount: number;
+}
+
+export interface ReviewRepairSummary {
+  status: 'pending' | 'applied' | 'skipped' | 'blocked';
+  sourceVerificationStatus: 'passed' | 'failed';
+  requiresVerification: boolean;
+  taskCount: number;
+  blockerCount: number;
+  previewCount: number;
+  changedPreviewCount: number;
+  failurePointCount: number;
+  targetFiles: string[];
+  taskSummaries: ReviewRepairTaskSummary[];
+  blockerSummaries: ReviewRepairBlockerSummary[];
+}
+
 export interface ReviewSummary {
   formatVersion: '2';
   ciSummary: ReviewCiSummary;
   artifactSummary?: ReviewArtifactSummary;
+  repairSummary?: ReviewRepairSummary;
   changeSources: Array<{
     path: string;
     originType: ProvenanceOriginType;

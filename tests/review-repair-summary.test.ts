@@ -163,6 +163,50 @@ test('review summary surfaces pending repair tasks', async () => {
 
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+    expect(summary.repairSummary).toMatchObject({
+      status: 'pending',
+      sourceVerificationStatus: 'failed',
+      requiresVerification: false,
+      taskCount: 2,
+      blockerCount: 1,
+      previewCount: 1,
+      changedPreviewCount: 1,
+      failurePointCount: 3,
+      targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
+    });
+    expect(summary.repairSummary?.taskSummaries).toEqual([
+      {
+        taskId: 'repair_slot_alpha',
+        sourceSlotId: 'alpha',
+        targetBlock: 'entity/customer-basic',
+        targetFile: 'custom/alpha.ts',
+        previewStatus: 'missing',
+        addedLines: 0,
+        removedLines: 0,
+        failurePointCount: 1,
+        targetIds: ['zeta.test.ts']
+      },
+      {
+        taskId: 'repair_slot_zeta',
+        sourceSlotId: 'zeta',
+        targetBlock: 'entity/customer-basic',
+        targetFile: 'custom/zeta.ts',
+        previewStatus: 'changed',
+        addedLines: 3,
+        removedLines: 1,
+        failurePointCount: 1,
+        targetIds: ['zeta.test.ts']
+      }
+    ]);
+    expect(summary.repairSummary?.blockerSummaries).toEqual([
+      {
+        blockerId: 'repair_blocker_policy',
+        boundary: 'spec',
+        reason: 'policy failure is outside automatic slot repair: tenant scope missing',
+        decisionRequired: 'Decide whether to change policy/spec, installed source, or project plan before repair can proceed.',
+        failurePointCount: 1
+      }
+    ]);
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'repair',
@@ -194,6 +238,13 @@ test('review summary surfaces pending repair tasks', async () => {
 
     const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+    expect(appliedSummary.repairSummary).toMatchObject({
+      status: 'applied',
+      requiresVerification: true,
+      taskCount: 2,
+      blockerCount: 1,
+      changedPreviewCount: 1
+    });
     expect(appliedSummary.conflictHints).toEqual([
       {
         kind: 'repair-blocked',
