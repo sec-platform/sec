@@ -63,6 +63,10 @@ function renderCiSummaryCard(review: ReviewSummary): string {
     ['Impacted Blocks', String(review.ciSummary.impactedBlockCount)],
     ['Impacted Slots', String(review.ciSummary.impactedSlotCount)],
     ['Runtime Entries', String(review.ciSummary.runtimeEntryCount)],
+    ['Chain Status', review.chainSummary.status],
+    ['Chain Stages', `${review.chainSummary.passedStageCount}/${review.chainSummary.stageCount}`],
+    ['Chain Attention Stages', String(review.chainSummary.attentionStageCount)],
+    ['Chain Failed Stages', String(review.chainSummary.failedStageCount)],
     ...artifactRows
   ]
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
@@ -85,6 +89,15 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           <tbody>${missingReasonRows}</tbody>
         </table>`
     : '';
+  const chainRows = review.chainSummary.stageSummaries
+    .map(
+      (stage) => `<tr>
+          <td>${escapeHtml(stage.id)}</td>
+          <td>${escapeHtml(stage.status)}</td>
+          <td>${escapeHtml(stage.detail)}</td>
+        </tr>`
+    )
+    .join('');
   const uploadGroupRows = review.artifactSummary?.uploadGroups?.length
     ? review.artifactSummary.uploadGroups
         .map(
@@ -127,6 +140,11 @@ function renderCiSummaryCard(review: ReviewSummary): string {
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>${rows}</tbody>
+        </table>
+        <h3>E2E Chain Summary</h3>
+        <table>
+          <thead><tr><th>Stage</th><th>Status</th><th>Detail</th></tr></thead>
+          <tbody>${chainRows}</tbody>
         </table>
         ${missingReasonTable}
         ${uploadGroupTable}

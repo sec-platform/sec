@@ -290,6 +290,14 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       impactedSlotCount: number;
       runtimeEntryCount: number;
     };
+    chainSummary: {
+      status: 'passed' | 'attention' | 'failed';
+      stageCount: number;
+      passedStageCount: number;
+      attentionStageCount: number;
+      failedStageCount: number;
+      stageSummaries: Array<{ id: string; status: string; detail: string }>;
+    };
     artifactSummary?: {
       artifactStatus?: 'passed' | 'attention';
       artifactCount: number;
@@ -483,6 +491,19 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     ...reviewSummary.ciSummary,
     status: 'failed',
     failureCount: reviewSummary.failurePoints.length
+  };
+  reviewSummary.chainSummary = {
+    status: 'failed',
+    stageCount: 4,
+    passedStageCount: 2,
+    attentionStageCount: 1,
+    failedStageCount: 1,
+    stageSummaries: [
+      { id: 'verification', status: 'failed', detail: 'lane=fast; failed=fast' },
+      { id: 'coverage', status: 'failed', detail: 'blocks=1/2; slots=1/1' },
+      { id: 'artifacts', status: 'attention', detail: 'total=7; missing=1' },
+      { id: 'review', status: 'passed', detail: 'review-summary=generated' }
+    ]
   };
   reviewSummary.provenanceSummary = {
     artifactCount: 4,
@@ -937,6 +958,11 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
   expect(sourceView).toContain('CI Summary');
   expect(sourceView).toContain('<td>Status</td><td>failed</td>');
+  expect(sourceView).toContain('<td>Chain Status</td><td>failed</td>');
+  expect(sourceView).toContain('<td>Chain Stages</td><td>2/4</td>');
+  expect(sourceView).toContain('E2E Chain Summary');
+  expect(sourceView).toContain('<td>verification</td>');
+  expect(sourceView).toContain('<td>lane=fast; failed=fast</td>');
   expect(sourceView).toContain('<td>Artifact Status</td><td>attention</td>');
   expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
   expect(sourceView).toContain('<td>Upload Groups</td><td>2</td>');

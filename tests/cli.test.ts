@@ -289,6 +289,7 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(textResult.stdout).toContain(
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
     );
+    expect(textResult.stdout).toContain('Chain: attention; stages: 3/4; attention: 1; failed: 0');
     expect(textResult.stdout).toContain('Impacted: 3 blocks, 1 slots,');
     expect(textResult.stdout).toContain(
       'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
@@ -303,6 +304,14 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       reviewSummary: {
         formatVersion: string;
         ciSummary: { status: string; failureCount: number };
+        chainSummary: {
+          status: string;
+          stageCount: number;
+          passedStageCount: number;
+          attentionStageCount: number;
+          failedStageCount: number;
+          stageSummaries: Array<{ id: string; status: string; detail: string }>;
+        };
         coverageSummary?: {
           status: string;
           acceptancePassedCount: number;
@@ -358,6 +367,19 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(payload.reviewSummary.ciSummary).toMatchObject({
       status: 'passed',
       failureCount: 0
+    });
+    expect(payload.reviewSummary.chainSummary).toMatchObject({
+      status: 'attention',
+      stageCount: 4,
+      passedStageCount: 3,
+      attentionStageCount: 1,
+      failedStageCount: 0,
+      stageSummaries: [
+        { id: 'verification', status: 'passed', detail: 'lane=all; failed=none' },
+        { id: 'coverage', status: 'passed', detail: 'blocks=3/3; slots=1/1' },
+        { id: 'artifacts', status: 'attention', detail: 'total=0; missing=0' },
+        { id: 'review', status: 'passed', detail: 'review-summary=generated' }
+      ]
     });
     expect(payload.reviewSummary.coverageSummary).toMatchObject({
       status: 'passed',

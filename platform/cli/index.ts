@@ -382,6 +382,7 @@ function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string
 function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
   const {
     artifactSummary,
+    chainSummary,
     ciSummary,
     coverageSummary,
     installImpactSummary,
@@ -413,6 +414,12 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
       `failures: ${ciSummary.failureCount}`,
       `regression risks: ${ciSummary.regressionRiskCount}`,
       `conflict hints: ${ciSummary.conflictHintCount}`
+    ].join('; '),
+    [
+      `Chain: ${chainSummary.status}`,
+      `stages: ${chainSummary.passedStageCount}/${chainSummary.stageCount}`,
+      `attention: ${chainSummary.attentionStageCount}`,
+      `failed: ${chainSummary.failedStageCount}`
     ].join('; '),
     [
       `Impacted: ${ciSummary.impactedBlockCount} blocks`,
