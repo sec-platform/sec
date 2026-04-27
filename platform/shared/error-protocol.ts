@@ -37,6 +37,17 @@ export function buildErrorProtocol(error: {
     };
   }
 
+  if (code.startsWith('VERIFY-BLOCKED-')) {
+    return {
+      code,
+      message,
+      recoverable: true,
+      issueType: 'composition',
+      suggestedActions: ['run-platform-resolve', 'run-platform-compose', 'run-platform-adapt', 'retry-platform-verify'],
+      details: error.details
+    };
+  }
+
   if (code.startsWith('VERIFY-')) {
     return {
       code,
@@ -48,6 +59,17 @@ export function buildErrorProtocol(error: {
     };
   }
 
+  if (code === 'REPAIR-BLOCKED-002') {
+    return {
+      code,
+      message,
+      recoverable: true,
+      issueType: 'composition',
+      suggestedActions: ['run-platform-verify', 'retry-platform-repair-dry-run'],
+      details: error.details
+    };
+  }
+
   if (code.startsWith('REPAIR-')) {
     return {
       code,
@@ -55,6 +77,39 @@ export function buildErrorProtocol(error: {
       recoverable: true,
       issueType: 'slot',
       suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'],
+      details: error.details
+    };
+  }
+
+  if (code.startsWith('UPGRADE-NOOP-')) {
+    return {
+      code,
+      message,
+      recoverable: true,
+      issueType: 'composition',
+      suggestedActions: ['choose-different-upgrade-target'],
+      details: error.details
+    };
+  }
+
+  if (code.startsWith('UPGRADE-BLOCKED-')) {
+    return {
+      code,
+      message,
+      recoverable: true,
+      issueType: 'composition',
+      suggestedActions: ['choose-compatible-upgrade-target', 'run-platform-upgrade-dry-run'],
+      details: error.details
+    };
+  }
+
+  if (code.startsWith('UPGRADE-MIGRATION-')) {
+    return {
+      code,
+      message,
+      recoverable: true,
+      issueType: 'composition',
+      suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'],
       details: error.details
     };
   }

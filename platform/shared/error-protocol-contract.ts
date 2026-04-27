@@ -23,26 +23,51 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
   {
     id: 'usage-error',
     code: 'UNEXPECTED',
-    message: 'Usage: platform verify [--lane fast|runtime|all]'
+    message: 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]'
   },
   {
     id: 'unexpected-error',
     message: 'Unexpected failure'
   },
   {
-    id: 'verify-error',
-    code: 'VERIFY-FAILED',
-    message: 'Verification failed'
+    id: 'verify-blocked-error',
+    code: 'VERIFY-BLOCKED-001',
+    message: 'adapt must succeed before verify'
   },
   {
-    id: 'repair-error',
+    id: 'verify-acceptance-error',
+    code: 'VERIFY-ACCEPTANCE-003',
+    message: 'Project verification failed'
+  },
+  {
+    id: 'repair-preflight-error',
+    code: 'REPAIR-BLOCKED-002',
+    message: 'verify must run before repair'
+  },
+  {
+    id: 'repair-plan-error',
     code: 'REPAIR-BLOCKED-001',
-    message: 'Repair is blocked'
+    message: 'Repair is blocked for current verification failure'
   },
   {
-    id: 'upgrade-error',
+    id: 'upgrade-noop-error',
+    code: 'UPGRADE-NOOP-001',
+    message: 'Block is already at version "0.2.0"'
+  },
+  {
+    id: 'upgrade-blocked-error',
+    code: 'UPGRADE-BLOCKED-002',
+    message: 'Target version "0.2.0" does not accept upgrade from "0.1.0"'
+  },
+  {
+    id: 'upgrade-migration-error',
+    code: 'UPGRADE-MIGRATION-004',
+    message: 'Migration path "../outside-project.md" escapes project root'
+  },
+  {
+    id: 'upgrade-conflict-error',
     code: 'UPGRADE-CONFLICT-001',
-    message: 'Upgrade conflict detected'
+    message: 'Override "manual-auth-session-hotfix" conflicts with upgrade of "auth/basic-session"'
   },
   {
     id: 'kernel-error',
