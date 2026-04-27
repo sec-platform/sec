@@ -139,6 +139,7 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(benchmarkContractSource).toContain("project/generated/upgrade-diagnostics.json");
   expect(referenceCheckSource).toContain("['diff', '--name-only', '--exit-code', '--', 'project']");
   expect(referenceCheckSource).toContain("['run', 'reference:refresh']");
+  expect(referenceCheckSource).toContain("failedStage: ReferenceCheckFailedStage");
 });
 
 test('task envelope schema stays aligned with documented AI slot contracts', async () => {
@@ -203,6 +204,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(routeMap).toContain('platform upgrade <block-id> <target-version> --dry-run --json [--compact]');
   expect(routeMap).toContain('platform test budget --json [--compact]');
   expect(routeMap).toContain('platform reference check --json [--compact]');
+  expect(routeMap).toContain('failedStage');
   expect(routeMap).toContain('platform benchmark suite --json [--compact]');
   expect(routeMap).toContain('project/generated/review-summary.json');
   expect(readme).toContain('Run the full product closed loop with `npm run demo:closed-loop`.');
