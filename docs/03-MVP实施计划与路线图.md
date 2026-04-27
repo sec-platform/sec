@@ -115,6 +115,7 @@
      - CLI 入门 demo 路径：done。
        - `npm run demo:quickstart`：重置样例项目并刷新主链治理产物。
        - `npm run demo:governance`：在 quickstart 后列出 governance artifact 上传清单。
+       - `npm run demo:closed-loop`：运行 quickstart -> verify --lane all -> governance artifact paths -> explain --json --compact。
        - `npm run reference:refresh`：保留为不重置项目的主链刷新入口。
      - CLI usage 暴露 readiness、quickstart、CI artifacts：done。
       - `platform doctor --json` 输出结构化 readiness contract。
@@ -159,6 +160,14 @@
      - 收敛整改总表：active。
        - P0：固定唯一主闭环，统一对外叙事到 quickstart -> verify --lane all -> artifacts -> explain。
        - P0：冻结治理 contract 清单，覆盖 graph.lock、provenance、verification/runtime/policy/coverage、explain-graph、review-summary。
+         - `project/graph.lock.json`
+         - `project/provenance.json`
+         - `project/generated/verification-report.json`
+         - `project/generated/runtime-report.json`
+         - `project/generated/policy-report.json`
+         - `project/generated/acceptance-coverage.json`
+         - `project/generated/explain-graph.json`
+         - `project/generated/review-summary.json`
        - P0：建立 benchmark/task-suite 最小合同，先冻结任务集与评分维度，再扩 runner。
        - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐。
        - P1：增加 reference workspace 无漂移 gate，证明 checked-in `project/` 与主链刷新结果一致。

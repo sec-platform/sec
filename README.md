@@ -8,6 +8,7 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 - Run the full verification pass with `npm run check`.
 - Use the compiler CLI with `npm run platform -- <command>`.
 - Run the quickstart demo with `npm run demo:quickstart`.
+- Run the full product closed loop with `npm run demo:closed-loop`.
 - Dogfood the reference workspace with `npm run dogfood:reference`.
 - Refresh the reference workspace and governance artifacts with `npm run reference:refresh`.
 
@@ -83,11 +84,14 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run check`: TypeScript typecheck plus the main test suite
 - `npm test`: run the Node test suite directly
 - `npm run test:budget`: print the fast/runtime/all lane slow-test budget contract
+- `npm run test:benchmark-contract`: print the benchmark/task-suite contract
 - `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
 - `npm run demo:governance`: run quickstart and print governance artifact upload paths
+- `npm run demo:closed-loop`: run quickstart, full verification, governance artifact paths, and compact explain JSON in one product loop
 - `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
 - `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
+- `npm run reference:check`: refresh the reference workspace and fail on checked-in drift
 - `npm run platform -- resolve`
 - `npm run platform -- compose`
 - `npm run platform -- adapt`
@@ -99,6 +103,7 @@ Workbench and IDE integrations must preserve this boundary:
 
 - `verify` writes governance artifacts under `project/generated/`, including `verification-report.json`, `runtime-report.json`, `policy-report.json`, and `acceptance-coverage.json`.
 - `explain` writes `project/generated/explain-graph.json`, `project/generated/review-summary.json`, and the local HTML views under `project/generated/views/`.
+- Governance contract freeze currently covers: `project/graph.lock.json`, `project/provenance.json`, `project/generated/verification-report.json`, `project/generated/runtime-report.json`, `project/generated/policy-report.json`, `project/generated/acceptance-coverage.json`, `project/generated/explain-graph.json`, and `project/generated/review-summary.json`.
 - CI restores a complete governance view from exactly three stable paths: `project/generated/**`, `project/provenance.json`, and `project/graph.lock.json`.
 - `.shared-deps/` is a local Bun/npm cache used to warm runtime dependencies; it is intentionally ignored and is not part of the shipped governance artifacts.
 - `infra/postgres` currently ships a contract-only Postgres path. It emits `project/generated/postgres-contract.json` and keeps the local runtime on the in-memory store until a real Postgres verification lane is added.

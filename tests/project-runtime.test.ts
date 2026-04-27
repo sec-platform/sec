@@ -77,6 +77,9 @@ test('root package exposes demo scripts through the existing platform chain', as
   expect(rootPackage.scripts['demo:governance']).toBe(
     'npm run demo:quickstart && npm run platform -- artifacts --paths --kind governance'
   );
+  expect(rootPackage.scripts['demo:closed-loop']).toBe(
+    'npm run demo:quickstart && npm run platform -- verify --lane all && npm run platform -- artifacts --paths --kind governance && npm run platform -- explain --json --compact'
+  );
   expect(rootPackage.scripts['dogfood:reference']).toBe('npm run reference:refresh');
   expect(rootPackage.scripts['dogfood:governance']).toBe(
     'npm run dogfood:reference && npm run platform -- artifacts --paths --json'
@@ -130,18 +133,26 @@ test('task envelope schema stays aligned with documented AI slot contracts', asy
   expect(envelopeBuilder).toContain("'change_exports'");
 });
 
-test('error protocol and test lane map stay frozen in developer contracts', async () => {
+test('error protocol, closed loop entry, and test lane map stay frozen in developer contracts', async () => {
   const rootPackage = JSON.parse(await fs.readFile(path.join(compilerRoot, 'package.json'), 'utf8')) as {
     scripts: Record<string, string>;
   };
   const routeMap = await fs.readFile(path.join(compilerRoot, 'docs', '03-MVP实施计划与路线图.md'), 'utf8');
+  const readme = await fs.readFile(path.join(compilerRoot, 'README.md'), 'utf8');
   const cliSource = await fs.readFile(path.join(compilerRoot, 'platform', 'cli', 'index.ts'), 'utf8');
   const protocolSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'error-protocol.ts'), 'utf8');
 
   expect(rootPackage.scripts['test:budget']).toBe('bun ./platform/dev-runner.ts test-budget');
   expect(rootPackage.scripts['test:benchmark-contract']).toBe('bun ./platform/dev-runner.ts benchmark-contract');
   expect(rootPackage.scripts['reference:check']).toBe('bun ./platform/dev-runner.ts reference-clean');
+  expect(rootPackage.scripts['demo:closed-loop']).toContain('npm run platform -- verify --lane all');
+  expect(rootPackage.scripts['demo:closed-loop']).toContain('npm run platform -- artifacts --paths --kind governance');
+  expect(rootPackage.scripts['demo:closed-loop']).toContain('npm run platform -- explain --json --compact');
   expect(routeMap).toContain('P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。');
+  expect(routeMap).toContain('project/generated/review-summary.json');
+  expect(readme).toContain('Run the full product closed loop with `npm run demo:closed-loop`.');
+  expect(readme).toContain('Governance contract freeze currently covers:');
+  expect(readme).toContain('project/generated/explain-graph.json');
   expect(protocolSource).toContain("issueType: 'usage' | 'spec' | 'composition' | 'slot' | 'kernel'");
   expect(protocolSource).toContain("code.startsWith('VERIFY-')");
   expect(protocolSource).toContain("code.startsWith('REPAIR-')");
