@@ -94,7 +94,7 @@
 - `platform deps clean --all --force` 才能清理全部依赖层；这是刻意的强制确认口径，因为它会导致下一次 runtime verification 重新预热依赖。
 - 本地推荐依赖布局是保留根 `node_modules` 给 compiler 自身使用，保留 `.shared-deps/node_modules` 给 generated project runtime 使用，`project/node_modules` 默认只作为链接。
 - CI 推荐 PR/push 继续跑 fast lane，schedule/manual 跑 all lane；远程缓存优先覆盖 Bun cache、`.shared-deps`、`project/.next/cache` 和 Playwright browser cache，不缓存 `project/node_modules` 实体副本。
-- 本地无参数 `platform verify` 默认跑 fast lane：
+- 本地无参数 `platform verify` 默认跑 fast lane，`platform verify --json [--compact]` 可直接输出本次 verification report：
   - 运行 compiler typecheck、generated fast unit/acceptance、policy gate。
   - 运行 generated runtime service/unit 测试。
   - 不运行 Next build。
@@ -194,6 +194,7 @@
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
          - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `generated/runtime-report.json`。
          - `platform verification report --json [--compact]` 输出稳定 verification report 合同，直接消费最新 `generated/verification-report.json`。
+        - `platform verify --json [--compact]` 执行验证并直接输出同一 verification report 合同。
          - `platform provenance registry --json [--compact]` 输出稳定 provenance registry 合同，直接消费最新 `provenance.json`。
          - `platform review summary --json [--compact]` 输出稳定 review summary 合同，直接消费最新 `generated/review-summary.json`。
          - `npm run test:contract-freeze` 固定运行 `platform contract freeze` 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。

@@ -7,6 +7,10 @@ import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../sh
 
 type RuntimeVerificationMode = 'service' | 'full';
 
+type RuntimeVerificationOptions = {
+  emitTiming?: boolean;
+};
+
 function generatePort(projectRoot: string): number {
   const basePort = 3000;
   const workerId = parseInt(process.env.VITEST_POOL_ID ?? '0', 10);
@@ -44,11 +48,17 @@ function relativeFiles(rootDir: string, files: string[]): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
-async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+async function timed<T>(
+  label: string,
+  emitTiming: boolean,
+  fn: () => Promise<T>
+): Promise<T> {
   const start = Date.now();
   const result = await fn();
-  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  console.log(`[TIMING] ${label}: ${elapsed}s`);
+  if (emitTiming) {
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    console.log(`[TIMING] ${label}: ${elapsed}s`);
+  }
   return result;
 }
 
@@ -66,8 +76,10 @@ async function ensurePlaywrightBrowser(projectRoot: string, env: NodeJS.ProcessE
 
 export async function runRuntimeVerification(
   projectRoot: string,
-  mode: RuntimeVerificationMode = 'full'
+  mode: RuntimeVerificationMode = 'full',
+  options: RuntimeVerificationOptions = {}
 ): Promise<RuntimeVerificationLaneReport> {
+  const emitTiming = options.emitTiming ?? true;
   const runtimeUnitFiles = relativeFiles(
     projectRoot,
     (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'unit'))).filter((file) => file.endsWith('.test.ts'))
@@ -77,8 +89,8 @@ export async function runRuntimeVerification(
     (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'acceptance'))).filter((file) => file.endsWith('.spec.ts'))
   );
 
-  await timed('shared deps warmup', () => ensureSharedDepsReady());
-  await timed('project deps materialize', () => ensureProjectDependencies(projectRoot, { skipSharedDepsWarmup: true }));
+  await timed('shared deps warmup', emitTiming, () => ensureSharedDepsReady());
+  await timed('project deps materialize', emitTiming, () => ensureProjectDependencies(projectRoot, { skipSharedDepsWarmup: true }));
 
   const envPathKey = pathEnvKey();
   const baseEnv = {
@@ -113,7 +125,7 @@ export async function runRuntimeVerification(
 
   if (mode === 'full') {
     const buildInvocation = resolveNpmInvocation(['run', 'build']);
-    const buildResult = await timed('next build', () =>
+    const buildResult = await timed('next build', emitTiming, () =>
       runCommand(buildInvocation.command, buildInvocation.args, {
         cwd: projectRoot,
         env: baseEnv
@@ -142,7 +154,7 @@ export async function runRuntimeVerification(
     };
   } else {
     const unitInvocation = resolveNpmInvocation(['run', 'test:unit']);
-    const unitResult = await timed('vitest unit', () =>
+    const unitResult = await timed('vitest unit', emitTiming, () =>
       runCommand(unitInvocation.command, unitInvocation.args, {
         cwd: projectRoot,
         env: baseEnv
@@ -178,7 +190,7 @@ export async function runRuntimeVerification(
     return lane;
   }
 
-  const browserInstallResult = await timed('playwright install', () => ensurePlaywrightBrowser(projectRoot, baseEnv));
+  const browserInstallResult = await timed('playwright install', emitTiming, () => ensurePlaywrightBrowser(projectRoot, baseEnv));
   appendCommandOutput(lane.logs, browserInstallResult, 'playwright-install:passed');
   if (browserInstallResult.code !== 0) {
     lane.acceptance = {
@@ -193,7 +205,7 @@ export async function runRuntimeVerification(
 
   const testPort = generatePort(projectRoot);
   const acceptanceInvocation = resolveNpmInvocation(['run', 'test:acceptance']);
-  const acceptanceResult = await timed('playwright test', () =>
+  const acceptanceResult = await timed('playwright test', emitTiming, () =>
     runCommand(acceptanceInvocation.command, acceptanceInvocation.args, {
       cwd: projectRoot,
       env: {
