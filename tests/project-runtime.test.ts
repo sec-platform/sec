@@ -155,6 +155,10 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   const readme = await fs.readFile(path.join(compilerRoot, 'README.md'), 'utf8');
   const cliSource = await fs.readFile(path.join(compilerRoot, 'platform', 'cli', 'index.ts'), 'utf8');
   const protocolSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'error-protocol.ts'), 'utf8');
+  const protocolContractSource = await fs.readFile(
+    path.join(compilerRoot, 'platform', 'shared', 'error-protocol-contract.ts'),
+    'utf8'
+  );
   const processSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'process.ts'), 'utf8');
 
   expect(rootPackage.scripts['test:budget']).toBe('npm run platform -- test budget --json');
@@ -171,6 +175,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(routeMap).toContain('platform deps status --json [--compact]');
   expect(routeMap).toContain('platform artifacts --paths --json --compact --kind governance|view|test|contract');
   expect(routeMap).toContain('platform contract freeze --json [--compact]');
+  expect(routeMap).toContain('platform contract errors --json [--compact]');
   expect(routeMap).toContain('platform test budget --json [--compact]');
   expect(routeMap).toContain('platform reference check --json [--compact]');
   expect(routeMap).toContain('platform benchmark suite --json [--compact]');
@@ -179,6 +184,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(readme).toContain('npm run platform -- deps status --json --compact');
   expect(readme).toContain('npm run platform -- artifacts --paths --json --compact --kind governance');
   expect(readme).toContain('npm run platform -- contract freeze --json --compact');
+  expect(readme).toContain('npm run platform -- contract errors --json --compact');
   expect(readme).toContain('npm run platform -- test budget --json --compact');
   expect(readme).toContain('npm run platform -- reference check');
   expect(readme).toContain('npm run platform -- reference check --json --compact');
@@ -190,6 +196,8 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(protocolSource).toContain("code.startsWith('VERIFY-')");
   expect(protocolSource).toContain("code.startsWith('REPAIR-')");
   expect(protocolSource).toContain("code.startsWith('UPGRADE-')");
+  expect(protocolContractSource).toContain("command: 'npm run platform -- contract errors --json'");
+  expect(protocolContractSource).toContain("id: 'upgrade-error'");
   expect(cliSource).toContain('recoverable: protocol.recoverable');
   expect(cliSource).toContain('issueType: protocol.issueType');
   expect(cliSource).toContain('suggestedActions: protocol.suggestedActions');

@@ -11,6 +11,10 @@ import {
   buildContractFreezeContract,
   formatContractFreezeContract
 } from '../platform/shared/contract-freeze-contract.ts';
+import {
+  buildErrorProtocolContract,
+  formatErrorProtocolContract
+} from '../platform/shared/error-protocol-contract.ts';
 import { compilerRoot, getWorkspacePaths } from '../platform/shared/paths.ts';
 import {
   buildTestBudgetContract,
@@ -539,6 +543,72 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
       targetCount: 3
+    });
+  });
+});
+
+test('CLI exposes error protocol as text and JSON contracts', async () => {
+  const contract = buildErrorProtocolContract();
+  expect(formatErrorProtocolContract(contract)).toContain('Error protocol active');
+  expect(formatErrorProtocolContract(contract)).toContain('Example upgrade-error; code=UPGRADE-CONFLICT-001');
+  expect(JSON.stringify(contract)).not.toContain('\n');
+  expect(contract).toMatchObject({
+    formatVersion: '1',
+    status: 'active',
+    command: 'npm run platform -- contract errors --json',
+    exampleCount: 6,
+    issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
+    examples: expect.arrayContaining([
+      expect.objectContaining({
+        id: 'usage-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'usage',
+          suggestedActions: ['retry-with-supported-arguments']
+        })
+      }),
+      expect.objectContaining({
+        id: 'verify-error',
+        output: expect.objectContaining({
+          recoverable: false,
+          issueType: 'spec',
+          suggestedActions: ['inspect-verification-report', 'run-platform-explain']
+        })
+      }),
+      expect.objectContaining({
+        id: 'upgrade-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'composition',
+          suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics']
+        })
+      })
+    ])
+  });
+
+  await withTempWorkspace(async (workspaceRoot) => {
+    const textResult = await runCli(workspaceRoot, ['contract', 'errors']);
+    expect(textResult.code).toBe(0);
+    expect(textResult.stderr).toBe('');
+    expect(textResult.stdout).toContain('Error protocol active');
+    expect(textResult.stdout).toContain('Example repair-error; code=REPAIR-BLOCKED-001');
+
+    const jsonResult = await runCli(workspaceRoot, ['contract', 'errors', '--json']);
+    expect(jsonResult.code).toBe(0);
+    expect(jsonResult.stderr).toBe('');
+    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+      status: 'active',
+      exampleCount: 6,
+      suggestedActionCount: 9
+    });
+
+    const compactResult = await runCli(workspaceRoot, ['contract', 'errors', '--json', '--compact']);
+    expect(compactResult.code).toBe(0);
+    expect(compactResult.stderr).toBe('');
+    expect(compactResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(compactResult.stdout)).toMatchObject({
+      status: 'active',
+      exampleCount: 6
     });
   });
 });
@@ -2002,17 +2072,22 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
     await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract freeze [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract', 'freeze', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract freeze [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['contract', 'errors', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract', 'status'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract freeze [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform contract <freeze|errors> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,

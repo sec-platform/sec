@@ -48,6 +48,8 @@ Use these entry commands for normal development:
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
 - `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list
+- `npm run platform -- contract errors`: inspect the error protocol contract
+- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract
 - `npm run platform -- test budget`: inspect the fast/runtime/all slow-test budget
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
@@ -103,6 +105,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
 - `npm run reference:check`: run the formal reference drift gate through `platform reference check`
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list
+- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract
 - `npm run platform -- reference check --json --compact`: emit the compact reference drift contract
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract
