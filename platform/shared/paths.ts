@@ -8,17 +8,29 @@ const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 export const compilerRoot = path.resolve(moduleDir, '../..');
 export const officialRegistryRelativePath = path.join('platform', 'registry', 'official');
 export const privateRegistryRelativePath = path.join('platform', 'registry', 'private');
+export const developerSourceRelativePath = path.join('project', 'source');
 export const officialRegistryRoot = path.join(compilerRoot, officialRegistryRelativePath);
 
 export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
   const root = path.resolve(workspaceRoot);
   const projectRoot = path.join(root, 'project');
+  const developerSourceRoot = path.join(root, developerSourceRelativePath);
   const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');
   const projectPoliciesRoot = path.join(projectRoot, 'policies');
+  const sourcePoliciesRoot = path.join(developerSourceRoot, 'policies');
 
   return {
     workspaceRoot: root,
     projectRoot,
+    developerSourceRoot,
+    sourceSlotsRoot: path.join(developerSourceRoot, 'slots'),
+    sourceOverridesRoot: path.join(developerSourceRoot, 'overrides'),
+    sourcePoliciesRoot,
+    sourceAcceptanceRoot: path.join(developerSourceRoot, 'acceptance'),
+    sourceAssetsRoot: path.join(developerSourceRoot, 'assets'),
+    sourcePrivateRegistryRoot: path.join(developerSourceRoot, 'registry', 'private'),
+    sourceViewsRoot: path.join(developerSourceRoot, 'views'),
+    sourceEnvRoot: path.join(developerSourceRoot, 'env'),
     privateRegistryRoot: path.join(root, privateRegistryRelativePath),
     generatedViewsDir: path.join(projectRoot, 'generated', 'views'),
     planPath: path.join(projectRoot, 'app.plan.yaml'),

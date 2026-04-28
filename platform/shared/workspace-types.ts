@@ -1,6 +1,15 @@
 export interface WorkspacePaths {
   workspaceRoot: string;
   projectRoot: string;
+  developerSourceRoot: string;
+  sourceSlotsRoot: string;
+  sourceOverridesRoot: string;
+  sourcePoliciesRoot: string;
+  sourceAcceptanceRoot: string;
+  sourceAssetsRoot: string;
+  sourcePrivateRegistryRoot: string;
+  sourceViewsRoot: string;
+  sourceEnvRoot: string;
   privateRegistryRoot: string;
   generatedViewsDir: string;
   planPath: string;
