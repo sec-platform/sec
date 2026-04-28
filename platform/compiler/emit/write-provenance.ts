@@ -2,7 +2,9 @@ import fs from 'node:fs/promises';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
-import type { LockFile, ProvenanceArtifact, ProvenanceFile, VerificationReport } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/types.ts';
+import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
+import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;

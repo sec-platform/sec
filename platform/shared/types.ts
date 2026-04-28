@@ -1,5 +1,11 @@
 import type { AcceptanceCoverageReport, AcceptanceItem } from './acceptance-types.ts';
 import type { ExplainGraph } from './explain-types.ts';
+import type {
+  OverrideSource,
+  OverrideStatus,
+  ProvenanceOriginType
+} from './provenance-types.ts';
+import type { RegistryKind, RegistryLocation } from './registry-types.ts';
 import type { PolicySeverity, PolicySourceScope } from './policy-types.ts';
 import type { VerificationStatus } from './verification-types.ts';
 
@@ -7,13 +13,18 @@ export type PackageManager = 'pnpm' | 'npm' | 'yarn';
 export type AppMode = 'single-tenant' | 'multi-tenant';
 export type SlotKind = 'adapter' | 'policy' | 'ux' | 'repair';
 export type ManifestKind = 'capability' | 'strategy' | 'infra' | 'governance';
-export type RegistryKind = 'official' | 'private' | 'community';
-export type RegistryLocation = 'compiler' | 'workspace';
+export type { RegistryKind, RegistryLocation } from './registry-types.ts';
 export type PassState = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
-export type ProvenanceOriginType = 'block' | 'slot' | 'generated' | 'override';
-export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
-export type OverrideSource = 'manual' | 'rule-backed';
-export type OverrideApplyPhase = 'compose' | 'adapt';
+export type {
+  OverrideApplyPhase,
+  OverrideEntry,
+  OverrideManifest,
+  OverrideSource,
+  OverrideStatus,
+  ProvenanceArtifact,
+  ProvenanceFile,
+  ProvenanceOriginType
+} from './provenance-types.ts';
 export type {
   CoverageOverlay,
   ExplainEdgeType,
@@ -431,26 +442,6 @@ export interface TaskEnvelope {
   lockSummary: {
     blocks: string[];
   };
-}
-
-export interface ProvenanceArtifact {
-  path: string;
-  originType: ProvenanceOriginType;
-  originId: string;
-  sourceBlock?: string;
-  registrySourceId?: string;
-  registryKind?: RegistryKind;
-  registryLocation?: RegistryLocation;
-  registryPath?: string;
-  generatedByPass?: string;
-  generatorTaskId?: string;
-  verifiedBy: string[];
-  overrideStatus: OverrideStatus;
-}
-
-export interface ProvenanceFile {
-  formatVersion: string;
-  artifacts: ProvenanceArtifact[];
 }
 
 export interface ReviewFailurePoint {
@@ -1015,18 +1006,4 @@ export interface UpgradeDiagnostics {
   errorCode: string;
   message: string;
   details?: unknown;
-}
-
-export interface OverrideEntry {
-  id: string;
-  entry: string;
-  target: string;
-  reason: string;
-  source: OverrideSource;
-  appliesAfter: OverrideApplyPhase[];
-  conflictsWith: string[];
-}
-
-export interface OverrideManifest {
-  overrides: OverrideEntry[];
 }

@@ -8,13 +8,13 @@ import type { ExplainGraph } from '../shared/explain-types.ts';
 import type {
   InstallPlanStep,
   LockFile,
-  ProvenanceFile,
   RepairPlan,
   ReviewSummary,
   UpgradeDiagnostics,
   UpgradePlan
 } from '../shared/types.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
+import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import type { ArtifactPathKind } from './args.ts';
 
