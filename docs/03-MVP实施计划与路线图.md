@@ -191,7 +191,7 @@
          - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
-         - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单、聚合 test target files，并为每个 target 暴露可复现 `bun test` 命令。
+         - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单、顶层 inspect command、runner command、聚合 test target files，并为每个 target 暴露可复现 `bun test` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/rollback/conflict 的真实错误码样例。
          - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、typecheck gate、顶层 quality commands、contract freeze gate、reference drift gate、顶层 diagnostic commands、governance/view/test/contract artifact upload 路径入口与聚合 produced artifact paths。
         - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
@@ -202,7 +202,7 @@
         - `platform verify --json [--compact]` 执行验证并直接输出同一 verification report 合同。
          - `platform provenance registry --json [--compact]` 输出稳定 provenance registry 合同，直接消费最新 `provenance.json`。
          - `platform review summary --json [--compact]` 输出稳定 review summary 合同，直接消费最新 `generated/review-summary.json`。
-         - `npm run test:contract-freeze` 固定运行 `platform contract freeze` 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
+         - `npm run test:contract-freeze` 固定运行 `platform contract freeze` runner command 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`，JSON 输出用 runner command 和 failedStage 区分入口与 refresh/diff 阶段。
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
