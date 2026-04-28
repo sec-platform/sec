@@ -2198,6 +2198,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const explainWithContractResult = await runCli(workspaceRoot, ['explain']);
     expect(explainWithContractResult.code).toBe(0);
     expect(explainWithContractResult.stderr).toBe('');
+    expect(explainWithContractResult.stdout).toContain(
+      `E2E artifacts: passed; total=${contractManifest.summary.artifactCount}; missing=0; evidence=total=${contractManifest.summary.artifactCount}, missing=0, uploadGroups=${contractManifest.summary.uploadGroupCount}, missingReasonTypes=0`
+    );
     expect(explainWithContractResult.stdout).toContain('missing reason types: 0');
     expect(explainWithContractResult.stdout).toContain('contracts: 1');
     expect(explainWithContractResult.stdout).toContain(`upload groups: ${contractManifest.summary.uploadGroupCount}`);
@@ -2246,6 +2249,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
 
     const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
     const explainWithMissingPayload = JSON.parse(explainWithMissingResult.stdout) as {
+      e2eMatrix: {
+        rows: Array<{ stage: string; evidence: string[] }>;
+      };
       reviewSummary: {
         artifactSummary?: typeof manifest.summary & {
           uploadGroups?: typeof manifest.uploadGroups;
@@ -2258,6 +2264,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       manifestWithLockMissing.uploadGroups
     );
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missingReasonTypeCount).toBe(1);
+    expect(explainWithMissingPayload.e2eMatrix.rows.find((row) => row.stage === 'artifacts')?.evidence).toEqual([
+      `total=${manifestWithLockMissing.summary.artifactCount}`,
+      'missing=1',
+      `uploadGroups=${manifestWithLockMissing.summary.uploadGroupCount}`,
+      'missingReasonTypes=1'
+    ]);
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(lockMissingDiagnostics);
 
     const testPathsBeforeFixture = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
