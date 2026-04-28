@@ -23,6 +23,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     planPath: path.join(projectRoot, 'app.plan.yaml'),
     lockPath: path.join(projectRoot, 'graph.lock.json'),
     generatedDir: path.join(projectRoot, 'generated'),
+    blockUsageMapPath: path.join(projectRoot, 'generated', 'block-usage-map.json'),
     overrideManifestPath: path.join(projectRoot, 'overrides', 'override-manifest.yaml'),
     policySpecPath: path.join(projectPoliciesRoot, 'policy.spec.yaml'),
     officialPoliciesRoot,
