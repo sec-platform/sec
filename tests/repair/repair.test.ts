@@ -1,14 +1,13 @@
 import { expect, test } from 'vitest';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { applyRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { lockWorkspace, repairWorkspace } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 
 function plan(): PlanFile {
@@ -121,26 +120,7 @@ function failedUnitReport(): VerificationReport {
   };
 }
 
-function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(compilerRoot, 'platform', 'cli', 'index.ts'), ...args], {
-      cwd: workspaceRoot,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.on('error', reject);
-    child.on('close', (code) => {
-      resolve({
-        code: code ?? 1,
-        stdout: Buffer.concat(stdout).toString('utf8'),
-        stderr: Buffer.concat(stderr).toString('utf8')
-      });
-    });
-  });
-}
+
 
 async function writeRepairFixture(workspaceRoot: string, fixtureLock: LockFile = lock()): Promise<void> {
   const { planPath, lockPath, verificationReportPath, projectRoot } = getWorkspacePaths(workspaceRoot);

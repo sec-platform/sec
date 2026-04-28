@@ -1,5 +1,4 @@
 import { expect, test } from 'vitest';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -19,7 +18,7 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
-import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
   buildTestBudgetContract,
   formatTestBudgetContract
@@ -48,28 +47,7 @@ import type {
 } from '../../platform/shared/types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
-
-function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(compilerRoot, 'platform', 'cli', 'index.ts'), ...args], {
-      cwd: workspaceRoot,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.on('error', reject);
-    child.on('close', (code) => {
-      resolve({
-        code: code ?? 1,
-        stdout: Buffer.concat(stdout).toString('utf8'),
-        stderr: Buffer.concat(stderr).toString('utf8')
-      });
-    });
-  });
-}
+import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
 
 function usageErrorStderr(usage: string): string {
   return [
@@ -517,4 +495,4 @@ test('CLI emits explain JSON for CI consumers', async () => {
     );
     expect(payload.reviewSummary.failurePoints).toEqual([]);
   });
-});
+}, 120000);

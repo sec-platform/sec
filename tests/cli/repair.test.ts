@@ -1,5 +1,4 @@
 import { expect, test } from 'vitest';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -19,7 +18,7 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
-import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
   buildTestBudgetContract,
   formatTestBudgetContract
@@ -48,28 +47,7 @@ import type {
 } from '../../platform/shared/types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
-
-function runCli(workspaceRoot: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(compilerRoot, 'platform', 'cli', 'index.ts'), ...args], {
-      cwd: workspaceRoot,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.on('error', reject);
-    child.on('close', (code) => {
-      resolve({
-        code: code ?? 1,
-        stdout: Buffer.concat(stdout).toString('utf8'),
-        stderr: Buffer.concat(stderr).toString('utf8')
-      });
-    });
-  });
-}
+import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
 
 function usageErrorStderr(usage: string): string {
   return [
@@ -233,9 +211,9 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
     expect(textResult.stdout).toContain('Source verification: failed; requires verification: false');
-    expect(textResult.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
+    expect(textResult.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> source/slots/customer_normalizer.ts');
     expect(textResult.stdout).toContain(
-      'Review repair_slot_customer_normalizer: writeBounds=custom/customer_normalizer.ts; symbols=normalizeCustomerInput; tests=tests/unit/customer-normalizer.test.ts, tests/acceptance/customer-flow.test.ts; forbidden=modify_other_files, add_dependencies, access_database, change_exports; failureTargets=none'
+      'Review repair_slot_customer_normalizer: writeBounds=source/slots/customer_normalizer.ts; symbols=normalizeCustomerInput; tests=tests/unit/customer-normalizer.test.ts, tests/acceptance/customer-flow.test.ts; forbidden=modify_other_files, add_dependencies, access_database, change_exports; failureTargets=none'
     );
     expect(textResult.stdout).toContain(
       'Preview repair_slot_customer_normalizer: changed=false; +0; -0;'
@@ -266,7 +244,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
       category: 'slot-rewrite',
       sourceSlotId: 'customer_normalizer',
       targetBlock: 'entity/customer-basic',
-      targetFile: 'custom/customer_normalizer.ts',
+      targetFile: 'source/slots/customer_normalizer.ts',
       review: {
         allowedPathCount: 1,
         requiredSymbolCount: 1,
@@ -274,12 +252,12 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
         testCount: 2,
         failureTargetCount: 0,
         sourceSlotStatus: 'filled',
-        sourceWritableZones: ['custom/'],
+        sourceWritableZones: ['source/slots/customer_normalizer.ts', 'custom/'],
         sourceProvenanceHints: {
           generator: 'mock-local-synthesizer',
           verifiedBy: []
         },
-        writeBounds: ['custom/customer_normalizer.ts'],
+        writeBounds: ['source/slots/customer_normalizer.ts'],
         requiredSymbols: ['normalizeCustomerInput'],
         forbiddenOperations: [
           'modify_other_files',
@@ -315,7 +293,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     expect(planText.code).toBe(0);
     expect(planText.stderr).toBe('');
     expect(planText.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
-    expect(planText.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
+    expect(planText.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> source/slots/customer_normalizer.ts');
 
     const planJson = await runCli(workspaceRoot, ['repair', 'plan', '--json']);
     expect(planJson.code).toBe(0);
@@ -440,7 +418,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
       targetSummaries: [],
       taskCategorySummaries: [{ id: 'slot-rewrite', count: 1 }],
       targetFileCount: 1,
-      targetFiles: ['custom/customer_normalizer.ts'],
+      targetFiles: ['source/slots/customer_normalizer.ts'],
       taskSummaries: [
         expect.objectContaining({
           taskId: 'repair_slot_customer_normalizer',
@@ -449,7 +427,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
           forbiddenOperationCount: 4,
           testCount: 2,
           failureTargetCount: 0,
-          writeBounds: ['custom/customer_normalizer.ts'],
+          writeBounds: ['source/slots/customer_normalizer.ts'],
           requiredSymbols: ['normalizeCustomerInput'],
           forbiddenOperations: [
             'modify_other_files',
