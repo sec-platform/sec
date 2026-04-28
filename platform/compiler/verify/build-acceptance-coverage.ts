@@ -4,9 +4,9 @@ import type {
   AcceptanceCoverageReport,
   AcceptanceItem,
   BlockManifest,
-  LockFile,
-  RuntimeVerificationLaneReport
+  LockFile
 } from '../../shared/types.ts';
+import type { RuntimeVerificationLaneReport } from '../../shared/verification-types.ts';
 
 interface AcceptanceCoverageTarget {
   id: string;

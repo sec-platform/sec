@@ -1,3 +1,6 @@
+import type { PolicySeverity, PolicySourceScope } from './policy-types.ts';
+import type { VerificationStatus } from './verification-types.ts';
+
 export type PackageManager = 'pnpm' | 'npm' | 'yarn';
 export type AppMode = 'single-tenant' | 'multi-tenant';
 export type SlotKind = 'adapter' | 'policy' | 'ux' | 'repair';
@@ -5,8 +8,6 @@ export type ManifestKind = 'capability' | 'strategy' | 'infra' | 'governance';
 export type RegistryKind = 'official' | 'private' | 'community';
 export type RegistryLocation = 'compiler' | 'workspace';
 export type PassState = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
-export type VerificationLane = 'fast' | 'runtime' | 'all';
-export type VerificationStatus = 'passed' | 'failed' | 'skipped';
 export type ProvenanceOriginType = 'block' | 'slot' | 'generated' | 'override';
 export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
 export type OverrideSource = 'manual' | 'rule-backed';
@@ -31,9 +32,6 @@ export type ExplainEdgeType =
   | 'verified_by'
   | 'originates_from'
   | 'violates';
-export type PolicySeverity = 'info' | 'warn' | 'error' | 'blocker';
-export type PolicySourceScope = 'official' | 'project';
-
 export interface AcceptanceItem {
   id: string;
   dependsOn?: string[];
@@ -392,6 +390,27 @@ export interface LockFile {
 
 export type { WorkspacePaths } from './workspace-types.ts';
 
+export type {
+  MergedPolicyReportEntry,
+  PolicyReport,
+  PolicyRule,
+  PolicySeverity,
+  PolicySourceFileReport,
+  PolicySourceScope,
+  PolicySpec,
+  PolicyViolation
+} from './policy-types.ts';
+
+export type {
+  FastVerificationLaneReport,
+  RuntimeVerificationLaneReport,
+  VerificationLane,
+  VerificationLogs,
+  VerificationReport,
+  VerificationStatus,
+  VerificationStepReport
+} from './verification-types.ts';
+
 export interface TaskEnvelope {
   taskId: string;
   taskKind: `${SlotKind}-slot`;
@@ -425,115 +444,6 @@ export interface TaskEnvelope {
   lockSummary: {
     blocks: string[];
   };
-}
-
-export interface VerificationStepReport {
-  status: VerificationStatus;
-  passed: string[];
-  failed: string[];
-  command: string | null;
-}
-
-export interface VerificationLogs {
-  stdout: string;
-  stderr: string;
-}
-
-export interface PolicyReport {
-  status: 'passed' | 'failed' | 'skipped';
-  official: {
-    policies: string[];
-    sources: PolicySourceFileReport[];
-    violations: PolicyViolation[];
-  };
-  project: {
-    policies: string[];
-    sources: PolicySourceFileReport[];
-    violations: PolicyViolation[];
-  };
-  merged: {
-    policies: MergedPolicyReportEntry[];
-  };
-  violations: PolicyViolation[];
-}
-
-export interface FastVerificationLaneReport {
-  status: VerificationStatus;
-  build: {
-    status: VerificationStatus;
-  };
-  unit: {
-    status: VerificationStatus;
-    passed: string[];
-  };
-  acceptance: {
-    status: VerificationStatus;
-    passed: string[];
-    failed: string[];
-  };
-  policy: {
-    status: 'passed' | 'failed' | 'skipped';
-    violations: PolicyViolation[];
-  };
-  policyReport?: PolicyReport;
-  logs: VerificationLogs;
-}
-
-export interface RuntimeVerificationLaneReport {
-  status: VerificationStatus;
-  build: VerificationStepReport;
-  unit: VerificationStepReport;
-  acceptance: VerificationStepReport;
-  logs: VerificationLogs;
-}
-
-export interface VerificationReport {
-  build: FastVerificationLaneReport['build'];
-  unit: FastVerificationLaneReport['unit'];
-  acceptance: FastVerificationLaneReport['acceptance'];
-  policy: FastVerificationLaneReport['policy'];
-  fast: FastVerificationLaneReport;
-  runtime: RuntimeVerificationLaneReport;
-  summary: {
-    status: 'passed' | 'failed';
-    requestedLane: VerificationLane;
-    failedLanes: Array<'fast' | 'runtime'>;
-  };
-  logs: VerificationLogs;
-}
-
-export interface PolicyRule {
-  id: string;
-  severity: PolicySeverity;
-  appliesTo: string[];
-  rule: string;
-}
-
-export interface PolicySpec {
-  policies: PolicyRule[];
-}
-
-export interface PolicySourceFileReport {
-  path: string;
-  policyIds: string[];
-}
-
-export interface MergedPolicyReportEntry {
-  id: string;
-  sourceScope: PolicySourceScope;
-  sourcePath: string;
-  targets: string[];
-}
-
-export interface PolicyViolation {
-  id: string;
-  severity: PolicySeverity;
-  appliesTo: string[];
-  rule: string;
-  files: string[];
-  message: string;
-  sourceScope: PolicySourceScope;
-  sourcePath: string;
 }
 
 export interface ProvenanceArtifact {

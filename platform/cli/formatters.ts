@@ -6,15 +6,14 @@ import type {
   ExplainGraph,
   InstallPlanStep,
   LockFile,
-  PolicyReport,
   ProvenanceFile,
   RepairPlan,
-  RuntimeVerificationLaneReport,
   ReviewSummary,
   UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport
+  UpgradePlan
 } from '../shared/types.ts';
+import type { PolicyReport } from '../shared/policy-types.ts';
+import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import type { ArtifactPathKind } from './args.ts';
 
 export type ArtifactPathUploadGroup = {

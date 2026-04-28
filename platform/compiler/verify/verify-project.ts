@@ -4,14 +4,14 @@ import { pathToFileURL } from 'node:url';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import type { LockFile } from '../../shared/types.ts';
+import type { PolicyReport } from '../../shared/policy-types.ts';
 import type {
   FastVerificationLaneReport,
-  LockFile,
-  PolicyReport,
   RuntimeVerificationLaneReport,
   VerificationLane,
   VerificationReport
-} from '../../shared/types.ts';
+} from '../../shared/verification-types.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { runRuntimeVerification } from './run-runtime-verification.ts';

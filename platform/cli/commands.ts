@@ -35,12 +35,11 @@ import { getWorkspacePaths } from '../shared/paths.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import type {
   AcceptanceCoverageReport,
-  PolicyReport,
   ProvenanceFile,
-  RuntimeVerificationLaneReport,
-  ReviewSummary,
-  VerificationReport
+  ReviewSummary
 } from '../shared/types.ts';
+import type { PolicyReport } from '../shared/policy-types.ts';
+import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import {
   ACCEPTANCE_USAGE,
   BENCHMARK_USAGE,

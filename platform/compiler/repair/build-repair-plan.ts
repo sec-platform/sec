@@ -12,9 +12,9 @@ import type {
   RepairFailurePoint,
   RepairPlan,
   RepairTask,
-  RepairTaskPreview,
-  VerificationReport
+  RepairTaskPreview
 } from '../../shared/types.ts';
+import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function summarizeFailure(report: VerificationReport): string {
   return `build=${report.build.status}; unit=${report.unit.status}; acceptance=${report.acceptance.status}; policy=${report.policy.status}; runtime=${report.runtime.status}`;

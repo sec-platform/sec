@@ -28,10 +28,9 @@ import type {
   PlanFile,
   ProvenanceFile,
   RepairPlan,
-  ReviewSummary,
-  VerificationLane,
-  VerificationReport
+  ReviewSummary
 } from './shared/types.ts';
+import type { VerificationLane, VerificationReport } from './shared/verification-types.ts';
 
 function defaultPlan(): PlanFile {
   return {
