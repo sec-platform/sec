@@ -202,7 +202,7 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
     return;
   }
 
-  if (entry.kind === 'rename-file') {
+  if (entry.kind === 'rename-file' || entry.kind === 'rename-directory') {
     ensureMigrationString(entry.source, 'source', entryPath);
     return;
   }
@@ -515,6 +515,20 @@ async function renameFileMigrationTarget(
   await fs.rename(sourcePath, targetPath);
 }
 
+async function renameDirectoryMigrationTarget(
+  sourcePath: string,
+  targetPath: string,
+  source: string,
+  target: string
+): Promise<void> {
+  await statRenameDirectoryMigrationSource(sourcePath, source);
+  if (await pathExists(targetPath)) {
+    throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${target}" already exists`);
+  }
+  await ensureDir(path.dirname(targetPath));
+  await fs.rename(sourcePath, targetPath);
+}
+
 function migrationErrorDetails(entry: UpgradeMigrationEntry): Record<string, unknown> {
   return {
     migrationId: entry.id,
@@ -594,7 +608,7 @@ async function applyMigrationEntry(
       })
     );
   }
-  if (entry.kind === 'rename-file' && !impacts.includes(entry.source)) {
+  if ((entry.kind === 'rename-file' || entry.kind === 'rename-directory') && !impacts.includes(entry.source)) {
     throw new CompilerError(
       'UPGRADE-MIGRATION-007',
       `Migration source "${entry.source}" is outside upgrade impacts`,
@@ -709,6 +723,15 @@ async function applyMigrationEntry(
     return;
   }
 
+  if (entry.kind === 'rename-directory') {
+    const sourcePath = resolveProjectPath(projectRoot, entry.source, {
+      migrationId: entry.id,
+      role: 'source'
+    });
+    await renameDirectoryMigrationTarget(sourcePath, targetPath, entry.source, entry.target);
+    return;
+  }
+
   if (entry.kind === 'slot-contract-update') {
     await statFileMigrationTarget(targetPath, entry.target, entry.kind);
     return;
@@ -752,7 +775,7 @@ async function collectMigrationTargetEvidence(
 ): Promise<string[]> {
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
-    if (entry.kind === 'rename-file') {
+    if (entry.kind === 'rename-file' || entry.kind === 'rename-directory') {
       evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, 'source', entry.source));
     }
     evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, 'target', entry.target));
@@ -838,6 +861,18 @@ async function statRenameMigrationSource(sourcePath: string, source: string): Pr
   }
   if (!stats.isFile()) {
     throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-file source "${source}" must be a file`);
+  }
+}
+
+async function statRenameDirectoryMigrationSource(sourcePath: string, source: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.stat(sourcePath);
+  } catch {
+    throw new CompilerError('UPGRADE-MIGRATION-018', `Rename-directory source "${source}" is missing`);
+  }
+  if (!stats.isDirectory()) {
+    throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-directory source "${source}" must be a directory`);
   }
 }
 
@@ -961,6 +996,22 @@ async function collectFileOperationEvidence(
         throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
       }
       evidence.push(`${entry.id}:source:file`);
+      evidence.push(`${entry.id}:target:available`);
+    }
+    if (entry.kind === 'rename-directory') {
+      const sourcePath = resolveProjectPath(projectRoot, entry.source, {
+        migrationId: entry.id,
+        role: 'source'
+      });
+      const targetPath = resolveProjectPath(projectRoot, entry.target, {
+        migrationId: entry.id,
+        role: 'target'
+      });
+      await statRenameDirectoryMigrationSource(sourcePath, entry.source);
+      if (await pathExists(targetPath)) {
+        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${entry.target}" already exists`);
+      }
+      evidence.push(`${entry.id}:source:directory`);
       evidence.push(`${entry.id}:target:available`);
     }
     if (entry.kind === 'text-append') {
@@ -1377,7 +1428,7 @@ function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradePlan['mig
     };
   }
 
-  if (entry.kind === 'copy-directory') {
+  if (entry.kind === 'copy-directory' || entry.kind === 'rename-directory') {
     return {
       id: entry.id,
       kind: entry.kind,
@@ -1524,7 +1575,8 @@ function buildUpgradePlan(
           entry.kind === 'file-replace' ||
           entry.kind === 'rename-file' ||
           entry.kind === 'copy-file' ||
-          entry.kind === 'copy-directory'
+          entry.kind === 'copy-directory' ||
+          entry.kind === 'rename-directory'
             ? { source: entry.source }
             : {}
         )
@@ -1572,7 +1624,9 @@ export async function upgradeWorkspace(
     });
     const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] =>
       entries.flatMap((entry) =>
-        entry.kind === 'rename-file' ? [entry.source, entry.target] : [entry.target]
+        entry.kind === 'rename-file' || entry.kind === 'rename-directory'
+          ? [entry.source, entry.target]
+          : [entry.target]
       );
     const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
     const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];

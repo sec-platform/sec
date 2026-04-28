@@ -3073,7 +3073,9 @@ test('CLI emits text migration operation details in upgrade summaries', { timeou
     await fs.mkdir(path.join(versionRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
     await fs.mkdir(path.join(versionRoot, 'migrations'), { recursive: true });
     await fs.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
+    await fs.mkdir(path.join(projectRoot, 'generated', 'reports', 'current'), { recursive: true });
     await fs.writeFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), 'status: pending\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'generated', 'reports', 'current', 'summary.json'), '{}\n', 'utf8');
     await fs.writeFile(
       path.join(blockRoot, 'files', 'src', 'installed', 'private', 'text-upgrade.ts'),
       'export const TEXT_UPGRADE_BLOCK_VERSION = \'0.1.0\';\n',
@@ -3121,6 +3123,14 @@ test('CLI emits text migration operation details in upgrade summaries', { timeou
             fromVersion: '0.1.0',
             toVersion: '0.2.0',
             requiresVerification: true
+          },
+          {
+            id: 'mig-report-directory-archive',
+            kind: 'rename-directory',
+            entry: 'migrations/report-directory-archive.json',
+            fromVersion: '0.1.0',
+            toVersion: '0.2.0',
+            requiresVerification: false
           }
         ]
       }
@@ -3134,6 +3144,13 @@ test('CLI emits text migration operation details in upgrade summaries', { timeou
       replacement: 'status: applied',
       flags: 'g'
     });
+    await writeJson(path.join(versionRoot, 'migrations', 'report-directory-archive.json'), {
+      id: 'mig-report-directory-archive',
+      kind: 'rename-directory',
+      reason: 'Archive generated reports directory.',
+      source: 'generated/reports/current',
+      target: 'generated/reports/archive/current'
+    });
     await expect(runCli(workspaceRoot, ['add', 'private/text-upgrade'])).resolves.toMatchObject({
       code: 0,
       stdout: 'Added block private/text-upgrade@0.1.0 from private (private)\n',
@@ -3144,10 +3161,14 @@ test('CLI emits text migration operation details in upgrade summaries', { timeou
 
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Operation roles: text=1');
+    expect(textResult.stdout).toContain('Operation roles: directory=1, text=1');
     expect(textResult.stdout).toContain('Migration mig-upgrade-notes-regex: text-replace-regex;');
     expect(textResult.stdout).toContain(
       'target=docs/upgrade-notes.md; role=text; replacementLength=15; pattern=status: pending; flags=g; requiresVerification=true'
+    );
+    expect(textResult.stdout).toContain('Migration mig-report-directory-archive: rename-directory;');
+    expect(textResult.stdout).toContain(
+      'target=generated/reports/archive/current; source=generated/reports/current; role=directory; requiresVerification=false'
     );
   });
 });
