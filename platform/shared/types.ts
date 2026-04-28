@@ -134,6 +134,14 @@ export interface UpgradeCopyDirectoryMigrationEntry {
   target: string;
 }
 
+export interface UpgradeRenameDirectoryMigrationEntry {
+  id: string;
+  kind: 'rename-directory';
+  reason: string;
+  source: string;
+  target: string;
+}
+
 export interface UpgradeConfigRewriteMigrationEntry {
   id: string;
   kind: 'config-rewrite';
@@ -244,6 +252,7 @@ export type UpgradeMigrationEntry =
   | UpgradeFileReplaceMigrationEntry
   | UpgradeCopyFileMigrationEntry
   | UpgradeCopyDirectoryMigrationEntry
+  | UpgradeRenameDirectoryMigrationEntry
   | UpgradeConfigRewriteMigrationEntry
   | UpgradeJsonArrayAppendMigrationEntry
   | UpgradeJsonArrayRemoveMigrationEntry

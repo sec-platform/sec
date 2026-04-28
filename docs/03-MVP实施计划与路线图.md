@@ -68,7 +68,7 @@
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、顶层 activity counts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints、E2E chain summary，并暴露 review summary CLI、repair、upgrade verification、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、带 phase 的 planning/apply 阶段阻断诊断、verify、lock/provenance 更新和回滚。 |
-| migration 类型 | active | 已支持 `file-replace`、`copy-file`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace`、`text-replace-regex`、`create-directory`、`delete-file`、`delete-directory`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
+| migration 类型 | active | 已支持 `file-replace`、`copy-file`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace`、`text-replace-regex`、`create-directory`、`delete-file`、`delete-directory`、`rename-file`、`rename-directory` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、policy report CLI、review summary、CLI explain 和本地视图治理摘要。 |
 | 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json`、contract artifact 摘要和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
 | 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
@@ -292,6 +292,12 @@
        - source 是目录会阻断。
        - target 已存在会阻断。
        - dry-run plan 同时展示 source/target impact。
+     - `rename-directory` 目录移动迁移：
+       - 可把目录移动到新路径。
+       - source 缺失会阻断。
+       - source 不是目录会阻断。
+       - target 已存在会阻断。
+       - dry-run plan 同时展示 source/target impact 与 directory role。
      - 官方升级 manifest 中的多迁移类型覆盖。
      - upgrade plan migration 摘要与类型计数。
      - upgrade dry-run 入口。
@@ -390,6 +396,12 @@
          - safety：source 必须存在且必须是文件。
          - safety：target 必须未占用。
          - plan：dry-run 记录 source 与 target impact。
+       - rename-directory：
+         - 状态：done。
+         - 执行：移动或重命名目录。
+         - safety：source 必须存在且必须是目录。
+         - safety：target 必须未占用。
+         - plan：dry-run 记录 source 与 target impact，并输出 directory operation。
      - 切口 B：新增文本结构类 migration：
        - text-append：
          - 状态：done。
@@ -452,6 +464,8 @@
          - delete-directory：确认 target 存在且是目录。
          - rename-file：确认 source 存在且是文件。
          - rename-file：确认 target 未被占用。
+         - rename-directory：确认 source 存在且是目录。
+         - rename-directory：确认 target 未被占用。
          - apply：执行阶段 migration 失败时写入 `upgrade-diagnostics.json` 并保留回滚语义。
          - diagnostics：通过 phase 区分 planning/apply，并进入 review summary 与本地视图。
          - diagnostics：归类到 `migration-file-operations`。
