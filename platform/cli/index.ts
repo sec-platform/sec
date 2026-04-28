@@ -70,7 +70,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|install|blocks|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|install|blocks|postgres|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -85,6 +85,7 @@ const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--jso
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const INSTALL_USAGE = 'Usage: platform install manifest [--json [--compact]]';
 const BLOCKS_USAGE = 'Usage: platform blocks usage [--json [--compact]]';
+const POSTGRES_USAGE = 'Usage: platform postgres contract [--json [--compact]]';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
@@ -120,6 +121,17 @@ type BlockUsageMap = {
   blocks: Array<{
     id: string;
     installOrder: number;
+  }>;
+};
+
+type PostgresContract = {
+  formatVersion: string;
+  provider: string;
+  persistenceMode: string;
+  tables: Array<{
+    name: string;
+    tenantScoped: boolean;
+    columns: string[];
   }>;
 };
 
@@ -217,6 +229,19 @@ function formatBlockUsageMap(usageMap: BlockUsageMap): string {
   return [
     `Block usage map ${blocks.length} blocks`,
     `Install order: ${formatList(blocks.map((block) => `${block.installOrder}:${block.id}`))}`
+  ].join('\n');
+}
+
+function formatPostgresContract(contract: PostgresContract): string {
+  const tenantScopedCount = contract.tables.filter((table) => table.tenantScoped).length;
+  return [
+    `Postgres contract ${contract.provider}`,
+    [
+      `mode=${contract.persistenceMode}`,
+      `tables=${contract.tables.length}`,
+      `tenantScoped=${tenantScopedCount}`
+    ].join('; '),
+    `Table list: ${formatList(contract.tables.map((table) => table.name))}`
   ].join('\n');
 }
 
@@ -370,12 +395,12 @@ function parseUpgradeArgs(args: string[]): ParsedUpgradeArgs {
   return { mode: 'run', blockId, targetVersion, dryRun, json, compact };
 }
 
-function parseExplainOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+function parseOptionalJsonOutputArgs(args: string[], usage: string): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
   }
   if (args[0] !== '--json') {
-    throw new Error(EXPLAIN_USAGE);
+    throw new Error(usage);
   }
   if (args.length === 1) {
     return { json: true, compact: false };
@@ -383,7 +408,11 @@ function parseExplainOutputArgs(args: string[]): { json: boolean; compact: boole
   if (args.length === 2 && args[1] === '--compact') {
     return { json: true, compact: true };
   }
-  throw new Error(EXPLAIN_USAGE);
+  throw new Error(usage);
+}
+
+function parseExplainOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  return parseOptionalJsonOutputArgs(args, EXPLAIN_USAGE);
 }
 
 function parseExplainArgs(
@@ -464,243 +493,67 @@ function parseArtifactsArgs(
 }
 
 function parseDoctorArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(DOCTOR_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(DOCTOR_USAGE);
+  return parseOptionalJsonOutputArgs(args, DOCTOR_USAGE);
 }
 
 function parseReferenceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(REFERENCE_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(REFERENCE_USAGE);
+  return parseOptionalJsonOutputArgs(args, REFERENCE_USAGE);
 }
 
 function parseBenchmarkOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(BENCHMARK_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(BENCHMARK_USAGE);
+  return parseOptionalJsonOutputArgs(args, BENCHMARK_USAGE);
 }
 
 function parseTestOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(TEST_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(TEST_USAGE);
+  return parseOptionalJsonOutputArgs(args, TEST_USAGE);
 }
 
 function parseContractOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(CONTRACT_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(CONTRACT_USAGE);
+  return parseOptionalJsonOutputArgs(args, CONTRACT_USAGE);
 }
 
 function parsePolicyOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(POLICY_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(POLICY_USAGE);
+  return parseOptionalJsonOutputArgs(args, POLICY_USAGE);
 }
 
 function parseAcceptanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(ACCEPTANCE_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(ACCEPTANCE_USAGE);
+  return parseOptionalJsonOutputArgs(args, ACCEPTANCE_USAGE);
 }
 
 function parseRuntimeOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(RUNTIME_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(RUNTIME_USAGE);
+  return parseOptionalJsonOutputArgs(args, RUNTIME_USAGE);
 }
 
 function parseInstallOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(INSTALL_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(INSTALL_USAGE);
+  return parseOptionalJsonOutputArgs(args, INSTALL_USAGE);
 }
 
 function parseBlocksOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(BLOCKS_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(BLOCKS_USAGE);
+  return parseOptionalJsonOutputArgs(args, BLOCKS_USAGE);
+}
+
+function parsePostgresOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  return parseOptionalJsonOutputArgs(args, POSTGRES_USAGE);
 }
 
 function parseVerificationOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(VERIFICATION_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(VERIFICATION_USAGE);
+  return parseOptionalJsonOutputArgs(args, VERIFICATION_USAGE);
 }
 
 function parseProvenanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(PROVENANCE_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(PROVENANCE_USAGE);
+  return parseOptionalJsonOutputArgs(args, PROVENANCE_USAGE);
 }
 
 function parseReviewOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(REVIEW_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(REVIEW_USAGE);
+  return parseOptionalJsonOutputArgs(args, REVIEW_USAGE);
 }
 
 function parseDemoOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(DEMO_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(DEMO_USAGE);
+  return parseOptionalJsonOutputArgs(args, DEMO_USAGE);
 }
 
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
-    throw new Error(DEPS_USAGE);
-  }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(DEPS_USAGE);
+  return parseOptionalJsonOutputArgs(args, DEPS_USAGE);
 }
 
 function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
@@ -1720,6 +1573,26 @@ async function runBlocksCommand(args: string[]): Promise<void> {
   console.log(formatBlockUsageMap(usageMap));
 }
 
+async function runPostgresCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'contract') {
+    throw new Error(POSTGRES_USAGE);
+  }
+
+  const outputArgs = parsePostgresOutputArgs(args.slice(1));
+  const { postgresContractPath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(postgresContractPath))) {
+    throw new Error('Postgres contract not found; run platform compose first');
+  }
+
+  const contract = await readJson<PostgresContract>(postgresContractPath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatPostgresContract(contract));
+}
+
 async function runVerificationCommand(args: string[]): Promise<void> {
   if (args[0] !== 'report') {
     throw new Error(VERIFICATION_USAGE);
@@ -2075,6 +1948,9 @@ async function main(): Promise<void> {
       return;
     case 'blocks':
       await runBlocksCommand(args);
+      return;
+    case 'postgres':
+      await runPostgresCommand(args);
       return;
     case 'verification':
       await runVerificationCommand(args);

@@ -399,6 +399,7 @@ export interface WorkspacePaths {
   lockPath: string;
   generatedDir: string;
   blockUsageMapPath: string;
+  postgresContractPath: string;
   overrideManifestPath: string;
   policySpecPath: string;
   officialPoliciesRoot: string;
