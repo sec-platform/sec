@@ -1137,6 +1137,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>Preflight Checks</td><td>5</td>');
   expect(sourceView).toContain('<td>Preflight Evidence</td><td>3</td>');
   expect(sourceView).toContain('<td>Verification Migrations</td><td>1</td>');
+  expect(sourceView).toContain('<td>Source Migrations</td><td>1</td>');
+  expect(sourceView).toContain('<td>Slot Migrations</td><td>0</td>');
   expect(sourceView).toContain('<td>Operations</td><td>1</td>');
   expect(sourceView).toContain('Upgrade Preflight Summary');
   expect(sourceView).toContain('<td>override</td>');
