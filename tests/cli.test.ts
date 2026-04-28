@@ -1609,6 +1609,8 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         requiresVerificationCount: 1,
         impactCount: 1,
         impacts: ['src/installed/auth/session.ts'],
+        sourceMigrationCount: 1,
+        slotMigrationCount: 0,
         verificationSummaries: [{ id: 'required', count: 1 }],
         preflightSummaries: [{ group: 'migration', checkCount: 1, evidenceCount: 1 }],
         migrationSummaries: [
@@ -3218,6 +3220,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
           requiresVerificationCount: number;
           impactCount: number;
           impacts: string[];
+          sourceMigrationCount: number;
+          slotMigrationCount: number;
           verificationSummaries: Array<{ id: string; count: number }>;
           preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
           migrationSummaries: Array<{
@@ -3253,6 +3257,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       requiresVerificationCount: 1,
       impactCount: 2,
       impacts: ['src/installed/auth/session.ts', 'upgrade.metadata.json'],
+      sourceMigrationCount: 1,
+      slotMigrationCount: 0,
       migrationOperationCount: 2,
       migrationOperationSummaries: [
         {
