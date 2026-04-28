@@ -135,6 +135,8 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(benchmarkContractSource).toContain('scoreDimensionCount');
   expect(benchmarkContractSource).toContain('artifactPathCount');
   expect(benchmarkContractSource).toContain('artifactPaths');
+  expect(benchmarkContractSource).toContain('scoreFocusCount');
+  expect(benchmarkContractSource).toContain('scoreFocus');
   expect(benchmarkContractSource).toContain("id: 'add-block'");
   expect(benchmarkContractSource).toContain("command: 'npm run demo:quickstart'");
   expect(benchmarkContractSource).toContain("id: 'repair-slot'");

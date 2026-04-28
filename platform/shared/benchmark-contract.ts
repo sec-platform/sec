@@ -3,7 +3,9 @@ export type BenchmarkTask = {
   goal: string;
   gate: string;
   command: string;
+  artifactPathCount: number;
   artifactPaths: string[];
+  scoreFocusCount: number;
   scoreFocus: string[];
 };
 
@@ -21,7 +23,7 @@ export type BenchmarkTaskSuiteContract = {
   scoreDimensions: string[];
 };
 
-const benchmarkTasks: BenchmarkTask[] = [
+const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocusCount'>> = [
   {
     id: 'add-block',
     goal: 'install one capability block into a clean workspace',
@@ -112,7 +114,9 @@ export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
     taskCount: benchmarkTasks.length,
     tasks: benchmarkTasks.map((task) => ({
       ...task,
+      artifactPathCount: task.artifactPaths.length,
       artifactPaths: [...task.artifactPaths],
+      scoreFocusCount: task.scoreFocus.length,
       scoreFocus: [...task.scoreFocus]
     })),
     artifactPathCount: artifactPaths.length,
@@ -136,7 +140,7 @@ export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteCon
 
   for (const task of contract.tasks) {
     lines.push(
-      `Task ${task.id}: ${task.goal}; gate=${task.gate}; command=${task.command}; artifacts=${task.artifactPaths.join(', ')}; score=${task.scoreFocus.join(', ')}`
+      `Task ${task.id}: ${task.goal}; gate=${task.gate}; command=${task.command}; artifactCount=${task.artifactPathCount}; artifacts=${task.artifactPaths.join(', ')}; scoreFocusCount=${task.scoreFocusCount}; score=${task.scoreFocus.join(', ')}`
     );
   }
 
