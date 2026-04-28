@@ -142,6 +142,7 @@
        - contract 清单从 `generated/*-contract.json` 和 artifact summary 派生，并进入 artifact manifest / review summary 的 contract upload group。
      - artifact / graph / review golden output：active。
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
+       - `platform explain` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
      - dogfood 样例工作区：active。
