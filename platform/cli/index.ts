@@ -78,7 +78,7 @@ const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
-const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]';
+const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
@@ -242,9 +242,31 @@ function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean; comp
   return { dryRun, json, compact };
 }
 
-function parseUpgradeArgs(
-  args: string[]
-): { blockId: string; targetVersion: string; dryRun: boolean; json: boolean; compact: boolean } {
+type ParsedUpgradeArgs =
+  | { mode: 'run'; blockId: string; targetVersion: string; dryRun: boolean; json: boolean; compact: boolean }
+  | { mode: 'plan'; json: boolean; compact: boolean };
+
+function parseUpgradeOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  let json = false;
+  let compact = false;
+  for (const flag of args) {
+    if (flag === '--json' && !json) {
+      json = true;
+      continue;
+    }
+    if (flag === '--compact' && json && !compact) {
+      compact = true;
+      continue;
+    }
+    throw new Error(UPGRADE_USAGE);
+  }
+  return { json, compact };
+}
+
+function parseUpgradeArgs(args: string[]): ParsedUpgradeArgs {
+  if (args[0] === 'plan') {
+    return { mode: 'plan', ...parseUpgradeOutputArgs(args.slice(1)) };
+  }
   if (args.length < 2) {
     throw new Error(UPGRADE_USAGE);
   }
@@ -269,7 +291,7 @@ function parseUpgradeArgs(
     throw new Error(UPGRADE_USAGE);
   }
 
-  return { blockId, targetVersion, dryRun, json, compact };
+  return { mode: 'run', blockId, targetVersion, dryRun, json, compact };
 }
 
 function parseExplainOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -1708,6 +1730,19 @@ async function main(): Promise<void> {
     }
     case 'upgrade': {
       const upgradeArgs = parseUpgradeArgs(args);
+      if (upgradeArgs.mode === 'plan') {
+        const { upgradePlanPath } = getWorkspacePaths(process.cwd());
+        if (!(await pathExists(upgradePlanPath))) {
+          throw new Error('Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first');
+        }
+        const upgradePlan = await readJson<UpgradePlan>(upgradePlanPath);
+        if (upgradeArgs.json) {
+          console.log(JSON.stringify(upgradePlan, null, upgradeArgs.compact ? 0 : 2));
+          return;
+        }
+        console.log(formatUpgradeSummary(upgradePlan, upgradePlan.status === 'planned'));
+        return;
+      }
       const { upgradePlan } = await upgradeWorkspace(process.cwd(), upgradeArgs.blockId, upgradeArgs.targetVersion, {
         dryRun: upgradeArgs.dryRun
       });
