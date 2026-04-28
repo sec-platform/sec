@@ -89,6 +89,13 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     produces: ['project/generated/review-summary.json']
   },
   {
+    id: 'diagnostic-review-matrix',
+    phase: 'diagnostics',
+    command: 'npm run platform -- review matrix --json --compact',
+    purpose: 'Expose the E2E matrix derived from the latest review summary.',
+    produces: []
+  },
+  {
     id: 'diagnostic-explain',
     phase: 'diagnostics',
     command: 'npm run platform -- explain --json --compact',
