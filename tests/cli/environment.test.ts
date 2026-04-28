@@ -186,7 +186,7 @@ async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   );
 }
 
-test('CLI exposes dependency environment maintenance entrypoints', { timeout: 20000 }, async () => {
+test('CLI exposes dependency environment maintenance entrypoints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const depsStatus = await runCli(workspaceRoot, ['deps', 'status']);
     expect(depsStatus.code).toBe(0);

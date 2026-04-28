@@ -16,7 +16,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
-test('override-manifest can replace a generated file and surface override provenance', { timeout: 120000 }, async () => {
+test('override-manifest can replace a generated file and surface override provenance', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-override-');
   const { overrideManifestPath, projectRoot } = getWorkspacePaths(workspaceRoot);
 
@@ -120,7 +120,7 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
   );
 });
 
-test('override-manifest surfaces ticket runtime override attribution', { timeout: 120000 }, async () => {
+test('override-manifest surfaces ticket runtime override attribution', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-ticket-override-');
   const { overrideManifestPath, projectRoot } = getWorkspacePaths(workspaceRoot);
 

@@ -15,7 +15,7 @@ import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
-test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000 }, async () => {
+test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
 
   await initWorkspace(workspaceRoot, { reset: true });

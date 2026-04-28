@@ -186,7 +186,7 @@ async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   );
 }
 
-test('CLI emits text migration operation details in upgrade summaries', { timeout: 40000 }, async () => {
+test('CLI emits text migration operation details in upgrade summaries', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -301,7 +301,7 @@ test('CLI emits text migration operation details in upgrade summaries', { timeou
   });
 });
 
-test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 120000 }, async () => {
+test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,

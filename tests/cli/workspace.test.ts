@@ -201,7 +201,7 @@ test('CLI accepts init commands', async () => {
   });
 });
 
-test('CLI defaults verification to the fast lane', { timeout: 20000 }, async () => {
+test('CLI defaults verification to the fast lane', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -231,7 +231,7 @@ test('CLI defaults verification to the fast lane', { timeout: 20000 }, async () 
   });
 });
 
-test('CLI adds private registry blocks and preserves registry metadata on resolve', { timeout: 20000 }, async () => {
+test('CLI adds private registry blocks and preserves registry metadata on resolve', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,

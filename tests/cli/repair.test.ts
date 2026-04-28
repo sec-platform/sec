@@ -186,7 +186,7 @@ async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   );
 }
 
-test('CLI emits repair dry-run JSON for CI consumers', { timeout: 40000 }, async () => {
+test('CLI emits repair dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -468,7 +468,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 40000 }, async
   });
 });
 
-test('CLI emits blocked repair JSON for CI consumers', { timeout: 40000 }, async () => {
+test('CLI emits blocked repair JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,

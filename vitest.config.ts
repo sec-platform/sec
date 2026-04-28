@@ -5,7 +5,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     fileParallelism: true,
     globalSetup: ['tests/setup/runtime-deps.setup.ts'],
-    testTimeout: 300000,
+    testTimeout: 30000,
     hookTimeout: 60000,
     reporters: ['verbose'],
     coverage: {

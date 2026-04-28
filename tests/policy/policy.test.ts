@@ -523,7 +523,7 @@ test('policy gate uses lock install plan to locate applied block files', async (
   ]);
 });
 
-test('policy gate fails when tenant scoping is removed from customer queries', { timeout: 20000 }, async () => {
+test('policy gate fails when tenant scoping is removed from customer queries', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-');
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -543,7 +543,7 @@ test('policy gate fails when tenant scoping is removed from customer queries', {
   expect(report.policy.violations[0]?.sourcePath).toBe('platform/policies/official/policy.spec.yaml');
 });
 
-test('policy gate targets ticket and worklog tenant-scoped services', { timeout: 20000 }, async () => {
+test('policy gate targets ticket and worklog tenant-scoped services', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-targets-');
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -564,7 +564,7 @@ test('policy gate targets ticket and worklog tenant-scoped services', { timeout:
   ]);
 });
 
-test('policy gate fails when ticket service loses tenant context', { timeout: 20000 }, async () => {
+test('policy gate fails when ticket service loses tenant context', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-failure-');
 
   await initWorkspace(workspaceRoot, { reset: true });
