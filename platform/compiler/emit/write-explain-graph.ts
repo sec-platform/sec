@@ -158,16 +158,17 @@ export async function buildExplainGraph(
 
   for (const task of lock.slotTasks) {
     const slotNodeId = `slot:${task.id}`;
-    const fileNodeId = `file:${task.target}`;
+    const sourceFilePath = task.sourcePath ?? task.target;
+    const sourceFileNodeId = `file:${sourceFilePath}`;
     pushNode(nodes, {
       id: slotNodeId,
       type: 'slot',
       label: task.id
     });
     pushNode(nodes, {
-      id: fileNodeId,
+      id: sourceFileNodeId,
       type: 'file',
-      label: task.target
+      label: sourceFilePath
     });
     pushEdge(edges, {
       from: `block:${task.block}`,
@@ -176,9 +177,22 @@ export async function buildExplainGraph(
     });
     pushEdge(edges, {
       from: slotNodeId,
-      to: fileNodeId,
+      to: sourceFileNodeId,
       type: 'writes_to'
     });
+    if (task.sourcePath) {
+      const runtimeFileNodeId = `file:${task.target}`;
+      pushNode(nodes, {
+        id: runtimeFileNodeId,
+        type: 'file',
+        label: task.target
+      });
+      pushEdge(edges, {
+        from: sourceFileNodeId,
+        to: runtimeFileNodeId,
+        type: 'connects_to'
+      });
+    }
   }
 
   for (const artifact of provenance.artifacts) {

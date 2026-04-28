@@ -406,6 +406,8 @@ export interface ReviewSummary {
     path: string;
     originType: ProvenanceOriginType;
     originId: string;
+    sourcePath?: string;
+    runtimeTarget?: string;
     registrySourceId?: string;
     registryKind?: RegistryKind;
     registryLocation?: RegistryLocation;

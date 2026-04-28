@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from './shared/constants.ts';
 import { CompilerError } from './shared/errors.ts';
 import { pathExists, readJson, removeDir, writeJson } from './shared/fs.ts';
-import { getWorkspacePaths, officialRegistryRelativePath, privateRegistryRelativePath } from './shared/paths.ts';
+import { getWorkspacePaths, officialRegistryRelativePath, privateRegistryRelativePath, sourcePrivateRegistryRelativePath } from './shared/paths.ts';
 import { ensureProjectBase } from './shared/project-base.ts';
 import { writeYaml } from './shared/yaml.ts';
 import { alignInterfaces } from './compiler/align/align-interfaces.ts';
@@ -46,6 +46,12 @@ function defaultPlan(): PlanFile {
           path: officialRegistryRelativePath.replaceAll('\\', '/')
         },
         {
+          id: 'source-private',
+          kind: 'private',
+          location: 'workspace',
+          path: sourcePrivateRegistryRelativePath.replaceAll('\\', '/')
+        },
+        {
           id: 'private',
           kind: 'private',
           location: 'workspace',
@@ -64,6 +70,7 @@ function defaultPlan(): PlanFile {
         block: 'entity/customer-basic',
         kind: 'adapter',
         target: 'custom/customer_normalizer.ts',
+        sourcePath: 'source/slots/customer_normalizer.ts',
         symbol: 'normalizeCustomerInput',
         description: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
       }

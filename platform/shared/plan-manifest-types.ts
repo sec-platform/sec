@@ -34,6 +34,7 @@ export interface PlanSlot {
   block: string;
   kind: SlotKind;
   target: string;
+  sourcePath?: string;
   symbol: string;
   description: string;
 }

@@ -116,12 +116,13 @@ function buildSlotTasks(plan: PlanFile, manifestMap: Map<string, ManifestEntry>)
         id: manifestSlot.id,
         block: entry.manifest.id,
         target: explicitSlot?.target ?? manifestSlot.target,
+        ...(explicitSlot?.sourcePath ? { sourcePath: explicitSlot.sourcePath } : {}),
         symbol: explicitSlot?.symbol ?? manifestSlot.symbol,
         kind: explicitSlot?.kind ?? manifestSlot.kind,
         inputType: manifestSlot.inputType,
         outputType: manifestSlot.outputType,
         status: 'pending',
-        writableZones: manifestSlot.writableZones,
+        writableZones: explicitSlot?.sourcePath ? [explicitSlot.sourcePath, ...manifestSlot.writableZones] : manifestSlot.writableZones,
         provenanceHints: {
           generator: explicitSlot ? 'mock-local-synthesizer' : null,
           verifiedBy: []

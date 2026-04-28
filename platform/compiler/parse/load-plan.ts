@@ -3,7 +3,8 @@ import { CompilerError } from '../../shared/errors.ts';
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
 import {
   officialRegistryRelativePath,
-  privateRegistryRelativePath
+  privateRegistryRelativePath,
+  sourcePrivateRegistryRelativePath
 } from '../../shared/paths.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
 
@@ -17,6 +18,12 @@ function defaultRegistry(): PlanRegistry {
         path: officialRegistryRelativePath.replaceAll('\\', '/')
       },
       {
+        id: 'source-private',
+        kind: 'private',
+        location: 'workspace',
+        path: sourcePrivateRegistryRelativePath.replaceAll('\\', '/')
+      },
+      {
         id: 'private',
         kind: 'private',
         location: 'workspace',
@@ -27,15 +34,15 @@ function defaultRegistry(): PlanRegistry {
 }
 
 function normalizeRegistrySource(source: Partial<PlanRegistrySource>): PlanRegistrySource {
+  const kind = source.kind ?? 'private';
+  const defaultPrivatePath = source.id === 'source-private'
+    ? sourcePrivateRegistryRelativePath.replaceAll('\\', '/')
+    : privateRegistryRelativePath.replaceAll('\\', '/');
   return {
     id: source.id ?? '',
-    kind: source.kind ?? 'private',
-    location: source.location ?? (source.kind === 'official' ? 'compiler' : 'workspace'),
-    path:
-      source.path ??
-      (source.kind === 'official'
-        ? officialRegistryRelativePath.replaceAll('\\', '/')
-        : privateRegistryRelativePath.replaceAll('\\', '/'))
+    kind,
+    location: source.location ?? (kind === 'official' ? 'compiler' : 'workspace'),
+    path: source.path ?? (kind === 'official' ? officialRegistryRelativePath.replaceAll('\\', '/') : defaultPrivatePath)
   };
 }
 
@@ -120,6 +127,9 @@ export function validatePlan(plan: PlanFile): void {
     }
     if (!slot.target.startsWith('custom/')) {
       throw new CompilerError('PLAN-VALIDATION-008', `Slot "${slot.id}" must target custom/ in v0.1`);
+    }
+    if (slot.sourcePath && !slot.sourcePath.startsWith('source/slots/')) {
+      throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target source/slots/`);
     }
     slotIds.add(slot.id);
   }

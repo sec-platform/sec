@@ -10,6 +10,8 @@ export interface TaskEnvelope {
   sourceSlot: {
     id: string;
     status: SlotTask['status'];
+    runtimeTarget: string;
+    sourcePath?: string;
     writableZones: string[];
     provenanceHints: SlotProvenanceHints;
   };

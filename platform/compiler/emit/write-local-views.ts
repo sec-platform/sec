@@ -1225,6 +1225,40 @@ function renderReviewSummaryTables(review: ReviewSummary): string {
       </section>`;
 }
 
+function renderDeveloperSourceLayerCard(lock: LockFile): string {
+  const sourceAreas = [
+    ['Slots', 'project/source/slots/**'],
+    ['Overrides', 'project/source/overrides/**'],
+    ['Policies', 'project/source/policies/**'],
+    ['Acceptance', 'project/source/acceptance/**'],
+    ['Assets', 'project/source/assets/**'],
+    ['Views', 'project/source/views/**'],
+    ['Env', 'project/source/env/**'],
+    ['Private Registry', 'project/source/registry/private/**']
+  ];
+  const areaRows = sourceAreas
+    .map(([label, sourcePath]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(sourcePath)}</td></tr>`)
+    .join('');
+  const slotRows = lock.slotTasks
+    .map((task) => `<tr><td>${escapeHtml(task.id)}</td><td>${escapeHtml(task.sourcePath ?? 'compatibility target only')}</td><td>${escapeHtml(task.target)}</td></tr>`)
+    .join('');
+
+  return `<section class="card">
+        <h2>Developer Source Layer</h2>
+        <p>Default editable workspace inputs live under project/source; compatibility targets remain readable and materialized by compiler passes.</p>
+        <h3>Editable Areas</h3>
+        <table>
+          <thead><tr><th>Area</th><th>Path</th></tr></thead>
+          <tbody>${areaRows}</tbody>
+        </table>
+        <h3>Slot Materialization</h3>
+        <table>
+          <thead><tr><th>Slot</th><th>Source Path</th><th>Runtime Target</th></tr></thead>
+          <tbody>${slotRows || '<tr><td colspan="3">No slot tasks.</td></tr>'}</tbody>
+        </table>
+      </section>`;
+}
+
 function renderSourceView(
   lock: LockFile,
   provenance: ProvenanceFile,
@@ -1277,6 +1311,7 @@ function renderSourceView(
     <main>
       ${renderViewNav('source')}
       ${renderCiSummaryCard(review)}
+      ${renderDeveloperSourceLayerCard(lock)}
       <section class="card">
         <h1>Source View</h1>
         <p>Blocks: ${lock.resolvedBlocks.length} | Slots: ${lock.slotTasks.length} | Files: ${provenance.artifacts.length}</p>
@@ -1327,11 +1362,11 @@ function renderSlotRuleView(
         <h1>Slot / Rule View</h1>
         <p>Fast lane: ${report.fast.status} | Runtime lane: ${report.runtime.status} | Overall: ${report.summary.status}</p>
         <table>
-          <thead><tr><th>Slot</th><th>Block</th><th>Status</th><th>Coverage</th></tr></thead>
+          <thead><tr><th>Slot</th><th>Block</th><th>Source</th><th>Runtime Target</th><th>Status</th><th>Coverage</th></tr></thead>
           <tbody>
             ${lock.slotTasks.map((task) => {
               const slotCoverage = coverage.slots.find((entry) => entry.id === task.id);
-              return `<tr><td>${escapeHtml(task.id)}</td><td>${escapeHtml(task.block)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml((slotCoverage?.coveredBy ?? []).join(', ') || 'none')}</td></tr>`;
+              return `<tr><td>${escapeHtml(task.id)}</td><td>${escapeHtml(task.block)}</td><td>${escapeHtml(task.sourcePath ?? 'compatibility target only')}</td><td>${escapeHtml(task.target)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml((slotCoverage?.coveredBy ?? []).join(', ') || 'none')}</td></tr>`;
             }).join('')}
           </tbody>
         </table>

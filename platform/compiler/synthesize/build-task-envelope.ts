@@ -7,22 +7,25 @@ export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask
   if (!slot) {
     throw new Error(`Missing slot configuration for ${task.id}`);
   }
+  const writablePath = task.sourcePath ?? task.target;
   return {
     taskId: `fill_slot_${task.id}`,
     taskKind: `${slot.kind}-slot`,
     phase: 'adapt',
     targetBlock: task.block,
-    targetFile: task.target,
+    targetFile: writablePath,
     sourceSlot: {
       id: task.id,
       status: task.status,
+      runtimeTarget: task.target,
+      ...(task.sourcePath ? { sourcePath: task.sourcePath } : {}),
       writableZones: [...task.writableZones],
       provenanceHints: {
         generator: task.provenanceHints.generator,
         verifiedBy: [...task.provenanceHints.verifiedBy]
       }
     },
-    allowedPaths: [task.target],
+    allowedPaths: [writablePath],
     requiredSymbols: [task.symbol],
     forbiddenOperations: [
       'modify_other_files',
