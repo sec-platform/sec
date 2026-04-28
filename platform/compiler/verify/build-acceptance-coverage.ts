@@ -1,11 +1,10 @@
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
+import type { BlockManifest, LockFile } from '../../shared/types.ts';
 import type {
   AcceptanceCoverageEntry,
   AcceptanceCoverageReport,
-  AcceptanceItem,
-  BlockManifest,
-  LockFile
-} from '../../shared/types.ts';
+  AcceptanceItem
+} from '../../shared/acceptance-types.ts';
 import type { RuntimeVerificationLaneReport } from '../../shared/verification-types.ts';
 
 interface AcceptanceCoverageTarget {

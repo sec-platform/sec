@@ -2,7 +2,9 @@ import type { CiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   AcceptanceCoverageEntry,
-  AcceptanceCoverageReport,
+  AcceptanceCoverageReport
+} from '../shared/acceptance-types.ts';
+import type {
   ExplainGraph,
   InstallPlanStep,
   LockFile,

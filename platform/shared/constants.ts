@@ -1,4 +1,5 @@
-import type { AcceptanceItem, PassStatus } from './types.ts';
+import type { AcceptanceItem } from './acceptance-types.ts';
+import type { PassStatus } from './types.ts';
 
 export const SUPPORTED_STACK = 'nextjs-ts-prisma-sqlite' as const;
 
