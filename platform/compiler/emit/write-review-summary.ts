@@ -13,9 +13,9 @@ import {
 } from './runtime-attribution.ts';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile, ProvenanceOriginType, OverrideStatus } from '../../shared/provenance-types.ts';
 import type {
-  LockFile,
   RepairTaskCategory,
   ReviewConflictHint,
   ReviewInstallImpact,

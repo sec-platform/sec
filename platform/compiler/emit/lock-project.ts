@@ -3,7 +3,8 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { readJson } from '../../shared/fs.ts';
 import { writeProvenance } from './write-provenance.ts';
-import type { LockFile, VerificationReport } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
+import type { VerificationReport } from '../../shared/verification-types.ts';
 
 export async function lockProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
   const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);

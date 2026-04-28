@@ -5,9 +5,8 @@ import type {
   AcceptanceCoverageReport
 } from '../shared/acceptance-types.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
+import type { InstallPlanStep, LockFile } from '../shared/lock-types.ts';
 import type {
-  InstallPlanStep,
-  LockFile,
   RepairPlan,
   ReviewSummary,
   UpgradeDiagnostics,

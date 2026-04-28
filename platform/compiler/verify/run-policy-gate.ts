@@ -2,9 +2,8 @@ import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { listFilesRecursive, pathExists, readJson, readText } from '../../shared/fs.ts';
 import { readYaml } from '../../shared/yaml.ts';
+import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
 import type {
-  InstallPlanStep,
-  LockFile,
   MergedPolicyReportEntry,
   PolicyReport,
   PolicyRule,
@@ -12,7 +11,7 @@ import type {
   PolicySourceScope,
   PolicySpec,
   PolicyViolation
-} from '../../shared/types.ts';
+} from '../../shared/policy-types.ts';
 
 interface LoadedPolicyDefinition {
   policy: PolicyRule;

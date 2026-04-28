@@ -2,7 +2,7 @@ import path from 'node:path';
 import { KIND_PRIORITY, PASS_STATUS_PENDING } from '../../shared/constants.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
-import type { LockFile, SlotTask } from '../../shared/types.ts';
+import type { LockFile, SlotTask } from '../../shared/lock-types.ts';
 import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
 
 function compareBlocks(left: ManifestEntry, right: ManifestEntry): number {
