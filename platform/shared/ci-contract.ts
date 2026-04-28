@@ -24,6 +24,13 @@ export type CiContract = {
 
 const ciSteps: CiContractStep[] = [
   {
+    id: 'typecheck',
+    phase: 'quality',
+    command: 'npm run typecheck',
+    purpose: 'Run TypeScript static checks before CI gates that execute generated workspaces.',
+    produces: []
+  },
+  {
     id: 'pr-fast-verify',
     phase: 'verify',
     command: 'npm run platform -- verify --json --compact',

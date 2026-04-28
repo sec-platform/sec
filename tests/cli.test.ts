@@ -649,6 +649,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'npm run platform -- verify --lane all --json --compact'
     ],
     qualityCommands: [
+      'npm run typecheck',
       'npm run platform -- test budget --json --compact',
       'npm run test:contract-freeze',
       'npm run platform -- benchmark suite --json --compact',
@@ -673,7 +674,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'project/generated/runtime-report.json',
       'project/generated/verification-report.json'
     ],
-    stepCount: 12,
+    stepCount: 13,
     steps: expect.arrayContaining([
       expect.objectContaining({
         id: 'pr-fast-verify',
@@ -689,6 +690,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           'project/generated/runtime-report.json',
           'project/generated/acceptance-coverage.json'
         ])
+      }),
+      expect.objectContaining({
+        id: 'typecheck',
+        phase: 'quality',
+        command: 'npm run typecheck',
+        produces: []
       }),
       expect.objectContaining({
         id: 'slow-test-budget',
@@ -736,7 +743,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact'
     );
     expect(textResult.stdout).toContain(
-      'Quality commands: npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
+      'Quality commands: npm run typecheck, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
     );
     expect(textResult.stdout).toContain(
       'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- explain --json --compact'
@@ -749,6 +756,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'Artifact path list: project/generated/acceptance-coverage.json, project/generated/ci-artifacts.json, project/generated/explain-graph.json, project/generated/review-summary.json, project/generated/runtime-report.json, project/generated/verification-report.json'
     );
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
+    expect(textResult.stdout).toContain('Step typecheck; phase=quality; command=npm run typecheck');
     expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
     expect(textResult.stdout).toContain('Step contract-freeze; phase=quality; command=npm run test:contract-freeze');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
@@ -766,6 +774,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- verify --lane all --json --compact'
       ],
       qualityCommands: [
+        'npm run typecheck',
         'npm run platform -- test budget --json --compact',
         'npm run test:contract-freeze',
         'npm run platform -- benchmark suite --json --compact',
@@ -780,7 +789,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'project/generated/ci-artifacts.json',
         'project/generated/verification-report.json'
       ]),
-      stepCount: 12
+      stepCount: 13
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'ci', '--json', '--compact']);
@@ -795,6 +804,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- verify --lane all --json --compact'
       ],
       qualityCommands: [
+        'npm run typecheck',
         'npm run platform -- test budget --json --compact',
         'npm run test:contract-freeze',
         'npm run platform -- benchmark suite --json --compact',
