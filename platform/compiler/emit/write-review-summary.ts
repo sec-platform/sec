@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
+import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import {
   buildRuntimeAttribution,
   buildRuntimeAttributions,
@@ -852,20 +852,13 @@ export async function buildReviewSummary(
   report: VerificationReport,
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
-  const { policyReportPath, repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
-  const policyReport = (await pathExists(policyReportPath))
-    ? await readJson<PolicyReport>(policyReportPath)
-    : null;
-  const repairPlan = (await pathExists(repairPlanPath))
-    ? await readJson<RepairPlan>(repairPlanPath)
-    : null;
-  const upgradePlan = (await pathExists(upgradePlanPath))
-    ? await readJson<UpgradePlan>(upgradePlanPath)
-    : null;
-  const upgradeDiagnostics = (await pathExists(upgradeDiagnosticsPath))
-    ? await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath)
-    : null;
+  const {
+    policyReport,
+    repairPlan,
+    upgradePlan,
+    upgradeDiagnostics
+  } = await readReviewGovernanceReports(workspaceRoot);
   const coverageSummary: NonNullable<ReviewSummary['coverageSummary']> = buildCoverageSummary(coverage);
   const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = buildPolicySummary(policyReport);
