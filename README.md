@@ -53,7 +53,7 @@ Use these entry commands for normal development:
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors`: inspect the error protocol contract
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
-- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
+- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, review diagnostics, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
 - `npm run platform -- test budget`: inspect the fast/runtime/all slow-test budget
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
 - `npm run platform -- policy report`: inspect the latest policy governance report
@@ -83,6 +83,8 @@ Use these entry commands for normal development:
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
 - `npm run platform -- review matrix`: inspect the latest E2E matrix without regenerating explain outputs
 - `npm run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
+- `npm run platform -- review diagnostics`: inspect failure, regression risk, and conflict diagnostics from the latest review summary
+- `npm run platform -- review diagnostics --json --compact`: emit the compact review diagnostics contract
 - `npm run platform -- explain graph`: inspect the latest explain graph without regenerating it
 - `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
@@ -148,7 +150,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run reference:check`: run the formal reference drift gate through the runner command exposed by `platform reference check`
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
-- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
+- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, review diagnostics, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
 - `npm run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
@@ -166,6 +168,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
 - `npm run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
+- `npm run platform -- review diagnostics --json --compact`: emit the compact review diagnostics contract
 - `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
 - `npm run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
