@@ -79,7 +79,7 @@ const USAGE = [
 const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]';
-const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
+const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
 const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
@@ -267,7 +267,32 @@ function parseVerifyArgs(args: string[]): { lane: VerificationLane; json: boolea
   return { lane, json, compact };
 }
 
-function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean; compact: boolean } {
+type ParsedRepairArgs =
+  | { mode: 'run'; dryRun: boolean; json: boolean; compact: boolean }
+  | { mode: 'plan'; json: boolean; compact: boolean };
+
+function parseRepairOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  let json = false;
+  let compact = false;
+  for (const flag of args) {
+    if (flag === '--json' && !json) {
+      json = true;
+      continue;
+    }
+    if (flag === '--compact' && json && !compact) {
+      compact = true;
+      continue;
+    }
+    throw new Error(REPAIR_USAGE);
+  }
+  return { json, compact };
+}
+
+function parseRepairArgs(args: string[]): ParsedRepairArgs {
+  if (args[0] === 'plan') {
+    return { mode: 'plan', ...parseRepairOutputArgs(args.slice(1)) };
+  }
+
   let dryRun = false;
   let json = false;
   let compact = false;
@@ -286,7 +311,7 @@ function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean; comp
     }
     throw new Error(REPAIR_USAGE);
   }
-  return { dryRun, json, compact };
+  return { mode: 'run', dryRun, json, compact };
 }
 
 type ParsedUpgradeArgs =
@@ -1869,6 +1894,19 @@ async function main(): Promise<void> {
     }
     case 'repair': {
       const repairArgs = parseRepairArgs(args);
+      if (repairArgs.mode === 'plan') {
+        const { repairPlanPath } = getWorkspacePaths(process.cwd());
+        if (!(await pathExists(repairPlanPath))) {
+          throw new Error('Repair plan not found; run platform repair --dry-run first');
+        }
+        const repairPlan = await readJson<RepairPlan>(repairPlanPath);
+        if (repairArgs.json) {
+          console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
+          return;
+        }
+        console.log(formatRepairSummary(repairPlan, true));
+        return;
+      }
       try {
         const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: repairArgs.dryRun });
         if (repairArgs.json) {

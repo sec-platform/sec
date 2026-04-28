@@ -78,6 +78,7 @@ Use these entry commands for normal development:
 - `npm run platform -- explain graph`: inspect the latest explain graph without regenerating it
 - `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
+- `npm run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
 - `npm run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
 - `npm run platform -- upgrade diagnostics --json --compact`: inspect the latest compact upgrade diagnostics contract without rerunning upgrade
@@ -154,6 +155,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
 - `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
+- `npm run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
 - `npm run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
 - `npm run platform -- upgrade diagnostics --json --compact`: inspect the latest compact upgrade diagnostics contract without rerunning upgrade
