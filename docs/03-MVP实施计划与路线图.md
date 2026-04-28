@@ -125,9 +125,10 @@
        - `platform doctor --json --compact` 输出稳定单行 readiness contract。
        - `platform deps status|warmup|relink project --json [--compact]` 输出稳定依赖环境合同。
        - CLI 首屏把 `npm run demo:closed-loop` 固定为唯一主闭环叙事入口。
-     - 每日可演示版本清单：active。
+     - 每日可演示版本清单：done。
        - quickstart 主链可运行。
        - governance artifact 清单可输出。
+       - `platform demo checklist [--json --compact]` 可只读检查本地 demo readiness。
        - review summary 能展示 E2E chain summary。
        - explain graph 能展示 policy/pin/override/repair/upgrade 归因。
      - E2E 验收矩阵：active。

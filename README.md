@@ -47,6 +47,8 @@ Use these entry commands for normal development:
 - `npm run platform -- deps warmup`: prepare shared runtime dependencies
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
 - `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts with upload group counts
+- `npm run platform -- demo checklist`: inspect the local demo readiness checklist from existing governance artifacts
+- `npm run platform -- demo checklist --json --compact`: emit the compact demo readiness checklist contract
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors`: inspect the error protocol contract
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
@@ -119,6 +121,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
 - `npm run demo:governance`: run quickstart and print governance artifact upload paths
 - `npm run demo:closed-loop`: run the primary product closed loop of quickstart, full verification, governance artifact paths, and compact explain JSON
+- `npm run platform -- demo checklist`: inspect whether existing governance artifacts satisfy local demo readiness
 - `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
 - `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`

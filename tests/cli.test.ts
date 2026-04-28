@@ -149,7 +149,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         stderr: ''
       });
       expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|contract>'
+        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>'
       );
       expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
       expect(result.stdout).toContain('Readiness: platform doctor');
@@ -200,6 +200,78 @@ test('CLI defaults verification to the fast lane', { timeout: 20000 }, async () 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain('Verification passed (fast)\n');
+  });
+});
+
+test('CLI exposes demo checklist as text and JSON readiness contracts', { timeout: 120000 }, async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const missingText = await runCli(workspaceRoot, ['demo', 'checklist']);
+    expect(missingText.code).toBe(0);
+    expect(missingText.stderr).toBe('');
+    expect(missingText.stdout).toContain('Demo checklist attention; items=8; missing=8');
+    expect(missingText.stdout).toContain('verification-report: missing; project/generated/verification-report.json');
+    expect(missingText.stdout).toContain('Next command: npm run demo:quickstart');
+
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Resolved 3 blocks\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Composed project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Adapted slots\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['verify', '--lane', 'all'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Locked project\n',
+      stderr: ''
+    });
+    await expect(runCli(workspaceRoot, ['explain'])).resolves.toMatchObject({
+      code: 0,
+      stderr: ''
+    });
+
+    const readyText = await runCli(workspaceRoot, ['demo', 'checklist']);
+    expect(readyText.code).toBe(0);
+    expect(readyText.stderr).toBe('');
+    expect(readyText.stdout).toContain('Demo checklist passed; items=8; missing=0');
+    expect(readyText.stdout).toContain('review-summary: passed; project/generated/review-summary.json');
+    expect(readyText.stdout).toContain('Next command: npm run demo:closed-loop');
+
+    const readyJson = await runCli(workspaceRoot, ['demo', 'checklist', '--json', '--compact']);
+    expect(readyJson.code).toBe(0);
+    expect(readyJson.stderr).toBe('');
+    expect(readyJson.stdout).not.toContain('\n  "status"');
+    expect(JSON.parse(readyJson.stdout)).toMatchObject({
+      formatVersion: '1',
+      status: 'passed',
+      itemCount: 8,
+      missingCount: 0,
+      nextCommand: 'npm run demo:closed-loop',
+      items: expect.arrayContaining([
+        {
+          id: 'explain-graph',
+          status: 'passed',
+          artifactPath: 'project/generated/explain-graph.json',
+          command: 'npm run platform -- explain'
+        }
+      ])
+    });
   });
 });
 
