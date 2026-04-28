@@ -66,6 +66,8 @@ Use these entry commands for normal development:
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
 - `npm run platform -- review summary`: inspect the latest review summary, including top-level activity counts, provenance generated artifact count and summary counts, artifact upload group, and missing reason type counts
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
+- `npm run platform -- explain graph`: inspect the latest explain graph without regenerating it
+- `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
@@ -132,6 +134,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
+- `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
 - `npm run platform -- reference check --json --compact`: emit the compact reference drift contract, including inspect command, runner command, refresh command, and diff command

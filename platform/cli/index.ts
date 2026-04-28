@@ -79,7 +79,7 @@ const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
 const UPGRADE_USAGE = 'Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]';
-const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]';
+const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
@@ -255,7 +255,7 @@ function parseUpgradeArgs(
   return { blockId, targetVersion, dryRun, json, compact };
 }
 
-function parseExplainArgs(args: string[]): { json: boolean; compact: boolean } {
+function parseExplainOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
   }
@@ -269,6 +269,15 @@ function parseExplainArgs(args: string[]): { json: boolean; compact: boolean } {
     return { json: true, compact: true };
   }
   throw new Error(EXPLAIN_USAGE);
+}
+
+function parseExplainArgs(
+  args: string[]
+): { mode: 'run'; json: boolean; compact: boolean } | { mode: 'graph'; json: boolean; compact: boolean } {
+  if (args[0] === 'graph') {
+    return { mode: 'graph', ...parseExplainOutputArgs(args.slice(1)) };
+  }
+  return { mode: 'run', ...parseExplainOutputArgs(args) };
 }
 
 function parseArtifactPathKind(value: string): ArtifactPathKind {
@@ -564,6 +573,19 @@ function formatCounts(values: string[]): string {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([value, count]) => `${value}=${count}`)
   );
+}
+
+function formatExplainGraphInspect(graph: ExplainGraph): string {
+  return [
+    `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
+    `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
+    `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
+    [
+      `Coverage overlay: ${graph.overlays.coverage.blocks.length} blocks`,
+      `${graph.overlays.coverage.slots.length} slots`
+    ].join('; '),
+    `Provenance overlay: ${graph.overlays.provenance.length} artifacts`
+  ].join('\n');
 }
 
 function formatSummaryEntries(entries: Array<{ id: string; count: number }>): string {
@@ -1550,6 +1572,19 @@ async function main(): Promise<void> {
       return;
     case 'explain': {
       const explainArgs = parseExplainArgs(args);
+      if (explainArgs.mode === 'graph') {
+        const { explainGraphPath } = getWorkspacePaths(process.cwd());
+        if (!(await pathExists(explainGraphPath))) {
+          throw new Error('Explain graph not found; run platform explain first');
+        }
+        const graph = await readJson<ExplainGraph>(explainGraphPath);
+        if (explainArgs.json) {
+          console.log(JSON.stringify(graph, null, explainArgs.compact ? 0 : 2));
+          return;
+        }
+        console.log(formatExplainGraphInspect(graph));
+        return;
+      }
       const { graph, reviewSummary } = await explainWorkspace(process.cwd());
       if (explainArgs.json) {
         console.log(JSON.stringify(
