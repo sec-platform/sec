@@ -430,31 +430,37 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         id: 'add-block',
         gate: 'resolve compose adapt verify lock explain',
         command: 'npm run demo:quickstart',
+        artifactPathCount: 4,
         artifactPaths: expect.arrayContaining([
           'project/graph.lock.json',
           'project/generated/verification-report.json',
           'project/generated/explain-graph.json'
         ]),
+        scoreFocusCount: 3,
         scoreFocus: ['success-rate', 'files-touched', 'verification-status']
       }),
       expect.objectContaining({
         id: 'repair-slot',
         gate: 'repair verify',
         command: 'npm run platform -- repair --dry-run --json --compact',
+        artifactPathCount: 3,
         artifactPaths: expect.arrayContaining([
           'project/generated/repair-plan.json',
           'project/provenance.json'
         ]),
+        scoreFocusCount: 3,
         scoreFocus: ['repairability', 'attempt-count', 'verification-status']
       }),
       expect.objectContaining({
         id: 'override-conflict',
         gate: 'upgrade --dry-run',
         command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+        artifactPathCount: 3,
         artifactPaths: expect.arrayContaining([
           'project/overrides/override.manifest.yaml',
           'project/generated/upgrade-diagnostics.json'
         ]),
+        scoreFocusCount: 2,
         scoreFocus: ['conflict-detection', 'machine-recoverability']
       })
     ]),
@@ -481,7 +487,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     );
     expect(textResult.stdout).toContain('Task override-conflict: surface one override conflict during upgrade planning');
     expect(textResult.stdout).toContain('command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact');
-    expect(textResult.stdout).toContain('artifacts=project/overrides/override.manifest.yaml, project/generated/upgrade-diagnostics.json, project/generated/review-summary.json');
+    expect(textResult.stdout).toContain('artifactCount=3; artifacts=project/overrides/override.manifest.yaml, project/generated/upgrade-diagnostics.json, project/generated/review-summary.json');
+    expect(textResult.stdout).toContain('scoreFocusCount=2; score=conflict-detection, machine-recoverability');
 
     const jsonResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json']);
     expect(jsonResult.code).toBe(0);
@@ -497,6 +504,10 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         'project/generated/upgrade-plan.json',
         'project/provenance.json'
       ]),
+      tasks: expect.arrayContaining([
+        expect.objectContaining({ id: 'add-block', artifactPathCount: 4, scoreFocusCount: 3 }),
+        expect.objectContaining({ id: 'override-conflict', artifactPathCount: 3, scoreFocusCount: 2 })
+      ]),
       scoreDimensionCount: 9
     });
 
@@ -509,6 +520,10 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       runnerCommand: 'npm run test:benchmark-contract',
       taskCount: 5,
       artifactPathCount: 11,
+      tasks: expect.arrayContaining([
+        expect.objectContaining({ id: 'add-block', artifactPathCount: 4, scoreFocusCount: 3 }),
+        expect.objectContaining({ id: 'override-conflict', artifactPathCount: 3, scoreFocusCount: 2 })
+      ]),
       scoreDimensionCount: 9
     });
   });
