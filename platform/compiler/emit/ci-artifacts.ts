@@ -33,6 +33,7 @@ export interface CiArtifactSummary {
   testCount: number;
   contractCount: number;
   contractPaths: string[];
+  uploadGroupCount: number;
   missingCount: number;
   missingReasonCounts: Record<CiArtifactMissingEntry['reason'], number>;
 }
@@ -214,6 +215,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   const contractPaths = uniqueSorted(entries
     .map((entry) => entry.path)
     .filter(isContractArtifactPath));
+  const uploadGroups = buildUploadGroups(entries);
   return {
     formatVersion: '1',
     root: 'project',
@@ -225,11 +227,12 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
       testCount: entries.filter((entry) => entry.kind === 'test').length,
       contractCount: contractPaths.length,
       contractPaths,
+      uploadGroupCount: uploadGroups.length,
       missingCount: sortedMissing.length,
       missingReasonCounts: buildMissingReasonCounts(sortedMissing)
     },
     artifacts: entries,
-    uploadGroups: buildUploadGroups(entries),
+    uploadGroups,
     missing: sortedMissing
   };
 }
@@ -255,6 +258,9 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
           governanceCount: 0,
           viewCount: 0,
           testCount: 0,
+          contractCount: 0,
+          contractPaths: [],
+          uploadGroupCount: 0,
           missingCount: 0,
           missingReasonCounts: {
             'declared-generated-missing': 0,
