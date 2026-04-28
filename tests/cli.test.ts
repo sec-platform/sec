@@ -402,6 +402,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     suiteId: 'engineering-compiler-core',
     status: 'active',
     command: 'npm run platform -- benchmark suite --json',
+    runnerCommand: 'npm run test:benchmark-contract',
     taskCount: 5,
     artifactPathCount: 11,
     artifactPaths: [
@@ -464,6 +465,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Benchmark suite engineering-compiler-core (active)');
     expect(textResult.stdout).toContain('Command: npm run platform -- benchmark suite --json');
+    expect(textResult.stdout).toContain('Runner command: npm run test:benchmark-contract');
     expect(textResult.stdout).toContain('Artifact paths: 11');
     expect(textResult.stdout).toContain(
       'Artifact path list: project/generated/acceptance-coverage.json, project/generated/explain-graph.json, project/generated/policy-report.json, project/generated/repair-plan.json, project/generated/review-summary.json, project/generated/upgrade-diagnostics.json, project/generated/upgrade-plan.json, project/generated/verification-report.json, project/graph.lock.json, project/overrides/override.manifest.yaml, project/provenance.json'
@@ -478,6 +480,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       suiteId: 'engineering-compiler-core',
       command: 'npm run platform -- benchmark suite --json',
+      runnerCommand: 'npm run test:benchmark-contract',
       taskCount: 5,
       artifactPathCount: 11,
       artifactPaths: expect.arrayContaining([
@@ -493,6 +496,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       suiteId: 'engineering-compiler-core',
+      runnerCommand: 'npm run test:benchmark-contract',
       taskCount: 5,
       artifactPathCount: 11
     });

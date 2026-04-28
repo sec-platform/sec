@@ -129,6 +129,7 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(testBudgetContractSource).toContain('playwright: true');
   expect(benchmarkContractSource).toContain("suiteId: 'engineering-compiler-core'");
   expect(benchmarkContractSource).toContain("command: 'npm run platform -- benchmark suite --json'");
+  expect(benchmarkContractSource).toContain("runnerCommand: 'npm run test:benchmark-contract'");
   expect(benchmarkContractSource).toContain('artifactPathCount');
   expect(benchmarkContractSource).toContain('artifactPaths');
   expect(benchmarkContractSource).toContain("id: 'add-block'");

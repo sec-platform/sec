@@ -12,6 +12,7 @@ export type BenchmarkTaskSuiteContract = {
   suiteId: string;
   status: 'active';
   command: string;
+  runnerCommand: string;
   taskCount: number;
   tasks: BenchmarkTask[];
   artifactPathCount: number;
@@ -106,6 +107,7 @@ export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
     suiteId: 'engineering-compiler-core',
     status: 'active',
     command: 'npm run platform -- benchmark suite --json',
+    runnerCommand: 'npm run test:benchmark-contract',
     taskCount: benchmarkTasks.length,
     tasks: benchmarkTasks.map((task) => ({
       ...task,
@@ -122,6 +124,7 @@ export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteCon
   const lines = [
     `Benchmark suite ${contract.suiteId} (${contract.status})`,
     `Command: ${contract.command}`,
+    `Runner command: ${contract.runnerCommand}`,
     `Tasks: ${contract.taskCount}`,
     `Artifact paths: ${contract.artifactPathCount}`,
     `Artifact path list: ${contract.artifactPaths.join(', ')}`,

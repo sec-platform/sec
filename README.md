@@ -71,7 +71,7 @@ Use these entry commands for normal development:
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
 - `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract with refresh and diff commands
 - `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
-- `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including runner command, aggregated artifact paths, and score dimensions
+- `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, and score dimensions
 - `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry
 - `npm run platform -- deps clean --all --force`: remove project, shared, and npm-cache dependency state; this intentionally causes the next runtime verification to warm dependencies again
 - `npm run platform -- add <block-id>`: add official or private blocks
@@ -135,7 +135,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract
 - `npm run platform -- reference check --json --compact`: emit the compact reference drift contract
-- `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including runner command, aggregated artifact paths, and score dimensions
+- `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, and score dimensions
 - `npm run platform -- resolve`
 - `npm run platform -- compose`
 - `npm run platform -- adapt`
