@@ -35,9 +35,9 @@ function normalizeRelativePath(rootPath: string, filePath: string): string {
   return path.relative(rootPath, filePath).replaceAll('\\', '/');
 }
 
-function withinScopePath(scope: PolicySourceScope, rootPath: string, filePath: string): string {
+function withinScopePath(scope: PolicySourceScope, rootPath: string, filePath: string, sourcePrefix?: string): string {
   const relativePath = normalizeRelativePath(rootPath, filePath);
-  return scope === 'official' ? `platform/policies/official/${relativePath}` : `project/policies/${relativePath}`;
+  return scope === 'official' ? `platform/policies/official/${relativePath}` : `${sourcePrefix ?? 'project/policies'}/${relativePath}`;
 }
 
 function isPolicySpecPath(filePath: string): boolean {
@@ -47,7 +47,8 @@ function isPolicySpecPath(filePath: string): boolean {
 
 async function loadPolicyScope(
   scope: PolicySourceScope,
-  rootPath: string
+  rootPath: string,
+  sourcePrefix?: string
 ): Promise<LoadedPolicyScope> {
   if (!(await pathExists(rootPath))) {
     return {
@@ -61,7 +62,7 @@ async function loadPolicyScope(
     .filter((filePath) => isPolicySpecPath(filePath))
     .map((filePath) => ({
       absolutePath: filePath,
-      normalizedPath: withinScopePath(scope, rootPath, filePath)
+      normalizedPath: withinScopePath(scope, rootPath, filePath, sourcePrefix)
     }))
     .sort((left, right) => left.normalizedPath.localeCompare(right.normalizedPath));
 
@@ -94,6 +95,14 @@ async function loadPolicyScope(
     policies: [...declaredPolicyIds].sort((left, right) => left.localeCompare(right)),
     sources,
     definitions
+  };
+}
+
+function mergePolicyScopes(scopes: LoadedPolicyScope[]): LoadedPolicyScope {
+  return {
+    policies: [...new Set(scopes.flatMap((scope) => scope.policies))].sort((left, right) => left.localeCompare(right)),
+    sources: scopes.flatMap((scope) => scope.sources).sort((left, right) => left.path.localeCompare(right.path)),
+    definitions: scopes.flatMap((scope) => scope.definitions)
   };
 }
 
@@ -200,9 +209,12 @@ function buildPolicyReport(
 }
 
 export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport> {
-  const { officialPoliciesRoot, projectPoliciesRoot, projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);
+  const { officialPoliciesRoot, projectPoliciesRoot, sourcePoliciesRoot, projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);
   const official = await loadPolicyScope('official', officialPoliciesRoot);
-  const project = await loadPolicyScope('project', projectPoliciesRoot);
+  const project = mergePolicyScopes([
+    await loadPolicyScope('project', projectPoliciesRoot, 'project/policies'),
+    await loadPolicyScope('project', sourcePoliciesRoot, 'project/source/policies')
+  ]);
   const mergedPolicies = mergePolicies(official, project);
 
   if (mergedPolicies.size === 0) {
