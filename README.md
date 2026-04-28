@@ -146,7 +146,7 @@ Workbench and IDE integrations must preserve this boundary:
 ## Governance Artifacts
 
 - `verify` writes governance artifacts under `project/generated/`, including `verification-report.json`, `runtime-report.json`, `policy-report.json`, and `acceptance-coverage.json`.
-- `explain` writes `project/generated/explain-graph.json`, `project/generated/review-summary.json`, and the local HTML views under `project/generated/views/`.
+- `explain` writes `project/generated/explain-graph.json`, `project/generated/review-summary.json`, and the local HTML views under `project/generated/views/`; its text output includes artifact upload group and missing reason type counts.
 - Governance contract freeze currently covers: `project/graph.lock.json`, `project/provenance.json`, `project/generated/verification-report.json`, `project/generated/runtime-report.json`, `project/generated/policy-report.json`, `project/generated/acceptance-coverage.json`, `project/generated/explain-graph.json`, and `project/generated/review-summary.json`.
 - CI restores a complete governance view from exactly three stable paths: `project/generated/**`, `project/provenance.json`, and `project/graph.lock.json`; artifact manifests expose upload group counts and missing reason type counts for upload planning.
 - `.shared-deps/` is a local Bun/npm cache used to warm runtime dependencies; it is intentionally ignored and is not part of the shipped governance artifacts.

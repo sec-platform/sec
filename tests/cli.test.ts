@@ -2194,7 +2194,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const explainWithContractResult = await runCli(workspaceRoot, ['explain']);
     expect(explainWithContractResult.code).toBe(0);
     expect(explainWithContractResult.stderr).toBe('');
+    expect(explainWithContractResult.stdout).toContain('missing reason types: 0');
     expect(explainWithContractResult.stdout).toContain('contracts: 1');
+    expect(explainWithContractResult.stdout).toContain(`upload groups: ${contractManifest.summary.uploadGroupCount}`);
 
     const contractReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
       artifactSummary?: typeof contractManifest.summary & { uploadGroups?: typeof contractManifest.uploadGroups };
