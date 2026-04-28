@@ -1,5 +1,5 @@
 import type { DependencyCleanOptions } from '../shared/dependency-environment.ts';
-import type { VerificationLane } from '../shared/types.ts';
+import type { VerificationLane } from '../shared/verification-types.ts';
 import {
   ACCEPTANCE_USAGE,
   ARTIFACTS_USAGE,

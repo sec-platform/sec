@@ -3,7 +3,7 @@ import { compilerRoot } from '../../shared/paths.ts';
 import { listFilesRecursive } from '../../shared/fs.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
 import { resolveNpmInvocation, runCommand } from '../../shared/process.ts';
-import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/types.ts';
+import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/verification-types.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
 
