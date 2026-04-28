@@ -17,6 +17,7 @@ export type BenchmarkTaskSuiteContract = {
   tasks: BenchmarkTask[];
   artifactPathCount: number;
   artifactPaths: string[];
+  scoreDimensionCount: number;
   scoreDimensions: string[];
 };
 
@@ -116,6 +117,7 @@ export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
     })),
     artifactPathCount: artifactPaths.length,
     artifactPaths,
+    scoreDimensionCount: scoreDimensions.length,
     scoreDimensions: [...scoreDimensions]
   };
 }
@@ -128,6 +130,7 @@ export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteCon
     `Tasks: ${contract.taskCount}`,
     `Artifact paths: ${contract.artifactPathCount}`,
     `Artifact path list: ${contract.artifactPaths.join(', ')}`,
+    `Score dimension count: ${contract.scoreDimensionCount}`,
     `Score dimensions: ${contract.scoreDimensions.join(', ')}`
   ];
 
