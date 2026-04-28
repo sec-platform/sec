@@ -20,7 +20,7 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan,
   UpgradePreflightCheck
-} from '../shared/types.ts';
+} from '../shared/upgrade-types.ts';
 import type {
   ManifestSlot,
   PlanFile,

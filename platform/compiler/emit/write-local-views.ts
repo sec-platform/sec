@@ -11,11 +11,11 @@ import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
 import type {
-  ReviewSummary,
   UpgradeDiagnostics,
   UpgradeMigrationOperation,
   UpgradePlan
-} from '../../shared/types.ts';
+} from '../../shared/upgrade-types.ts';
+import type { ReviewSummary } from '../../shared/types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function escapeHtml(value: string): string {

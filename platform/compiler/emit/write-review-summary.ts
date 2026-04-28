@@ -16,14 +16,13 @@ import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile, ProvenanceOriginType, OverrideStatus } from '../../shared/provenance-types.ts';
 import type { RepairPlan, RepairTaskCategory } from '../../shared/repair-types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
 import type {
   ReviewConflictHint,
   ReviewInstallImpact,
   ReviewFailurePoint,
   ReviewRegressionRisk,
-  ReviewSummary,
-  UpgradeDiagnostics,
-  UpgradePlan
+  ReviewSummary
 } from '../../shared/types.ts';
 import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
 
