@@ -8,6 +8,7 @@ export type TestBudgetLane = {
 export type TestBudgetContract = {
   formatVersion: '1';
   command: string;
+  runnerCommand: string;
   defaultLane: TestBudgetLane['id'];
   laneCount: number;
   slowLaneIds: TestBudgetLane['id'][];
@@ -42,6 +43,7 @@ export function buildTestBudgetContract(): TestBudgetContract {
   return {
     formatVersion: '1',
     command: 'npm run platform -- test budget --json',
+    runnerCommand: 'npm run test:budget',
     defaultLane: 'fast',
     laneCount: lanes.length,
     slowLaneIds: lanes.filter((lane) => lane.nextBuild || lane.playwright).map((lane) => lane.id),
@@ -55,6 +57,7 @@ export function formatTestBudgetContract(contract: TestBudgetContract): string {
   return [
     `Test budget default lane: ${contract.defaultLane}`,
     `Command: ${contract.command}`,
+    `Runner command: ${contract.runnerCommand}`,
     `Lanes: ${contract.laneCount}`,
     `Slow lanes: ${contract.slowLaneIds.join(', ')}`,
     `Local default: ${contract.localDefault}`,
