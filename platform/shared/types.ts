@@ -902,6 +902,7 @@ export interface ReviewRepairSummary {
   failureTaxonomy: ReviewRepairFailureTaxonomySummary;
   targetSummaries: ReviewRepairTargetSummary[];
   taskCategorySummaries: ReviewRepairFailureTaxonomyEntry[];
+  targetFileCount: number;
   targetFiles: string[];
   taskSummaries: ReviewRepairTaskSummary[];
   blockerSummaries: ReviewRepairBlockerSummary[];

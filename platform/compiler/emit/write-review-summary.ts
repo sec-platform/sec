@@ -504,6 +504,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
     }))
     .sort((left, right) => left.blockerId.localeCompare(right.blockerId));
   const changedPreviewCount = repairPlan.tasks.filter((task) => task.preview?.changed).length;
+  const targetFiles = unique(repairPlan.tasks.map((task) => task.targetFile));
 
   return {
     status: repairPlan.status,
@@ -521,7 +522,8 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
     failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
     targetSummaries: buildRepairTargetSummaries(repairPlan),
     taskCategorySummaries: summarizeRepairTaxonomy(repairPlan.tasks.map(repairTaskCategory)),
-    targetFiles: unique(repairPlan.tasks.map((task) => task.targetFile)),
+    targetFileCount: targetFiles.length,
+    targetFiles,
     taskSummaries,
     blockerSummaries
   };
