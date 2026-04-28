@@ -650,6 +650,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     ],
     qualityCommands: [
       'npm run platform -- test budget --json --compact',
+      'npm run test:contract-freeze',
       'npm run platform -- benchmark suite --json --compact',
       'npm run platform -- reference check --json --compact'
     ],
@@ -672,7 +673,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'project/generated/runtime-report.json',
       'project/generated/verification-report.json'
     ],
-    stepCount: 11,
+    stepCount: 12,
     steps: expect.arrayContaining([
       expect.objectContaining({
         id: 'pr-fast-verify',
@@ -693,6 +694,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         id: 'slow-test-budget',
         phase: 'quality',
         command: 'npm run platform -- test budget --json --compact',
+        produces: []
+      }),
+      expect.objectContaining({
+        id: 'contract-freeze',
+        phase: 'quality',
+        command: 'npm run test:contract-freeze',
         produces: []
       }),
       expect.objectContaining({
@@ -729,7 +736,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact'
     );
     expect(textResult.stdout).toContain(
-      'Quality commands: npm run platform -- test budget --json --compact, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
+      'Quality commands: npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
     );
     expect(textResult.stdout).toContain(
       'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- explain --json --compact'
@@ -743,6 +750,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     );
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
     expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
+    expect(textResult.stdout).toContain('Step contract-freeze; phase=quality; command=npm run test:contract-freeze');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
     expect(textResult.stdout).toContain('Step reference-drift; phase=quality; command=npm run platform -- reference check --json --compact');
     expect(textResult.stdout).toContain('Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract');
@@ -759,6 +767,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       ],
       qualityCommands: [
         'npm run platform -- test budget --json --compact',
+        'npm run test:contract-freeze',
         'npm run platform -- benchmark suite --json --compact',
         'npm run platform -- reference check --json --compact'
       ],
@@ -771,7 +780,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'project/generated/ci-artifacts.json',
         'project/generated/verification-report.json'
       ]),
-      stepCount: 11
+      stepCount: 12
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'ci', '--json', '--compact']);
@@ -787,6 +796,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       ],
       qualityCommands: [
         'npm run platform -- test budget --json --compact',
+        'npm run test:contract-freeze',
         'npm run platform -- benchmark suite --json --compact',
         'npm run platform -- reference check --json --compact'
       ],
