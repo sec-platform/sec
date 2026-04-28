@@ -29,7 +29,7 @@ import {
   buildReferenceCheckReport,
   formatReferenceCheck
 } from '../platform/shared/reference-check.ts';
-import type { RepairPlan, ReviewSummary, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
+import type { ExplainGraph, RepairPlan, ReviewSummary, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
 import { writeJson } from '../platform/shared/fs.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
@@ -2763,6 +2763,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
     expect(explainJson.code).toBe(0);
     expect(explainJson.stderr).toBe('');
     const explainPayload = JSON.parse(explainJson.stdout) as {
+      graph: ExplainGraph;
       reviewSummary: {
         repairSummary?: {
           status: string;
@@ -3210,6 +3211,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(explainJson.code).toBe(0);
     expect(explainJson.stderr).toBe('');
     const explainPayload = JSON.parse(explainJson.stdout) as {
+      graph: ExplainGraph;
       reviewSummary: {
         upgradeSummary?: {
           status: string;
@@ -3305,6 +3307,23 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
         })
       ])
     );
+
+    const graphText = await runCli(workspaceRoot, ['explain', 'graph']);
+    expect(graphText.code).toBe(0);
+    expect(graphText.stderr).toBe('');
+    expect(graphText.stdout).toContain('Explain graph ');
+    expect(graphText.stdout).toContain('Node types:');
+    expect(graphText.stdout).toContain('Edge types:');
+    expect(graphText.stdout).toContain('Coverage overlay:');
+    expect(graphText.stdout).toContain('Provenance overlay:');
+
+    const graphJson = await runCli(workspaceRoot, ['explain', 'graph', '--json', '--compact']);
+    expect(graphJson.code).toBe(0);
+    expect(graphJson.stderr).toBe('');
+    expect(graphJson.stdout).not.toContain('\n  "nodes"');
+    const graphPayload = JSON.parse(graphJson.stdout) as ExplainGraph;
+    expect(graphPayload.nodes).toEqual(explainPayload.graph.nodes);
+    expect(graphPayload.edges).toEqual(explainPayload.graph.edges);
 
     await fs.writeFile(
       upgradeDiagnosticsPath,
