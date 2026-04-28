@@ -62,6 +62,8 @@ Use these entry commands for normal development:
 - `npm run platform -- policy sources --json --compact`: emit the compact policy source contract
 - `npm run platform -- acceptance coverage`: inspect the latest acceptance coverage report
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
+- `npm run platform -- acceptance blocks --json --compact`: emit the compact acceptance block coverage contract
+- `npm run platform -- acceptance slots --json --compact`: emit the compact acceptance slot coverage contract
 - `npm run platform -- install manifest`: inspect the latest install manifest without running compose
 - `npm run platform -- install manifest --json --compact`: emit the compact install manifest contract
 - `npm run platform -- blocks usage`: inspect the latest block usage map without running compose
@@ -152,6 +154,8 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- policy sources --json --compact`: emit the compact policy source contract
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
+- `npm run platform -- acceptance blocks --json --compact`: emit the compact acceptance block coverage contract
+- `npm run platform -- acceptance slots --json --compact`: emit the compact acceptance slot coverage contract
 - `npm run platform -- install manifest --json --compact`: emit the compact install manifest contract
 - `npm run platform -- blocks usage --json --compact`: emit the compact block usage map contract
 - `npm run platform -- postgres contract --json --compact`: emit the compact Postgres contract

@@ -214,6 +214,8 @@
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform policy sources --json [--compact]` 输出稳定 policy source 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
+         - `platform acceptance blocks --json [--compact]` 输出稳定 acceptance block coverage 合同，直接消费最新 `generated/acceptance-coverage.json`。
+         - `platform acceptance slots --json [--compact]` 输出稳定 acceptance slot coverage 合同，直接消费最新 `generated/acceptance-coverage.json`。
          - `platform install manifest --json [--compact]` 输出稳定 install manifest 合同，直接消费最新 `generated/install-manifest.json`。
          - `platform blocks usage --json [--compact]` 输出稳定 block usage map 合同，直接消费最新 `generated/block-usage-map.json`。
          - `platform repair plan --json [--compact]` 输出稳定 repair plan 合同，直接消费最新 `generated/repair-plan.json`。
@@ -807,6 +809,7 @@
    - 已完成：
      - `platform acceptance coverage` 提供最新 acceptance coverage report 文本 inspect 入口。
      - `platform acceptance coverage --json [--compact]` 提供稳定机器可读合同，直接消费最新 `generated/acceptance-coverage.json`。
+     - `platform acceptance blocks|slots --json [--compact]` 提供稳定 block/slot coverage 只读合同，直接消费最新 `generated/acceptance-coverage.json`。
      - coverage summary 进入 `generated/review-summary.json`：
        - status。
        - acceptance passed count。

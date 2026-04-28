@@ -90,6 +90,7 @@ function usageErrorStderr(usage: string): string {
 const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
 const LOCK_USAGE = 'Usage: platform lock [inspect [--json [--compact]]]';
 const POLICY_USAGE = 'Usage: platform policy <report|sources> [--json [--compact]]';
+const ACCEPTANCE_USAGE = 'Usage: platform acceptance <coverage|blocks|slots> [--json [--compact]]';
 const POSTGRES_USAGE = 'Usage: platform postgres contract [--json [--compact]]';
 
 async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
@@ -113,6 +114,14 @@ async function expectPolicyUsageError(workspaceRoot: string, args: string[]): Pr
     code: 1,
     stdout: '',
     stderr: usageErrorStderr(POLICY_USAGE)
+  });
+}
+
+async function expectAcceptanceUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expect(runCli(workspaceRoot, ['acceptance', ...args])).resolves.toMatchObject({
+    code: 1,
+    stdout: '',
+    stderr: usageErrorStderr(ACCEPTANCE_USAGE)
   });
 }
 
@@ -1387,6 +1396,49 @@ test('CLI exposes acceptance coverage as text and JSON contracts', { timeout: 12
       status: 'passed',
       uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'],
       uncoveredSlots: ['customer_normalizer']
+    });
+
+    const blocksText = await runCli(workspaceRoot, ['acceptance', 'blocks']);
+    expect(blocksText.code).toBe(0);
+    expect(blocksText.stderr).toBe('');
+    expect(blocksText.stdout).toContain('Acceptance coverage blocks passed');
+    expect(blocksText.stdout).toContain('targets=3; covered=0; uncovered=3');
+    expect(blocksText.stdout).toContain('Uncovered: auth/basic-session, tenant/basic-workspace, entity/customer-basic');
+    expect(blocksText.stdout).toContain('Target entity/customer-basic; declared=3; coveredBy=none; uncovered=true');
+
+    const blocksJson = await runCli(workspaceRoot, ['acceptance', 'blocks', '--json', '--compact']);
+    expect(blocksJson.code).toBe(0);
+    expect(blocksJson.stderr).toBe('');
+    expect(blocksJson.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(blocksJson.stdout)).toMatchObject({
+      formatVersion: '1',
+      status: 'passed',
+      targetKind: 'blocks',
+      targetCount: 3,
+      coveredCount: 0,
+      uncoveredCount: 3,
+      uncoveredIds: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic']
+    });
+
+    const slotsText = await runCli(workspaceRoot, ['acceptance', 'slots']);
+    expect(slotsText.code).toBe(0);
+    expect(slotsText.stderr).toBe('');
+    expect(slotsText.stdout).toContain('Acceptance coverage slots passed');
+    expect(slotsText.stdout).toContain('targets=1; covered=0; uncovered=1');
+    expect(slotsText.stdout).toContain('Target customer_normalizer; declared=2; coveredBy=none; uncovered=true');
+
+    const slotsJson = await runCli(workspaceRoot, ['acceptance', 'slots', '--json', '--compact']);
+    expect(slotsJson.code).toBe(0);
+    expect(slotsJson.stderr).toBe('');
+    expect(slotsJson.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(slotsJson.stdout)).toMatchObject({
+      formatVersion: '1',
+      status: 'passed',
+      targetKind: 'slots',
+      targetCount: 1,
+      coveredCount: 0,
+      uncoveredCount: 1,
+      uncoveredIds: ['customer_normalizer']
     });
   });
 });
@@ -3995,21 +4047,11 @@ test('CLI reports argument usage errors', { timeout: 60000 }, async () => {
     await expectPolicyUsageError(workspaceRoot, ['report', '--compact']);
     await expectPolicyUsageError(workspaceRoot, ['sources', '--compact']);
     await expectPolicyUsageError(workspaceRoot, ['status']);
-    await expect(runCli(workspaceRoot, ['acceptance'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform acceptance coverage [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['acceptance', 'coverage', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform acceptance coverage [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['acceptance', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform acceptance coverage [--json [--compact]]')
-    });
+    await expectAcceptanceUsageError(workspaceRoot, []);
+    await expectAcceptanceUsageError(workspaceRoot, ['coverage', '--compact']);
+    await expectAcceptanceUsageError(workspaceRoot, ['blocks', '--compact']);
+    await expectAcceptanceUsageError(workspaceRoot, ['slots', '--compact']);
+    await expectAcceptanceUsageError(workspaceRoot, ['status']);
     await expect(runCli(workspaceRoot, ['runtime'])).resolves.toMatchObject({
       code: 1,
       stdout: '',

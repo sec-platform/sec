@@ -55,6 +55,7 @@ import {
 } from '../shared/reference-check.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
+  AcceptanceCoverageEntry,
   AcceptanceCoverageReport,
   ExplainGraph,
   InstallPlanStep,
@@ -93,7 +94,7 @@ const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
 const POLICY_USAGE = 'Usage: platform policy <report|sources> [--json [--compact]]';
-const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact]]';
+const ACCEPTANCE_USAGE = 'Usage: platform acceptance <coverage|blocks|slots> [--json [--compact]]';
 const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
 const PROVENANCE_USAGE = 'Usage: platform provenance registry [--json [--compact]]';
@@ -548,6 +549,24 @@ function parsePolicyArgs(
 
 function parseAcceptanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   return parseOptionalJsonOutputArgs(args, ACCEPTANCE_USAGE);
+}
+
+function parseAcceptanceArgs(
+  args: string[]
+):
+  | { mode: 'coverage'; json: boolean; compact: boolean }
+  | { mode: 'blocks'; json: boolean; compact: boolean }
+  | { mode: 'slots'; json: boolean; compact: boolean } {
+  if (args[0] === 'coverage') {
+    return { mode: 'coverage', ...parseAcceptanceOutputArgs(args.slice(1)) };
+  }
+  if (args[0] === 'blocks') {
+    return { mode: 'blocks', ...parseAcceptanceOutputArgs(args.slice(1)) };
+  }
+  if (args[0] === 'slots') {
+    return { mode: 'slots', ...parseAcceptanceOutputArgs(args.slice(1)) };
+  }
+  throw new Error(ACCEPTANCE_USAGE);
 }
 
 function parseRuntimeOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -1048,6 +1067,63 @@ function formatPolicyReport(report: NonNullable<ReviewSummary['policySummary']>)
         `severity=${violation.severity}`,
         `files=${formatList(violation.files)}`,
         violation.message
+      ].join('; ')
+    );
+  }
+  return lines.join('\n');
+}
+
+type AcceptanceTargetInspect = {
+  formatVersion: '1';
+  status: AcceptanceCoverageReport['status'];
+  targetKind: 'blocks' | 'slots';
+  targetCount: number;
+  coveredCount: number;
+  uncoveredCount: number;
+  uncoveredIds: string[];
+  targets: Array<AcceptanceCoverageEntry & { declaredAcceptanceCount: number; coveredByCount: number }>;
+};
+
+function buildAcceptanceTargetInspect(
+  report: AcceptanceCoverageReport,
+  targetKind: 'blocks' | 'slots'
+): AcceptanceTargetInspect {
+  const entries = targetKind === 'blocks' ? report.blocks : report.slots;
+  const uncoveredIds = targetKind === 'blocks' ? report.uncoveredBlocks : report.uncoveredSlots;
+  return {
+    formatVersion: '1',
+    status: report.status,
+    targetKind,
+    targetCount: entries.length,
+    coveredCount: entries.filter((entry) => !entry.uncovered).length,
+    uncoveredCount: uncoveredIds.length,
+    uncoveredIds,
+    targets: entries.map((entry) => ({
+      ...entry,
+      declaredAcceptanceCount: entry.declaredAcceptance.length,
+      coveredByCount: entry.coveredBy.length
+    }))
+  };
+}
+
+function formatAcceptanceTargets(report: AcceptanceTargetInspect): string {
+  const label = report.targetKind === 'blocks' ? 'Acceptance coverage blocks' : 'Acceptance coverage slots';
+  const lines = [
+    `${label} ${report.status}`,
+    [
+      `targets=${report.targetCount}`,
+      `covered=${report.coveredCount}`,
+      `uncovered=${report.uncoveredCount}`
+    ].join('; '),
+    `Uncovered: ${formatList(report.uncoveredIds)}`
+  ];
+  for (const target of report.targets.slice(0, 5)) {
+    lines.push(
+      [
+        `Target ${target.id}`,
+        `declared=${target.declaredAcceptanceCount}`,
+        `coveredBy=${formatList(target.coveredBy)}`,
+        `uncovered=${target.uncovered}`
       ].join('; ')
     );
   }
@@ -1614,19 +1690,25 @@ async function runPolicyCommand(args: string[]): Promise<void> {
 }
 
 async function runAcceptanceCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'coverage') {
-    throw new Error(ACCEPTANCE_USAGE);
-  }
-
-  const outputArgs = parseAcceptanceOutputArgs(args.slice(1));
+  const acceptanceArgs = parseAcceptanceArgs(args);
   const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
   if (!(await pathExists(acceptanceCoveragePath))) {
     throw new Error('Acceptance coverage report not found; run platform verify first');
   }
 
   const report = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
-  if (outputArgs.json) {
-    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+  if (acceptanceArgs.mode === 'blocks' || acceptanceArgs.mode === 'slots') {
+    const targetInspect = buildAcceptanceTargetInspect(report, acceptanceArgs.mode);
+    if (acceptanceArgs.json) {
+      console.log(JSON.stringify(targetInspect, null, acceptanceArgs.compact ? 0 : 2));
+      return;
+    }
+    console.log(formatAcceptanceTargets(targetInspect));
+    return;
+  }
+
+  if (acceptanceArgs.json) {
+    console.log(JSON.stringify(report, null, acceptanceArgs.compact ? 0 : 2));
     return;
   }
 
