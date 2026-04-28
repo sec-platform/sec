@@ -1,4 +1,4 @@
-import type { ReviewSummary } from './types.ts';
+import type { ReviewSummary } from './review-types.ts';
 
 export type E2eMatrixRow = {
   stage: string;

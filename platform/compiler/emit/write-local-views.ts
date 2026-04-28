@@ -15,7 +15,7 @@ import type {
   UpgradeMigrationOperation,
   UpgradePlan
 } from '../../shared/upgrade-types.ts';
-import type { ReviewSummary } from '../../shared/types.ts';
+import type { ReviewSummary } from '../../shared/review-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function escapeHtml(value: string): string {

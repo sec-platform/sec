@@ -33,7 +33,7 @@ import {
 import { pathExists, readJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
-import type { ReviewSummary } from '../shared/types.ts';
+import type { ReviewSummary } from '../shared/review-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
