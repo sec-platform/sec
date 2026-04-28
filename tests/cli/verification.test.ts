@@ -186,7 +186,7 @@ async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   );
 }
 
-test('CLI exposes policy report as text and JSON contracts', { timeout: 120000 }, async () => {
+test('CLI exposes policy report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -281,7 +281,7 @@ test('CLI exposes policy report as text and JSON contracts', { timeout: 120000 }
   });
 });
 
-test('CLI exposes acceptance coverage as text and JSON contracts', { timeout: 120000 }, async () => {
+test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -402,7 +402,7 @@ test('CLI exposes acceptance coverage as text and JSON contracts', { timeout: 12
   });
 });
 
-test('CLI exposes runtime report as text and JSON contracts', { timeout: 120000 }, async () => {
+test('CLI exposes runtime report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -492,7 +492,7 @@ test('CLI exposes runtime report as text and JSON contracts', { timeout: 120000 
   });
 });
 
-test('CLI runs verify with JSON output for CI consumers', { timeout: 120000 }, async () => {
+test('CLI runs verify with JSON output for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -548,7 +548,7 @@ test('CLI runs verify with JSON output for CI consumers', { timeout: 120000 }, a
   });
 });
 
-test('CLI exposes verification report as text and JSON contracts', { timeout: 120000 }, async () => {
+test('CLI exposes verification report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,

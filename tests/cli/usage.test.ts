@@ -199,7 +199,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
   });
 });
 
-test('CLI reports argument usage errors', { timeout: 60000 }, async () => {
+test('CLI reports argument usage errors', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--unknown'])).resolves.toMatchObject({
       code: 1,

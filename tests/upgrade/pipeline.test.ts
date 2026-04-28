@@ -296,7 +296,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
   );
 });
 
-test('upgrade advances ticket block version and surfaces runtime upgrade impact', { timeout: 240000 }, async () => {
+test('upgrade advances ticket block version and surfaces runtime upgrade impact', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-ticket-upgrade-');
 
   await initWorkspace(workspaceRoot, { reset: true });

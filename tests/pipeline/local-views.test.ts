@@ -15,7 +15,7 @@ import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
-test('write-local-views consumes generated artifacts from disk', { timeout: 120000 }, async () => {
+test('write-local-views consumes generated artifacts from disk', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-local-views-');
   const {
     acceptanceCoveragePath,

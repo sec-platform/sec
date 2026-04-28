@@ -186,7 +186,7 @@ async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   );
 }
 
-test('CLI exposes demo checklist as text and JSON readiness contracts', { timeout: 120000 }, async () => {
+test('CLI exposes demo checklist as text and JSON readiness contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const missingText = await runCli(workspaceRoot, ['demo', 'checklist']);
     expect(missingText.code).toBe(0);

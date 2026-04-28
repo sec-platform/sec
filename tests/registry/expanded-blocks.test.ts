@@ -12,7 +12,7 @@ import {
 } from '../../platform/orchestrator.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
-test('expanded official block set composes and verifies as one project', { timeout: 120000 }, async () => {
+test('expanded official block set composes and verifies as one project', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-expanded-');
 
   await initWorkspace(workspaceRoot, { reset: true });
