@@ -1994,6 +1994,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         contractPaths: string[];
         uploadGroupCount: number;
         missingCount: number;
+        missingReasonTypeCount: number;
         missingReasonCounts: Record<string, number>;
       };
       artifacts: Array<{ path: string; kind: string; uploadName: string; exists: boolean }>;
@@ -2053,6 +2054,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       contractPaths: [],
       uploadGroupCount: expectedUploadGroups.length,
       missingCount: 0,
+      missingReasonTypeCount: 0,
       missingReasonCounts: {
         'declared-generated-missing': 0,
         'fixed-governance-missing': 0,
@@ -2125,7 +2127,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(contractManifest.summary).toMatchObject({
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json'],
-      uploadGroupCount: contractManifest.uploadGroups.length
+      uploadGroupCount: contractManifest.uploadGroups.length,
+      missingReasonTypeCount: 0
     });
     expect(contractManifest.artifacts).toContainEqual({
       path: 'generated/postgres-contract.json',
@@ -2197,7 +2200,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(contractReviewSummary.artifactSummary).toMatchObject({
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json'],
-      uploadGroupCount: contractManifest.uploadGroups.length
+      uploadGroupCount: contractManifest.uploadGroups.length,
+      missingReasonTypeCount: 0
     });
     expect(contractReviewSummary.artifactSummary?.uploadGroups).toContainEqual({
       kind: 'contract',
@@ -2224,6 +2228,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(manifestWithLockMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithLockMissing.summary.uploadGroupCount).toBe(manifestWithLockMissing.uploadGroups.length);
     expect(manifestWithLockMissing.summary.missingCount).toBe(1);
+    expect(manifestWithLockMissing.summary.missingReasonTypeCount).toBe(1);
     expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual({
       'declared-generated-missing': 1,
       'fixed-governance-missing': 0,
@@ -2236,6 +2241,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       reviewSummary: {
         artifactSummary?: typeof manifest.summary & {
           uploadGroups?: typeof manifest.uploadGroups;
+          missingReasonTypeCount?: number;
           missing?: typeof lockMissingDiagnostics;
         };
       };
@@ -2243,6 +2249,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(
       manifestWithLockMissing.uploadGroups
     );
+    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missingReasonTypeCount).toBe(1);
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(lockMissingDiagnostics);
 
     const testPathsBeforeFixture = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
@@ -2285,6 +2292,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         }
       ],
       missingCount: 1,
+      missingReasonTypeCount: 1,
       missingReasonCounts: {
         'declared-generated-missing': 1,
         'fixed-governance-missing': 0,
@@ -2306,7 +2314,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       artifactSummary?: typeof testManifest.summary & { uploadGroups?: typeof testManifest.uploadGroups };
     };
     expect(refreshedReviewSummary.artifactSummary).toMatchObject({
-      testCount: 1
+      testCount: 1,
+      missingReasonTypeCount: 1
     });
     expect(refreshedReviewSummary.artifactSummary?.uploadGroups).toContainEqual({
       kind: 'test',
@@ -2317,6 +2326,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const refreshedSourceView = await fs.readFile(sourceViewPath, 'utf8');
     expect(refreshedSourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
     expect(refreshedSourceView).toContain(`<td>Upload Groups</td><td>${testManifest.summary.uploadGroupCount}</td>`);
+    expect(refreshedSourceView).toContain(
+      `<td>Missing Reason Types</td><td>${testManifest.summary.missingReasonTypeCount}</td>`
+    );
     expect(refreshedSourceView).toContain('<td>contract</td>');
     expect(refreshedSourceView).toContain('generated/postgres-contract.json');
     expect(refreshedSourceView).toContain('<td>Test Artifacts</td><td>1</td>');
@@ -2346,6 +2358,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     ];
     expect(manifestWithMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithMissing.summary.missingCount).toBe(3);
+    expect(manifestWithMissing.summary.missingReasonTypeCount).toBe(3);
     expect(manifestWithMissing.summary.missingReasonCounts).toEqual({
       'declared-generated-missing': 1,
       'fixed-governance-missing': 1,
@@ -2384,6 +2397,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       byKind: Record<string, number>;
       uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
       missingCount: number;
+      missingReasonTypeCount: number;
       missingReasonCounts: Record<string, number>;
       missing: typeof fixedMissingDiagnostics;
     };
@@ -2414,6 +2428,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       uploadPaths.length
     );
     expect(pathsJson.missingCount).toBe(fixedMissingDiagnostics.length);
+    expect(pathsJson.missingReasonTypeCount).toBe(3);
     expect(pathsJson.missingReasonCounts).toEqual({
       'declared-generated-missing': 1,
       'fixed-governance-missing': 1,

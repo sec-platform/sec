@@ -1361,6 +1361,7 @@
            - testCount。
            - contractCount。
            - uploadGroupCount。
+           - missingReasonTypeCount。
          - 输出 artifactStatus：
            - `passed`。
            - `attention`。
@@ -1392,7 +1393,7 @@
            - local source view 可展示。
          - local source view 主表显示：
            - upload group count，直接消费 artifact summary 的 `uploadGroupCount`。
-           - nonzero missing reason type count。
+           - missing reason type count，直接消费 artifact summary 的 `missingReasonTypeCount`。
          - 缺失项可被消费：
            - review summary。
            - `explain --json`。

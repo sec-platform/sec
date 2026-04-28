@@ -63,8 +63,9 @@ function renderE2eChainSummarySection(review: ReviewSummary): string {
 }
 
 function renderCiSummaryCard(review: ReviewSummary): string {
-  const nonzeroMissingReasonCount = review.artifactSummary?.missingReasonCounts
-    ? Object.values(review.artifactSummary.missingReasonCounts).filter((count) => count > 0).length
+  const missingReasonTypeCount = review.artifactSummary
+    ? review.artifactSummary.missingReasonTypeCount
+      ?? Object.values(review.artifactSummary.missingReasonCounts ?? {}).filter((count) => count > 0).length
     : 0;
   const artifactRows = review.artifactSummary
     ? [
@@ -80,7 +81,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
           String(review.artifactSummary.uploadGroupCount ?? review.artifactSummary.uploadGroups?.length ?? 0)
         ],
         ['Missing Artifacts', String(review.artifactSummary.missingCount)],
-        ['Missing Reason Types', String(nonzeroMissingReasonCount)]
+        ['Missing Reason Types', String(missingReasonTypeCount)]
       ]
     : [];
   const rows = [
