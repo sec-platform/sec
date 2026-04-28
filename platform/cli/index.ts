@@ -90,7 +90,7 @@ const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact
 const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
 const PROVENANCE_USAGE = 'Usage: platform provenance registry [--json [--compact]]';
-const REVIEW_USAGE = 'Usage: platform review summary [--json [--compact]]';
+const REVIEW_USAGE = 'Usage: platform review <summary|matrix> [--json [--compact]]';
 const DEMO_USAGE = 'Usage: platform demo checklist [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors|ci> [--json [--compact]]';
 const DEPS_USAGE = [
@@ -702,6 +702,17 @@ function formatDemoChecklist(checklist: DemoChecklist): string {
       `command=${item.command}`
     ].join('; ')),
     `Next command: ${checklist.nextCommand}`
+  ].join('\n');
+}
+
+function formatE2eMatrix(matrix: E2eMatrix): string {
+  return [
+    `E2E matrix ${matrix.status}; rows=${matrix.rowCount}`,
+    ...matrix.rows.map((row) => [
+      `${row.stage}: ${row.status}`,
+      row.detail,
+      `evidence=${row.evidence.join(', ') || 'none'}`
+    ].join('; '))
   ].join('\n');
 }
 
@@ -1542,7 +1553,7 @@ async function runProvenanceCommand(args: string[]): Promise<void> {
 }
 
 async function runReviewCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'summary') {
+  if (args[0] !== 'summary' && args[0] !== 'matrix') {
     throw new Error(REVIEW_USAGE);
   }
 
@@ -1553,6 +1564,16 @@ async function runReviewCommand(args: string[]): Promise<void> {
   }
 
   const summary = await readJson<ReviewSummary>(reviewSummaryPath);
+  if (args[0] === 'matrix') {
+    const matrix = buildE2eMatrix(summary);
+    if (outputArgs.json) {
+      console.log(JSON.stringify(matrix, null, outputArgs.compact ? 0 : 2));
+      return;
+    }
+    console.log(formatE2eMatrix(matrix));
+    return;
+  }
+
   if (outputArgs.json) {
     console.log(JSON.stringify(summary, null, outputArgs.compact ? 0 : 2));
     return;

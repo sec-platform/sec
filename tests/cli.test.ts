@@ -1976,6 +1976,19 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
         { stage: 'review', status: 'passed', evidenceCount: 1, evidence: ['review-summary=generated'] }
       ]
     });
+
+    const matrixText = await runCli(workspaceRoot, ['review', 'matrix']);
+    expect(matrixText.code).toBe(0);
+    expect(matrixText.stderr).toBe('');
+    expect(matrixText.stdout).toContain('E2E matrix attention; rows=4');
+    expect(matrixText.stdout).toContain('verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0');
+    expect(matrixText.stdout).toContain('artifacts: attention; total=0; missing=0; evidence=artifacts=missing');
+
+    const matrixJson = await runCli(workspaceRoot, ['review', 'matrix', '--json', '--compact']);
+    expect(matrixJson.code).toBe(0);
+    expect(matrixJson.stderr).toBe('');
+    expect(matrixJson.stdout).not.toContain('\n  "status"');
+    expect(JSON.parse(matrixJson.stdout)).toEqual(payload.e2eMatrix);
     expect(payload.reviewSummary.formatVersion).toBe('2');
     expect(payload.reviewSummary.ciSummary).toMatchObject({
       status: 'passed',
