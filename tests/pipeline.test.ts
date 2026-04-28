@@ -446,6 +446,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         reason: string;
         requiresVerification: boolean;
       }>;
+      migrationOperationCount: number;
       migrationOperationSummaries: Array<{
         id: string;
         kind: string;
@@ -839,6 +840,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         source: 'files/src/installed/auth/session.ts'
       }
     ],
+    migrationOperationCount: 1,
     migrationOperationSummaries: [
       {
         id: 'mig-auth-session-refresh',

@@ -312,6 +312,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       requiresVerificationCount: 1,
       impactCount: 1,
       impacts: ['src/installed/auth/session.ts'],
+      migrationOperationCount: 1,
       diagnostics: {
         status: 'blocked',
         phase: 'planning',
@@ -486,6 +487,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
       status: 'blocked',
       blockId: 'private/slot-contract',
       toVersion: '0.2.0',
+      migrationOperationCount: 0,
       diagnostics: {
         phase: 'planning',
         failedCheck: 'migration-targets',
