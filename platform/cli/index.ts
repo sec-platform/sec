@@ -67,10 +67,7 @@ import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
-import type {
-  UpgradeDiagnostics,
-  UpgradePlan
-} from '../shared/types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 
 function assertNoArgs(command: string, args: string[]): void {
   if (args.length > 0) {

@@ -7,11 +7,8 @@ import type {
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import type { InstallPlanStep, LockFile } from '../shared/lock-types.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
-import type {
-  ReviewSummary,
-  UpgradeDiagnostics,
-  UpgradePlan
-} from '../shared/types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
+import type { ReviewSummary } from '../shared/types.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';

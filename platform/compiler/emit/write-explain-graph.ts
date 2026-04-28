@@ -11,10 +11,7 @@ import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
-import type {
-  UpgradeDiagnostics,
-  UpgradePlan
-} from '../../shared/types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
 
 function pushNode(nodes: ExplainGraphNode[], node: ExplainGraphNode): void {
   if (!nodes.some((candidate) => candidate.id === node.id)) {

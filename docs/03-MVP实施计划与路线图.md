@@ -233,7 +233,7 @@
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域；当前已在 stderr JSON 暴露 code、message、suggestedActions 与 diagnostic artifact paths。
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。
-         - `shared/types.ts`：已抽离 workspace path、policy、verification、acceptance、explain、provenance/override、plan/manifest 输入合同、lock/pass/install/slot task、repair plan 类型并保留 barrel；后续按 review、upgrade 上下文继续拆分。
+         - `shared/types.ts`：已抽离 workspace path、policy、verification、acceptance、explain、provenance/override、plan/manifest 输入合同、lock/pass/install/slot task、repair plan、upgrade plan/diagnostics 类型并保留 barrel；后续按 review 上下文继续拆分。
          - `orchestrator.ts`：后续收敛为 workspace lifecycle、pipeline workflow、artifact/governance workflow 三层；当前文件只保留门面角色。
          - `platform/cli/index.ts`：已拆分为入口、usage、args、formatters、commands；usage、参数解析、纯格式化/inspect contract builder 和二级命令执行已有单一来源。
          - `compiler/emit/**`：后续按 explain、governance、provenance、output/views 分层，避免继续扩大 emit 兜底职责。
