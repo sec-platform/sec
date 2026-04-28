@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { RegistryLocation, WorkspacePaths } from './types.ts';
+import type { RegistryLocation } from './types.ts';
+import type { WorkspacePaths } from './workspace-types.ts';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
