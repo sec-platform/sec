@@ -21,8 +21,8 @@ import { upgradeWorkspace as runUpgradeWorkspace } from './upgrade/upgrade-works
 import { validateResolvedTemplates } from './compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from './compiler/verify/verify-project.ts';
 import type { AcceptanceCoverageReport } from './shared/acceptance-types.ts';
+import type { ExplainGraph } from './shared/explain-types.ts';
 import type {
-  ExplainGraph,
   LockFile,
   ManifestEntry,
   PlanFile,

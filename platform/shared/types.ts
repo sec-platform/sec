@@ -1,4 +1,5 @@
 import type { AcceptanceCoverageReport, AcceptanceItem } from './acceptance-types.ts';
+import type { ExplainGraph } from './explain-types.ts';
 import type { PolicySeverity, PolicySourceScope } from './policy-types.ts';
 import type { VerificationStatus } from './verification-types.ts';
 
@@ -13,26 +14,14 @@ export type ProvenanceOriginType = 'block' | 'slot' | 'generated' | 'override';
 export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
 export type OverrideSource = 'manual' | 'rule-backed';
 export type OverrideApplyPhase = 'compose' | 'adapt';
-export type ExplainNodeType =
-  | 'app'
-  | 'block'
-  | 'capability'
-  | 'pin'
-  | 'slot'
-  | 'file'
-  | 'acceptance'
-  | 'policy'
-  | 'override'
-  | 'repair'
-  | 'upgrade';
-export type ExplainEdgeType =
-  | 'depends_on'
-  | 'provides'
-  | 'connects_to'
-  | 'writes_to'
-  | 'verified_by'
-  | 'originates_from'
-  | 'violates';
+export type {
+  CoverageOverlay,
+  ExplainEdgeType,
+  ExplainGraph,
+  ExplainGraphEdge,
+  ExplainGraphNode,
+  ExplainNodeType
+} from './explain-types.ts';
 export type {
   AcceptanceCoverageEntry,
   AcceptanceCoverageReport,
@@ -462,38 +451,6 @@ export interface ProvenanceArtifact {
 export interface ProvenanceFile {
   formatVersion: string;
   artifacts: ProvenanceArtifact[];
-}
-
-export interface ExplainGraphNode {
-  id: string;
-  type: ExplainNodeType;
-  label: string;
-}
-
-export interface ExplainGraphEdge {
-  from: string;
-  to: string;
-  type: ExplainEdgeType;
-}
-
-export interface CoverageOverlay {
-  blocks: Array<{
-    id: string;
-    coveredBy: string[];
-  }>;
-  slots: Array<{
-    id: string;
-    coveredBy: string[];
-  }>;
-}
-
-export interface ExplainGraph {
-  nodes: ExplainGraphNode[];
-  edges: ExplainGraphEdge[];
-  overlays: {
-    provenance: ProvenanceArtifact[];
-    coverage: CoverageOverlay;
-  };
 }
 
 export interface ReviewFailurePoint {
