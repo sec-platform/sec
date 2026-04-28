@@ -131,6 +131,9 @@ test('review summary surfaces provenance summary', async () => {
       overrideArtifactCount: 1,
       registryArtifactCount: 1,
       generatedPassCount: 3,
+      originSummaryCount: 4,
+      overrideSummaryCount: 2,
+      registrySummaryCount: 1,
       unverifiedArtifacts: [
         'app/tickets/page.tsx',
         'custom/customer_normalizer.ts',

@@ -815,8 +815,11 @@ export interface ReviewProvenanceSummary {
   overrideArtifactCount: number;
   registryArtifactCount: number;
   generatedPassCount: number;
+  originSummaryCount: number;
   originSummaries: ReviewProvenanceOriginSummary[];
+  overrideSummaryCount: number;
   overrideSummaries: ReviewProvenanceOverrideSummary[];
+  registrySummaryCount: number;
   registrySummaries: ReviewProvenanceRegistrySummary[];
   generatedPassSummaries: ReviewProvenancePassSummary[];
   unverifiedArtifacts: string[];

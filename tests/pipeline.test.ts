@@ -129,6 +129,9 @@ test('v0.1 pipeline runs end to end in a temporary workspace', { timeout: 120000
     overrideArtifactCount: 0,
     registryArtifactCount: expect.any(Number),
     unverifiedArtifactCount: expect.any(Number),
+    originSummaryCount: expect.any(Number),
+    overrideSummaryCount: expect.any(Number),
+    registrySummaryCount: expect.any(Number),
     originSummaries: expect.arrayContaining([
       expect.objectContaining({ originType: 'block' }),
       expect.objectContaining({ originType: 'slot' })
@@ -352,8 +355,11 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       overrideArtifactCount: number;
       registryArtifactCount: number;
       generatedPassCount: number;
+      originSummaryCount: number;
       originSummaries: Array<{ originType: string; count: number; paths: string[] }>;
+      overrideSummaryCount: number;
       overrideSummaries: Array<{ overrideStatus: string; count: number; paths: string[] }>;
+      registrySummaryCount: number;
       registrySummaries: Array<{
         registrySourceId: string;
         registryKind?: string;
@@ -550,6 +556,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     overrideArtifactCount: 1,
     registryArtifactCount: 1,
     generatedPassCount: 3,
+    originSummaryCount: 2,
     originSummaries: [
       {
         originType: 'block',
@@ -562,6 +569,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         paths: ['app/tickets/page.tsx']
       }
     ],
+    overrideSummaryCount: 2,
     overrideSummaries: [
       {
         overrideStatus: 'manual',
@@ -574,6 +582,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         paths: ['custom/customer_normalizer.ts', 'generated/review-summary.json', 'src/installed/auth/session.ts']
       }
     ],
+    registrySummaryCount: 1,
     registrySummaries: [
       {
         registrySourceId: 'official',
