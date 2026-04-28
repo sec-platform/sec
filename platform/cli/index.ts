@@ -66,8 +66,8 @@ import {
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import type { LockFile } from '../shared/lock-types.ts';
+import type { RepairPlan } from '../shared/repair-types.ts';
 import type {
-  RepairPlan,
   UpgradeDiagnostics,
   UpgradePlan
 } from '../shared/types.ts';
