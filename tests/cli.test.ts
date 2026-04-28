@@ -455,6 +455,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         scoreFocus: ['conflict-detection', 'machine-recoverability']
       })
     ]),
+    scoreDimensionCount: 9,
     scoreDimensions: expect.arrayContaining([
       'success-rate',
       'wall-time',
@@ -471,6 +472,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(textResult.stdout).toContain('Command: npm run platform -- benchmark suite --json');
     expect(textResult.stdout).toContain('Runner command: npm run test:benchmark-contract');
     expect(textResult.stdout).toContain('Artifact paths: 11');
+    expect(textResult.stdout).toContain('Score dimension count: 9');
     expect(textResult.stdout).toContain(
       'Artifact path list: project/generated/acceptance-coverage.json, project/generated/explain-graph.json, project/generated/policy-report.json, project/generated/repair-plan.json, project/generated/review-summary.json, project/generated/upgrade-diagnostics.json, project/generated/upgrade-plan.json, project/generated/verification-report.json, project/graph.lock.json, project/overrides/override.manifest.yaml, project/provenance.json'
     );
@@ -491,7 +493,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         'project/generated/review-summary.json',
         'project/generated/upgrade-plan.json',
         'project/provenance.json'
-      ])
+      ]),
+      scoreDimensionCount: 9
     });
 
     const compactResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json', '--compact']);
@@ -502,7 +505,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       suiteId: 'engineering-compiler-core',
       runnerCommand: 'npm run test:benchmark-contract',
       taskCount: 5,
-      artifactPathCount: 11
+      artifactPathCount: 11,
+      scoreDimensionCount: 9
     });
   });
 });
