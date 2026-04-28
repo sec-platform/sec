@@ -146,6 +146,7 @@
        - E2E artifacts evidence 输出 artifact upload group count 与 missing reason type count。
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
+       - `platform doctor --json [--compact]` 输出稳定环境 readiness 合同，包含顶层 checkCount 与 checks。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
      - dogfood 样例工作区：active。
        - `npm run dogfood:reference` 刷新当前参考工作区。

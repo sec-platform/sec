@@ -50,6 +50,7 @@ export interface DoctorCheck {
 
 export interface DoctorReport {
   status: DoctorCheckStatus;
+  checkCount: number;
   checks: DoctorCheck[];
   dependencies: DependencyEnvironmentStatus;
 }
@@ -283,6 +284,7 @@ export async function getDoctorReport(
 
   return {
     status: combineDoctorStatus(checks),
+    checkCount: checks.length,
     checks,
     dependencies
   };
@@ -376,6 +378,7 @@ export function formatDoctorReport(report: DoctorReport): string {
   const lines = [
     'Developer environment doctor',
     `Status: ${report.status}`,
+    `Checks: ${report.checkCount}`,
     ...report.checks.map((check) => `[${check.status}] ${check.id}: ${check.message}`),
     '',
     formatDependencyEnvironmentStatus(report.dependencies).trimEnd()
