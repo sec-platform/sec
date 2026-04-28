@@ -1974,6 +1974,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const testPaths = manifest.artifacts
       .filter((artifact) => artifact.kind === 'test')
       .map((artifact) => artifact.path);
+    const contractPaths = manifest.artifacts
+      .filter((artifact) => artifact.kind === 'contract')
+      .map((artifact) => artifact.path);
     const expectedUploadGroups = [
       {
         kind: 'governance',
@@ -1991,6 +1994,13 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         kind: 'test',
         count: manifest.summary.testCount,
         paths: testPaths
+      });
+    }
+    if (contractPaths.length > 0) {
+      expectedUploadGroups.push({
+        kind: 'contract',
+        count: manifest.summary.contractCount,
+        paths: contractPaths
       });
     }
     expect(manifest.uploadGroups).toEqual(expectedUploadGroups);
@@ -2060,6 +2070,17 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json']
     });
+    expect(contractManifest.artifacts).toContainEqual({
+      path: 'generated/postgres-contract.json',
+      kind: 'contract',
+      uploadName: 'generated__postgres-contract.json',
+      exists: true
+    });
+    expect(contractManifest.uploadGroups).toContainEqual({
+      kind: 'contract',
+      count: 1,
+      paths: ['generated/postgres-contract.json']
+    });
 
     const contractPathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'contract']);
     expect(contractPathsResult.code).toBe(0);
@@ -2114,11 +2135,16 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(explainWithContractResult.stdout).toContain('contracts: 1');
 
     const contractReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
-      artifactSummary?: typeof contractManifest.summary;
+      artifactSummary?: typeof contractManifest.summary & { uploadGroups?: typeof contractManifest.uploadGroups };
     };
     expect(contractReviewSummary.artifactSummary).toMatchObject({
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json']
+    });
+    expect(contractReviewSummary.artifactSummary?.uploadGroups).toContainEqual({
+      kind: 'contract',
+      count: 1,
+      paths: ['generated/postgres-contract.json']
     });
 
     const lockWithMissingArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
@@ -2230,6 +2256,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     });
 
     const refreshedSourceView = await fs.readFile(sourceViewPath, 'utf8');
+    expect(refreshedSourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
+    expect(refreshedSourceView).toContain('<td>contract</td>');
+    expect(refreshedSourceView).toContain('generated/postgres-contract.json');
     expect(refreshedSourceView).toContain('<td>Test Artifacts</td><td>1</td>');
     expect(refreshedSourceView).toContain('<td>test</td>');
     expect(refreshedSourceView).toContain('test-results/**');

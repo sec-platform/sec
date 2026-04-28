@@ -5,7 +5,7 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/types.ts';
 
-type CiArtifactKind = 'governance' | 'view' | 'test';
+type CiArtifactKind = 'governance' | 'view' | 'test' | 'contract';
 
 export interface CiArtifactEntry {
   path: string;
@@ -103,7 +103,14 @@ function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissi
   return [...entriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
+function isContractArtifactPath(artifactPath: string): boolean {
+  return artifactPath.startsWith('generated/') && artifactPath.endsWith('-contract.json');
+}
+
 function artifactKindFor(artifactPath: string): CiArtifactKind {
+  if (isContractArtifactPath(artifactPath)) {
+    return 'contract';
+  }
   if (artifactPath.startsWith('generated/views/')) {
     return 'view';
   }
@@ -113,12 +120,8 @@ function artifactKindFor(artifactPath: string): CiArtifactKind {
   return 'governance';
 }
 
-function isContractArtifactPath(artifactPath: string): boolean {
-  return artifactPath.startsWith('generated/') && artifactPath.endsWith('-contract.json');
-}
-
 function buildUploadGroups(entries: CiArtifactEntry[]): CiArtifactUploadGroup[] {
-  return (['governance', 'view', 'test'] as const)
+  return (['governance', 'view', 'test', 'contract'] as const)
     .map((kind) => {
       const paths = entries
         .filter((entry) => entry.kind === kind)
