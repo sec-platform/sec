@@ -52,7 +52,7 @@ Use these entry commands for normal development:
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
 - `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, diagnostic, artifact upload commands, command counts, and produced artifact paths
 - `npm run platform -- test budget`: inspect the fast/runtime/all slow-test budget
-- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, and slow lane IDs
+- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
 - `npm run platform -- policy report`: inspect the latest policy governance report
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- acceptance coverage`: inspect the latest acceptance coverage report
@@ -111,7 +111,7 @@ Workbench and IDE integrations must preserve this boundary:
 
 - `npm run check`: TypeScript typecheck plus the main test suite
 - `npm test`: run the Node test suite directly
-- `npm run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`, including runner command, lane count, and slow lane IDs
+- `npm run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`, including runner command, lane count, slow lane count, and slow lane IDs
 - `npm run test:contract-freeze`: run the CLI/script/governance contract freeze suite through the runner command declared by `platform contract freeze`
 - `npm run test:benchmark-contract`: print the formal benchmark/task-suite JSON contract through `platform benchmark suite`
 - `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
@@ -124,7 +124,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
 - `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, diagnostic, artifact upload commands, command counts, and produced artifact paths
-- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, and slow lane IDs
+- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report

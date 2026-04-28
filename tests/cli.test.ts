@@ -524,6 +524,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     runnerCommand: 'npm run test:budget',
     defaultLane: 'fast',
     laneCount: 3,
+    slowLaneCount: 1,
     slowLaneIds: ['all'],
     lanes: [
       {
@@ -557,6 +558,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Command: npm run platform -- test budget --json');
     expect(textResult.stdout).toContain('Runner command: npm run test:budget');
     expect(textResult.stdout).toContain('Lanes: 3');
+    expect(textResult.stdout).toContain('Slow lane count: 1');
     expect(textResult.stdout).toContain('Slow lanes: all');
     expect(textResult.stdout).toContain('Lane fast; nextBuild=false; playwright=false');
 
@@ -568,6 +570,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       runnerCommand: 'npm run test:budget',
       defaultLane: 'fast',
       laneCount: 3,
+      slowLaneCount: 1,
       slowLaneIds: ['all'],
       lanes: expect.arrayContaining([
         expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
@@ -582,6 +585,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       runnerCommand: 'npm run test:budget',
       defaultLane: 'fast',
       laneCount: 3,
+      slowLaneCount: 1,
       slowLaneIds: ['all']
     });
   });
