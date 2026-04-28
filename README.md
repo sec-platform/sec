@@ -64,7 +64,7 @@ Use these entry commands for normal development:
 - `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
 - `npm run platform -- provenance registry`: inspect the latest provenance registry
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
-- `npm run platform -- review summary`: inspect the latest review summary
+- `npm run platform -- review summary`: inspect the latest review summary, including artifact upload group and missing reason type counts
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract
