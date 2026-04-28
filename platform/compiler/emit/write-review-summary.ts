@@ -23,7 +23,7 @@ import type {
   ReviewFailurePoint,
   ReviewRegressionRisk,
   ReviewSummary
-} from '../../shared/types.ts';
+} from '../../shared/review-types.ts';
 import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
 
 function unique(values: string[]): string[] {

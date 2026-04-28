@@ -24,7 +24,7 @@ import type { AcceptanceCoverageReport } from './shared/acceptance-types.ts';
 import type { ExplainGraph } from './shared/explain-types.ts';
 import type { LockFile } from './shared/lock-types.ts';
 import type { RepairPlan } from './shared/repair-types.ts';
-import type { ReviewSummary } from './shared/types.ts';
+import type { ReviewSummary } from './shared/review-types.ts';
 import type { ManifestEntry, PlanFile } from './shared/plan-manifest-types.ts';
 import type { ProvenanceFile } from './shared/provenance-types.ts';
 import type { VerificationLane, VerificationReport } from './shared/verification-types.ts';
