@@ -209,6 +209,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
     expect(doctor.code).toBe(0);
     expect(doctor.stderr).toBe('');
     expect(doctor.stdout).toContain('Developer environment doctor');
+    expect(doctor.stdout).toContain('Checks: 5');
     expect(doctor.stdout).toContain('node-version');
     expect(doctor.stdout).toContain('runtime-dependencies');
 
@@ -217,6 +218,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
     expect(doctorJson.stderr).toBe('');
     expect(JSON.parse(doctorJson.stdout)).toMatchObject({
       status: expect.any(String),
+      checkCount: 5,
       checks: expect.arrayContaining([
         expect.objectContaining({ id: 'node-version' }),
         expect.objectContaining({ id: 'bun' }),
@@ -234,6 +236,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
     expect(doctorCompact.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(doctorCompact.stdout)).toMatchObject({
       status: expect.any(String),
+      checkCount: 5,
       dependencies: expect.objectContaining({ mode: expect.any(String) })
     });
   });
