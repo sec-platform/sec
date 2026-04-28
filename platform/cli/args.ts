@@ -359,8 +359,22 @@ export function parseProvenanceOutputArgs(args: string[]): { json: boolean; comp
   return parseOptionalJsonOutputArgs(args, PROVENANCE_USAGE);
 }
 
-export function parseReviewOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, REVIEW_USAGE);
+export function parseReviewArgs(
+  args: string[]
+):
+  | { mode: 'summary'; json: boolean; compact: boolean }
+  | { mode: 'matrix'; json: boolean; compact: boolean }
+  | { mode: 'diagnostics'; json: boolean; compact: boolean } {
+  if (args[0] === 'summary') {
+    return { mode: 'summary', ...parseOptionalJsonOutputArgs(args.slice(1), REVIEW_USAGE) };
+  }
+  if (args[0] === 'matrix') {
+    return { mode: 'matrix', ...parseOptionalJsonOutputArgs(args.slice(1), REVIEW_USAGE) };
+  }
+  if (args[0] === 'diagnostics') {
+    return { mode: 'diagnostics', ...parseOptionalJsonOutputArgs(args.slice(1), REVIEW_USAGE) };
+  }
+  throw new Error(REVIEW_USAGE);
 }
 
 export function parseDemoOutputArgs(args: string[]): { json: boolean; compact: boolean } {
