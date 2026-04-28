@@ -750,7 +750,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
     ['Preflight Checks', String(upgrade.preflightCheckCount)],
     ['Preflight Evidence', String(upgrade.preflightEvidenceCount)],
     ['Migrations', String(upgrade.migrationCount)],
-    ['Operations', String(upgrade.migrationOperationSummaries.length)],
+    ['Operations', String(upgrade.migrationOperationCount)],
     ['Impacts', String(upgrade.impactCount)],
     ['Requires Verification', String(upgrade.requiresVerification)],
     ['Verification Migrations', String(upgrade.requiresVerificationCount)]

@@ -1142,7 +1142,7 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `${upgrade.blockId} ${versionRange}`,
         `migrations: ${upgrade.migrationCount}`,
         `impacts: ${upgrade.impactCount}`,
-        `operations: ${upgrade.migrationOperationSummaries.length}`,
+        `operations: ${upgrade.migrationOperationCount}`,
         `operation roles: ${formatSummaryEntries(summarizeById(upgrade.migrationOperationSummaries.map((operation) => ({ id: operation.role, count: 1 }))))}`,
         `sources: ${upgrade.migrationSummaries.filter((migration) => migration.source).length}`,
         `slots: ${upgrade.migrationSummaries.filter((migration) => migration.slotId).length}`,

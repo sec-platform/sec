@@ -1608,6 +1608,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
             source: 'files/src/installed/auth/session.ts'
           }
         ],
+        migrationOperationCount: 1,
         migrationOperationSummaries: [
           {
             id: 'mig-auth-session-refresh',
@@ -3205,6 +3206,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
             target: string;
             requiresVerification: boolean;
           }>;
+          migrationOperationCount: number;
           migrationOperationSummaries: Array<{
             id: string;
             kind: string;
@@ -3230,6 +3232,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
       requiresVerificationCount: 1,
       impactCount: 2,
       impacts: ['src/installed/auth/session.ts', 'upgrade.metadata.json'],
+      migrationOperationCount: 2,
       migrationOperationSummaries: [
         {
           id: 'mig-auth-session-refresh',

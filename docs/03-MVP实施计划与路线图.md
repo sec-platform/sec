@@ -311,6 +311,7 @@
        - text 迁移暴露 content/search/replacement/pattern/flags 摘要。
        - slot 迁移暴露 slotId、inputType、outputType 与 writableZones。
        - review summary、CLI explain 与本地 Source View 均展示 operation evidence。
+       - review summary 输出稳定 migrationOperationCount。
      - upgrade plan 到本地视图的摘要呈现，包含 migration operation role 分布与明细。
      - upgrade plan 执行前检查清单。
      - upgrade trajectory 进入 review summary：

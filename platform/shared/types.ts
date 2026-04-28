@@ -958,6 +958,7 @@ export interface ReviewUpgradeSummary {
   verificationSummaries: ReviewUpgradeVerificationSummary[];
   preflightSummaries: ReviewUpgradePreflightSummary[];
   migrationSummaries: ReviewUpgradeMigrationSummary[];
+  migrationOperationCount: number;
   migrationOperationSummaries: ReviewUpgradeMigrationOperationSummary[];
   diagnostics?: ReviewUpgradeDiagnosticsSummary;
 }

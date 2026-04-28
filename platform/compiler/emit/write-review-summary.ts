@@ -662,6 +662,7 @@ function buildUpgradeSummary(
       ],
       preflightSummaries: [],
       migrationSummaries: [],
+      migrationOperationCount: 0,
       migrationOperationSummaries: [],
       diagnostics: {
         status: diagnostics.status,
@@ -696,6 +697,13 @@ function buildUpgradeSummary(
     (migration) => migration.requiresVerification
   ).length;
   const skippedVerificationCount = plan.migrationSummaries.length - requiresVerificationCount;
+  const migrationOperationSummaries = plan.migrationOperations
+    .map((operation) => ({
+      ...operation,
+      ...(operation.writableZones ? { writableZones: [...operation.writableZones] } : {}),
+      ...(operation.path ? { path: [...operation.path] } : {})
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
 
   return {
     status: diagnostics ? 'blocked' : plan.status,
@@ -731,13 +739,8 @@ function buildUpgradeSummary(
         ...(migration.slotId ? { slotId: migration.slotId } : {})
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
-    migrationOperationSummaries: plan.migrationOperations
-      .map((operation) => ({
-        ...operation,
-        ...(operation.writableZones ? { writableZones: [...operation.writableZones] } : {}),
-        ...(operation.path ? { path: [...operation.path] } : {})
-      }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
+    migrationOperationCount: migrationOperationSummaries.length,
+    migrationOperationSummaries,
     ...(diagnostics
       ? {
           diagnostics: {
