@@ -62,6 +62,7 @@ import type {
   RepairPlan,
   RuntimeVerificationLaneReport,
   ReviewSummary,
+  UpgradeDiagnostics,
   UpgradePlan,
   VerificationLane,
   VerificationReport
@@ -78,7 +79,7 @@ const INIT_USAGE = 'Usage: platform init [--reset]';
 const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]';
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
-const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]';
+const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
@@ -244,7 +245,8 @@ function parseRepairArgs(args: string[]): { dryRun: boolean; json: boolean; comp
 
 type ParsedUpgradeArgs =
   | { mode: 'run'; blockId: string; targetVersion: string; dryRun: boolean; json: boolean; compact: boolean }
-  | { mode: 'plan'; json: boolean; compact: boolean };
+  | { mode: 'plan'; json: boolean; compact: boolean }
+  | { mode: 'diagnostics'; json: boolean; compact: boolean };
 
 function parseUpgradeOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   let json = false;
@@ -266,6 +268,9 @@ function parseUpgradeOutputArgs(args: string[]): { json: boolean; compact: boole
 function parseUpgradeArgs(args: string[]): ParsedUpgradeArgs {
   if (args[0] === 'plan') {
     return { mode: 'plan', ...parseUpgradeOutputArgs(args.slice(1)) };
+  }
+  if (args[0] === 'diagnostics') {
+    return { mode: 'diagnostics', ...parseUpgradeOutputArgs(args.slice(1)) };
   }
   if (args.length < 2) {
     throw new Error(UPGRADE_USAGE);
@@ -1125,6 +1130,23 @@ function formatReviewSummaryContract(summary: ReviewSummary): string {
   return lines.join('\n');
 }
 
+function formatUpgradeDiagnostics(diagnostics: UpgradeDiagnostics): string {
+  return [
+    `Upgrade diagnostics ${diagnostics.phase}`,
+    [
+      `Block: ${diagnostics.blockId}`,
+      `target: ${diagnostics.targetVersion}`,
+      `status: ${diagnostics.status}`
+    ].join('; '),
+    [
+      `Failed check: ${diagnostics.failedCheck}`,
+      `code: ${diagnostics.errorCode}`
+    ].join('; '),
+    `Message: ${diagnostics.message}`,
+    `Attribution: ${formatUpgradeDiagnosticsDetails(diagnostics.details)}`
+  ].join('\n');
+}
+
 function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
   const suffix = dryRun ? ' (dry-run)' : '';
   const migrationKinds = Object.entries(upgradePlan.migrationKindCounts)
@@ -1741,6 +1763,19 @@ async function main(): Promise<void> {
           return;
         }
         console.log(formatUpgradeSummary(upgradePlan, upgradePlan.status === 'planned'));
+        return;
+      }
+      if (upgradeArgs.mode === 'diagnostics') {
+        const { upgradeDiagnosticsPath } = getWorkspacePaths(process.cwd());
+        if (!(await pathExists(upgradeDiagnosticsPath))) {
+          throw new Error('Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first');
+        }
+        const diagnostics = await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
+        if (upgradeArgs.json) {
+          console.log(JSON.stringify(diagnostics, null, upgradeArgs.compact ? 0 : 2));
+          return;
+        }
+        console.log(formatUpgradeDiagnostics(diagnostics));
         return;
       }
       const { upgradePlan } = await upgradeWorkspace(process.cwd(), upgradeArgs.blockId, upgradeArgs.targetVersion, {

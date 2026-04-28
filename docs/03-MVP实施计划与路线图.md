@@ -339,6 +339,7 @@
      - upgrade plan/diagnostics 进入 lock/provenance 产物清单。
      - CLI `platform upgrade <block-id> <target-version> --dry-run --json [--compact]` 可输出机器可解析 plan，供团队 CI 直接消费单行合同。
      - CLI `platform upgrade plan [--json --compact]` 可只读检查最新 upgrade plan，不重新执行升级。
+     - CLI `platform upgrade diagnostics [--json --compact]` 可只读检查最新 upgrade diagnostics，不重新执行升级。
      - upgrade CLI 普通文本摘要：
        - 显示 block 升级版本。
        - 显示 dry-run 状态。
