@@ -389,12 +389,14 @@
       "id": "customer_normalizer",
       "block": "entity/customer-basic",
       "target": "custom/customer_normalizer.ts",
+      "sourcePath": "source/slots/customer_normalizer.ts",
       "symbol": "normalizeCustomerInput",
       "kind": "adapter",
       "inputType": "CustomerInput",
       "outputType": "NormalizedCustomerInput",
       "status": "verified",
       "writableZones": [
+        "source/slots/customer_normalizer.ts",
         "custom/"
       ],
       "provenanceHints": {

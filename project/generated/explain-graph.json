@@ -276,6 +276,11 @@
       "label": "generated/postgres-contract.json"
     },
     {
+      "id": "file:generated/review-summary.json",
+      "type": "file",
+      "label": "generated/review-summary.json"
+    },
+    {
       "id": "file:generated/routes.ts",
       "type": "file",
       "label": "generated/routes.ts"
@@ -289,6 +294,16 @@
       "id": "file:generated/verification-report.json",
       "type": "file",
       "label": "generated/verification-report.json"
+    },
+    {
+      "id": "file:generated/views/slot-rule-view.html",
+      "type": "file",
+      "label": "generated/views/slot-rule-view.html"
+    },
+    {
+      "id": "file:generated/views/source-view.html",
+      "type": "file",
+      "label": "generated/views/source-view.html"
     },
     {
       "id": "file:lib/session.ts",
@@ -324,6 +339,11 @@
       "id": "file:provenance.json",
       "type": "file",
       "label": "provenance.json"
+    },
+    {
+      "id": "file:source/slots/customer_normalizer.ts",
+      "type": "file",
+      "label": "source/slots/customer_normalizer.ts"
     },
     {
       "id": "file:src/installed/audit/logger.ts",
@@ -983,6 +1003,11 @@
       "type": "originates_from"
     },
     {
+      "from": "file:generated/review-summary.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:generated/routes.ts",
       "to": "app:customer-admin",
       "type": "originates_from"
@@ -994,6 +1019,16 @@
     },
     {
       "from": "file:generated/verification-report.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/views/slot-rule-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:generated/views/source-view.html",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -1030,6 +1065,16 @@
     {
       "from": "file:provenance.json",
       "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:source/slots/customer_normalizer.ts",
+      "to": "file:custom/customer_normalizer.ts",
+      "type": "connects_to"
+    },
+    {
+      "from": "file:source/slots/customer_normalizer.ts",
+      "to": "slot:customer_normalizer",
       "type": "originates_from"
     },
     {
@@ -1143,6 +1188,11 @@
       "type": "originates_from"
     },
     {
+      "from": "policy:tenant-scope-required",
+      "to": "file:src/installed/entity/customer-service.ts",
+      "type": "connects_to"
+    },
+    {
       "from": "slot:customer_normalizer",
       "to": "acceptance:tenant_only_sees_own_customers",
       "type": "verified_by"
@@ -1154,7 +1204,7 @@
     },
     {
       "from": "slot:customer_normalizer",
-      "to": "file:custom/customer_normalizer.ts",
+      "to": "file:source/slots/customer_normalizer.ts",
       "type": "writes_to"
     }
   ],
@@ -1285,6 +1335,8 @@
         "originType": "slot",
         "originId": "customer_normalizer",
         "sourceBlock": "entity/customer-basic",
+        "sourcePath": "source/slots/customer_normalizer.ts",
+        "runtimeTarget": "custom/customer_normalizer.ts",
         "generatedByPass": "adapt",
         "generatorTaskId": "fill_slot_customer_normalizer",
         "verifiedBy": [
@@ -1358,6 +1410,14 @@
         "overrideStatus": "none"
       },
       {
+        "path": "generated/review-summary.json",
+        "originType": "generated",
+        "originId": "generated/review-summary.json",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
         "path": "generated/routes.ts",
         "originType": "generated",
         "originId": "generated/routes.ts",
@@ -1378,6 +1438,22 @@
         "originType": "generated",
         "originId": "generated/verification-report.json",
         "generatedByPass": "verify",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/views/slot-rule-view.html",
+        "originType": "generated",
+        "originId": "generated/views/slot-rule-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "generated/views/source-view.html",
+        "originType": "generated",
+        "originId": "generated/views/source-view.html",
+        "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none"
       },
@@ -1443,6 +1519,30 @@
         "originId": "provenance.json",
         "generatedByPass": "lock",
         "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "source/slots/customer_normalizer.ts",
+        "originType": "slot",
+        "originId": "customer_normalizer",
+        "sourceBlock": "entity/customer-basic",
+        "sourcePath": "source/slots/customer_normalizer.ts",
+        "runtimeTarget": "custom/customer_normalizer.ts",
+        "generatedByPass": "adapt",
+        "generatorTaskId": "fill_slot_customer_normalizer",
+        "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/unit/audit-log.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-export.test.ts",
+          "tests/unit/customer-filter.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/email-outbox.test.ts",
+          "tests/unit/postgres-contract.test.ts",
+          "tests/unit/rbac-authorize.test.ts"
+        ],
         "overrideStatus": "none"
       },
       {

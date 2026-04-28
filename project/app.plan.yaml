@@ -9,6 +9,10 @@ registry:
       kind: official
       location: compiler
       path: platform/registry/official
+    - id: source-private
+      kind: private
+      location: workspace
+      path: project/source/registry/private
     - id: private
       kind: private
       location: workspace
@@ -39,6 +43,7 @@ slots:
     block: entity/customer-basic
     kind: adapter
     target: custom/customer_normalizer.ts
+    sourcePath: source/slots/customer_normalizer.ts
     symbol: normalizeCustomerInput
     description: Name required; email lowercased; phone digits only; company
       defaults to Unknown.
