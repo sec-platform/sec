@@ -47,6 +47,7 @@ Use these entry commands for normal development:
 - `npm run platform -- deps warmup`: prepare shared runtime dependencies
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
 - `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts with upload group counts
+- `npm run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
 - `npm run platform -- demo checklist`: inspect the local demo readiness checklist from existing governance artifacts
 - `npm run platform -- demo checklist --json --compact`: emit the compact demo readiness checklist contract
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
@@ -135,6 +136,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
 - `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
+- `npm run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report

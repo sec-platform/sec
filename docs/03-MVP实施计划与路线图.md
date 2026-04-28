@@ -141,6 +141,7 @@
        - `platform artifacts --paths --kind contract` 输出可上传 contract 清单。
        - `platform artifacts --paths --json --kind contract` 输出结构化 contract 清单。
        - `platform artifacts --paths --json --compact --kind governance|view|test|contract` 输出稳定单行上传路径合同。
+       - `platform artifacts manifest [--json --compact]` 可只读检查最新 `generated/ci-artifacts.json`，不重新生成 artifact manifest。
        - contract 清单从 `generated/*-contract.json` 和 artifact summary 派生，并进入 artifact manifest / review summary 的 contract upload group。
      - artifact / graph / review golden output：active。
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
@@ -150,6 +151,7 @@
        - repair summary JSON 输出稳定 targetFileCount 与 targetFiles。
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
+       - `platform artifacts manifest --json --compact` 只读输出最新 artifact manifest 单行合同。
        - `platform doctor --json [--compact]` 输出稳定环境 readiness 合同，包含顶层 checkCount 与 checks。
        - `platform contract ci --json [--compact]` 输出稳定 CI 命令合同，包含 review matrix/demo checklist diagnostic steps、每个 step 的 producesCount 与 produces。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
