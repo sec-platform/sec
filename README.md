@@ -60,6 +60,8 @@ Use these entry commands for normal development:
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- acceptance coverage`: inspect the latest acceptance coverage report
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
+- `npm run platform -- install manifest`: inspect the latest install manifest without running compose
+- `npm run platform -- install manifest --json --compact`: emit the compact install manifest contract
 - `npm run platform -- runtime report`: inspect the latest runtime verification report
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
 - `npm run platform -- verification report`: inspect the latest verification report
@@ -140,6 +142,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
 - `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
+- `npm run platform -- install manifest --json --compact`: emit the compact install manifest contract
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
 - `npm run platform -- verification report --json --compact`: emit the compact verification report
 - `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report

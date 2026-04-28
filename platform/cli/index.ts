@@ -57,6 +57,7 @@ import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   AcceptanceCoverageReport,
   ExplainGraph,
+  InstallPlanStep,
   PolicyReport,
   ProvenanceFile,
   RepairPlan,
@@ -69,7 +70,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|install|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -82,6 +83,7 @@ const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
 const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
+const INSTALL_USAGE = 'Usage: platform install manifest [--json [--compact]]';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
@@ -110,6 +112,8 @@ type ArtifactPathUploadGroup = {
   count: number;
   paths: string[];
 };
+
+type InstallManifestEntry = InstallPlanStep & { status: 'installed' };
 
 type DemoChecklistItem = {
   id: string;
@@ -186,6 +190,16 @@ function artifactUploadPathSummary(
     .filter((group) => group.count > 0);
 
   return { paths, byKind, uploadGroups };
+}
+
+function formatInstallManifest(manifest: InstallManifestEntry[]): string {
+  return [
+    `Install manifest ${manifest.length} steps`,
+    `Blocks: ${formatList([...new Set(manifest.map((entry) => entry.blockId))].sort((left, right) => left.localeCompare(right)))}`,
+    `Actions: ${formatCounts(manifest.map((entry) => entry.action))}`,
+    `Registry kinds: ${formatCounts(manifest.map((entry) => entry.registryKind))}`,
+    `Statuses: ${formatCounts(manifest.map((entry) => entry.status))}`
+  ].join('\n');
 }
 
 function assertNoArgs(command: string, args: string[]): void {
@@ -532,6 +546,22 @@ function parseRuntimeOutputArgs(args: string[]): { json: boolean; compact: boole
     return { json: true, compact: true };
   }
   throw new Error(RUNTIME_USAGE);
+}
+
+function parseInstallOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(INSTALL_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(INSTALL_USAGE);
 }
 
 function parseVerificationOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -1591,6 +1621,26 @@ async function runRuntimeCommand(args: string[]): Promise<void> {
   console.log(formatRuntimeReport(report));
 }
 
+async function runInstallCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'manifest') {
+    throw new Error(INSTALL_USAGE);
+  }
+
+  const outputArgs = parseInstallOutputArgs(args.slice(1));
+  const { installManifestPath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(installManifestPath))) {
+    throw new Error('Install manifest not found; run platform compose first');
+  }
+
+  const manifest = await readJson<InstallManifestEntry[]>(installManifestPath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(manifest, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatInstallManifest(manifest));
+}
+
 async function runVerificationCommand(args: string[]): Promise<void> {
   if (args[0] !== 'report') {
     throw new Error(VERIFICATION_USAGE);
@@ -1927,6 +1977,9 @@ async function main(): Promise<void> {
       return;
     case 'runtime':
       await runRuntimeCommand(args);
+      return;
+    case 'install':
+      await runInstallCommand(args);
       return;
     case 'verification':
       await runVerificationCommand(args);

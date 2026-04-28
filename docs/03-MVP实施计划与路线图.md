@@ -152,6 +152,7 @@
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
        - `platform artifacts manifest --json --compact` 只读输出最新 artifact manifest 单行合同。
+       - `platform install manifest --json --compact` 只读输出最新 install manifest 单行合同。
        - `platform doctor --json [--compact]` 输出稳定环境 readiness 合同，包含顶层 checkCount 与 checks。
        - `platform contract ci --json [--compact]` 输出稳定 CI 命令合同，包含 review matrix/demo checklist diagnostic steps、每个 step 的 producesCount 与 produces。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
@@ -208,6 +209,7 @@
         - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
+         - `platform install manifest --json [--compact]` 输出稳定 install manifest 合同，直接消费最新 `generated/install-manifest.json`。
          - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `generated/runtime-report.json`。
          - `platform verification report --json [--compact]` 输出稳定 verification report 合同，直接消费最新 `generated/verification-report.json`。
         - `platform verify --json [--compact]` 执行验证并直接输出同一 verification report 合同。

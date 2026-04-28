@@ -2166,6 +2166,37 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       stdout: 'Composed project\n',
       stderr: ''
     });
+
+    const installText = await runCli(workspaceRoot, ['install', 'manifest']);
+    expect(installText.code).toBe(0);
+    expect(installText.stderr).toBe('');
+    expect(installText.stdout).toContain('Install manifest 6 steps');
+    expect(installText.stdout).toContain('Blocks: auth/basic-session, entity/customer-basic, tenant/basic-workspace');
+    expect(installText.stdout).toContain('Actions: copy=5, merge-prisma=1');
+    expect(installText.stdout).toContain('Statuses: installed=6');
+
+    const installJson = await runCli(workspaceRoot, ['install', 'manifest', '--json', '--compact']);
+    expect(installJson.code).toBe(0);
+    expect(installJson.stderr).toBe('');
+    expect(installJson.stdout).not.toContain('\n  "stepId"');
+    const installManifest = JSON.parse(installJson.stdout) as Array<{ blockId: string; status: string }>;
+    expect(installManifest).toHaveLength(6);
+    expect(installManifest).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ blockId: 'auth/basic-session', status: 'installed' }),
+        expect.objectContaining({ blockId: 'entity/customer-basic', status: 'installed' }),
+        expect.objectContaining({ blockId: 'tenant/basic-workspace', status: 'installed' })
+      ])
+    );
+
+    await withTempWorkspace(async (missingInstallWorkspace) => {
+      await expect(runCli(missingInstallWorkspace, ['install', 'manifest'])).resolves.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: expect.stringContaining('Install manifest not found; run platform compose first')
+      });
+    });
+
     await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
       code: 0,
       stdout: 'Adapted slots\n',
@@ -3818,6 +3849,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform runtime report [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['install'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform install manifest [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['install', 'manifest', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform install manifest [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['install', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform install manifest [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verification'])).resolves.toMatchObject({
       code: 1,
