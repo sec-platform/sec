@@ -1538,8 +1538,11 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         overrideArtifactCount: 1,
         registryArtifactCount: 2,
         generatedPassCount: 2,
+        originSummaryCount: 0,
         originSummaries: [],
+        overrideSummaryCount: 0,
         overrideSummaries: [],
+        registrySummaryCount: 0,
         registrySummaries: [],
         generatedPassSummaries: [],
         unverifiedArtifacts: ['custom/customer_normalizer.ts']
@@ -1807,7 +1810,12 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
           overrideArtifactCount: number;
           registryArtifactCount: number;
           unverifiedArtifactCount: number;
+          originSummaryCount: number;
           originSummaries: Array<{ originType: string; count: number; paths: string[] }>;
+          overrideSummaryCount: number;
+          overrideSummaries: Array<{ overrideStatus: string; count: number; paths: string[] }>;
+          registrySummaryCount: number;
+          registrySummaries: Array<{ registrySourceId: string; count: number; paths: string[] }>;
           generatedPassSummaries: Array<{ pass: string; count: number; paths: string[] }>;
         };
         policySummary?: {
@@ -1908,6 +1916,9 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       overrideArtifactCount: 0,
       registryArtifactCount: expect.any(Number),
       unverifiedArtifactCount: expect.any(Number),
+      originSummaryCount: expect.any(Number),
+      overrideSummaryCount: expect.any(Number),
+      registrySummaryCount: expect.any(Number),
       originSummaries: expect.arrayContaining([
         expect.objectContaining({
           originType: 'block',
