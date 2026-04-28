@@ -657,6 +657,8 @@ function buildUpgradeSummary(
       requiresVerificationCount: 0,
       impactCount: 0,
       impacts: [],
+      sourceMigrationCount: 0,
+      slotMigrationCount: 0,
       verificationSummaries: [
         { id: 'required', count: 0 },
         { id: 'skipped', count: 0 }
@@ -698,6 +700,17 @@ function buildUpgradeSummary(
     (migration) => migration.requiresVerification
   ).length;
   const skippedVerificationCount = plan.migrationSummaries.length - requiresVerificationCount;
+  const migrationSummaries = plan.migrationSummaries
+    .map((migration) => ({
+      id: migration.id,
+      kind: migration.kind,
+      target: migration.target,
+      reason: migration.reason,
+      requiresVerification: migration.requiresVerification,
+      ...(migration.source ? { source: migration.source } : {}),
+      ...(migration.slotId ? { slotId: migration.slotId } : {})
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
   const migrationOperationSummaries = plan.migrationOperations
     .map((operation) => ({
       ...operation,
@@ -722,6 +735,8 @@ function buildUpgradeSummary(
     requiresVerificationCount,
     impactCount: plan.impacts.length,
     impacts: unique(plan.impacts),
+    sourceMigrationCount: migrationSummaries.filter((migration) => migration.source).length,
+    slotMigrationCount: migrationSummaries.filter((migration) => migration.slotId).length,
     verificationSummaries: [
       { id: 'required', count: requiresVerificationCount },
       { id: 'skipped', count: skippedVerificationCount }
@@ -729,17 +744,7 @@ function buildUpgradeSummary(
     preflightSummaries: [...preflightGroups.entries()]
       .map(([group, summary]) => ({ group, ...summary }))
       .sort((left, right) => left.group.localeCompare(right.group)),
-    migrationSummaries: plan.migrationSummaries
-      .map((migration) => ({
-        id: migration.id,
-        kind: migration.kind,
-        target: migration.target,
-        reason: migration.reason,
-        requiresVerification: migration.requiresVerification,
-        ...(migration.source ? { source: migration.source } : {}),
-        ...(migration.slotId ? { slotId: migration.slotId } : {})
-      }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
+    migrationSummaries,
     migrationOperationCount: migrationOperationSummaries.length,
     migrationOperationSummaries,
     ...(diagnostics

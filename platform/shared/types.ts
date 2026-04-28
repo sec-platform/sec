@@ -956,6 +956,8 @@ export interface ReviewUpgradeSummary {
   requiresVerificationCount: number;
   impactCount: number;
   impacts: string[];
+  sourceMigrationCount: number;
+  slotMigrationCount: number;
   verificationSummaries: ReviewUpgradeVerificationSummary[];
   preflightSummaries: ReviewUpgradePreflightSummary[];
   migrationSummaries: ReviewUpgradeMigrationSummary[];

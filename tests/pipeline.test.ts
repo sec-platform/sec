@@ -437,6 +437,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       requiresVerificationCount: number;
       impactCount: number;
       impacts: string[];
+      sourceMigrationCount: number;
+      slotMigrationCount: number;
       verificationSummaries: Array<{ id: string; count: number }>;
       preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
       migrationSummaries: Array<{
@@ -819,6 +821,8 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     requiresVerificationCount: 1,
     impactCount: 1,
     impacts: ['src/installed/auth/session.ts'],
+    sourceMigrationCount: 1,
+    slotMigrationCount: 0,
     verificationSummaries: [
       { id: 'required', count: 1 },
       { id: 'skipped', count: 0 }

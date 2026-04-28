@@ -302,7 +302,7 @@
      - upgrade migration verification 分布进入 review summary。
      - upgrade migration verification 分布进入 CLI explain。
      - upgrade migration verification 分布进入本地 Source View。
-     - upgrade migration source/slot 明细进入 CLI explain 和本地 Source View。
+     - upgrade migration source/slot 明细与 sourceMigrationCount/slotMigrationCount 进入 CLI explain 和本地 Source View。
      - upgrade plan `migrationOperations` 结构化操作明细：
        - 状态：done。
        - 稳定暴露每条 migration 的 role。
@@ -336,6 +336,7 @@
        - 显示 preflight check 数量。
        - 显示 preflight evidence 聚合数量。
        - 显示 migration kind 计数。
+       - 显示 source/slot migration 计数。
        - 显示 migration operation role 计数。
        - 显示 impact 文件列表。
        - 显示 requires verification 聚合结果。
