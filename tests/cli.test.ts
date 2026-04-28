@@ -25,6 +25,14 @@ import {
   formatTestBudgetContract
 } from '../platform/shared/test-budget-contract.ts';
 import {
+  ACCEPTANCE_USAGE,
+  LOCK_USAGE,
+  POLICY_USAGE,
+  POSTGRES_USAGE,
+  REPAIR_USAGE,
+  USAGE
+} from '../platform/cli/usage.ts';
+import {
   assertReferenceCheckClean,
   buildReferenceCheckReport,
   formatReferenceCheck
@@ -86,12 +94,6 @@ function usageErrorStderr(usage: string): string {
     ''
   ].join('\n');
 }
-
-const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
-const LOCK_USAGE = 'Usage: platform lock [inspect [--json [--compact]]]';
-const POLICY_USAGE = 'Usage: platform policy <report|sources> [--json [--compact]]';
-const ACCEPTANCE_USAGE = 'Usage: platform acceptance <coverage|blocks|slots> [--json [--compact]]';
-const POSTGRES_USAGE = 'Usage: platform postgres contract [--json [--compact]]';
 
 async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
   await expect(runCli(workspaceRoot, ['repair', ...args])).resolves.toMatchObject({
@@ -201,12 +203,7 @@ test('CLI prints usage for missing or unknown commands', async () => {
         code: 0,
         stderr: ''
       });
-      expect(result.stdout).toContain(
-        'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>'
-      );
-      expect(result.stdout).toContain('Closed loop: npm run demo:closed-loop');
-      expect(result.stdout).toContain('Readiness: platform doctor');
-      expect(result.stdout).toContain('Governance paths: platform artifacts --paths --kind governance');
+      expect(result.stdout).toBe(`${USAGE}\n`);
     }
   });
 });

@@ -234,7 +234,7 @@
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。
          - `shared/types.ts`：按 plan、manifest、lock、verify、policy、provenance、review、repair、upgrade、explain 十个上下文拆分；当前保留 barrel。
          - `orchestrator.ts`：后续收敛为 workspace lifecycle、pipeline workflow、artifact/governance workflow 三层；当前文件只保留门面角色。
-         - `platform/cli/index.ts`：后续拆成 parse、format、commands 三层；当前避免继续堆叠新 formatter/usage 分支。
+         - `platform/cli/index.ts`：拆分为入口、usage、args 起步；usage 字符串和参数解析已有单一来源，后续继续拆 format、commands 层。
          - `compiler/emit/**`：后续按 explain、governance、provenance、output/views 分层，避免继续扩大 emit 兜底职责。
        - P2：补规模测试、资产质量评分、trace/decision-log、安全模型文档。
    - 暂停条件：
