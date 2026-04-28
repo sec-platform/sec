@@ -247,6 +247,137 @@ export function formatE2eMatrix(matrix: E2eMatrix): string {
   ].join('\n');
 }
 
+export type ReviewDiagnosticEntry =
+  | {
+    id: string;
+    category: 'failure';
+    kind: ReviewSummary['failurePoints'][number]['kind'];
+    lane: ReviewSummary['failurePoints'][number]['lane'];
+    message: string;
+    artifactPath: string;
+  }
+  | {
+    id: string;
+    category: 'regression-risk';
+    kind: ReviewSummary['regressionRisks'][number]['kind'];
+    message: string;
+    blockId?: string;
+    slotId?: string;
+  }
+  | {
+    id: string;
+    category: 'conflict';
+    kind: ReviewSummary['conflictHints'][number]['kind'];
+    message: string;
+    relatedId: string;
+  };
+
+export type ReviewDiagnosticsInspect = {
+  formatVersion: '1';
+  status: ReviewSummary['ciSummary']['status'];
+  diagnosticCount: number;
+  failureCount: number;
+  regressionRiskCount: number;
+  conflictHintCount: number;
+  artifactPathCount: number;
+  artifactPaths: string[];
+  blockCount: number;
+  blocks: string[];
+  slotCount: number;
+  slots: string[];
+  diagnostics: ReviewDiagnosticEntry[];
+};
+
+export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDiagnosticsInspect {
+  const diagnostics: ReviewDiagnosticEntry[] = [
+    ...summary.failurePoints.map((point, index) => ({
+      id: `failure:${index}`,
+      category: 'failure' as const,
+      kind: point.kind,
+      lane: point.lane,
+      message: point.message,
+      artifactPath: point.artifactPath
+    })),
+    ...summary.regressionRisks.map((risk, index) => ({
+      id: `regression-risk:${index}`,
+      category: 'regression-risk' as const,
+      kind: risk.kind,
+      message: risk.message,
+      ...(risk.blockId ? { blockId: risk.blockId } : {}),
+      ...(risk.slotId ? { slotId: risk.slotId } : {})
+    })),
+    ...summary.conflictHints.map((hint, index) => ({
+      id: `conflict:${index}`,
+      category: 'conflict' as const,
+      kind: hint.kind,
+      message: hint.message,
+      relatedId: hint.relatedId
+    }))
+  ];
+  const artifactPaths = uniqueSorted(summary.failurePoints.map((point) => point.artifactPath));
+  const blocks = uniqueSorted(summary.regressionRisks.map((risk) => risk.blockId ?? ''));
+  const slots = uniqueSorted(summary.regressionRisks.map((risk) => risk.slotId ?? ''));
+
+  return {
+    formatVersion: '1',
+    status: summary.ciSummary.status,
+    diagnosticCount: diagnostics.length,
+    failureCount: summary.failurePoints.length,
+    regressionRiskCount: summary.regressionRisks.length,
+    conflictHintCount: summary.conflictHints.length,
+    artifactPathCount: artifactPaths.length,
+    artifactPaths,
+    blockCount: blocks.length,
+    blocks,
+    slotCount: slots.length,
+    slots,
+    diagnostics
+  };
+}
+
+function formatReviewDiagnostic(entry: ReviewDiagnosticEntry): string {
+  if (entry.category === 'failure') {
+    return [
+      `Diagnostic ${entry.id}`,
+      `kind=${entry.kind}`,
+      `lane=${entry.lane}`,
+      `artifact=${entry.artifactPath}`,
+      entry.message
+    ].join('; ');
+  }
+  if (entry.category === 'regression-risk') {
+    return [
+      `Diagnostic ${entry.id}`,
+      `kind=${entry.kind}`,
+      `block=${entry.blockId ?? 'none'}`,
+      `slot=${entry.slotId ?? 'none'}`,
+      entry.message
+    ].join('; ');
+  }
+  return [
+    `Diagnostic ${entry.id}`,
+    `kind=${entry.kind}`,
+    `related=${entry.relatedId}`,
+    entry.message
+  ].join('; ');
+}
+
+export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect): string {
+  return [
+    [
+      `Review diagnostics ${inspect.status}`,
+      `diagnostics=${inspect.diagnosticCount}`,
+      `failures=${inspect.failureCount}`,
+      `risks=${inspect.regressionRiskCount}`,
+      `conflicts=${inspect.conflictHintCount}`
+    ].join('; '),
+    `Artifacts: ${formatList(inspect.artifactPaths)}`,
+    `Blocks: ${formatList(inspect.blocks)}`,
+    `Slots: ${formatList(inspect.slots)}`,
+    ...inspect.diagnostics.slice(0, 10).map((entry) => formatReviewDiagnostic(entry))
+  ].join('\n');
+}
+
 function formatSummaryEntries(entries: Array<{ id: string; count: number }>): string {
   return entries.length > 0
     ? entries.map((entry) => `${entry.id}=${entry.count}`).join(', ')

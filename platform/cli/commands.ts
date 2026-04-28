@@ -68,7 +68,7 @@ import {
   parsePostgresOutputArgs,
   parseProvenanceOutputArgs,
   parseReferenceOutputArgs,
-  parseReviewOutputArgs,
+  parseReviewArgs,
   parseRuntimeOutputArgs,
   parseTestOutputArgs,
   parseVerificationOutputArgs
@@ -77,6 +77,7 @@ import {
   buildAcceptanceTargetInspect,
   buildPolicySourceInspect,
   buildPolicySummary,
+  buildReviewDiagnosticsInspect,
   buildRuntimeStepsInspect,
   formatAcceptanceCoverage,
   formatAcceptanceTargets,
@@ -88,6 +89,7 @@ import {
   formatPolicySources,
   formatPostgresContract,
   formatProvenanceRegistry,
+  formatReviewDiagnosticsInspect,
   formatReviewSummaryContract,
   formatRuntimeReport,
   formatRuntimeStepsInspect,
@@ -440,29 +442,35 @@ export async function runProvenanceCommand(args: string[]): Promise<void> {
 }
 
 export async function runReviewCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'summary' && args[0] !== 'matrix') {
-    throw new Error(REVIEW_USAGE);
-  }
-
-  const outputArgs = parseReviewOutputArgs(args.slice(1));
+  const reviewArgs = parseReviewArgs(args);
   const { reviewSummaryPath } = getWorkspacePaths(process.cwd());
   if (!(await pathExists(reviewSummaryPath))) {
     throw new Error('Review summary not found; run platform explain first');
   }
 
   const summary = await readJson<ReviewSummary>(reviewSummaryPath);
-  if (args[0] === 'matrix') {
+  if (reviewArgs.mode === 'matrix') {
     const matrix = buildE2eMatrix(summary);
-    if (outputArgs.json) {
-      console.log(JSON.stringify(matrix, null, outputArgs.compact ? 0 : 2));
+    if (reviewArgs.json) {
+      console.log(JSON.stringify(matrix, null, reviewArgs.compact ? 0 : 2));
       return;
     }
     console.log(formatE2eMatrix(matrix));
     return;
   }
 
-  if (outputArgs.json) {
-    console.log(JSON.stringify(summary, null, outputArgs.compact ? 0 : 2));
+  if (reviewArgs.mode === 'diagnostics') {
+    const diagnostics = buildReviewDiagnosticsInspect(summary);
+    if (reviewArgs.json) {
+      console.log(JSON.stringify(diagnostics, null, reviewArgs.compact ? 0 : 2));
+      return;
+    }
+    console.log(formatReviewDiagnosticsInspect(diagnostics));
+    return;
+  }
+
+  if (reviewArgs.json) {
+    console.log(JSON.stringify(summary, null, reviewArgs.compact ? 0 : 2));
     return;
   }
 
