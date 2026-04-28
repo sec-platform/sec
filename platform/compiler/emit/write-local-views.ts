@@ -4,19 +4,19 @@ import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
+import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
+import type { ExplainGraph } from '../../shared/explain-types.ts';
+import type { PolicyReport } from '../../shared/policy-types.ts';
 import type {
-  AcceptanceCoverageReport,
-  ExplainGraph,
   LockFile,
-  PolicyReport,
   ProvenanceFile,
   RepairPlan,
   ReviewSummary,
   UpgradeDiagnostics,
   UpgradeMigrationOperation,
-  UpgradePlan,
-  VerificationReport
+  UpgradePlan
 } from '../../shared/types.ts';
+import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function escapeHtml(value: string): string {
   return value

@@ -4,8 +4,8 @@ import type {
   AcceptanceCoverageEntry,
   AcceptanceCoverageReport
 } from '../shared/acceptance-types.ts';
+import type { ExplainGraph } from '../shared/explain-types.ts';
 import type {
-  ExplainGraph,
   InstallPlanStep,
   LockFile,
   ProvenanceFile,

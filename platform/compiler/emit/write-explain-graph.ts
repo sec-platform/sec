@@ -5,13 +5,11 @@ import { pathExists, readJson } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { buildProvenance, writeProvenance } from './write-provenance.ts';
 import { buildRuntimeAttribution } from './runtime-attribution.ts';
+import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
+import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
+import type { PolicyReport } from '../../shared/policy-types.ts';
 import type {
-  AcceptanceCoverageReport,
-  ExplainGraph,
-  ExplainGraphEdge,
-  ExplainGraphNode,
   LockFile,
-  PolicyReport,
   ProvenanceFile,
   RepairPlan,
   UpgradeDiagnostics,
