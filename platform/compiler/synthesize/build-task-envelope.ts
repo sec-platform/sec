@@ -1,4 +1,5 @@
-import type { LockFile, PlanFile, SlotTask, TaskEnvelope } from '../../shared/types.ts';
+import type { LockFile, SlotTask, TaskEnvelope } from '../../shared/types.ts';
+import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 
 export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask): TaskEnvelope {
   const slot = plan.slots.find((candidate) => candidate.id === task.id);

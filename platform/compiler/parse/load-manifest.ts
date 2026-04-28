@@ -8,14 +8,13 @@ import {
 } from '../../shared/paths.ts';
 import { readYaml } from '../../shared/yaml.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import type { ResolvedBlock } from '../../shared/types.ts';
+import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
 import type {
   BlockManifest,
   ManifestEntry,
-  PlanRegistrySource,
-  RegistryKind,
-  RegistryLocation,
-  ResolvedBlock
-} from '../../shared/types.ts';
+  PlanRegistrySource
+} from '../../shared/plan-manifest-types.ts';
 
 export interface ResolvedRegistrySource {
   id: string;

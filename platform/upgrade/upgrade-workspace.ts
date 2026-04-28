@@ -17,14 +17,16 @@ import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
 import type {
   LockFile,
-  ManifestSlot,
-  PlanFile,
   UpgradeDiagnostics,
-  UpgradeMigration,
-  UpgradeMigrationEntry,
   UpgradePlan,
   UpgradePreflightCheck
 } from '../shared/types.ts';
+import type {
+  ManifestSlot,
+  PlanFile,
+  UpgradeMigration,
+  UpgradeMigrationEntry
+} from '../shared/plan-manifest-types.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
   if (range === version) {

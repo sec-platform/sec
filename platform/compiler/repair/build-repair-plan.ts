@@ -7,13 +7,13 @@ import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
 import type {
   LockFile,
-  PlanFile,
   RepairBlocker,
   RepairFailurePoint,
   RepairPlan,
   RepairTask,
   RepairTaskPreview
 } from '../../shared/types.ts';
+import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function summarizeFailure(report: VerificationReport): string {
