@@ -13,6 +13,12 @@ export type E2eMatrix = {
   rows: E2eMatrixRow[];
 };
 
+function countMissingReasonTypes(reviewSummary: ReviewSummary): number {
+  return reviewSummary.artifactSummary?.missingReasonTypeCount
+    ?? Object.values(reviewSummary.artifactSummary?.missingReasonCounts ?? {})
+      .filter((count) => count > 0).length;
+}
+
 export function e2eStageEvidence(reviewSummary: ReviewSummary, stageId: string): string[] {
   const evidenceByStage: Record<string, string[]> = {
     verification: [
@@ -28,7 +34,13 @@ export function e2eStageEvidence(reviewSummary: ReviewSummary, stageId: string):
     artifacts: reviewSummary.artifactSummary
       ? [
           `total=${reviewSummary.artifactSummary.artifactCount}`,
-          `missing=${reviewSummary.artifactSummary.missingCount}`
+          `missing=${reviewSummary.artifactSummary.missingCount}`,
+          `uploadGroups=${
+            reviewSummary.artifactSummary.uploadGroupCount
+              ?? reviewSummary.artifactSummary.uploadGroups?.length
+              ?? 0
+          }`,
+          `missingReasonTypes=${countMissingReasonTypes(reviewSummary)}`
         ]
       : ['artifacts=missing'],
     review: ['review-summary=generated']

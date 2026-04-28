@@ -1035,7 +1035,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('<td>lane=fast; failed=fast</td>');
   expect(sourceView).toContain('<td>ci=failed, failures=1</td>');
   expect(sourceView).toContain('<td>blocks=1/2, slots=1/1</td>');
-  expect(sourceView).toContain('<td>total=7, missing=1</td>');
+  expect(sourceView).toContain('<td>total=7, missing=1, uploadGroups=2, missingReasonTypes=1</td>');
   expect(sourceView).toContain('<td>review-summary=generated</td>');
   expect(sourceView).toContain('<td>Artifact Status</td><td>attention</td>');
   expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
@@ -1202,7 +1202,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(slotRuleView).toContain('<td>verification</td>');
   expect(slotRuleView).toContain('<td>ci=failed, failures=1</td>');
   expect(slotRuleView).toContain('<td>blocks=1/2, slots=1/1</td>');
-  expect(slotRuleView).toContain('<td>total=7, missing=1</td>');
+  expect(slotRuleView).toContain('<td>total=7, missing=1, uploadGroups=2, missingReasonTypes=1</td>');
   expect(slotRuleView).toContain('<td>review-summary=generated</td>');
   expect(slotRuleView).toContain('disk-driven-acceptance');
 });
