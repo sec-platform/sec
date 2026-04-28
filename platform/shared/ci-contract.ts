@@ -49,6 +49,13 @@ const ciSteps: CiContractStep[] = [
     produces: []
   },
   {
+    id: 'contract-freeze',
+    phase: 'quality',
+    command: 'npm run test:contract-freeze',
+    purpose: 'Run the contract freeze suite declared by platform contract freeze.',
+    produces: []
+  },
+  {
     id: 'benchmark-task-suite',
     phase: 'quality',
     command: 'npm run platform -- benchmark suite --json --compact',
