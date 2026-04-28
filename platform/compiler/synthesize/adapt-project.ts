@@ -5,7 +5,8 @@ import { CompilerError } from '../../shared/errors.ts';
 import { applyOverrides } from '../compose/apply-overrides.ts';
 import { buildTaskEnvelope } from './build-task-envelope.ts';
 import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
-import type { LockFile, PlanFile } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/types.ts';
+import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 
 export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: LockFile): Promise<LockFile> {
   const { projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);

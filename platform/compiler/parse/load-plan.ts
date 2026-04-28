@@ -5,7 +5,7 @@ import {
   officialRegistryRelativePath,
   privateRegistryRelativePath
 } from '../../shared/paths.ts';
-import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/types.ts';
+import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
 
 function defaultRegistry(): PlanRegistry {
   return {

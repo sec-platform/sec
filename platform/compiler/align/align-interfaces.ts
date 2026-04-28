@@ -1,6 +1,6 @@
 import { CompilerError } from '../../shared/errors.ts';
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
-import type { ManifestEntry, PlanFile } from '../../shared/types.ts';
+import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
 
 export function alignInterfaces(plan: PlanFile, manifestMap: Map<string, ManifestEntry>): void {
   for (const block of plan.blocks) {
