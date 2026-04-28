@@ -29,7 +29,14 @@ import {
   buildReferenceCheckReport,
   formatReferenceCheck
 } from '../platform/shared/reference-check.ts';
-import type { ExplainGraph, RepairPlan, ReviewSummary, UpgradePlan, VerificationReport } from '../platform/shared/types.ts';
+import type {
+  ExplainGraph,
+  RepairPlan,
+  ReviewSummary,
+  UpgradeDiagnostics,
+  UpgradePlan,
+  VerificationReport
+} from '../platform/shared/types.ts';
 import { writeJson } from '../platform/shared/fs.ts';
 import { writeYaml } from '../platform/shared/yaml.ts';
 
@@ -3479,31 +3486,49 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
     expect(graphPayload.nodes).toEqual(explainPayload.graph.nodes);
     expect(graphPayload.edges).toEqual(explainPayload.graph.edges);
 
-    await fs.writeFile(
-      upgradeDiagnosticsPath,
-      `${JSON.stringify(
-        {
-          formatVersion: '1',
-          status: 'blocked',
-          phase: 'apply',
-          blockId: 'auth/basic-session',
-          targetVersion: '0.1.1',
-          failedCheck: 'migration-file-operations',
-          errorCode: 'UPGRADE-MIGRATION-016',
-          message: 'file-replace target "src/installed/auth/session.ts" is missing',
-          details: {
-            migrationId: 'mig-auth-session-refresh',
-            migrationKind: 'file-replace',
-            target: 'src/installed/auth/session.ts',
-            source: 'files/src/installed/auth/session.ts',
-            rollbackStatus: 'restored'
-          }
-        },
-        null,
-        2
-      )}\n`,
-      'utf8'
+    const upgradeDiagnostics: UpgradeDiagnostics = {
+      formatVersion: '1',
+      status: 'blocked',
+      phase: 'apply',
+      blockId: 'auth/basic-session',
+      targetVersion: '0.1.1',
+      failedCheck: 'migration-file-operations',
+      errorCode: 'UPGRADE-MIGRATION-016',
+      message: 'file-replace target "src/installed/auth/session.ts" is missing',
+      details: {
+        migrationId: 'mig-auth-session-refresh',
+        migrationKind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        source: 'files/src/installed/auth/session.ts',
+        rollbackStatus: 'restored'
+      }
+    };
+    await writeJson(upgradeDiagnosticsPath, upgradeDiagnostics);
+
+    const upgradeDiagnosticsText = await runCli(workspaceRoot, ['upgrade', 'diagnostics']);
+    expect(upgradeDiagnosticsText.code).toBe(0);
+    expect(upgradeDiagnosticsText.stderr).toBe('');
+    expect(upgradeDiagnosticsText.stdout).toContain('Upgrade diagnostics apply');
+    expect(upgradeDiagnosticsText.stdout).toContain('Failed check: migration-file-operations; code: UPGRADE-MIGRATION-016');
+    expect(upgradeDiagnosticsText.stdout).toContain(
+      'Attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
     );
+
+    const upgradeDiagnosticsJson = await runCli(workspaceRoot, ['upgrade', 'diagnostics', '--json', '--compact']);
+    expect(upgradeDiagnosticsJson.code).toBe(0);
+    expect(upgradeDiagnosticsJson.stderr).toBe('');
+    expect(upgradeDiagnosticsJson.stdout).not.toContain('\n  "formatVersion"');
+    expect(JSON.parse(upgradeDiagnosticsJson.stdout)).toEqual(upgradeDiagnostics);
+
+    await withTempWorkspace(async (missingDiagnosticsWorkspace) => {
+      await expect(runCli(missingDiagnosticsWorkspace, ['upgrade', 'diagnostics'])).resolves.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: expect.stringContaining(
+          'Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first'
+        )
+      });
+    });
 
     const blockedExplainText = await runCli(workspaceRoot, ['explain']);
     expect(blockedExplainText.code).toBe(0);
@@ -3559,57 +3584,72 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--dry-run', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--json', '--compact', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'plan', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'plan', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['upgrade', 'plan', '--json', '--compact', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan) [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['upgrade', 'diagnostics', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['upgrade', 'diagnostics', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['upgrade', 'diagnostics', '--json', '--compact', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['explain', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]|graph [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['explain', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]|graph [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['explain', '--json', '--extra'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]|graph [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
       code: 1,
@@ -3774,17 +3814,17 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
     await expect(runCli(workspaceRoot, ['review'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform review summary [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform review <summary|matrix> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['review', 'summary', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform review summary [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform review <summary|matrix> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['review', 'status'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform review summary [--json [--compact]]')
+      stderr: usageErrorStderr('Usage: platform review <summary|matrix> [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
       code: 1,
