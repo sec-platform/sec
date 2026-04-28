@@ -2197,6 +2197,34 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       });
     });
 
+    const blockUsageText = await runCli(workspaceRoot, ['blocks', 'usage']);
+    expect(blockUsageText.code).toBe(0);
+    expect(blockUsageText.stderr).toBe('');
+    expect(blockUsageText.stdout).toContain('Block usage map 3 blocks');
+    expect(blockUsageText.stdout).toContain(
+      'Install order: 1:auth/basic-session, 2:tenant/basic-workspace, 3:entity/customer-basic'
+    );
+
+    const blockUsageJson = await runCli(workspaceRoot, ['blocks', 'usage', '--json', '--compact']);
+    expect(blockUsageJson.code).toBe(0);
+    expect(blockUsageJson.stderr).toBe('');
+    expect(blockUsageJson.stdout).not.toContain('\n  "blocks"');
+    expect(JSON.parse(blockUsageJson.stdout)).toEqual({
+      blocks: [
+        { id: 'auth/basic-session', installOrder: 1 },
+        { id: 'tenant/basic-workspace', installOrder: 2 },
+        { id: 'entity/customer-basic', installOrder: 3 }
+      ]
+    });
+
+    await withTempWorkspace(async (missingUsageWorkspace) => {
+      await expect(runCli(missingUsageWorkspace, ['blocks', 'usage'])).resolves.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: expect.stringContaining('Block usage map not found; run platform compose first')
+      });
+    });
+
     await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
       code: 0,
       stdout: 'Adapted slots\n',
@@ -3864,6 +3892,21 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform install manifest [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['blocks'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform blocks usage [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['blocks', 'usage', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform blocks usage [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['blocks', 'status'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr('Usage: platform blocks usage [--json [--compact]]')
     });
     await expect(runCli(workspaceRoot, ['verification'])).resolves.toMatchObject({
       code: 1,

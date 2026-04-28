@@ -398,6 +398,7 @@ export interface WorkspacePaths {
   planPath: string;
   lockPath: string;
   generatedDir: string;
+  blockUsageMapPath: string;
   overrideManifestPath: string;
   policySpecPath: string;
   officialPoliciesRoot: string;

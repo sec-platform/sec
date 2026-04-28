@@ -70,7 +70,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|install|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|install|blocks|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -84,6 +84,7 @@ const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--d
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const INSTALL_USAGE = 'Usage: platform install manifest [--json [--compact]]';
+const BLOCKS_USAGE = 'Usage: platform blocks usage [--json [--compact]]';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
@@ -114,6 +115,13 @@ type ArtifactPathUploadGroup = {
 };
 
 type InstallManifestEntry = InstallPlanStep & { status: 'installed' };
+
+type BlockUsageMap = {
+  blocks: Array<{
+    id: string;
+    installOrder: number;
+  }>;
+};
 
 type DemoChecklistItem = {
   id: string;
@@ -199,6 +207,16 @@ function formatInstallManifest(manifest: InstallManifestEntry[]): string {
     `Actions: ${formatCounts(manifest.map((entry) => entry.action))}`,
     `Registry kinds: ${formatCounts(manifest.map((entry) => entry.registryKind))}`,
     `Statuses: ${formatCounts(manifest.map((entry) => entry.status))}`
+  ].join('\n');
+}
+
+function formatBlockUsageMap(usageMap: BlockUsageMap): string {
+  const blocks = usageMap.blocks
+    .slice()
+    .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id));
+  return [
+    `Block usage map ${blocks.length} blocks`,
+    `Install order: ${formatList(blocks.map((block) => `${block.installOrder}:${block.id}`))}`
   ].join('\n');
 }
 
@@ -562,6 +580,22 @@ function parseInstallOutputArgs(args: string[]): { json: boolean; compact: boole
     return { json: true, compact: true };
   }
   throw new Error(INSTALL_USAGE);
+}
+
+function parseBlocksOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(BLOCKS_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(BLOCKS_USAGE);
 }
 
 function parseVerificationOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -1641,6 +1675,26 @@ async function runInstallCommand(args: string[]): Promise<void> {
   console.log(formatInstallManifest(manifest));
 }
 
+async function runBlocksCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'usage') {
+    throw new Error(BLOCKS_USAGE);
+  }
+
+  const outputArgs = parseBlocksOutputArgs(args.slice(1));
+  const { blockUsageMapPath } = getWorkspacePaths(process.cwd());
+  if (!(await pathExists(blockUsageMapPath))) {
+    throw new Error('Block usage map not found; run platform compose first');
+  }
+
+  const usageMap = await readJson<BlockUsageMap>(blockUsageMapPath);
+  if (outputArgs.json) {
+    console.log(JSON.stringify(usageMap, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatBlockUsageMap(usageMap));
+}
+
 async function runVerificationCommand(args: string[]): Promise<void> {
   if (args[0] !== 'report') {
     throw new Error(VERIFICATION_USAGE);
@@ -1980,6 +2034,9 @@ async function main(): Promise<void> {
       return;
     case 'install':
       await runInstallCommand(args);
+      return;
+    case 'blocks':
+      await runBlocksCommand(args);
       return;
     case 'verification':
       await runVerificationCommand(args);
