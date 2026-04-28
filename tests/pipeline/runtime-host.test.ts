@@ -1,0 +1,53 @@
+import { expect, test } from 'vitest';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import {
+  initWorkspace,
+  resolveWorkspace,
+  composeWorkspace,
+  adaptWorkspace,
+  verifyWorkspace,
+  lockWorkspace,
+  explainWorkspace
+} from '../../platform/orchestrator.ts';
+import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
+
+test('compose refreshes runtime host scaffold for an existing workspace baseline', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-compose-refresh-');
+  const projectRoot = path.join(workspaceRoot, 'project');
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await fs.writeFile(
+    path.join(projectRoot, 'package.json'),
+    JSON.stringify(
+      {
+        name: 'stale-generated-project',
+        private: true,
+        type: 'module',
+        scripts: {
+          test: 'node --test'
+        }
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+
+  const projectPackage = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  expect(projectPackage.scripts.build).toBe('next build --webpack');
+  expect(projectPackage.scripts['verify:runtime:service']).toBe('npm run test:unit');
+  expect(projectPackage.scripts['verify:runtime:full']).toBe(
+    'npm run build && npm run test:unit && npm run test:acceptance'
+  );
+  expect(projectPackage.scripts['verify:runtime']).toBe('npm run verify:runtime:full');
+  await expect(fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8')).resolves.toContain('workers: 1');
+});

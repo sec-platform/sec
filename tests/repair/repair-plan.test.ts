@@ -1,0 +1,390 @@
+import { expect, test } from 'vitest';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import { buildRepairPlan, writeRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
+import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
+import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+
+const plan: PlanFile = {
+  app: {
+    name: 'customer-admin',
+    stack: 'nextjs-ts-prisma-sqlite',
+    packageManager: 'pnpm',
+    mode: 'single-tenant'
+  },
+  registry: {
+    sources: []
+  },
+  blocks: [{ id: 'entity/customer-basic', version: '0.1.0' }],
+  slots: [
+    {
+      id: 'customer_normalizer',
+      block: 'entity/customer-basic',
+      kind: 'adapter',
+      target: 'custom/customer_normalizer.ts',
+      symbol: 'normalizeCustomerInput',
+      description: 'Normalize customer input.'
+    }
+  ],
+  acceptance: [{ id: 'user_can_create_customer' }]
+};
+
+const lock: LockFile = {
+  formatVersion: '1',
+  app: {
+    name: 'customer-admin',
+    stack: 'nextjs-ts-prisma-sqlite',
+    mode: 'single-tenant'
+  },
+  resolvedBlocks: [
+    {
+      id: 'entity/customer-basic',
+      version: '0.1.0',
+      kind: 'capability',
+      installOrder: 1,
+      manifestPath: 'block.manifest.yaml',
+      registrySourceId: 'official',
+      registryKind: 'official',
+      registryLocation: 'compiler',
+      registryPath: 'platform/registry/official'
+    }
+  ],
+  resolvedCapabilities: ['customer/write'],
+  installPlan: [],
+  slotTasks: [
+    {
+      id: 'customer_normalizer',
+      block: 'entity/customer-basic',
+      target: 'custom/customer_normalizer.ts',
+      symbol: 'normalizeCustomerInput',
+      kind: 'adapter',
+      status: 'filled',
+      writableZones: ['custom/customer_normalizer.ts'],
+      provenanceHints: {
+        generator: 'mock-local-synthesizer',
+        verifiedBy: []
+      }
+    }
+  ],
+  generatedPaths: [],
+  acceptancePlan: ['user_can_create_customer'],
+  passStatus: {
+    ...PASS_STATUS_PENDING,
+    parse: 'succeeded',
+    align: 'succeeded',
+    resolve: 'succeeded',
+    compose: 'succeeded',
+    adapt: 'succeeded',
+    verify: 'failed'
+  }
+};
+
+const failedReport: VerificationReport = {
+  build: {
+    status: 'passed'
+  },
+  unit: {
+    status: 'failed',
+    passed: []
+  },
+  acceptance: {
+    status: 'failed',
+    passed: [],
+    failed: ['customer-flow.test.ts']
+  },
+  policy: {
+    status: 'failed',
+    violations: [
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query',
+        files: ['src/installed/entity/customer-service.ts'],
+        message: 'Z policy issue.',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml'
+      },
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query',
+        files: ['src/installed/entity/customer-service.ts'],
+        message: 'A policy issue.',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml'
+      },
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query',
+        files: ['src/installed/entity/customer-service.ts'],
+        message: 'A policy issue.',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml'
+      }
+    ]
+  },
+  fast: {
+    status: 'failed',
+    build: {
+      status: 'passed'
+    },
+    unit: {
+      status: 'failed',
+      passed: []
+    },
+    acceptance: {
+      status: 'failed',
+      passed: [],
+      failed: ['customer-flow.test.ts']
+    },
+    policy: {
+      status: 'failed',
+      violations: []
+    },
+    logs: {
+      stdout: 'typecheck:passed',
+      stderr: 'unit assertion failed'
+    }
+  },
+  runtime: {
+    status: 'skipped',
+    build: {
+      status: 'skipped',
+      passed: [],
+      failed: [],
+      command: 'npm run build'
+    },
+    unit: {
+      status: 'skipped',
+      passed: [],
+      failed: [],
+      command: 'npm run test:unit'
+    },
+    acceptance: {
+      status: 'skipped',
+      passed: [],
+      failed: [],
+      command: 'npm run test:acceptance'
+    },
+    logs: {
+      stdout: '',
+      stderr: ''
+    }
+  },
+  summary: {
+    status: 'failed',
+    requestedLane: 'fast',
+    failedLanes: ['fast']
+  },
+  logs: {
+    stdout: 'typecheck:passed',
+    stderr: 'unit assertion failed'
+  }
+};
+
+test('writeRepairPlan persists generated path in a missing generated directory', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { lockPath, repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const persistedLockInput: LockFile = {
+      ...lock,
+      generatedPaths: []
+    };
+    const repairPlan: RepairPlan = {
+      formatVersion: '1',
+      status: 'skipped',
+      sourceVerificationStatus: 'passed',
+      requiresVerification: false,
+      tasks: []
+    };
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await writeJson(lockPath, persistedLockInput);
+
+    await writeRepairPlan(workspaceRoot, repairPlan, persistedLockInput);
+
+    const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
+    const persistedLock = await readJson<LockFile>(lockPath);
+    expect(persistedRepairPlan).toEqual(repairPlan);
+    expect(persistedLock.generatedPaths).toEqual(['generated/repair-plan.json', 'provenance.json']);
+  });
+});
+
+test('repair plan skips when verification passed', () => {
+  const report: VerificationReport = {
+    ...failedReport,
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      ...failedReport.fast,
+      status: 'passed',
+      unit: { status: 'passed', passed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      ...failedReport.runtime,
+      status: 'skipped'
+    },
+    summary: {
+      status: 'passed',
+      requestedLane: 'all',
+      failedLanes: []
+    },
+    logs: { stdout: '', stderr: '' }
+  };
+
+  expect(buildRepairPlan(plan, lock, report)).toEqual({
+    formatVersion: '1',
+    status: 'skipped',
+    sourceVerificationStatus: 'passed',
+    requiresVerification: false,
+    tasks: []
+  });
+});
+
+test('repair plan includes structured failure points for slot and spec failures', () => {
+  const repairPlan = buildRepairPlan(plan, lock, failedReport);
+
+  expect(repairPlan.status).toBe('pending');
+  expect(repairPlan.requiresVerification).toBe(false);
+  expect(repairPlan.tasks).toHaveLength(1);
+  expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
+  expect(repairPlan.tasks[0].failureSummary).toBe('build=passed; unit=failed; acceptance=failed; policy=failed; runtime=skipped');
+  expect(repairPlan.tasks[0].review).toEqual({
+    allowedPathCount: 1,
+    requiredSymbolCount: 1,
+    forbiddenOperationCount: 4,
+    testCount: 2,
+    failureTargetCount: 3,
+    sourceSlotStatus: 'filled',
+    sourceWritableZones: ['custom/customer_normalizer.ts'],
+    sourceProvenanceHints: {
+      generator: 'mock-local-synthesizer',
+      verifiedBy: []
+    },
+    writeBounds: ['custom/customer_normalizer.ts'],
+    requiredSymbols: ['normalizeCustomerInput'],
+    forbiddenOperations: [
+      'modify_other_files',
+      'add_dependencies',
+      'access_database',
+      'change_exports'
+    ],
+    testsToPass: [
+      'tests/unit/customer-normalizer.test.ts',
+      'tests/acceptance/customer-flow.test.ts'
+    ],
+    failureTargets: [
+      'customer-flow.test.ts',
+      'src/installed/entity/customer-service.ts',
+      'tenant-scope-required'
+    ]
+  });
+  expect(repairPlan.tasks[0].failurePoints).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        lane: 'fast',
+        kind: 'unit',
+        issueType: 'slot',
+        repairable: true,
+        artifactPath: 'tests/unit'
+      }),
+      expect.objectContaining({
+        lane: 'fast',
+        kind: 'acceptance',
+        issueType: 'slot',
+        repairable: true,
+        artifactPath: 'tests/acceptance',
+        targetIds: ['customer-flow.test.ts']
+      }),
+      expect.objectContaining({
+        lane: 'fast',
+        kind: 'policy',
+        issueType: 'spec',
+        repairable: false,
+        artifactPath: 'generated/policy-report.json',
+        message: 'A policy issue.; Z policy issue.',
+        targetIds: ['src/installed/entity/customer-service.ts', 'tenant-scope-required']
+      })
+    ])
+  );
+  expect(repairPlan.blockers).toEqual([
+    expect.objectContaining({
+      blockerId: 'repair_blocker_1_fast_policy',
+      boundary: 'spec',
+      reason: 'policy failure is outside automatic slot repair: A policy issue.; Z policy issue.'
+    })
+  ]);
+});
+
+test('repair plan records blockers when no slot task is repairable', () => {
+  const lockWithoutSlots: LockFile = {
+    ...lock,
+    slotTasks: []
+  };
+
+  const repairPlan = buildRepairPlan(plan, lockWithoutSlots, failedReport);
+
+  expect(repairPlan.status).toBe('blocked');
+  expect(repairPlan.tasks).toEqual([]);
+  expect(repairPlan.blockers).toEqual([
+    expect.objectContaining({
+      blockerId: 'repair_blocker_no_slot_tasks',
+      boundary: 'slot',
+      reason: 'No eligible slot tasks are present in graph.lock.json for the current verification failure'
+    }),
+    expect.objectContaining({
+      blockerId: 'repair_blocker_1_fast_policy',
+      boundary: 'spec',
+      reason: 'policy failure is outside automatic slot repair: A policy issue.; Z policy issue.'
+    })
+  ]);
+});
+
+test('repair plan falls back when failed summary has no lane details', () => {
+  const report: VerificationReport = {
+    ...failedReport,
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      ...failedReport.fast,
+      status: 'passed',
+      unit: { status: 'passed', passed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      ...failedReport.runtime,
+      status: 'skipped'
+    },
+    summary: {
+      status: 'failed',
+      requestedLane: 'all',
+      failedLanes: []
+    }
+  };
+
+  const repairPlan = buildRepairPlan(plan, lock, report);
+
+  expect(repairPlan.tasks[0].failurePoints).toEqual([
+    {
+      lane: 'all',
+      kind: 'summary',
+      issueType: 'unknown',
+      repairable: false,
+      artifactPath: 'generated/verification-report.json',
+      message: 'Verification failed without lane-specific failure details'
+    }
+  ]);
+});
