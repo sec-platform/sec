@@ -10,6 +10,8 @@ export type ReferenceCheckReport = {
   status: ReferenceCheckStatus;
   failedStage: ReferenceCheckFailedStage;
   root: string;
+  command: string;
+  runnerCommand: string;
   refreshCommand: string;
   refreshExitCode: number;
   diffCommand: string;
@@ -59,6 +61,8 @@ export async function buildReferenceCheckReport(options: {
     status,
     failedStage,
     root,
+    command: 'npm run platform -- reference check --json',
+    runnerCommand: 'npm run reference:check',
     refreshCommand: 'npm run reference:refresh',
     refreshExitCode: refreshResult.code,
     diffCommand: 'git diff --name-only --exit-code -- project',
@@ -80,6 +84,8 @@ export function formatReferenceCheck(report: ReferenceCheckReport): string {
   return [
     `Reference workspace ${report.status}`,
     `Failed stage: ${report.failedStage}`,
+    `Command: ${report.command}`,
+    `Runner command: ${report.runnerCommand}`,
     `Commands: refresh=${report.refreshCommand}; diff=${report.diffCommand}`,
     `Refresh: exit=${report.refreshExitCode}; diff: exit=${report.diffExitCode}`,
     `Changed paths: ${report.changedPathCount > 0 ? report.changedPaths.join(', ') : 'none'}`,

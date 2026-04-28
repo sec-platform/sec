@@ -334,6 +334,8 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
 
   expect(formatReferenceCheck(report)).toContain('Reference workspace drifted');
   expect(formatReferenceCheck(report)).toContain('Failed stage: diff');
+  expect(formatReferenceCheck(report)).toContain('Command: npm run platform -- reference check --json');
+  expect(formatReferenceCheck(report)).toContain('Runner command: npm run reference:check');
   expect(formatReferenceCheck(report)).toContain(
     'Commands: refresh=npm run reference:refresh; diff=git diff --name-only --exit-code -- project'
   );
@@ -346,6 +348,8 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     status: 'drifted',
     failedStage: 'diff',
     root: compilerRoot,
+    command: 'npm run platform -- reference check --json',
+    runnerCommand: 'npm run reference:check',
     refreshCommand: 'npm run reference:refresh',
     refreshExitCode: 0,
     diffCommand: 'git diff --name-only --exit-code -- project',

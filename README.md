@@ -69,7 +69,7 @@ Use these entry commands for normal development:
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
-- `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract with refresh and diff commands
+- `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract with inspect command, runner command, refresh command, and diff command
 - `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, and score dimensions
 - `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry
@@ -120,7 +120,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
 - `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
-- `npm run reference:check`: run the formal reference drift gate through `platform reference check`
+- `npm run reference:check`: run the formal reference drift gate through the runner command exposed by `platform reference check`
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including diagnostic artifact paths
 - `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, diagnostic, artifact upload commands, and produced artifact paths
@@ -134,7 +134,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract
-- `npm run platform -- reference check --json --compact`: emit the compact reference drift contract
+- `npm run platform -- reference check --json --compact`: emit the compact reference drift contract, including inspect command, runner command, refresh command, and diff command
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, and score dimensions
 - `npm run platform -- resolve`
 - `npm run platform -- compose`
