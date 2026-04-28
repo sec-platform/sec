@@ -10,8 +10,8 @@ import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../sha
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
+import type { RepairPlan } from '../../shared/repair-types.ts';
 import type {
-  RepairPlan,
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../shared/types.ts';

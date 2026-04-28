@@ -15,11 +15,10 @@ import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts'
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile, ProvenanceOriginType, OverrideStatus } from '../../shared/provenance-types.ts';
+import type { RepairPlan, RepairTaskCategory } from '../../shared/repair-types.ts';
 import type {
-  RepairTaskCategory,
   ReviewConflictHint,
   ReviewInstallImpact,
-  RepairPlan,
   ReviewFailurePoint,
   ReviewRegressionRisk,
   ReviewSummary,

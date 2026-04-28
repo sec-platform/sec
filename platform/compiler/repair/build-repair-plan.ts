@@ -13,7 +13,7 @@ import type {
   RepairPlan,
   RepairTask,
   RepairTaskPreview
-} from '../../shared/types.ts';
+} from '../../shared/repair-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function summarizeFailure(report: VerificationReport): string {
