@@ -77,11 +77,12 @@
 
 - 平台源码本身是工具实现层，普通项目开发者默认不直接修改 `platform/compiler/**`、`platform/shared/**`、`platform/registry/official/**`。
 - 最终成品必须提供对外开发环境：CLI 是最低可用入口，Workbench/IDE 插件是产品化入口；两者都写入同一套 workspace 合同，而不是要求开发者打开平台源码目录操作。
-- 项目开发者的默认工作面是 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 MVP 临时私有 registry 入口 `platform/registry/private/**`。
-- `platform/registry/private/**` 只是当前单仓 MVP 阶段的 workspace 私有块存放点；长期应迁移为独立私有 registry 包、私有 registry 服务或工作台托管资产，避免让普通开发者把 `platform/` 误认为日常源码工作区。
-- `project/src/installed/**`、`project/generated/**` 和运行时 scaffold 视为编译产物或治理产物；需要人工介入时优先回写为 slot、rule-backed override 或 private block，而不是长期手改生成源码。
+- 项目开发者的默认工作面收敛到 `project/source/**`：`slots/`、`overrides/`、`policies/`、`acceptance/`、`assets/`、`views/`、`env/` 与 `registry/private/`。
+- `project/app.plan.yaml` 仍是 v0.1 兼容的计划入口；后续迁移到更完整 source layer 时必须保持 CLI/Workbench/IDE 读写同一套 workspace 合同。
+- `project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**` 是兼容期入口；新能力优先落到 `project/source/**`，避免继续把开发者操作面混入生成应用源码或平台源码。
+- `project/src/installed/**`、`project/generated/**`、运行时 scaffold 和治理产物视为编译产物或 build state；需要人工介入时优先回写为 slot、rule-backed override、policy 或 private block，而不是长期手改生成源码。
 - CLI 是一等入口；工作台或 IDE 插件只能补充交互体验，不替代 CLI 合同。
-- Workbench/IDE 插件必须遵守同一边界：可读 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；可写 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 MVP 临时私有 registry；禁止直接写 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
+- Workbench/IDE 插件必须遵守同一边界：可读 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；可写 `project/app.plan.yaml`、`project/source/**` 和仍处于兼容期的 `project/custom/**`、`project/overrides/**`、`project/policies/**`、MVP 临时私有 registry；禁止直接写 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
 - Workbench/IDE 插件至少要复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain` 这些命令入口，而不是旁路实现另一套规则。
 - `platform doctor` 用于检查本地依赖环境、缓存状态和推荐动作。
 - `platform deps status` 输出 root/shared/project/npm cache 的状态、元数据大小、顶层条目数量、链接关系和 cold/warm/dirty/stale 模式；为保证每次检查足够快，禁止递归扫描 `node_modules` 计算真实总字节数。
@@ -1580,7 +1581,7 @@
 
 - 从空目录开始，CLI 能产出可运行项目。
 - 三个块来自 registry 安装，不靠手工搬运。
-- AI 只能修改 `custom/customer_normalizer.ts`。
+- AI 默认只能修改 `source/slots/customer_normalizer.ts`；`custom/customer_normalizer.ts` 由 compiler 物化保留 v0.1 兼容。
 - 主验收链路通过。
 
 ### AI 可自主承担

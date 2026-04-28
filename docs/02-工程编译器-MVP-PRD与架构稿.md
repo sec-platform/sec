@@ -391,6 +391,10 @@ registry:
       kind: official
       location: compiler
       path: platform/registry/official
+    - id: source-private
+      kind: private
+      location: workspace
+      path: project/source/registry/private
     - id: private
       kind: private
       location: workspace
@@ -406,6 +410,7 @@ slots:
     block: entity/customer-basic
     kind: adapter
     target: custom/customer_normalizer.ts
+    sourcePath: source/slots/customer_normalizer.ts
     symbol: normalizeCustomerInput
     description: |
       customer name 必填；
@@ -533,8 +538,9 @@ upgrade:
       "id": "customer_normalizer",
       "block": "entity/customer-basic",
       "target": "custom/customer_normalizer.ts",
+      "sourcePath": "source/slots/customer_normalizer.ts",
       "status": "pending",
-      "writableZones": ["custom/"],
+      "writableZones": ["source/slots/customer_normalizer.ts", "custom/"],
       "provenance": {
         "generator": null,
         "verifiedBy": []
@@ -601,12 +607,17 @@ project/
 
 - 对最终成品而言，`platform/` 是工具实现，不是普通项目开发者的工作区。
 - 普通项目开发者应通过 CLI、Workbench 或 IDE 插件进入外部开发环境；这些入口必须写入同一套 workspace 合同，而不是要求开发者进入平台源码目录。
-- 默认外部工作面包括：
-  - `project/app.plan.yaml`：产品计划、块选择、slot、验收意图和 registry source。
-  - `project/custom/**`：项目自有实现。
-  - `project/overrides/**`：受治理的 override、patch、rule 和 manifest。
-  - `project/policies/**`：项目策略输入。
-  - `platform/registry/private/**`：当前 MVP 阶段的 workspace 私有块临时入口；长期必须迁移为独立私有 registry 包、私有 registry 服务或工作台托管资产。
+- 默认外部工作面应收敛为 `Developer Source Layer`：
+  - `project/app.plan.yaml`：v0.1 兼容入口，承载产品计划、块选择、slot、验收意图和 registry source。
+  - `project/source/slots/**`：项目自有 slot 实现与 AI 可写任务源码。
+  - `project/source/overrides/**`：受治理的 override、patch、rule 和 manifest。
+  - `project/source/policies/**`：项目策略输入。
+  - `project/source/acceptance/**`：项目级验收扩展和验收说明。
+  - `project/source/assets/**`：项目级设计、文案、示例数据、导入导出样例等非生成资产。
+  - `project/source/views/**`：Workbench/IDE 视图配置和导航偏好。
+  - `project/source/env/**`：环境声明、示例变量和本地配置模板。
+  - `project/source/registry/private/**`：长期私有 block 草稿和 workspace 私有 registry 目标区。
+- v0.1 兼容入口 `project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**` 可以继续读取或写入，但新能力应优先落到 `project/source/**`。
 - 默认禁止把以下路径作为产品开发入口：
   - `platform/compiler/**`
   - `platform/shared/**`
@@ -621,7 +632,7 @@ project/
   - slot、policy、override 和 private block 的编辑入口。
 - Workbench 是 CLI 合同上的产品化界面：可以提供表单、图谱、双视图、验证面板和升级审查，但不得绕过 CLI/pass 合同直接改内部平台实现。
 - Workbench/IDE 插件的最小命令面必须复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain`。
-- Workbench/IDE 插件允许读取 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；允许写入 `project/app.plan.yaml`、`project/custom/**`、`project/overrides/**`、`project/policies/**` 与 MVP 临时私有 registry；禁止直接写入 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
+- Workbench/IDE 插件允许读取 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；允许写入 `project/app.plan.yaml`、`project/source/**` 和仍处于兼容期的 `project/custom/**`、`project/overrides/**`、`project/policies/**`、MVP 临时私有 registry；禁止直接写入 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
 
 ## 编译流程
 
@@ -725,7 +736,8 @@ project/
 ```text
 任务名：fill_slot_customer_normalizer
 任务类型：adapter-slot
-允许修改：custom/customer_normalizer.ts
+允许修改：source/slots/customer_normalizer.ts
+物化目标：custom/customer_normalizer.ts
 要求保留：normalizeCustomerInput
 禁止行为：改其他文件、引入新依赖、访问数据库、改 Prisma schema
 通过条件：customer_normalizer.spec.ts + 主验收链路
@@ -760,7 +772,8 @@ project/
 ### 单槽位
 
 - `customer_normalizer`
-  - 目标文件：`custom/customer_normalizer.ts`
+  - 源码文件：`source/slots/customer_normalizer.ts`
+  - 物化目标：`custom/customer_normalizer.ts`
   - 允许导出：
 
 ```ts

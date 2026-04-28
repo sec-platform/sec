@@ -61,17 +61,20 @@ taskId: fill_slot_customer_normalizer
 taskKind: adapter-slot
 phase: adapt
 targetBlock: entity/customer-basic
-targetFile: custom/customer_normalizer.ts
+targetFile: source/slots/customer_normalizer.ts
 sourceSlot:
   id: customer_normalizer
   status: filled
+  runtimeTarget: custom/customer_normalizer.ts
+  sourcePath: source/slots/customer_normalizer.ts
   writableZones:
+    - source/slots/customer_normalizer.ts
     - custom/
   provenanceHints:
     generator: mock-local-synthesizer
     verifiedBy: []
 allowedPaths:
-  - custom/customer_normalizer.ts
+  - source/slots/customer_normalizer.ts
 requiredSymbols:
   - normalizeCustomerInput
 forbiddenOperations:
@@ -102,9 +105,9 @@ expectedOutput:
 | `taskKind` | 是 | `adapter-slot` / `policy-slot` / `repair` / `alignment` |
 | `phase` | 是 | 所属 pass |
 | `targetBlock` | 否 | 相关 block |
-| `targetFile` | 是 | 主要目标文件 |
-| `sourceSlot` | 是 | 来自 `graph.lock.json` 的 slot 状态、writable zones 与 provenance hints |
-| `allowedPaths[]` | 是 | 从 `targetFile` 收窄出的实际允许写入文件，且必须落在 `sourceSlot.writableZones` 内 |
+| `targetFile` | 是 | 主要写入文件；声明 `sourcePath` 的 slot 默认指向 `source/slots/**` |
+| `sourceSlot` | 是 | 来自 `graph.lock.json` 的 slot 状态、`sourcePath`、`runtimeTarget`、writable zones 与 provenance hints |
+| `allowedPaths[]` | 是 | 从 `targetFile` 收窄出的实际允许写入文件；源码层 slot 默认只允许写 `sourcePath`，runtime target 由 compiler 物化 |
 | `requiredSymbols[]` | 否 | 必须保留或导出的符号 |
 | `forbiddenOperations[]` | 是 | 禁止操作集合 |
 | `inputContracts` | 否 | 类型、schema、约束 |
@@ -118,6 +121,7 @@ expectedOutput:
 
 - 写回前必须校验目标文件路径在 `allowedPaths` 之内。
 - `allowedPaths` 必须收窄到具体 `targetFile`，且目标必须落在 `sourceSlot.writableZones` 内；repair review 也必须回显同一写入边界和 provenance hints。
+- 当 `sourceSlot.sourcePath` 存在时，AI/repair 只写 `sourcePath`，`sourceSlot.runtimeTarget` 由 adapt/repair pass 物化并重写相对 import。
 - 写回后必须重新解析导出符号，验证 `requiredSymbols` 仍存在。
 - 若 diff 触及未授权路径，立即失败并标记 `SLOT-WRITE-001`。
 
@@ -130,7 +134,8 @@ expectedOutput:
 
 ### `v0.1` 默认允许路径
 
-- `custom/customer_normalizer.ts`
+- `source/slots/customer_normalizer.ts`：默认开发者源码 slot。
+- `custom/customer_normalizer.ts`：无 `sourcePath` 时的兼容写入目标；声明 `sourcePath` 后仅由 compiler 物化。
 
 ### `v0.2+` 扩展允许路径
 
@@ -165,11 +170,11 @@ expectedOutput:
 
 ### Context Packet 最小字段
 
-- `task`：task id、task kind、phase、target block、target file。
+- `task`：task id、task kind、phase、target block、target file；源码层 slot 还必须带 `runtimeTarget`。
 - `affectedGraph`：与任务相关的 block、pin、slot、file、acceptance、policy、issue 节点与边。
 - `blocks` / `pins`：相关 block manifest 摘要、输入输出 pin、连接关系和兼容性约束。
 - `policies`：适用 policy、severity、目标和已知 violation。
-- `writableAnchors`：从 envelope 派生的 `allowedPaths`、目标 symbol、slot writable zone 和 provenance hints。
+- `writableAnchors`：从 envelope 派生的 `allowedPaths`、目标 symbol、slot writable zone、`sourcePath`、`runtimeTarget` 和 provenance hints。
 - `readonlyAnchors`：必须读取但不得修改的类型、测试、generated artifact、lock、provenance 和 report 摘要。
 - `cannotModify`：acceptance、policy、migration order、generated files、lock、provenance、未授权源码路径等不可改对象。
 - `mustPreserve`：required symbols、公开 contract、验收语义、policy gate、现有 provenance 和 runtime 行为约束。
