@@ -1741,7 +1741,13 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       e2eMatrix: {
         status: string;
         rowCount: number;
-        rows: Array<{ stage: string; status: string; detail: string; evidence: string[] }>;
+        rows: Array<{
+          stage: string;
+          status: string;
+          detail: string;
+          evidenceCount: number;
+          evidence: string[];
+        }>;
       };
       reviewSummary: {
         formatVersion: string;
@@ -1819,10 +1825,10 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
       status: 'attention',
       rowCount: 4,
       rows: [
-        { stage: 'verification', status: 'passed', evidence: ['ci=passed', 'failures=0'] },
-        { stage: 'coverage', status: 'passed', evidence: ['blocks=3/3', 'slots=1/1'] },
-        { stage: 'artifacts', status: 'attention', evidence: ['artifacts=missing'] },
-        { stage: 'review', status: 'passed', evidence: ['review-summary=generated'] }
+        { stage: 'verification', status: 'passed', evidenceCount: 2, evidence: ['ci=passed', 'failures=0'] },
+        { stage: 'coverage', status: 'passed', evidenceCount: 2, evidence: ['blocks=3/3', 'slots=1/1'] },
+        { stage: 'artifacts', status: 'attention', evidenceCount: 1, evidence: ['artifacts=missing'] },
+        { stage: 'review', status: 'passed', evidenceCount: 1, evidence: ['review-summary=generated'] }
       ]
     });
     expect(payload.reviewSummary.formatVersion).toBe('2');
@@ -2265,7 +2271,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
     const explainWithMissingPayload = JSON.parse(explainWithMissingResult.stdout) as {
       e2eMatrix: {
-        rows: Array<{ stage: string; evidence: string[] }>;
+        rows: Array<{ stage: string; evidenceCount: number; evidence: string[] }>;
       };
       reviewSummary: {
         artifactSummary?: typeof manifest.summary & {
@@ -2279,12 +2285,15 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       manifestWithLockMissing.uploadGroups
     );
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missingReasonTypeCount).toBe(1);
-    expect(explainWithMissingPayload.e2eMatrix.rows.find((row) => row.stage === 'artifacts')?.evidence).toEqual([
-      `total=${manifestWithLockMissing.summary.artifactCount}`,
-      'missing=1',
-      `uploadGroups=${manifestWithLockMissing.summary.uploadGroupCount}`,
-      'missingReasonTypes=1'
-    ]);
+    expect(explainWithMissingPayload.e2eMatrix.rows.find((row) => row.stage === 'artifacts')).toMatchObject({
+      evidenceCount: 4,
+      evidence: [
+        `total=${manifestWithLockMissing.summary.artifactCount}`,
+        'missing=1',
+        `uploadGroups=${manifestWithLockMissing.summary.uploadGroupCount}`,
+        'missingReasonTypes=1'
+      ]
+    });
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(lockMissingDiagnostics);
 
     const testPathsBeforeFixture = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);

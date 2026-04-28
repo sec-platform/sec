@@ -143,7 +143,7 @@
      - artifact / graph / review golden output：active。
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
        - `platform explain` 普通文本输出 artifact upload group count 与 missing reason type count。
-       - E2E artifacts evidence 输出 artifact upload group count 与 missing reason type count。
+       - E2E artifacts evidence 输出 artifact upload group count、missing reason type count 与 per-stage evidenceCount。
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
        - `platform doctor --json [--compact]` 输出稳定环境 readiness 合同，包含顶层 checkCount 与 checks。

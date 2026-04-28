@@ -4,6 +4,7 @@ export type E2eMatrixRow = {
   stage: string;
   status: string;
   detail: string;
+  evidenceCount: number;
   evidence: string[];
 };
 
@@ -50,12 +51,16 @@ export function e2eStageEvidence(reviewSummary: ReviewSummary, stageId: string):
 }
 
 export function buildE2eMatrix(reviewSummary: ReviewSummary): E2eMatrix {
-  const rows = reviewSummary.chainSummary.stageSummaries.map((stage) => ({
-    stage: stage.id,
-    status: stage.status,
-    detail: stage.detail,
-    evidence: e2eStageEvidence(reviewSummary, stage.id)
-  }));
+  const rows = reviewSummary.chainSummary.stageSummaries.map((stage) => {
+    const evidence = e2eStageEvidence(reviewSummary, stage.id);
+    return {
+      stage: stage.id,
+      status: stage.status,
+      detail: stage.detail,
+      evidenceCount: evidence.length,
+      evidence
+    };
+  });
 
   return {
     status: reviewSummary.chainSummary.status,
