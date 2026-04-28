@@ -56,6 +56,13 @@ const ciSteps: CiContractStep[] = [
     produces: []
   },
   {
+    id: 'reference-drift',
+    phase: 'quality',
+    command: 'npm run platform -- reference check --json --compact',
+    purpose: 'Refresh the checked-in reference workspace and fail on drift.',
+    produces: []
+  },
+  {
     id: 'diagnostic-review',
     phase: 'diagnostics',
     command: 'npm run platform -- review summary --json --compact',
