@@ -752,6 +752,7 @@ export interface ReviewArtifactSummary {
   contractPaths?: string[];
   uploadGroupCount?: number;
   missingCount: number;
+  missingReasonTypeCount?: number;
   missingReasonCounts?: Record<string, number>;
   uploadGroups?: ReviewArtifactUploadGroup[];
   missing?: ReviewArtifactMissingEntry[];

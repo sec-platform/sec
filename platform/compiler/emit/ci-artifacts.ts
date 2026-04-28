@@ -35,6 +35,7 @@ export interface CiArtifactSummary {
   contractPaths: string[];
   uploadGroupCount: number;
   missingCount: number;
+  missingReasonTypeCount: number;
   missingReasonCounts: Record<CiArtifactMissingEntry['reason'], number>;
 }
 
@@ -152,6 +153,12 @@ function buildMissingReasonCounts(
   };
 }
 
+function countMissingReasonTypes(
+  missingReasonCounts: CiArtifactSummary['missingReasonCounts']
+): number {
+  return Object.values(missingReasonCounts).filter((count) => count > 0).length;
+}
+
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   if (!(await pathExists(lockPath))) {
@@ -216,6 +223,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     .map((entry) => entry.path)
     .filter(isContractArtifactPath));
   const uploadGroups = buildUploadGroups(entries);
+  const missingReasonCounts = buildMissingReasonCounts(sortedMissing);
   return {
     formatVersion: '1',
     root: 'project',
@@ -229,7 +237,8 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
       contractPaths,
       uploadGroupCount: uploadGroups.length,
       missingCount: sortedMissing.length,
-      missingReasonCounts: buildMissingReasonCounts(sortedMissing)
+      missingReasonTypeCount: countMissingReasonTypes(missingReasonCounts),
+      missingReasonCounts
     },
     artifacts: entries,
     uploadGroups,
@@ -262,6 +271,7 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
           contractPaths: [],
           uploadGroupCount: 0,
           missingCount: 0,
+          missingReasonTypeCount: 0,
           missingReasonCounts: {
             'declared-generated-missing': 0,
             'fixed-governance-missing': 0,

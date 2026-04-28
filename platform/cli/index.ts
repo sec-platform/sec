@@ -1570,6 +1570,7 @@ async function main(): Promise<void> {
             byKind: pathSummary.byKind,
             uploadGroups: pathSummary.uploadGroups,
             missingCount: manifest.missing.length,
+            missingReasonTypeCount: manifest.summary.missingReasonTypeCount,
             missingReasonCounts: manifest.summary.missingReasonCounts,
             missing: manifest.missing
           }, null, artifactsArgs.compact ? 0 : 2));
