@@ -88,6 +88,7 @@ function usageErrorStderr(usage: string): string {
 }
 
 const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
+const LOCK_USAGE = 'Usage: platform lock [inspect [--json [--compact]]]';
 const POSTGRES_USAGE = 'Usage: platform postgres contract [--json [--compact]]';
 
 async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
@@ -95,6 +96,14 @@ async function expectRepairUsageError(workspaceRoot: string, args: string[]): Pr
     code: 1,
     stdout: '',
     stderr: usageErrorStderr(REPAIR_USAGE)
+  });
+}
+
+async function expectLockUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expect(runCli(workspaceRoot, ['lock', ...args])).resolves.toMatchObject({
+    code: 1,
+    stdout: '',
+    stderr: usageErrorStderr(LOCK_USAGE)
   });
 }
 
@@ -2292,6 +2301,36 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       stdout: 'Locked project\n',
       stderr: ''
     });
+
+    const lockText = await runCli(workspaceRoot, ['lock', 'inspect']);
+    expect(lockText.code).toBe(0);
+    expect(lockText.stderr).toBe('');
+    expect(lockText.stdout).toContain('Graph lock ');
+    expect(lockText.stdout).toContain('stack=nextjs-ts-prisma-sqlite;');
+    expect(lockText.stdout).toContain('blocks=3; slots=1;');
+    expect(lockText.stdout).toContain('Block order: 1:auth/basic-session@0.1.0, 2:tenant/basic-workspace@0.1.0, 3:entity/customer-basic@0.1.0');
+    expect(lockText.stdout).toContain('Pass status:');
+
+    const lockJson = await runCli(workspaceRoot, ['lock', 'inspect', '--json', '--compact']);
+    expect(lockJson.code).toBe(0);
+    expect(lockJson.stderr).toBe('');
+    expect(lockJson.stdout).not.toContain('\n  "formatVersion"');
+    const lockPayload = JSON.parse(lockJson.stdout) as { resolvedBlocks: Array<{ id: string }>; slotTasks: unknown[] };
+    expect(lockPayload.resolvedBlocks.map((block) => block.id)).toEqual([
+      'auth/basic-session',
+      'tenant/basic-workspace',
+      'entity/customer-basic'
+    ]);
+    expect(lockPayload.slotTasks).toHaveLength(1);
+
+    await withTempWorkspace(async (missingLockWorkspace) => {
+      await expect(runCli(missingLockWorkspace, ['lock', 'inspect'])).resolves.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: expect.stringContaining('Graph lock not found; run platform lock first')
+      });
+    });
+
     await expect(runCli(workspaceRoot, ['explain'])).resolves.toMatchObject({
       code: 0,
       stderr: ''
@@ -3988,6 +4027,9 @@ test('CLI reports argument usage errors', { timeout: 60000 }, async () => {
     await expectPostgresUsageError(workspaceRoot, []);
     await expectPostgresUsageError(workspaceRoot, ['contract', '--compact']);
     await expectPostgresUsageError(workspaceRoot, ['status']);
+    await expectLockUsageError(workspaceRoot, ['--json']);
+    await expectLockUsageError(workspaceRoot, ['inspect', '--compact']);
+    await expectLockUsageError(workspaceRoot, ['status']);
     await expect(runCli(workspaceRoot, ['verification'])).resolves.toMatchObject({
       code: 1,
       stdout: '',

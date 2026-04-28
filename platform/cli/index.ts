@@ -58,6 +58,7 @@ import type {
   AcceptanceCoverageReport,
   ExplainGraph,
   InstallPlanStep,
+  LockFile,
   PolicyReport,
   ProvenanceFile,
   RepairPlan,
@@ -81,6 +82,7 @@ const ADD_USAGE = 'Usage: platform add <block-id>';
 const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]';
 const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
 const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]';
+const LOCK_USAGE = 'Usage: platform lock [inspect [--json [--compact]]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
 const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const INSTALL_USAGE = 'Usage: platform install manifest [--json [--compact]]';
@@ -411,6 +413,22 @@ function parseOptionalJsonOutputArgs(args: string[], usage: string): { json: boo
   throw new Error(usage);
 }
 
+function parseLockOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  return parseOptionalJsonOutputArgs(args, LOCK_USAGE);
+}
+
+function parseLockArgs(
+  args: string[]
+): { mode: 'run' } | { mode: 'inspect'; json: boolean; compact: boolean } {
+  if (args[0] === 'inspect') {
+    return { mode: 'inspect', ...parseLockOutputArgs(args.slice(1)) };
+  }
+  if (args.length === 0) {
+    return { mode: 'run' };
+  }
+  throw new Error(LOCK_USAGE);
+}
+
 function parseExplainOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   return parseOptionalJsonOutputArgs(args, EXPLAIN_USAGE);
 }
@@ -610,6 +628,27 @@ function formatCounts(values: string[]): string {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([value, count]) => `${value}=${count}`)
   );
+}
+
+function formatLockInspect(lock: LockFile): string {
+  return [
+    `Graph lock ${lock.app.name}`,
+    [
+      `stack=${lock.app.stack}`,
+      `mode=${lock.app.mode}`,
+      `blocks=${lock.resolvedBlocks.length}`,
+      `slots=${lock.slotTasks.length}`,
+      `generated=${lock.generatedPaths.length}`,
+      `acceptance=${lock.acceptancePlan.length}`
+    ].join('; '),
+    `Block order: ${formatList(
+      lock.resolvedBlocks
+        .slice()
+        .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id))
+        .map((block) => `${block.installOrder}:${block.id}@${block.version}`)
+    )}`,
+    `Pass status: ${formatCounts(Object.values(lock.passStatus))}`
+  ].join('\n');
 }
 
 function formatExplainGraphInspect(graph: ExplainGraph): string {
@@ -1838,11 +1877,25 @@ async function main(): Promise<void> {
       console.log(formatUpgradeSummary(upgradePlan, upgradeArgs.dryRun));
       return;
     }
-    case 'lock':
-      assertNoArgs('lock', args);
+    case 'lock': {
+      const lockArgs = parseLockArgs(args);
+      if (lockArgs.mode === 'inspect') {
+        const { lockPath } = getWorkspacePaths(process.cwd());
+        if (!(await pathExists(lockPath))) {
+          throw new Error('Graph lock not found; run platform lock first');
+        }
+        const lock = await readJson<LockFile>(lockPath);
+        if (lockArgs.json) {
+          console.log(JSON.stringify(lock, null, lockArgs.compact ? 0 : 2));
+          return;
+        }
+        console.log(formatLockInspect(lock));
+        return;
+      }
       await lockWorkspace(process.cwd());
       console.log('Locked project');
       return;
+    }
     case 'explain': {
       const explainArgs = parseExplainArgs(args);
       if (explainArgs.mode === 'graph') {
