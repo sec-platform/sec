@@ -35,6 +35,22 @@ function countLines(value: string): number {
   return value.endsWith('\n') ? value.split('\n').length - 1 : value.split('\n').length;
 }
 
+function projectRelativeImport(fromFile: string, toFile: string): string {
+  const relativePath = path.posix.relative(path.posix.dirname(fromFile), toFile);
+  return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
+}
+
+function rebaseRelativeImports(source: string, fromFile: string, toFile: string): string {
+  return source.replace(/(from\s+['"])(\.{1,2}\/[^'"]+)(['"])/g, (match, prefix: string, specifier: string, suffix: string) => {
+    const resolvedTarget = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier));
+    return `${prefix}${projectRelativeImport(toFile, resolvedTarget)}${suffix}`;
+  });
+}
+
+function slotWritePath(task: { sourcePath?: string; target: string }): string {
+  return task.sourcePath ?? task.target;
+}
+
 function countChangedLines(before: string, after: string): Pick<RepairTaskPreview, 'addedLines' | 'removedLines'> {
   const beforeLines = before.split('\n');
   const afterLines = after.split('\n');
@@ -257,7 +273,7 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
         phase: 'repair',
         sourceSlotId: task.id,
         targetBlock: task.block,
-        targetFile: task.target,
+        targetFile: envelope.targetFile,
         allowedPaths: envelope.allowedPaths,
         requiredSymbols: envelope.requiredSymbols,
         forbiddenOperations: envelope.forbiddenOperations,
@@ -298,7 +314,7 @@ export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, l
     if (targetPath !== projectRoot && !targetPath.startsWith(projectRootWithSeparator)) {
       throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes project root`);
     }
-    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && task.target === repairTask.targetFile);
+    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
     if (!slotTask) {
       throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
     }
@@ -336,7 +352,7 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
     if (targetPath !== projectRoot && !targetPath.startsWith(projectRootWithSeparator)) {
       throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes project root`);
     }
-    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && task.target === repairTask.targetFile);
+    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
     if (!slotTask) {
       throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
     }
@@ -348,7 +364,13 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
   });
 
   for (const { targetPath, slotTask, source } of writeTasks) {
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, source, 'utf8');
+    if (slotTask.sourcePath) {
+      const runtimeTargetPath = path.resolve(projectRoot, slotTask.target);
+      await fs.mkdir(path.dirname(runtimeTargetPath), { recursive: true });
+      await fs.writeFile(runtimeTargetPath, rebaseRelativeImports(source, slotTask.sourcePath, slotTask.target), 'utf8');
+    }
     slotTask.status = 'filled';
   }
 }

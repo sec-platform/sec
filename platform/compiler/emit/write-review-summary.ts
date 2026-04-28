@@ -1088,6 +1088,8 @@ export async function buildReviewSummary(
       path: artifact.path,
       originType: artifact.originType,
       originId: artifact.originId,
+      ...(artifact.sourcePath ? { sourcePath: artifact.sourcePath } : {}),
+      ...(artifact.runtimeTarget ? { runtimeTarget: artifact.runtimeTarget } : {}),
       ...(artifact.registrySourceId
         ? {
             registrySourceId: artifact.registrySourceId,

@@ -37,6 +37,7 @@ export interface SlotTask {
   id: string;
   block: string;
   target: string;
+  sourcePath?: string;
   symbol: string;
   kind: SlotKind;
   inputType?: string;

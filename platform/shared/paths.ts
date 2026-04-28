@@ -9,6 +9,7 @@ export const compilerRoot = path.resolve(moduleDir, '../..');
 export const officialRegistryRelativePath = path.join('platform', 'registry', 'official');
 export const privateRegistryRelativePath = path.join('platform', 'registry', 'private');
 export const developerSourceRelativePath = path.join('project', 'source');
+export const sourcePrivateRegistryRelativePath = path.join(developerSourceRelativePath, 'registry', 'private');
 export const officialRegistryRoot = path.join(compilerRoot, officialRegistryRelativePath);
 
 export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
@@ -28,7 +29,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     sourcePoliciesRoot,
     sourceAcceptanceRoot: path.join(developerSourceRoot, 'acceptance'),
     sourceAssetsRoot: path.join(developerSourceRoot, 'assets'),
-    sourcePrivateRegistryRoot: path.join(developerSourceRoot, 'registry', 'private'),
+    sourcePrivateRegistryRoot: path.join(root, sourcePrivateRegistryRelativePath),
     sourceViewsRoot: path.join(developerSourceRoot, 'views'),
     sourceEnvRoot: path.join(developerSourceRoot, 'env'),
     privateRegistryRoot: path.join(root, privateRegistryRelativePath),

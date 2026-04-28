@@ -62,8 +62,14 @@ export function validateOverrideManifest(manifest: OverrideManifest): OverrideMa
   return normalized;
 }
 
+export async function resolveOverrideManifestPath(workspaceRoot: string): Promise<string> {
+  const { overrideManifestPath, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
+  const sourceOverrideManifestPath = path.join(sourceOverridesRoot, 'override-manifest.yaml');
+  return (await pathExists(sourceOverrideManifestPath)) ? sourceOverrideManifestPath : overrideManifestPath;
+}
+
 export async function loadOverrideManifest(workspaceRoot: string): Promise<OverrideManifest> {
-  const { overrideManifestPath } = getWorkspacePaths(workspaceRoot);
+  const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
   if (!(await pathExists(overrideManifestPath))) {
     return { overrides: [] };
   }

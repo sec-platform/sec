@@ -8,6 +8,18 @@ import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 
+function projectRelativeImport(fromFile: string, toFile: string): string {
+  const relativePath = path.posix.relative(path.posix.dirname(fromFile), toFile);
+  return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
+}
+
+function rebaseRelativeImports(source: string, fromFile: string, toFile: string): string {
+  return source.replace(/(from\s+['"])(\.{1,2}\/[^'"]+)(['"])/g, (match, prefix: string, specifier: string, suffix: string) => {
+    const resolvedTarget = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier));
+    return `${prefix}${projectRelativeImport(toFile, resolvedTarget)}${suffix}`;
+  });
+}
+
 export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: LockFile): Promise<LockFile> {
   const { projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);
 
@@ -21,8 +33,19 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
     }
     const envelope = buildTaskEnvelope(plan, lock, task);
     const targetPath = path.join(projectRoot, task.target);
-    const source = synthesizeSlotSource(envelope);
-    await fs.writeFile(targetPath, source, 'utf8');
+    const sourcePath = task.sourcePath ? path.join(projectRoot, task.sourcePath) : targetPath;
+    const authoredSource = await fs.readFile(sourcePath, 'utf8').catch(async (error: unknown) => {
+      if (error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT') {
+        const synthesizedSource = synthesizeSlotSource(envelope);
+        await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+        await fs.writeFile(sourcePath, synthesizedSource, 'utf8');
+        return synthesizedSource;
+      }
+      throw error;
+    });
+    const runtimeSource = task.sourcePath ? rebaseRelativeImports(authoredSource, task.sourcePath, task.target) : authoredSource;
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, runtimeSource, 'utf8');
     task.status = 'filled';
   }
 

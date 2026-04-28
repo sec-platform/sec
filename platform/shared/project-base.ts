@@ -121,7 +121,6 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       'components/**/*.tsx',
       'lib/**/*.ts',
       'src/**/*.ts',
-      'source/**/*.ts',
       'tests/**/*.ts',
       'tests/**/*.tsx',
       'custom/**/*.ts',

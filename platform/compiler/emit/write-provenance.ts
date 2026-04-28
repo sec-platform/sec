@@ -14,6 +14,20 @@ function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+function buildSlotArtifact(task: LockFile['slotTasks'][number], artifactPath: string): ProvenanceArtifact {
+  return {
+    path: artifactPath,
+    originType: 'slot',
+    originId: task.id,
+    sourceBlock: task.block,
+    ...(task.sourcePath ? { sourcePath: task.sourcePath, runtimeTarget: task.target } : {}),
+    generatedByPass: task.status === 'generated' ? 'compose' : 'adapt',
+    generatorTaskId: buildTaskGeneratorId(task.id),
+    verifiedBy: unique(task.provenanceHints.verifiedBy),
+    overrideStatus: 'none'
+  };
+}
+
 function inferGeneratedByPass(targetPath: string): string {
   if (targetPath === 'provenance.json') {
     return 'lock';
@@ -126,16 +140,10 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
   }
 
   for (const task of lock.slotTasks) {
-    artifacts.set(task.target, {
-      path: task.target,
-      originType: 'slot',
-      originId: task.id,
-      sourceBlock: task.block,
-      generatedByPass: task.status === 'generated' ? 'compose' : 'adapt',
-      generatorTaskId: buildTaskGeneratorId(task.id),
-      verifiedBy: unique(task.provenanceHints.verifiedBy),
-      overrideStatus: 'none'
-    });
+    if (task.sourcePath) {
+      artifacts.set(task.sourcePath, buildSlotArtifact(task, task.sourcePath));
+    }
+    artifacts.set(task.target, buildSlotArtifact(task, task.target));
   }
 
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
@@ -150,6 +158,8 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
       registryKind: existing?.registryKind,
       registryLocation: existing?.registryLocation,
       registryPath: existing?.registryPath,
+      ...(existing?.sourcePath ? { sourcePath: existing.sourcePath } : {}),
+      ...(existing?.runtimeTarget ? { runtimeTarget: existing.runtimeTarget } : {}),
       generatedByPass: entry.appliesAfter[entry.appliesAfter.length - 1] ?? existing?.generatedByPass,
       generatorTaskId: existing?.generatorTaskId,
       verifiedBy: existing?.verifiedBy ?? [],

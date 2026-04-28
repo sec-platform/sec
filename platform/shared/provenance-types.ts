@@ -14,6 +14,8 @@ export interface ProvenanceArtifact {
   registryKind?: RegistryKind;
   registryLocation?: RegistryLocation;
   registryPath?: string;
+  sourcePath?: string;
+  runtimeTarget?: string;
   generatedByPass?: string;
   generatorTaskId?: string;
   verifiedBy: string[];
