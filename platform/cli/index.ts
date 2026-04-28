@@ -68,7 +68,7 @@ import type {
 } from '../shared/types.ts';
 
 const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -91,6 +91,7 @@ const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
 const PROVENANCE_USAGE = 'Usage: platform provenance registry [--json [--compact]]';
 const REVIEW_USAGE = 'Usage: platform review summary [--json [--compact]]';
+const DEMO_USAGE = 'Usage: platform demo checklist [--json [--compact]]';
 const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors|ci> [--json [--compact]]';
 const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
@@ -107,6 +108,22 @@ type ArtifactPathUploadGroup = {
   kind: ArtifactPathKind;
   count: number;
   paths: string[];
+};
+
+type DemoChecklistItem = {
+  id: string;
+  status: 'passed' | 'missing';
+  artifactPath: string;
+  command: string;
+};
+
+type DemoChecklist = {
+  formatVersion: '1';
+  status: 'passed' | 'attention';
+  itemCount: number;
+  missingCount: number;
+  items: DemoChecklistItem[];
+  nextCommand: string;
 };
 
 function artifactUploadPathSummary(
@@ -503,6 +520,22 @@ function parseReviewOutputArgs(args: string[]): { json: boolean; compact: boolea
   throw new Error(REVIEW_USAGE);
 }
 
+function parseDemoOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args.length === 0) {
+    return { json: false, compact: false };
+  }
+  if (args[0] !== '--json') {
+    throw new Error(DEMO_USAGE);
+  }
+  if (args.length === 1) {
+    return { json: true, compact: false };
+  }
+  if (args.length === 2 && args[1] === '--compact') {
+    return { json: true, compact: true };
+  }
+  throw new Error(DEMO_USAGE);
+}
+
 function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args.length === 0) {
     return { json: false, compact: false };
@@ -585,6 +618,90 @@ function formatExplainGraphInspect(graph: ExplainGraph): string {
       `${graph.overlays.coverage.slots.length} slots`
     ].join('; '),
     `Provenance overlay: ${graph.overlays.provenance.length} artifacts`
+  ].join('\n');
+}
+
+async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
+  const paths = getWorkspacePaths(workspaceRoot);
+  const items = await Promise.all([
+    {
+      id: 'verification-report',
+      artifactPath: 'project/generated/verification-report.json',
+      absolutePath: paths.verificationReportPath,
+      command: 'npm run platform -- verify --lane all'
+    },
+    {
+      id: 'runtime-report',
+      artifactPath: 'project/generated/runtime-report.json',
+      absolutePath: paths.runtimeReportPath,
+      command: 'npm run platform -- verify --lane all'
+    },
+    {
+      id: 'policy-report',
+      artifactPath: 'project/generated/policy-report.json',
+      absolutePath: paths.policyReportPath,
+      command: 'npm run platform -- verify'
+    },
+    {
+      id: 'acceptance-coverage',
+      artifactPath: 'project/generated/acceptance-coverage.json',
+      absolutePath: paths.acceptanceCoveragePath,
+      command: 'npm run platform -- verify'
+    },
+    {
+      id: 'graph-lock',
+      artifactPath: 'project/graph.lock.json',
+      absolutePath: paths.lockPath,
+      command: 'npm run platform -- lock'
+    },
+    {
+      id: 'provenance-registry',
+      artifactPath: 'project/provenance.json',
+      absolutePath: paths.provenancePath,
+      command: 'npm run platform -- adapt'
+    },
+    {
+      id: 'explain-graph',
+      artifactPath: 'project/generated/explain-graph.json',
+      absolutePath: paths.explainGraphPath,
+      command: 'npm run platform -- explain'
+    },
+    {
+      id: 'review-summary',
+      artifactPath: 'project/generated/review-summary.json',
+      absolutePath: paths.reviewSummaryPath,
+      command: 'npm run platform -- explain'
+    }
+  ].map(async (item) => ({
+    id: item.id,
+    status: await pathExists(item.absolutePath) ? 'passed' as const : 'missing' as const,
+    artifactPath: item.artifactPath,
+    command: item.command
+  })));
+  const missingCount = items.filter((item) => item.status === 'missing').length;
+  return {
+    formatVersion: '1',
+    status: missingCount === 0 ? 'passed' : 'attention',
+    itemCount: items.length,
+    missingCount,
+    items,
+    nextCommand: missingCount === 0 ? 'npm run demo:closed-loop' : 'npm run demo:quickstart'
+  };
+}
+
+function formatDemoChecklist(checklist: DemoChecklist): string {
+  return [
+    [
+      `Demo checklist ${checklist.status}`,
+      `items=${checklist.itemCount}`,
+      `missing=${checklist.missingCount}`
+    ].join('; '),
+    ...checklist.items.map((item) => [
+      `${item.id}: ${item.status}`,
+      item.artifactPath,
+      `command=${item.command}`
+    ].join('; ')),
+    `Next command: ${checklist.nextCommand}`
   ].join('\n');
 }
 
@@ -1444,6 +1561,21 @@ async function runReviewCommand(args: string[]): Promise<void> {
   console.log(formatReviewSummaryContract(summary));
 }
 
+async function runDemoCommand(args: string[]): Promise<void> {
+  if (args[0] !== 'checklist') {
+    throw new Error(DEMO_USAGE);
+  }
+
+  const outputArgs = parseDemoOutputArgs(args.slice(1));
+  const checklist = await buildDemoChecklist(process.cwd());
+  if (outputArgs.json) {
+    console.log(JSON.stringify(checklist, null, outputArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatDemoChecklist(checklist));
+}
+
 async function runContractCommand(args: string[]): Promise<void> {
   const [contractKind, ...outputRawArgs] = args;
   if (contractKind !== 'freeze' && contractKind !== 'errors' && contractKind !== 'ci') {
@@ -1665,6 +1797,9 @@ async function main(): Promise<void> {
       return;
     case 'review':
       await runReviewCommand(args);
+      return;
+    case 'demo':
+      await runDemoCommand(args);
       return;
     case 'contract':
       await runContractCommand(args);
