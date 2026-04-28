@@ -11,25 +11,22 @@ import {
   classifyRuntimeEntry,
   detectVerticalFromPath
 } from './runtime-attribution.ts';
+import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
+import type { PolicyReport } from '../../shared/policy-types.ts';
+import type { ProvenanceFile, ProvenanceOriginType, OverrideStatus } from '../../shared/provenance-types.ts';
 import type {
-  AcceptanceCoverageReport,
   LockFile,
-  ProvenanceFile,
-  ProvenanceOriginType,
   RepairTaskCategory,
   ReviewConflictHint,
   ReviewInstallImpact,
-  PolicyReport,
   RepairPlan,
-  OverrideStatus,
   ReviewFailurePoint,
   ReviewRegressionRisk,
   ReviewSummary,
   UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport,
-  VerificationStepReport
+  UpgradePlan
 } from '../../shared/types.ts';
+import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));

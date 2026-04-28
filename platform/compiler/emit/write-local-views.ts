@@ -7,9 +7,9 @@ import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath 
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
+import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type {
   LockFile,
-  ProvenanceFile,
   RepairPlan,
   ReviewSummary,
   UpgradeDiagnostics,

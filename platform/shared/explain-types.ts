@@ -1,4 +1,4 @@
-import type { ProvenanceArtifact } from './types.ts';
+import type { ProvenanceArtifact } from './provenance-types.ts';
 
 export type ExplainNodeType =
   | 'app'

@@ -3,7 +3,7 @@ import { CompilerError } from '../../shared/errors.ts';
 import { pathExists } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { readYaml } from '../../shared/yaml.ts';
-import type { OverrideApplyPhase, OverrideEntry, OverrideManifest } from '../../shared/types.ts';
+import type { OverrideApplyPhase, OverrideEntry, OverrideManifest } from '../../shared/provenance-types.ts';
 
 const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
 const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/'];

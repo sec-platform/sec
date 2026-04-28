@@ -26,10 +26,10 @@ import type {
   LockFile,
   ManifestEntry,
   PlanFile,
-  ProvenanceFile,
   RepairPlan,
   ReviewSummary
 } from './shared/types.ts';
+import type { ProvenanceFile } from './shared/provenance-types.ts';
 import type { VerificationLane, VerificationReport } from './shared/verification-types.ts';
 
 function defaultPlan(): PlanFile {
