@@ -1992,6 +1992,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         testCount: number;
         contractCount: number;
         contractPaths: string[];
+        uploadGroupCount: number;
         missingCount: number;
         missingReasonCounts: Record<string, number>;
       };
@@ -2004,21 +2005,6 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       root: 'project'
     });
     expect(manifest.missing).toEqual([]);
-    expect(manifest.summary).toEqual({
-      artifactStatus: 'passed',
-      artifactCount: manifest.artifacts.length,
-      governanceCount: manifest.artifacts.filter((artifact) => artifact.kind === 'governance').length,
-      viewCount: manifest.artifacts.filter((artifact) => artifact.kind === 'view').length,
-      testCount: manifest.artifacts.filter((artifact) => artifact.kind === 'test').length,
-      contractCount: 0,
-      contractPaths: [],
-      missingCount: 0,
-      missingReasonCounts: {
-        'declared-generated-missing': 0,
-        'fixed-governance-missing': 0,
-        'fixed-view-missing': 0
-      }
-    });
     const governancePaths = manifest.artifacts
       .filter((artifact) => artifact.kind === 'governance')
       .map((artifact) => artifact.path);
@@ -2057,6 +2043,22 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
         paths: contractPaths
       });
     }
+    expect(manifest.summary).toEqual({
+      artifactStatus: 'passed',
+      artifactCount: manifest.artifacts.length,
+      governanceCount: governancePaths.length,
+      viewCount: viewPaths.length,
+      testCount: testPaths.length,
+      contractCount: 0,
+      contractPaths: [],
+      uploadGroupCount: expectedUploadGroups.length,
+      missingCount: 0,
+      missingReasonCounts: {
+        'declared-generated-missing': 0,
+        'fixed-governance-missing': 0,
+        'fixed-view-missing': 0
+      }
+    });
     expect(manifest.uploadGroups).toEqual(expectedUploadGroups);
     expect(manifest.artifacts).toEqual(
       expect.arrayContaining([
@@ -2122,7 +2124,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     const contractManifest = JSON.parse(contractResult.stdout) as typeof manifest;
     expect(contractManifest.summary).toMatchObject({
       contractCount: 1,
-      contractPaths: ['generated/postgres-contract.json']
+      contractPaths: ['generated/postgres-contract.json'],
+      uploadGroupCount: contractManifest.uploadGroups.length
     });
     expect(contractManifest.artifacts).toContainEqual({
       path: 'generated/postgres-contract.json',
@@ -2193,7 +2196,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     };
     expect(contractReviewSummary.artifactSummary).toMatchObject({
       contractCount: 1,
-      contractPaths: ['generated/postgres-contract.json']
+      contractPaths: ['generated/postgres-contract.json'],
+      uploadGroupCount: contractManifest.uploadGroups.length
     });
     expect(contractReviewSummary.artifactSummary?.uploadGroups).toContainEqual({
       kind: 'contract',
@@ -2218,6 +2222,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       }
     ];
     expect(manifestWithLockMissing.summary.artifactStatus).toBe('attention');
+    expect(manifestWithLockMissing.summary.uploadGroupCount).toBe(manifestWithLockMissing.uploadGroups.length);
     expect(manifestWithLockMissing.summary.missingCount).toBe(1);
     expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual({
       'declared-generated-missing': 1,
@@ -2311,6 +2316,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
 
     const refreshedSourceView = await fs.readFile(sourceViewPath, 'utf8');
     expect(refreshedSourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
+    expect(refreshedSourceView).toContain(`<td>Upload Groups</td><td>${testManifest.summary.uploadGroupCount}</td>`);
     expect(refreshedSourceView).toContain('<td>contract</td>');
     expect(refreshedSourceView).toContain('generated/postgres-contract.json');
     expect(refreshedSourceView).toContain('<td>Test Artifacts</td><td>1</td>');

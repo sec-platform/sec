@@ -750,6 +750,7 @@ export interface ReviewArtifactSummary {
   testCount?: number;
   contractCount?: number;
   contractPaths?: string[];
+  uploadGroupCount?: number;
   missingCount: number;
   missingReasonCounts?: Record<string, number>;
   uploadGroups?: ReviewArtifactUploadGroup[];
