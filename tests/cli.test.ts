@@ -2172,6 +2172,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       count: number;
       paths: string[];
       byKind: Record<string, number>;
+      uploadGroupCount: number;
       uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
     };
     expect(contractPathsJson).toMatchObject({
@@ -2179,6 +2180,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       count: 1,
       paths: ['project/generated/postgres-contract.json'],
       byKind: { contract: 1 },
+      uploadGroupCount: 1,
       uploadGroups: [
         {
           kind: 'contract',
@@ -2284,6 +2286,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       byKind: {
         test: 1
       },
+      uploadGroupCount: 1,
       uploadGroups: [
         {
           kind: 'test',
@@ -2395,6 +2398,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       count: number;
       paths: string[];
       byKind: Record<string, number>;
+      uploadGroupCount: number;
       uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
       missingCount: number;
       missingReasonTypeCount: number;
@@ -2414,6 +2418,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(Object.values(pathsJson.byKind).reduce((total, count) => total + count, 0)).toBe(
       uploadPaths.length
     );
+    expect(pathsJson.uploadGroupCount).toBe(pathsJson.uploadGroups.length);
     expect(pathsJson.uploadGroups).toContainEqual({
       kind: 'test',
       count: 1,
@@ -2460,6 +2465,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       count: number;
       paths: string[];
       byKind: Record<string, number>;
+      uploadGroupCount: number;
       uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
     };
     expect(viewPathsJson.formatVersion).toBe('1');
@@ -2468,6 +2474,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
     expect(viewPathsJson.paths).toEqual(['project/generated/views/slot-rule-view.html']);
     expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
     expect(viewPathsJson.byKind).toEqual({ view: 1 });
+    expect(viewPathsJson.uploadGroupCount).toBe(1);
     expect(viewPathsJson.uploadGroups).toEqual([
       {
         kind: 'view',

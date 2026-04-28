@@ -1365,6 +1365,7 @@
          - 输出 artifactStatus：
            - `passed`。
            - `attention`。
+         - 输出 uploadGroupCount。
          - 输出 uploadGroups：
            - `kind`。
            - `count`。

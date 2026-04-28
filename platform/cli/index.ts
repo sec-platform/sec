@@ -1568,6 +1568,7 @@ async function main(): Promise<void> {
             count: pathSummary.paths.length,
             paths: pathSummary.paths,
             byKind: pathSummary.byKind,
+            uploadGroupCount: pathSummary.uploadGroups.length,
             uploadGroups: pathSummary.uploadGroups,
             missingCount: manifest.missing.length,
             missingReasonTypeCount: manifest.summary.missingReasonTypeCount,
