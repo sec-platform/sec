@@ -81,7 +81,7 @@ const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [
 const REPAIR_USAGE = 'Usage: platform repair [--dry-run] [--json [--compact]]';
 const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]';
 const EXPLAIN_USAGE = 'Usage: platform explain [--json [--compact]]|graph [--json [--compact]]';
-const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
+const ARTIFACTS_USAGE = 'Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])';
 const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
@@ -126,6 +126,20 @@ type DemoChecklist = {
   items: DemoChecklistItem[];
   nextCommand: string;
 };
+
+function formatCiArtifactManifest(manifest: CiArtifactManifest): string {
+  return [
+    `Artifact manifest ${manifest.summary.artifactStatus}`,
+    [
+      `artifacts=${manifest.summary.artifactCount}`,
+      `missing=${manifest.summary.missingCount}`,
+      `upload groups=${manifest.summary.uploadGroupCount}`
+    ].join('; '),
+    `Kinds: governance=${manifest.summary.governanceCount}, view=${manifest.summary.viewCount}, test=${manifest.summary.testCount}, contract=${manifest.summary.contractCount}`,
+    `Missing reasons: ${formatCounts(Object.entries(manifest.summary.missingReasonCounts).flatMap(([reason, count]) => Array(count).fill(reason)))}`,
+    `Upload groups: ${formatList(manifest.uploadGroups.map((group) => `${group.kind}=${group.count}`))}`
+  ].join('\n');
+}
 
 function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
@@ -331,11 +345,32 @@ function parseArtifactPathKind(value: string): ArtifactPathKind {
   throw new Error(ARTIFACTS_USAGE);
 }
 
+function parseArtifactOutputArgs(args: string[]): { json: boolean; compact: boolean } {
+  let json = false;
+  let compact = false;
+  for (const flag of args) {
+    if (flag === '--json' && !json) {
+      json = true;
+      continue;
+    }
+    if (flag === '--compact' && json && !compact) {
+      compact = true;
+      continue;
+    }
+    throw new Error(ARTIFACTS_USAGE);
+  }
+  return { json, compact };
+}
+
 function parseArtifactsArgs(
   args: string[]
 ):
   | { mode: 'json'; compact: boolean }
+  | { mode: 'manifest'; json: boolean; compact: boolean }
   | { mode: 'paths'; json: boolean; compact: boolean; kind?: ArtifactPathKind } {
+  if (args[0] === 'manifest') {
+    return { mode: 'manifest', ...parseArtifactOutputArgs(args.slice(1)) };
+  }
   if (args[0] === '--paths') {
     let json = false;
     let compact = false;
@@ -1822,6 +1857,19 @@ async function main(): Promise<void> {
     }
     case 'artifacts': {
       const artifactsArgs = parseArtifactsArgs(args);
+      if (artifactsArgs.mode === 'manifest') {
+        const { ciArtifactsPath } = getWorkspacePaths(process.cwd());
+        if (!(await pathExists(ciArtifactsPath))) {
+          throw new Error('Artifact manifest not found; run platform artifacts --json first');
+        }
+        const manifest = await readJson<CiArtifactManifest>(ciArtifactsPath);
+        if (artifactsArgs.json) {
+          console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
+          return;
+        }
+        console.log(formatCiArtifactManifest(manifest));
+        return;
+      }
       const { manifest } = await writeWorkspaceArtifacts(process.cwd());
       if (artifactsArgs.mode === 'paths') {
         const pathSummary = artifactUploadPathSummary(manifest, artifactsArgs.kind);
