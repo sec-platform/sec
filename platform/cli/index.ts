@@ -915,7 +915,9 @@ function formatReviewSummaryContract(summary: ReviewSummary): string {
       `Artifacts ${artifacts?.artifactStatus ?? 'missing'}`,
       `total=${artifacts?.artifactCount ?? 0}`,
       `missing=${artifacts?.missingCount ?? 0}`,
-      `contracts=${artifacts?.contractCount ?? 0}`
+      `missingReasonTypes=${artifacts?.missingReasonTypeCount ?? 0}`,
+      `contracts=${artifacts?.contractCount ?? 0}`,
+      `uploadGroups=${artifacts?.uploadGroupCount ?? artifacts?.uploadGroups?.length ?? 0}`
     ].join('; '),
     `Stages: ${summary.chainSummary.stageSummaries
       .map((stage) => `${stage.id}=${stage.status}`)

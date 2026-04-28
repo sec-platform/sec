@@ -1467,7 +1467,9 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         governanceCount: 3,
         viewCount: 1,
         contractCount: 1,
-        missingCount: 1
+        uploadGroupCount: 2,
+        missingCount: 1,
+        missingReasonTypeCount: 1
       },
       coverageSummary: {
         status: 'failed',
@@ -1601,7 +1603,9 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Impact blocks=1; slots=1; runtime=1; changeSources=1');
     expect(textResult.stdout).toContain('Coverage failed; blocks=1/2; slots=1/1');
     expect(textResult.stdout).toContain('Provenance artifacts=5; registry=2; unverified=3');
-    expect(textResult.stdout).toContain('Artifacts attention; total=4; missing=1; contracts=1');
+    expect(textResult.stdout).toContain(
+      'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2'
+    );
     expect(textResult.stdout).toContain('Stages: verification=passed, coverage=failed, artifacts=attention, review=passed');
     expect(textResult.stdout).toContain(
       'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true'
