@@ -74,6 +74,7 @@ Use these entry commands for normal development:
 - `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
+- `npm run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
 - `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
 - `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract with inspect command, runner command, refresh command, and diff command
 - `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
@@ -87,6 +88,7 @@ Use these entry commands for normal development:
 - `npm run platform -- verify --lane fast|runtime|all`: choose a specific verification lane; full Playwright runtime acceptance only runs in all
 - `npm run platform -- repair`: create or apply bounded repairs from verification failures
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run`: review upgrade impact before applying it
+- `npm run platform -- upgrade plan`: inspect the latest upgrade plan without rerunning upgrade
 - `npm run platform -- lock && npm run platform -- explain`: freeze and inspect governance outputs
 
 For the final product shape, the expected external developer environment is a CLI plus optional Workbench or IDE plugin over the same contract. The Workbench may provide forms, graph views, slot editors, policy editors, and verification dashboards, but it must call the same platform commands and write the same external workspace inputs rather than requiring developers to edit platform source.
@@ -143,6 +145,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
+- `npm run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
 - `npm run platform -- reference check --json --compact`: emit the compact reference drift contract, including inspect command, runner command, refresh command, and diff command
 - `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, per-task artifact path count, score focus count, score dimension count, and score dimensions
 - `npm run platform -- resolve`
