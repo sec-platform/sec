@@ -1143,6 +1143,8 @@ function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary)
         `Upgrade: ${upgrade.status}`,
         `${upgrade.blockId} ${versionRange}`,
         `migrations: ${upgrade.migrationCount}`,
+        `preflight checks: ${upgrade.preflightCheckCount}`,
+        `preflight evidence: ${upgrade.preflightEvidenceCount}`,
         `impacts: ${upgrade.impactCount}`,
         `operations: ${upgrade.migrationOperationCount}`,
         `operation roles: ${formatSummaryEntries(summarizeById(upgrade.migrationOperationSummaries.map((operation) => ({ id: operation.role, count: 1 }))))}`,

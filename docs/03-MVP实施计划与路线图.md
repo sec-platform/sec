@@ -299,6 +299,7 @@
      - slot 合同变化与 explain graph 的连接。
      - upgrade plan/migration/diagnostics 到 explain graph 的一等归因节点。
      - upgrade preflight check 与 diagnostics failedCheck 进入 explain graph 归因。
+     - upgrade preflight check/evidence 计数进入 CLI explain。
      - upgrade migration requiresVerification 到 explain graph 的分类归因节点。
      - upgrade migration verification 分布进入 review summary。
      - upgrade migration verification 分布进入 CLI explain。
