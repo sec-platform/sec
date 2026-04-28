@@ -89,6 +89,7 @@ function usageErrorStderr(usage: string): string {
 
 const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
 const LOCK_USAGE = 'Usage: platform lock [inspect [--json [--compact]]]';
+const POLICY_USAGE = 'Usage: platform policy <report|sources> [--json [--compact]]';
 const POSTGRES_USAGE = 'Usage: platform postgres contract [--json [--compact]]';
 
 async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
@@ -104,6 +105,14 @@ async function expectLockUsageError(workspaceRoot: string, args: string[]): Prom
     code: 1,
     stdout: '',
     stderr: usageErrorStderr(LOCK_USAGE)
+  });
+}
+
+async function expectPolicyUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expect(runCli(workspaceRoot, ['policy', ...args])).resolves.toMatchObject({
+    code: 1,
+    stdout: '',
+    stderr: usageErrorStderr(POLICY_USAGE)
   });
 }
 
@@ -1267,6 +1276,39 @@ test('CLI exposes policy report as text and JSON contracts', { timeout: 120000 }
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'passed'
+    });
+
+    const sourcesText = await runCli(workspaceRoot, ['policy', 'sources']);
+    expect(sourcesText.code).toBe(0);
+    expect(sourcesText.stderr).toBe('');
+    expect(sourcesText.stdout).toContain('Policy sources passed');
+    expect(sourcesText.stdout).toContain('sources=2; policies=1');
+    expect(sourcesText.stdout).toContain('Source official; path=platform/policies/official/policy.spec.yaml; policies=tenant-scope-required');
+    expect(sourcesText.stdout).toContain('Source project; path=project/policies/policy.spec.yaml; policies=none');
+
+    const sourcesJson = await runCli(workspaceRoot, ['policy', 'sources', '--json', '--compact']);
+    expect(sourcesJson.code).toBe(0);
+    expect(sourcesJson.stderr).toBe('');
+    expect(sourcesJson.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(sourcesJson.stdout)).toEqual({
+      formatVersion: '1',
+      status: 'passed',
+      sourceCount: 2,
+      policyCount: 1,
+      sources: [
+        {
+          scope: 'official',
+          path: 'platform/policies/official/policy.spec.yaml',
+          policyCount: 1,
+          policyIds: ['tenant-scope-required']
+        },
+        {
+          scope: 'project',
+          path: 'project/policies/policy.spec.yaml',
+          policyCount: 0,
+          policyIds: []
+        }
+      ]
     });
   });
 });
@@ -3949,21 +3991,10 @@ test('CLI reports argument usage errors', { timeout: 60000 }, async () => {
       stdout: '',
       stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
     });
-    await expect(runCli(workspaceRoot, ['policy'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform policy report [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['policy', 'report', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform policy report [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['policy', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform policy report [--json [--compact]]')
-    });
+    await expectPolicyUsageError(workspaceRoot, []);
+    await expectPolicyUsageError(workspaceRoot, ['report', '--compact']);
+    await expectPolicyUsageError(workspaceRoot, ['sources', '--compact']);
+    await expectPolicyUsageError(workspaceRoot, ['status']);
     await expect(runCli(workspaceRoot, ['acceptance'])).resolves.toMatchObject({
       code: 1,
       stdout: '',

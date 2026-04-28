@@ -92,7 +92,7 @@ const DOCTOR_USAGE = 'Usage: platform doctor [--json [--compact]]';
 const REFERENCE_USAGE = 'Usage: platform reference check [--json [--compact]]';
 const BENCHMARK_USAGE = 'Usage: platform benchmark suite [--json [--compact]]';
 const TEST_USAGE = 'Usage: platform test budget [--json [--compact]]';
-const POLICY_USAGE = 'Usage: platform policy report [--json [--compact]]';
+const POLICY_USAGE = 'Usage: platform policy <report|sources> [--json [--compact]]';
 const ACCEPTANCE_USAGE = 'Usage: platform acceptance coverage [--json [--compact]]';
 const RUNTIME_USAGE = 'Usage: platform runtime report [--json [--compact]]';
 const VERIFICATION_USAGE = 'Usage: platform verification report [--json [--compact]]';
@@ -534,6 +534,18 @@ function parsePolicyOutputArgs(args: string[]): { json: boolean; compact: boolea
   return parseOptionalJsonOutputArgs(args, POLICY_USAGE);
 }
 
+function parsePolicyArgs(
+  args: string[]
+): { mode: 'report'; json: boolean; compact: boolean } | { mode: 'sources'; json: boolean; compact: boolean } {
+  if (args[0] === 'report') {
+    return { mode: 'report', ...parsePolicyOutputArgs(args.slice(1)) };
+  }
+  if (args[0] === 'sources') {
+    return { mode: 'sources', ...parsePolicyOutputArgs(args.slice(1)) };
+  }
+  throw new Error(POLICY_USAGE);
+}
+
 function parseAcceptanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   return parseOptionalJsonOutputArgs(args, ACCEPTANCE_USAGE);
 }
@@ -909,6 +921,99 @@ function formatUpgradeMigrationDetails(
     ...(operation?.flags ? [`flags=${operation.flags}`] : []),
     `requiresVerification=${migration.requiresVerification}`
   ];
+}
+
+type PolicySourceInspect = {
+  formatVersion: '1';
+  status: PolicyReport['status'];
+  sourceCount: number;
+  policyCount: number;
+  sources: Array<{
+    scope: 'official' | 'project';
+    path: string;
+    policyCount: number;
+    policyIds: string[];
+  }>;
+};
+
+function buildPolicySourceInspect(report: PolicyReport): PolicySourceInspect {
+  const sources = [
+    ...report.official.sources.map((source) => ({
+      scope: 'official' as const,
+      path: source.path,
+      policyCount: source.policyIds.length,
+      policyIds: source.policyIds
+    })),
+    ...report.project.sources.map((source) => ({
+      scope: 'project' as const,
+      path: source.path,
+      policyCount: source.policyIds.length,
+      policyIds: source.policyIds
+    }))
+  ].sort((left, right) => left.scope.localeCompare(right.scope) || left.path.localeCompare(right.path));
+  return {
+    formatVersion: '1',
+    status: report.status,
+    sourceCount: sources.length,
+    policyCount: sources.reduce((count, source) => count + source.policyCount, 0),
+    sources
+  };
+}
+
+function buildPolicySummary(report: PolicyReport): NonNullable<ReviewSummary['policySummary']> {
+  const sourceInspect = buildPolicySourceInspect(report);
+  return {
+    status: report.status,
+    officialPolicyCount: report.official.policies.length,
+    projectPolicyCount: report.project.policies.length,
+    mergedPolicyCount: report.merged.policies.length,
+    sourceCount: sourceInspect.sourceCount,
+    violationCount: report.violations.length,
+    severityCounts: report.violations.reduce<Record<string, number>>((counts, violation) => {
+      counts[violation.severity] = (counts[violation.severity] ?? 0) + 1;
+      return counts;
+    }, {}),
+    sourceSummaries: sourceInspect.sources.map((source) => ({
+      scope: source.scope,
+      path: source.path,
+      policyIds: source.policyIds
+    })),
+    mergedSummaries: report.merged.policies.map((policy) => ({
+      id: policy.id,
+      sourceScope: policy.sourceScope,
+      sourcePath: policy.sourcePath,
+      targetCount: policy.targets.length,
+      targets: policy.targets
+    })),
+    violationSummaries: report.violations.map((violation) => ({
+      id: violation.id,
+      severity: violation.severity,
+      rule: violation.rule,
+      fileCount: violation.files.length,
+      files: violation.files,
+      appliesTo: violation.appliesTo,
+      message: violation.message,
+      sourceScope: violation.sourceScope,
+      sourcePath: violation.sourcePath
+    }))
+  };
+}
+
+function formatPolicySources(report: PolicySourceInspect): string {
+  const lines = [
+    `Policy sources ${report.status}`,
+    [`sources=${report.sourceCount}`, `policies=${report.policyCount}`].join('; ')
+  ];
+  for (const source of report.sources.slice(0, 5)) {
+    lines.push(
+      [
+        `Source ${source.scope}`,
+        `path=${source.path}`,
+        `policies=${formatList(source.policyIds)}`
+      ].join('; ')
+    );
+  }
+  return lines.join('\n');
 }
 
 function formatPolicyReport(report: NonNullable<ReviewSummary['policySummary']>): string {
@@ -1483,53 +1588,29 @@ async function runTestCommand(args: string[]): Promise<void> {
 }
 
 async function runPolicyCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'report') {
-    throw new Error(POLICY_USAGE);
-  }
-
-  const outputArgs = parsePolicyOutputArgs(args.slice(1));
+  const policyArgs = parsePolicyArgs(args);
   const { policyReportPath } = getWorkspacePaths(process.cwd());
   if (!(await pathExists(policyReportPath))) {
     throw new Error('Policy report not found; run platform verify first');
   }
 
   const report = await readJson<PolicyReport>(policyReportPath);
-  if (outputArgs.json) {
-    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+  if (policyArgs.mode === 'sources') {
+    const sourceInspect = buildPolicySourceInspect(report);
+    if (policyArgs.json) {
+      console.log(JSON.stringify(sourceInspect, null, policyArgs.compact ? 0 : 2));
+      return;
+    }
+    console.log(formatPolicySources(sourceInspect));
     return;
   }
 
-  console.log(formatPolicyReport({
-    status: report.status,
-    officialPolicyCount: report.official.policies.length,
-    projectPolicyCount: report.project.policies.length,
-    mergedPolicyCount: report.merged.policies.length,
-    sourceCount: report.official.sources.length + report.project.sources.length,
-    violationCount: report.violations.length,
-    severityCounts: report.violations.reduce<Record<string, number>>((counts, violation) => {
-      counts[violation.severity] = (counts[violation.severity] ?? 0) + 1;
-      return counts;
-    }, {}),
-    sourceSummaries: [],
-    mergedSummaries: report.merged.policies.map((policy) => ({
-      id: policy.id,
-      sourceScope: policy.sourceScope,
-      sourcePath: policy.sourcePath,
-      targetCount: policy.targets.length,
-      targets: policy.targets
-    })),
-    violationSummaries: report.violations.map((violation) => ({
-      id: violation.id,
-      severity: violation.severity,
-      rule: violation.rule,
-      fileCount: violation.files.length,
-      files: violation.files,
-      appliesTo: violation.appliesTo,
-      message: violation.message,
-      sourceScope: violation.sourceScope,
-      sourcePath: violation.sourcePath
-    }))
-  }));
+  if (policyArgs.json) {
+    console.log(JSON.stringify(report, null, policyArgs.compact ? 0 : 2));
+    return;
+  }
+
+  console.log(formatPolicyReport(buildPolicySummary(report)));
 }
 
 async function runAcceptanceCommand(args: string[]): Promise<void> {

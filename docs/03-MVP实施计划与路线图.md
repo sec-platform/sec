@@ -212,6 +212,7 @@
          - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、verify/quality/diagnostic/artifact upload command counts、per-step produces count、typecheck gate、顶层 quality commands、contract freeze gate、reference drift gate、review matrix/demo checklist diagnostic、顶层 diagnostic commands、governance/view/test/contract artifact upload 路径入口与聚合 produced artifact paths。
         - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
+         - `platform policy sources --json [--compact]` 输出稳定 policy source 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
          - `platform install manifest --json [--compact]` 输出稳定 install manifest 合同，直接消费最新 `generated/install-manifest.json`。
          - `platform blocks usage --json [--compact]` 输出稳定 block usage map 合同，直接消费最新 `generated/block-usage-map.json`。
@@ -726,6 +727,7 @@
      - policy report 读取进入 review summary。
      - `platform policy report` 提供最新 policy governance report 文本 inspect 入口。
      - `platform policy report --json [--compact]` 提供稳定机器可读合同，直接消费最新 `generated/policy-report.json`。
+     - `platform policy sources --json [--compact]` 提供稳定 policy source 只读合同，直接消费最新 `generated/policy-report.json`。
      - policy governance summary 进入 `generated/review-summary.json`：
        - `status`。
        - official policy 数量。
