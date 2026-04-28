@@ -3,6 +3,7 @@ export type CiContractStep = {
   phase: 'verify' | 'quality' | 'diagnostics' | 'artifacts';
   command: string;
   purpose: string;
+  producesCount: number;
   produces: string[];
 };
 
@@ -26,7 +27,7 @@ export type CiContract = {
   steps: CiContractStep[];
 };
 
-const ciSteps: CiContractStep[] = [
+const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'typecheck',
     phase: 'quality',
@@ -163,6 +164,7 @@ export function buildCiContract(): CiContract {
     stepCount: ciSteps.length,
     steps: ciSteps.map((step) => ({
       ...step,
+      producesCount: step.produces.length,
       produces: [...step.produces]
     }))
   };
@@ -189,6 +191,7 @@ export function formatCiContract(contract: CiContract): string {
       `Step ${step.id}`,
       `phase=${step.phase}`,
       `command=${step.command}`,
+      `producesCount=${step.producesCount}`,
       `produces=${step.produces.join(', ')}`
     ].join('; '))
   ].join('\n');
