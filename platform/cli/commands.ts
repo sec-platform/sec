@@ -80,6 +80,7 @@ import {
   buildAcceptanceTargetInspect,
   buildPolicySourceInspect,
   buildPolicySummary,
+  buildRuntimeStepsInspect,
   formatAcceptanceCoverage,
   formatAcceptanceTargets,
   formatBlockUsageMap,
@@ -92,6 +93,7 @@ import {
   formatProvenanceRegistry,
   formatReviewSummaryContract,
   formatRuntimeReport,
+  formatRuntimeStepsInspect,
   formatVerificationReport,
   type BlockUsageMap,
   type DemoChecklist,
@@ -315,17 +317,23 @@ export async function runAcceptanceCommand(args: string[]): Promise<void> {
 }
 
 export async function runRuntimeCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'report') {
-    throw new Error(RUNTIME_USAGE);
-  }
-
-  const outputArgs = parseRuntimeOutputArgs(args.slice(1));
+  const outputArgs = parseRuntimeOutputArgs(args);
   const { runtimeReportPath } = getWorkspacePaths(process.cwd());
   if (!(await pathExists(runtimeReportPath))) {
     throw new Error('Runtime report not found; run platform verify first');
   }
 
   const report = await readJson<RuntimeVerificationLaneReport>(runtimeReportPath);
+  if (outputArgs.mode === 'steps') {
+    const inspect = buildRuntimeStepsInspect(report);
+    if (outputArgs.json) {
+      console.log(JSON.stringify(inspect, null, outputArgs.compact ? 0 : 2));
+      return;
+    }
+    console.log(formatRuntimeStepsInspect(inspect));
+    return;
+  }
+
   if (outputArgs.json) {
     console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
     return;

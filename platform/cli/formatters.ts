@@ -43,6 +43,26 @@ export type PostgresContract = {
   }>;
 };
 
+export type RuntimeStepInspect = {
+  id: 'build' | 'unit' | 'acceptance';
+  status: RuntimeVerificationLaneReport['status'];
+  passedCount: number;
+  failedCount: number;
+  command: string | null;
+  passed: string[];
+  failed: string[];
+};
+
+export type RuntimeStepsInspect = {
+  formatVersion: '1';
+  status: RuntimeVerificationLaneReport['status'];
+  stepCount: number;
+  passedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  steps: RuntimeStepInspect[];
+};
+
 export type DemoChecklistItem = {
   id: string;
   status: 'passed' | 'missing';
@@ -608,24 +628,70 @@ export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): stri
   return lines.join('\n');
 }
 
-function formatRuntimeStep(
-  label: string,
+function buildRuntimeStepInspect(
+  id: RuntimeStepInspect['id'],
   step: RuntimeVerificationLaneReport['build']
-): string {
+): RuntimeStepInspect {
+  return {
+    id,
+    status: step.status,
+    passedCount: step.passed.length,
+    failedCount: step.failed.length,
+    command: step.command,
+    passed: step.passed,
+    failed: step.failed
+  };
+}
+
+export function buildRuntimeStepsInspect(report: RuntimeVerificationLaneReport): RuntimeStepsInspect {
+  const steps = [
+    buildRuntimeStepInspect('build', report.build),
+    buildRuntimeStepInspect('unit', report.unit),
+    buildRuntimeStepInspect('acceptance', report.acceptance)
+  ];
+  return {
+    formatVersion: '1',
+    status: report.status,
+    stepCount: steps.length,
+    passedCount: steps.filter((step) => step.status === 'passed').length,
+    failedCount: steps.filter((step) => step.status === 'failed').length,
+    skippedCount: steps.filter((step) => step.status === 'skipped').length,
+    steps
+  };
+}
+
+function formatRuntimeStep(step: RuntimeStepInspect, label: string = step.id): string {
   return [
     `${label}: ${step.status}`,
-    `passed=${step.passed.length}`,
-    `failed=${step.failed.length}`,
+    `passed=${step.passedCount}`,
+    `failed=${step.failedCount}`,
     `command=${step.command ?? 'none'}`
   ].join('; ');
 }
 
+export function formatRuntimeStepsInspect(inspect: RuntimeStepsInspect): string {
+  return [
+    [
+      `Runtime steps ${inspect.status}`,
+      `steps=${inspect.stepCount}`,
+      `passed=${inspect.passedCount}`,
+      `failed=${inspect.failedCount}`,
+      `skipped=${inspect.skippedCount}`
+    ].join('; '),
+    ...inspect.steps.map((step) => formatRuntimeStep(step))
+  ].join('\n');
+}
+
 export function formatRuntimeReport(report: RuntimeVerificationLaneReport): string {
+  const inspect = buildRuntimeStepsInspect(report);
+  const labels: Record<RuntimeStepInspect['id'], string> = {
+    build: 'Build',
+    unit: 'Unit',
+    acceptance: 'Acceptance'
+  };
   return [
     `Runtime report ${report.status}`,
-    formatRuntimeStep('Build', report.build),
-    formatRuntimeStep('Unit', report.unit),
-    formatRuntimeStep('Acceptance', report.acceptance)
+    ...inspect.steps.map((step) => formatRuntimeStep(step, labels[step.id]))
   ].join('\n');
 }
 

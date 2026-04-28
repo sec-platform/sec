@@ -30,6 +30,7 @@ import {
   POLICY_USAGE,
   POSTGRES_USAGE,
   REPAIR_USAGE,
+  RUNTIME_USAGE,
   USAGE
 } from '../platform/cli/usage.ts';
 import {
@@ -1500,6 +1501,32 @@ test('CLI exposes runtime report as text and JSON contracts', { timeout: 120000 
       status: 'passed',
       build: { status: 'skipped' },
       acceptance: { status: 'skipped' }
+    });
+
+    const stepsTextResult = await runCli(workspaceRoot, ['runtime', 'steps']);
+    expect(stepsTextResult.code).toBe(0);
+    expect(stepsTextResult.stderr).toBe('');
+    expect(stepsTextResult.stdout).toContain('Runtime steps passed; steps=3; passed=1; failed=0; skipped=2');
+    expect(stepsTextResult.stdout).toContain('build: skipped; passed=0; failed=0; command=npm run build');
+    expect(stepsTextResult.stdout).toContain('unit: passed; passed=');
+    expect(stepsTextResult.stdout).toContain('acceptance: skipped; passed=0; failed=0; command=npm run test:acceptance');
+
+    const stepsJsonResult = await runCli(workspaceRoot, ['runtime', 'steps', '--json', '--compact']);
+    expect(stepsJsonResult.code).toBe(0);
+    expect(stepsJsonResult.stderr).toBe('');
+    expect(stepsJsonResult.stdout.trim()).not.toContain('\n');
+    expect(JSON.parse(stepsJsonResult.stdout)).toMatchObject({
+      formatVersion: '1',
+      status: 'passed',
+      stepCount: 3,
+      passedCount: 1,
+      failedCount: 0,
+      skippedCount: 2,
+      steps: [
+        { id: 'build', status: 'skipped', passedCount: 0, failedCount: 0 },
+        { id: 'unit', status: 'passed', failedCount: 0 },
+        { id: 'acceptance', status: 'skipped', passedCount: 0, failedCount: 0 }
+      ]
     });
   });
 });
@@ -4052,17 +4079,17 @@ test('CLI reports argument usage errors', { timeout: 60000 }, async () => {
     await expect(runCli(workspaceRoot, ['runtime'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform runtime report [--json [--compact]]')
+      stderr: usageErrorStderr(RUNTIME_USAGE)
     });
     await expect(runCli(workspaceRoot, ['runtime', 'report', '--compact'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform runtime report [--json [--compact]]')
+      stderr: usageErrorStderr(RUNTIME_USAGE)
     });
     await expect(runCli(workspaceRoot, ['runtime', 'status'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: usageErrorStderr('Usage: platform runtime report [--json [--compact]]')
+      stderr: usageErrorStderr(RUNTIME_USAGE)
     });
     await expect(runCli(workspaceRoot, ['install'])).resolves.toMatchObject({
       code: 1,

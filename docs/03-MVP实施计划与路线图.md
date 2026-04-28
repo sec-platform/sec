@@ -61,7 +61,7 @@
 | CLI 主链 | done | `init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain` 已有入口，参数边界已严格化。 |
 | 官方块母例 | done | `auth/basic-session`、`tenant/basic-workspace`、`entity/customer-basic` 支撑 Customer Admin 闭环。 |
 | 单槽位合成 | done | `customer_normalizer` slot 通过 task envelope 限定写入边界。 |
-| fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report、verification report CLI inspect 与 runtime report CLI inspect。 |
+| fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report、verification report CLI inspect、runtime report CLI inspect 与 runtime steps inspect。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 provenance registry CLI、review summary、CLI explain 和本地视图 provenance 摘要。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy target/violation 边、slot 合同升级影响边、repair task/category 归因边、upgrade preflight/verification 归因边，以及 CLI 普通文本 review、只读 graph inspect 与 graph 类型摘要。 |
@@ -222,6 +222,7 @@
          - `platform postgres contract --json [--compact]` 输出稳定 Postgres contract 合同，直接消费最新 `generated/postgres-contract.json`。
          - `platform lock inspect --json [--compact]` 输出稳定 graph lock 合同，直接消费最新 `graph.lock.json`。
          - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `generated/runtime-report.json`。
+        - `platform runtime steps --json [--compact]` 输出稳定 runtime step inspect 合同，从同一 `generated/runtime-report.json` 派生 build/unit/acceptance 步骤摘要。
          - `platform verification report --json [--compact]` 输出稳定 verification report 合同，直接消费最新 `generated/verification-report.json`。
         - `platform verify --json [--compact]` 执行验证并直接输出同一 verification report 合同。
          - `platform provenance registry --json [--compact]` 输出稳定 provenance registry 合同，直接消费最新 `provenance.json`。

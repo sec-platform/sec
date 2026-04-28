@@ -327,8 +327,16 @@ export function parseAcceptanceArgs(
   throw new Error(ACCEPTANCE_USAGE);
 }
 
-export function parseRuntimeOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, RUNTIME_USAGE);
+export function parseRuntimeOutputArgs(
+  args: string[]
+): { mode: 'report'; json: boolean; compact: boolean } | { mode: 'steps'; json: boolean; compact: boolean } {
+  if (args[0] === 'report') {
+    return { mode: 'report', ...parseOptionalJsonOutputArgs(args.slice(1), RUNTIME_USAGE) };
+  }
+  if (args[0] === 'steps') {
+    return { mode: 'steps', ...parseOptionalJsonOutputArgs(args.slice(1), RUNTIME_USAGE) };
+  }
+  throw new Error(RUNTIME_USAGE);
 }
 
 export function parseInstallOutputArgs(args: string[]): { json: boolean; compact: boolean } {
