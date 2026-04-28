@@ -20,8 +20,8 @@ import { adaptProject } from './compiler/synthesize/adapt-project.ts';
 import { upgradeWorkspace as runUpgradeWorkspace } from './upgrade/upgrade-workspace.ts';
 import { validateResolvedTemplates } from './compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from './compiler/verify/verify-project.ts';
+import type { AcceptanceCoverageReport } from './shared/acceptance-types.ts';
 import type {
-  AcceptanceCoverageReport,
   ExplainGraph,
   LockFile,
   ManifestEntry,

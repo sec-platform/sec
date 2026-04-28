@@ -1,3 +1,4 @@
+import type { AcceptanceCoverageReport, AcceptanceItem } from './acceptance-types.ts';
 import type { PolicySeverity, PolicySourceScope } from './policy-types.ts';
 import type { VerificationStatus } from './verification-types.ts';
 
@@ -32,14 +33,11 @@ export type ExplainEdgeType =
   | 'verified_by'
   | 'originates_from'
   | 'violates';
-export interface AcceptanceItem {
-  id: string;
-  dependsOn?: string[];
-  covers?: {
-    blocks?: string[];
-    slots?: string[];
-  };
-}
+export type {
+  AcceptanceCoverageEntry,
+  AcceptanceCoverageReport,
+  AcceptanceItem
+} from './acceptance-types.ts';
 
 export interface PlanApp {
   name: string;
@@ -496,23 +494,6 @@ export interface ExplainGraph {
     provenance: ProvenanceArtifact[];
     coverage: CoverageOverlay;
   };
-}
-
-export interface AcceptanceCoverageEntry {
-  id: string;
-  declaredAcceptance: string[];
-  coveredBy: string[];
-  uncovered: boolean;
-}
-
-export interface AcceptanceCoverageReport {
-  formatVersion: string;
-  status: VerificationStatus;
-  acceptancePassed: string[];
-  blocks: AcceptanceCoverageEntry[];
-  slots: AcceptanceCoverageEntry[];
-  uncoveredBlocks: string[];
-  uncoveredSlots: string[];
 }
 
 export interface ReviewFailurePoint {
