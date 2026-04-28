@@ -156,6 +156,7 @@
        - `platform blocks usage --json --compact` 只读输出最新 block usage map 单行合同。
        - `platform repair plan --json --compact` 只读输出最新 repair plan 单行合同。
        - `platform postgres contract --json --compact` 只读输出最新 Postgres contract 单行合同。
+       - `platform lock inspect --json --compact` 只读输出最新 graph lock 单行合同。
        - `platform doctor --json [--compact]` 输出稳定环境 readiness 合同，包含顶层 checkCount 与 checks。
        - `platform contract ci --json [--compact]` 输出稳定 CI 命令合同，包含 review matrix/demo checklist diagnostic steps、每个 step 的 producesCount 与 produces。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
@@ -216,6 +217,7 @@
          - `platform blocks usage --json [--compact]` 输出稳定 block usage map 合同，直接消费最新 `generated/block-usage-map.json`。
          - `platform repair plan --json [--compact]` 输出稳定 repair plan 合同，直接消费最新 `generated/repair-plan.json`。
          - `platform postgres contract --json [--compact]` 输出稳定 Postgres contract 合同，直接消费最新 `generated/postgres-contract.json`。
+         - `platform lock inspect --json [--compact]` 输出稳定 graph lock 合同，直接消费最新 `graph.lock.json`。
          - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `generated/runtime-report.json`。
          - `platform verification report --json [--compact]` 输出稳定 verification report 合同，直接消费最新 `generated/verification-report.json`。
         - `platform verify --json [--compact]` 执行验证并直接输出同一 verification report 合同。

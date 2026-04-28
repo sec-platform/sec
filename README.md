@@ -66,6 +66,8 @@ Use these entry commands for normal development:
 - `npm run platform -- blocks usage --json --compact`: emit the compact block usage map contract
 - `npm run platform -- postgres contract`: inspect the latest Postgres contract without running compose
 - `npm run platform -- postgres contract --json --compact`: emit the compact Postgres contract
+- `npm run platform -- lock inspect`: inspect the latest graph lock without running lock
+- `npm run platform -- lock inspect --json --compact`: emit the compact graph lock contract without regenerating it
 - `npm run platform -- runtime report`: inspect the latest runtime verification report
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
 - `npm run platform -- verification report`: inspect the latest verification report
@@ -150,6 +152,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- install manifest --json --compact`: emit the compact install manifest contract
 - `npm run platform -- blocks usage --json --compact`: emit the compact block usage map contract
 - `npm run platform -- postgres contract --json --compact`: emit the compact Postgres contract
+- `npm run platform -- lock inspect --json --compact`: emit the compact graph lock contract without regenerating it
 - `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
 - `npm run platform -- verification report --json --compact`: emit the compact verification report
 - `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
