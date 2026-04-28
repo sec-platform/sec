@@ -7,6 +7,15 @@ import { writeYaml } from './yaml.ts';
 export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   const {
     projectRoot,
+    developerSourceRoot,
+    sourceSlotsRoot,
+    sourceOverridesRoot,
+    sourcePoliciesRoot,
+    sourceAcceptanceRoot,
+    sourceAssetsRoot,
+    sourcePrivateRegistryRoot,
+    sourceViewsRoot,
+    sourceEnvRoot,
     privateRegistryRoot,
     generatedDir,
     projectPackagePath,
@@ -31,9 +40,37 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   await ensureDir(path.join(projectRoot, 'overrides', 'patches'));
   await ensureDir(path.join(projectRoot, 'overrides', 'manifests'));
   await ensureDir(path.join(projectRoot, 'policies'));
+  await ensureDir(developerSourceRoot);
+  await ensureDir(sourceSlotsRoot);
+  await ensureDir(sourceOverridesRoot);
+  await ensureDir(path.join(sourceOverridesRoot, 'rules'));
+  await ensureDir(path.join(sourceOverridesRoot, 'patches'));
+  await ensureDir(path.join(sourceOverridesRoot, 'manifests'));
+  await ensureDir(sourcePoliciesRoot);
+  await ensureDir(sourceAcceptanceRoot);
+  await ensureDir(sourceAssetsRoot);
+  await ensureDir(sourcePrivateRegistryRoot);
+  await ensureDir(sourceViewsRoot);
+  await ensureDir(sourceEnvRoot);
   await ensureDir(generatedDir);
   await ensureDir(path.join(projectRoot, 'prisma'));
   await ensureDir(privateRegistryRoot);
+
+  for (const sourceDir of [
+    sourceSlotsRoot,
+    sourcePoliciesRoot,
+    sourceAcceptanceRoot,
+    sourceAssetsRoot,
+    sourcePrivateRegistryRoot,
+    sourceViewsRoot,
+    sourceEnvRoot
+  ]) {
+    await writeText(path.join(sourceDir, '.gitkeep'), '\n');
+  }
+
+  for (const overrideDir of ['rules', 'patches', 'manifests']) {
+    await writeText(path.join(sourceOverridesRoot, overrideDir, '.gitkeep'), '\n');
+  }
 
   for (const overrideDir of ['rules', 'patches', 'manifests']) {
     await writeText(path.join(projectRoot, 'overrides', overrideDir, '.gitkeep'), '\n');
@@ -84,6 +121,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       'components/**/*.tsx',
       'lib/**/*.ts',
       'src/**/*.ts',
+      'source/**/*.ts',
       'tests/**/*.ts',
       'tests/**/*.tsx',
       'custom/**/*.ts',
