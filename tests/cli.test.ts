@@ -2759,6 +2759,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
           };
           targetSummaries: Array<{ id: string; targetType: string; count: number }>;
           taskCategorySummaries: Array<{ id: string; count: number }>;
+          targetFileCount: number;
           targetFiles: string[];
           taskSummaries: Array<{
             taskId: string;
@@ -2795,6 +2796,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
       },
       targetSummaries: [],
       taskCategorySummaries: [{ id: 'slot-rewrite', count: 1 }],
+      targetFileCount: 1,
       targetFiles: ['custom/customer_normalizer.ts'],
       taskSummaries: [
         expect.objectContaining({

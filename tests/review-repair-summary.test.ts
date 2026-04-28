@@ -197,6 +197,7 @@ test('review summary surfaces pending repair tasks', async () => {
         { id: 'zeta.test.ts', targetType: 'slot-target', count: 2 }
       ],
       taskCategorySummaries: [{ id: 'slot-rewrite', count: 2 }],
+      targetFileCount: 2,
       targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
     });
     expect(summary.repairSummary?.taskSummaries).toEqual([
