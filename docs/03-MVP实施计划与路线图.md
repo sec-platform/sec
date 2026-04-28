@@ -131,8 +131,9 @@
        - `platform demo checklist [--json --compact]` 可只读检查本地 demo readiness。
        - review summary 能展示 E2E chain summary。
        - explain graph 能展示 policy/pin/override/repair/upgrade 归因。
-     - E2E 验收矩阵：active。
+     - E2E 验收矩阵：done。
        - `platform explain --json` 输出 `e2eMatrix`。
+       - `platform review matrix [--json --compact]` 只读输出最新 E2E matrix。
        - 矩阵行复用 verification、coverage、artifacts、review 四个 chain stage。
        - evidence 从现有 review summary 派生，不新增执行流程。
        - `generated/views/source-view.html` 与 `generated/views/slot-rule-view.html` 复用同一 evidence helper 展示 E2E Chain Summary 证据列。
