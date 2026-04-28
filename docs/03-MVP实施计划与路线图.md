@@ -147,6 +147,7 @@
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
        - `platform doctor --json [--compact]` 输出稳定环境 readiness 合同，包含顶层 checkCount 与 checks。
+       - `platform contract ci --json [--compact]` 输出稳定 CI 命令合同，包含每个 step 的 producesCount 与 produces。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
      - dogfood 样例工作区：active。
        - `npm run dogfood:reference` 刷新当前参考工作区。
@@ -197,7 +198,7 @@
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单、顶层 inspect command、runner command、聚合 test target files，并为每个 target 暴露可复现 `bun test` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，包含 issue type count，并覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/rollback/conflict 的真实错误码样例。
-         - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、verify/quality/diagnostic/artifact upload command counts、typecheck gate、顶层 quality commands、contract freeze gate、reference drift gate、顶层 diagnostic commands、governance/view/test/contract artifact upload 路径入口与聚合 produced artifact paths。
+         - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、verify/quality/diagnostic/artifact upload command counts、per-step produces count、typecheck gate、顶层 quality commands、contract freeze gate、reference drift gate、顶层 diagnostic commands、governance/view/test/contract artifact upload 路径入口与聚合 produced artifact paths。
         - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。

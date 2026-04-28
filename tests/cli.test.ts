@@ -665,7 +665,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
 test('CLI exposes CI command contract as text and JSON contracts', async () => {
   const contract = buildCiContract();
   expect(formatCiContract(contract)).toContain('CI contract active');
-  expect(formatCiContract(contract)).toContain('Step pr-fast-verify; phase=verify; command=npm run platform -- verify --json --compact');
+  expect(formatCiContract(contract)).toContain('Step pr-fast-verify; phase=verify; command=npm run platform -- verify --json --compact; producesCount=1');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
@@ -713,12 +713,14 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         id: 'pr-fast-verify',
         phase: 'verify',
         command: 'npm run platform -- verify --json --compact',
+        producesCount: 1,
         produces: ['project/generated/verification-report.json']
       }),
       expect.objectContaining({
         id: 'full-runtime-verify',
         phase: 'verify',
         command: 'npm run platform -- verify --lane all --json --compact',
+        producesCount: 3,
         produces: expect.arrayContaining([
           'project/generated/runtime-report.json',
           'project/generated/acceptance-coverage.json'
@@ -728,30 +730,35 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         id: 'typecheck',
         phase: 'quality',
         command: 'npm run typecheck',
+        producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'slow-test-budget',
         phase: 'quality',
         command: 'npm run platform -- test budget --json --compact',
+        producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'contract-freeze',
         phase: 'quality',
         command: 'npm run test:contract-freeze',
+        producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'benchmark-task-suite',
         phase: 'quality',
         command: 'npm run platform -- benchmark suite --json --compact',
+        producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'reference-drift',
         phase: 'quality',
         command: 'npm run platform -- reference check --json --compact',
+        producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
@@ -792,8 +799,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain(
       'Artifact path list: project/generated/acceptance-coverage.json, project/generated/ci-artifacts.json, project/generated/explain-graph.json, project/generated/review-summary.json, project/generated/runtime-report.json, project/generated/verification-report.json'
     );
-    expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact');
-    expect(textResult.stdout).toContain('Step typecheck; phase=quality; command=npm run typecheck');
+    expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3');
+    expect(textResult.stdout).toContain('Step typecheck; phase=quality; command=npm run typecheck; producesCount=0');
     expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
     expect(textResult.stdout).toContain('Step contract-freeze; phase=quality; command=npm run test:contract-freeze');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
@@ -830,7 +837,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'project/generated/ci-artifacts.json',
         'project/generated/verification-report.json'
       ]),
-      stepCount: 13
+      stepCount: 13,
+      steps: expect.arrayContaining([
+        expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
+        expect.objectContaining({ id: 'typecheck', producesCount: 0 })
+      ])
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'ci', '--json', '--compact']);
@@ -859,7 +870,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- explain --json --compact'
       ],
       artifactUploadCommandCount: 4,
-      artifactPathCount: 6
+      artifactPathCount: 6,
+      steps: expect.arrayContaining([
+        expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
+        expect.objectContaining({ id: 'typecheck', producesCount: 0 })
+      ])
     });
   });
 });

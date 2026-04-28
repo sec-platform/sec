@@ -200,6 +200,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(routeMap).toContain('platform contract ci --json [--compact]');
   expect(routeMap).toContain('顶层 verify commands');
   expect(routeMap).toContain('verify/quality/diagnostic/artifact upload command counts');
+  expect(routeMap).toContain('per-step produces count');
   expect(routeMap).toContain('顶层 quality commands');
   expect(routeMap).toContain('顶层 diagnostic commands');
   expect(routeMap).toContain('artifact upload 路径入口');
@@ -226,6 +227,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(contractFreezeSource).toContain("runnerCommand: 'npm run test:contract-freeze'");
   expect(readme).toContain('npm run platform -- contract errors --json --compact');
   expect(readme).toContain('npm run platform -- contract ci --json --compact');
+  expect(readme).toContain('per-step produced artifact counts');
   expect(readme).toContain('produced artifact paths');
   expect(readme).toContain('npm run platform -- policy report --json --compact');
   expect(readme).toContain('npm run platform -- acceptance coverage --json --compact');
