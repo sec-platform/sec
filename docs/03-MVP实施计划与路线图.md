@@ -236,7 +236,7 @@
          - `shared/types.ts`：已抽离 workspace path、policy、verification、acceptance、explain、provenance/override、plan/manifest 输入合同、lock/pass/install/slot task、repair plan、upgrade plan/diagnostics、review summary、task envelope 类型；当前为轻量兼容 re-export barrel。
          - `orchestrator.ts`：后续收敛为 workspace lifecycle、pipeline workflow、artifact/governance workflow 三层；当前文件只保留门面角色。
          - `platform/cli/index.ts`：已拆分为入口、usage、args、formatters、commands；usage、参数解析、纯格式化/inspect contract builder 和二级命令执行已有单一来源。
-         - `compiler/emit/**`：后续按 explain、governance、provenance、output/views 分层，避免继续扩大 emit 兜底职责。
+         - `compiler/emit/**`：后续按 explain、governance、provenance、output/views 分层；review summary 的 artifact summary 读取已抽成专用 helper，避免继续扩大 emit 兜底职责。
        - P2：补规模测试、资产质量评分、trace/decision-log、安全模型文档。
    - 暂停条件：
      - 连续新增内部 summary/expose/diagnostics 但没有外部闭环提升。
