@@ -898,8 +898,9 @@ function formatReviewSummaryContract(summary: ReviewSummary): string {
     [
       `Impact blocks=${summary.impactedBlocks.length}`,
       `slots=${summary.impactedSlots.length}`,
-      `runtime=${summary.runtimeEntries.length}`,
-      `changeSources=${summary.changeSources.length}`
+      `runtime=${summary.runtimeEntryCount}`,
+      `changeSources=${summary.changeSourceCount}`,
+      `installImpacts=${summary.installImpactCount}`
     ].join('; '),
     [
       `Coverage ${coverage?.status ?? 'missing'}`,

@@ -491,6 +491,9 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
         sourcePath: string;
       }>;
     };
+    changeSourceCount: number;
+    runtimeEntryCount: number;
+    installImpactCount: number;
     runtimeEntries: Array<{ path: string; kind: 'page' | 'api'; vertical?: string; relatedBlocks: string[] }>;
     verticalSlices: Array<{ id: string; runtimeEntries: string[]; relatedBlocks: string[] }>;
     installImpacts: Array<{ blockId: string; actionKinds: string[]; sourceRoots: string[]; verticals: string[]; runtimeEntries: string[]; targetPaths: string[] }>;

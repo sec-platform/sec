@@ -1012,6 +1012,9 @@ export interface ReviewSummary {
   repairSummary?: ReviewRepairSummary;
   upgradeSummary?: ReviewUpgradeSummary;
   policySummary?: ReviewPolicySummary;
+  changeSourceCount: number;
+  runtimeEntryCount: number;
+  installImpactCount: number;
   changeSources: Array<{
     path: string;
     originType: ProvenanceOriginType;

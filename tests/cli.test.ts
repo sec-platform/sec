@@ -1547,6 +1547,9 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         generatedPassSummaries: [],
         unverifiedArtifacts: ['custom/customer_normalizer.ts']
       },
+      changeSourceCount: 1,
+      runtimeEntryCount: 1,
+      installImpactCount: 1,
       changeSources: [
         {
           path: 'custom/customer_normalizer.ts',
@@ -1563,7 +1566,16 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         }
       ],
       verticalSlices: [],
-      installImpacts: [],
+      installImpacts: [
+        {
+          blockId: 'entity/customer-basic',
+          actionKinds: ['copy'],
+          sourceRoots: ['files'],
+          targetPaths: ['src/installed/entity/customer-service.ts'],
+          verticals: ['customer'],
+          runtimeEntries: ['app/customers/page.tsx']
+        }
+      ],
       installImpactSummary: {
         impactCount: 1,
         blockCount: 1,
@@ -1649,7 +1661,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Review summary attention; format=2; stages=2/4; attention=1; failed=1');
     expect(textResult.stdout).toContain('CI attention; failures=1; risks=2; conflicts=3');
-    expect(textResult.stdout).toContain('Impact blocks=1; slots=1; runtime=1; changeSources=1');
+    expect(textResult.stdout).toContain('Impact blocks=1; slots=1; runtime=1; changeSources=1; installImpacts=1');
     expect(textResult.stdout).toContain('Coverage failed; blocks=1/2; slots=1/1');
     expect(textResult.stdout).toContain('Provenance artifacts=5; registry=2; unverified=3');
     expect(textResult.stdout).toContain(
@@ -1668,6 +1680,9 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     expect(jsonResult.stderr).toBe('');
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       formatVersion: '2',
+      changeSourceCount: 1,
+      runtimeEntryCount: 1,
+      installImpactCount: 1,
       chainSummary: { status: 'attention', stageCount: 4 },
       coverageSummary: { status: 'failed', uncoveredBlocks: ['tenant/basic-workspace'] },
       provenanceSummary: { artifactCount: 5 },
@@ -1829,6 +1844,9 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
           sourceSummaries: Array<{ scope: string; path: string; policyIds: string[] }>;
           mergedSummaries: Array<{ id: string; targetCount: number; targets: string[] }>;
         };
+        changeSourceCount: number;
+        runtimeEntryCount: number;
+        installImpactCount: number;
         installImpactSummary: {
           impactCount: number;
           groupCount: number;
