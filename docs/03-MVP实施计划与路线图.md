@@ -139,7 +139,7 @@
        - `platform artifacts --paths --kind contract` 输出可上传 contract 清单。
        - `platform artifacts --paths --json --kind contract` 输出结构化 contract 清单。
        - `platform artifacts --paths --json --compact --kind governance|view|test|contract` 输出稳定单行上传路径合同。
-       - contract 清单从 `generated/*-contract.json` 和 artifact summary 派生。
+       - contract 清单从 `generated/*-contract.json` 和 artifact summary 派生，并进入 artifact manifest / review summary 的 contract upload group。
      - artifact / graph / review golden output：active。
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
