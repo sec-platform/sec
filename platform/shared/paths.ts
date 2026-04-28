@@ -24,6 +24,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     lockPath: path.join(projectRoot, 'graph.lock.json'),
     generatedDir: path.join(projectRoot, 'generated'),
     blockUsageMapPath: path.join(projectRoot, 'generated', 'block-usage-map.json'),
+    postgresContractPath: path.join(projectRoot, 'generated', 'postgres-contract.json'),
     overrideManifestPath: path.join(projectRoot, 'overrides', 'override-manifest.yaml'),
     policySpecPath: path.join(projectPoliciesRoot, 'policy.spec.yaml'),
     officialPoliciesRoot,

@@ -88,12 +88,21 @@ function usageErrorStderr(usage: string): string {
 }
 
 const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
+const POSTGRES_USAGE = 'Usage: platform postgres contract [--json [--compact]]';
 
 async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
   await expect(runCli(workspaceRoot, ['repair', ...args])).resolves.toMatchObject({
     code: 1,
     stdout: '',
     stderr: usageErrorStderr(REPAIR_USAGE)
+  });
+}
+
+async function expectPostgresUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expect(runCli(workspaceRoot, ['postgres', ...args])).resolves.toMatchObject({
+    code: 1,
+    stdout: '',
+    stderr: usageErrorStderr(POSTGRES_USAGE)
   });
 }
 
@@ -2235,6 +2244,40 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
       });
     });
 
+    const postgresContractPath = path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json');
+    const postgresContract = {
+      formatVersion: '1',
+      provider: 'postgres',
+      persistenceMode: 'contract-only',
+      tables: [
+        { name: 'customers', tenantScoped: true, columns: ['id', 'tenant_id', 'name'] },
+        { name: 'tickets', tenantScoped: true, columns: ['id', 'tenant_id', 'title'] },
+        { name: 'worklogs', tenantScoped: true, columns: ['id', 'tenant_id', 'minutes'] }
+      ]
+    };
+    await writeJson(postgresContractPath, postgresContract);
+
+    const postgresText = await runCli(workspaceRoot, ['postgres', 'contract']);
+    expect(postgresText.code).toBe(0);
+    expect(postgresText.stderr).toBe('');
+    expect(postgresText.stdout).toContain('Postgres contract postgres');
+    expect(postgresText.stdout).toContain('mode=contract-only; tables=3; tenantScoped=3');
+    expect(postgresText.stdout).toContain('Table list: customers, tickets, worklogs');
+
+    const postgresJson = await runCli(workspaceRoot, ['postgres', 'contract', '--json', '--compact']);
+    expect(postgresJson.code).toBe(0);
+    expect(postgresJson.stderr).toBe('');
+    expect(postgresJson.stdout).not.toContain('\n  "provider"');
+    expect(JSON.parse(postgresJson.stdout)).toEqual(postgresContract);
+
+    await withTempWorkspace(async (missingPostgresWorkspace) => {
+      await expect(runCli(missingPostgresWorkspace, ['postgres', 'contract'])).resolves.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: expect.stringContaining('Postgres contract not found; run platform compose first')
+      });
+    });
+
     await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
       code: 0,
       stdout: 'Adapted slots\n',
@@ -3942,6 +3985,9 @@ test('CLI reports argument usage errors', { timeout: 60000 }, async () => {
       stdout: '',
       stderr: usageErrorStderr('Usage: platform blocks usage [--json [--compact]]')
     });
+    await expectPostgresUsageError(workspaceRoot, []);
+    await expectPostgresUsageError(workspaceRoot, ['contract', '--compact']);
+    await expectPostgresUsageError(workspaceRoot, ['status']);
     await expect(runCli(workspaceRoot, ['verification'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
