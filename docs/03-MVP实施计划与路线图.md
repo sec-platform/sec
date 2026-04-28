@@ -65,7 +65,7 @@
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
 | provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 provenance registry CLI、review summary、CLI explain 和本地视图 provenance 摘要。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy target/violation 边、slot 合同升级影响边、repair task/category 归因边、upgrade verification 归因边，以及 CLI 普通文本 review 与 graph 类型摘要。 |
-| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints、E2E chain summary，并暴露 review summary CLI、repair、upgrade verification、policy governance 摘要。 |
+| review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、顶层 activity counts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints、E2E chain summary，并暴露 review summary CLI、repair、upgrade verification、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、带 phase 的 planning/apply 阶段阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`copy-file`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace`、`text-replace-regex`、`create-directory`、`delete-file`、`delete-directory`、`rename-file` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
@@ -144,7 +144,7 @@
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
        - `platform explain` 普通文本输出 artifact upload group count 与 missing reason type count。
        - E2E artifacts evidence 输出 artifact upload group count、missing reason type count 与 per-stage evidenceCount。
-       - `platform review summary --json [--compact]` 输出稳定 provenance origin/override/registry summary counts。
+       - `platform review summary --json [--compact]` 输出稳定 top-level activity counts 与 provenance origin/override/registry summary counts。
        - repair summary JSON 输出稳定 targetFileCount 与 targetFiles。
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。

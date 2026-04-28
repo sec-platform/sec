@@ -138,6 +138,11 @@ test('writeReviewSummary persists generated path in lock', async () => {
     impactedSlotCount: 0,
     runtimeEntryCount: 0
   });
+  expect(summary).toMatchObject({
+    changeSourceCount: 0,
+    runtimeEntryCount: 0,
+    installImpactCount: 0
+  });
   expect(summary.conflictHints).toEqual([]);
   expect(persistedSummary).toEqual(summary);
   expect(persistedLock.generatedPaths).toEqual(['generated/review-summary.json']);
@@ -509,6 +514,11 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
 
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
+  expect(summary).toMatchObject({
+    changeSourceCount: 3,
+    runtimeEntryCount: 3,
+    installImpactCount: 3
+  });
   expect(summary.runtimeEntries).toEqual(
     expect.arrayContaining([
       {

@@ -1101,6 +1101,28 @@ export async function buildReviewSummary(
 
   const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path));
   const runtimeEntryByPath = new Map(runtimeEntries.map((entry) => [entry.path, entry]));
+  const changeSources = provenance.artifacts.map((artifact) => {
+    const runtimeEntry = runtimeEntryByPath.get(artifact.path);
+    return {
+      path: artifact.path,
+      originType: artifact.originType,
+      originId: artifact.originId,
+      ...(artifact.registrySourceId
+        ? {
+            registrySourceId: artifact.registrySourceId,
+            registryKind: artifact.registryKind,
+            registryLocation: artifact.registryLocation
+          }
+        : {}),
+      ...(runtimeEntry
+        ? {
+            runtimeKind: runtimeEntry.kind,
+            ...(runtimeEntry.vertical ? { vertical: runtimeEntry.vertical } : {}),
+            relatedBlocks: runtimeEntry.relatedBlocks
+          }
+        : {})
+    };
+  });
   const artifactSummary = await readArtifactSummary(workspaceRoot);
   const installImpacts = buildInstallImpacts(lock);
   const installImpactSummary = buildInstallImpactSummary(installImpacts);
@@ -1127,28 +1149,10 @@ export async function buildReviewSummary(
     ...(policySummary ? { policySummary } : {}),
     ...(repairSummary ? { repairSummary } : {}),
     ...(upgradeSummary ? { upgradeSummary } : {}),
-    changeSources: provenance.artifacts.map((artifact) => {
-      const runtimeEntry = runtimeEntryByPath.get(artifact.path);
-      return {
-        path: artifact.path,
-        originType: artifact.originType,
-        originId: artifact.originId,
-        ...(artifact.registrySourceId
-          ? {
-              registrySourceId: artifact.registrySourceId,
-              registryKind: artifact.registryKind,
-              registryLocation: artifact.registryLocation
-            }
-          : {}),
-        ...(runtimeEntry
-          ? {
-              runtimeKind: runtimeEntry.kind,
-              ...(runtimeEntry.vertical ? { vertical: runtimeEntry.vertical } : {}),
-              relatedBlocks: runtimeEntry.relatedBlocks
-            }
-          : {})
-      };
-    }),
+    changeSourceCount: changeSources.length,
+    runtimeEntryCount: runtimeEntries.length,
+    installImpactCount: installImpacts.length,
+    changeSources,
     runtimeEntries,
     verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
     installImpacts,
