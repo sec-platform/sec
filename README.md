@@ -46,7 +46,7 @@ Use these entry commands for normal development:
 - `npm run platform -- deps status --json --compact`: emit a machine-readable dependency environment contract
 - `npm run platform -- deps warmup`: prepare shared runtime dependencies
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
-- `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts
+- `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts with upload group counts
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors`: inspect the error protocol contract
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including diagnostic artifact paths
