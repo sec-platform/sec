@@ -18,11 +18,14 @@ The platform is a software tool, not the normal editing surface for product deve
 
 Default developer surface:
 
-- `project/app.plan.yaml`: product plan, selected blocks, registry sources, slots, and acceptance intent
-- `project/custom/**`: project-owned custom implementation
-- `project/overrides/**`: governed overrides, patches, rules, and override manifests
-- `project/policies/**`: project policy input
-- `platform/registry/private/**`: temporary MVP workspace-private blocks and manifests until they move to a separate private registry package or service
+- `project/app.plan.yaml`: v0.1-compatible product plan, selected blocks, registry sources, slots, and acceptance intent
+- `project/source/slots/**`: project-owned slot source; compiler passes materialize v0.1 runtime targets under `project/custom/**`
+- `project/source/overrides/**`: governed overrides, patches, rules, and override manifests
+- `project/source/policies/**`: project policy input
+- `project/source/acceptance/**`: project acceptance extensions
+- `project/source/assets/**`, `project/source/views/**`, `project/source/env/**`: workspace assets, view preferences, and environment declarations
+- `project/source/registry/private/**`: workspace-private block drafts; preferred before the compatibility private registry
+- Compatibility inputs: `project/custom/**`, `project/overrides/**`, `project/policies/**`, and `platform/registry/private/**`
 
 Internal implementation surface:
 
@@ -114,7 +117,7 @@ For the final product shape, the expected external developer environment is a CL
 Workbench and IDE integrations must preserve this boundary:
 
 - Allowed reads: workspace plan, private block manifests, overrides, policies, generated governance artifacts, provenance, and graph lock files
-- Allowed writes: `project/app.plan.yaml`, `project/custom/**`, `project/overrides/**`, `project/policies/**`, and the temporary MVP private registry path
+- Allowed writes: `project/app.plan.yaml`, `project/source/**`, compatibility inputs under `project/custom/**`, `project/overrides/**`, `project/policies/**`, and the temporary MVP private registry path
 - Required command surface: `doctor`, `deps status`, `add`, `resolve`, `compose`, `adapt`, `verify`, `repair`, `upgrade --dry-run`, `lock`, and `explain`
 - Forbidden writes: compiler internals, shared platform utilities, official registry blocks, generated runtime scaffold, and dependency directories outside the controlled `deps` commands
 

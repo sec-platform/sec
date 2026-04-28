@@ -110,10 +110,27 @@ policies:
   "formatVersion": "1",
   "artifacts": [
     {
+      "path": "source/slots/customer_normalizer.ts",
+      "originType": "slot",
+      "originId": "customer_normalizer",
+      "sourceBlock": "entity/customer-basic",
+      "sourcePath": "source/slots/customer_normalizer.ts",
+      "runtimeTarget": "custom/customer_normalizer.ts",
+      "generatedByPass": "adapt",
+      "generatorTaskId": "fill_slot_customer_normalizer",
+      "verifiedBy": [
+        "tests/customer_normalizer.spec.ts",
+        "tests/acceptance/customer-flow.spec.ts"
+      ],
+      "overrideStatus": "none"
+    },
+    {
       "path": "custom/customer_normalizer.ts",
       "originType": "slot",
       "originId": "customer_normalizer",
       "sourceBlock": "entity/customer-basic",
+      "sourcePath": "source/slots/customer_normalizer.ts",
+      "runtimeTarget": "custom/customer_normalizer.ts",
       "generatedByPass": "adapt",
       "generatorTaskId": "fill_slot_customer_normalizer",
       "verifiedBy": [
@@ -134,6 +151,8 @@ policies:
 | `originType` | 是 | `block` / `slot` / `generated` / `override` |
 | `originId` | 是 | 来源 id |
 | `sourceBlock` | 否 | 来源 block |
+| `sourcePath` | 否 | 源码层 slot 路径；存在时 AI/repair 默认写此路径 |
+| `runtimeTarget` | 否 | v0.1 兼容运行时物化目标 |
 | `generatedByPass` | 否 | 生成 pass |
 | `generatorTaskId` | 否 | AI task id |
 | `verifiedBy[]` | 否 | 通过的测试 |
@@ -236,6 +255,7 @@ Graph 不是独立手动画图工具；规范、manifest、lock、acceptance、p
 - `policy-report.json` 中的 `merged.policies[]` 必须进入 explain graph，节点 id 为 `policy:<policyId>`。
 - `policy-report.json` 中的每个 violation 必须产生 `file:<path> -> policy:<policyId>` 的 `violates` 边。
 - 文件来源归因仍以 provenance overlay 为准；policy 归因以 policy report 为准；explain graph 只负责把两者合并展示。
+- 声明 `sourcePath` 的 slot 应在 graph 中体现 `slot -> source file -> runtime target`，provenance overlay 同时记录源码路径与物化目标。
 
 ### Engineering Semantic Diff
 
