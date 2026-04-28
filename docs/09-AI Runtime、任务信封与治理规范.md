@@ -21,8 +21,11 @@
 - AI 不能决定新增或移除 block
 - AI 不能绕过 compile contract
 - AI 不能修改未授权路径
+- AI 不能修改 deterministic outputs、acceptance、policy、migration order、lock、provenance 或 generated files，除非进入显式 spec / governance / compiler pass workflow
 - AI 必须优先使用 `plan / graph / manifest / slot / acceptance / provenance / report` 定位任务，再读取有限源码上下文
 - AI 不得把整仓搜索、整仓重写或自由聊天作为默认工程动作
+- 更强模型应被封装为 alignment、slot synthesis、repair、critical review 或 upgrade planning pass，而不是获得整仓写权限
+- 防止模型走捷径应依赖机器校验的 zone、allowed paths、diff budget、验收不可变性和 provenance，而不是只依赖提示词
 
 ### 与通用 Agent 工具的关系
 
@@ -43,6 +46,13 @@
 | MCP tools | registry、verification、observability、deployment adapters |
 
 - Claude 侧能力偏执行，SpecEngineer harness 偏工程语义；两者可以组合，但语义边界必须由工程编译器定义。
+
+### Platform AI Runtime API
+
+- 平台应先定义稳定 AI Runtime API，统一表达 task envelope、context pack、权限、写回、验证和 provenance。
+- 外部入口优先级为 CLI first、MCP second、IDE plugin third；产品型 adapter 可在这些基础上扩展。
+- CLI、MCP、VS Code / JetBrains 插件和后续工作台都只是 Runtime API 的 adapter，不得绕过 task envelope 直接写仓库。
+- IDE 插件是 view-first 的控制台和导航层，不是封闭牢笼；源码可达，但写入仍必须回到平台权限和验证语义。
 
 ## 2. Task Envelope 正式 schema
 
@@ -111,6 +121,13 @@ expectedOutput:
 - 写回后必须重新解析导出符号，验证 `requiredSymbols` 仍存在。
 - 若 diff 触及未授权路径，立即失败并标记 `SLOT-WRITE-001`。
 
+### 语义权限
+
+- 文件路径权限只是最低层检查；AI 还必须满足 task kind、phase、zone、artifact ownership 和 forbidden operations 组成的语义权限。
+- `acceptance`、policy、`testsToPass`、verification report 和 explain graph 在普通 slot / repair task 中是约束输入，不是可被 AI 修改的输出。
+- `project/generated/**`、`project/src/installed/**`、`graph.lock.json`、`provenance.json` 和迁移顺序只能由对应 compiler pass 或显式治理 workflow 更新。
+- 如果修复需要改变规格、验收、policy 或 block 选择，应返回 Spec Issue / Composition Issue，而不是扩大当前 envelope。
+
 ### `v0.1` 默认允许路径
 
 - `custom/customer_normalizer.ts`
@@ -146,6 +163,20 @@ expectedOutput:
 6. 目标文件骨架
 7. 最小业务背景
 
+### Context Packet 最小字段
+
+- `task`：task id、task kind、phase、target block、target file。
+- `affectedGraph`：与任务相关的 block、pin、slot、file、acceptance、policy、issue 节点与边。
+- `blocks` / `pins`：相关 block manifest 摘要、输入输出 pin、连接关系和兼容性约束。
+- `policies`：适用 policy、severity、目标和已知 violation。
+- `writableAnchors`：从 envelope 派生的 `allowedPaths`、目标 symbol、slot writable zone 和 provenance hints。
+- `readonlyAnchors`：必须读取但不得修改的类型、测试、generated artifact、lock、provenance 和 report 摘要。
+- `cannotModify`：acceptance、policy、migration order、generated files、lock、provenance、未授权源码路径等不可改对象。
+- `mustPreserve`：required symbols、公开 contract、验收语义、policy gate、现有 provenance 和 runtime 行为约束。
+- `verification`：必须通过的 tests、verify lane、相关报告路径和失败摘要。
+- `issueClassification`：Spec Issue、Composition Issue、Slot Issue 或 Kernel Issue 初判。
+- `runtimeEvidence`：仅在 repair / review 需要时包含日志、runtime report、observability 摘要和复现步骤。
+
 ### 源码下钻规则
 
 - 只有当上面的结构化上下文不足以完成任务时，才读取源码。
@@ -167,6 +198,12 @@ expectedOutput:
 - 只允许改 `allowedPaths`
 - 只允许修改任务相关 symbol
 - 不得引入无关格式化变更
+
+### diff budget
+
+- 每个 task kind 应从 envelope 和 issue classification 派生允许变更的文件数、符号数和代码范围。
+- 超出 diff budget 时必须失败或转人工 review；测试通过、模型置信度或“顺手清理”都不能抵消越界写入。
+- diff budget 不替代 `allowedPaths`，只能在已授权路径内继续收窄。
 
 ## 7. Budget 与降级策略
 
@@ -243,6 +280,13 @@ expectedOutput:
 
 - 生成人类可读摘要
 - 解释 provenance 与覆盖范围
+- 检查是否存在绕过 compile contract、修改验收或扩大 envelope 的行为
+
+### Upgrade Planning Agent
+
+- 生成迁移计划、影响面和回滚建议
+- 不直接执行 migration、override 或 schema 改写
+- 必须把破坏性变更交给 upgrade workflow 和人工确认
 
 ## 11. `v0.1` 最低实现要求
 

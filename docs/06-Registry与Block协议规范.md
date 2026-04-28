@@ -76,6 +76,9 @@ registry:
 - 提供基础设施接入
 - 必须声明外部依赖
 - 必须声明环境变量需求
+- 常见候选包括 `infra/postgres`、`infra/redis`、`infra/kafka`、`infra/rabbitmq`、`infra/elasticsearch`、`infra/object-storage`。
+- Redis 更像缓存、会话、限流、短期状态和语义缓存标准件；Kafka/RabbitMQ 更像事件流、消息总线和异步任务标准件；Elasticsearch 更像搜索、日志检索、分析和 RAG 检索标准件。
+- 这些基础设施不应在早期作为业务主入口；应通过 Infra Pack 暴露依赖、连接、环境变量、运行约束，并通过 Strategy Pack 表达 `async/event-streaming`、`async/job-queue`、`search/fulltext`、`search/hybrid-vector` 等策略选择。
 
 ### Governance Pack
 

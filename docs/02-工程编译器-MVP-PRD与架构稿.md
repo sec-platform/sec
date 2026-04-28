@@ -18,7 +18,7 @@
 
 ### 已定结论
 
-- 产品暂定名为“工程编译器（Engineering Compiler）”。
+- 产品名建议为 `SpecEngineer`，方法论为 `Spec Engineering`；“工程编译器（Engineering Compiler）”是底层品类描述。
 - 这不是 IDE、低代码工具、模板市场，也不是自由生成式 AI 结对编程工具。
 - 系统的权威输入是工程规格、块接口、连接关系、slot 描述和验收要求；最终源码是可审查、可部署、可修改的编译产物。
 - 这套产品要做的不是“让 AI 多写代码”，而是“把 AI 收束为编译链中的受限综合 pass”。
@@ -56,6 +56,7 @@
 - 相比 SDK 或库生态：SDK 复用代码调用点，本产品复用的是工程能力块、接口合同、安装计划、验收和升级协议。
 - 相比 Backstage、shadcn registry、OpenAPI Generator、Smithy、Temporal、n8n、Camunda、Cedar、TLA+、Alloy 等相邻系统：它们分别覆盖模板、组件分发、接口生成、流程编排、策略或形式验证的一部分；本产品要把这些思想收束到“软件项目作为可编译对象”的主链中。
 - 相比 Claude Code / Managed Agents / Skills / MCP：这些是强执行与工具基座，本产品是项目级 harness 和工程规格层，可借用它们执行任务，但不能把产品退化成聊天壳或工具集合。
+- 相比 n8n、OpenClaw、Temporal、Camunda：它们更偏运行时、自动化、agent skills 或可靠执行后端；本产品位于其上或邻侧的工程编译层，短期不替代，长期可通过 adapter 上吃部分项目生成、工作流壳层和 agent 后台场景。
 
 ## 新增整合：项目形态适配边界
 

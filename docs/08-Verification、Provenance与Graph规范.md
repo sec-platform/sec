@@ -144,12 +144,22 @@ policies:
 ### Graph 类型
 
 - `Block Graph`
-- `Pin Graph`
-- `Slot Graph`
+- `Pin / Interface Graph`
+- `Data Flow Graph`
+- `Business Flow Graph`
+- `State Machine Graph`
+- `Policy Graph`
+- `Event Topology`
+- `Slot / AI Logic Graph`
 - `Provenance Overlay`
 - `Acceptance Coverage Graph`
 - `Issue Graph`
 - `Kernel Boundary Graph`
+- `Deployment Topology Graph`
+- `Upgrade Graph`
+- `Performance Budget Graph`
+
+Graph 不是独立手动画图工具；规范、manifest、lock、acceptance、policy、provenance 和 verification report 才是源，图只是从同一套结构化工程对象自动投影出的视图。
 
 ### Node 类型
 
@@ -159,24 +169,36 @@ policies:
 - `pin`
 - `slot`
 - `file`
+- `entity`
+- `state`
+- `event`
 - `acceptance`
 - `policy`
 - `kernel`
 - `issue`
 - `benchmark`
+- `deployment`
+- `upgrade`
 
 ### Edge 类型
 
 - `depends_on`
 - `provides`
 - `connects_to`
+- `emits`
+- `consumes`
+- `transitions_to`
 - `writes_to`
 - `verified_by`
+- `covers`
 - `originates_from`
 - `violates`
 - `classified_as`
 - `bounded_by`
 - `measured_by`
+- `impacts`
+- `upgrades_to`
+- `deployed_to`
 
 ### 原生图谱对象原则
 
@@ -215,6 +237,23 @@ policies:
 - `policy-report.json` 中的每个 violation 必须产生 `file:<path> -> policy:<policyId>` 的 `violates` 边。
 - 文件来源归因仍以 provenance overlay 为准；policy 归因以 policy report 为准；explain graph 只负责把两者合并展示。
 
+### Engineering Semantic Diff
+
+Review 不应只比较源码 diff；平台应从同一批 governance artifact 派生工程语义 diff，用于解释一次变更改变了哪些能力、约束和风险。
+
+最小字段：
+
+- `capabilityChanges`：新增、移除或改变的 capability / block。
+- `interfaceChanges`：pin、slot contract、输入输出类型和连接关系变化。
+- `policyChanges`：policy、severity、target、violation 的变化。
+- `acceptanceChanges`：acceptance coverage、依赖关系、通过/失败状态变化。
+- `provenanceChanges`：artifact origin、override status、generatedByPass、verifiedBy 变化。
+- `runtimeImpact`：runtime report、deployment topology、性能预算或观测证据变化。
+- `upgradeImpact`：migration、override conflict、rollback boundary、版本兼容影响。
+- `riskClass`：由 issue graph、policy gate、verification status 和 diff budget 归约出的风险等级。
+
+语义 diff 只能由 plan、manifest、lock、acceptance、policy、provenance、verification report、review summary 和 explain graph 派生；不得成为另一份手写状态源。
+
 ## 8. Coverage 计算
 
 ### Acceptance Coverage
@@ -230,20 +269,35 @@ policies:
 
 - 统计多少关键文件通过了 unit + acceptance 双重校验
 
-## 9. `v0.1` 最低要求
+## 9. 测试工程约定
+
+### 临时工作空间
+
+- 测试临时工作空间统一创建在仓库内 `.tmp/test-workspaces`，避免直接写入系统 `os.tmpdir()`。
+- 测试文件不得重复实现 `createWorkspace` 或 `withTempWorkspace`；应复用 `tests/helpers/test-utils.ts`。
+- 需要测试结束立即清理目录时，使用 `withTempWorkspace(async (workspaceRoot) => { ... })`。
+- 需要跨测试生命周期延迟清理目录时，使用 `createWorkspace(prefix?)`。
+- 只有非工作空间类 fixture 可以单独使用 `fs.mkdtemp`，例如写入受控测试 fixture 目录并由专门 cleanup 管理。
+
+### 共享断言与缓存
+
+- 读取 compiler 源文件或根 `package.json` 进行合同断言时，优先使用 `readCompilerFile` 和 `readCompilerPackageJson`，避免重复磁盘读取。
+- 多个字符串 marker 断言应使用 `expectContainsAll` 或 `expectContainsNone`，避免大段重复 `toContain`。
+
+## 10. `v0.1` 最低要求
 
 - 输出 `verification-report.json`
 - `graph.lock.json` 中记录 slot task 与 generated paths
 - 主验收链路至少覆盖三块和单槽位的主路径
 
-## 10. `v0.2` 必须补齐
+## 11. `v0.2` 必须补齐
 
 - `provenance.json`
 - `platform explain`
 - `Acceptance Coverage Graph`
 - policy violations 报告
 
-## 11. 延期项
+## 12. 延期项
 
 - 可视化 DAG 编辑器
 - 实时 perf flame graph

@@ -148,6 +148,7 @@
        - `platform explain` 普通文本输出 artifact upload group count 与 missing reason type count。
        - E2E artifacts evidence 输出 artifact upload group count、missing reason type count 与 per-stage evidenceCount。
        - `platform review summary --json [--compact]` 输出稳定 top-level activity counts、provenance generated artifact count 与 provenance origin/override/registry summary counts。
+       - `platform review diagnostics --json [--compact]` 从 review summary 派生 failure/risk/conflict 稳定诊断合同。
        - repair summary JSON 输出稳定 targetFileCount 与 targetFiles。
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
@@ -158,7 +159,7 @@
        - `platform postgres contract --json --compact` 只读输出最新 Postgres contract 单行合同。
        - `platform lock inspect --json --compact` 只读输出最新 graph lock 单行合同。
        - `platform doctor --json [--compact]` 输出稳定环境 readiness 合同，包含顶层 checkCount 与 checks。
-       - `platform contract ci --json [--compact]` 输出稳定 CI 命令合同，包含 review matrix/demo checklist diagnostic steps、每个 step 的 producesCount 与 produces。
+       - `platform contract ci --json [--compact]` 输出稳定 CI 命令合同，包含 review matrix/review diagnostics/demo checklist diagnostic steps、每个 step 的 producesCount 与 produces。
        - graph/review/artifact 不新增快照文件，优先以 CLI JSON 合同断言冻结。
      - dogfood 样例工作区：active。
        - `npm run dogfood:reference` 刷新当前参考工作区。
@@ -172,6 +173,13 @@
        - `platform benchmark suite --json [--compact]` 输出稳定 benchmark/task-suite 合同，包含顶层 inspect command、runner command、artifactPathCount、artifactPaths、每个 task 的 artifactPathCount/scoreFocusCount、scoreDimensionCount 与评分维度。
        - `platform benchmark suite` 文本 inspect 输出同步列出聚合 artifact paths，避免人工审查只看到计数。
        - `npm run test:benchmark-contract` 复用正式 CLI 输出最小 benchmark/task-suite JSON 合同。
+       - Spec-to-System benchmark 的评分口径优先衡量从规格到可运行系统的工程闭环，而不是裸模型代码题能力：
+         - spec completeness：输入规格、block、pin、policy、acceptance 是否足够驱动编译。
+         - compile determinism：resolve/compose/adapt/verify/lock/explain 是否可重复。
+         - verification strength：typecheck、unit、runtime、acceptance、policy gate 和 coverage 是否形成证据链。
+         - context efficiency：AI task 是否通过 graph、provenance、context packet 缩小源码读取和 token 范围。
+         - repairability：失败能否归类为 Spec / Composition / Slot / Kernel Issue，并给出可恢复动作。
+         - upgrade safety：迁移、override 冲突、回滚边界和 provenance 更新是否可审查。
        - fast/runtime 不运行 Next build 或 Playwright。
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
      - reference 无漂移 gate：done。
@@ -209,7 +217,7 @@
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单、顶层 inspect command、runner command、聚合 test target files，并为每个 target 暴露可复现 `bun test` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，包含 issue type count，并覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/rollback/conflict 的真实错误码样例。
-         - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、verify/quality/diagnostic/artifact upload command counts、per-step produces count、typecheck gate、顶层 quality commands、contract freeze gate、reference drift gate、review matrix/demo checklist diagnostic、顶层 diagnostic commands、governance/view/test/contract artifact upload 路径入口与聚合 produced artifact paths。
+         - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、verify/quality/diagnostic/artifact upload command counts、per-step produces count、typecheck gate、顶层 quality commands、contract freeze gate、reference drift gate、review matrix/review diagnostics/demo checklist diagnostic、顶层 diagnostic commands、governance/view/test/contract artifact upload 路径入口与聚合 produced artifact paths。
         - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
          - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
          - `platform policy sources --json [--compact]` 输出稳定 policy source 合同，直接消费最新 `generated/policy-report.json`。
@@ -227,6 +235,7 @@
         - `platform verify --json [--compact]` 执行验证并直接输出同一 verification report 合同。
          - `platform provenance registry --json [--compact]` 输出稳定 provenance registry 合同，直接消费最新 `provenance.json`。
          - `platform review summary --json [--compact]` 输出稳定 review summary 合同，直接消费最新 `generated/review-summary.json`。
+         - `platform review diagnostics --json [--compact]` 输出稳定 review diagnostics 合同，从同一 `generated/review-summary.json` 派生 failure/risk/conflict 诊断。
          - `npm run test:contract-freeze` 固定运行 `platform contract freeze` runner command 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`，JSON 输出用 runner command 和 failedStage 区分入口与 refresh/diff 阶段。
