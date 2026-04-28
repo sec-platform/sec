@@ -195,12 +195,14 @@
     ]
   },
   "provenanceSummary": {
-    "artifactCount": 54,
-    "verifiedArtifactCount": 20,
-    "unverifiedArtifactCount": 34,
+    "artifactCount": 58,
+    "verifiedArtifactCount": 21,
+    "unverifiedArtifactCount": 37,
     "overrideArtifactCount": 0,
     "registryArtifactCount": 21,
+    "generatedArtifactCount": 58,
     "generatedPassCount": 5,
+    "originSummaryCount": 3,
     "originSummaries": [
       {
         "originType": "block",
@@ -231,7 +233,7 @@
       },
       {
         "originType": "generated",
-        "count": 32,
+        "count": 35,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -253,9 +255,12 @@
           "generated/explain-graph.json",
           "generated/install-manifest.json",
           "generated/policy-report.json",
+          "generated/review-summary.json",
           "generated/routes.ts",
           "generated/runtime-report.json",
           "generated/verification-report.json",
+          "generated/views/slot-rule-view.html",
+          "generated/views/source-view.html",
           "lib/session.ts",
           "lib/store.ts",
           "next-env.d.ts",
@@ -269,16 +274,18 @@
       },
       {
         "originType": "slot",
-        "count": 1,
+        "count": 2,
         "paths": [
-          "custom/customer_normalizer.ts"
+          "custom/customer_normalizer.ts",
+          "source/slots/customer_normalizer.ts"
         ]
       }
     ],
+    "overrideSummaryCount": 1,
     "overrideSummaries": [
       {
         "overrideStatus": "none",
-        "count": 54,
+        "count": 58,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -302,9 +309,12 @@
           "generated/install-manifest.json",
           "generated/policy-report.json",
           "generated/postgres-contract.json",
+          "generated/review-summary.json",
           "generated/routes.ts",
           "generated/runtime-report.json",
           "generated/verification-report.json",
+          "generated/views/slot-rule-view.html",
+          "generated/views/source-view.html",
           "lib/session.ts",
           "lib/store.ts",
           "next-env.d.ts",
@@ -312,6 +322,7 @@
           "package.json",
           "prisma/schema.prisma",
           "provenance.json",
+          "source/slots/customer_normalizer.ts",
           "src/installed/audit/logger.ts",
           "src/installed/auth/authorize.ts",
           "src/installed/auth/session.ts",
@@ -337,6 +348,7 @@
         ]
       }
     ],
+    "registrySummaryCount": 1,
     "registrySummaries": [
       {
         "registrySourceId": "official",
@@ -371,9 +383,10 @@
     "generatedPassSummaries": [
       {
         "pass": "adapt",
-        "count": 1,
+        "count": 2,
         "paths": [
-          "custom/customer_normalizer.ts"
+          "custom/customer_normalizer.ts",
+          "source/slots/customer_normalizer.ts"
         ]
       },
       {
@@ -431,9 +444,12 @@
       },
       {
         "pass": "explain",
-        "count": 1,
+        "count": 4,
         "paths": [
-          "generated/explain-graph.json"
+          "generated/explain-graph.json",
+          "generated/review-summary.json",
+          "generated/views/slot-rule-view.html",
+          "generated/views/source-view.html"
         ]
       },
       {
@@ -475,9 +491,12 @@
       "generated/explain-graph.json",
       "generated/install-manifest.json",
       "generated/policy-report.json",
+      "generated/review-summary.json",
       "generated/routes.ts",
       "generated/runtime-report.json",
       "generated/verification-report.json",
+      "generated/views/slot-rule-view.html",
+      "generated/views/source-view.html",
       "lib/session.ts",
       "lib/store.ts",
       "next-env.d.ts",
@@ -526,6 +545,9 @@
     ],
     "violationSummaries": []
   },
+  "changeSourceCount": 58,
+  "runtimeEntryCount": 9,
+  "installImpactCount": 10,
   "changeSources": [
     {
       "path": "app/api/customers/[customerId]/attachments/route.ts",
@@ -632,7 +654,9 @@
     {
       "path": "custom/customer_normalizer.ts",
       "originType": "slot",
-      "originId": "customer_normalizer"
+      "originId": "customer_normalizer",
+      "sourcePath": "source/slots/customer_normalizer.ts",
+      "runtimeTarget": "custom/customer_normalizer.ts"
     },
     {
       "path": "generated/acceptance-coverage.json",
@@ -668,6 +692,11 @@
       "registryLocation": "compiler"
     },
     {
+      "path": "generated/review-summary.json",
+      "originType": "generated",
+      "originId": "generated/review-summary.json"
+    },
+    {
       "path": "generated/routes.ts",
       "originType": "generated",
       "originId": "generated/routes.ts"
@@ -681,6 +710,16 @@
       "path": "generated/verification-report.json",
       "originType": "generated",
       "originId": "generated/verification-report.json"
+    },
+    {
+      "path": "generated/views/slot-rule-view.html",
+      "originType": "generated",
+      "originId": "generated/views/slot-rule-view.html"
+    },
+    {
+      "path": "generated/views/source-view.html",
+      "originType": "generated",
+      "originId": "generated/views/source-view.html"
     },
     {
       "path": "lib/session.ts",
@@ -719,6 +758,13 @@
       "path": "provenance.json",
       "originType": "generated",
       "originId": "provenance.json"
+    },
+    {
+      "path": "source/slots/customer_normalizer.ts",
+      "originType": "slot",
+      "originId": "customer_normalizer",
+      "sourcePath": "source/slots/customer_normalizer.ts",
+      "runtimeTarget": "custom/customer_normalizer.ts"
     },
     {
       "path": "src/installed/audit/logger.ts",
