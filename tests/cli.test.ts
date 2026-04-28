@@ -87,6 +87,16 @@ function usageErrorStderr(usage: string): string {
   ].join('\n');
 }
 
+const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
+
+async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expect(runCli(workspaceRoot, ['repair', ...args])).resolves.toMatchObject({
+    code: 1,
+    stdout: '',
+    stderr: usageErrorStderr(REPAIR_USAGE)
+  });
+}
+
 async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
   const blockRoot = path.join(privateRegistryRoot, 'private.banner-basic');
@@ -2794,7 +2804,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', { timeout: 1200
   });
 });
 
-test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async () => {
+test('CLI emits repair dry-run JSON for CI consumers', { timeout: 40000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -2918,6 +2928,32 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
 
     const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
     expect(writtenRepairPlan).toEqual(repairPlan);
+
+    const planText = await runCli(workspaceRoot, ['repair', 'plan']);
+    expect(planText.code).toBe(0);
+    expect(planText.stderr).toBe('');
+    expect(planText.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
+    expect(planText.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
+
+    const planJson = await runCli(workspaceRoot, ['repair', 'plan', '--json']);
+    expect(planJson.code).toBe(0);
+    expect(planJson.stderr).toBe('');
+    expect(planJson.stdout).toContain('\n  "status": "pending"');
+    expect(JSON.parse(planJson.stdout)).toEqual(repairPlan);
+
+    const planCompactJson = await runCli(workspaceRoot, ['repair', 'plan', '--json', '--compact']);
+    expect(planCompactJson.code).toBe(0);
+    expect(planCompactJson.stderr).toBe('');
+    expect(planCompactJson.stdout).not.toContain('\n  "status"');
+    expect(JSON.parse(planCompactJson.stdout)).toEqual(repairPlan);
+
+    await withTempWorkspace(async (missingPlanWorkspace) => {
+      await expect(runCli(missingPlanWorkspace, ['repair', 'plan'])).resolves.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: expect.stringContaining('Repair plan not found; run platform repair --dry-run first')
+      });
+    });
 
     const compactResult = await runCli(workspaceRoot, ['repair', '--dry-run', '--json', '--compact']);
     expect(compactResult.code).toBe(0);
@@ -3050,7 +3086,7 @@ test('CLI emits repair dry-run JSON for CI consumers', { timeout: 20000 }, async
   });
 });
 
-test('CLI emits blocked repair JSON for CI consumers', { timeout: 20000 }, async () => {
+test('CLI emits blocked repair JSON for CI consumers', { timeout: 40000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
       code: 0,
@@ -3138,6 +3174,18 @@ test('CLI emits blocked repair JSON for CI consumers', { timeout: 20000 }, async
 
     const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
     expect(writtenRepairPlan).toEqual(repairPlan);
+
+    const planText = await runCli(workspaceRoot, ['repair', 'plan']);
+    expect(planText.code).toBe(0);
+    expect(planText.stderr).toBe('');
+    expect(planText.stdout).toContain('Repair blocked (0 tasks, 1 blockers) (dry-run)');
+    expect(planText.stdout).toContain('Blocker repair_blocker_no_slot_tasks: slot;');
+
+    const planJson = await runCli(workspaceRoot, ['repair', 'plan', '--json', '--compact']);
+    expect(planJson.code).toBe(0);
+    expect(planJson.stderr).toBe('');
+    expect(planJson.stdout).not.toContain('\n  "status"');
+    expect(JSON.parse(planJson.stdout)).toEqual(repairPlan);
 
     const compactResult = await runCli(workspaceRoot, ['repair', '--dry-run', '--json', '--compact']);
     expect(compactResult.code).toBe(1);
@@ -3621,7 +3669,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
   });
 });
 
-test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
+test('CLI reports argument usage errors', { timeout: 60000 }, async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(runCli(workspaceRoot, ['init', '--unknown'])).resolves.toMatchObject({
       code: 1,
@@ -3643,26 +3691,12 @@ test('CLI reports argument usage errors', { timeout: 40000 }, async () => {
       stdout: '',
       stderr: usageErrorStderr('Usage: platform add <block-id>')
     });
-    await expect(runCli(workspaceRoot, ['repair', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform repair [--dry-run] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['repair', '--dry-run', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform repair [--dry-run] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['repair', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform repair [--dry-run] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['repair', '--json', '--compact', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform repair [--dry-run] [--json [--compact]]')
-    });
+    await expectRepairUsageError(workspaceRoot, ['--extra']);
+    await expectRepairUsageError(workspaceRoot, ['--dry-run', '--extra']);
+    await expectRepairUsageError(workspaceRoot, ['--compact']);
+    await expectRepairUsageError(workspaceRoot, ['--json', '--compact', '--extra']);
+    await expectRepairUsageError(workspaceRoot, ['plan', '--compact']);
+    await expectRepairUsageError(workspaceRoot, ['plan', '--json', '--extra']);
     await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
       code: 1,
       stdout: '',
