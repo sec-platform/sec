@@ -15,8 +15,8 @@ import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
+import type { LockFile } from '../shared/lock-types.ts';
 import type {
-  LockFile,
   UpgradeDiagnostics,
   UpgradePlan,
   UpgradePreflightCheck

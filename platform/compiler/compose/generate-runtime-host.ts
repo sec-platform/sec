@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { ensureDir, writeText } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import type { LockFile } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 
 const BASE_RUNTIME_SCAFFOLD_PATHS = [
   'package.json',

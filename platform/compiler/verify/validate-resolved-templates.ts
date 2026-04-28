@@ -7,7 +7,7 @@ import { copyRecursive, removeDir } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { formatCompilerFailure, typecheckProject } from './typecheck-project.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import type { LockFile } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 
 export async function validateResolvedTemplates(workspaceRoot: string, lock: LockFile): Promise<void> {
   const validationRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-template-'));

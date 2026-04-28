@@ -1,4 +1,4 @@
-import type { LockFile } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 
 export type RuntimeEntryKind = 'page' | 'api';
 

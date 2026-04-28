@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
-import type { LockFile } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 
 type CiArtifactKind = 'governance' | 'view' | 'test' | 'contract';
 

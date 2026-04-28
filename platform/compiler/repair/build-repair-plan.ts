@@ -5,15 +5,15 @@ import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
+import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type {
-  LockFile,
   RepairBlocker,
   RepairFailurePoint,
   RepairPlan,
   RepairTask,
   RepairTaskPreview
 } from '../../shared/types.ts';
-import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 
 function summarizeFailure(report: VerificationReport): string {

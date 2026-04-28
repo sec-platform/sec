@@ -7,7 +7,7 @@ import { ensureProjectBase } from '../../shared/project-base.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
-import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/types.ts';
+import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 
 function ensureGeneratedPaths(lock: LockFile, paths: string[]): void {
   for (const generatedPath of paths) {

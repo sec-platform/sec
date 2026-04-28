@@ -1,5 +1,5 @@
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
-import type { LockFile } from '../../shared/types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
 import type {
   AcceptanceCoverageEntry,

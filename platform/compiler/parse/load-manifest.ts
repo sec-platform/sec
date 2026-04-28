@@ -8,7 +8,7 @@ import {
 } from '../../shared/paths.ts';
 import { readYaml } from '../../shared/yaml.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import type { ResolvedBlock } from '../../shared/types.ts';
+import type { ResolvedBlock } from '../../shared/lock-types.ts';
 import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
 import type {
   BlockManifest,

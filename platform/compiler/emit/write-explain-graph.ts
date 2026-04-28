@@ -8,9 +8,9 @@ import { buildRuntimeAttribution } from './runtime-attribution.ts';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type {
-  LockFile,
   RepairPlan,
   UpgradeDiagnostics,
   UpgradePlan
