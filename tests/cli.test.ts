@@ -3194,6 +3194,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', { timeout: 20000 }, asyn
         'Upgrade: planned',
         'auth/basic-session 0.1.0 -> 0.1.1',
         'migrations: 2',
+        `preflight checks: ${upgradePlan.preflightChecks.length}`,
+        'preflight evidence: 10',
         'impacts: 2',
         'operations: 2',
         'operation roles: file=1, json=1',
