@@ -118,6 +118,61 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
       }
     ])
   );
+}, 120000);
+
+test('override-manifest loads developer source layer overrides before legacy overrides', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-source-override-');
+  const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
+
+  await initWorkspace(workspaceRoot, { reset: true });
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+
+  await writeYaml(overrideManifestPath, {
+    overrides: [
+      {
+        id: 'customer-normalizer-legacy-manual',
+        entry: 'patches/customer-normalizer.legacy.ts',
+        target: 'custom/customer_normalizer.ts',
+        reason: 'legacy-override-should-lose-to-source-layer',
+        source: 'manual',
+        appliesAfter: ['adapt'],
+        conflictsWith: []
+      }
+    ]
+  });
+
+  await fs.writeFile(
+    path.join(projectRoot, 'overrides', 'patches', 'customer-normalizer.legacy.ts'),
+    'legacy override path\n',
+    'utf8'
+  );
+
+  await writeYaml(path.join(sourceOverridesRoot, 'override-manifest.yaml'), {
+    overrides: [
+      {
+        id: 'customer-normalizer-source-manual',
+        entry: 'patches/customer-normalizer.source.ts',
+        target: 'custom/customer_normalizer.ts',
+        reason: 'source-layer-override-wins',
+        source: 'manual',
+        appliesAfter: ['adapt'],
+        conflictsWith: []
+      }
+    ]
+  });
+
+  await fs.writeFile(
+    path.join(sourceOverridesRoot, 'patches', 'customer-normalizer.source.ts'),
+    'source layer override path\n',
+    'utf8'
+  );
+
+  await adaptWorkspace(workspaceRoot);
+
+  await expect(fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe(
+    'source layer override path\n'
+  );
 });
 
 test('override-manifest surfaces ticket runtime override attribution', async () => {
@@ -200,4 +255,4 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
         edge.type === 'originates_from'
     )
   ).toBe(true);
-});
+}, 120000);

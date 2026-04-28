@@ -147,6 +147,36 @@ test('policy gate loads uppercase YAML project policy files', async () => {
   });
 });
 
+test('policy gate loads developer source policy files', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-source-layer-');
+  const { sourcePoliciesRoot } = getWorkspacePaths(workspaceRoot);
+
+  await writeCustomerService(workspaceRoot, true);
+  await fs.mkdir(sourcePoliciesRoot, { recursive: true });
+  await writeYaml(path.join(sourcePoliciesRoot, 'tenant-source.yaml'), {
+    policies: [
+      {
+        id: 'source-layer-policy',
+        severity: 'warn',
+        appliesTo: ['entity/customer-basic'],
+        rule: 'tenant_context_must_flow_to_query'
+      }
+    ]
+  });
+
+  const report = await runPolicyGate(workspaceRoot);
+
+  expect(report.status).toBe('passed');
+  expect(report.project.sources).toContainEqual({
+    path: 'project/source/policies/tenant-source.yaml',
+    policyIds: ['source-layer-policy']
+  });
+  expect(report.merged.policies.find((policy) => policy.id === 'source-layer-policy')).toMatchObject({
+    sourceScope: 'project',
+    sourcePath: 'project/source/policies/tenant-source.yaml'
+  });
+});
+
 test('policy gate ignores non-YAML project policy files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ignore-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
