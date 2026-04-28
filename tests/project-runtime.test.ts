@@ -173,6 +173,10 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
     path.join(compilerRoot, 'platform', 'shared', 'error-protocol-contract.ts'),
     'utf8'
   );
+  const contractFreezeSource = await fs.readFile(
+    path.join(compilerRoot, 'platform', 'shared', 'contract-freeze-contract.ts'),
+    'utf8'
+  );
   const processSource = await fs.readFile(path.join(compilerRoot, 'platform', 'shared', 'process.ts'), 'utf8');
 
   expect(rootPackage.scripts['test:budget']).toBe('npm run platform -- test budget --json');
@@ -215,6 +219,8 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(readme).toContain('npm run platform -- deps status --json --compact');
   expect(readme).toContain('npm run platform -- artifacts --paths --json --compact --kind governance');
   expect(readme).toContain('npm run platform -- contract freeze --json --compact');
+  expect(contractFreezeSource).toContain("command: 'npm run platform -- contract freeze --json'");
+  expect(contractFreezeSource).toContain("runnerCommand: 'npm run test:contract-freeze'");
   expect(readme).toContain('npm run platform -- contract errors --json --compact');
   expect(readme).toContain('npm run platform -- contract ci --json --compact');
   expect(readme).toContain('produced artifact paths');

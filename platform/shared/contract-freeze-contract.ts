@@ -8,6 +8,7 @@ export type ContractFreezeContract = {
   formatVersion: '1';
   status: 'active';
   command: string;
+  runnerCommand: string;
   targetFileCount: number;
   targetFiles: string[];
   targetCount: number;
@@ -82,7 +83,8 @@ export function buildContractFreezeContract(): ContractFreezeContract {
   return {
     formatVersion: '1',
     status: 'active',
-    command: 'npm run test:contract-freeze',
+    command: 'npm run platform -- contract freeze --json',
+    runnerCommand: 'npm run test:contract-freeze',
     targetFileCount: targetFiles.length,
     targetFiles,
     targetCount: targets.length,
@@ -97,6 +99,7 @@ export function formatContractFreezeContract(contract: ContractFreezeContract): 
   return [
     `Contract freeze ${contract.status}`,
     `Command: ${contract.command}`,
+    `Runner command: ${contract.runnerCommand}`,
     `Target files: ${contract.targetFileCount}`,
     `Target file list: ${contract.targetFiles.join(', ')}`,
     `Targets: ${contract.targetCount}`,
