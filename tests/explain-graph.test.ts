@@ -277,6 +277,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         label: 'verification skipped'
       },
       {
+        id: 'upgrade:entity/customer-basic:0.2.0:preflight:override-conflicts',
+        type: 'upgrade',
+        label: 'override-conflicts'
+      },
+      {
         id: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         type: 'upgrade',
         label: 'UPGRADE-CONFLICT-001'
@@ -303,6 +308,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       {
         from: 'upgrade:entity/customer-basic:0.2.0',
         to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        type: 'depends_on'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0',
+        to: 'upgrade:entity/customer-basic:0.2.0:preflight:override-conflicts',
         type: 'depends_on'
       },
       {
@@ -335,6 +345,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        type: 'connects_to'
+      },
+      {
+        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
+        to: 'upgrade:entity/customer-basic:0.2.0:preflight:override-conflicts',
         type: 'connects_to'
       },
       {

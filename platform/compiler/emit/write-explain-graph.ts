@@ -297,6 +297,20 @@ export async function buildExplainGraph(
       type: 'connects_to'
     });
 
+    for (const check of upgradePlan.preflightChecks) {
+      const checkNodeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}:preflight:${check.id}`;
+      pushNode(nodes, {
+        id: checkNodeId,
+        type: 'upgrade',
+        label: check.id
+      });
+      pushEdge(edges, {
+        from: upgradeNodeId,
+        to: checkNodeId,
+        type: 'depends_on'
+      });
+    }
+
     for (const impact of upgradePlan.impacts) {
       const fileNodeId = `file:${impact}`;
       pushNode(nodes, {
@@ -388,6 +402,18 @@ export async function buildExplainGraph(
       to: upgradePlan ? planNodeId : `block:${upgradeDiagnostics.blockId}`,
       type: 'connects_to'
     });
+    const failedCheckNodeId = `${planNodeId}:preflight:${upgradeDiagnostics.failedCheck}`;
+    pushNode(nodes, {
+      id: failedCheckNodeId,
+      type: 'upgrade',
+      label: upgradeDiagnostics.failedCheck
+    });
+    pushEdge(edges, {
+      from: diagnosticsNodeId,
+      to: failedCheckNodeId,
+      type: 'connects_to'
+    });
+
     const migrationId = readUpgradeDiagnosticsString(upgradeDiagnostics, 'migrationId');
     if (upgradePlan && migrationId) {
       pushEdge(edges, {
