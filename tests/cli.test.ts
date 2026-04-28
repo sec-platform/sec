@@ -1537,6 +1537,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         unverifiedArtifactCount: 3,
         overrideArtifactCount: 1,
         registryArtifactCount: 2,
+        generatedArtifactCount: 2,
         generatedPassCount: 2,
         originSummaryCount: 0,
         originSummaries: [],
@@ -1663,7 +1664,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('CI attention; failures=1; risks=2; conflicts=3');
     expect(textResult.stdout).toContain('Impact blocks=1; slots=1; runtime=1; changeSources=1; installImpacts=1');
     expect(textResult.stdout).toContain('Coverage failed; blocks=1/2; slots=1/1');
-    expect(textResult.stdout).toContain('Provenance artifacts=5; registry=2; unverified=3');
+    expect(textResult.stdout).toContain('Provenance artifacts=5; registry=2; generated=2; unverified=3');
     expect(textResult.stdout).toContain(
       'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2'
     );
@@ -1685,7 +1686,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       installImpactCount: 1,
       chainSummary: { status: 'attention', stageCount: 4 },
       coverageSummary: { status: 'failed', uncoveredBlocks: ['tenant/basic-workspace'] },
-      provenanceSummary: { artifactCount: 5 },
+      provenanceSummary: { artifactCount: 5, generatedArtifactCount: 2 },
       upgradeSummary: {
         status: 'blocked',
         diagnostics: {
@@ -1825,6 +1826,7 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
           artifactCount: number;
           overrideArtifactCount: number;
           registryArtifactCount: number;
+          generatedArtifactCount: number;
           unverifiedArtifactCount: number;
           originSummaryCount: number;
           originSummaries: Array<{ originType: string; count: number; paths: string[] }>;
@@ -1934,6 +1936,7 @@ test('CLI emits explain JSON for CI consumers', { timeout: 120000 }, async () =>
     expect(payload.reviewSummary.provenanceSummary).toMatchObject({
       overrideArtifactCount: 0,
       registryArtifactCount: expect.any(Number),
+      generatedArtifactCount: expect.any(Number),
       unverifiedArtifactCount: expect.any(Number),
       originSummaryCount: expect.any(Number),
       overrideSummaryCount: expect.any(Number),

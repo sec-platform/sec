@@ -910,6 +910,7 @@ function formatReviewSummaryContract(summary: ReviewSummary): string {
     [
       `Provenance artifacts=${provenance?.artifactCount ?? 0}`,
       `registry=${provenance?.registryArtifactCount ?? 0}`,
+      `generated=${provenance?.generatedArtifactCount ?? 0}`,
       `unverified=${provenance?.unverifiedArtifactCount ?? 0}`
     ].join('; '),
     [

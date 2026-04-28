@@ -526,6 +526,7 @@ function renderProvenanceSummaryCard(review: ReviewSummary): string {
     ['Unverified Artifacts', String(provenance.unverifiedArtifactCount)],
     ['Override Artifacts', String(provenance.overrideArtifactCount)],
     ['Registry Artifacts', String(provenance.registryArtifactCount)],
+    ['Generated Artifacts', String(provenance.generatedArtifactCount)],
     ['Generated Passes', String(provenance.generatedPassCount)]
   ]
     .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)

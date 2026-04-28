@@ -354,6 +354,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
       unverifiedArtifactCount: number;
       overrideArtifactCount: number;
       registryArtifactCount: number;
+      generatedArtifactCount: number;
       generatedPassCount: number;
       originSummaryCount: number;
       originSummaries: Array<{ originType: string; count: number; paths: string[] }>;
@@ -560,6 +561,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
     unverifiedArtifactCount: 3,
     overrideArtifactCount: 1,
     registryArtifactCount: 1,
+    generatedArtifactCount: 3,
     generatedPassCount: 3,
     originSummaryCount: 2,
     originSummaries: [
@@ -1061,6 +1063,7 @@ test('write-local-views consumes generated artifacts from disk', { timeout: 1200
   expect(sourceView).toContain('Provenance Summary');
   expect(sourceView).toContain('<td>Artifacts</td><td>4</td>');
   expect(sourceView).toContain('<td>Override Artifacts</td><td>1</td>');
+  expect(sourceView).toContain('<td>Generated Artifacts</td><td>3</td>');
   expect(sourceView).toContain('Provenance Origin Summary');
   expect(sourceView).toContain('Provenance Override Summary');
   expect(sourceView).toContain('Provenance Registry Summary');

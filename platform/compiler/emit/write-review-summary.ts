@@ -322,6 +322,7 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
     unverifiedArtifactCount: unverifiedArtifacts.length,
     overrideArtifactCount: provenance.artifacts.filter((artifact) => artifact.overrideStatus !== 'none').length,
     registryArtifactCount: registryArtifacts.length,
+    generatedArtifactCount: generatedPassArtifacts.length,
     generatedPassCount: generatedPassSummaries.length,
     originSummaryCount: originSummaries.length,
     originSummaries,

@@ -64,7 +64,7 @@ Use these entry commands for normal development:
 - `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
 - `npm run platform -- provenance registry`: inspect the latest provenance registry
 - `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
-- `npm run platform -- review summary`: inspect the latest review summary, including top-level activity counts, provenance summary counts, artifact upload group, and missing reason type counts
+- `npm run platform -- review summary`: inspect the latest review summary, including top-level activity counts, provenance generated artifact count and summary counts, artifact upload group, and missing reason type counts
 - `npm run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including migration operation count
@@ -146,7 +146,7 @@ Workbench and IDE integrations must preserve this boundary:
 ## Governance Artifacts
 
 - `verify` writes governance artifacts under `project/generated/`, including `verification-report.json`, `runtime-report.json`, `policy-report.json`, and `acceptance-coverage.json`.
-- `explain` writes `project/generated/explain-graph.json`, `project/generated/review-summary.json`, and the local HTML views under `project/generated/views/`; its JSON review summary includes top-level activity counts and provenance group counts, and its text output and E2E evidence include artifact upload group, missing reason type, and per-stage evidence counts.
+- `explain` writes `project/generated/explain-graph.json`, `project/generated/review-summary.json`, and the local HTML views under `project/generated/views/`; its JSON review summary includes top-level activity counts, provenance generated artifact count, and provenance group counts, and its text output and E2E evidence include artifact upload group, missing reason type, and per-stage evidence counts.
 - Governance contract freeze currently covers: `project/graph.lock.json`, `project/provenance.json`, `project/generated/verification-report.json`, `project/generated/runtime-report.json`, `project/generated/policy-report.json`, `project/generated/acceptance-coverage.json`, `project/generated/explain-graph.json`, and `project/generated/review-summary.json`.
 - CI restores a complete governance view from exactly three stable paths: `project/generated/**`, `project/provenance.json`, and `project/graph.lock.json`; artifact manifests expose upload group counts and missing reason type counts for upload planning.
 - `.shared-deps/` is a local Bun/npm cache used to warm runtime dependencies; it is intentionally ignored and is not part of the shipped governance artifacts.

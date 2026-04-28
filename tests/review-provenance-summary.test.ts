@@ -130,6 +130,7 @@ test('review summary surfaces provenance summary', async () => {
       unverifiedArtifactCount: 3,
       overrideArtifactCount: 1,
       registryArtifactCount: 1,
+      generatedArtifactCount: 4,
       generatedPassCount: 3,
       originSummaryCount: 4,
       overrideSummaryCount: 2,

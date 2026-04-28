@@ -144,7 +144,7 @@
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
        - `platform explain` 普通文本输出 artifact upload group count 与 missing reason type count。
        - E2E artifacts evidence 输出 artifact upload group count、missing reason type count 与 per-stage evidenceCount。
-       - `platform review summary --json [--compact]` 输出稳定 top-level activity counts 与 provenance origin/override/registry summary counts。
+       - `platform review summary --json [--compact]` 输出稳定 top-level activity counts、provenance generated artifact count 与 provenance origin/override/registry summary counts。
        - repair summary JSON 输出稳定 targetFileCount 与 targetFiles。
        - `platform review summary` 普通文本输出 artifact upload group count 与 missing reason type count。
        - `platform artifacts --json --compact` 输出稳定单行 artifact manifest。
@@ -844,6 +844,7 @@
        - unverified artifact count。
        - override artifact count。
        - registry artifact count。
+       - generated artifact count。
        - generated pass count。
      - origin summary：
        - origin type。
