@@ -37,6 +37,7 @@
     "components/**/*.tsx",
     "lib/**/*.ts",
     "src/**/*.ts",
+    "source/**/*.ts",
     "tests/**/*.ts",
     "tests/**/*.tsx",
     "custom/**/*.ts",
