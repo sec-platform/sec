@@ -773,9 +773,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'npm run platform -- benchmark suite --json --compact',
       'npm run platform -- reference check --json --compact'
     ],
-    diagnosticCommandCount: 3,
+    diagnosticCommandCount: 4,
     diagnosticCommands: [
       'npm run platform -- review summary --json --compact',
+      'npm run platform -- review matrix --json --compact',
       'npm run platform -- explain --json --compact',
       'npm run platform -- demo checklist --json --compact'
     ],
@@ -795,7 +796,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'project/generated/runtime-report.json',
       'project/generated/verification-report.json'
     ],
-    stepCount: 14,
+    stepCount: 15,
     steps: expect.arrayContaining([
       expect.objectContaining({
         id: 'pr-fast-verify',
@@ -850,6 +851,13 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         produces: []
       }),
       expect.objectContaining({
+        id: 'diagnostic-review-matrix',
+        phase: 'diagnostics',
+        command: 'npm run platform -- review matrix --json --compact',
+        producesCount: 0,
+        produces: []
+      }),
+      expect.objectContaining({
         id: 'diagnostic-demo-checklist',
         phase: 'diagnostics',
         command: 'npm run platform -- demo checklist --json --compact',
@@ -882,9 +890,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain(
       'Quality commands: npm run typecheck, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
     );
-    expect(textResult.stdout).toContain('Diagnostic command count: 3');
+    expect(textResult.stdout).toContain('Diagnostic command count: 4');
     expect(textResult.stdout).toContain(
-      'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- explain --json --compact, npm run platform -- demo checklist --json --compact'
+      'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- review matrix --json --compact, npm run platform -- explain --json --compact, npm run platform -- demo checklist --json --compact'
     );
     expect(textResult.stdout).toContain('Artifact upload command count: 4');
     expect(textResult.stdout).toContain(
@@ -900,6 +908,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Step contract-freeze; phase=quality; command=npm run test:contract-freeze');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
     expect(textResult.stdout).toContain('Step reference-drift; phase=quality; command=npm run platform -- reference check --json --compact');
+    expect(textResult.stdout).toContain('Step diagnostic-review-matrix; phase=diagnostics; command=npm run platform -- review matrix --json --compact; producesCount=0');
     expect(textResult.stdout).toContain('Step diagnostic-demo-checklist; phase=diagnostics; command=npm run platform -- demo checklist --json --compact; producesCount=0');
     expect(textResult.stdout).toContain('Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract');
 
@@ -922,9 +931,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- benchmark suite --json --compact',
         'npm run platform -- reference check --json --compact'
       ],
-      diagnosticCommandCount: 3,
+      diagnosticCommandCount: 4,
       diagnosticCommands: [
         'npm run platform -- review summary --json --compact',
+        'npm run platform -- review matrix --json --compact',
         'npm run platform -- explain --json --compact',
         'npm run platform -- demo checklist --json --compact'
       ],
@@ -934,10 +944,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'project/generated/ci-artifacts.json',
         'project/generated/verification-report.json'
       ]),
-      stepCount: 14,
+      stepCount: 15,
       steps: expect.arrayContaining([
         expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
         expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
+        expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
         expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
       ])
     });
@@ -962,9 +973,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- benchmark suite --json --compact',
         'npm run platform -- reference check --json --compact'
       ],
-      diagnosticCommandCount: 3,
+      diagnosticCommandCount: 4,
       diagnosticCommands: [
         'npm run platform -- review summary --json --compact',
+        'npm run platform -- review matrix --json --compact',
         'npm run platform -- explain --json --compact',
         'npm run platform -- demo checklist --json --compact'
       ],
@@ -972,7 +984,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       artifactPathCount: 6,
       steps: expect.arrayContaining([
         expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
-        expect.objectContaining({ id: 'typecheck', producesCount: 0 })
+        expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
+        expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
+        expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
       ])
     });
   });
