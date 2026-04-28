@@ -169,12 +169,12 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
   };
 }
 
-export async function runDepsCommand(args: string[]): Promise<void> {
+export async function runDepsCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const [subcommand, ...subArgs] = args;
   switch (subcommand) {
     case 'status': {
       const outputArgs = parseDepsOutputArgs(subArgs);
-      const status = await getDependencyEnvironmentStatus(process.cwd());
+      const status = await getDependencyEnvironmentStatus(cwd);
       if (outputArgs.json) {
         console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
         return;
@@ -184,7 +184,7 @@ export async function runDepsCommand(args: string[]): Promise<void> {
     }
     case 'warmup': {
       const outputArgs = parseDepsOutputArgs(subArgs);
-      const status = await warmupDependencyEnvironment(process.cwd());
+      const status = await warmupDependencyEnvironment(cwd);
       if (outputArgs.json) {
         console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
         return;
@@ -197,7 +197,7 @@ export async function runDepsCommand(args: string[]): Promise<void> {
         throw new Error(DEPS_USAGE);
       }
       const outputArgs = parseDepsOutputArgs(subArgs.slice(1));
-      const status = await relinkProjectDependencies(process.cwd());
+      const status = await relinkProjectDependencies(cwd);
       if (outputArgs.json) {
         console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
         return;
@@ -207,7 +207,7 @@ export async function runDepsCommand(args: string[]): Promise<void> {
     }
     case 'clean': {
       const cleanOptions = parseDepsCleanArgs(subArgs);
-      const removed = await cleanDependencyEnvironment(process.cwd(), cleanOptions);
+      const removed = await cleanDependencyEnvironment(cwd, cleanOptions);
       console.log(`Cleaned ${removed.length} dependency paths`);
       return;
     }
@@ -263,9 +263,9 @@ export async function runTestCommand(args: string[]): Promise<void> {
   console.log(formatTestBudgetContract(contract));
 }
 
-export async function runPolicyCommand(args: string[]): Promise<void> {
+export async function runPolicyCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const policyArgs = parsePolicyArgs(args);
-  const { policyReportPath } = getWorkspacePaths(process.cwd());
+  const { policyReportPath } = getWorkspacePaths(cwd);
   if (!(await pathExists(policyReportPath))) {
     throw new Error('Policy report not found; run platform verify first');
   }
@@ -289,9 +289,9 @@ export async function runPolicyCommand(args: string[]): Promise<void> {
   console.log(formatPolicyReport(buildPolicySummary(report)));
 }
 
-export async function runAcceptanceCommand(args: string[]): Promise<void> {
+export async function runAcceptanceCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const acceptanceArgs = parseAcceptanceArgs(args);
-  const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
+  const { acceptanceCoveragePath } = getWorkspacePaths(cwd);
   if (!(await pathExists(acceptanceCoveragePath))) {
     throw new Error('Acceptance coverage report not found; run platform verify first');
   }
@@ -315,9 +315,9 @@ export async function runAcceptanceCommand(args: string[]): Promise<void> {
   console.log(formatAcceptanceCoverage(report));
 }
 
-export async function runRuntimeCommand(args: string[]): Promise<void> {
+export async function runRuntimeCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const outputArgs = parseRuntimeOutputArgs(args);
-  const { runtimeReportPath } = getWorkspacePaths(process.cwd());
+  const { runtimeReportPath } = getWorkspacePaths(cwd);
   if (!(await pathExists(runtimeReportPath))) {
     throw new Error('Runtime report not found; run platform verify first');
   }
@@ -341,13 +341,13 @@ export async function runRuntimeCommand(args: string[]): Promise<void> {
   console.log(formatRuntimeReport(report));
 }
 
-export async function runInstallCommand(args: string[]): Promise<void> {
+export async function runInstallCommand(args: string[], cwd = process.cwd()): Promise<void> {
   if (args[0] !== 'manifest') {
     throw new Error(INSTALL_USAGE);
   }
 
   const outputArgs = parseInstallOutputArgs(args.slice(1));
-  const { installManifestPath } = getWorkspacePaths(process.cwd());
+  const { installManifestPath } = getWorkspacePaths(cwd);
   if (!(await pathExists(installManifestPath))) {
     throw new Error('Install manifest not found; run platform compose first');
   }
@@ -361,13 +361,13 @@ export async function runInstallCommand(args: string[]): Promise<void> {
   console.log(formatInstallManifest(manifest));
 }
 
-export async function runBlocksCommand(args: string[]): Promise<void> {
+export async function runBlocksCommand(args: string[], cwd = process.cwd()): Promise<void> {
   if (args[0] !== 'usage') {
     throw new Error(BLOCKS_USAGE);
   }
 
   const outputArgs = parseBlocksOutputArgs(args.slice(1));
-  const { blockUsageMapPath } = getWorkspacePaths(process.cwd());
+  const { blockUsageMapPath } = getWorkspacePaths(cwd);
   if (!(await pathExists(blockUsageMapPath))) {
     throw new Error('Block usage map not found; run platform compose first');
   }
@@ -381,13 +381,13 @@ export async function runBlocksCommand(args: string[]): Promise<void> {
   console.log(formatBlockUsageMap(usageMap));
 }
 
-export async function runPostgresCommand(args: string[]): Promise<void> {
+export async function runPostgresCommand(args: string[], cwd = process.cwd()): Promise<void> {
   if (args[0] !== 'contract') {
     throw new Error(POSTGRES_USAGE);
   }
 
   const outputArgs = parsePostgresOutputArgs(args.slice(1));
-  const { postgresContractPath } = getWorkspacePaths(process.cwd());
+  const { postgresContractPath } = getWorkspacePaths(cwd);
   if (!(await pathExists(postgresContractPath))) {
     throw new Error('Postgres contract not found; run platform compose first');
   }
@@ -401,13 +401,13 @@ export async function runPostgresCommand(args: string[]): Promise<void> {
   console.log(formatPostgresContract(contract));
 }
 
-export async function runVerificationCommand(args: string[]): Promise<void> {
+export async function runVerificationCommand(args: string[], cwd = process.cwd()): Promise<void> {
   if (args[0] !== 'report') {
     throw new Error(VERIFICATION_USAGE);
   }
 
   const outputArgs = parseVerificationOutputArgs(args.slice(1));
-  const { verificationReportPath } = getWorkspacePaths(process.cwd());
+  const { verificationReportPath } = getWorkspacePaths(cwd);
   if (!(await pathExists(verificationReportPath))) {
     throw new Error('Verification report not found; run platform verify first');
   }
@@ -421,13 +421,13 @@ export async function runVerificationCommand(args: string[]): Promise<void> {
   console.log(formatVerificationReport(report));
 }
 
-export async function runProvenanceCommand(args: string[]): Promise<void> {
+export async function runProvenanceCommand(args: string[], cwd = process.cwd()): Promise<void> {
   if (args[0] !== 'registry') {
     throw new Error(PROVENANCE_USAGE);
   }
 
   const outputArgs = parseProvenanceOutputArgs(args.slice(1));
-  const { provenancePath } = getWorkspacePaths(process.cwd());
+  const { provenancePath } = getWorkspacePaths(cwd);
   if (!(await pathExists(provenancePath))) {
     throw new Error('Provenance registry not found; run platform adapt or lock first');
   }
@@ -441,9 +441,9 @@ export async function runProvenanceCommand(args: string[]): Promise<void> {
   console.log(formatProvenanceRegistry(provenance));
 }
 
-export async function runReviewCommand(args: string[]): Promise<void> {
+export async function runReviewCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const reviewArgs = parseReviewArgs(args);
-  const { reviewSummaryPath } = getWorkspacePaths(process.cwd());
+  const { reviewSummaryPath } = getWorkspacePaths(cwd);
   if (!(await pathExists(reviewSummaryPath))) {
     throw new Error('Review summary not found; run platform explain first');
   }
@@ -477,13 +477,13 @@ export async function runReviewCommand(args: string[]): Promise<void> {
   console.log(formatReviewSummaryContract(summary));
 }
 
-export async function runDemoCommand(args: string[]): Promise<void> {
+export async function runDemoCommand(args: string[], cwd = process.cwd()): Promise<void> {
   if (args[0] !== 'checklist') {
     throw new Error(DEMO_USAGE);
   }
 
   const outputArgs = parseDemoOutputArgs(args.slice(1));
-  const checklist = await buildDemoChecklist(process.cwd());
+  const checklist = await buildDemoChecklist(cwd);
   if (outputArgs.json) {
     console.log(JSON.stringify(checklist, null, outputArgs.compact ? 0 : 2));
     return;
