@@ -390,36 +390,7 @@ export interface LockFile {
   passStatus: PassStatus;
 }
 
-export interface WorkspacePaths {
-  workspaceRoot: string;
-  projectRoot: string;
-  privateRegistryRoot: string;
-  generatedViewsDir: string;
-  planPath: string;
-  lockPath: string;
-  generatedDir: string;
-  blockUsageMapPath: string;
-  postgresContractPath: string;
-  overrideManifestPath: string;
-  policySpecPath: string;
-  officialPoliciesRoot: string;
-  projectPoliciesRoot: string;
-  installManifestPath: string;
-  verificationReportPath: string;
-  acceptanceCoveragePath: string;
-  policyReportPath: string;
-  runtimeReportPath: string;
-  explainGraphPath: string;
-  reviewSummaryPath: string;
-  ciArtifactsPath: string;
-  sourceViewPath: string;
-  slotRuleViewPath: string;
-  repairPlanPath: string;
-  upgradePlanPath: string;
-  upgradeDiagnosticsPath: string;
-  projectPackagePath: string;
-  provenancePath: string;
-}
+export type { WorkspacePaths } from './workspace-types.ts';
 
 export interface TaskEnvelope {
   taskId: string;
