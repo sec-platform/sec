@@ -252,6 +252,7 @@ test('error protocol, closed loop entry, and test lane map stay frozen in develo
   expect(protocolSource).toContain("code.startsWith('UPGRADE-MIGRATION-')");
   expect(protocolSource).toContain("code.startsWith('UPGRADE-')");
   expect(protocolContractSource).toContain("command: 'npm run platform -- contract errors --json'");
+  expect(protocolContractSource).toContain('issueTypeCount');
   expect(protocolContractSource).toContain('artifactPathCount');
   expect(protocolContractSource).toContain('artifactPaths');
   expect(protocolContractSource).toContain("id: 'verify-blocked-error'");

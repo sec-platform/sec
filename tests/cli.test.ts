@@ -863,6 +863,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     status: 'active',
     command: 'npm run platform -- contract errors --json',
     exampleCount: 12,
+    issueTypeCount: 5,
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
     artifactPathCount: 5,
     artifactPaths: [
@@ -972,6 +973,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Error protocol active');
+    expect(textResult.stdout).toContain('Issue type count: 5');
     expect(textResult.stdout).toContain('Artifact paths: 5');
     expect(textResult.stdout).toContain('Artifact path list: project/generated/repair-plan.json, project/generated/review-summary.json, project/generated/upgrade-diagnostics.json, project/generated/upgrade-plan.json, project/generated/verification-report.json');
     expect(textResult.stdout).toContain('Example repair-plan-error; code=REPAIR-BLOCKED-001');
@@ -983,6 +985,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
       exampleCount: 12,
+      issueTypeCount: 5,
       suggestedActionCount: 18,
       artifactPathCount: 5
     });
@@ -994,6 +997,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
       exampleCount: 12,
+      issueTypeCount: 5,
       artifactPathCount: 5
     });
   });

@@ -49,7 +49,7 @@ Use these entry commands for normal development:
 - `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts with upload group counts
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors`: inspect the error protocol contract
-- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including diagnostic artifact paths
+- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
 - `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, diagnostic, artifact upload commands, command counts, and produced artifact paths
 - `npm run platform -- test budget`: inspect the fast/runtime/all slow-test budget
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, and slow lane IDs
@@ -122,7 +122,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
 - `npm run reference:check`: run the formal reference drift gate through the runner command exposed by `platform reference check`
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
-- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including diagnostic artifact paths
+- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
 - `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, diagnostic, artifact upload commands, command counts, and produced artifact paths
 - `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, and slow lane IDs
 - `npm run platform -- policy report --json --compact`: emit the compact policy governance report
