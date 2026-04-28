@@ -99,6 +99,13 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     ]
   },
   {
+    id: 'diagnostic-demo-checklist',
+    phase: 'diagnostics',
+    command: 'npm run platform -- demo checklist --json --compact',
+    purpose: 'Expose whether existing governance artifacts satisfy local demo readiness.',
+    produces: []
+  },
+  {
     id: 'governance-artifacts',
     phase: 'artifacts',
     command: 'npm run platform -- artifacts --paths --json --compact --kind governance',
