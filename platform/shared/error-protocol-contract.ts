@@ -17,6 +17,7 @@ export type ErrorProtocolContract = {
   command: string;
   exampleCount: number;
   examples: ErrorProtocolExample[];
+  issueTypeCount: number;
   issueTypes: ErrorProtocol['issueType'][];
   suggestedActionCount: number;
   artifactPathCount: number;
@@ -115,6 +116,7 @@ export function buildErrorProtocolContract(): ErrorProtocolContract {
     command: 'npm run platform -- contract errors --json',
     exampleCount: examples.length,
     examples,
+    issueTypeCount: issueTypes.length,
     issueTypes,
     suggestedActionCount: suggestedActions.size,
     artifactPathCount: artifactPaths.length,
@@ -127,6 +129,7 @@ export function formatErrorProtocolContract(contract: ErrorProtocolContract): st
     `Error protocol ${contract.status}`,
     `Command: ${contract.command}`,
     `Examples: ${contract.exampleCount}`,
+    `Issue type count: ${contract.issueTypeCount}`,
     `Issue types: ${contract.issueTypes.join(', ')}`,
     `Suggested actions: ${contract.suggestedActionCount}`,
     `Artifact paths: ${contract.artifactPathCount}`,
