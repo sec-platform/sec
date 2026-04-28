@@ -12,9 +12,13 @@ export type CiContract = {
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
+  verifyCommandCount: number;
   verifyCommands: string[];
+  qualityCommandCount: number;
   qualityCommands: string[];
+  diagnosticCommandCount: number;
   diagnosticCommands: string[];
+  artifactUploadCommandCount: number;
   artifactUploadCommands: string[];
   artifactPathCount: number;
   artifactPaths: string[];
@@ -124,6 +128,18 @@ const ciSteps: CiContractStep[] = [
 ];
 
 export function buildCiContract(): CiContract {
+  const verifyCommands = ciSteps
+    .filter((step) => step.phase === 'verify')
+    .map((step) => step.command);
+  const qualityCommands = ciSteps
+    .filter((step) => step.phase === 'quality')
+    .map((step) => step.command);
+  const diagnosticCommands = ciSteps
+    .filter((step) => step.phase === 'diagnostics')
+    .map((step) => step.command);
+  const artifactUploadCommands = ciSteps
+    .filter((step) => step.phase === 'artifacts')
+    .map((step) => step.command);
   const artifactPaths = [...new Set(ciSteps.flatMap((step) => step.produces))].sort((left, right) =>
     left.localeCompare(right)
   );
@@ -134,18 +150,14 @@ export function buildCiContract(): CiContract {
     command: 'npm run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
-    verifyCommands: ciSteps
-      .filter((step) => step.phase === 'verify')
-      .map((step) => step.command),
-    qualityCommands: ciSteps
-      .filter((step) => step.phase === 'quality')
-      .map((step) => step.command),
-    diagnosticCommands: ciSteps
-      .filter((step) => step.phase === 'diagnostics')
-      .map((step) => step.command),
-    artifactUploadCommands: ciSteps
-      .filter((step) => step.phase === 'artifacts')
-      .map((step) => step.command),
+    verifyCommandCount: verifyCommands.length,
+    verifyCommands,
+    qualityCommandCount: qualityCommands.length,
+    qualityCommands,
+    diagnosticCommandCount: diagnosticCommands.length,
+    diagnosticCommands,
+    artifactUploadCommandCount: artifactUploadCommands.length,
+    artifactUploadCommands,
     artifactPathCount: artifactPaths.length,
     artifactPaths,
     stepCount: ciSteps.length,
@@ -162,9 +174,13 @@ export function formatCiContract(contract: CiContract): string {
     `Command: ${contract.command}`,
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
+    `Verify command count: ${contract.verifyCommandCount}`,
     `Verify commands: ${contract.verifyCommands.join(', ')}`,
+    `Quality command count: ${contract.qualityCommandCount}`,
     `Quality commands: ${contract.qualityCommands.join(', ')}`,
+    `Diagnostic command count: ${contract.diagnosticCommandCount}`,
     `Diagnostic commands: ${contract.diagnosticCommands.join(', ')}`,
+    `Artifact upload command count: ${contract.artifactUploadCommandCount}`,
     `Artifact uploads: ${contract.artifactUploadCommands.join(', ')}`,
     `Artifact paths: ${contract.artifactPathCount}`,
     `Artifact path list: ${contract.artifactPaths.join(', ')}`,

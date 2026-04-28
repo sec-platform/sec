@@ -662,10 +662,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     command: 'npm run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    verifyCommandCount: 2,
     verifyCommands: [
       'npm run platform -- verify --json --compact',
       'npm run platform -- verify --lane all --json --compact'
     ],
+    qualityCommandCount: 5,
     qualityCommands: [
       'npm run typecheck',
       'npm run platform -- test budget --json --compact',
@@ -673,10 +675,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'npm run platform -- benchmark suite --json --compact',
       'npm run platform -- reference check --json --compact'
     ],
+    diagnosticCommandCount: 2,
     diagnosticCommands: [
       'npm run platform -- review summary --json --compact',
       'npm run platform -- explain --json --compact'
     ],
+    artifactUploadCommandCount: 4,
     artifactUploadCommands: [
       'npm run platform -- artifacts --paths --json --compact --kind governance',
       'npm run platform -- artifacts --paths --json --compact --kind view',
@@ -757,15 +761,19 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.code).toBe(0);
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('CI contract active');
+    expect(textResult.stdout).toContain('Verify command count: 2');
     expect(textResult.stdout).toContain(
       'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact'
     );
+    expect(textResult.stdout).toContain('Quality command count: 5');
     expect(textResult.stdout).toContain(
       'Quality commands: npm run typecheck, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
     );
+    expect(textResult.stdout).toContain('Diagnostic command count: 2');
     expect(textResult.stdout).toContain(
       'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- explain --json --compact'
     );
+    expect(textResult.stdout).toContain('Artifact upload command count: 4');
     expect(textResult.stdout).toContain(
       'Artifact uploads: npm run platform -- artifacts --paths --json --compact --kind governance, npm run platform -- artifacts --paths --json --compact --kind view, npm run platform -- artifacts --paths --json --compact --kind test, npm run platform -- artifacts --paths --json --compact --kind contract'
     );
@@ -787,10 +795,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
       defaultGate: 'pr-fast-verify',
+      verifyCommandCount: 2,
       verifyCommands: [
         'npm run platform -- verify --json --compact',
         'npm run platform -- verify --lane all --json --compact'
       ],
+      qualityCommandCount: 5,
       qualityCommands: [
         'npm run typecheck',
         'npm run platform -- test budget --json --compact',
@@ -798,10 +808,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- benchmark suite --json --compact',
         'npm run platform -- reference check --json --compact'
       ],
+      diagnosticCommandCount: 2,
       diagnosticCommands: [
         'npm run platform -- review summary --json --compact',
         'npm run platform -- explain --json --compact'
       ],
+      artifactUploadCommandCount: 4,
       artifactPathCount: 6,
       artifactPaths: expect.arrayContaining([
         'project/generated/ci-artifacts.json',
@@ -817,10 +829,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
       fullRuntimeGate: 'full-runtime-verify',
+      verifyCommandCount: 2,
       verifyCommands: [
         'npm run platform -- verify --json --compact',
         'npm run platform -- verify --lane all --json --compact'
       ],
+      qualityCommandCount: 5,
       qualityCommands: [
         'npm run typecheck',
         'npm run platform -- test budget --json --compact',
@@ -828,10 +842,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- benchmark suite --json --compact',
         'npm run platform -- reference check --json --compact'
       ],
+      diagnosticCommandCount: 2,
       diagnosticCommands: [
         'npm run platform -- review summary --json --compact',
         'npm run platform -- explain --json --compact'
       ],
+      artifactUploadCommandCount: 4,
       artifactPathCount: 6
     });
   });
