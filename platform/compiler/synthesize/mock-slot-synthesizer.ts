@@ -1,4 +1,4 @@
-import type { TaskEnvelope } from '../../shared/types.ts';
+import type { TaskEnvelope } from '../../shared/task-envelope-types.ts';
 
 function parseRules(description: string): {
   requireName: boolean;
