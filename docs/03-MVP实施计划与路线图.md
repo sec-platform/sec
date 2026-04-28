@@ -160,7 +160,7 @@
        - all lane 才允许 Next build、Playwright install 和 browser acceptance。
      - reference 无漂移 gate：done。
        - `platform reference check` 作为正式 CLI 入口。
-       - `platform reference check --json [--compact]` 输出稳定 reference drift 合同，普通文本同步展示 refresh/diff 复现命令。
+       - `platform reference check --json [--compact]` 输出稳定 reference drift 合同，包含顶层 inspect command、runner command 与 refresh/diff 复现命令。
        - `npm run reference:check` 复用正式 CLI 入口。
        - gate 通过 `reference:refresh` 刷新后运行 `git diff --name-only --exit-code -- project`。
        - 失败时直接暴露 reference workspace 与编译主链的不一致。
@@ -204,7 +204,7 @@
          - `platform review summary --json [--compact]` 输出稳定 review summary 合同，直接消费最新 `generated/review-summary.json`。
          - `npm run test:contract-freeze` 固定运行 `platform contract freeze` 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
-         - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`，JSON 输出用 failedStage 区分 refresh/diff 阶段。
+         - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`，JSON 输出用 runner command 和 failedStage 区分入口与 refresh/diff 阶段。
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
        - P1：把错误码体系升级为机器可恢复协议，先覆盖 verify/repair/upgrade 三域；当前已在 stderr JSON 暴露 code、message、suggestedActions 与 diagnostic artifact paths。
        - P1：给 shared/types、orchestrator、cli、compiler/emit 建立边界拆分地图，先定目标后重构。

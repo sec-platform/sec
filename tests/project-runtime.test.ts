@@ -139,6 +139,8 @@ test('test budget and benchmark contracts document slow lanes and task-suite sco
   expect(benchmarkContractSource).toContain("project/generated/repair-plan.json");
   expect(benchmarkContractSource).toContain("id: 'override-conflict'");
   expect(benchmarkContractSource).toContain("project/generated/upgrade-diagnostics.json");
+  expect(referenceCheckSource).toContain("command: 'npm run platform -- reference check --json'");
+  expect(referenceCheckSource).toContain("runnerCommand: 'npm run reference:check'");
   expect(referenceCheckSource).toContain("['diff', '--name-only', '--exit-code', '--', 'project']");
   expect(referenceCheckSource).toContain("['run', 'reference:refresh']");
   expect(referenceCheckSource).toContain("failedStage: ReferenceCheckFailedStage");
