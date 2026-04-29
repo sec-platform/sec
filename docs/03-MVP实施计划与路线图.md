@@ -214,9 +214,9 @@
         - repair plan review 已回显同一 envelope 写入边界与 source provenance，供 dry-run JSON 审查。
        - P1：增加 reference workspace 无漂移 gate，证明 checked-in `source/`、`project/`、`control/` 与主链刷新结果一致。
        - P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。
-         - fast：默认本地 verify 与定向命名测试；禁止 Next build、Playwright install、浏览器 acceptance。
+         - fast：`npm test`、`npm run check`、默认本地 verify 与定向命名测试；禁止 Next build、Playwright install、浏览器 acceptance，并通过 slow test file 清单排除全链路 runtime/E2E contract 文件。
          - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
-         - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
+         - all：`npm run test:all`、`npm run check:full`、demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
          - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单、顶层 inspect command、runner command、聚合 test target files，并为每个 target 暴露可复现 `bunx vitest run ... --testNamePattern ...` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，包含 issue type count，并覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/rollback/conflict 的真实错误码样例。
@@ -239,7 +239,7 @@
          - `platform provenance registry --json [--compact]` 输出稳定 provenance registry 合同，直接消费最新 `control/provenance/provenance.json`。
          - `platform review summary --json [--compact]` 输出稳定 review summary 合同，直接消费最新 `control/evidence/review-summary.json`。
          - `platform review diagnostics --json [--compact]` 输出稳定 review diagnostics 合同，从同一 `control/evidence/review-summary.json` 派生 failure/risk/conflict 诊断。
-         - `npm run test:contract-freeze` 固定运行 `platform contract freeze` runner command 声明的 split CLI contract tests、`tests/runtime/project-runtime.test.ts` 与 `tests/pipeline/end-to-end.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
+         - `npm run test:contract-freeze` 固定运行 `platform contract freeze` runner command 声明的 split CLI contract tests、`tests/runtime/project-runtime.test.ts` 与 `tests/pipeline/end-to-end.test.ts`；runner 批量复用同一次 Vitest 启动执行冻结目标，避免逐文件重复全局 setup，同时冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`，JSON 输出用 runner command 和 failedStage 区分入口与 refresh/diff 阶段。
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。

@@ -1,24 +1,21 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getContractFreezeTargets } from './shared/contract-freeze-contract.ts';
+import { buildContractFreezeRunnerInvocations } from './shared/contract-freeze-contract.ts';
+import { getSlowTestFiles } from './shared/test-budget-contract.ts';
 import { ensureSharedDepsReady } from './shared/project-runtime.ts';
 import { compilerRoot } from './shared/paths.ts';
 import { pathExists } from './shared/fs.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|contract-freeze|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:fast|contract-freeze|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
 async function runContractFreeze(): Promise<number> {
   const binPath = path.join(compilerRoot, 'node_modules', '.bin');
-  for (const target of getContractFreezeTargets()) {
-    const args = ['run', target.file];
-    if (target.testNamePattern) {
-      args.push('--testNamePattern', target.testNamePattern);
-    }
-    const code = await runDevCommand(commandPath(binPath, 'vitest'), args, process.env);
+  for (const invocation of buildContractFreezeRunnerInvocations()) {
+    const code = await runDevCommand(commandPath(binPath, 'vitest'), invocation.args, process.env);
     if (code !== 0) {
       return code;
     }
@@ -32,6 +29,17 @@ function commandPath(binPath: string, base: string): string {
 
 function pathEnvKey(): string {
   return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
+}
+
+function fastTestArgs(args: string[]): string[] {
+  return ['run', ...getSlowTestFiles().flatMap((file) => ['--exclude', file]), ...args];
+}
+
+function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    PJC_SKIP_RUNTIME_DEPS_SETUP: '1'
+  };
 }
 
 async function withRootDependencyBridge<T>(nodeModulesPath: string, callback: () => Promise<T>): Promise<T> {
@@ -104,9 +112,11 @@ async function main(): Promise<void> {
         ? await runDevCommand(commandPath(binPath, 'tsc'), ['--noEmit', '-p', 'tsconfig.json', ...args], env)
         : target === 'test'
           ? await runDevCommand(commandPath(binPath, 'vitest'), ['run', ...args], env)
-          : target === 'contract-freeze'
-            ? await runContractFreeze()
-            : usage();
+          : target === 'test:fast'
+            ? await runDevCommand(commandPath(binPath, 'vitest'), fastTestArgs(args), fastTestEnv(env))
+            : target === 'contract-freeze'
+              ? await runContractFreeze()
+              : usage();
 
     process.exitCode = code;
   });

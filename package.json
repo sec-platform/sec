@@ -11,8 +11,9 @@
     "demo:closed-loop": "npm run demo:quickstart && npm run platform -- verify --lane all && npm run platform -- artifacts --paths --kind governance && npm run platform -- explain --json --compact",
     "dogfood:reference": "npm run reference:refresh",
     "dogfood:governance": "npm run dogfood:reference && npm run platform -- artifacts --paths --json --kind governance",
-    "test": "bun ./platform/dev-runner.ts test",
-    "test:watch": "bun ./platform/dev-runner.ts test --watch",
+    "test": "bun ./platform/dev-runner.ts test:fast",
+    "test:all": "bun ./platform/dev-runner.ts test",
+    "test:watch": "bun ./platform/dev-runner.ts test:fast --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
     "test:budget": "npm run platform -- test budget --json",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
@@ -22,6 +23,7 @@
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
     "check": "npm run typecheck && npm test",
+    "check:full": "npm run typecheck && npm run test:all",
     "platform:bun": "bun ./platform/cli/index.ts"
   },
   "dependencies": {

@@ -12,6 +12,7 @@ import {
 } from '../../platform/shared/ci-contract.ts';
 import {
   buildContractFreezeContract,
+  buildContractFreezeRunnerInvocations,
   formatContractFreezeContract
 } from '../../platform/shared/contract-freeze-contract.ts';
 import {
@@ -168,6 +169,23 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   const contract = buildContractFreezeContract();
   expect(formatContractFreezeContract(contract)).toContain('Contract freeze active');
   expect(formatContractFreezeContract(contract)).toContain('Target tests/cli/contracts.test.ts; command=bunx vitest run tests/cli/contracts.test.ts --testNamePattern');
+  const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
+  expect(runnerInvocations).toHaveLength(1);
+  const runnerInvocation = runnerInvocations[0];
+  expect(runnerInvocation).toBeDefined();
+  if (!runnerInvocation) throw new Error('Missing contract-freeze runner invocation');
+  expect(runnerInvocation.files).toHaveLength(15);
+  expect(runnerInvocation.testNamePattern).toBeDefined();
+  const runnerPattern = runnerInvocation.testNamePattern;
+  if (!runnerPattern) throw new Error('Missing contract-freeze runner pattern');
+  expect(runnerInvocation.args).toEqual([
+    'run',
+    ...runnerInvocation.files,
+    '--testNamePattern',
+    runnerPattern
+  ]);
+  expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
+  expect(runnerPattern).toContain('v0.1 pipeline runs end to end in a temporary workspace');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
