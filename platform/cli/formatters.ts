@@ -12,6 +12,7 @@ import { toWorkspaceArtifactPath } from '../shared/paths.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
+import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../shared/review-artifact.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import { buildReviewPolicySummary } from '../shared/review-policy.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
@@ -853,9 +854,9 @@ export function formatReviewSummaryContract(summary: ReviewSummary): string {
       `Artifacts ${artifacts?.artifactStatus ?? 'missing'}`,
       `total=${artifacts?.artifactCount ?? 0}`,
       `missing=${artifacts?.missingCount ?? 0}`,
-      `missingReasonTypes=${artifacts?.missingReasonTypeCount ?? 0}`,
+      `missingReasonTypes=${reviewArtifactMissingReasonTypeCount(artifacts)}`,
       `contracts=${artifacts?.contractCount ?? 0}`,
-      `uploadGroups=${artifacts?.uploadGroupCount ?? artifacts?.uploadGroups?.length ?? 0}`
+      `uploadGroups=${reviewArtifactUploadGroupCount(artifacts)}`
     ].join('; '),
     `Stages: ${summary.chainSummary.stageSummaries
       .map((stage) => `${stage.id}=${stage.status}`)
@@ -1043,9 +1044,9 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
         `Artifacts: ${artifactSummary.artifactStatus ?? 'passed'}`,
         `total: ${artifactSummary.artifactCount}`,
         `missing: ${artifactSummary.missingCount}`,
-        `missing reason types: ${artifactSummary.missingReasonTypeCount ?? 0}`,
+        `missing reason types: ${reviewArtifactMissingReasonTypeCount(artifactSummary)}`,
         `contracts: ${artifactSummary.contractCount ?? 0}`,
-        `upload groups: ${artifactSummary.uploadGroupCount ?? artifactSummary.uploadGroups?.length ?? 0}`
+        `upload groups: ${reviewArtifactUploadGroupCount(artifactSummary)}`
       ].join('; '),
       `Upload groups: ${formatList(uploadGroups)}`
     );
