@@ -9,7 +9,7 @@ import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 function plan(): PlanFile {
   return {
@@ -241,14 +241,12 @@ test('repair CLI reports applied plans as verify pending', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
 
-    const result = await runCli(workspaceRoot, ['repair']);
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Repair applied (1 tasks, 0 blockers); verify pending');
-    expect(result.stdout).toContain('Source verification: failed; requires verification: true');
-    expect(result.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
-    expect(result.stdout).toContain('Failure fast/unit; issue=slot; repairable=true; unit assertion failed');
-    expect(result.stderr).toBe('');
+    await expectCliText(workspaceRoot, ['repair'], [
+      'Repair applied (1 tasks, 0 blockers); verify pending',
+      'Source verification: failed; requires verification: true',
+      'Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts',
+      'Failure fast/unit; issue=slot; repairable=true; unit assertion failed'
+    ]);
   });
 });
 
@@ -256,15 +254,13 @@ test('repair CLI reports dry-run plans without applying them', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
 
-    const result = await runCli(workspaceRoot, ['repair', '--dry-run']);
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
-    expect(result.stdout).toContain('Source verification: failed; requires verification: false');
-    expect(result.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts');
-    expect(result.stdout).toContain('Preview repair_slot_customer_normalizer: changed=true;');
-    expect(result.stdout).toContain('Failure fast/unit; issue=slot; repairable=true; unit assertion failed');
-    expect(result.stderr).toBe('');
+    await expectCliText(workspaceRoot, ['repair', '--dry-run'], [
+      'Repair pending (1 tasks, 0 blockers) (dry-run)',
+      'Source verification: failed; requires verification: false',
+      'Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts',
+      'Preview repair_slot_customer_normalizer: changed=true;',
+      'Failure fast/unit; issue=slot; repairable=true; unit assertion failed'
+    ]);
   });
 });
 
