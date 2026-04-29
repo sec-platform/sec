@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
@@ -21,6 +22,11 @@ import {
   readCompilerFile,
   readCompilerPackageJson
 } from '../helpers/test-utils.ts';
+
+type RuntimePackageJson = {
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+};
 
 describe('shared runtime dependency installation', () => {
   test('ensureSharedDepsReady serializes concurrent installs behind one lock', async () => {
@@ -361,14 +367,8 @@ describe('project and shared runtime manifests', () => {
 
     const rootPackage = await readCompilerPackageJson();
     const { projectPackagePath } = getWorkspacePaths(workspaceRoot);
-    const projectPackage = JSON.parse(await fs.readFile(projectPackagePath, 'utf8')) as {
-      dependencies: Record<string, string>;
-      devDependencies: Record<string, string>;
-    };
-    const sharedPackage = JSON.parse(await fs.readFile(path.join(sharedDepsRoot, 'package.json'), 'utf8')) as {
-      dependencies: Record<string, string>;
-      devDependencies: Record<string, string>;
-    };
+    const projectPackage = await readJson<RuntimePackageJson>(projectPackagePath);
+    const sharedPackage = await readJson<RuntimePackageJson>(path.join(sharedDepsRoot, 'package.json'));
 
     expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next);
     expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react);
