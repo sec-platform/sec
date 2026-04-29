@@ -1,14 +1,23 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
 import {
   upgradeWorkspace
 } from '../../platform/orchestrator.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
+
+type UpgradeDiagnosticsSnapshot = {
+  failedCheck: string;
+  errorCode: string;
+  details?: unknown;
+};
+
+async function readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath: string): Promise<UpgradeDiagnosticsSnapshot> {
+  return readJson<UpgradeDiagnosticsSnapshot>(upgradeDiagnosticsPath);
+}
 
 test('upgrade records missing migration entry diagnostics before planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-missing-migration-entry-');
@@ -51,11 +60,7 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
     }
   });
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
-    failedCheck: string;
-    errorCode: string;
-    details?: unknown;
-  };
+  const diagnostics = await readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-002',
@@ -159,11 +164,7 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
     }
   });
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
-    failedCheck: string;
-    errorCode: string;
-    details?: unknown;
-  };
+  const diagnostics = await readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-003',
@@ -239,11 +240,7 @@ test('upgrade rejects duplicate migration ids before planning', async () => {
     }
   });
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
-    failedCheck: string;
-    errorCode: string;
-    details?: unknown;
-  };
+  const diagnostics = await readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-029',
@@ -303,11 +300,7 @@ test('upgrade records migration target path escape diagnostics before planning',
     }
   });
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
-    failedCheck: string;
-    errorCode: string;
-    details?: unknown;
-  };
+  const diagnostics = await readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     failedCheck: 'migration-targets',
     errorCode: 'UPGRADE-MIGRATION-004',
@@ -370,11 +363,7 @@ test('upgrade records migration manifest source escape diagnostics before planni
     }
   });
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
-    failedCheck: string;
-    errorCode: string;
-    details?: unknown;
-  };
+  const diagnostics = await readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     failedCheck: 'migration-file-operations',
     errorCode: 'UPGRADE-MIGRATION-005',
@@ -436,11 +425,7 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
     }
   });
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
-    failedCheck: string;
-    errorCode: string;
-    details?: unknown;
-  };
+  const diagnostics = await readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-010',
@@ -492,7 +477,9 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
     code: 'UPGRADE-MIGRATION-012'
   });
-  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-json-structure"');
+  await expect(readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath)).resolves.toMatchObject({
+    failedCheck: 'migration-json-structure'
+  });
 });
 
 test('upgrade rejects JSON array parent structure mismatches before planning', async () => {
@@ -535,7 +522,9 @@ test('upgrade rejects JSON array parent structure mismatches before planning', a
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
     code: 'UPGRADE-MIGRATION-012'
   });
-  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-json-structure"');
+  await expect(readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath)).resolves.toMatchObject({
+    failedCheck: 'migration-json-structure'
+  });
 });
 
 test('upgrade rejects slot contract mismatches before planning', async () => {
@@ -558,7 +547,9 @@ test('upgrade rejects slot contract mismatches before planning', async () => {
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
     code: 'UPGRADE-MIGRATION-021'
   });
-  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-slot-contracts"');
+  await expect(readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath)).resolves.toMatchObject({
+    failedCheck: 'migration-slot-contracts'
+  });
 });
 
 test('upgrade rejects malformed migration entries before planning', async () => {
@@ -577,5 +568,7 @@ test('upgrade rejects malformed migration entries before planning', async () => 
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
     code: 'UPGRADE-MIGRATION-011'
   });
-  await expect(fs.readFile(upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-entries"');
+  await expect(readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath)).resolves.toMatchObject({
+    failedCheck: 'migration-entries'
+  });
 });
