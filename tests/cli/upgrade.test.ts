@@ -142,15 +142,18 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
       'Preflight migration-entries: passed; evidence='
     ]);
 
-    const result = await expectCliSuccess(workspaceRoot, [
-      'upgrade',
-      'auth/basic-session',
-      '0.1.1',
-      '--dry-run',
-      '--json'
-    ]);
-    const upgradePlan = JSON.parse(result.stdout) as UpgradePlan;
-    expect(result.stdout).toContain('\n  "blockId": "auth/basic-session"');
+    const upgradePlan = await expectCliJson<UpgradePlan>(
+      workspaceRoot,
+      [
+        'upgrade',
+        'auth/basic-session',
+        '0.1.1',
+        '--dry-run',
+        '--json'
+      ],
+      undefined,
+      { stdoutMarkers: ['\n  "blockId": "auth/basic-session"'] }
+    );
     expect(upgradePlan).toMatchObject({
       blockId: 'auth/basic-session',
       fromVersion: '0.1.0',
