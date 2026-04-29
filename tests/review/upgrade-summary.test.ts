@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { withTempWorkspace } from '../helpers/test-utils.ts';
@@ -381,7 +382,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'upgrade',
-      artifactPath: 'control/workflow/upgrade-diagnostics.json',
+      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
       message: 'Upgrade blocked at override-conflicts: UPGRADE-CONFLICT-001 Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
     });
     expect(summary.regressionRisks).toContainEqual({
@@ -501,7 +502,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'upgrade',
-      artifactPath: 'control/workflow/upgrade-diagnostics.json',
+      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
       message: 'Upgrade blocked at migration-targets: UPGRADE-MIGRATION-004 Migration path "../outside-project.md" escapes project root; migration=mig-target-escape; target=../outside-project.md'
     });
   });
@@ -565,7 +566,7 @@ test('review summary includes entry migration attribution in upgrade failure poi
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'upgrade',
-      artifactPath: 'control/workflow/upgrade-diagnostics.json',
+      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
       message: 'Upgrade blocked at migration-entries: UPGRADE-MIGRATION-003 Migration entry "migrations/mismatched-entry.json" does not match manifest metadata; migration=mig-expected-entry; kind=text-append; entry=migrations/mismatched-entry.json; entryId=mig-actual-entry; entryKind=text-replace'
     });
   });
@@ -629,7 +630,7 @@ test('review summary includes apply migration attribution in upgrade failure poi
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'upgrade',
-      artifactPath: 'control/workflow/upgrade-diagnostics.json',
+      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
       message: 'Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "custom/customer_normalizer.ts" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=custom/customer_normalizer.ts; slot=customer_normalizer; rollback=restored'
     });
   });

@@ -1,3 +1,4 @@
+import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { PASS_STATUS_PENDING, SUPPORTED_STACK, DEFAULT_ACCEPTANCE } from '../shared/constants.ts';
 import { pathExists, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
@@ -83,9 +84,9 @@ export async function initWorkspace(
     slotTasks: [],
     generatedPaths: [
       'generated/routes.ts',
-      'control/evidence/block-usage-map.json',
-      'control/evidence/install-manifest.json',
-      'control/evidence/verification-report.json'
+      CI_ARTIFACT_FILES.blockUsageMap,
+      CI_ARTIFACT_FILES.installManifest,
+      CI_ARTIFACT_FILES.verificationReport
     ],
     acceptancePlan: DEFAULT_ACCEPTANCE.map((entry) => entry.id),
     passStatus: { ...PASS_STATUS_PENDING }

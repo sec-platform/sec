@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { uniqueSorted } from '../../shared/collections.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { listFilesRecursive, pathExists, readJson, readText } from '../../shared/fs.ts';
 import { readYaml } from '../../shared/yaml.ts';
@@ -72,9 +73,7 @@ async function loadPolicyScope(
 
   for (const file of files) {
     const spec = normalizePolicies(await readYaml<PolicySpec>(file.absolutePath));
-    const policyIds = [...new Set(spec.policies.map((policy) => policy.id))].sort((left, right) =>
-      left.localeCompare(right)
-    );
+    const policyIds = uniqueSorted(spec.policies.map((policy) => policy.id));
 
     for (const policy of spec.policies) {
       declaredPolicyIds.add(policy.id);
@@ -92,7 +91,7 @@ async function loadPolicyScope(
   }
 
   return {
-    policies: [...declaredPolicyIds].sort((left, right) => left.localeCompare(right)),
+    policies: uniqueSorted([...declaredPolicyIds]),
     sources,
     definitions
   };
@@ -100,7 +99,7 @@ async function loadPolicyScope(
 
 function mergePolicyScopes(scopes: LoadedPolicyScope[]): LoadedPolicyScope {
   return {
-    policies: [...new Set(scopes.flatMap((scope) => scope.policies))].sort((left, right) => left.localeCompare(right)),
+    policies: uniqueSorted(scopes.flatMap((scope) => scope.policies)),
     sources: scopes.flatMap((scope) => scope.sources).sort((left, right) => left.path.localeCompare(right.path)),
     definitions: scopes.flatMap((scope) => scope.definitions)
   };
@@ -139,7 +138,7 @@ function targetFilesForPolicy(lock: LockFile | null, policy: PolicyRule): string
     .filter((step) => policy.appliesTo.includes(step.blockId) && isPolicyCheckableInstall(step))
     .map((step) => step.to);
 
-  return copyTargets.length > 0 ? [...new Set(copyTargets)].sort((left, right) => left.localeCompare(right)) : ['src/installed/entity/customer-service.ts'];
+  return copyTargets.length > 0 ? uniqueSorted(copyTargets) : ['src/installed/entity/customer-service.ts'];
 }
 
 function isPolicyCheckableInstall(step: InstallPlanStep): boolean {

@@ -12,6 +12,12 @@ import {
   explainWorkspace
 } from '../../platform/orchestrator.ts';
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_MISSING_REASON,
+  emptyCiArtifactMissingReasonCounts
+} from '../../platform/shared/ci-artifact-contract.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
@@ -280,7 +286,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     {
       lane: 'fast',
       kind: 'policy',
-      artifactPath: 'control/evidence/policy-report.json',
+      artifactPath: CI_ARTIFACT_FILES.policyReport,
       message: 'disk-only <failure> & "point"'
     }
   ];
@@ -333,7 +339,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       {
         overrideStatus: 'none',
         count: 3,
-        paths: ['custom/customer_normalizer.ts', 'control/evidence/review-summary.json', 'src/installed/auth/session.ts']
+        paths: ['custom/customer_normalizer.ts', CI_ARTIFACT_FILES.reviewSummary, 'src/installed/auth/session.ts']
       }
     ],
     registrySummaryCount: 1,
@@ -355,10 +361,10 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       {
         pass: 'review',
         count: 1,
-        paths: ['control/evidence/review-summary.json']
+        paths: [CI_ARTIFACT_FILES.reviewSummary]
       }
     ],
-    unverifiedArtifacts: ['app/tickets/page.tsx', 'custom/customer_normalizer.ts', 'control/evidence/review-summary.json']
+    unverifiedArtifacts: ['app/tickets/page.tsx', 'custom/customer_normalizer.ts', CI_ARTIFACT_FILES.reviewSummary]
   };
   reviewSummary.coverageSummary = {
     status: 'failed',
@@ -407,26 +413,25 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     contractPaths: ['generated/postgres-contract.json'],
     missingCount: 1,
     missingReasonCounts: {
-      'declared-generated-missing': 1,
-      'fixed-governance-missing': 0,
-      'fixed-view-missing': 0
+      ...emptyCiArtifactMissingReasonCounts(),
+      [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
     },
     uploadGroups: [
       {
         kind: 'governance',
         count: 5,
-        paths: ['control/evidence/review-summary.json', 'control/ci/artifacts.json']
+        paths: [CI_ARTIFACT_FILES.reviewSummary, CI_ARTIFACT_MANIFEST_PATH]
       },
       {
         kind: 'view',
         count: 2,
-        paths: ['control/workbench/views/source-view.html', 'control/workbench/views/slot-rule-view.html']
+        paths: [CI_ARTIFACT_FILES.sourceView, CI_ARTIFACT_FILES.slotRuleView]
       }
     ],
     missing: [
       {
         path: 'generated/missing-<artifact>.json',
-        reason: 'declared-generated-missing',
+        reason: CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing,
         declaredBy: 'graph.lock.json'
       }
     ]
@@ -678,7 +683,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
                 kind: 'policy',
                 issueType: 'spec',
                 repairable: false,
-                artifactPath: 'control/evidence/policy-report.json',
+                artifactPath: CI_ARTIFACT_FILES.policyReport,
                 message: 'policy <boundary> & manual decision',
                 targetIds: ['tenant-scope-required']
               }
@@ -825,15 +830,15 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('Slot Coverage Summary');
   expect(sourceView).toContain('slot &lt;coverage&gt; &amp; smoke');
   expect(sourceView).toContain('Missing Reason Summary');
-  expect(sourceView).toContain('declared-generated-missing');
+  expect(sourceView).toContain(CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing);
   expect(sourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
   expect(sourceView).toContain('<td>Contract Paths</td><td>generated/postgres-contract.json</td>');
   expect(sourceView).toContain('Artifact Upload Groups');
-  expect(sourceView).toContain('control/evidence/review-summary.json, control/ci/artifacts.json');
-  expect(sourceView).toContain('control/workbench/views/source-view.html, control/workbench/views/slot-rule-view.html');
+  expect(sourceView).toContain(`${CI_ARTIFACT_FILES.reviewSummary}, ${CI_ARTIFACT_MANIFEST_PATH}`);
+  expect(sourceView).toContain(`${CI_ARTIFACT_FILES.sourceView}, ${CI_ARTIFACT_FILES.slotRuleView}`);
   expect(sourceView).toContain('Missing Artifact Diagnostics');
   expect(sourceView).toContain('generated/missing-&lt;artifact&gt;.json');
-  expect(sourceView).toContain('declared-generated-missing');
+  expect(sourceView).toContain(CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing);
   expect(sourceView).toContain('graph.lock.json');
   expect(sourceView).toContain('Vertical Summary');
   expect(sourceView).toContain('Block Combination Summary');
@@ -845,7 +850,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('Failure Groups');
   expect(sourceView).toContain('Failure Details');
   expect(sourceView).toContain('<th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th>');
-  expect(sourceView).toContain('<td>fast</td>\n          <td>policy</td>\n          <td>1</td>\n          <td>control/evidence/policy-report.json</td>');
+  expect(sourceView).toContain(`<td>fast</td>\n          <td>policy</td>\n          <td>1</td>\n          <td>${CI_ARTIFACT_FILES.policyReport}</td>`);
   expect(sourceView).toContain('Review Runtime Attribution');
   expect(sourceView).toContain('Runtime Groups');
   expect(sourceView).toContain('Runtime Entries');

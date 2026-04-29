@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import { buildProvenance } from '../../platform/compiler/emit/write-provenance.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { withTempWorkspace } from '../helpers/test-utils.ts';
@@ -63,9 +64,9 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
         }
       ],
       generatedPaths: [
-        'control/graph/explain-graph.json',
-        'control/workflow/repair-plan.json',
-        'control/workflow/upgrade-plan.json'
+        CI_ARTIFACT_FILES.explainGraph,
+        CI_ARTIFACT_FILES.repairPlan,
+        CI_ARTIFACT_FILES.upgradePlan
       ],
       acceptancePlan: [],
       passStatus: {
@@ -120,9 +121,9 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       verifiedBy: ['tests/unit/customer-runtime.test.ts']
     });
     expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([
-      ['control/graph/explain-graph.json', 'explain'],
-      ['control/workflow/repair-plan.json', 'repair'],
-      ['control/workflow/upgrade-plan.json', 'upgrade'],
+      [CI_ARTIFACT_FILES.explainGraph, 'explain'],
+      [CI_ARTIFACT_FILES.repairPlan, 'repair'],
+      [CI_ARTIFACT_FILES.upgradePlan, 'upgrade'],
       ['custom/customer_normalizer.ts', 'adapt'],
       ['src/installed/entity/customer-service.ts', 'compose'],
       ['tests/unit/customer-runtime.test.ts', 'compose']

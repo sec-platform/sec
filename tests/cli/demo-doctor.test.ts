@@ -6,6 +6,7 @@ import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
   buildCiContract,
   formatCiContract
@@ -170,7 +171,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
     expect(missingText.code).toBe(0);
     expect(missingText.stderr).toBe('');
     expect(missingText.stdout).toContain('Demo checklist attention; items=8; missing=8');
-    expect(missingText.stdout).toContain('verification-report: missing; control/evidence/verification-report.json');
+    expect(missingText.stdout).toContain(`verification-report: missing; ${CI_ARTIFACT_FILES.verificationReport}`);
     expect(missingText.stdout).toContain('Next command: npm run demo:quickstart');
 
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
@@ -211,7 +212,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
     expect(readyText.code).toBe(0);
     expect(readyText.stderr).toBe('');
     expect(readyText.stdout).toContain('Demo checklist passed; items=8; missing=0');
-    expect(readyText.stdout).toContain('review-summary: passed; control/evidence/review-summary.json');
+    expect(readyText.stdout).toContain(`review-summary: passed; ${CI_ARTIFACT_FILES.reviewSummary}`);
     expect(readyText.stdout).toContain('Next command: npm run demo:closed-loop');
 
     const readyJson = await runCli(workspaceRoot, ['demo', 'checklist', '--json', '--compact']);
@@ -228,7 +229,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
         {
           id: 'explain-graph',
           status: 'passed',
-          artifactPath: 'control/graph/explain-graph.json',
+          artifactPath: CI_ARTIFACT_FILES.explainGraph,
           command: 'npm run platform -- explain'
         }
       ])

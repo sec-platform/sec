@@ -1,4 +1,4 @@
-import type { CommandHandler, CommandContext } from '../command-registry.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { addBlock } from '../../orchestrator.ts';
 import { loadManifestById } from '../../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../../compiler/parse/load-plan.ts';

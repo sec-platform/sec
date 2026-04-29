@@ -20,13 +20,13 @@ installs:
     from: files/src/installed/ticket/ticket-service.ts
     to: src/installed/ticket/ticket-service.ts
   - kind: merge-prisma
-    from: ../../files/prisma/ticket.prisma
+    from: files/prisma/ticket.prisma
     to: prisma/schema.prisma
   - kind: copy
-    from: ../../files/tests/unit/ticket-service.test.ts
+    from: files/tests/unit/ticket-service.test.ts
     to: tests/unit/ticket-service.test.ts
   - kind: copy
-    from: ../../files/tests/acceptance/ticket-flow.test.ts
+    from: files/tests/acceptance/ticket-flow.test.ts
     to: tests/acceptance/ticket-flow.test.ts
 pins:
   inputs:

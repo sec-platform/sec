@@ -12,6 +12,7 @@ import {
   explainWorkspace
 } from '../../platform/orchestrator.ts';
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
@@ -58,9 +59,9 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const locked = await lockWorkspace(workspaceRoot);
   expect(locked.passStatus.lock).toBe('succeeded');
   expect(locked.passStatus.emit).toBe('succeeded');
-  expect(locked.generatedPaths).toContain('control/evidence/runtime-report.json');
-  expect(locked.generatedPaths).toContain('control/evidence/policy-report.json');
-  expect(locked.generatedPaths).toContain('control/evidence/acceptance-coverage.json');
+  expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.runtimeReport);
+  expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.policyReport);
+  expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.acceptanceCoverage);
 
   const provenance = JSON.parse(
     await fs.readFile(provenancePath, 'utf8')
@@ -173,7 +174,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   ) as { artifacts: Array<{ path: string; generatedByPass?: string }> };
   expect(
     refreshedProvenance.artifacts.some(
-      (artifact) => artifact.path === 'control/graph/explain-graph.json' && artifact.generatedByPass === 'explain'
+      (artifact) => artifact.path === CI_ARTIFACT_FILES.explainGraph && artifact.generatedByPass === 'explain'
     )
   ).toBe(true);
 
@@ -182,14 +183,14 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   ) as { generatedPaths: string[] };
   expect(explainedLock.generatedPaths).toEqual(
     expect.arrayContaining([
-      'control/evidence/verification-report.json',
-      'control/evidence/runtime-report.json',
-      'control/evidence/policy-report.json',
-      'control/evidence/acceptance-coverage.json',
-      'control/graph/explain-graph.json',
-      'control/evidence/review-summary.json',
-      'control/workbench/views/source-view.html',
-      'control/workbench/views/slot-rule-view.html'
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.runtimeReport,
+      CI_ARTIFACT_FILES.policyReport,
+      CI_ARTIFACT_FILES.acceptanceCoverage,
+      CI_ARTIFACT_FILES.explainGraph,
+      CI_ARTIFACT_FILES.reviewSummary,
+      CI_ARTIFACT_FILES.sourceView,
+      CI_ARTIFACT_FILES.slotRuleView
     ])
   );
 }, 180000);

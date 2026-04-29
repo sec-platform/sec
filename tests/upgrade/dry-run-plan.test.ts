@@ -13,6 +13,7 @@ import {
   upgradeWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -238,13 +239,13 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
   await expect(fs.readFile(sessionPath, 'utf8')).resolves.toBe(beforeSession);
 
   const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
-  expect(lock.generatedPaths).toContain('control/workflow/upgrade-plan.json');
+  expect(lock.generatedPaths).toContain(CI_ARTIFACT_FILES.upgradePlan);
   const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
     artifacts: Array<{ path: string; generatedByPass?: string }>;
   };
   expect(provenance.artifacts).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ path: 'control/workflow/upgrade-plan.json', generatedByPass: 'upgrade' })
+      expect.objectContaining({ path: CI_ARTIFACT_FILES.upgradePlan, generatedByPass: 'upgrade' })
     ])
   );
 }, 120000);

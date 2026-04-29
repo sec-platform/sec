@@ -2,6 +2,7 @@
 import { CommandRegistry } from './command-registry.ts';
 import { createLogger } from '../shared/logger.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
+import { formatJson } from './format-utils.ts';
 
 import { initCommand } from './commands/init-command.ts';
 import { addCommand } from './commands/add-command.ts';
@@ -89,16 +90,16 @@ main().catch((error: unknown) => {
   const failure = error as { code?: string; message?: string; details?: unknown };
   const protocol = buildErrorProtocol(failure);
   console.error(protocol.code, protocol.message);
-  console.error(JSON.stringify({
+  console.error(formatJson({
     code: protocol.code,
     message: protocol.message,
     recoverable: protocol.recoverable,
     issueType: protocol.issueType,
     suggestedActions: protocol.suggestedActions,
     artifactPaths: protocol.artifactPaths
-  }));
+  }, { compact: true }));
   if (protocol.details) {
-    console.error(JSON.stringify(protocol.details, null, 2));
+    console.error(formatJson(protocol.details, { compact: false }));
   }
   process.exit(1);
 });

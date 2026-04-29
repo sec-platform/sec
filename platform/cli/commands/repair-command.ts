@@ -1,9 +1,10 @@
-import type { CommandHandler, CommandContext } from '../command-registry.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { parseRepairArgs } from '../args.ts';
 import { repairWorkspace } from '../../orchestrator.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { formatRepairSummary } from '../formatters.ts';
+import { formatJson } from '../format-utils.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
 import { REPAIR_USAGE } from '../usage.ts';
 
@@ -19,7 +20,7 @@ export const repairCommand: CommandHandler = {
       }
       const repairPlan = await readJson<RepairPlan>(repairPlanPath);
       if (repairArgs.json) {
-        console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
+        console.log(formatJson(repairPlan, repairArgs));
         return;
       }
       console.log(formatRepairSummary(repairPlan, true));
@@ -28,7 +29,7 @@ export const repairCommand: CommandHandler = {
     try {
       const { repairPlan } = await repairWorkspace(ctx.cwd, { dryRun: repairArgs.dryRun });
       if (repairArgs.json) {
-        console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
+        console.log(formatJson(repairPlan, repairArgs));
         return;
       }
       console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
@@ -38,7 +39,7 @@ export const repairCommand: CommandHandler = {
       if (await pathExists(repairPlanPath)) {
         const repairPlan = await readJson<RepairPlan>(repairPlanPath);
         if (repairArgs.json) {
-          console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
+          console.log(formatJson(repairPlan, repairArgs));
         } else {
           console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
         }

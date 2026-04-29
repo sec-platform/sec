@@ -6,6 +6,7 @@ import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
   buildCiContract,
   formatCiContract
@@ -296,7 +297,7 @@ test('CLI rejects Workbench slot source mutations outside slot source', async ()
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('WORKBENCH-MUTATION-002 move-slot-to-app-code.sourcePath must stay under source/code/slots/**');
     expect(result.stderr).toContain('"source/views/mutations"');
-    expect(result.stderr).toContain('"control/workflow/view-mutation-report.json"');
+    expect(result.stderr).toContain(`"${CI_ARTIFACT_FILES.viewMutationReport}"`);
   });
 });
 

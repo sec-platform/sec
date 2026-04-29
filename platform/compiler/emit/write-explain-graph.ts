@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
@@ -565,16 +567,13 @@ export async function writeExplainGraph(
   provenance: ProvenanceFile
 ): Promise<ExplainGraph> {
   const { acceptanceCoveragePath, explainGraphPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!lock.generatedPaths.includes('control/graph/explain-graph.json')) {
-    lock.generatedPaths.push('control/graph/explain-graph.json');
-    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-  }
+  addGeneratedPaths(lock, [CI_ARTIFACT_FILES.explainGraph]);
   if (!(await pathExists(acceptanceCoveragePath))) {
     throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
   }
 
   const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
-  const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === 'control/graph/explain-graph.json')
+  const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === CI_ARTIFACT_FILES.explainGraph)
     ? provenance
     : await buildProvenance(workspaceRoot, lock);
   const graph = await buildExplainGraph(

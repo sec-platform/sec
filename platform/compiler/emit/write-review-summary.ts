@@ -1,5 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
+import { uniqueSorted } from '../../shared/collections.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
@@ -25,10 +28,6 @@ import type {
   ReviewSummary
 } from '../../shared/review-types.ts';
 import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
 
 function compareFailurePoints(left: ReviewFailurePoint, right: ReviewFailurePoint): number {
   return `${left.kind}:${left.lane}:${left.message}:${left.artifactPath}`.localeCompare(
@@ -232,8 +231,8 @@ function buildCoverageSummary(
       id: entry.id,
       declaredAcceptanceCount: entry.declaredAcceptance.length,
       coveredByCount: entry.coveredBy.length,
-      declaredAcceptance: unique(entry.declaredAcceptance),
-      coveredBy: unique(entry.coveredBy)
+      declaredAcceptance: uniqueSorted(entry.declaredAcceptance),
+      coveredBy: uniqueSorted(entry.coveredBy)
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
   const slotSummaries = coverage.slots
@@ -241,8 +240,8 @@ function buildCoverageSummary(
       id: entry.id,
       declaredAcceptanceCount: entry.declaredAcceptance.length,
       coveredByCount: entry.coveredBy.length,
-      declaredAcceptance: unique(entry.declaredAcceptance),
-      coveredBy: unique(entry.coveredBy)
+      declaredAcceptance: uniqueSorted(entry.declaredAcceptance),
+      coveredBy: uniqueSorted(entry.coveredBy)
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
 
@@ -255,9 +254,9 @@ function buildCoverageSummary(
     coveredSlotCount: coverage.slots.length - coverage.uncoveredSlots.length,
     uncoveredBlockCount: coverage.uncoveredBlocks.length,
     uncoveredSlotCount: coverage.uncoveredSlots.length,
-    acceptancePassed: unique(coverage.acceptancePassed),
-    uncoveredBlocks: unique(coverage.uncoveredBlocks),
-    uncoveredSlots: unique(coverage.uncoveredSlots),
+    acceptancePassed: uniqueSorted(coverage.acceptancePassed),
+    uncoveredBlocks: uniqueSorted(coverage.uncoveredBlocks),
+    uncoveredSlots: uniqueSorted(coverage.uncoveredSlots),
     blockSummaries,
     slotSummaries
   };
@@ -268,14 +267,14 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
     .map(([originType, artifacts]) => ({
       originType: originType as ProvenanceOriginType,
       count: artifacts.length,
-      paths: unique(artifacts.map((artifact) => artifact.path))
+      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
     }))
     .sort((left, right) => left.originType.localeCompare(right.originType));
   const overrideSummaries = [...countBy(provenance.artifacts, (artifact) => artifact.overrideStatus).entries()]
     .map(([overrideStatus, artifacts]) => ({
       overrideStatus: overrideStatus as OverrideStatus,
       count: artifacts.length,
-      paths: unique(artifacts.map((artifact) => artifact.path))
+      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
     }))
     .sort((left, right) => left.overrideStatus.localeCompare(right.overrideStatus));
   const registryArtifacts = provenance.artifacts.filter((artifact) => artifact.registrySourceId);
@@ -285,7 +284,7 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
       ...(artifacts[0].registryKind ? { registryKind: artifacts[0].registryKind } : {}),
       ...(artifacts[0].registryLocation ? { registryLocation: artifacts[0].registryLocation } : {}),
       count: artifacts.length,
-      paths: unique(artifacts.map((artifact) => artifact.path))
+      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
     }))
     .sort((left, right) => left.registrySourceId.localeCompare(right.registrySourceId));
   const generatedPassArtifacts = provenance.artifacts.filter((artifact) => artifact.generatedByPass);
@@ -293,7 +292,7 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
     .map(([pass, artifacts]) => ({
       pass,
       count: artifacts.length,
-      paths: unique(artifacts.map((artifact) => artifact.path))
+      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
     }))
     .sort((left, right) => left.pass.localeCompare(right.pass));
   const unverifiedArtifacts = provenance.artifacts.filter((artifact) => artifact.verifiedBy.length === 0);
@@ -313,7 +312,7 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
     registrySummaryCount: registrySummaries.length,
     registrySummaries,
     generatedPassSummaries,
-    unverifiedArtifacts: unique(unverifiedArtifacts.map((artifact) => artifact.path))
+    unverifiedArtifacts: uniqueSorted(unverifiedArtifacts.map((artifact) => artifact.path))
   };
 }
 
@@ -406,17 +405,17 @@ function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCatego
 }
 
 function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {
-  const failureTargets = unique(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+  const failureTargets = uniqueSorted(task.failurePoints.flatMap((point) => point.targetIds ?? []));
   return task.review ?? {
     allowedPathCount: task.allowedPaths.length,
     requiredSymbolCount: task.requiredSymbols.length,
     forbiddenOperationCount: task.forbiddenOperations.length,
     testCount: task.testsToPass.length,
     failureTargetCount: failureTargets.length,
-    writeBounds: unique(task.allowedPaths),
-    requiredSymbols: unique(task.requiredSymbols),
-    forbiddenOperations: unique(task.forbiddenOperations),
-    testsToPass: unique(task.testsToPass),
+    writeBounds: uniqueSorted(task.allowedPaths),
+    requiredSymbols: uniqueSorted(task.requiredSymbols),
+    forbiddenOperations: uniqueSorted(task.forbiddenOperations),
+    testsToPass: uniqueSorted(task.testsToPass),
     failureTargets
   };
 }
@@ -487,7 +486,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
     }))
     .sort((left, right) => left.blockerId.localeCompare(right.blockerId));
   const changedPreviewCount = repairPlan.tasks.filter((task) => task.preview?.changed).length;
-  const targetFiles = unique(repairPlan.tasks.map((task) => task.targetFile));
+  const targetFiles = uniqueSorted(repairPlan.tasks.map((task) => task.targetFile));
 
   return {
     status: repairPlan.status,
@@ -568,12 +567,12 @@ function buildPolicySummary(policyReport: PolicyReport | null): ReviewSummary['p
     ...policyReport.official.sources.map((source) => ({
       scope: 'official' as const,
       path: source.path,
-      policyIds: unique(source.policyIds)
+      policyIds: uniqueSorted(source.policyIds)
     })),
     ...policyReport.project.sources.map((source) => ({
       scope: 'project' as const,
       path: source.path,
-      policyIds: unique(source.policyIds)
+      policyIds: uniqueSorted(source.policyIds)
     }))
   ].sort((left, right) => `${left.scope}:${left.path}`.localeCompare(`${right.scope}:${right.path}`));
   const severityCounts = policyReport.violations.reduce<NonNullable<ReviewSummary['policySummary']>['severityCounts']>(
@@ -599,7 +598,7 @@ function buildPolicySummary(policyReport: PolicyReport | null): ReviewSummary['p
         sourceScope: policy.sourceScope,
         sourcePath: policy.sourcePath,
         targetCount: policy.targets.length,
-        targets: unique(policy.targets)
+        targets: uniqueSorted(policy.targets)
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
     violationSummaries: policyReport.violations
@@ -608,8 +607,8 @@ function buildPolicySummary(policyReport: PolicyReport | null): ReviewSummary['p
         severity: violation.severity,
         rule: violation.rule,
         fileCount: violation.files.length,
-        files: unique(violation.files),
-        appliesTo: unique(violation.appliesTo),
+        files: uniqueSorted(violation.files),
+        appliesTo: uniqueSorted(violation.appliesTo),
         message: violation.message,
         sourceScope: violation.sourceScope,
         sourcePath: violation.sourcePath
@@ -716,7 +715,7 @@ function buildUpgradeSummary(
     requiresVerification: requiresVerificationCount > 0 || plan.status === 'applied',
     requiresVerificationCount,
     impactCount: plan.impacts.length,
-    impacts: unique(plan.impacts),
+    impacts: uniqueSorted(plan.impacts),
     sourceMigrationCount: migrationSummaries.filter((migration) => migration.source).length,
     slotMigrationCount: migrationSummaries.filter((migration) => migration.slotId).length,
     verificationSummaries: [
@@ -761,17 +760,17 @@ function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
       impacts.set(step.blockId, impact);
     }
 
-    impact.actionKinds = unique([...impact.actionKinds, step.action]);
-    impact.sourceRoots = unique([...impact.sourceRoots, step.sourceRoot]);
-    impact.targetPaths = unique([...impact.targetPaths, step.to]);
+    impact.actionKinds = uniqueSorted([...impact.actionKinds, step.action]);
+    impact.sourceRoots = uniqueSorted([...impact.sourceRoots, step.sourceRoot]);
+    impact.targetPaths = uniqueSorted([...impact.targetPaths, step.to]);
 
     const vertical = detectVerticalFromPath(step.to) ?? detectVerticalFromPath(step.blockId);
     if (vertical) {
-      impact.verticals = unique([...impact.verticals, vertical]);
+      impact.verticals = uniqueSorted([...impact.verticals, vertical]);
     }
 
     if (classifyRuntimeEntry(step.to)) {
-      impact.runtimeEntries = unique([...impact.runtimeEntries, step.to]);
+      impact.runtimeEntries = uniqueSorted([...impact.runtimeEntries, step.to]);
     }
   }
 
@@ -779,12 +778,12 @@ function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
 }
 
 function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): ReviewSummary['installImpactSummary'] {
-  const blocks = unique(installImpacts.map((impact) => impact.blockId));
-  const actionKinds = unique(installImpacts.flatMap((impact) => impact.actionKinds));
-  const sourceRoots = unique(installImpacts.flatMap((impact) => impact.sourceRoots));
-  const targetPaths = unique(installImpacts.flatMap((impact) => impact.targetPaths));
-  const verticals = unique(installImpacts.flatMap((impact) => impact.verticals));
-  const runtimeEntries = unique(installImpacts.flatMap((impact) => impact.runtimeEntries));
+  const blocks = uniqueSorted(installImpacts.map((impact) => impact.blockId));
+  const actionKinds = uniqueSorted(installImpacts.flatMap((impact) => impact.actionKinds));
+  const sourceRoots = uniqueSorted(installImpacts.flatMap((impact) => impact.sourceRoots));
+  const targetPaths = uniqueSorted(installImpacts.flatMap((impact) => impact.targetPaths));
+  const verticals = uniqueSorted(installImpacts.flatMap((impact) => impact.verticals));
+  const runtimeEntries = uniqueSorted(installImpacts.flatMap((impact) => impact.runtimeEntries));
   const groups = new Map<
     string,
     {
@@ -804,10 +803,10 @@ function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): Revie
         runtimeEntries: [],
         targetPaths: []
       };
-      group.blocks = unique([...group.blocks, impact.blockId]);
-      group.actionKinds = unique([...group.actionKinds, ...impact.actionKinds]);
-      group.runtimeEntries = unique([...group.runtimeEntries, ...impact.runtimeEntries]);
-      group.targetPaths = unique([...group.targetPaths, ...impact.targetPaths]);
+      group.blocks = uniqueSorted([...group.blocks, impact.blockId]);
+      group.actionKinds = uniqueSorted([...group.actionKinds, ...impact.actionKinds]);
+      group.runtimeEntries = uniqueSorted([...group.runtimeEntries, ...impact.runtimeEntries]);
+      group.targetPaths = uniqueSorted([...group.targetPaths, ...impact.targetPaths]);
       groups.set(vertical, group);
     }
   }
@@ -873,7 +872,7 @@ export async function buildReviewSummary(
       lane: 'all',
       kind: 'summary',
       message: `Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`,
-      artifactPath: 'control/evidence/verification-report.json'
+      artifactPath: CI_ARTIFACT_FILES.verificationReport
     });
   }
 
@@ -882,7 +881,7 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'policy',
       message: `Policy ${violation.id}: ${violation.message}`,
-      artifactPath: 'control/evidence/policy-report.json'
+      artifactPath: CI_ARTIFACT_FILES.policyReport
     });
   }
 
@@ -891,7 +890,7 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'build',
       message: 'Fast-lane typecheck failed',
-      artifactPath: 'control/evidence/verification-report.json'
+      artifactPath: CI_ARTIFACT_FILES.verificationReport
     });
   }
   if (report.fast.unit.status === 'failed') {
@@ -899,7 +898,7 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'unit',
       message: 'Fast-lane unit tests failed',
-      artifactPath: 'control/evidence/verification-report.json'
+      artifactPath: CI_ARTIFACT_FILES.verificationReport
     });
   }
   if (report.fast.acceptance.status === 'failed') {
@@ -907,14 +906,14 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'acceptance',
       message: 'Fast-lane acceptance tests failed',
-      artifactPath: 'control/evidence/verification-report.json'
+      artifactPath: CI_ARTIFACT_FILES.verificationReport
     });
     for (const target of report.fast.acceptance.failed) {
       addFailurePoint(failurePoints, {
         lane: 'fast',
         kind: 'acceptance',
         message: `Fast-lane acceptance test failed: ${target}`,
-        artifactPath: 'control/evidence/verification-report.json'
+        artifactPath: CI_ARTIFACT_FILES.verificationReport
       });
     }
   }
@@ -923,7 +922,7 @@ export async function buildReviewSummary(
       lane: 'runtime',
       kind: 'build',
       message: 'Runtime build failed',
-      artifactPath: 'control/evidence/runtime-report.json'
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport
     });
     addFailedTargets(
       failurePoints,
@@ -931,7 +930,7 @@ export async function buildReviewSummary(
       'build',
       report.runtime.build,
       'Runtime build failed',
-      'control/evidence/runtime-report.json'
+      CI_ARTIFACT_FILES.runtimeReport
     );
   }
   if (report.runtime.unit.status === 'failed') {
@@ -939,7 +938,7 @@ export async function buildReviewSummary(
       lane: 'runtime',
       kind: 'unit',
       message: 'Runtime unit tests failed',
-      artifactPath: 'control/evidence/runtime-report.json'
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport
     });
     addFailedTargets(
       failurePoints,
@@ -947,7 +946,7 @@ export async function buildReviewSummary(
       'unit',
       report.runtime.unit,
       'Runtime unit test failed',
-      'control/evidence/runtime-report.json'
+      CI_ARTIFACT_FILES.runtimeReport
     );
   }
   if (report.runtime.acceptance.status === 'failed') {
@@ -955,7 +954,7 @@ export async function buildReviewSummary(
       lane: 'runtime',
       kind: 'acceptance',
       message: 'Runtime acceptance tests failed',
-      artifactPath: 'control/evidence/runtime-report.json'
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport
     });
     addFailedTargets(
       failurePoints,
@@ -963,7 +962,7 @@ export async function buildReviewSummary(
       'acceptance',
       report.runtime.acceptance,
       'Runtime acceptance test failed',
-      'control/evidence/runtime-report.json'
+      CI_ARTIFACT_FILES.runtimeReport
     );
   }
 
@@ -1039,7 +1038,7 @@ export async function buildReviewSummary(
       lane: 'all',
       kind: 'upgrade',
       message: formatUpgradeDiagnosticsFailureMessage(upgradeDiagnostics),
-      artifactPath: 'control/workflow/upgrade-diagnostics.json'
+      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics
     });
   }
 
@@ -1054,7 +1053,7 @@ export async function buildReviewSummary(
       addFailurePoint(failurePoints, {
         lane: 'all',
         kind: 'repair',
-        artifactPath: 'control/workflow/repair-plan.json',
+        artifactPath: CI_ARTIFACT_FILES.repairPlan,
         message: `Repair blocked at ${blocker.boundary}: ${blocker.reason}`
       });
       addConflictHint(conflictHints, {
@@ -1067,7 +1066,7 @@ export async function buildReviewSummary(
       const preview = task.preview
         ? `; preview ${task.preview.changed ? 'changed' : 'unchanged'} +${task.preview.addedLines}/-${task.preview.removedLines}`
         : '';
-      const targetIds = unique(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+      const targetIds = uniqueSorted(task.failurePoints.flatMap((point) => point.targetIds ?? []));
       const targets = targetIds.length > 0 ? `; targets ${targetIds.join(', ')}` : '';
       addConflictHint(conflictHints, {
         kind: 'repair-plan-present',
@@ -1109,8 +1108,8 @@ export async function buildReviewSummary(
   const artifactSummary = await readReviewArtifactSummary(workspaceRoot);
   const installImpacts = buildInstallImpacts(lock);
   const installImpactSummary = buildInstallImpactSummary(installImpacts);
-  const impactedBlocks = unique(lock.resolvedBlocks.map((block) => block.id));
-  const impactedSlots = unique(lock.slotTasks.map((task) => task.id));
+  const impactedBlocks = uniqueSorted(lock.resolvedBlocks.map((block) => block.id));
+  const impactedSlots = uniqueSorted(lock.slotTasks.map((task) => task.id));
   const sortedFailurePoints = [...failurePoints].sort(compareFailurePoints);
   const sortedRegressionRisks = [...regressionRisks].sort(compareRegressionRisks);
   const sortedConflictHints = [...conflictHints].sort(compareConflictHints);
@@ -1156,10 +1155,7 @@ export async function writeReviewSummary(
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
   const { reviewSummaryPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!lock.generatedPaths.includes('control/evidence/review-summary.json')) {
-    lock.generatedPaths.push('control/evidence/review-summary.json');
-    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-  }
+  addGeneratedPaths(lock, [CI_ARTIFACT_FILES.reviewSummary]);
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
   await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
   await fs.mkdir(path.dirname(lockPath), { recursive: true });

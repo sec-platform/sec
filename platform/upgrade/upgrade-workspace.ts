@@ -11,6 +11,9 @@ import { resolveGraph } from '../compiler/resolve/resolve-graph.ts';
 import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
 import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from '../compiler/verify/verify-project.ts';
+import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
+import { uniqueSorted } from '../shared/collections.ts';
+import { addGeneratedPaths } from '../shared/lock-utils.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
@@ -104,7 +107,7 @@ async function detectOverrideConflicts(workspaceRoot: string, blockId: string, i
     );
   }
 
-  return manifest.overrides.map((entry) => entry.id).sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(manifest.overrides.map((entry) => entry.id));
 }
 
 function ensureMigrationString(value: unknown, field: string, entryPath: string): string {
@@ -783,7 +786,7 @@ async function collectMigrationTargetEvidence(
     }
     evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, 'target', entry.target));
   }
-  return evidence.sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(evidence);
 }
 
 async function statFileMigrationTarget(
@@ -1029,7 +1032,7 @@ async function collectFileOperationEvidence(
       )}`);
     }
   }
-  return evidence.sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(evidence);
 }
 
 function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
@@ -1045,7 +1048,7 @@ function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): st
       evidence.push(`${entry.id}:path:${entry.path.join('.')}:object:${Object.keys(entry.value).length}`);
     }
   }
-  return evidence.sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(evidence);
 }
 
 function ensureSlotContractValue(
@@ -1116,7 +1119,7 @@ function collectSlotContractEvidence(
     evidence.push(...ensureSlotContractValue(entry.id, 'outputType', entry.outputType, slot.outputType));
     evidence.push(...ensureSlotWritableZones(entry.id, entry.writableZones, slot.writableZones));
   }
-  return evidence.sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(evidence);
 }
 
 function isJsonMigrationEntry(entry: UpgradeMigrationEntry): entry is Extract<
@@ -1183,7 +1186,7 @@ async function collectTextPatternEvidence(
     pattern.lastIndex = 0;
     evidence.push(`${entry.id}:flags:${pattern.flags}`);
   }
-  return evidence.sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(evidence);
 }
 
 async function collectJsonStructureEvidence(
@@ -1238,7 +1241,7 @@ async function collectJsonStructureEvidence(
     }
     evidence.push(`${entry.id}:target:${target === undefined ? 'missing' : 'object'}`);
   }
-  return evidence.sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(evidence);
 }
 
 function buildUpgradePreflightChecks(
@@ -1331,10 +1334,7 @@ function isEmptyDiagnosticsDetails(details: unknown): boolean {
 }
 
 async function recordUpgradeGeneratedArtifact(workspaceRoot: string, lock: LockFile, artifactPath: string): Promise<void> {
-  if (!lock.generatedPaths.includes(artifactPath)) {
-    lock.generatedPaths.push(artifactPath);
-    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-  }
+  addGeneratedPaths(lock, [artifactPath]);
   await writeProvenance(workspaceRoot, lock);
 }
 
@@ -1410,7 +1410,7 @@ async function writeUpgradeDiagnostics(
   if (!lock) {
     return;
   }
-  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'control/workflow/upgrade-diagnostics.json');
+  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradeDiagnostics);
 }
 
 function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Record<string, number> {
@@ -1713,9 +1713,10 @@ export async function upgradeWorkspace(
     ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
     targetManifestRoot = path.dirname(targetEntry.manifestPath);
     migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
-    impacts = [...new Set([...targetEntry.manifest.installs.map((install) => install.to), ...migrationImpacts(migrationEntries)])].sort(
-      (left, right) => left.localeCompare(right)
-    );
+    impacts = uniqueSorted([
+      ...targetEntry.manifest.installs.map((install) => install.to),
+      ...migrationImpacts(migrationEntries)
+    ]);
     const migrationTargetEvidence = await collectMigrationTargetEvidence(projectRoot, migrationEntries);
     const fileOperationEvidence = await collectFileOperationEvidence(
       projectRoot,
@@ -1753,7 +1754,7 @@ export async function upgradeWorkspace(
   if (options.dryRun) {
     const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
     await writeJson(upgradePlanPath, upgradePlan);
-    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'control/workflow/upgrade-plan.json');
+    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
     return { plan, lock, upgradePlan };
   }
 
@@ -1780,7 +1781,7 @@ export async function upgradeWorkspace(
     await lockProject(workspaceRoot, lock);
     lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
 
-    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'control/workflow/upgrade-plan.json');
+    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
 
     upgradePlan.status = 'applied';
     await writeJson(upgradePlanPath, upgradePlan);

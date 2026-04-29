@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { withTempWorkspace } from '../helpers/test-utils.ts';
@@ -149,7 +150,7 @@ test('review summary surfaces pending repair tasks', async () => {
               kind: 'policy',
               issueType: 'spec',
               repairable: false,
-              artifactPath: 'control/evidence/policy-report.json',
+              artifactPath: CI_ARTIFACT_FILES.policyReport,
               message: 'tenant scope missing',
               targetIds: ['tenant-scope-required']
             }
@@ -255,7 +256,7 @@ test('review summary surfaces pending repair tasks', async () => {
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'repair',
-      artifactPath: 'control/workflow/repair-plan.json',
+      artifactPath: CI_ARTIFACT_FILES.repairPlan,
       message: 'Repair blocked at spec: policy failure is outside automatic slot repair: tenant scope missing'
     });
     expect(summary.conflictHints).toEqual([

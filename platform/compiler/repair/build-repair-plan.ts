@@ -2,10 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
 import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
+import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type {
@@ -22,7 +24,7 @@ function summarizeFailure(report: VerificationReport): string {
 }
 
 function sortedUniqueMessages(messages: string[]): string[] {
-  return [...new Set(messages)].sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(messages);
 }
 
 function countLines(value: string): number {
@@ -38,7 +40,7 @@ function projectRelativeImport(fromFile: string, toFile: string): string {
 }
 
 function rebaseRelativeImports(source: string, fromFile: string, toFile: string): string {
-  return source.replace(/(from\s+['"])(\.{1,2}\/[^'"]+)(['"])/g, (match, prefix: string, specifier: string, suffix: string) => {
+  return source.replace(/(from\s+['"])(\.{1,2}\/[^'"]+)(['"])/g, (_match, prefix: string, specifier: string, suffix: string) => {
     const resolvedTarget = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier));
     return `${prefix}${projectRelativeImport(toFile, resolvedTarget)}${suffix}`;
   });
@@ -93,7 +95,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'build',
       issueType: 'unknown',
       repairable: false,
-      artifactPath: 'control/evidence/verification-report.json',
+      artifactPath: CI_ARTIFACT_FILES.verificationReport,
       message: report.fast.logs.stderr || 'Typecheck failed'
     });
   }
@@ -124,7 +126,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'policy',
       issueType: 'spec',
       repairable: false,
-      artifactPath: 'control/evidence/policy-report.json',
+      artifactPath: CI_ARTIFACT_FILES.policyReport,
       message: sortedUniqueMessages(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed',
       targetIds: uniqueSorted(report.policy.violations.flatMap((violation) => [violation.id, ...violation.files]))
     });
@@ -135,7 +137,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'runtime-build',
       issueType: 'kernel',
       repairable: false,
-      artifactPath: 'control/evidence/runtime-report.json',
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
       message: report.runtime.logs.stderr || 'Runtime build failed'
     });
   }
@@ -145,7 +147,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'runtime-unit',
       issueType: 'slot',
       repairable: true,
-      artifactPath: 'control/evidence/runtime-report.json',
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
       message: report.runtime.logs.stderr || 'Runtime unit verification failed',
       targetIds: uniqueSorted(report.runtime.unit.failed)
     });
@@ -156,7 +158,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'runtime-acceptance',
       issueType: 'slot',
       repairable: true,
-      artifactPath: 'control/evidence/runtime-report.json',
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
       message: report.runtime.logs.stderr || 'Runtime acceptance verification failed',
       targetIds: uniqueSorted(report.runtime.acceptance.failed)
     });
@@ -170,7 +172,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
           kind: 'summary',
           issueType: 'unknown',
           repairable: false,
-          artifactPath: 'control/evidence/verification-report.json',
+          artifactPath: CI_ARTIFACT_FILES.verificationReport,
           message: 'Verification failed without lane-specific failure details'
         }
       ];
@@ -382,10 +384,7 @@ export async function writeRepairPlan(workspaceRoot: string, plan: RepairPlan, l
   const { repairPlanPath, lockPath } = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(path.dirname(repairPlanPath), { recursive: true });
   await fs.writeFile(repairPlanPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');
-  if (!lock.generatedPaths.includes('control/workflow/repair-plan.json')) {
-    lock.generatedPaths.push('control/workflow/repair-plan.json');
-    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-  }
+  addGeneratedPaths(lock, [CI_ARTIFACT_FILES.repairPlan]);
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   await writeProvenance(workspaceRoot, lock);
 }

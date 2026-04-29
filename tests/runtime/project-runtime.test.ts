@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
   ensureProjectDependencies,
@@ -159,9 +160,9 @@ describe('test budget and benchmark contracts', () => {
       "id: 'add-block'",
       "command: 'npm run demo:quickstart'",
       "id: 'repair-slot'",
-      "control/workflow/repair-plan.json",
+      'CI_ARTIFACT_FILES.repairPlan',
       "id: 'override-conflict'",
-      "control/workflow/upgrade-diagnostics.json"
+      'CI_ARTIFACT_FILES.upgradeDiagnostics'
     ]);
   });
 
@@ -269,7 +270,7 @@ describe('error protocol and developer contracts', () => {
       'npm run platform -- review diagnostics --json --compact',
       'npm run platform -- workbench mutations apply --json --compact',
       'source/views/mutations/*.json',
-      'control/workflow/view-mutation-report.json',
+      CI_ARTIFACT_FILES.viewMutationReport,
       'npm run platform -- repair --dry-run --json --compact',
       'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
       'npm run platform -- test budget --json --compact',
@@ -277,7 +278,7 @@ describe('error protocol and developer contracts', () => {
       'npm run platform -- reference check --json --compact',
       'npm run platform -- benchmark suite --json --compact',
       'Governance contract freeze currently covers:',
-      'control/graph/explain-graph.json'
+      CI_ARTIFACT_FILES.explainGraph
     ]);
   });
 

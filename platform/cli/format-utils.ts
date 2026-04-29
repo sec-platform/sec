@@ -14,9 +14,8 @@ export function formatCounts(values: string[]): string {
   );
 }
 
-export function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values.filter((value) => value.length > 0))]
-    .sort((left, right) => left.localeCompare(right));
+export function formatJson(value: unknown, options: { compact: boolean }): string {
+  return JSON.stringify(value, null, options.compact ? 0 : 2);
 }
 
 export function summarizeById(

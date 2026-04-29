@@ -5,6 +5,7 @@ import path from 'node:path';
 import { buildExplainGraph, writeExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
 import { initWorkspace, resolveWorkspace } from '../../platform/orchestrator.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 import type {
@@ -515,9 +516,9 @@ test('writeExplainGraph does not require a policy report', async () => {
   expect(graph.nodes.some((node) => node.type === 'policy')).toBe(false);
   expect(writtenGraph.nodes).toEqual(graph.nodes);
   expect(writtenLock.generatedPaths).toEqual(
-    expect.arrayContaining(['control/graph/explain-graph.json', 'control/provenance/provenance.json'])
+    expect.arrayContaining([CI_ARTIFACT_FILES.explainGraph, CI_ARTIFACT_FILES.provenance])
   );
   expect(writtenProvenance.artifacts.map((artifact) => artifact.path)).toEqual(
-    expect.arrayContaining(['control/graph/explain-graph.json', 'control/provenance/provenance.json'])
+    expect.arrayContaining([CI_ARTIFACT_FILES.explainGraph, CI_ARTIFACT_FILES.provenance])
   );
 });

@@ -1,22 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { defaultInstallRegistry } from './install-strategies.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
-
-function ensureGeneratedPaths(lock: LockFile, paths: string[]): void {
-  for (const generatedPath of paths) {
-    if (!lock.generatedPaths.includes(generatedPath)) {
-      lock.generatedPaths.push(generatedPath);
-    }
-  }
-  lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-}
 
 async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
   const routeEntries = await Promise.all(
@@ -87,7 +80,12 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
   );
 
   const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
-  ensureGeneratedPaths(lock, [...runtimeScaffoldPaths, 'generated/routes.ts', 'control/evidence/block-usage-map.json', 'control/evidence/install-manifest.json']);
+  addGeneratedPaths(lock, [
+    ...runtimeScaffoldPaths,
+    'generated/routes.ts',
+    CI_ARTIFACT_FILES.blockUsageMap,
+    CI_ARTIFACT_FILES.installManifest
+  ]);
 
   await applyOverrides(workspaceRoot, 'compose');
 

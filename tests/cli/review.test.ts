@@ -6,6 +6,7 @@ import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
   buildCiContract,
   formatCiContract
@@ -344,7 +345,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
           lane: 'fast',
           kind: 'policy',
           message: 'Policy tenant-scope-required: missing tenant guard',
-          artifactPath: 'control/evidence/policy-report.json'
+          artifactPath: CI_ARTIFACT_FILES.policyReport
         }
       ],
       regressionRisks: [
@@ -414,11 +415,11 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     expect(diagnosticsResult.code).toBe(0);
     expect(diagnosticsResult.stderr).toBe('');
     expect(diagnosticsResult.stdout).toContain('Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1');
-    expect(diagnosticsResult.stdout).toContain('Artifacts: control/evidence/policy-report.json');
+    expect(diagnosticsResult.stdout).toContain(`Artifacts: ${CI_ARTIFACT_FILES.policyReport}`);
     expect(diagnosticsResult.stdout).toContain('Blocks: tenant/basic-workspace');
     expect(diagnosticsResult.stdout).toContain('Slots: customer_normalizer');
     expect(diagnosticsResult.stdout).toContain(
-      'Diagnostic failure:0; kind=policy; lane=fast; artifact=control/evidence/policy-report.json; Policy tenant-scope-required: missing tenant guard'
+      `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`
     );
     expect(diagnosticsResult.stdout).toContain(
       'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; slot=none; Block tenant/basic-workspace has uncovered acceptance'
@@ -438,7 +439,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       regressionRiskCount: 2,
       conflictHintCount: 1,
       artifactPathCount: 1,
-      artifactPaths: ['control/evidence/policy-report.json'],
+      artifactPaths: [CI_ARTIFACT_FILES.policyReport],
       blockCount: 1,
       blocks: ['tenant/basic-workspace'],
       slotCount: 1,

@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
 import { pathExists } from '../../shared/fs.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import { getWorkspacePaths, isSafeRelativePath } from '../../shared/paths.ts';
 import { readYaml } from '../../shared/yaml.ts';
-import type { OverrideApplyPhase, OverrideEntry, OverrideManifest } from '../../shared/provenance-types.ts';
+import { emptyOverrideManifest, type OverrideApplyPhase, type OverrideEntry, type OverrideManifest } from '../../shared/provenance-types.ts';
 
 const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
 const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/', 'control/', 'source/', '.pjc/'];
@@ -22,7 +22,7 @@ function normalizeOverrideEntry(entry: Partial<OverrideEntry>): OverrideEntry {
 }
 
 function ensureRelativeProjectPath(kind: string, value: string): void {
-  if (!value || path.isAbsolute(value) || value.includes('..\\') || value.includes('../')) {
+  if (!isSafeRelativePath(value)) {
     throw new CompilerError('OVERRIDE-SCHEMA-003', `${kind} must stay inside the project tree`);
   }
 }
@@ -74,8 +74,8 @@ export async function resolveOverrideManifestPath(workspaceRoot: string): Promis
 export async function loadOverrideManifest(workspaceRoot: string): Promise<OverrideManifest> {
   const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
   if (!(await pathExists(overrideManifestPath))) {
-    return { overrides: [] };
+    return emptyOverrideManifest();
   }
   const manifest = await readYaml<OverrideManifest>(overrideManifestPath);
-  return validateOverrideManifest(manifest ?? { overrides: [] });
+  return validateOverrideManifest(manifest ?? emptyOverrideManifest());
 }

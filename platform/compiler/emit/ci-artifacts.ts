@@ -1,11 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathExists, readJson } from '../../shared/fs.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import {
   CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_MISSING_REASON,
   CI_ARTIFACT_PATHS,
   buildCiArtifactUploadGroups,
   ciArtifactKindForPath,
@@ -65,19 +67,19 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     if (generatedPathResult.lockExists && requiredGovernanceArtifacts.has(artifactPath) && !exists) {
       missing.push({
         path: artifactPath,
-        reason: 'fixed-governance-missing',
+        reason: CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing,
         declaredBy: 'artifact-manifest'
       });
     } else if (generatedPathResult.lockExists && viewArtifacts.has(artifactPath) && !exists) {
       missing.push({
         path: artifactPath,
-        reason: 'fixed-view-missing',
+        reason: CI_ARTIFACT_MISSING_REASON.fixedViewMissing,
         declaredBy: 'artifact-manifest'
       });
     } else if (generatedPaths.has(artifactPath) && !exists) {
       missing.push({
         path: artifactPath,
-        reason: 'declared-generated-missing',
+        reason: CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing,
         declaredBy: 'graph.lock.json'
       });
     }
@@ -123,10 +125,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
 export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
-  if (!lock.generatedPaths.includes(CI_ARTIFACT_MANIFEST_PATH)) {
-    lock.generatedPaths.push(CI_ARTIFACT_MANIFEST_PATH);
-    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-  }
+  addGeneratedPaths(lock, [CI_ARTIFACT_MANIFEST_PATH]);
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   await fs.mkdir(path.dirname(ciArtifactsPath), { recursive: true });
   await fs.writeFile(

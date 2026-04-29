@@ -1,3 +1,4 @@
+import { uniqueSorted } from '../../shared/collections.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 
 export type RuntimeEntryKind = 'page' | 'api';
@@ -13,10 +14,6 @@ export interface VerticalSliceAttribution {
   id: string;
   runtimeEntries: string[];
   relatedBlocks: string[];
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 export function classifyRuntimeEntry(targetPath: string): RuntimeEntryKind | null {
@@ -69,7 +66,7 @@ export function inferRelatedBlocks(lock: LockFile, targetPath: string): string[]
     }
   }
 
-  return unique([...related]);
+  return uniqueSorted([...related]);
 }
 
 export function buildRuntimeAttribution(lock: LockFile, targetPath: string): RuntimeAttribution | null {
@@ -88,7 +85,7 @@ export function buildRuntimeAttribution(lock: LockFile, targetPath: string): Run
 }
 
 export function buildRuntimeAttributions(lock: LockFile, targetPaths: string[]): RuntimeAttribution[] {
-  return unique(targetPaths)
+  return uniqueSorted(targetPaths)
     .map((targetPath) => buildRuntimeAttribution(lock, targetPath))
     .filter((entry): entry is RuntimeAttribution => entry !== null)
     .sort((left, right) => left.path.localeCompare(right.path));
@@ -117,8 +114,8 @@ export function buildVerticalSliceAttributions(entries: RuntimeAttribution[]): V
   return [...slices.entries()]
     .map(([id, slice]) => ({
       id,
-      runtimeEntries: unique([...slice.runtimeEntries]),
-      relatedBlocks: unique([...slice.relatedBlocks])
+      runtimeEntries: uniqueSorted([...slice.runtimeEntries]),
+      relatedBlocks: uniqueSorted([...slice.relatedBlocks])
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
 }

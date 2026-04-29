@@ -1,10 +1,11 @@
-import type { CommandHandler, CommandContext } from '../command-registry.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { parseArtifactsArgs } from '../args.ts';
 import { buildCiArtifactManifest } from '../../compiler/emit/ci-artifacts.ts';
 import { writeWorkspaceArtifacts } from '../../orchestrator.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
-import { artifactUploadPathSummary, formatCiArtifactManifest } from '../formatters.ts';
+import { buildArtifactUploadPathContract, formatCiArtifactManifest } from '../formatters.ts';
+import { formatJson } from '../format-utils.ts';
 import type { CiArtifactManifest } from '../../shared/ci-artifact-types.ts';
 import { ARTIFACTS_USAGE } from '../usage.ts';
 
@@ -20,7 +21,7 @@ export const artifactsCommand: CommandHandler = {
       }
       const manifest = await readJson<CiArtifactManifest>(ciArtifactsPath);
       if (artifactsArgs.json) {
-        console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
+        console.log(formatJson(manifest, artifactsArgs));
         return;
       }
       console.log(formatCiArtifactManifest(manifest));
@@ -28,29 +29,15 @@ export const artifactsCommand: CommandHandler = {
     }
     if (artifactsArgs.mode === 'paths') {
       const manifest = await buildCiArtifactManifest(ctx.cwd);
-      const pathSummary = artifactUploadPathSummary(manifest, artifactsArgs.kind);
+      const pathContract = buildArtifactUploadPathContract(manifest, artifactsArgs.kind);
       if (artifactsArgs.json) {
-        console.log(JSON.stringify({
-          formatVersion: manifest.formatVersion,
-          root: manifest.root,
-          kind: artifactsArgs.kind ?? 'all',
-          artifactStatus: manifest.summary.artifactStatus,
-          count: pathSummary.paths.length,
-          paths: pathSummary.paths,
-          byKind: pathSummary.byKind,
-          uploadGroupCount: pathSummary.uploadGroups.length,
-          uploadGroups: pathSummary.uploadGroups,
-          missingCount: manifest.missing.length,
-          missingReasonTypeCount: manifest.summary.missingReasonTypeCount,
-          missingReasonCounts: manifest.summary.missingReasonCounts,
-          missing: manifest.missing
-        }, null, artifactsArgs.compact ? 0 : 2));
+        console.log(formatJson(pathContract, artifactsArgs));
         return;
       }
-      console.log(pathSummary.paths.join('\n'));
+      console.log(pathContract.paths.join('\n'));
       return;
     }
     const { manifest } = await writeWorkspaceArtifacts(ctx.cwd);
-    console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
+    console.log(formatJson(manifest, artifactsArgs));
   }
 };

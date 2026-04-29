@@ -6,6 +6,7 @@ import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
   buildCiContract,
   formatCiContract
@@ -170,7 +171,7 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     commandRunner: async (command, args) => {
       if (command === 'git') {
         expect(args).toEqual(['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']);
-        return { code: 1, stdout: 'source/app.yaml\ncontrol/evidence/review-summary.json\n', stderr: '' };
+        return { code: 1, stdout: `source/app.yaml\n${CI_ARTIFACT_FILES.reviewSummary}\n`, stderr: '' };
       }
 
       expect(args.slice(-2)).toEqual(['run', 'reference:refresh']);
@@ -186,7 +187,7 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     'Commands: refresh=npm run reference:refresh; diff=git diff --name-only --exit-code -- source project control'
   );
   expect(formatReferenceCheck(report)).toContain(
-    'Changed paths: control/evidence/review-summary.json, source/app.yaml'
+    `Changed paths: ${CI_ARTIFACT_FILES.reviewSummary}, source/app.yaml`
   );
   expect(JSON.stringify(report)).not.toContain('\n');
   expect(report).toMatchObject({
@@ -201,7 +202,7 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     diffCommand: 'git diff --name-only --exit-code -- source project control',
     diffExitCode: 1,
     changedPathCount: 2,
-    changedPaths: ['control/evidence/review-summary.json', 'source/app.yaml'],
+    changedPaths: [CI_ARTIFACT_FILES.reviewSummary, 'source/app.yaml'],
     recommendedAction: 'inspect-workspace-drift-and-refresh-reference'
   });
   expect(() => assertReferenceCheckClean(report)).toThrow('reference workspace drift detected');

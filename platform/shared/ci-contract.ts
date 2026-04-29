@@ -1,4 +1,6 @@
+import { uniqueSorted } from './collections.ts';
 import {
+  CI_ARTIFACT_FILES,
   CI_ARTIFACT_KINDS,
   CI_ARTIFACT_MANIFEST_PATH,
   ciArtifactUploadCommand
@@ -62,7 +64,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     phase: 'verify',
     command: 'npm run platform -- verify --json --compact',
     purpose: 'Run the default fast verification lane for pull requests.',
-    produces: ['control/evidence/verification-report.json']
+    produces: [CI_ARTIFACT_FILES.verificationReport]
   },
   {
     id: 'full-runtime-verify',
@@ -70,9 +72,9 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     command: 'npm run platform -- verify --lane all --json --compact',
     purpose: 'Run the full runtime gate for release, demo, or scheduled CI.',
     produces: [
-      'control/evidence/verification-report.json',
-      'control/evidence/runtime-report.json',
-      'control/evidence/acceptance-coverage.json'
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.runtimeReport,
+      CI_ARTIFACT_FILES.acceptanceCoverage
     ]
   },
   {
@@ -108,7 +110,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     phase: 'diagnostics',
     command: 'npm run platform -- review summary --json --compact',
     purpose: 'Expose policy, provenance, repair, upgrade, and artifact review evidence.',
-    produces: ['control/evidence/review-summary.json']
+    produces: [CI_ARTIFACT_FILES.reviewSummary]
   },
   {
     id: 'diagnostic-review-matrix',
@@ -130,8 +132,8 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     command: 'npm run platform -- explain --json --compact',
     purpose: 'Expose the explain graph and review summary for failed CI triage.',
     produces: [
-      'control/graph/explain-graph.json',
-      'control/evidence/review-summary.json'
+      CI_ARTIFACT_FILES.explainGraph,
+      CI_ARTIFACT_FILES.reviewSummary
     ]
   },
   {
@@ -157,9 +159,7 @@ export function buildCiContract(): CiContract {
   const artifactUploadCommands = ciSteps
     .filter((step) => step.phase === 'artifacts')
     .map((step) => step.command);
-  const artifactPaths = [...new Set(ciSteps.flatMap((step) => step.produces))].sort((left, right) =>
-    left.localeCompare(right)
-  );
+  const artifactPaths = uniqueSorted(ciSteps.flatMap((step) => step.produces));
 
   return {
     formatVersion: '1',
