@@ -5,7 +5,9 @@ export function formatList(values: string[], fallback = 'none'): string {
 }
 
 export function formatCounts(values: string[]): string {
-  return formatList(summarizeCounts(values).map((entry) => `${entry.id}=${entry.count}`));
+  return formatList(
+    summarizeCounts(values).map((entry) => `${entry.id}=${entry.count}`)
+  );
 }
 
 export function formatJson(value: unknown, options: { compact: boolean }): string {
@@ -30,12 +32,4 @@ export function formatSummaryEntries(entries: Array<{ id: string; count: number 
   return entries.length > 0
     ? entries.map((entry) => `${entry.id}=${entry.count}`).join(', ')
     : 'none';
-}
-
-export function readObjectString(value: unknown, key: string): string | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === 'string' && field.length > 0 ? field : null;
 }

@@ -57,3 +57,43 @@ export interface ReviewUpgradeSummary {
   migrationOperationSummaries: ReviewUpgradeMigrationOperationSummary[];
   diagnostics?: ReviewUpgradeDiagnosticsSummary;
 }
+
+function readUpgradeDiagnosticsString(details: unknown, key: string): string | null {
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
+    return null;
+  }
+  const value = (details as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+export function upgradeDiagnosticsAttributionParts(details: unknown): string[] {
+  const migrationId = readUpgradeDiagnosticsString(details, 'migrationId');
+  if (!migrationId) {
+    return [];
+  }
+
+  const role = readUpgradeDiagnosticsString(details, 'role');
+  const path = readUpgradeDiagnosticsString(details, 'path');
+  const migrationKind = readUpgradeDiagnosticsString(details, 'migrationKind');
+  const target = readUpgradeDiagnosticsString(details, 'target')
+    ?? (role === 'target' ? path : null);
+  const source = readUpgradeDiagnosticsString(details, 'source')
+    ?? (role === 'source' ? path : null);
+  const slotId = readUpgradeDiagnosticsString(details, 'slotId');
+  const entry = readUpgradeDiagnosticsString(details, 'entry');
+  const entryId = readUpgradeDiagnosticsString(details, 'entryId');
+  const entryKind = readUpgradeDiagnosticsString(details, 'entryKind');
+  const rollbackStatus = readUpgradeDiagnosticsString(details, 'rollbackStatus');
+
+  return [
+    `migration=${migrationId}`,
+    migrationKind ? `kind=${migrationKind}` : '',
+    entry ? `entry=${entry}` : '',
+    entryId ? `entryId=${entryId}` : '',
+    entryKind ? `entryKind=${entryKind}` : '',
+    target ? `target=${target}` : '',
+    source ? `source=${source}` : '',
+    slotId ? `slot=${slotId}` : '',
+    rollbackStatus ? `rollback=${rollbackStatus}` : ''
+  ].filter((part) => part.length > 0);
+}
