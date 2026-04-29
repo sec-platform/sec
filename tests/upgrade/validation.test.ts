@@ -204,6 +204,47 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
   });
 });
 
+test('upgrade rejects migration entry paths that escape the manifest root', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-migration-entry-escape-');
+
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(
+    privateRegistryRoot,
+    'private.slot-contract',
+    'versions',
+    '0.2.0'
+  );
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-escaping-entry-file',
+          kind: 'text-append',
+          entry: '../escape.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: false
+        }
+      ]
+    }
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+    code: 'UPGRADE-MIGRATION-005',
+    details: {
+      failedCheck: 'migration-file-operations',
+      migrationId: 'mig-escaping-entry-file',
+      role: 'manifest-source'
+    }
+  });
+});
+
 test('upgrade records mismatched migration entry metadata diagnostics before planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-mismatched-migration-entry-');
 

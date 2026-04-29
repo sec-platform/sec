@@ -216,7 +216,7 @@ describe('error protocol and developer contracts', () => {
     ]);
   });
 
-  test('route map documents all CLI surface commands', async () => {
+  test('roadmap documents delivery themes and governance surface', async () => {
     const routeMap = await readCompilerFile('docs/03-MVP实施计划与路线图.md');
 
     expectContainsAll(routeMap, [
@@ -234,6 +234,16 @@ describe('error protocol and developer contracts', () => {
       '阶段 C',
       '阶段 D',
       '13 个块'
+    ]);
+  });
+
+  test('compiler spec documents registry source path contract', async () => {
+    const spec = await readCompilerFile('docs/05-编译器核心实现规格.md');
+
+    expectContainsAll(spec, [
+      '| `registry.sources[].path` | string | 否 | 相对 `location` 根目录；禁止绝对路径、盘符、UNC、NUL 与 `..` 穿越 |',
+      'blocks/slots/registry.sources 的 id 不允许重复',
+      '`app.stack` 必须与所有块的 `stackProfiles` 兼容'
     ]);
   });
 

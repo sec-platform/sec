@@ -59,6 +59,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Test budget contract
+        run: npm run platform -- test budget --json --compact
+
+      - name: Contract freeze
+        run: npm run test:contract-freeze
+
       - name: Warm runtime dependency cache
         run: node ./platform/cli/index.ts deps warmup
 
@@ -72,7 +78,7 @@ jobs:
         run: node ./platform/cli/index.ts adapt
 
       - name: Verify fast lane
-        run: node ./platform/cli/index.ts verify --lane fast
+        run: npm run platform -- verify --json --compact
 
       - name: Generate fast artifact manifest
         if: failure()
@@ -81,8 +87,10 @@ jobs:
         run: |
           node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content control/ci/artifacts.json -Raw | ConvertFrom-Json
-          $governancePaths = @(node ./platform/cli/index.ts artifacts --paths --kind governance)
-          $viewPaths = @(node ./platform/cli/index.ts artifacts --paths --kind view)
+          $governancePaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind governance | ConvertFrom-Json).paths)
+          $viewPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind view | ConvertFrom-Json).paths)
+          $testPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind test | ConvertFrom-Json).paths)
+          $contractPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind contract | ConvertFrom-Json).paths)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing workspace artifacts: $($missing -join ', ')"
@@ -92,6 +100,12 @@ jobs:
           "EOF" >> $env:GITHUB_OUTPUT
           "view_paths<<EOF" >> $env:GITHUB_OUTPUT
           $viewPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "test_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $testPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "contract_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $contractPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
 
       - name: Upload fast governance diagnostics
@@ -109,6 +123,22 @@ jobs:
           name: compiler-fast-local-views
           if-no-files-found: warn
           path: ${{ steps.fast_artifacts.outputs.view_paths }}
+
+      - name: Upload fast runtime test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-fast-runtime-test-results
+          if-no-files-found: ignore
+          path: ${{ steps.fast_artifacts.outputs.test_paths }}
+
+      - name: Upload fast contract artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-fast-contract-artifacts
+          if-no-files-found: ignore
+          path: ${{ steps.fast_artifacts.outputs.contract_paths }}
 
   compiler-full:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -170,6 +200,15 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Test budget contract
+        run: npm run platform -- test budget --json --compact
+
+      - name: Contract freeze
+        run: npm run test:contract-freeze
+
+      - name: Benchmark task suite contract
+        run: npm run platform -- benchmark suite --json --compact
+
       - name: Warm runtime dependency cache
         run: node ./platform/cli/index.ts deps warmup
 
@@ -183,13 +222,16 @@ jobs:
         run: node ./platform/cli/index.ts adapt
 
       - name: Verify all lanes
-        run: node ./platform/cli/index.ts verify --lane all
+        run: npm run platform -- verify --lane all --json --compact
 
       - name: Lock project
         run: node ./platform/cli/index.ts lock
 
       - name: Explain project
         run: node ./platform/cli/index.ts explain
+
+      - name: Reference drift check
+        run: npm run platform -- reference check --json --compact
 
       - name: Generate artifact manifest
         if: always()
@@ -198,9 +240,10 @@ jobs:
         run: |
           node ./platform/cli/index.ts artifacts --json
           $manifest = Get-Content control/ci/artifacts.json -Raw | ConvertFrom-Json
-          $governancePaths = @(node ./platform/cli/index.ts artifacts --paths --kind governance)
-          $viewPaths = @(node ./platform/cli/index.ts artifacts --paths --kind view)
-          $testPaths = @(node ./platform/cli/index.ts artifacts --paths --kind test)
+          $governancePaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind governance | ConvertFrom-Json).paths)
+          $viewPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind view | ConvertFrom-Json).paths)
+          $testPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind test | ConvertFrom-Json).paths)
+          $contractPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind contract | ConvertFrom-Json).paths)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing workspace artifacts: $($missing -join ', ')"
@@ -213,6 +256,9 @@ jobs:
           "EOF" >> $env:GITHUB_OUTPUT
           "test_paths<<EOF" >> $env:GITHUB_OUTPUT
           $testPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "contract_paths<<EOF" >> $env:GITHUB_OUTPUT
+          $contractPaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
 
       - name: Upload governance artifacts
@@ -238,3 +284,11 @@ jobs:
           name: compiler-runtime-test-results
           if-no-files-found: ignore
           path: ${{ steps.full_artifacts.outputs.test_paths }}
+
+      - name: Upload contract artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-contract-artifacts
+          if-no-files-found: ignore
+          path: ${{ steps.full_artifacts.outputs.contract_paths }}

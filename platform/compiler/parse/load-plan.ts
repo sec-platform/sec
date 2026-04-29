@@ -2,6 +2,7 @@ import { readYaml } from '../../shared/yaml.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
 import {
+  isSafeRelativePath,
   officialRegistryRelativePath,
   privateRegistryRelativePath,
   sourcePrivateRegistryRelativePath
@@ -94,7 +95,7 @@ export function validatePlan(plan: PlanFile): void {
         `Registry source "${source.id}" cannot use compiler location unless it is official`
       );
     }
-    if (source.path.startsWith('../')) {
+    if (!isSafeRelativePath(source.path)) {
       throw new CompilerError(
         'PLAN-VALIDATION-012',
         `Registry source "${source.id}" must not traverse outside the configured base root`
@@ -125,10 +126,14 @@ export function validatePlan(plan: PlanFile): void {
     if (!blockIds.has(slot.block)) {
       throw new CompilerError('PLAN-REFERENCE-002', `Slot "${slot.id}" references unknown block "${slot.block}"`);
     }
-    if (!slot.target.startsWith('custom/')) {
+    if (!isSafeRelativePath(slot.target) || !slot.target.startsWith('custom/')) {
       throw new CompilerError('PLAN-VALIDATION-008', `Slot "${slot.id}" must target custom/ in v0.1`);
     }
-    if (slot.sourcePath && !slot.sourcePath.startsWith('source/code/slots/') && !slot.sourcePath.startsWith('source/slots/')) {
+    if (
+      slot.sourcePath &&
+      (!isSafeRelativePath(slot.sourcePath) ||
+        (!slot.sourcePath.startsWith('source/code/slots/') && !slot.sourcePath.startsWith('source/slots/')))
+    ) {
       throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target source/code/slots/`);
     }
     slotIds.add(slot.id);

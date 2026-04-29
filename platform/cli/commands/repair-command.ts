@@ -34,11 +34,13 @@ export const repairCommand: CommandHandler = {
       console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
       return;
     } catch (error) {
-      if (repairArgs.json) {
-        const { repairPlanPath } = getWorkspacePaths(ctx.cwd);
-        if (await pathExists(repairPlanPath)) {
-          const repairPlan = await readJson<RepairPlan>(repairPlanPath);
+      const { repairPlanPath } = getWorkspacePaths(ctx.cwd);
+      if (await pathExists(repairPlanPath)) {
+        const repairPlan = await readJson<RepairPlan>(repairPlanPath);
+        if (repairArgs.json) {
           console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
+        } else {
+          console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
         }
       }
       throw error;

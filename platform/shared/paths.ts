@@ -33,6 +33,32 @@ function posixPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
 
+export function isSafeRelativePath(value: string, options: { allowEmpty?: boolean } = {}): boolean {
+  if (value.length === 0) {
+    return options.allowEmpty === true;
+  }
+  const normalized = posixPath(value);
+  if (value.includes('\0') || path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || normalized.startsWith('//')) {
+    return false;
+  }
+  return !normalized.split('/').includes('..');
+}
+
+export function isPathInside(root: string, targetPath: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(targetPath);
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export function resolvePathInside(root: string, relativePath: string, options: { allowEmpty?: boolean } = {}): string | null {
+  if (!isSafeRelativePath(relativePath, options)) {
+    return null;
+  }
+  const resolvedPath = path.resolve(root, relativePath);
+  return isPathInside(root, resolvedPath) ? resolvedPath : null;
+}
+
 export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
   const root = path.resolve(workspaceRoot);
   const projectRoot = path.join(root, projectRelativePath);
@@ -148,15 +174,18 @@ export async function resolveWorkspaceProvenancePath(workspaceRoot = process.cwd
 
 export function resolveWorkspaceArtifactPath(workspaceRoot: string, artifactPath: string): string {
   const { projectRoot, workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-  if (
+  const baseRoot =
     artifactPath.startsWith(`${projectRelativePath}/`) ||
     artifactPath.startsWith(`${developerSourceRelativePath}/`) ||
     artifactPath.startsWith(`${controlRelativePath}/`) ||
     artifactPath.startsWith(`${localStateRelativePath}/`)
-  ) {
-    return path.join(root, artifactPath);
+      ? root
+      : projectRoot;
+  const resolvedPath = resolvePathInside(baseRoot, artifactPath);
+  if (!resolvedPath) {
+    throw new Error(`Workspace artifact path "${artifactPath}" escapes its allowed root`);
   }
-  return path.join(projectRoot, artifactPath);
+  return resolvedPath;
 }
 
 export function toWorkspaceArtifactPath(projectRelativeArtifactPath: string): string {
@@ -191,5 +220,9 @@ export function resolveRegistryRoot(
   registryPath: string
 ): string {
   const baseRoot = location === 'compiler' ? compilerRoot : path.resolve(workspaceRoot);
-  return path.resolve(baseRoot, registryPath);
+  const resolvedPath = resolvePathInside(baseRoot, registryPath);
+  if (!resolvedPath) {
+    throw new Error(`Registry path "${registryPath}" escapes its allowed root`);
+  }
+  return resolvedPath;
 }

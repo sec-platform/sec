@@ -4,54 +4,18 @@ import { pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-
-type CiArtifactKind = 'governance' | 'view' | 'test' | 'contract';
-
-export interface CiArtifactEntry {
-  path: string;
-  kind: CiArtifactKind;
-  uploadName: string;
-  exists: boolean;
-}
-
-export interface CiArtifactUploadGroup {
-  kind: CiArtifactEntry['kind'];
-  count: number;
-  paths: string[];
-}
+import type {
+  CiArtifactEntry,
+  CiArtifactKind,
+  CiArtifactManifest,
+  CiArtifactMissingEntry,
+  CiArtifactSummary,
+  CiArtifactUploadGroup
+} from '../../shared/ci-artifact-types.ts';
 
 interface GeneratedPathResult {
   paths: string[];
   lockExists: boolean;
-}
-
-export interface CiArtifactSummary {
-  artifactStatus: 'passed' | 'attention';
-  artifactCount: number;
-  governanceCount: number;
-  viewCount: number;
-  testCount: number;
-  contractCount: number;
-  contractPaths: string[];
-  uploadGroupCount: number;
-  missingCount: number;
-  missingReasonTypeCount: number;
-  missingReasonCounts: Record<CiArtifactMissingEntry['reason'], number>;
-}
-
-export interface CiArtifactMissingEntry {
-  path: string;
-  reason: 'declared-generated-missing' | 'fixed-governance-missing' | 'fixed-view-missing';
-  declaredBy: 'graph.lock.json' | 'artifact-manifest';
-}
-
-export interface CiArtifactManifest {
-  formatVersion: '1';
-  root: 'workspace';
-  summary: CiArtifactSummary;
-  artifacts: CiArtifactEntry[];
-  uploadGroups: CiArtifactUploadGroup[];
-  missing: CiArtifactMissingEntry[];
 }
 
 const CI_ARTIFACT_PATH = 'control/ci/artifacts.json';
