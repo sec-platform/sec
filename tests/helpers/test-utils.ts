@@ -243,6 +243,33 @@ export async function expectCliSuccess(
   return result;
 }
 
+export async function expectCliText(
+  workspaceRoot: string,
+  args: string[],
+  expectedMarkers: readonly string[]
+): Promise<CliResult> {
+  const result = await expectCliSuccess(workspaceRoot, args);
+  expectContainsAll(result.stdout, expectedMarkers);
+  return result;
+}
+
+export async function expectCliJson<T = unknown>(
+  workspaceRoot: string,
+  args: string[],
+  expected?: object,
+  options: { compact?: boolean } = {}
+): Promise<T> {
+  const result = await expectCliSuccess(workspaceRoot, args);
+  if (options.compact === true) {
+    expect(result.stdout.trim()).not.toContain('\n');
+  }
+  const payload = JSON.parse(result.stdout) as T;
+  if (expected !== undefined) {
+    expect(payload).toMatchObject(expected);
+  }
+  return payload;
+}
+
 export async function runCliPipeline(
   workspaceRoot: string,
   options: { init?: boolean; verifyLane?: 'fast' | 'all'; lock?: boolean; explain?: boolean } = {}

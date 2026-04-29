@@ -1,24 +1,20 @@
 import { expect, test } from 'vitest';
 
-import { runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes provenance registry as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true });
 
-    const textResult = await runCli(workspaceRoot, ['provenance', 'registry']);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Provenance registry; artifacts=');
-    expect(textResult.stdout).toContain('Origins: block=');
-    expect(textResult.stdout).toContain('slot=');
-    expect(textResult.stdout).toContain('Registry sources: official=');
-    expect(textResult.stdout).toContain('origin=slot:');
+    await expectCliText(workspaceRoot, ['provenance', 'registry'], [
+      'Provenance registry; artifacts=',
+      'Origins: block=',
+      'slot=',
+      'Registry sources: official=',
+      'origin=slot:'
+    ]);
 
-    const jsonResult = await runCli(workspaceRoot, ['provenance', 'registry', '--json']);
-    expect(jsonResult.code).toBe(0);
-    expect(jsonResult.stderr).toBe('');
-    const provenance = JSON.parse(jsonResult.stdout) as {
+    const provenance = await expectCliJson<{
       formatVersion: string;
       artifacts: Array<{
         path: string;
@@ -27,7 +23,7 @@ test('CLI exposes provenance registry as text and JSON contracts', async () => {
         verifiedBy: string[];
         overrideStatus: string;
       }>;
-    };
+    }>(workspaceRoot, ['provenance', 'registry', '--json']);
     expect(provenance.formatVersion).toBe('1');
     expect(provenance.artifacts).toEqual(
       expect.arrayContaining([
@@ -44,13 +40,14 @@ test('CLI exposes provenance registry as text and JSON contracts', async () => {
       ])
     );
 
-    const compactResult = await runCli(workspaceRoot, ['provenance', 'registry', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      formatVersion: '1',
-      artifacts: expect.any(Array)
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['provenance', 'registry', '--json', '--compact'],
+      {
+        formatVersion: '1',
+        artifacts: expect.any(Array)
+      },
+      { compact: true }
+    );
   });
 }, 120000);
