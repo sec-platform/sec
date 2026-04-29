@@ -4,41 +4,24 @@ import { buildReviewSummary } from '../../platform/compiler/emit/write-review-su
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { AcceptanceCoverageReport, LockFile, ProvenanceFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import type { RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+import {
+  buildPassingReviewCoverage,
+  buildReviewLock,
+  buildReviewProvenance,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
-    const lock: LockFile = {
-      formatVersion: '1',
-      app: {
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
-      },
-      resolvedBlocks: [],
-      resolvedCapabilities: [],
-      installPlan: [],
-      slotTasks: [],
-      generatedPaths: [],
-      acceptancePlan: [],
+    const lock = buildReviewLock({
       passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'succeeded',
-        adapt: 'succeeded',
         verify: 'failed',
-        repair: 'succeeded',
-        lock: 'pending',
-        emit: 'pending'
+        repair: 'succeeded'
       }
-    };
-    const provenance: ProvenanceFile = {
-      formatVersion: '1',
-      artifacts: []
-    };
+    });
+    const provenance = buildReviewProvenance();
     const report: VerificationReport = {
       build: { status: 'passed' },
       unit: { status: 'failed', passed: [] },
@@ -66,15 +49,7 @@ test('review summary surfaces pending repair tasks', async () => {
       },
       logs: { stdout: '', stderr: '' }
     };
-    const coverage: AcceptanceCoverageReport = {
-      formatVersion: '1',
-      status: 'failed',
-      acceptancePassed: [],
-      blocks: [],
-      slots: [],
-      uncoveredBlocks: [],
-      uncoveredSlots: []
-    };
+    const coverage = buildPassingReviewCoverage({ status: 'failed' });
     const repairPlan: RepairPlan = {
       formatVersion: '1',
       status: 'pending',

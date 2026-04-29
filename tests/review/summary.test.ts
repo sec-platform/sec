@@ -19,7 +19,13 @@ import type {
   ProvenanceFile,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import {
+  buildPassingReviewCoverage,
+  buildPassingReviewReport,
+  buildReviewLock,
+  buildReviewProvenance,
+  createWorkspace
+} from '../helpers/test-utils.ts';
 
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;
@@ -41,71 +47,13 @@ async function readReviewInputs(workspaceRoot: string): Promise<{
 test('writeReviewSummary persists generated path in lock', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-write-');
   const { lockPath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
-  const lock: LockFile = {
-    formatVersion: '1',
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs',
-      mode: 'single-tenant'
-    },
-    resolvedBlocks: [],
-    resolvedCapabilities: [],
-    installPlan: [],
-    slotTasks: [],
-    generatedPaths: [],
-    acceptancePlan: [],
-    passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'succeeded',
-      repair: 'skipped',
-      lock: 'succeeded',
-      emit: 'pending'
-    }
-  };
-  const provenance: ProvenanceFile = {
-    formatVersion: '1',
-    artifacts: []
-  };
-  const report: VerificationReport = {
-    build: { status: 'passed' },
-    unit: { status: 'passed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
-    fast: {
-      status: 'passed',
-      build: { status: 'passed' },
-      unit: { status: 'passed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: { status: 'passed', violations: [] },
-      logs: { stdout: '', stderr: '' }
-    },
-    runtime: {
-      status: 'skipped',
-      build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-      unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-      acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-      logs: { stdout: '', stderr: '' }
-    },
-    summary: {
-      status: 'passed',
-      requestedLane: 'fast',
-      failedLanes: []
-    },
-    logs: { stdout: '', stderr: '' }
-  };
-  const coverage: AcceptanceCoverageReport = {
-    formatVersion: '1',
-    status: 'passed',
-    acceptancePassed: [],
-    blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
-  };
+  const lock = buildReviewLock({
+    app: { stack: 'nextjs' },
+    passStatus: { lock: 'succeeded' }
+  });
+  const provenance = buildReviewProvenance();
+  const report = buildPassingReviewReport();
+  const coverage = buildPassingReviewCoverage();
   await writeJson(lockPath, lock);
 
   const summary = await writeReviewSummary(workspaceRoot, lock, provenance, report, coverage);
@@ -174,13 +122,8 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
 
 test('buildReviewSummary adds failed verification targets as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-targets-');
-  const lock: LockFile = {
-    formatVersion: '1',
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs',
-      mode: 'single-tenant'
-    },
+  const lock = buildReviewLock({
+    app: { stack: 'nextjs' },
     resolvedBlocks: [
       {
         id: 'entity/customer-basic',
@@ -194,36 +137,16 @@ test('buildReviewSummary adds failed verification targets as structured failure 
         registryPath: 'platform/registry/official'
       }
     ],
-    resolvedCapabilities: [],
-    installPlan: [],
-    slotTasks: [],
-    generatedPaths: [],
-    acceptancePlan: [],
     passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
       verify: 'failed',
-      repair: 'pending',
-      lock: 'pending',
-      emit: 'pending'
+      repair: 'pending'
     }
-  };
-  const provenance: ProvenanceFile = {
-    formatVersion: '1',
-    artifacts: []
-  };
-  const coverage: AcceptanceCoverageReport = {
-    formatVersion: '1',
+  });
+  const provenance = buildReviewProvenance();
+  const coverage = buildPassingReviewCoverage({
     status: 'failed',
-    acceptancePassed: [],
-    blocks: [],
-    slots: [],
-    uncoveredBlocks: ['entity/customer-basic'],
-    uncoveredSlots: []
-  };
+    uncoveredBlocks: ['entity/customer-basic']
+  });
   const report: VerificationReport = {
     build: { status: 'passed' },
     unit: { status: 'passed', passed: [] },
@@ -315,13 +238,8 @@ test('buildReviewSummary adds failed verification targets as structured failure 
 
 test('buildReviewSummary groups ticket runtime entries into explicit vertical attribution', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-ticket-attribution-');
-  const lock: LockFile = {
-    formatVersion: '1',
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs',
-      mode: 'single-tenant'
-    },
+  const lock = buildReviewLock({
+    app: { stack: 'nextjs' },
     resolvedBlocks: [
       {
         id: 'ticket/basic',
@@ -357,7 +275,6 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
         registryPath: 'platform/registry/official'
       }
     ],
-    resolvedCapabilities: [],
     installPlan: [
       {
         stepId: 'ticket/basic:1',
@@ -408,7 +325,6 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
         to: 'src/installed/reporting/ticket-summary.ts'
       }
     ],
-    slotTasks: [],
     generatedPaths: [
       'app/tickets/page.tsx',
       'app/api/tickets/route.ts',
@@ -416,84 +332,46 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       'app/api/tickets/summary/route.ts',
       'app/api/tickets/summary/export/route.ts'
     ],
-    acceptancePlan: [],
-    passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'succeeded',
-      repair: 'skipped',
-      lock: 'succeeded',
-      emit: 'pending'
-    }
-  };
-  const provenance: ProvenanceFile = {
-    formatVersion: '1',
-    artifacts: [
-      {
-        path: 'app/tickets/page.tsx',
-        originType: 'generated',
-        originId: 'app/tickets/page.tsx',
-        generatedByPass: 'compose',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      },
-      {
-        path: 'app/api/tickets/summary/route.ts',
-        originType: 'generated',
-        originId: 'app/api/tickets/summary/route.ts',
-        generatedByPass: 'compose',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      },
-      {
-        path: 'app/api/tickets/summary/export/route.ts',
-        originType: 'generated',
-        originId: 'app/api/tickets/summary/export/route.ts',
-        generatedByPass: 'compose',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      }
-    ]
-  };
-  const coverage: AcceptanceCoverageReport = {
-    formatVersion: '1',
-    status: 'passed',
-    acceptancePassed: [],
-    blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
-  };
-  const report: VerificationReport = {
-    build: { status: 'passed' },
-    unit: { status: 'passed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
-    fast: {
-      status: 'passed',
-      build: { status: 'passed' },
-      unit: { status: 'passed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: { status: 'passed', violations: [] },
-      logs: { stdout: '', stderr: '' }
+    passStatus: { lock: 'succeeded' }
+  });
+  const provenance = buildReviewProvenance([
+    {
+      path: 'app/tickets/page.tsx',
+      originType: 'generated',
+      originId: 'app/tickets/page.tsx',
+      generatedByPass: 'compose',
+      verifiedBy: [],
+      overrideStatus: 'none'
     },
+    {
+      path: 'app/api/tickets/summary/route.ts',
+      originType: 'generated',
+      originId: 'app/api/tickets/summary/route.ts',
+      generatedByPass: 'compose',
+      verifiedBy: [],
+      overrideStatus: 'none'
+    },
+    {
+      path: 'app/api/tickets/summary/export/route.ts',
+      originType: 'generated',
+      originId: 'app/api/tickets/summary/export/route.ts',
+      generatedByPass: 'compose',
+      verifiedBy: [],
+      overrideStatus: 'none'
+    }
+  ]);
+  const coverage = buildPassingReviewCoverage();
+  const report = buildPassingReviewReport({
     runtime: {
       status: 'passed',
       build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
       unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
-      acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' },
-      logs: { stdout: '', stderr: '' }
+      acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' }
     },
     summary: {
-      status: 'passed',
-      requestedLane: 'all',
-      failedLanes: []
-    },
-    logs: { stdout: '', stderr: '' }
-  };
+      requestedLane: 'all'
+    }
+  });
 
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
