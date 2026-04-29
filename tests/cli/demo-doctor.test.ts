@@ -242,8 +242,10 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
     expect(doctor.code).toBe(0);
     expect(doctor.stderr).toBe('');
     expect(doctor.stdout).toContain('Developer environment doctor');
-    expect(doctor.stdout).toContain('Checks: 5');
+    expect(doctor.stdout).toContain('Checks: 6');
     expect(doctor.stdout).toContain('node-version');
+    expect(doctor.stdout).toContain('workspace-roots');
+    expect(doctor.stdout).toContain('Workspace roots missing: source, project, control, .pjc; run platform init.');
     expect(doctor.stdout).toContain('runtime-dependencies');
 
     const doctorJson = await runCli(workspaceRoot, ['doctor', '--json']);
@@ -251,10 +253,15 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
     expect(doctorJson.stderr).toBe('');
     expect(JSON.parse(doctorJson.stdout)).toMatchObject({
       status: expect.any(String),
-      checkCount: 5,
+      checkCount: 6,
       checks: expect.arrayContaining([
         expect.objectContaining({ id: 'node-version' }),
         expect.objectContaining({ id: 'bun' }),
+        expect.objectContaining({
+          id: 'workspace-roots',
+          status: 'warn',
+          message: 'Workspace roots missing: source, project, control, .pjc; run platform init.'
+        }),
         expect.objectContaining({ id: 'runtime-dependencies' })
       ]),
       dependencies: expect.objectContaining({
@@ -269,8 +276,26 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
     expect(doctorCompact.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(doctorCompact.stdout)).toMatchObject({
       status: expect.any(String),
-      checkCount: 5,
+      checkCount: 6,
       dependencies: expect.objectContaining({ mode: expect.any(String) })
+    });
+
+    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
+      code: 0,
+      stdout: 'Initialized project workspace\n',
+      stderr: ''
+    });
+    const initializedDoctorJson = await runCli(workspaceRoot, ['doctor', '--json', '--compact']);
+    expect(initializedDoctorJson.code).toBe(0);
+    expect(initializedDoctorJson.stderr).toBe('');
+    expect(JSON.parse(initializedDoctorJson.stdout)).toMatchObject({
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'workspace-roots',
+          status: 'ok',
+          message: 'Workspace roots exist: source, project, control, .pjc.'
+        })
+      ])
     });
   });
 });
