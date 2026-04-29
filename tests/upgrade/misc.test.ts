@@ -4,6 +4,7 @@ import { expect, test } from 'vitest';
 import {
   upgradeWorkspace
 } from '../../platform/orchestrator.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
 
@@ -20,13 +21,13 @@ test('upgrade apply writes diagnostics when migration execution fails after plan
   });
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+  const diagnostics = await readJson<{
     phase: string;
     failedCheck: string;
     errorCode: string;
     message: string;
     details?: unknown;
-  };
+  }>(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     phase: 'apply',
     failedCheck: 'migration-file-operations',
