@@ -5,7 +5,7 @@ import { expect, test } from 'vitest';
 import { applyRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { lockWorkspace, repairWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
@@ -144,8 +144,8 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     const { lock: repairedLock, repairPlan } = await repairWorkspace(workspaceRoot);
     const { lockPath, repairPlanPath, projectRoot } = getWorkspacePaths(workspaceRoot);
     const writtenSource = await fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
-    const persistedLock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as LockFile;
-    const persistedRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8'));
+    const persistedLock = await readJson<LockFile>(lockPath);
+    const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
 
     expect(repairPlan.status).toBe('applied');
     expect(repairPlan.requiresVerification).toBe(true);
@@ -179,8 +179,8 @@ test('repair dry-run writes a pending plan without touching source or verificati
     const { lock: plannedLock, repairPlan } = await repairWorkspace(workspaceRoot, { dryRun: true });
     const { lockPath, repairPlanPath, projectRoot } = getWorkspacePaths(workspaceRoot);
     const writtenSource = await fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
-    const persistedLock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as LockFile;
-    const persistedRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
+    const persistedLock = await readJson<LockFile>(lockPath);
+    const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
 
     expect(repairPlan.status).toBe('pending');
     expect(repairPlan.requiresVerification).toBe(false);
@@ -210,8 +210,8 @@ test('repair writes blocked plans before reporting non-repairable failures', asy
 
     const result = await runCli(workspaceRoot, ['repair']);
     const { lockPath, repairPlanPath } = getWorkspacePaths(workspaceRoot);
-    const persistedLock = await fs.readFile(lockPath, 'utf8').then((content) => JSON.parse(content) as LockFile);
-    const persistedRepairPlan = await fs.readFile(repairPlanPath, 'utf8').then((content) => JSON.parse(content) as RepairPlan);
+    const persistedLock = await readJson<LockFile>(lockPath);
+    const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('REPAIR-BLOCKED-001');
