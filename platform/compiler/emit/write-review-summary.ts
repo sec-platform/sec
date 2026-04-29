@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
+import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
@@ -237,27 +237,25 @@ function buildPathGroupSummaries<T, K extends string, S>(
     .sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
 }
 
+function buildCoverageTargetSummaries(
+  entries: readonly AcceptanceCoverageEntry[]
+): NonNullable<ReviewSummary['coverageSummary']>['blockSummaries'] {
+  return entries
+    .map((entry) => ({
+      id: entry.id,
+      declaredAcceptanceCount: entry.declaredAcceptance.length,
+      coveredByCount: entry.coveredBy.length,
+      declaredAcceptance: uniqueSorted(entry.declaredAcceptance),
+      coveredBy: uniqueSorted(entry.coveredBy)
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
 function buildCoverageSummary(
   coverage: AcceptanceCoverageReport
 ): NonNullable<ReviewSummary['coverageSummary']> {
-  const blockSummaries = coverage.blocks
-    .map((entry) => ({
-      id: entry.id,
-      declaredAcceptanceCount: entry.declaredAcceptance.length,
-      coveredByCount: entry.coveredBy.length,
-      declaredAcceptance: uniqueSorted(entry.declaredAcceptance),
-      coveredBy: uniqueSorted(entry.coveredBy)
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-  const slotSummaries = coverage.slots
-    .map((entry) => ({
-      id: entry.id,
-      declaredAcceptanceCount: entry.declaredAcceptance.length,
-      coveredByCount: entry.coveredBy.length,
-      declaredAcceptance: uniqueSorted(entry.declaredAcceptance),
-      coveredBy: uniqueSorted(entry.coveredBy)
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+  const blockSummaries = buildCoverageTargetSummaries(coverage.blocks);
+  const slotSummaries = buildCoverageTargetSummaries(coverage.slots);
 
   return {
     status: coverage.status,
