@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
-import { summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
+import { countMatching, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -202,13 +202,13 @@ function buildReviewChainSummary(
       detail: 'review-summary=generated'
     }
   ];
-  const failedStageCount = stageSummaries.filter((stage) => stage.status === 'failed').length;
-  const attentionStageCount = stageSummaries.filter((stage) => stage.status === 'attention').length;
+  const failedStageCount = countMatching(stageSummaries, (stage) => stage.status === 'failed');
+  const attentionStageCount = countMatching(stageSummaries, (stage) => stage.status === 'attention');
 
   return {
     status: failedStageCount > 0 ? 'failed' : attentionStageCount > 0 ? 'attention' : 'passed',
     stageCount: stageSummaries.length,
-    passedStageCount: stageSummaries.filter((stage) => stage.status === 'passed').length,
+    passedStageCount: countMatching(stageSummaries, (stage) => stage.status === 'passed'),
     attentionStageCount,
     failedStageCount,
     stageSummaries
@@ -327,7 +327,7 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
     artifactCount: provenance.artifacts.length,
     verifiedArtifactCount: provenance.artifacts.length - unverifiedArtifacts.length,
     unverifiedArtifactCount: unverifiedArtifacts.length,
-    overrideArtifactCount: provenance.artifacts.filter((artifact) => artifact.overrideStatus !== 'none').length,
+    overrideArtifactCount: countMatching(provenance.artifacts, (artifact) => artifact.overrideStatus !== 'none'),
     registryArtifactCount: registryArtifacts.length,
     generatedArtifactCount: generatedPassArtifacts.length,
     generatedPassCount: generatedPassSummaries.length,
@@ -500,7 +500,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
       failurePointCount: blocker.failurePoints.length
     }))
     .sort((left, right) => left.blockerId.localeCompare(right.blockerId));
-  const changedPreviewCount = repairPlan.tasks.filter((task) => task.preview?.changed).length;
+  const changedPreviewCount = countMatching(repairPlan.tasks, (task) => task.preview?.changed === true);
   const targetFiles = uniqueSorted(repairPlan.tasks.map((task) => task.targetFile));
 
   return {
@@ -509,7 +509,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
     requiresVerification: repairPlan.requiresVerification,
     taskCount: repairPlan.tasks.length,
     blockerCount: repairPlan.blockers?.length ?? 0,
-    previewCount: repairPlan.tasks.filter((task) => task.preview).length,
+    previewCount: countMatching(repairPlan.tasks, (task) => task.preview !== undefined),
     changedPreviewCount,
     failurePointCount: repairPlan.tasks.reduce(
       (total, task) => total + task.failurePoints.length,
@@ -659,9 +659,10 @@ function buildUpgradeSummary(
     },
     new Map()
   );
-  const requiresVerificationCount = plan.migrationSummaries.filter(
+  const requiresVerificationCount = countMatching(
+    plan.migrationSummaries,
     (migration) => migration.requiresVerification
-  ).length;
+  );
   const skippedVerificationCount = plan.migrationSummaries.length - requiresVerificationCount;
   const migrationSummaries = plan.migrationSummaries
     .map((migration) => ({
@@ -698,8 +699,8 @@ function buildUpgradeSummary(
     requiresVerificationCount,
     impactCount: plan.impacts.length,
     impacts: uniqueSorted(plan.impacts),
-    sourceMigrationCount: migrationSummaries.filter((migration) => migration.source).length,
-    slotMigrationCount: migrationSummaries.filter((migration) => migration.slotId).length,
+    sourceMigrationCount: countMatching(migrationSummaries, (migration) => migration.source !== undefined),
+    slotMigrationCount: countMatching(migrationSummaries, (migration) => migration.slotId !== undefined),
     verificationSummaries: [
       { id: 'required', count: requiresVerificationCount },
       { id: 'skipped', count: skippedVerificationCount }

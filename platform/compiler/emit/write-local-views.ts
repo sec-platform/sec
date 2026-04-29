@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
-import { uniqueSorted } from '../../shared/collections.ts';
+import { countMatching, countPositiveValues, uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
 import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
@@ -68,7 +68,7 @@ function renderE2eChainSummarySection(review: ReviewSummary): string {
 function renderCiSummaryCard(review: ReviewSummary): string {
   const missingReasonTypeCount = review.artifactSummary
     ? review.artifactSummary.missingReasonTypeCount
-      ?? Object.values(review.artifactSummary.missingReasonCounts ?? {}).filter((count) => count > 0).length
+      ?? countPositiveValues(Object.values(review.artifactSummary.missingReasonCounts ?? {}))
     : 0;
   const artifactRows = review.artifactSummary
     ? [
@@ -251,7 +251,7 @@ function renderBlockCombinationCard(lock: LockFile, review: ReviewSummary): stri
     .slice()
     .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id))
     .map((block) => {
-      const installs = lock.installPlan.filter((step) => step.blockId === block.id).length;
+      const installs = countMatching(lock.installPlan, (step) => step.blockId === block.id);
       const impact = impactByBlock.get(block.id);
       const verticals = impact?.verticals ?? [];
       const runtimeEntries = impact?.runtimeEntries ?? [];

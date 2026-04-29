@@ -4,7 +4,7 @@ import type {
 } from '../shared/acceptance-types.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../shared/ci-artifact-contract.ts';
 import type { CiArtifactManifest, CiArtifactUploadGroup } from '../shared/ci-artifact-types.ts';
-import { uniqueSorted } from '../shared/collections.ts';
+import { countMatching, uniqueSorted } from '../shared/collections.ts';
 import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import type { InstallPlanStep, LockFile } from '../shared/lock-types.ts';
@@ -192,7 +192,7 @@ export function formatBlockUsageMap(usageMap: BlockUsageMap): string {
 }
 
 export function formatPostgresContract(contract: PostgresContract): string {
-  const tenantScopedCount = contract.tables.filter((table) => table.tenantScoped).length;
+  const tenantScopedCount = countMatching(contract.tables, (table) => table.tenantScoped);
   return [
     `Postgres contract ${contract.provider}`,
     [
@@ -645,7 +645,7 @@ export function buildAcceptanceTargetInspect(
     status: report.status,
     targetKind,
     targetCount: entries.length,
-    coveredCount: entries.filter((entry) => !entry.uncovered).length,
+    coveredCount: countMatching(entries, (entry) => !entry.uncovered),
     uncoveredCount: uncoveredIds.length,
     uncoveredIds,
     targets: entries.map((entry) => ({
@@ -681,8 +681,8 @@ export function formatAcceptanceTargets(report: AcceptanceTargetInspect): string
 }
 
 export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): string {
-  const coveredBlockCount = report.blocks.filter((block) => !block.uncovered).length;
-  const coveredSlotCount = report.slots.filter((slot) => !slot.uncovered).length;
+  const coveredBlockCount = countMatching(report.blocks, (block) => !block.uncovered);
+  const coveredSlotCount = countMatching(report.slots, (slot) => !slot.uncovered);
   const lines = [
     [
       `Acceptance coverage ${report.status}`,
@@ -743,9 +743,9 @@ export function buildRuntimeStepsInspect(report: RuntimeVerificationLaneReport):
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: report.status,
     stepCount: steps.length,
-    passedCount: steps.filter((step) => step.status === 'passed').length,
-    failedCount: steps.filter((step) => step.status === 'failed').length,
-    skippedCount: steps.filter((step) => step.status === 'skipped').length,
+    passedCount: countMatching(steps, (step) => step.status === 'passed'),
+    failedCount: countMatching(steps, (step) => step.status === 'failed'),
+    skippedCount: countMatching(steps, (step) => step.status === 'skipped'),
     steps
   };
 }

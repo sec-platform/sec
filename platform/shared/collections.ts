@@ -16,6 +16,16 @@ export function countPositiveValues(values: Iterable<number>): number {
   return count;
 }
 
+export function countMatching<T>(values: Iterable<T>, predicate: (value: T) => boolean): number {
+  let count = 0;
+  for (const value of values) {
+    if (predicate(value)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 export function mergeCountSummaries<T extends string>(
   entries: Iterable<{ id: T; count: number }>
 ): Array<{ id: T; count: number }> {
