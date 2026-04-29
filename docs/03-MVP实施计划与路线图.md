@@ -133,6 +133,19 @@
 
 ### 当前 active 工作包
 
+| 工作包 | 状态 | 目标 |
+| --- | --- | --- |
+| 产品收敛与发布闭环 | active | demo/benchmark/reference drift/contract freeze/dogfood |
+| 升级迁移引擎增强 | active | 17 种 migration 类型，dry-run，diagnostics |
+| repair 可审查化 | active | 结构化 failure points，repairable 标记，blocker 诊断 |
+| policy gate 分类优化 | active | official/project policy merge，severity 分级 |
+| explain graph 归因边 | active | policy/pin/override/repair/upgrade 归因 |
+| private registry 雏形 | active | workspace private block 存储与编译链路 |
+
+详细完成项见上表"已完成能力"和"已完成架构内聚重构"。
+
+### next 工作包
+
 1. **产品收敛与发布闭环**
    - 状态：active。
    - 目标：从高强度功能扩张切到可发布、可演示、可验证的成熟推进。
