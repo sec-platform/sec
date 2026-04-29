@@ -1,57 +1,26 @@
 import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
-import type {
-  AcceptanceCoverageReport,
-  LockFile,
-  ProvenanceFile,
-  VerificationReport
-} from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import type { AcceptanceCoverageReport } from '../../platform/shared/types.ts';
+import {
+  buildPassingReviewReport,
+  buildReviewLock,
+  buildReviewProvenance,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('review summary surfaces acceptance coverage summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const lock: LockFile = {
-      formatVersion: '1',
-      app: {
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
-      },
-      resolvedBlocks: [],
-      resolvedCapabilities: [],
-      installPlan: [],
-      slotTasks: [],
-      generatedPaths: [],
-      acceptancePlan: [],
+    const lock = buildReviewLock({
       passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'succeeded',
-        adapt: 'succeeded',
-        verify: 'failed',
-        repair: 'skipped',
-        lock: 'pending',
-        emit: 'pending'
+        verify: 'failed'
       }
-    };
-    const provenance: ProvenanceFile = {
-      formatVersion: '1',
-      artifacts: []
-    };
-    const report: VerificationReport = {
-      build: { status: 'passed' },
-      unit: { status: 'passed', passed: [] },
+    });
+    const provenance = buildReviewProvenance();
+    const report = buildPassingReviewReport({
       acceptance: { status: 'failed', passed: ['customer_crud'], failed: ['tenant_scope'] },
-      policy: { status: 'passed', violations: [] },
       fast: {
-        status: 'passed',
-        build: { status: 'passed' },
-        unit: { status: 'passed', passed: [] },
-        acceptance: { status: 'passed', passed: ['customer_crud'], failed: [] },
-        policy: { status: 'passed', violations: [] },
-        logs: { stdout: '', stderr: '' }
+        acceptance: { status: 'passed', passed: ['customer_crud'], failed: [] }
       },
       runtime: {
         status: 'failed',
@@ -62,16 +31,14 @@ test('review summary surfaces acceptance coverage summary', async () => {
           passed: ['customer_crud'],
           failed: ['tenant_scope'],
           command: 'npm run test:acceptance'
-        },
-        logs: { stdout: '', stderr: '' }
+        }
       },
       summary: {
         status: 'failed',
         requestedLane: 'all',
         failedLanes: ['runtime']
-      },
-      logs: { stdout: '', stderr: '' }
-    };
+      }
+    });
     const coverage: AcceptanceCoverageReport = {
       formatVersion: '1',
       status: 'failed',

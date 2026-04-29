@@ -5,68 +5,22 @@ import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
-  AcceptanceCoverageReport,
-  LockFile,
-  ProvenanceFile,
   RepairPlan,
   UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport
+  UpgradePlan
 } from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
-
-function buildPassingReport(): VerificationReport {
-  return {
-    build: { status: 'passed' },
-    unit: { status: 'passed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
-    fast: {
-      status: 'passed',
-      build: { status: 'passed' },
-      unit: { status: 'passed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: { status: 'passed', violations: [] },
-      logs: { stdout: '', stderr: '' }
-    },
-    runtime: {
-      status: 'skipped',
-      build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-      unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-      acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-      logs: { stdout: '', stderr: '' }
-    },
-    summary: {
-      status: 'passed',
-      requestedLane: 'fast',
-      failedLanes: []
-    },
-    logs: { stdout: '', stderr: '' }
-  };
-}
-
-function buildPassingCoverage(): AcceptanceCoverageReport {
-  return {
-    formatVersion: '1',
-    status: 'passed',
-    acceptancePassed: [],
-    blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
-  };
-}
+import {
+  buildPassingReviewCoverage,
+  buildPassingReviewReport,
+  buildReviewLock,
+  buildReviewProvenance,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-    const lock: LockFile = {
-      formatVersion: '1',
-      app: {
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
-      },
+    const lock = buildReviewLock({
       resolvedBlocks: [{
         id: 'auth/basic-session',
         version: '0.1.0',
@@ -79,62 +33,14 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         registryPath: 'platform/registry/official'
       }],
       resolvedCapabilities: ['auth/session'],
-      installPlan: [],
-      slotTasks: [],
-      generatedPaths: [],
-      acceptancePlan: [],
       passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'succeeded',
-        adapt: 'succeeded',
-        verify: 'succeeded',
-        repair: 'skipped',
         lock: 'succeeded',
         emit: 'succeeded'
       }
-    };
-    const provenance: ProvenanceFile = {
-      formatVersion: '1',
-      artifacts: []
-    };
-    const report: VerificationReport = {
-      build: { status: 'passed' },
-      unit: { status: 'passed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: { status: 'passed', violations: [] },
-      fast: {
-        status: 'passed',
-        build: { status: 'passed' },
-        unit: { status: 'passed', passed: [] },
-        acceptance: { status: 'passed', passed: [], failed: [] },
-        policy: { status: 'passed', violations: [] },
-        logs: { stdout: '', stderr: '' }
-      },
-      runtime: {
-        status: 'skipped',
-        build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-        unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-        acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-        logs: { stdout: '', stderr: '' }
-      },
-      summary: {
-        status: 'passed',
-        requestedLane: 'fast',
-        failedLanes: []
-      },
-      logs: { stdout: '', stderr: '' }
-    };
-    const coverage: AcceptanceCoverageReport = {
-      formatVersion: '1',
-      status: 'passed',
-      acceptancePassed: [],
-      blocks: [],
-      slots: [],
-      uncoveredBlocks: [],
-      uncoveredSlots: []
-    };
+    });
+    const provenance = buildReviewProvenance();
+    const report = buildPassingReviewReport();
+    const coverage = buildPassingReviewCoverage();
     const upgradePlan: UpgradePlan = {
       formatVersion: '1',
       blockId: 'auth/basic-session',
@@ -427,31 +333,12 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
 test('review summary preserves upgrade diagnostics details without an upgrade plan', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const lock: LockFile = {
-      formatVersion: '1',
-      app: {
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
-      },
-      resolvedBlocks: [],
-      resolvedCapabilities: [],
-      installPlan: [],
-      slotTasks: [],
-      generatedPaths: [],
-      acceptancePlan: [],
+    const lock = buildReviewLock({
       passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'succeeded',
-        adapt: 'succeeded',
-        verify: 'succeeded',
-        repair: 'skipped',
         lock: 'succeeded',
         emit: 'succeeded'
       }
-    };
+    });
     const diagnostics: UpgradeDiagnostics = {
       formatVersion: '1',
       status: 'blocked',
@@ -475,9 +362,9 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
     const summary = await buildReviewSummary(
       workspaceRoot,
       lock,
-      { formatVersion: '1', artifacts: [] },
-      buildPassingReport(),
-      buildPassingCoverage()
+      buildReviewProvenance(),
+      buildPassingReviewReport(),
+      buildPassingReviewCoverage()
     );
 
     expect(summary.upgradeSummary).toMatchObject({
@@ -533,34 +420,15 @@ test('review summary includes entry migration attribution in upgrade failure poi
 
     const summary = await buildReviewSummary(
       workspaceRoot,
-      {
-        formatVersion: '1',
-        app: {
-          name: 'customer-admin',
-          stack: 'nextjs-ts-prisma-sqlite',
-          mode: 'single-tenant'
-        },
-        resolvedBlocks: [],
-        resolvedCapabilities: [],
-        installPlan: [],
-        slotTasks: [],
-        generatedPaths: [],
-        acceptancePlan: [],
+      buildReviewLock({
         passStatus: {
-          parse: 'succeeded',
-          align: 'succeeded',
-          resolve: 'succeeded',
-          compose: 'succeeded',
-          adapt: 'succeeded',
-          verify: 'succeeded',
-          repair: 'skipped',
           lock: 'succeeded',
           emit: 'succeeded'
         }
-      },
-      { formatVersion: '1', artifacts: [] },
-      buildPassingReport(),
-      buildPassingCoverage()
+      }),
+      buildReviewProvenance(),
+      buildPassingReviewReport(),
+      buildPassingReviewCoverage()
     );
 
     expect(summary.failurePoints).toContainEqual({
@@ -597,34 +465,15 @@ test('review summary includes apply migration attribution in upgrade failure poi
 
     const summary = await buildReviewSummary(
       workspaceRoot,
-      {
-        formatVersion: '1',
-        app: {
-          name: 'customer-admin',
-          stack: 'nextjs-ts-prisma-sqlite',
-          mode: 'single-tenant'
-        },
-        resolvedBlocks: [],
-        resolvedCapabilities: [],
-        installPlan: [],
-        slotTasks: [],
-        generatedPaths: [],
-        acceptancePlan: [],
+      buildReviewLock({
         passStatus: {
-          parse: 'succeeded',
-          align: 'succeeded',
-          resolve: 'succeeded',
-          compose: 'succeeded',
-          adapt: 'succeeded',
-          verify: 'succeeded',
-          repair: 'skipped',
           lock: 'succeeded',
           emit: 'succeeded'
         }
-      },
-      { formatVersion: '1', artifacts: [] },
-      buildPassingReport(),
-      buildPassingCoverage()
+      }),
+      buildReviewProvenance(),
+      buildPassingReviewReport(),
+      buildPassingReviewCoverage()
     );
 
     expect(summary.failurePoints).toContainEqual({

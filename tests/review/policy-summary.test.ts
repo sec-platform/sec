@@ -4,46 +4,25 @@ import { buildReviewSummary } from '../../platform/compiler/emit/write-review-su
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
-  AcceptanceCoverageReport,
-  LockFile,
   PolicyReport,
-  ProvenanceFile,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  buildPassingReviewCoverage,
+  buildReviewLock,
+  buildReviewProvenance,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('review summary surfaces policy governance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { policyReportPath } = getWorkspacePaths(workspaceRoot);
-    const lock: LockFile = {
-      formatVersion: '1',
-      app: {
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
-      },
-      resolvedBlocks: [],
-      resolvedCapabilities: [],
-      installPlan: [],
-      slotTasks: [],
-      generatedPaths: [],
-      acceptancePlan: [],
+    const lock = buildReviewLock({
       passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'succeeded',
-        adapt: 'succeeded',
-        verify: 'failed',
-        repair: 'skipped',
-        lock: 'pending',
-        emit: 'pending'
+        verify: 'failed'
       }
-    };
-    const provenance: ProvenanceFile = {
-      formatVersion: '1',
-      artifacts: []
-    };
+    });
+    const provenance = buildReviewProvenance();
     const report: VerificationReport = {
       build: { status: 'passed' },
       unit: { status: 'passed', passed: [] },
@@ -99,15 +78,7 @@ test('review summary surfaces policy governance summary', async () => {
       },
       logs: { stdout: '', stderr: '' }
     };
-    const coverage: AcceptanceCoverageReport = {
-      formatVersion: '1',
-      status: 'passed',
-      acceptancePassed: [],
-      blocks: [],
-      slots: [],
-      uncoveredBlocks: [],
-      uncoveredSlots: []
-    };
+    const coverage = buildPassingReviewCoverage();
     const policyReport: PolicyReport = {
       status: 'failed',
       official: {

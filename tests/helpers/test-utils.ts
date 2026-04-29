@@ -13,7 +13,12 @@ import {
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
+import type {
+  AcceptanceCoverageReport,
+  LockFile,
+  ProvenanceFile,
+  VerificationReport
+} from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
@@ -82,6 +87,115 @@ export function expectContainsAll(haystack: string, needles: readonly string[]):
 export function expectContainsNone(haystack: string, needles: readonly string[]): void {
   const found = needles.filter((n) => haystack.includes(n));
   expect(found, `Unexpectedly found ${found.length} marker(s): ${found.map((f) => JSON.stringify(f)).join(', ')}`).toEqual([]);
+}
+
+type ReviewLockOptions = Partial<Omit<LockFile, 'app' | 'passStatus'>> & {
+  app?: Partial<LockFile['app']>;
+  passStatus?: Partial<LockFile['passStatus']>;
+};
+
+export function buildReviewLock(options: ReviewLockOptions = {}): LockFile {
+  const base: LockFile = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs-ts-prisma-sqlite',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'succeeded',
+      repair: 'skipped',
+      lock: 'pending',
+      emit: 'pending'
+    }
+  };
+
+  return {
+    ...base,
+    ...options,
+    app: { ...base.app, ...options.app },
+    passStatus: { ...base.passStatus, ...options.passStatus }
+  };
+}
+
+export function buildReviewProvenance(
+  artifacts: ProvenanceFile['artifacts'] = []
+): ProvenanceFile {
+  return {
+    formatVersion: '1',
+    artifacts
+  };
+}
+
+export function buildPassingReviewCoverage(
+  options: Partial<AcceptanceCoverageReport> = {}
+): AcceptanceCoverageReport {
+  return {
+    formatVersion: '1',
+    status: 'passed',
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: [],
+    ...options
+  };
+}
+
+type ReviewReportOptions = Partial<Omit<VerificationReport, 'fast' | 'runtime' | 'summary'>> & {
+  fast?: Partial<VerificationReport['fast']>;
+  runtime?: Partial<VerificationReport['runtime']>;
+  summary?: Partial<VerificationReport['summary']>;
+};
+
+export function buildPassingReviewReport(options: ReviewReportOptions = {}): VerificationReport {
+  const base: VerificationReport = {
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: [] },
+    acceptance: { status: 'passed', passed: [], failed: [] },
+    policy: { status: 'passed', violations: [] },
+    fast: {
+      status: 'passed',
+      build: { status: 'passed' },
+      unit: { status: 'passed', passed: [] },
+      acceptance: { status: 'passed', passed: [], failed: [] },
+      policy: { status: 'passed', violations: [] },
+      logs: { stdout: '', stderr: '' }
+    },
+    runtime: {
+      status: 'skipped',
+      build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
+      unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
+      acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
+      logs: { stdout: '', stderr: '' }
+    },
+    summary: {
+      status: 'passed',
+      requestedLane: 'fast',
+      failedLanes: []
+    },
+    logs: { stdout: '', stderr: '' }
+  };
+
+  return {
+    ...base,
+    ...options,
+    fast: { ...base.fast, ...options.fast },
+    runtime: { ...base.runtime, ...options.runtime },
+    summary: { ...base.summary, ...options.summary },
+    logs: options.logs ?? base.logs
+  };
 }
 
 export async function installRuntimeDeps(cwd: string): Promise<void> {

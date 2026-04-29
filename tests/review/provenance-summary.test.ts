@@ -2,123 +2,64 @@ import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import type {
-  AcceptanceCoverageReport,
-  LockFile,
-  ProvenanceFile,
-  VerificationReport
-} from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
-
-const report: VerificationReport = {
-  build: { status: 'passed' },
-  unit: { status: 'passed', passed: [] },
-  acceptance: { status: 'passed', passed: [], failed: [] },
-  policy: { status: 'passed', violations: [] },
-  fast: {
-    status: 'passed',
-    build: { status: 'passed' },
-    unit: { status: 'passed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
-    logs: { stdout: '', stderr: '' }
-  },
-  runtime: {
-    status: 'skipped',
-    build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-    unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-    acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-    logs: { stdout: '', stderr: '' }
-  },
-  summary: {
-    status: 'passed',
-    requestedLane: 'fast',
-    failedLanes: []
-  },
-  logs: { stdout: '', stderr: '' }
-};
-
-const coverage: AcceptanceCoverageReport = {
-  formatVersion: '1',
-  status: 'passed',
-  acceptancePassed: [],
-  blocks: [],
-  slots: [],
-  uncoveredBlocks: [],
-  uncoveredSlots: []
-};
+import {
+  buildPassingReviewCoverage,
+  buildPassingReviewReport,
+  buildReviewLock,
+  buildReviewProvenance,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('review summary surfaces provenance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const lock: LockFile = {
-      formatVersion: '1',
-      app: {
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
+    const lock = buildReviewLock();
+    const provenance = buildReviewProvenance([
+      {
+        path: 'src/installed/auth/session.ts',
+        originType: 'block',
+        originId: 'auth/basic-session',
+        sourceBlock: 'auth/basic-session',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'platform/registry/official/auth.basic-session',
+        generatedByPass: 'compose',
+        verifiedBy: ['user_can_login'],
+        overrideStatus: 'none'
       },
-      resolvedBlocks: [],
-      resolvedCapabilities: [],
-      installPlan: [],
-      slotTasks: [],
-      generatedPaths: [],
-      acceptancePlan: [],
-      passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'succeeded',
-        adapt: 'succeeded',
-        verify: 'succeeded',
-        repair: 'skipped',
-        lock: 'pending',
-        emit: 'pending'
+      {
+        path: 'custom/customer_normalizer.ts',
+        originType: 'slot',
+        originId: 'customer_normalizer',
+        generatedByPass: 'adapt',
+        verifiedBy: [],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'app/tickets/page.tsx',
+        originType: 'override',
+        originId: 'ticket-page-runtime-manual',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'manual'
+      },
+      {
+        path: CI_ARTIFACT_FILES.reviewSummary,
+        originType: 'generated',
+        originId: 'review-summary',
+        generatedByPass: 'review',
+        verifiedBy: [],
+        overrideStatus: 'none'
       }
-    };
-    const provenance: ProvenanceFile = {
-      formatVersion: '1',
-      artifacts: [
-        {
-          path: 'src/installed/auth/session.ts',
-          originType: 'block',
-          originId: 'auth/basic-session',
-          sourceBlock: 'auth/basic-session',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official/auth.basic-session',
-          generatedByPass: 'compose',
-          verifiedBy: ['user_can_login'],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'custom/customer_normalizer.ts',
-          originType: 'slot',
-          originId: 'customer_normalizer',
-          generatedByPass: 'adapt',
-          verifiedBy: [],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'app/tickets/page.tsx',
-          originType: 'override',
-          originId: 'ticket-page-runtime-manual',
-          generatedByPass: 'compose',
-          verifiedBy: [],
-          overrideStatus: 'manual'
-        },
-        {
-          path: CI_ARTIFACT_FILES.reviewSummary,
-          originType: 'generated',
-          originId: 'review-summary',
-          generatedByPass: 'review',
-          verifiedBy: [],
-          overrideStatus: 'none'
-        }
-      ]
-    };
+    ]);
 
-    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+    const summary = await buildReviewSummary(
+      workspaceRoot,
+      lock,
+      provenance,
+      buildPassingReviewReport(),
+      buildPassingReviewCoverage()
+    );
 
     expect(summary.provenanceSummary).toMatchObject({
       artifactCount: 4,
