@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
+import { writeJson } from '../../platform/shared/fs.ts';
 import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
@@ -159,11 +160,10 @@ test('config-rewrite migration updates nested JSON configuration', async () => {
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(
-      path.join(projectRoot, 'app.config.json'),
-      `${JSON.stringify({ feature: { enabled: false }, untouched: true }, null, 2)}\n`,
-      'utf8'
-    );
+    await writeJson(path.join(projectRoot, 'app.config.json'), {
+      feature: { enabled: false },
+      untouched: true
+    });
 
     await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
       configRewrite('app.config.json', [
@@ -221,11 +221,10 @@ test('json-array-append migration appends unique items to nested arrays', async 
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(
-      path.join(projectRoot, 'app.config.json'),
-      `${JSON.stringify({ plugins: ['auth'], feature: { flags: [{ id: 'existing' }] } }, null, 2)}\n`,
-      'utf8'
-    );
+    await writeJson(path.join(projectRoot, 'app.config.json'), {
+      plugins: ['auth'],
+      feature: { flags: [{ id: 'existing' }] }
+    });
 
     await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
       jsonArrayAppend('app.config.json', ['plugins'], ['auth', 'tenant']),
@@ -258,7 +257,7 @@ test('json-array-append migration rejects non-array targets', async () => {
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(path.join(projectRoot, 'app.config.json'), `${JSON.stringify({ plugins: 'auth' }, null, 2)}\n`, 'utf8');
+    await writeJson(path.join(projectRoot, 'app.config.json'), { plugins: 'auth' });
 
     await expect(
       applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
@@ -277,11 +276,10 @@ test('json-array-remove migration removes matching items from nested arrays', as
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(
-      path.join(projectRoot, 'app.config.json'),
-      `${JSON.stringify({ plugins: ['auth', 'tenant', 'legacy'], feature: { flags: [{ id: 'old' }, { id: 'keep' }] } }, null, 2)}\n`,
-      'utf8'
-    );
+    await writeJson(path.join(projectRoot, 'app.config.json'), {
+      plugins: ['auth', 'tenant', 'legacy'],
+      feature: { flags: [{ id: 'old' }, { id: 'keep' }] }
+    });
 
     await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
       jsonArrayRemove('app.config.json', ['plugins'], ['tenant', 'missing']),
@@ -313,7 +311,7 @@ test('json-array-remove migration rejects non-array targets', async () => {
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(path.join(projectRoot, 'app.config.json'), `${JSON.stringify({ plugins: 'auth' }, null, 2)}\n`, 'utf8');
+    await writeJson(path.join(projectRoot, 'app.config.json'), { plugins: 'auth' });
 
     await expect(
       applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
@@ -348,11 +346,9 @@ test('json-object-merge migration recursively merges nested objects', async () =
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(
-      path.join(projectRoot, 'app.config.json'),
-      `${JSON.stringify({ feature: { auth: { enabled: false, mode: 'basic' }, keep: true } }, null, 2)}\n`,
-      'utf8'
-    );
+    await writeJson(path.join(projectRoot, 'app.config.json'), {
+      feature: { auth: { enabled: false, mode: 'basic' }, keep: true }
+    });
 
     await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
       jsonObjectMerge('app.config.json', ['feature'], {
@@ -392,7 +388,7 @@ test('json-object-merge migration rejects non-object targets', async () => {
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(path.join(projectRoot, 'app.config.json'), `${JSON.stringify({ feature: { flags: [] } }, null, 2)}\n`, 'utf8');
+    await writeJson(path.join(projectRoot, 'app.config.json'), { feature: { flags: [] } });
 
     await expect(
       applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonObjectMerge('app.config.json', ['feature', 'flags'], { enabled: true })])

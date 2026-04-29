@@ -17,6 +17,7 @@ import {
   CI_ARTIFACT_MISSING_REASON,
   emptyCiArtifactMissingReasonCounts
 } from '../../platform/shared/ci-artifact-contract.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
@@ -621,172 +622,148 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       }
     }
   };
-  await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
+  await writeJson(reviewSummaryPath, reviewSummary);
 
   const coverage = JSON.parse(await fs.readFile(acceptanceCoveragePath, 'utf8')) as {
     blocks: Array<{ id: string; coveredBy: string[] }>;
     slots: Array<{ id: string; coveredBy: string[] }>;
   };
   coverage.slots[0].coveredBy = ['disk-driven-acceptance'];
-  await fs.writeFile(acceptanceCoveragePath, `${JSON.stringify(coverage, null, 2)}\n`, 'utf8');
-  await fs.writeFile(
-    repairPlanPath,
-    `${JSON.stringify(
+  await writeJson(acceptanceCoveragePath, coverage);
+  await writeJson(repairPlanPath, {
+    formatVersion: '1',
+    status: 'pending',
+    sourceVerificationStatus: 'failed',
+    requiresVerification: false,
+    tasks: [
       {
-        formatVersion: '1',
-        status: 'pending',
-        sourceVerificationStatus: 'failed',
-        requiresVerification: false,
-        tasks: [
+        taskId: 'repair_customer_normalizer',
+        taskKind: 'repair-slot',
+        phase: 'repair',
+        sourceSlotId: 'customer_normalizer',
+        targetBlock: 'entity/customer-basic',
+        targetFile: 'custom/customer_normalizer.ts',
+        allowedPaths: ['custom/customer_normalizer.ts'],
+        requiredSymbols: ['normalizeCustomerInput'],
+        forbiddenOperations: ['write outside custom/customer_normalizer.ts'],
+        testsToPass: [],
+        failureSummary: 'unit <failed> & needs repair',
+        failurePoints: [
           {
-            taskId: 'repair_customer_normalizer',
-            taskKind: 'repair-slot',
-            phase: 'repair',
-            sourceSlotId: 'customer_normalizer',
-            targetBlock: 'entity/customer-basic',
-            targetFile: 'custom/customer_normalizer.ts',
-            allowedPaths: ['custom/customer_normalizer.ts'],
-            requiredSymbols: ['normalizeCustomerInput'],
-            forbiddenOperations: ['write outside custom/customer_normalizer.ts'],
-            testsToPass: [],
-            failureSummary: 'unit <failed> & needs repair',
-            failurePoints: [
-              {
-                lane: 'fast',
-                kind: 'unit',
-                issueType: 'slot',
-                repairable: true,
-                artifactPath: 'tests/unit',
-                message: 'unit <failed> & needs repair',
-                targetIds: ['customer-normalizer.test.ts']
-              }
-            ],
-            preview: {
-              beforeLines: 1,
-              afterLines: 4,
-              addedLines: 4,
-              removedLines: 1,
-              changed: true
-            }
+            lane: 'fast',
+            kind: 'unit',
+            issueType: 'slot',
+            repairable: true,
+            artifactPath: 'tests/unit',
+            message: 'unit <failed> & needs repair',
+            targetIds: ['customer-normalizer.test.ts']
           }
         ],
-        blockers: [
-          {
-            blockerId: 'repair_blocker_policy',
-            boundary: 'spec',
-            reason: 'policy <boundary> & manual decision',
-            decisionRequired: 'Decide whether policy/spec or project code changes first',
-            failurePoints: [
-              {
-                lane: 'fast',
-                kind: 'policy',
-                issueType: 'spec',
-                repairable: false,
-                artifactPath: CI_ARTIFACT_FILES.policyReport,
-                message: 'policy <boundary> & manual decision',
-                targetIds: ['tenant-scope-required']
-              }
-            ]
-          }
-        ]
-      },
-      null,
-      2
-    )}\n`,
-    'utf8'
-  );
-  await fs.writeFile(
-    upgradeDiagnosticsPath,
-    `${JSON.stringify(
-      {
-        formatVersion: '1',
-        status: 'blocked',
-        blockId: 'auth/basic-session',
-        targetVersion: '0.1.1',
-        failedCheck: 'override-conflicts',
-        errorCode: 'UPGRADE-CONFLICT-001',
-        message: 'Override <hotfix> & blocks upgrade',
-        details: {
-          failedCheck: 'override-conflicts',
-          overrideId: 'manual-auth-session-hotfix'
+        preview: {
+          beforeLines: 1,
+          afterLines: 4,
+          addedLines: 4,
+          removedLines: 1,
+          changed: true
         }
-      },
-      null,
-      2
-    )}\n`,
-    'utf8'
-  );
-  await fs.writeFile(
-    upgradePlanPath,
-    `${JSON.stringify(
+      }
+    ],
+    blockers: [
       {
-        formatVersion: '1',
-        blockId: 'auth/basic-session',
-        fromVersion: '0.1.0',
-        toVersion: '0.1.1',
-        status: 'planned',
-        preflightChecks: [
+        blockerId: 'repair_blocker_policy',
+        boundary: 'spec',
+        reason: 'policy <boundary> & manual decision',
+        decisionRequired: 'Decide whether policy/spec or project code changes first',
+        failurePoints: [
           {
-            id: 'version-range',
-            status: 'passed',
-            message: 'Upgrade path 0.1.0 -> 0.1.1 is allowed',
-            evidence: ['0.1.x']
-          },
-          {
-            id: 'migration-entries',
-            status: 'passed',
-            message: '0 migration entries loaded and validated',
-            evidence: []
-          },
-          {
-            id: 'migration-targets',
-            status: 'passed',
-            message: '1 migration paths checked',
-            evidence: ['mig-auth-session-refresh:target:src/installed/auth/session.ts:exists']
-          },
-          {
-            id: 'impact-scan',
-            status: 'passed',
-            message: '1 upgrade impacts calculated',
-            evidence: ['src/installed/auth/session.ts']
-          },
-          {
-            id: 'override-conflicts',
-            status: 'passed',
-            message: '0 overrides scanned with no conflicts',
-            evidence: []
-          }
-        ],
-        impacts: ['src/installed/auth/session.ts'],
-        migrations: [],
-        migrationKindCounts: {
-          'file-replace': 1
-        },
-        migrationSummaries: [
-          {
-            id: 'mig-auth-session-refresh',
-            kind: 'file-replace',
-            target: 'src/installed/auth/session.ts',
-            reason: 'Refresh <session> & expose version metadata.',
-            requiresVerification: true
-          }
-        ],
-        migrationOperations: [
-          {
-            id: 'mig-auth-session-refresh',
-            kind: 'file-replace',
-            target: 'src/installed/auth/session.ts',
-            role: 'file',
-            source: 'files/src/installed/auth/session.ts',
-            contentLength: 128
+            lane: 'fast',
+            kind: 'policy',
+            issueType: 'spec',
+            repairable: false,
+            artifactPath: CI_ARTIFACT_FILES.policyReport,
+            message: 'policy <boundary> & manual decision',
+            targetIds: ['tenant-scope-required']
           }
         ]
+      }
+    ]
+  });
+  await writeJson(upgradeDiagnosticsPath, {
+    formatVersion: '1',
+    status: 'blocked',
+    blockId: 'auth/basic-session',
+    targetVersion: '0.1.1',
+    failedCheck: 'override-conflicts',
+    errorCode: 'UPGRADE-CONFLICT-001',
+    message: 'Override <hotfix> & blocks upgrade',
+    details: {
+      failedCheck: 'override-conflicts',
+      overrideId: 'manual-auth-session-hotfix'
+    }
+  });
+  await writeJson(upgradePlanPath, {
+    formatVersion: '1',
+    blockId: 'auth/basic-session',
+    fromVersion: '0.1.0',
+    toVersion: '0.1.1',
+    status: 'planned',
+    preflightChecks: [
+      {
+        id: 'version-range',
+        status: 'passed',
+        message: 'Upgrade path 0.1.0 -> 0.1.1 is allowed',
+        evidence: ['0.1.x']
       },
-      null,
-      2
-    )}\n`,
-    'utf8'
-  );
+      {
+        id: 'migration-entries',
+        status: 'passed',
+        message: '0 migration entries loaded and validated',
+        evidence: []
+      },
+      {
+        id: 'migration-targets',
+        status: 'passed',
+        message: '1 migration paths checked',
+        evidence: ['mig-auth-session-refresh:target:src/installed/auth/session.ts:exists']
+      },
+      {
+        id: 'impact-scan',
+        status: 'passed',
+        message: '1 upgrade impacts calculated',
+        evidence: ['src/installed/auth/session.ts']
+      },
+      {
+        id: 'override-conflicts',
+        status: 'passed',
+        message: '0 overrides scanned with no conflicts',
+        evidence: []
+      }
+    ],
+    impacts: ['src/installed/auth/session.ts'],
+    migrations: [],
+    migrationKindCounts: {
+      'file-replace': 1
+    },
+    migrationSummaries: [
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        reason: 'Refresh <session> & expose version metadata.',
+        requiresVerification: true
+      }
+    ],
+    migrationOperations: [
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        role: 'file',
+        source: 'files/src/installed/auth/session.ts',
+        contentLength: 128
+      }
+    ]
+  });
 
   await writeLocalViews(workspaceRoot);
 

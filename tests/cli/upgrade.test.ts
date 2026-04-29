@@ -228,7 +228,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
       passStatus: { verify: string };
     };
     lock.passStatus.verify = 'succeeded';
-    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lock);
 
     const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
     report.unit.status = 'passed';
@@ -242,7 +242,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
     report.summary.status = 'passed';
     report.summary.requestedLane = 'all';
     report.summary.failedLanes = [];
-    await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(verificationReportPath, report);
 
     await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 

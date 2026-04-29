@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
+import { writeJson } from '../../platform/shared/fs.ts';
 import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
@@ -266,11 +267,11 @@ test('config-rewrite migration deletes nested JSON configuration keys', async ()
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(projectRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(
-      path.join(projectRoot, 'app.config.json'),
-      `${JSON.stringify({ feature: { enabled: true, deprecated: true }, staleRoot: 'remove', keep: true }, null, 2)}\n`,
-      'utf8'
-    );
+    await writeJson(path.join(projectRoot, 'app.config.json'), {
+      feature: { enabled: true, deprecated: true },
+      staleRoot: 'remove',
+      keep: true
+    });
 
     await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
       configRewrite('app.config.json', [
