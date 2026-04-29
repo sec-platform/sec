@@ -945,9 +945,10 @@ export function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean):
   const migrationKinds = Object.entries(upgradePlan.migrationKindCounts)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `${kind}=${count}`);
-  const requiresVerificationCount = upgradePlan.migrationSummaries.filter(
+  const requiresVerificationCount = countMatching(
+    upgradePlan.migrationSummaries,
     (migration) => migration.requiresVerification
-  ).length;
+  );
   const preflightEvidenceCount = upgradePlan.preflightChecks.reduce(
     (count, check) => count + check.evidence.length,
     0
@@ -989,12 +990,14 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
     installImpactSummary,
     provenanceSummary
   } = reviewSummary;
-  const uncoveredBlocks = coverageSummary?.uncoveredBlockCount ?? graph.overlays.coverage.blocks.filter(
+  const uncoveredBlocks = coverageSummary?.uncoveredBlockCount ?? countMatching(
+    graph.overlays.coverage.blocks,
     (block) => block.coveredBy.length === 0
-  ).length;
-  const uncoveredSlots = coverageSummary?.uncoveredSlotCount ?? graph.overlays.coverage.slots.filter(
+  );
+  const uncoveredSlots = coverageSummary?.uncoveredSlotCount ?? countMatching(
+    graph.overlays.coverage.slots,
     (slot) => slot.coveredBy.length === 0
-  ).length;
+  );
   const blockCount = coverageSummary?.blockCount ?? graph.overlays.coverage.blocks.length;
   const slotCount = coverageSummary?.slotCount ?? graph.overlays.coverage.slots.length;
   const e2eMatrix = buildE2eMatrix(reviewSummary);
