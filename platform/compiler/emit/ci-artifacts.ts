@@ -20,6 +20,7 @@ import type {
   CiArtifactManifest,
   CiArtifactMissingEntry
 } from '../../shared/ci-artifact-types.ts';
+import { countMatching } from '../../shared/collections.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
@@ -106,9 +107,9 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     summary: {
       artifactStatus: sortedMissing.length > 0 ? 'attention' : 'passed',
       artifactCount: entries.length,
-      governanceCount: entries.filter((entry) => entry.kind === 'governance').length,
-      viewCount: entries.filter((entry) => entry.kind === 'view').length,
-      testCount: entries.filter((entry) => entry.kind === 'test').length,
+      governanceCount: countMatching(entries, (entry) => entry.kind === 'governance'),
+      viewCount: countMatching(entries, (entry) => entry.kind === 'view'),
+      testCount: countMatching(entries, (entry) => entry.kind === 'test'),
       contractCount: contractPaths.length,
       contractPaths,
       uploadGroupCount: uploadGroups.length,

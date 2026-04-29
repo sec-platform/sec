@@ -8,6 +8,7 @@ import {
   buildCiContract,
   formatCiContract
 } from '../shared/ci-contract.ts';
+import { countMatching } from '../shared/collections.ts';
 import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
 import {
   buildContractFreezeContract,
@@ -158,7 +159,7 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
     artifactPath: item.artifactPath,
     command: item.command
   })));
-  const missingCount = items.filter((item) => item.status === 'missing').length;
+  const missingCount = countMatching(items, (item) => item.status === 'missing');
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: missingCount === 0 ? 'passed' : 'attention',

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { countMatching } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, listFilesRecursive, pathExists, readJson, writeJson } from '../../shared/fs.ts';
 import { getWorkspacePaths, workspaceRelativePath } from '../../shared/paths.ts';
@@ -232,7 +233,7 @@ export async function applyViewMutations(workspaceRoot: string): Promise<ViewMut
     entry.file.mutations.map((mutation) => ({ mutation, sourcePath: entry.sourcePath }))
   );
   const results = mutations.map((entry) => applyMutation(plan, entry.mutation, entry.sourcePath));
-  const appliedCount = results.filter((entry) => entry.status === 'applied').length;
+  const appliedCount = countMatching(results, (entry) => entry.status === 'applied');
   const report: ViewMutationReport = {
     formatVersion: '1',
     status: appliedCount > 0 ? 'applied' : 'skipped',
