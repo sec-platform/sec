@@ -214,7 +214,7 @@
         - repair plan review 已回显同一 envelope 写入边界与 source provenance，供 dry-run JSON 审查。
        - P1：增加 reference workspace 无漂移 gate，证明 checked-in `source/`、`project/`、`control/` 与主链刷新结果一致。
        - P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。
-         - fast：`npm test`、`npm run check`、默认本地 verify 与定向命名测试；禁止 Next build、Playwright install、浏览器 acceptance，并通过 slow test file 清单排除全链路 runtime/E2E contract 文件。
+         - fast：`npm test`、`npm run check`、默认本地 verify 与定向命名测试；禁止 Next build、Playwright install、浏览器 acceptance，并通过 slow test file 清单排除全链路 integration/runtime/E2E contract 文件。
          - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
          - all：`npm run test:all`、`npm run check:full`、demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
