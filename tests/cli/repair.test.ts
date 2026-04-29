@@ -7,7 +7,7 @@ import type {
   RepairPlan,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { expectCliSuccess, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits repair dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -28,29 +28,17 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     report.logs.stderr = 'Unit verification failed for customer_normalizer';
     await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
-    const textResult = await runCli(workspaceRoot, ['repair', '--dry-run']);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
-    expect(textResult.stdout).toContain('Source verification: failed; requires verification: false');
-    expect(textResult.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> source/code/slots/customer_normalizer.ts');
-    expect(textResult.stdout).toContain(
-      'Review repair_slot_customer_normalizer: writeBounds=source/code/slots/customer_normalizer.ts; symbols=normalizeCustomerInput; tests=tests/unit/customer-normalizer.test.ts, tests/acceptance/customer-flow.test.ts; forbidden=modify_other_files, add_dependencies, access_database, change_exports; failureTargets=none'
-    );
-    expect(textResult.stdout).toContain(
-      'Preview repair_slot_customer_normalizer: changed=false; +0; -0;'
-    );
-    expect(textResult.stdout).toContain(
-      'Failure fast/unit; issue=slot; repairable=true;'
-    );
-    expect(textResult.stdout).toContain(
+    await expectCliText(workspaceRoot, ['repair', '--dry-run'], [
+      'Repair pending (1 tasks, 0 blockers) (dry-run)',
+      'Source verification: failed; requires verification: false',
+      'Task repair_slot_customer_normalizer: entity/customer-basic -> source/code/slots/customer_normalizer.ts',
+      'Review repair_slot_customer_normalizer: writeBounds=source/code/slots/customer_normalizer.ts; symbols=normalizeCustomerInput; tests=tests/unit/customer-normalizer.test.ts, tests/acceptance/customer-flow.test.ts; forbidden=modify_other_files, add_dependencies, access_database, change_exports; failureTargets=none',
+      'Preview repair_slot_customer_normalizer: changed=false; +0; -0;',
+      'Failure fast/unit; issue=slot; repairable=true;',
       'Unit verification failed for customer_normalizer'
-    );
+    ]);
 
-    const result = await runCli(workspaceRoot, ['repair', '--dry-run', '--json']);
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-
+    const result = await expectCliSuccess(workspaceRoot, ['repair', '--dry-run', '--json']);
     const repairPlan = JSON.parse(result.stdout) as RepairPlan;
     expect(result.stdout).toContain('\n  "status": "pending"');
     expect(repairPlan).toMatchObject({
@@ -111,23 +99,22 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
     expect(writtenRepairPlan).toEqual(repairPlan);
 
-    const planText = await runCli(workspaceRoot, ['repair', 'plan']);
-    expect(planText.code).toBe(0);
-    expect(planText.stderr).toBe('');
-    expect(planText.stdout).toContain('Repair pending (1 tasks, 0 blockers) (dry-run)');
-    expect(planText.stdout).toContain('Task repair_slot_customer_normalizer: entity/customer-basic -> source/code/slots/customer_normalizer.ts');
+    await expectCliText(workspaceRoot, ['repair', 'plan'], [
+      'Repair pending (1 tasks, 0 blockers) (dry-run)',
+      'Task repair_slot_customer_normalizer: entity/customer-basic -> source/code/slots/customer_normalizer.ts'
+    ]);
 
-    const planJson = await runCli(workspaceRoot, ['repair', 'plan', '--json']);
-    expect(planJson.code).toBe(0);
-    expect(planJson.stderr).toBe('');
+    const planJson = await expectCliSuccess(workspaceRoot, ['repair', 'plan', '--json']);
     expect(planJson.stdout).toContain('\n  "status": "pending"');
     expect(JSON.parse(planJson.stdout)).toEqual(repairPlan);
 
-    const planCompactJson = await runCli(workspaceRoot, ['repair', 'plan', '--json', '--compact']);
-    expect(planCompactJson.code).toBe(0);
-    expect(planCompactJson.stderr).toBe('');
-    expect(planCompactJson.stdout).not.toContain('\n  "status"');
-    expect(JSON.parse(planCompactJson.stdout)).toEqual(repairPlan);
+    const planCompactJson = await expectCliJson<RepairPlan>(
+      workspaceRoot,
+      ['repair', 'plan', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(planCompactJson).toEqual(repairPlan);
 
     await withTempWorkspace(async (missingPlanWorkspace) => {
       await expect(runCli(missingPlanWorkspace, ['repair', 'plan'])).resolves.toMatchObject({
@@ -137,11 +124,13 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
       });
     });
 
-    const compactResult = await runCli(workspaceRoot, ['repair', '--dry-run', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout).not.toContain('\n  "status"');
-    expect(JSON.parse(compactResult.stdout)).toEqual(repairPlan);
+    const compactResult = await expectCliJson<RepairPlan>(
+      workspaceRoot,
+      ['repair', '--dry-run', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(compactResult).toEqual(repairPlan);
 
     lock.passStatus.verify = 'succeeded';
     await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
@@ -155,10 +144,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
 
     await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
-    const explainText = await runCli(workspaceRoot, ['explain']);
-    expect(explainText.code).toBe(0);
-    expect(explainText.stderr).toBe('');
-    expect(explainText.stdout).toContain(
+    await expectCliText(workspaceRoot, ['explain'], [
       [
         'Repair: pending',
         'tasks: 1',
@@ -171,12 +157,9 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
         'targets: none',
         'repairability: repairable=1'
       ].join('; ')
-    );
+    ]);
 
-    const explainJson = await runCli(workspaceRoot, ['explain', '--json']);
-    expect(explainJson.code).toBe(0);
-    expect(explainJson.stderr).toBe('');
-    const explainPayload = JSON.parse(explainJson.stdout) as {
+    const explainPayload = await expectCliJson<{
       graph: ExplainGraph;
       reviewSummary: {
         repairSummary?: {
@@ -215,7 +198,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
           }>;
         };
       };
-    };
+    }>(workspaceRoot, ['explain', '--json']);
     expect(explainPayload.reviewSummary.repairSummary).toMatchObject({
       status: 'pending',
       taskCount: 1,
@@ -330,17 +313,18 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
     const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
     expect(writtenRepairPlan).toEqual(repairPlan);
 
-    const planText = await runCli(workspaceRoot, ['repair', 'plan']);
-    expect(planText.code).toBe(0);
-    expect(planText.stderr).toBe('');
-    expect(planText.stdout).toContain('Repair blocked (0 tasks, 1 blockers) (dry-run)');
-    expect(planText.stdout).toContain('Blocker repair_blocker_no_slot_tasks: slot;');
+    await expectCliText(workspaceRoot, ['repair', 'plan'], [
+      'Repair blocked (0 tasks, 1 blockers) (dry-run)',
+      'Blocker repair_blocker_no_slot_tasks: slot;'
+    ]);
 
-    const planJson = await runCli(workspaceRoot, ['repair', 'plan', '--json', '--compact']);
-    expect(planJson.code).toBe(0);
-    expect(planJson.stderr).toBe('');
-    expect(planJson.stdout).not.toContain('\n  "status"');
-    expect(JSON.parse(planJson.stdout)).toEqual(repairPlan);
+    const planJson = await expectCliJson<RepairPlan>(
+      workspaceRoot,
+      ['repair', 'plan', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(planJson).toEqual(repairPlan);
 
     const compactResult = await runCli(workspaceRoot, ['repair', '--dry-run', '--json', '--compact']);
     expect(compactResult.code).toBe(1);
