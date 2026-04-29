@@ -14,10 +14,11 @@ import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
+import { upgradeDiagnosticsAttributionParts } from '../shared/review-upgrade.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import type { ArtifactPathKind } from './args.ts';
-import { formatCounts, formatList, formatSummaryEntries, readObjectString, summarizeById } from './format-utils.ts';
+import { formatCounts, formatList, formatSummaryEntries, summarizeById } from './format-utils.ts';
 
 export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
@@ -396,32 +397,7 @@ export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect
 }
 
 export function formatUpgradeDiagnosticsDetails(details: unknown): string {
-  const migrationId = readObjectString(details, 'migrationId');
-  if (!migrationId) {
-    return 'none';
-  }
-
-  const role = readObjectString(details, 'role');
-  const path = readObjectString(details, 'path');
-  const migrationKind = readObjectString(details, 'migrationKind');
-  const target = readObjectString(details, 'target') ?? (role === 'target' ? path : null);
-  const source = readObjectString(details, 'source') ?? (role === 'source' ? path : null);
-  const slotId = readObjectString(details, 'slotId');
-  const entry = readObjectString(details, 'entry');
-  const entryId = readObjectString(details, 'entryId');
-  const entryKind = readObjectString(details, 'entryKind');
-  const rollbackStatus = readObjectString(details, 'rollbackStatus');
-  return formatList([
-    `migration=${migrationId}`,
-    migrationKind ? `kind=${migrationKind}` : '',
-    entry ? `entry=${entry}` : '',
-    entryId ? `entryId=${entryId}` : '',
-    entryKind ? `entryKind=${entryKind}` : '',
-    target ? `target=${target}` : '',
-    source ? `source=${source}` : '',
-    slotId ? `slot=${slotId}` : '',
-    rollbackStatus ? `rollback=${rollbackStatus}` : ''
-  ].filter((part) => part.length > 0));
+  return formatList(upgradeDiagnosticsAttributionParts(details));
 }
 
 function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {

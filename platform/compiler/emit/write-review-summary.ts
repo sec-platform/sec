@@ -16,6 +16,7 @@ import type {
   ReviewRegressionRisk,
   ReviewSummary
 } from '../../shared/review-types.ts';
+import { upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
 import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
@@ -504,47 +505,14 @@ function preflightSummaryGroup(checkId: string): string {
   return checkId.startsWith('migration-') ? 'migration' : checkId.split('-')[0];
 }
 
-function readDiagnosticsString(details: unknown, key: string): string | null {
-  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
-    return null;
-  }
-  const value = (details as Record<string, unknown>)[key];
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function formatUpgradeDiagnosticsAttribution(details: unknown): string {
-  const migrationId = readDiagnosticsString(details, 'migrationId');
-  if (!migrationId) {
-    return '';
-  }
-
-  const role = readDiagnosticsString(details, 'role');
-  const path = readDiagnosticsString(details, 'path');
-  const migrationKind = readDiagnosticsString(details, 'migrationKind');
-  const target = readDiagnosticsString(details, 'target') ?? (role === 'target' ? path : null);
-  const source = readDiagnosticsString(details, 'source') ?? (role === 'source' ? path : null);
-  const slotId = readDiagnosticsString(details, 'slotId');
-  const entry = readDiagnosticsString(details, 'entry');
-  const entryId = readDiagnosticsString(details, 'entryId');
-  const entryKind = readDiagnosticsString(details, 'entryKind');
-  const rollbackStatus = readDiagnosticsString(details, 'rollbackStatus');
-  const parts = [
-    `migration=${migrationId}`,
-    migrationKind ? `kind=${migrationKind}` : null,
-    entry ? `entry=${entry}` : null,
-    entryId ? `entryId=${entryId}` : null,
-    entryKind ? `entryKind=${entryKind}` : null,
-    target ? `target=${target}` : null,
-    source ? `source=${source}` : null,
-    slotId ? `slot=${slotId}` : null,
-    rollbackStatus ? `rollback=${rollbackStatus}` : null
-  ].filter((part): part is string => part !== null);
-
-  return `; ${parts.join('; ')}`;
-}
-
 function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics): string {
-  return `Upgrade blocked at ${diagnostics.failedCheck}: ${diagnostics.errorCode} ${diagnostics.message}${formatUpgradeDiagnosticsAttribution(diagnostics.details)}`;
+  const attribution = upgradeDiagnosticsAttributionParts(diagnostics.details);
+  const attributionSuffix = attribution.length > 0 ? `; ${attribution.join('; ')}` : '';
+  return [
+    `Upgrade blocked at ${diagnostics.failedCheck}:`,
+    diagnostics.errorCode,
+    `${diagnostics.message}${attributionSuffix}`
+  ].join(' ');
 }
 
 function buildPolicySummary(policyReport: PolicyReport | null): ReviewSummary['policySummary'] {
