@@ -2,7 +2,7 @@ import path from 'node:path';
 import { compilerRoot } from '../../shared/paths.ts';
 import { listFilesRecursive } from '../../shared/fs.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
-import { resolveNpmInvocation, runCommand } from '../../shared/process.ts';
+import { pathEnvKey, resolveNpmInvocation, runCommand } from '../../shared/process.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/verification-types.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
@@ -19,10 +19,6 @@ function generatePort(projectRoot: string): number {
     0
   );
   return basePort + workerId * 1000 + pathHash;
-}
-
-function pathEnvKey(): string {
-  return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
 }
 
 function normalizeStatus(code: number): VerificationStatus {

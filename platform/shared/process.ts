@@ -2,6 +2,10 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
+export function pathEnvKey(): string {
+  return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
+}
+
 export interface CommandResult {
   code: number;
   stdout: string;

@@ -7,15 +7,12 @@ import type {
   AcceptanceItem
 } from '../../shared/acceptance-types.ts';
 import type { RuntimeVerificationLaneReport } from '../../shared/verification-types.ts';
+import { uniqueSorted } from '../../shared/collections.ts';
 
 interface AcceptanceCoverageTarget {
   id: string;
   acceptance: AcceptanceItem;
   blockId: string;
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 function buildCoverageEntry(id: string, declaredAcceptance: string[], coveredBy: string[]): AcceptanceCoverageEntry {

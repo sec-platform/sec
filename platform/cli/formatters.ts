@@ -1,4 +1,6 @@
 import { toWorkspaceArtifactPath } from '../shared/paths.ts';
+import { uniqueSorted } from '../shared/collections.ts';
+import { formatCounts, formatList } from './format-utils.ts';
 import type { CiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
@@ -169,22 +171,6 @@ export function formatPostgresContract(contract: PostgresContract): string {
     ].join('; '),
     `Table list: ${formatList(contract.tables.map((table) => table.name))}`
   ].join('\n');
-}
-
-function formatList(values: string[], fallback = 'none'): string {
-  return values.length > 0 ? values.join(', ') : fallback;
-}
-
-function formatCounts(values: string[]): string {
-  const counts = new Map<string, number>();
-  for (const value of values) {
-    counts.set(value, (counts.get(value) ?? 0) + 1);
-  }
-  return formatList(
-    [...counts.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([value, count]) => `${value}=${count}`)
-  );
 }
 
 export function formatLockInspect(lock: LockFile): string {
@@ -432,11 +418,6 @@ export function formatUpgradeDiagnosticsDetails(details: unknown): string {
     slotId ? `slot=${slotId}` : '',
     rollbackStatus ? `rollback=${rollbackStatus}` : ''
   ].filter((part) => part.length > 0));
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values.filter((value) => value.length > 0))]
-    .sort((left, right) => left.localeCompare(right));
 }
 
 function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {

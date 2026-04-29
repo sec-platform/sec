@@ -10,13 +10,8 @@ import {
   withProjectDependencyBridge,
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
-import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
-import {
-  getDependencyEnvironmentStatus,
-  relinkProjectDependencies,
-  formatDependencyEnvironmentStatus
-} from '../../platform/shared/dependency-environment.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
 import {
   createWorkspace,
   installRuntimeDeps,

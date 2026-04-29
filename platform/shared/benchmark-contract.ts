@@ -23,6 +23,8 @@ export type BenchmarkTaskSuiteContract = {
   scoreDimensions: string[];
 };
 
+import { uniqueSorted } from './collections.ts';
+
 const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocusCount'>> = [
   {
     id: 'add-block',
@@ -98,10 +100,6 @@ const scoreDimensions = [
   'upgrade-safety',
   'machine-recoverability'
 ];
-
-function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
 
 export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
   const artifactPaths = uniqueSorted(benchmarkTasks.flatMap((task) => task.artifactPaths));

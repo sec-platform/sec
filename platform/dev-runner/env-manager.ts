@@ -3,6 +3,7 @@ import path from 'node:path';
 import { compilerRoot } from '../shared/paths.ts';
 import { pathExists } from '../shared/fs.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
+export { pathEnvKey } from '../shared/process.ts';
 
 export function getTestWorkspaceTempRoot(): string {
   return path.join(compilerRoot, '.tmp', 'test-workspaces');
@@ -27,10 +28,6 @@ export async function withRootDependencyBridge<T>(nodeModulesPath: string, callb
       await fs.rm(rootNodeModulesPath, { recursive: true, force: true });
     }
   }
-}
-
-export function pathEnvKey(): string {
-  return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
 }
 
 export function commandPath(binPath: string, base: string): string {
