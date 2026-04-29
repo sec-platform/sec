@@ -1,41 +1,16 @@
 # 升级迁移与 Override 规范
 
-> 目标：解决工程编译器最容易失败的两件事：升级不是一次性脚手架，人工改动不会在下一次编译时全部丢失。
+> 目标：确保 block 升级可控、人工改动不会在下次编译时丢失。
 
-## 1. 目标
+## 1. Override 体系
 
-- 允许 block 版本升级
-- 允许人工或后续 AI 做局部 override
-- 保持上游规格仍然是权威输入
-- 在升级与 override 冲突时有可预测行为
+| 类型 | 说明 |
+| --- | --- |
+| Manual Override | 人工直接改生成产物，不作为权威源 |
+| Rule-backed Override | 通过规则文件/slot 描述产生，可回写为长期配置 |
+| Emergency Patch | 热修复产生，必须后续固化 |
 
-## 2. Override 分类
-
-### Manual Override
-
-- 人工直接改生成产物
-- 默认不被视为权威源
-
-### Rule-backed Override
-
-- 通过规则文件、slot 描述或 override spec 产生
-- 可回写为长期配置
-
-### Emergency Patch
-
-- 为热修复而产生
-- 必须在后续阶段回收或固化
-
-## 3. `source/patches/` 区规则
-
-### `v0.1`
-
-- 顶层 `source/patches/` 是默认 override/patch/rule 源码区。
-- `project/overrides/**` 只保留为兼容期入口。
-
-### `v0.2+`
-
-- 默认结构：
+### 默认结构
 
 ```text
 source/patches/
@@ -45,15 +20,9 @@ source/patches/
   manifests/
 ```
 
-### 规则
+`project/overrides/**` 仅保留为兼容期入口。
 
-- override 只能通过显式映射接入主项目。
-- override 不得直接替换 `control/state/graph.lock.json`、`control/provenance/provenance.json` 或任何 `control/**` artifact。
-- 如果人工直接修改 `project/**`，平台应把它识别为 drift/manual override，并引导回写到 `source/model`、`source/views`、`source/code` 或 `source/patches`。
-
-## 4. override 清单
-
-### `override-manifest.yaml`
+### override-manifest.yaml
 
 ```yaml
 overrides:
@@ -62,164 +31,72 @@ overrides:
     target: src/app/customers/page.tsx
     reason: emergency-ui-fix
     source: manual
-    appliesAfter:
-      - compose
-    conflictsWith:
-      - entity/customer-basic@>=0.2.0
+    appliesAfter: [compose]
+    conflictsWith: [entity/customer-basic@>=0.2.0]
 ```
 
-### 字段说明
+### 规则
+
+- override 不得直接替换 `control/**` artifact。
+- 人工修改 `project/**` 应识别为 drift，引导回写到 `source/**`。
+
+## 2. 升级流程
+
+1. 读取当前 lock → 2. 检查目标版本兼容性 → 3. 读取 migration plan → 4. 评估受影响文件 → 5. 检查 override 冲突 → 6. 生成 upgrade plan → 7. 执行 migration → 8. 重新 compose → 9. 重新 verify → 10. 更新 provenance 与 lock
+
+## 3. 冲突优先级
+
+| 优先级 | 类型 |
+| --- | --- |
+| 1 | 显式安全/政策限制 |
+| 2 | 数据迁移要求 |
+| 3 | Rule-backed Override |
+| 4 | 官方 block 升级 |
+| 5 | Manual Override |
+
+官方升级若破坏 manual override → 阻塞升级，要求显式决策。Rule-backed override 可自动重放。
+
+## 4. Migration 类型
+
+| 类型 | 说明 |
+| --- | --- |
+| `file-replace` | 替换单个文件 |
+| `copy-file` / `copy-directory` | 从 manifest 根目录复制 |
+| `rename-file` / `rename-directory` | 移动重命名 |
+| `create-directory` | 创建目录 |
+| `delete-file` / `delete-directory` | 删除 |
+| `config-rewrite` | JSON 配置 set/delete |
+| `json-array-append` / `json-array-remove` | JSON 数组操作 |
+| `json-object-merge` | JSON 对象递归合并 |
+| `text-append` / `text-replace` / `text-replace-regex` | 文本操作 |
+| `slot-contract-update` | Slot 类型/合同变更 |
+| `codemod` | AST 级迁移（预留） |
+| `prisma-migration` | 数据库 schema 迁移（预留） |
+
+## 5. Migration 合同字段
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `id` | 是 | override 唯一标识 |
-| `entry` | 是 | 相对 `source/patches/` 的源文件路径，必须位于 `patches/`、`rules/` 或 `manifests/` |
-| `target` | 是 | 相对 `project/` runtime target 的目标路径，或由治理 workflow 显式允许的 workspace artifact 路径 |
-| `reason` | 是 | 触发 override 的原因 |
-| `source` | 是 | `manual` / `rule-backed` |
-| `appliesAfter` | 是 | 当前支持 `compose` / `adapt` |
-| `conflictsWith` | 否 | 与哪些 block/version 范围存在已知冲突 |
-
-## 5. 升级流程
-
-### 输入
-
-- 当前 `control/state/graph.lock.json`
-- 目标 block version
-- block upgrade metadata
-- 当前 `source/patches/override-manifest.yaml` 与兼容期 overrides
-
-### 步骤
-
-1. 读取当前 lock
-2. 检查目标版本兼容性
-3. 读取 migration plan
-4. 评估受影响文件
-5. 检查与 overrides 的冲突
-6. 生成 upgrade plan
-7. 执行 migration
-8. 重新 compose
-9. 重新 verify
-10. 更新 provenance 与 lock
-
-## 6. 冲突优先级
-
-升级与 override 冲突时，优先级从高到低：
-
-1. 显式安全/政策限制
-2. 数据迁移要求
-3. Rule-backed Override
-4. 官方 block 升级
-5. Manual Override
-
-### 默认策略
-
-- 若官方升级会破坏 manual override，默认阻塞升级并要求显式决策。
-- 若 rule-backed override 可以自动重放，允许升级后重放并再验证。
-
-## 7. migration 类型
-
-- `codemod`
-- `file-replace`
-- `copy-file`
-- `copy-directory`
-- `rename-file`
-- `create-directory`
-- `delete-file`
-- `delete-directory`
-- `config-rewrite`
-- `json-array-append`
-- `json-array-remove`
-- `json-object-merge`
-- `text-append`
-- `text-replace`
-- `text-replace-regex`
-- `slot-contract-update`
-- `prisma-migration`
-
-### migration 合同字段
-
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `id` | 是 | migration id |
+| `id` | 是 | 唯一标识 |
 | `kind` | 是 | migration 类型 |
-| `entry` | 是 | 执行入口 |
+| `entry` | 是 | 执行入口路径 |
 | `fromVersion` | 是 | 起始版本范围 |
 | `toVersion` | 是 | 目标版本 |
 | `requiresVerification` | 否 | 默认 true |
 
-## 8. 回写策略
+## 6. 回写策略
 
-### 推荐顺序
+按优先级：slot description → model / view mutation → rule-backed patch → code patch → private block。
 
-1. 如果人工修改能表达为 slot description，则回写到 `source/code/slots/**` 或 `source/app.yaml` 的 slot 描述。
-2. 若能表达为业务模型、权限、数据流或视图 mutation，则回写到 `source/model/**` 或 `source/views/mutations/*.json`，并通过 `platform workbench mutations apply` 应用到 `source/app.yaml`。
-3. 若能表达为规则文件，则写为 `source/patches/rules/*`。
-4. 若只能表达为代码 patch，则写入 `source/patches/patches/*` 并登记到 `source/patches/override-manifest.yaml`。
-5. 若修改具备复用价值，应提升为 `source/blocks/private/**`。
+不推荐长期依赖 manual override 留在生成区源码中。
 
-### 不推荐
+## 7. 升级安全门槛
 
-- 长期依赖 manual override 停留在生成区源码中
-
-## 9. 自举与自维护迁移边界
-
-### 自举迁移原则
-
-- 自举必须分层推进：先描述和生成外围资产，再逐步迁移 block、spec、acceptance、policy、registry metadata 和平台视图。
-- 核心编译器 pass 不得在没有人工审查和独立验证的情况下由系统自动改写。
-- 自举产生的变更必须像普通升级一样进入 migration plan、override 检查、verify 和 provenance。
-
-### 自维护变更分类
-
-| 变更类型 | 默认策略 |
-| --- | --- |
-| slot 修复 | 可由 repair task 执行 |
-| policy / acceptance 补齐 | 生成建议，需人工确认后写入 |
-| block patch | 走 registry 版本升级，不直接热改官方块 |
-| override 回写 | 优先转成 slot description 或 rule-backed override |
-| 数据迁移 | 必须人工审批 |
-| kernel / 热路径修改 | 不自动执行 |
-| 编译器核心 pass 修改 | 不自动执行 |
-
-### 自维护安全门槛
-
-- 必须能定位失败来源：spec、composition、slot 或 kernel。
-- 必须有明确 allowed paths 和回滚策略。
-- 必须有验收或 policy gate 证明修复有效。
-- 必须记录 AI task、人工审批、override 状态和 provenance。
-
-## 10. 升级安全门槛
-
-### `v0.2` 最低要求
-
-- 支持至少一个 block 的 minor 升级
-- 支持冲突检测
-- 支持升级后 verify
-
-### `v1` 要求
-
-- 支持多块升级计划
-- 支持 override 冲突分析
-- 支持 provenance 级影响面说明
-
-## 11. 回滚
-
-### 触发条件
-
-- migration 执行失败
-- verify 失败且 repair 无法通过
-- provenance 更新失败
-
-### 回滚内容
-
-- block version
-- install artifacts
-- lock 状态
-- provenance 状态
-
-## 12. 延期项
-
-- 自动三方 merge
-- 跨项目 override 共享
-- UI 级 upgrade center
+- 支持至少一个 block 的 minor 升级 ✅
+- 支持冲突检测 ✅
+- 支持 dry-run plan 预览 ✅
+- 支持 upgrade diagnostics ✅
+- 支持重新 verify 和 provenance 更新 ✅
+- `platform upgrade <block-id> <target-version> [--dry-run] --json [--compact]` ✅
+- `platform upgrade plan [--json --compact]`（只读检查）✅
+- `platform upgrade diagnostics [--json --compact]`（只读诊断）✅

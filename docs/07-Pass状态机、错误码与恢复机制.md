@@ -1,275 +1,82 @@
 # Pass 状态机、错误码与恢复机制
 
-> 目标：定义编译器状态转移、失败处理、错误码与恢复边界，避免 Agent 在失败时擅自扩大修改范围。
+> 目标：定义编译器状态转移、失败处理、错误码与恢复边界。
 
-## 1. Pass 列表
+## 1. Pass 列表与依赖关系
 
-- `parse`
-- `align`
-- `resolve`
-- `compose`
-- `adapt`
-- `verify`
-- `repair`
-- `lock`
-- `emit`
+| Pass | 依赖 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `parse` | — | 已实现 | 解析 `source/app.yaml`、block manifest |
+| `align` | `parse` | 已实现 | 校验 stack/Slot 兼容性、接口对齐 |
+| `resolve` | `align` | 已实现 | 拓扑排序依赖图、生成 lock |
+| `compose` | `resolve` | 已实现 | 安装 block 文件、生成骨架 |
+| `adapt` | `compose` | 已实现 | AI 填充 slot、物化 runtime target |
+| `verify` | `adapt` | 已实现 | typecheck + 单元测试 + 验收 + policy gate |
+| `repair` | `verify` | 已实现 | 基于失败点生成修复计划 |
+| `lock` | `adapt` | 已实现 | 固化最终 pass 状态 |
+| `emit` | `lock` | 已实现 | 输出 governance artifacts、explain graph |
 
-## 2. Pass 状态
+依赖关系定义于 `platform/shared/constants.ts` 的 `PASS_DEPENDENCIES`。
+
+## 2. 状态机
 
 ### 通用状态
 
-- `pending`
-- `running`
-- `succeeded`
-- `failed`
-- `blocked`
-- `skipped`
+`pending` → `running` → `succeeded` | `failed` | `blocked`
 
-### 状态机规则
-
-- 所有 pass 初始状态为 `pending`
-- `running -> succeeded | failed | blocked`
-- `failed` 只能通过重新执行该 pass 或进入 `repair` 后回到 `pending`
-- `blocked` 表示前置条件缺失，不得自动跳过
-- `skipped` 仅用于本阶段未启用的 pass
-
-## 3. 全链状态转移
+- `failed` → 只能通过重新执行或 `repair` 回到 `pending`
+- `blocked` → 前置条件缺失，不得自动跳过
+- `skipped` → 本阶段未启用
 
 ### 正常路径
 
 ```text
-parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
+parse → align → resolve → compose → adapt → verify → lock → emit
 ```
 
 ### 失败路径
 
-- `parse` 失败
-  - 停止全链
-- `align` 失败
-  - 停止全链
-- `resolve` 失败
-  - 停止全链
-- `compose` 失败
-  - 允许重试 `compose`
-- `adapt` 失败
-  - 标记 slot 为 `failed`
-  - 允许重试 `adapt`
-- `verify` 失败
-  - 进入 `repair`
-- `repair` 失败
-  - 停止全链并输出最小失败报告
+- `parse` / `align` / `resolve` 失败 → 停止全链
+- `compose` / `adapt` 失败 → 允许重试
+- `verify` 失败 → 进入 `repair`
+- `repair` 失败 → 停止全链并输出最小失败报告
 
-## 4. Slot task 状态机
+## 3. 错误码命名
 
-- `pending`
-- `generated`
-- `filled`
-- `verified`
-- `failed`
-- `blocked`
-- `overridden`
+格式：`<DOMAIN>-<CATEGORY>-<NUMBER>`
 
-### 规则
+错误码前缀映射（`ERROR_CODE_PREFIX_MAP`）：
 
-- `pending -> generated`
-  - 骨架已创建
-- `generated -> filled`
-  - AI 已写回目标文件
-- `filled -> verified`
-  - 通过 slot tests 和主验收
-- `filled -> failed`
-  - 验收未通过
-- `verified -> overridden`
-  - 人工或 override 机制接管
-
-## 5. 错误码命名
-
-格式：
-
-```text
-<DOMAIN>-<CATEGORY>-<NUMBER>
-```
-
-示例：
-
-- `PLAN-VALIDATION-001`
-- `RESOLVE-CONFLICT-003`
-- `COMPOSE-PATH-004`
-- `SLOT-WRITE-002`
-- `VERIFY-ACCEPTANCE-005`
-- `WORKBENCH-MUTATION-002`
-
-## 6. 错误域
-
-### Issue 分层
-
-| Issue 类型 | 典型错误域 | 是否默认允许 AI 修复 |
-| --- | --- | --- |
-| Spec Issue | PLAN / ALIGN / VERIFY policy / WORKBENCH-MUTATION | 否，需人工确认规格变更 |
-| Composition Issue | MANIFEST / RESOLVE / COMPOSE | 否，优先修编译器或 block 元数据 |
-| Slot Issue | SLOT / VERIFY unit / VERIFY acceptance | 是，但只能在 task envelope 范围内 |
-| Kernel Issue | VERIFY perf / VERIFY correctness / external harness | 否，默认返回 kernel 维护者 |
-
-- 错误报告必须尽量带上 issue 类型，帮助 Agent 避免把架构问题误当成 slot 修复。
-- `repair` 默认只处理 Slot Issue；Composition Issue 和 Kernel Issue 需要显式授权。
-
-### PLAN
-
-- 输入 plan 结构、必填项、引用错误
-
-### MANIFEST
-
-- manifest schema、字段冲突、非法安装路径
-
-### ALIGN
-
-- pin 不兼容、slot 缺口、接口不对齐
-
-### RESOLVE
-
-- 依赖缺失、冲突、循环、排序失败
-
-### COMPOSE
-
-- 文件写入失败、路径冲突、合并失败
-
-### SLOT
-
-- 非法写入、符号缺失、输出格式错误
-
-### VERIFY
-
-- build 失败、单测失败、验收失败、policy gate 失败
-
-### REPAIR
-
-- 修复任务生成失败、修复超出修改范围
-
-### UPGRADE
-
-- 版本不兼容、migration 缺失、override 冲突
-
-### WORKBENCH-MUTATION
-
-- 视图 mutation 文件 schema 错误、unsupported mutation kind、越界 sourcePath、目标 slot 缺失
-- 默认恢复动作是检查 `source/views/mutations/*.json`，修正后重跑 `platform workbench mutations apply`
-
-## 7. `v0.1` 最低错误码清单
-
-| 错误码 | 含义 | 默认处理 |
-| --- | --- | --- |
-| `PLAN-VALIDATION-001` | 缺失 `app.name` | 终止 |
-| `PLAN-REFERENCE-002` | slot 指向不存在 block | 终止 |
-| `MANIFEST-SCHEMA-001` | manifest 非法 | 终止 |
-| `RESOLVE-MISSING-001` | 缺失依赖 | 终止 |
-| `RESOLVE-CONFLICT-002` | block 冲突 | 终止 |
-| `RESOLVE-CYCLE-003` | 依赖成环 | 终止 |
-| `COMPOSE-PATH-001` | 非法目标路径 | 终止 |
-| `COMPOSE-MERGE-002` | 依赖合并冲突 | 终止 |
-| `SLOT-WRITE-001` | 写出允许路径 | 终止当前 task |
-| `SLOT-SYMBOL-002` | 未导出要求符号 | 终止当前 task |
-| `WORKBENCH-MUTATION-001` | mutation 文件或字段 schema 非法 | 修正 `source/views/mutations/*.json` 后重试 |
-| `WORKBENCH-MUTATION-002` | mutation 目标路径越界 | 修正为 `source/code/slots/**` 后重试 |
-| `VERIFY-BUILD-001` | 构建失败 | 进入 repair |
-| `VERIFY-UNIT-002` | 单测失败 | 进入 repair |
-| `VERIFY-ACCEPTANCE-003` | 验收失败 | 进入 repair |
-
-## 8. 恢复策略
-
-### 可自动重试
-
-- 临时文件写入失败
-- 可重放的 slot task
-- 非副作用型 verify 命令
-
-### 不可自动重试
-
-- schema 错误
-- 依赖冲突
-- 环依赖
-- 非法写入路径
-- manifest 不兼容
-
-### repair 前置条件
-
-- `verify` 已失败
-- 失败项能映射到有限文件集合
-- repair task 有明确 writable paths
-
-## 9. 幂等检查点
-
-### 检查点文件
-
-- `control/state/graph.lock.json`
-- `control/evidence/install-manifest.json`
-- `control/evidence/verification-report.json`
-- `control/provenance/provenance.json`
-
-### 规则
-
-- 每个 pass 结束时必须更新检查点
-- 每次重入必须优先读检查点，而不是猜测当前状态
-
-## 10. 退出码
-
-| 退出码 | 含义 |
+| 前缀 | 对应 pass 模块 |
 | --- | --- |
-| `0` | 成功 |
-| `2` | 输入非法 |
-| `3` | 依赖或冲突失败 |
-| `4` | 安装失败 |
-| `5` | slot 综合失败 |
-| `6` | 验收失败 |
-| `7` | repair 失败 |
-| `8` | upgrade 失败 |
+| `PARSE` / `MANIFEST` | `parse/` |
+| `ALIGN` | `align/` |
+| `RESOLVE` | `resolve/` |
+| `COMPOSE` / `OVERRIDE` | `compose/` |
+| `SLOT` / `ADAPT` | `synthesize/` |
+| `VERIFY` | `verify/` |
+| `REPAIR` | `repair/` |
+| `UPGRADE` | `upgrade/` |
+| `LOCK` / `EMIT` | `emit/` |
+| `WORKBENCH` | `workbench/` |
+| `EXPLAIN` | `emit/` |
 
-## 11. `repair` 合同
+## 4. Issue 分层
 
-- `repair` 只能处理失败项最小闭包范围。
-- `repair` 不得改动 `source/app.yaml`、block manifest、`control/state/graph.lock.json` 和非 workflow 归属的 control artifact。
-- `repair` 默认只允许写：
-  - `source/code/slots/**` 中由 envelope 明确授权的 slot 源码
-  - 声明 `sourcePath` 后由 repair/adapt pass 物化的 `project/custom/**`
-  - 显式授权的 `source/patches/**`
-  - 明确列入 repair envelope 的 `source/code/**` 局部业务文件
+| Issue 类型 | 典型错误域 | AI 可自主修复 |
+| --- | --- | --- |
+| Spec Issue | `PLAN` / `ALIGN` / `VERIFY` policy | 否，需人工确认 |
+| Composition Issue | `MANIFEST` / `RESOLVE` / `COMPOSE` | 否，优先修编译器或 block 元数据 |
+| Slot Issue | `SLOT` / `VERIFY` unit / acceptance | 是，但限于 task envelope |
+| Kernel Issue | perf / correctness / external harness | 否，返回维护者 |
 
-### `repair-plan.json` 最小归因字段
+## 5. Slot task 状态机
 
-每个 repair task 必须保留旧的 `failureSummary` 字符串，并补充结构化 `failurePoints[]`：
+`pending` → `generated` → `filled` → `verified`（可 `overridden`）
+`filled` → `failed`（验收未通过）
 
-```json
-{
-  "lane": "fast",
-  "kind": "unit",
-  "issueType": "slot",
-  "repairable": true,
-  "artifactPath": "tests/unit",
-  "message": "Unit verification failed"
-}
-```
+## 6. 恢复策略
 
-字段规则：
-
-- `lane`：`fast` / `runtime` / `all`。
-- `kind`：`build` / `unit` / `acceptance` / `policy` / `runtime-build` / `runtime-unit` / `runtime-acceptance` / `summary`。
-- `issueType`：`slot` / `spec` / `kernel` / `unknown`。
-- `repairable`：只有明确映射到 Slot Issue 且 writable paths 受 task envelope 限制时才为 `true`。
-- `artifactPath`：指向对应 verification、policy、runtime 或测试目录产物。
-- `message`：给 Agent 或人工审查的最小失败说明。
-
-`control/evidence/review-summary.json` 在检测到 `control/workflow/repair-plan.json` 时，必须用 `repair-plan-present` conflict hint 暴露待处理 repair task，避免 repair 计划被 explain/review 流程遗漏。
-
-## 12. 人工干预点
-
-以下情况必须返回人工决策，而不是继续自动推进：
-
-- 需要变更 `app.plan.yaml`
-- 需要替换或移除 block
-- 需要跨多个 zone 改写
-- 需要接受 breaking upgrade
-
-## 13. 延期项
-
-- 分布式编译状态同步
-- 多 agent 并行 repair 合并
-- 复杂回滚事务
+- **可重试**：临时 I/O 失败、可重放 slot task、非副作用 verify
+- **不可重试**：schema 错误、依赖冲突、环依赖、非法写入路径
+- **repair 前置条件**：`verify` 已失败，失败项可映射到有限文件集合
