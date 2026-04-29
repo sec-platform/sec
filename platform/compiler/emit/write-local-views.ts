@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
-import { countMatching, countPositiveValues, uniqueSorted } from '../../shared/collections.ts';
+import { countMatching, countPositiveValues, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
 import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
@@ -13,6 +13,7 @@ import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import type { ReviewSummary } from '../../shared/review-types.ts';
+import { buildReviewUpgradePreflightSummaries } from '../../shared/review-upgrade.ts';
 import type {
   UpgradeDiagnostics,
   UpgradeMigrationOperation,
@@ -846,16 +847,7 @@ function renderTaxonomyRows(entries: Array<{ id: string; count: number }>): stri
 }
 
 function renderUpgradeOperationRoleRows(operations: UpgradeMigrationOperation[]): string {
-  return renderTaxonomyRows(
-    Object.entries(
-      operations.reduce<Record<string, number>>((counts, operation) => {
-        counts[operation.role] = (counts[operation.role] ?? 0) + 1;
-        return counts;
-      }, {})
-    )
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([id, count]) => ({ id, count }))
-  );
+  return renderTaxonomyRows(summarizeCounts(operations.map((operation) => operation.role)));
 }
 
 function renderUpgradeOperationRows(operations: UpgradeMigrationOperation[]): string {
@@ -1098,34 +1090,17 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
         </tr>`
     )
     .join('');
-  const migrationKindCounts =
-    upgradePlan.migrationKindCounts ??
-    upgradePlan.migrationSummaries.reduce<Record<string, number>>((counts, migration) => {
-      counts[migration.kind] = (counts[migration.kind] ?? 0) + 1;
-      return counts;
-    }, {});
-  const migrationKindRows = Object.entries(migrationKindCounts)
+  const migrationKindRows = Object.entries(upgradePlan.migrationKindCounts)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
     .join('');
   const operationRoleRows = renderUpgradeOperationRoleRows(upgradePlan.migrationOperations);
   const operationRows = renderUpgradeOperationRows(upgradePlan.migrationOperations);
   const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
-  const preflightGroups = upgradePlan.preflightChecks.reduce<Record<string, { checks: number; evidence: number }>>(
-    (groups, check) => {
-      const group = check.id.startsWith('migration-') ? 'migration' : check.id.split('-')[0];
-      groups[group] ??= { checks: 0, evidence: 0 };
-      groups[group].checks += 1;
-      groups[group].evidence += check.evidence.length;
-      return groups;
-    },
-    {}
-  );
-  const preflightSummaryRows = Object.entries(preflightGroups)
-    .sort(([left], [right]) => left.localeCompare(right))
+  const preflightSummaryRows = buildReviewUpgradePreflightSummaries(upgradePlan.preflightChecks)
     .map(
-      ([group, summary]) =>
-        `<tr><td>${escapeHtml(group)}</td><td>${escapeHtml(String(summary.checks))}</td><td>${escapeHtml(String(summary.evidence))}</td></tr>`
+      (summary) =>
+        `<tr><td>${escapeHtml(summary.group)}</td><td>${escapeHtml(String(summary.checkCount))}</td><td>${escapeHtml(String(summary.evidenceCount))}</td></tr>`
     )
     .join('');
   const preflightRows = upgradePlan.preflightChecks

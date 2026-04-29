@@ -1,6 +1,10 @@
+import { countMatching, uniqueSorted } from './collections.ts';
 import type {
+  UpgradeDiagnostics,
   UpgradeDiagnosticsPhase,
-  UpgradeMigrationOperation
+  UpgradeMigrationOperation,
+  UpgradePlan,
+  UpgradePreflightCheck
 } from './upgrade-types.ts';
 
 export interface ReviewUpgradePreflightSummary {
@@ -56,6 +60,148 @@ export interface ReviewUpgradeSummary {
   migrationOperationCount: number;
   migrationOperationSummaries: ReviewUpgradeMigrationOperationSummary[];
   diagnostics?: ReviewUpgradeDiagnosticsSummary;
+}
+
+function upgradePreflightSummaryGroup(checkId: string): string {
+  return checkId.startsWith('migration-') ? 'migration' : checkId.split('-')[0];
+}
+
+function buildReviewUpgradeDiagnosticsSummary(diagnostics: UpgradeDiagnostics): ReviewUpgradeDiagnosticsSummary {
+  return {
+    status: diagnostics.status,
+    phase: diagnostics.phase ?? 'planning',
+    failedCheck: diagnostics.failedCheck,
+    errorCode: diagnostics.errorCode,
+    message: diagnostics.message,
+    ...(diagnostics.details === undefined ? {} : { details: diagnostics.details })
+  };
+}
+
+function buildReviewUpgradeMigrationKindCounts(plan: UpgradePlan): Record<string, number> {
+  return Object.keys(plan.migrationKindCounts).length > 0
+    ? plan.migrationKindCounts
+    : plan.migrationSummaries.reduce<Record<string, number>>((counts, migration) => {
+        counts[migration.kind] = (counts[migration.kind] ?? 0) + 1;
+        return counts;
+      }, {});
+}
+
+function buildReviewUpgradeMigrationSummaries(plan: UpgradePlan): ReviewUpgradeMigrationSummary[] {
+  return plan.migrationSummaries
+    .map((migration) => ({
+      id: migration.id,
+      kind: migration.kind,
+      target: migration.target,
+      reason: migration.reason,
+      requiresVerification: migration.requiresVerification,
+      ...(migration.source ? { source: migration.source } : {}),
+      ...(migration.slotId ? { slotId: migration.slotId } : {})
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function buildReviewUpgradeMigrationOperationSummaries(plan: UpgradePlan): ReviewUpgradeMigrationOperationSummary[] {
+  return plan.migrationOperations
+    .map((operation) => ({
+      ...operation,
+      ...(operation.writableZones ? { writableZones: [...operation.writableZones] } : {}),
+      ...(operation.path ? { path: [...operation.path] } : {})
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export function buildReviewUpgradePreflightSummaries(
+  preflightChecks: readonly UpgradePreflightCheck[]
+): ReviewUpgradePreflightSummary[] {
+  const groups = preflightChecks.reduce<Map<string, { checkCount: number; evidenceCount: number }>>(
+    (summaries, check) => {
+      const group = upgradePreflightSummaryGroup(check.id);
+      const current = summaries.get(group) ?? { checkCount: 0, evidenceCount: 0 };
+      current.checkCount += 1;
+      current.evidenceCount += check.evidence.length;
+      summaries.set(group, current);
+      return summaries;
+    },
+    new Map()
+  );
+
+  return [...groups.entries()]
+    .map(([group, summary]) => ({ group, ...summary }))
+    .sort((left, right) => left.group.localeCompare(right.group));
+}
+
+export function buildReviewUpgradeSummary(
+  upgradePlan: UpgradePlan | null,
+  diagnostics: UpgradeDiagnostics | null
+): ReviewUpgradeSummary | undefined {
+  if (!upgradePlan) {
+    if (!diagnostics) {
+      return undefined;
+    }
+
+    return {
+      status: 'blocked',
+      blockId: diagnostics.blockId,
+      toVersion: diagnostics.targetVersion,
+      preflightCheckCount: 0,
+      preflightEvidenceCount: 0,
+      migrationCount: 0,
+      migrationKindCounts: {},
+      requiresVerification: false,
+      requiresVerificationCount: 0,
+      impactCount: 0,
+      impacts: [],
+      sourceMigrationCount: 0,
+      slotMigrationCount: 0,
+      verificationSummaries: [
+        { id: 'required', count: 0 },
+        { id: 'skipped', count: 0 }
+      ],
+      preflightSummaries: [],
+      migrationSummaries: [],
+      migrationOperationCount: 0,
+      migrationOperationSummaries: [],
+      diagnostics: buildReviewUpgradeDiagnosticsSummary(diagnostics)
+    };
+  }
+
+  const plan = upgradePlan;
+  const requiresVerificationCount = countMatching(
+    plan.migrationSummaries,
+    (migration) => migration.requiresVerification
+  );
+  const skippedVerificationCount = plan.migrationSummaries.length - requiresVerificationCount;
+  const migrationSummaries = buildReviewUpgradeMigrationSummaries(plan);
+  const migrationOperationSummaries = buildReviewUpgradeMigrationOperationSummaries(plan);
+
+  return {
+    status: diagnostics ? 'blocked' : plan.status,
+    blockId: plan.blockId,
+    fromVersion: plan.fromVersion,
+    toVersion: plan.toVersion,
+    preflightCheckCount: plan.preflightChecks.length,
+    preflightEvidenceCount: plan.preflightChecks.reduce(
+      (total, check) => total + check.evidence.length,
+      0
+    ),
+    migrationCount: plan.migrationSummaries.length,
+    migrationKindCounts: buildReviewUpgradeMigrationKindCounts(plan),
+    requiresVerification: requiresVerificationCount > 0 || plan.status === 'applied',
+    requiresVerificationCount,
+    impactCount: plan.impacts.length,
+    impacts: uniqueSorted(plan.impacts),
+    sourceMigrationCount: countMatching(migrationSummaries, (migration) => migration.source !== undefined),
+    slotMigrationCount: countMatching(migrationSummaries, (migration) => migration.slotId !== undefined),
+    verificationSummaries: [
+      { id: 'required', count: requiresVerificationCount },
+      { id: 'skipped', count: skippedVerificationCount }
+    ],
+    preflightSummaries: buildReviewUpgradePreflightSummaries(plan.preflightChecks),
+    migrationSummaries,
+    migrationOperationCount: migrationOperationSummaries.length,
+    migrationOperationSummaries,
+    ...(diagnostics ? { diagnostics: buildReviewUpgradeDiagnosticsSummary(diagnostics) } : {})
+  };
 }
 
 function readUpgradeDiagnosticsString(details: unknown, key: string): string | null {

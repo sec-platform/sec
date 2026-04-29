@@ -16,8 +16,8 @@ import type {
   ReviewRegressionRisk,
   ReviewSummary
 } from '../../shared/review-types.ts';
-import { upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
-import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
+import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
+import type { UpgradeDiagnostics } from '../../shared/upgrade-types.ts';
 import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
@@ -526,10 +526,6 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
   };
 }
 
-function preflightSummaryGroup(checkId: string): string {
-  return checkId.startsWith('migration-') ? 'migration' : checkId.split('-')[0];
-}
-
 function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics): string {
   const attribution = upgradeDiagnosticsAttributionParts(diagnostics.details);
   const attributionSuffix = attribution.length > 0 ? `; ${attribution.join('; ')}` : '';
@@ -538,133 +534,6 @@ function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics)
     diagnostics.errorCode,
     `${diagnostics.message}${attributionSuffix}`
   ].join(' ');
-}
-
-function buildUpgradeSummary(
-  upgradePlan: UpgradePlan | null,
-  diagnostics: UpgradeDiagnostics | null
-): ReviewSummary['upgradeSummary'] {
-  if (!upgradePlan && !diagnostics) {
-    return undefined;
-  }
-
-  if (!upgradePlan && diagnostics) {
-    return {
-      status: 'blocked',
-      blockId: diagnostics.blockId,
-      toVersion: diagnostics.targetVersion,
-      preflightCheckCount: 0,
-      preflightEvidenceCount: 0,
-      migrationCount: 0,
-      migrationKindCounts: {},
-      requiresVerification: false,
-      requiresVerificationCount: 0,
-      impactCount: 0,
-      impacts: [],
-      sourceMigrationCount: 0,
-      slotMigrationCount: 0,
-      verificationSummaries: [
-        { id: 'required', count: 0 },
-        { id: 'skipped', count: 0 }
-      ],
-      preflightSummaries: [],
-      migrationSummaries: [],
-      migrationOperationCount: 0,
-      migrationOperationSummaries: [],
-      diagnostics: {
-        status: diagnostics.status,
-        phase: diagnostics.phase ?? 'planning',
-        failedCheck: diagnostics.failedCheck,
-        errorCode: diagnostics.errorCode,
-        message: diagnostics.message,
-        ...(diagnostics.details === undefined ? {} : { details: diagnostics.details })
-      }
-    };
-  }
-
-  const plan = upgradePlan as UpgradePlan;
-  const migrationKindCounts = Object.keys(plan.migrationKindCounts).length > 0
-    ? plan.migrationKindCounts
-    : plan.migrationSummaries.reduce<Record<string, number>>((counts, migration) => {
-        counts[migration.kind] = (counts[migration.kind] ?? 0) + 1;
-        return counts;
-      }, {});
-  const preflightGroups = plan.preflightChecks.reduce<Map<string, { checkCount: number; evidenceCount: number }>>(
-    (groups, check) => {
-      const group = preflightSummaryGroup(check.id);
-      const current = groups.get(group) ?? { checkCount: 0, evidenceCount: 0 };
-      current.checkCount += 1;
-      current.evidenceCount += check.evidence.length;
-      groups.set(group, current);
-      return groups;
-    },
-    new Map()
-  );
-  const requiresVerificationCount = countMatching(
-    plan.migrationSummaries,
-    (migration) => migration.requiresVerification
-  );
-  const skippedVerificationCount = plan.migrationSummaries.length - requiresVerificationCount;
-  const migrationSummaries = plan.migrationSummaries
-    .map((migration) => ({
-      id: migration.id,
-      kind: migration.kind,
-      target: migration.target,
-      reason: migration.reason,
-      requiresVerification: migration.requiresVerification,
-      ...(migration.source ? { source: migration.source } : {}),
-      ...(migration.slotId ? { slotId: migration.slotId } : {})
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-  const migrationOperationSummaries = plan.migrationOperations
-    .map((operation) => ({
-      ...operation,
-      ...(operation.writableZones ? { writableZones: [...operation.writableZones] } : {}),
-      ...(operation.path ? { path: [...operation.path] } : {})
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-
-  return {
-    status: diagnostics ? 'blocked' : plan.status,
-    blockId: plan.blockId,
-    fromVersion: plan.fromVersion,
-    toVersion: plan.toVersion,
-    preflightCheckCount: plan.preflightChecks.length,
-    preflightEvidenceCount: plan.preflightChecks.reduce(
-      (total, check) => total + check.evidence.length,
-      0
-    ),
-    migrationCount: plan.migrationSummaries.length,
-    migrationKindCounts,
-    requiresVerification: requiresVerificationCount > 0 || plan.status === 'applied',
-    requiresVerificationCount,
-    impactCount: plan.impacts.length,
-    impacts: uniqueSorted(plan.impacts),
-    sourceMigrationCount: countMatching(migrationSummaries, (migration) => migration.source !== undefined),
-    slotMigrationCount: countMatching(migrationSummaries, (migration) => migration.slotId !== undefined),
-    verificationSummaries: [
-      { id: 'required', count: requiresVerificationCount },
-      { id: 'skipped', count: skippedVerificationCount }
-    ],
-    preflightSummaries: [...preflightGroups.entries()]
-      .map(([group, summary]) => ({ group, ...summary }))
-      .sort((left, right) => left.group.localeCompare(right.group)),
-    migrationSummaries,
-    migrationOperationCount: migrationOperationSummaries.length,
-    migrationOperationSummaries,
-    ...(diagnostics
-      ? {
-          diagnostics: {
-            status: diagnostics.status,
-            phase: diagnostics.phase ?? 'planning',
-            failedCheck: diagnostics.failedCheck,
-            errorCode: diagnostics.errorCode,
-            message: diagnostics.message,
-            ...(diagnostics.details === undefined ? {} : { details: diagnostics.details })
-          }
-        }
-      : {})
-  };
 }
 
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
@@ -786,7 +655,7 @@ export async function buildReviewSummary(
   const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = policyReport ? buildReviewPolicySummary(policyReport) : undefined;
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
-  const upgradeSummary = buildUpgradeSummary(upgradePlan, upgradeDiagnostics);
+  const upgradeSummary = buildReviewUpgradeSummary(upgradePlan, upgradeDiagnostics);
   const failurePoints: ReviewFailurePoint[] = [];
   const regressionRisks: ReviewRegressionRisk[] = [];
   const conflictHints: ReviewConflictHint[] = [];
