@@ -1,91 +1,10 @@
-import { spawn } from 'node:child_process';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { buildContractFreezeRunnerInvocations } from './shared/contract-freeze-contract.ts';
-import { getSlowTestFiles } from './shared/test-budget-contract.ts';
-import { ensureSharedDepsReady } from './shared/project-runtime.ts';
-import { compilerRoot } from './shared/paths.ts';
-import { pathExists } from './shared/fs.ts';
+import { runTypecheck } from './dev-runner/typecheck-runner.ts';
+import { runTests, runFastTests, runContractFreeze } from './dev-runner/test-runner.ts';
+import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
 
 function usage(): never {
   console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:fast|contract-freeze|clean-test-workspaces> [args...]');
   process.exit(1);
-}
-
-async function runContractFreeze(): Promise<number> {
-  const binPath = path.join(compilerRoot, 'node_modules', '.bin');
-  for (const invocation of buildContractFreezeRunnerInvocations()) {
-    const code = await runDevCommand(commandPath(binPath, 'vitest'), invocation.args, process.env);
-    if (code !== 0) {
-      return code;
-    }
-  }
-  return 0;
-}
-
-function commandPath(binPath: string, base: string): string {
-  return path.join(binPath, process.platform === 'win32' ? `${base}.exe` : base);
-}
-
-function pathEnvKey(): string {
-  return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
-}
-
-function fastTestArgs(args: string[]): string[] {
-  return ['run', ...getSlowTestFiles().flatMap((file) => ['--exclude', file]), ...args];
-}
-
-function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return {
-    ...env,
-    PJC_SKIP_RUNTIME_DEPS_SETUP: '1'
-  };
-}
-
-async function withRootDependencyBridge<T>(nodeModulesPath: string, callback: () => Promise<T>): Promise<T> {
-  const rootNodeModulesPath = path.join(compilerRoot, 'node_modules');
-  const hadRootNodeModules = await pathExists(rootNodeModulesPath);
-
-  if (!hadRootNodeModules) {
-    await fs.symlink(nodeModulesPath, rootNodeModulesPath, 'junction');
-  }
-
-  try {
-    return await callback();
-  } finally {
-    if (!hadRootNodeModules) {
-      await fs.rm(rootNodeModulesPath, { recursive: true, force: true });
-    }
-  }
-}
-
-function getTestWorkspaceTempRoot(): string {
-  return path.join(compilerRoot, '.tmp', 'test-workspaces');
-}
-
-async function cleanTestWorkspaces(): Promise<void> {
-  await fs.rm(getTestWorkspaceTempRoot(), { recursive: true, force: true });
-}
-
-function runDevCommand(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: compilerRoot,
-      env: Object.fromEntries(
-        Object.entries({
-          ...process.env,
-          ...env
-        }).filter(([, value]) => value !== undefined)
-      ) as NodeJS.ProcessEnv,
-      shell: false,
-      stdio: 'inherit'
-    });
-
-    child.on('error', reject);
-    child.on('close', (code) => {
-      resolve(code ?? 1);
-    });
-  });
 }
 
 async function main(): Promise<void> {
@@ -99,27 +18,21 @@ async function main(): Promise<void> {
     return;
   }
 
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const envPathKey = pathEnvKey();
-  const env = {
-    [envPathKey]: `${binPath}${path.delimiter}${process.env[envPathKey] ?? ''}`
-  };
+  if (target === 'contract-freeze') {
+    process.exitCode = await runContractFreeze();
+    return;
+  }
 
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    const code =
-      target === 'typecheck'
-        ? await runDevCommand(commandPath(binPath, 'tsc'), ['--noEmit', '-p', 'tsconfig.json', ...args], env)
-        : target === 'test'
-          ? await runDevCommand(commandPath(binPath, 'vitest'), ['run', ...args], env)
-          : target === 'test:fast'
-            ? await runDevCommand(commandPath(binPath, 'vitest'), fastTestArgs(args), fastTestEnv(env))
-            : target === 'contract-freeze'
-              ? await runContractFreeze()
-              : usage();
+  const code =
+    target === 'typecheck'
+      ? await runTypecheck(args)
+      : target === 'test'
+        ? await runTests(args)
+        : target === 'test:fast'
+          ? await runFastTests(args)
+          : usage();
 
-    process.exitCode = code;
-  });
+  process.exitCode = code;
 }
 
 await main();

@@ -40,3 +40,32 @@ export const DEFAULT_ACCEPTANCE: readonly AcceptanceItem[] = Object.freeze([
   { id: 'user_can_list_customers' },
   { id: 'tenant_only_sees_own_customers' }
 ]);
+
+export const ERROR_CODE_PREFIX_MAP = Object.freeze<Record<string, string>>({
+  PARSE: 'parse/',
+  MANIFEST: 'parse/',
+  ALIGN: 'align/',
+  RESOLVE: 'resolve/',
+  COMPOSE: 'compose/',
+  SLOT: 'synthesize/',
+  ADAPT: 'synthesize/',
+  VERIFY: 'verify/',
+  REPAIR: 'repair/',
+  UPGRADE: 'upgrade/',
+  LOCK: 'emit/',
+  EMIT: 'emit/',
+  OVERRIDE: 'compose/',
+  WORKBENCH: 'workbench/'
+} as const);
+
+export const PASS_DEPENDENCIES = Object.freeze<Record<string, string[]>>({
+  parse: [],
+  align: ['parse'],
+  resolve: ['align'],
+  compose: ['resolve'],
+  adapt: ['compose'],
+  verify: ['adapt'],
+  repair: ['verify'],
+  lock: ['adapt'],
+  emit: ['lock']
+} as const);

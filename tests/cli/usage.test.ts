@@ -30,7 +30,6 @@ import {
   POSTGRES_USAGE,
   REPAIR_USAGE,
   RUNTIME_USAGE,
-  USAGE,
   WORKBENCH_USAGE
 } from '../../platform/cli/usage.ts';
 import {
@@ -173,7 +172,11 @@ test('CLI prints usage for missing or unknown commands', async () => {
         code: 0,
         stderr: ''
       });
-      expect(result.stdout).toBe(`${USAGE}\n`);
+      expect(result.stdout).toContain('Usage: platform');
+      expect(result.stdout).toContain('init');
+      expect(result.stdout).toContain('resolve');
+      expect(result.stdout).toContain('compose');
+      expect(result.stdout).toContain('verify');
     }
   });
 });

@@ -5,14 +5,7 @@
   "unit": {
     "status": "passed",
     "passed": [
-      "audit-log.test.ts",
-      "customer-attachments.test.ts",
-      "customer-export.test.ts",
-      "customer-filter.test.ts",
-      "customer-normalizer.test.ts",
-      "email-outbox.test.ts",
-      "postgres-contract.test.ts",
-      "rbac-authorize.test.ts"
+      "customer-normalizer.test.ts"
     ]
   },
   "acceptance": {
@@ -34,14 +27,7 @@
     "unit": {
       "status": "passed",
       "passed": [
-        "audit-log.test.ts",
-        "customer-attachments.test.ts",
-        "customer-export.test.ts",
-        "customer-filter.test.ts",
-        "customer-normalizer.test.ts",
-        "email-outbox.test.ts",
-        "postgres-contract.test.ts",
-        "rbac-authorize.test.ts"
+        "customer-normalizer.test.ts"
       ]
     },
     "acceptance": {
@@ -75,10 +61,6 @@
         "policies": [],
         "sources": [
           {
-            "path": "project/policies/policy.spec.yaml",
-            "policyIds": []
-          },
-          {
             "path": "source/model/policies/policy.spec.yaml",
             "policyIds": []
           }
@@ -100,7 +82,7 @@
       "violations": []
     },
     "logs": {
-      "stdout": "typecheck:passed unit:audit-log.test.ts,customer-attachments.test.ts,customer-export.test.ts,customer-filter.test.ts,customer-normalizer.test.ts,email-outbox.test.ts,postgres-contract.test.ts,rbac-authorize.test.ts acceptance:customer-flow.test.ts policy:passed",
+      "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed",
       "stderr": ""
     }
   },
@@ -141,7 +123,7 @@
     "failedLanes": []
   },
   "logs": {
-    "stdout": "typecheck:passed unit:audit-log.test.ts,customer-attachments.test.ts,customer-export.test.ts,customer-filter.test.ts,customer-normalizer.test.ts,email-outbox.test.ts,postgres-contract.test.ts,rbac-authorize.test.ts acceptance:customer-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
+    "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
     "stderr": ""
   }
 }

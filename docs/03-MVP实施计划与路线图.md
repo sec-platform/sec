@@ -73,6 +73,25 @@
 | 本地治理产物 | done | `control/state/**`、`control/evidence/**`、`control/provenance/**`、`control/graph/**`、`control/workflow/**`、`control/workbench/views/**`、`control/ci/**` 与 runtime contract artifact 摘要是当前稳定治理产物集合。 |
 | 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
 | Workbench 结构化回写 | done | `source/views/mutations/*.json` 作为视图编辑输入，`platform workbench mutations apply` 回写 `source/app.yaml` 并生成 `control/workflow/view-mutation-report.json`。 |
+| **架构内聚重构** | done | 详见下方"已完成架构内聚重构"。 |
+
+### 已完成架构内聚重构
+
+| 重构项 | 说明 |
+| --- | --- |
+| **Logger 抽象** | `platform/shared/logger.ts` 提供 `Logger` 接口 + `createLogger` 工厂，支持 `debug/info/warn/error` 四级别和 `json` 模式。 |
+| **CompilerPass 统一接口** | `platform/compiler/pass.ts` 定义 `CompilerPass<TInput,TOutput>` + `PassPipeline` + `PassContext`。`PASS_DEPENDENCIES` 显式声明 pass 依赖关系。 |
+| **InstallStrategy 策略模式** | `platform/compiler/compose/install-strategies.ts` 定义 `InstallStrategy` 接口 + `InstallStrategyRegistry`。内置 `CopyInstallStrategy` 和 `MergePrismaInstallStrategy`。`executeAll` 用 `Promise.all` 并行安装。 |
+| **ManifestCache 缓存层** | `platform/compiler/parse/manifest-cache.ts` 内存缓存避免多 pass 重复 I/O。 |
+| **CommandRegistry 命令注册表** | `platform/cli/command-registry.ts` 替代 switch-case。27 个命令独立为 `commands/*.ts` handler。`buildUsage()` 自动生成帮助文本。 |
+| **Orchestrator 领域拆分** | 原 340 行拆为 8 个领域模块：`workspace-` / `block-` / `compose-` / `verify-` / `repair-` / `emit-` / `upgrade-` / `workbench-orchestrator.ts`。`platform/orchestrator.ts` 保留为 9 行 re-export barrel。 |
+| **dev-runner 职责拆分** | 原 125 行拆为 `command-runner.ts` / `env-manager.ts` / `typecheck-runner.ts` / `test-runner.ts`。 |
+| **Process 增强** | `runCommand` 新增 `timeoutMs` / `signal`（AbortSignal）支持。新增 `runCommandWithRetry`。 |
+| **YAML Schema 验证** | `yaml.ts` 新增 `YamlSchemaValidator<T>` 接口 + `readYamlWithSchema`。 |
+| **Review Types 拆分** | 原 427 行 `review-types.ts` 拆为 9 个子类型模块 + `ReviewSummary` 组合。 |
+| **错误码前缀映射** | `ERROR_CODE_PREFIX_MAP` 定义 PARSE/MANIFEST/ALIGN/RESOLVE/COMPOSE/SLOT/ADAPT/VERIFY/REPAIR/UPGRADE/LOCK/EMIT/OVERRIDE/WORKBENCH 到 pass 模块的映射。 |
+| **文件 I/O 并行化** | `compose-project.ts` 路由图并行渲染、slots 并行写入、安装步骤并行执行。 |
+| **compose-project 瘦身** | 移除内嵌的 `applyInstallStep`/`mergePrisma`，改用 `InstallStrategyRegistry`。 |
 
 ### 开发者入口与依赖环境策略
 

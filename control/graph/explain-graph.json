@@ -1,44 +1,9 @@
 {
   "nodes": [
     {
-      "id": "acceptance:audit_entry_can_be_created",
-      "type": "acceptance",
-      "label": "audit_entry_can_be_created"
-    },
-    {
-      "id": "acceptance:customer_can_be_exported",
-      "type": "acceptance",
-      "label": "customer_can_be_exported"
-    },
-    {
-      "id": "acceptance:customer_can_upload_attachment",
-      "type": "acceptance",
-      "label": "customer_can_upload_attachment"
-    },
-    {
-      "id": "acceptance:customer_creation_sends_email_notification",
-      "type": "acceptance",
-      "label": "customer_creation_sends_email_notification"
-    },
-    {
-      "id": "acceptance:customer_list_can_be_filtered",
-      "type": "acceptance",
-      "label": "customer_list_can_be_filtered"
-    },
-    {
-      "id": "acceptance:postgres_contract_is_available",
-      "type": "acceptance",
-      "label": "postgres_contract_is_available"
-    },
-    {
       "id": "acceptance:tenant_only_sees_own_customers",
       "type": "acceptance",
       "label": "tenant_only_sees_own_customers"
-    },
-    {
-      "id": "acceptance:user_can_access_authorized_route",
-      "type": "acceptance",
-      "label": "user_can_access_authorized_route"
     },
     {
       "id": "acceptance:user_can_create_customer",
@@ -61,11 +26,6 @@
       "label": "customer-admin"
     },
     {
-      "id": "block:audit/basic",
-      "type": "block",
-      "label": "audit/basic"
-    },
-    {
       "id": "block:auth/basic-session",
       "type": "block",
       "label": "auth/basic-session"
@@ -76,59 +36,14 @@
       "label": "entity/customer-basic"
     },
     {
-      "id": "block:export/csv-basic",
-      "type": "block",
-      "label": "export/csv-basic"
-    },
-    {
-      "id": "block:file/upload",
-      "type": "block",
-      "label": "file/upload"
-    },
-    {
-      "id": "block:infra/postgres",
-      "type": "block",
-      "label": "infra/postgres"
-    },
-    {
-      "id": "block:notify/email-basic",
-      "type": "block",
-      "label": "notify/email-basic"
-    },
-    {
-      "id": "block:rbac/basic",
-      "type": "block",
-      "label": "rbac/basic"
-    },
-    {
-      "id": "block:table/filter-search",
-      "type": "block",
-      "label": "table/filter-search"
-    },
-    {
       "id": "block:tenant/basic-workspace",
       "type": "block",
       "label": "tenant/basic-workspace"
     },
     {
-      "id": "capability:audit/log",
-      "type": "capability",
-      "label": "audit/log"
-    },
-    {
-      "id": "capability:auth/authorize",
-      "type": "capability",
-      "label": "auth/authorize"
-    },
-    {
       "id": "capability:auth/session",
       "type": "capability",
       "label": "auth/session"
-    },
-    {
-      "id": "capability:customer/export",
-      "type": "capability",
-      "label": "customer/export"
     },
     {
       "id": "capability:customer/read",
@@ -141,34 +56,9 @@
       "label": "customer/write"
     },
     {
-      "id": "capability:db/postgres",
-      "type": "capability",
-      "label": "db/postgres"
-    },
-    {
-      "id": "capability:file/upload",
-      "type": "capability",
-      "label": "file/upload"
-    },
-    {
-      "id": "capability:notify/email",
-      "type": "capability",
-      "label": "notify/email"
-    },
-    {
-      "id": "capability:table/filter-search",
-      "type": "capability",
-      "label": "table/filter-search"
-    },
-    {
       "id": "capability:tenant/context",
       "type": "capability",
       "label": "tenant/context"
-    },
-    {
-      "id": "file:app/api/customers/[customerId]/attachments/route.ts",
-      "type": "file",
-      "label": "app/api/customers/[customerId]/attachments/route.ts"
     },
     {
       "id": "file:app/api/customers/route.ts",
@@ -219,11 +109,6 @@
       "id": "file:app/workspace/page.tsx",
       "type": "file",
       "label": "app/workspace/page.tsx"
-    },
-    {
-      "id": "file:components/customer-attachment-form.tsx",
-      "type": "file",
-      "label": "components/customer-attachment-form.tsx"
     },
     {
       "id": "file:components/customer-form.tsx",
@@ -286,11 +171,6 @@
       "label": "custom/customer_normalizer.ts"
     },
     {
-      "id": "file:generated/postgres-contract.json",
-      "type": "file",
-      "label": "generated/postgres-contract.json"
-    },
-    {
       "id": "file:generated/routes.ts",
       "type": "file",
       "label": "generated/routes.ts"
@@ -331,16 +211,6 @@
       "label": "source/code/slots/customer_normalizer.ts"
     },
     {
-      "id": "file:src/installed/audit/logger.ts",
-      "type": "file",
-      "label": "src/installed/audit/logger.ts"
-    },
-    {
-      "id": "file:src/installed/auth/authorize.ts",
-      "type": "file",
-      "label": "src/installed/auth/authorize.ts"
-    },
-    {
       "id": "file:src/installed/auth/session.ts",
       "type": "file",
       "label": "src/installed/auth/session.ts"
@@ -349,31 +219,6 @@
       "id": "file:src/installed/entity/customer-service.ts",
       "type": "file",
       "label": "src/installed/entity/customer-service.ts"
-    },
-    {
-      "id": "file:src/installed/export/customer-csv.ts",
-      "type": "file",
-      "label": "src/installed/export/customer-csv.ts"
-    },
-    {
-      "id": "file:src/installed/file/customer-attachments.ts",
-      "type": "file",
-      "label": "src/installed/file/customer-attachments.ts"
-    },
-    {
-      "id": "file:src/installed/infra/postgres-contract.ts",
-      "type": "file",
-      "label": "src/installed/infra/postgres-contract.ts"
-    },
-    {
-      "id": "file:src/installed/notify/email-outbox.ts",
-      "type": "file",
-      "label": "src/installed/notify/email-outbox.ts"
-    },
-    {
-      "id": "file:src/installed/table/customer-filter.ts",
-      "type": "file",
-      "label": "src/installed/table/customer-filter.ts"
     },
     {
       "id": "file:src/installed/tenant/context.ts",
@@ -396,59 +241,14 @@
       "label": "tests/runtime/unit/customer-runtime.test.ts"
     },
     {
-      "id": "file:tests/unit/audit-log.test.ts",
-      "type": "file",
-      "label": "tests/unit/audit-log.test.ts"
-    },
-    {
-      "id": "file:tests/unit/customer-attachments.test.ts",
-      "type": "file",
-      "label": "tests/unit/customer-attachments.test.ts"
-    },
-    {
-      "id": "file:tests/unit/customer-export.test.ts",
-      "type": "file",
-      "label": "tests/unit/customer-export.test.ts"
-    },
-    {
-      "id": "file:tests/unit/customer-filter.test.ts",
-      "type": "file",
-      "label": "tests/unit/customer-filter.test.ts"
-    },
-    {
       "id": "file:tests/unit/customer-normalizer.test.ts",
       "type": "file",
       "label": "tests/unit/customer-normalizer.test.ts"
     },
     {
-      "id": "file:tests/unit/email-outbox.test.ts",
-      "type": "file",
-      "label": "tests/unit/email-outbox.test.ts"
-    },
-    {
-      "id": "file:tests/unit/postgres-contract.test.ts",
-      "type": "file",
-      "label": "tests/unit/postgres-contract.test.ts"
-    },
-    {
-      "id": "file:tests/unit/rbac-authorize.test.ts",
-      "type": "file",
-      "label": "tests/unit/rbac-authorize.test.ts"
-    },
-    {
       "id": "file:tsconfig.json",
       "type": "file",
       "label": "tsconfig.json"
-    },
-    {
-      "id": "pin:audit/basic:input:actor_identity",
-      "type": "pin",
-      "label": "actor_identity"
-    },
-    {
-      "id": "pin:audit/basic:output:audit_entry",
-      "type": "pin",
-      "label": "audit_entry"
     },
     {
       "id": "pin:auth/basic-session:output:actor_identity",
@@ -469,61 +269,6 @@
       "id": "pin:entity/customer-basic:output:customer_created",
       "type": "pin",
       "label": "customer_created"
-    },
-    {
-      "id": "pin:export/csv-basic:input:customer_created",
-      "type": "pin",
-      "label": "customer_created"
-    },
-    {
-      "id": "pin:export/csv-basic:output:customer_csv",
-      "type": "pin",
-      "label": "customer_csv"
-    },
-    {
-      "id": "pin:file/upload:input:customer_created",
-      "type": "pin",
-      "label": "customer_created"
-    },
-    {
-      "id": "pin:file/upload:output:customer_attachment_uploaded",
-      "type": "pin",
-      "label": "customer_attachment_uploaded"
-    },
-    {
-      "id": "pin:infra/postgres:output:postgres_contract",
-      "type": "pin",
-      "label": "postgres_contract"
-    },
-    {
-      "id": "pin:notify/email-basic:input:customer_created",
-      "type": "pin",
-      "label": "customer_created"
-    },
-    {
-      "id": "pin:notify/email-basic:output:email_notification_created",
-      "type": "pin",
-      "label": "email_notification_created"
-    },
-    {
-      "id": "pin:rbac/basic:input:actor_identity",
-      "type": "pin",
-      "label": "actor_identity"
-    },
-    {
-      "id": "pin:rbac/basic:output:authorization_decision",
-      "type": "pin",
-      "label": "authorization_decision"
-    },
-    {
-      "id": "pin:table/filter-search:input:customer_created",
-      "type": "pin",
-      "label": "customer_created"
-    },
-    {
-      "id": "pin:table/filter-search:output:customer_filtered_list",
-      "type": "pin",
-      "label": "customer_filtered_list"
     },
     {
       "id": "pin:tenant/basic-workspace:input:actor_identity",
@@ -549,11 +294,6 @@
   "edges": [
     {
       "from": "app:customer-admin",
-      "to": "block:audit/basic",
-      "type": "depends_on"
-    },
-    {
-      "from": "app:customer-admin",
       "to": "block:auth/basic-session",
       "type": "depends_on"
     },
@@ -564,63 +304,8 @@
     },
     {
       "from": "app:customer-admin",
-      "to": "block:export/csv-basic",
-      "type": "depends_on"
-    },
-    {
-      "from": "app:customer-admin",
-      "to": "block:file/upload",
-      "type": "depends_on"
-    },
-    {
-      "from": "app:customer-admin",
-      "to": "block:infra/postgres",
-      "type": "depends_on"
-    },
-    {
-      "from": "app:customer-admin",
-      "to": "block:notify/email-basic",
-      "type": "depends_on"
-    },
-    {
-      "from": "app:customer-admin",
-      "to": "block:rbac/basic",
-      "type": "depends_on"
-    },
-    {
-      "from": "app:customer-admin",
-      "to": "block:table/filter-search",
-      "type": "depends_on"
-    },
-    {
-      "from": "app:customer-admin",
       "to": "block:tenant/basic-workspace",
       "type": "depends_on"
-    },
-    {
-      "from": "block:audit/basic",
-      "to": "capability:auth/session",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:audit/basic",
-      "to": "pin:audit/basic:input:actor_identity",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:audit/basic",
-      "to": "capability:audit/log",
-      "type": "provides"
-    },
-    {
-      "from": "block:audit/basic",
-      "to": "pin:audit/basic:output:audit_entry",
-      "type": "provides"
-    },
-    {
-      "from": "block:audit/basic",
-      "to": "acceptance:audit_entry_can_be_created",
-      "type": "verified_by"
     },
     {
       "from": "block:auth/basic-session",
@@ -694,11 +379,6 @@
     },
     {
       "from": "block:entity/customer-basic",
-      "to": "file:app/api/customers/[customerId]/attachments/route.ts",
-      "type": "writes_to"
-    },
-    {
-      "from": "block:entity/customer-basic",
       "to": "file:app/api/customers/route.ts",
       "type": "writes_to"
     },
@@ -706,151 +386,6 @@
       "from": "block:entity/customer-basic",
       "to": "file:app/customers/page.tsx",
       "type": "writes_to"
-    },
-    {
-      "from": "block:export/csv-basic",
-      "to": "capability:customer/read",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:export/csv-basic",
-      "to": "pin:export/csv-basic:input:customer_created",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:export/csv-basic",
-      "to": "capability:customer/export",
-      "type": "provides"
-    },
-    {
-      "from": "block:export/csv-basic",
-      "to": "pin:export/csv-basic:output:customer_csv",
-      "type": "provides"
-    },
-    {
-      "from": "block:export/csv-basic",
-      "to": "acceptance:customer_can_be_exported",
-      "type": "verified_by"
-    },
-    {
-      "from": "block:file/upload",
-      "to": "capability:customer/read",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:file/upload",
-      "to": "capability:customer/write",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:file/upload",
-      "to": "pin:file/upload:input:customer_created",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:file/upload",
-      "to": "capability:file/upload",
-      "type": "provides"
-    },
-    {
-      "from": "block:file/upload",
-      "to": "pin:file/upload:output:customer_attachment_uploaded",
-      "type": "provides"
-    },
-    {
-      "from": "block:file/upload",
-      "to": "acceptance:customer_can_upload_attachment",
-      "type": "verified_by"
-    },
-    {
-      "from": "block:infra/postgres",
-      "to": "capability:db/postgres",
-      "type": "provides"
-    },
-    {
-      "from": "block:infra/postgres",
-      "to": "pin:infra/postgres:output:postgres_contract",
-      "type": "provides"
-    },
-    {
-      "from": "block:infra/postgres",
-      "to": "acceptance:postgres_contract_is_available",
-      "type": "verified_by"
-    },
-    {
-      "from": "block:notify/email-basic",
-      "to": "capability:customer/write",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:notify/email-basic",
-      "to": "pin:notify/email-basic:input:customer_created",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:notify/email-basic",
-      "to": "capability:notify/email",
-      "type": "provides"
-    },
-    {
-      "from": "block:notify/email-basic",
-      "to": "pin:notify/email-basic:output:email_notification_created",
-      "type": "provides"
-    },
-    {
-      "from": "block:notify/email-basic",
-      "to": "acceptance:customer_creation_sends_email_notification",
-      "type": "verified_by"
-    },
-    {
-      "from": "block:rbac/basic",
-      "to": "capability:auth/session",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:rbac/basic",
-      "to": "pin:rbac/basic:input:actor_identity",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:rbac/basic",
-      "to": "capability:auth/authorize",
-      "type": "provides"
-    },
-    {
-      "from": "block:rbac/basic",
-      "to": "pin:rbac/basic:output:authorization_decision",
-      "type": "provides"
-    },
-    {
-      "from": "block:rbac/basic",
-      "to": "acceptance:user_can_access_authorized_route",
-      "type": "verified_by"
-    },
-    {
-      "from": "block:table/filter-search",
-      "to": "capability:customer/read",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:table/filter-search",
-      "to": "pin:table/filter-search:input:customer_created",
-      "type": "depends_on"
-    },
-    {
-      "from": "block:table/filter-search",
-      "to": "capability:table/filter-search",
-      "type": "provides"
-    },
-    {
-      "from": "block:table/filter-search",
-      "to": "pin:table/filter-search:output:customer_filtered_list",
-      "type": "provides"
-    },
-    {
-      "from": "block:table/filter-search",
-      "to": "acceptance:customer_list_can_be_filtered",
-      "type": "verified_by"
     },
     {
       "from": "block:tenant/basic-workspace",
@@ -876,11 +411,6 @@
       "from": "block:tenant/basic-workspace",
       "to": "acceptance:tenant_only_sees_own_customers",
       "type": "verified_by"
-    },
-    {
-      "from": "file:app/api/customers/[customerId]/attachments/route.ts",
-      "to": "app:customer-admin",
-      "type": "originates_from"
     },
     {
       "from": "file:app/api/customers/route.ts",
@@ -929,11 +459,6 @@
     },
     {
       "from": "file:app/workspace/page.tsx",
-      "to": "app:customer-admin",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:components/customer-attachment-form.tsx",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -998,11 +523,6 @@
       "type": "originates_from"
     },
     {
-      "from": "file:generated/postgres-contract.json",
-      "to": "block:infra/postgres",
-      "type": "originates_from"
-    },
-    {
       "from": "file:generated/routes.ts",
       "to": "app:customer-admin",
       "type": "originates_from"
@@ -1048,16 +568,6 @@
       "type": "originates_from"
     },
     {
-      "from": "file:src/installed/audit/logger.ts",
-      "to": "block:audit/basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:src/installed/auth/authorize.ts",
-      "to": "block:rbac/basic",
-      "type": "originates_from"
-    },
-    {
       "from": "file:src/installed/auth/session.ts",
       "to": "block:auth/basic-session",
       "type": "originates_from"
@@ -1065,31 +575,6 @@
     {
       "from": "file:src/installed/entity/customer-service.ts",
       "to": "block:entity/customer-basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:src/installed/export/customer-csv.ts",
-      "to": "block:export/csv-basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:src/installed/file/customer-attachments.ts",
-      "to": "block:file/upload",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:src/installed/infra/postgres-contract.ts",
-      "to": "block:infra/postgres",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:src/installed/notify/email-outbox.ts",
-      "to": "block:notify/email-basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:src/installed/table/customer-filter.ts",
-      "to": "block:table/filter-search",
       "type": "originates_from"
     },
     {
@@ -1113,43 +598,8 @@
       "type": "originates_from"
     },
     {
-      "from": "file:tests/unit/audit-log.test.ts",
-      "to": "block:audit/basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:tests/unit/customer-attachments.test.ts",
-      "to": "block:file/upload",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:tests/unit/customer-export.test.ts",
-      "to": "block:export/csv-basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:tests/unit/customer-filter.test.ts",
-      "to": "block:table/filter-search",
-      "type": "originates_from"
-    },
-    {
       "from": "file:tests/unit/customer-normalizer.test.ts",
       "to": "block:entity/customer-basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:tests/unit/email-outbox.test.ts",
-      "to": "block:notify/email-basic",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:tests/unit/postgres-contract.test.ts",
-      "to": "block:infra/postgres",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:tests/unit/rbac-authorize.test.ts",
-      "to": "block:rbac/basic",
       "type": "originates_from"
     },
     {
@@ -1180,14 +630,6 @@
   ],
   "overlays": {
     "provenance": [
-      {
-        "path": "app/api/customers/[customerId]/attachments/route.ts",
-        "originType": "generated",
-        "originId": "app/api/customers/[customerId]/attachments/route.ts",
-        "generatedByPass": "compose",
-        "verifiedBy": [],
-        "overrideStatus": "none"
-      },
       {
         "path": "app/api/customers/route.ts",
         "originType": "generated",
@@ -1264,14 +706,6 @@
         "path": "app/workspace/page.tsx",
         "originType": "generated",
         "originId": "app/workspace/page.tsx",
-        "generatedByPass": "compose",
-        "verifiedBy": [],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "components/customer-attachment-form.tsx",
-        "originType": "generated",
-        "originId": "components/customer-attachment-form.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none"
@@ -1377,29 +811,7 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/unit/audit-log.test.ts",
-          "tests/unit/customer-attachments.test.ts",
-          "tests/unit/customer-export.test.ts",
-          "tests/unit/customer-filter.test.ts",
-          "tests/unit/customer-normalizer.test.ts",
-          "tests/unit/email-outbox.test.ts",
-          "tests/unit/postgres-contract.test.ts",
-          "tests/unit/rbac-authorize.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "generated/postgres-contract.json",
-        "originType": "block",
-        "originId": "infra/postgres",
-        "sourceBlock": "infra/postgres",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/postgres-contract.test.ts"
+          "tests/unit/customer-normalizer.test.ts"
         ],
         "overrideStatus": "none"
       },
@@ -1480,44 +892,7 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/unit/audit-log.test.ts",
-          "tests/unit/customer-attachments.test.ts",
-          "tests/unit/customer-export.test.ts",
-          "tests/unit/customer-filter.test.ts",
-          "tests/unit/customer-normalizer.test.ts",
-          "tests/unit/email-outbox.test.ts",
-          "tests/unit/postgres-contract.test.ts",
-          "tests/unit/rbac-authorize.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "src/installed/audit/logger.ts",
-        "originType": "block",
-        "originId": "audit/basic",
-        "sourceBlock": "audit/basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/audit-log.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "src/installed/auth/authorize.ts",
-        "originType": "block",
-        "originId": "rbac/basic",
-        "sourceBlock": "rbac/basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/rbac-authorize.test.ts"
+          "tests/unit/customer-normalizer.test.ts"
         ],
         "overrideStatus": "none"
       },
@@ -1547,81 +922,6 @@
         "verifiedBy": [
           "tests/acceptance/customer-flow.test.ts",
           "tests/unit/customer-normalizer.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "src/installed/export/customer-csv.ts",
-        "originType": "block",
-        "originId": "export/csv-basic",
-        "sourceBlock": "export/csv-basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/customer-export.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "src/installed/file/customer-attachments.ts",
-        "originType": "block",
-        "originId": "file/upload",
-        "sourceBlock": "file/upload",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/customer-attachments.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "src/installed/infra/postgres-contract.ts",
-        "originType": "block",
-        "originId": "infra/postgres",
-        "sourceBlock": "infra/postgres",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/postgres-contract.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "src/installed/notify/email-outbox.ts",
-        "originType": "block",
-        "originId": "notify/email-basic",
-        "sourceBlock": "notify/email-basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/email-outbox.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "src/installed/table/customer-filter.ts",
-        "originType": "block",
-        "originId": "table/filter-search",
-        "sourceBlock": "table/filter-search",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/customer-filter.test.ts"
         ],
         "overrideStatus": "none"
       },
@@ -1671,66 +971,6 @@
         "overrideStatus": "none"
       },
       {
-        "path": "tests/unit/audit-log.test.ts",
-        "originType": "block",
-        "originId": "audit/basic",
-        "sourceBlock": "audit/basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/audit-log.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "tests/unit/customer-attachments.test.ts",
-        "originType": "block",
-        "originId": "file/upload",
-        "sourceBlock": "file/upload",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/customer-attachments.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "tests/unit/customer-export.test.ts",
-        "originType": "block",
-        "originId": "export/csv-basic",
-        "sourceBlock": "export/csv-basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/customer-export.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "tests/unit/customer-filter.test.ts",
-        "originType": "block",
-        "originId": "table/filter-search",
-        "sourceBlock": "table/filter-search",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/customer-filter.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
         "path": "tests/unit/customer-normalizer.test.ts",
         "originType": "block",
         "originId": "entity/customer-basic",
@@ -1747,51 +987,6 @@
         "overrideStatus": "none"
       },
       {
-        "path": "tests/unit/email-outbox.test.ts",
-        "originType": "block",
-        "originId": "notify/email-basic",
-        "sourceBlock": "notify/email-basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/email-outbox.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "tests/unit/postgres-contract.test.ts",
-        "originType": "block",
-        "originId": "infra/postgres",
-        "sourceBlock": "infra/postgres",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/postgres-contract.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "tests/unit/rbac-authorize.test.ts",
-        "originType": "block",
-        "originId": "rbac/basic",
-        "sourceBlock": "rbac/basic",
-        "registrySourceId": "official",
-        "registryKind": "official",
-        "registryLocation": "compiler",
-        "registryPath": "platform/registry/official",
-        "generatedByPass": "compose",
-        "verifiedBy": [
-          "tests/unit/rbac-authorize.test.ts"
-        ],
-        "overrideStatus": "none"
-      },
-      {
         "path": "tsconfig.json",
         "originType": "generated",
         "originId": "tsconfig.json",
@@ -1803,27 +998,9 @@
     "coverage": {
       "blocks": [
         {
-          "id": "infra/postgres",
-          "coveredBy": [
-            "postgres_contract_is_available"
-          ]
-        },
-        {
           "id": "auth/basic-session",
           "coveredBy": [
             "user_can_login"
-          ]
-        },
-        {
-          "id": "audit/basic",
-          "coveredBy": [
-            "audit_entry_can_be_created"
-          ]
-        },
-        {
-          "id": "rbac/basic",
-          "coveredBy": [
-            "user_can_access_authorized_route"
           ]
         },
         {
@@ -1838,30 +1015,6 @@
             "tenant_only_sees_own_customers",
             "user_can_create_customer",
             "user_can_list_customers"
-          ]
-        },
-        {
-          "id": "export/csv-basic",
-          "coveredBy": [
-            "customer_can_be_exported"
-          ]
-        },
-        {
-          "id": "file/upload",
-          "coveredBy": [
-            "customer_can_upload_attachment"
-          ]
-        },
-        {
-          "id": "notify/email-basic",
-          "coveredBy": [
-            "customer_creation_sends_email_notification"
-          ]
-        },
-        {
-          "id": "table/filter-search",
-          "coveredBy": [
-            "customer_list_can_be_filtered"
           ]
         }
       ],

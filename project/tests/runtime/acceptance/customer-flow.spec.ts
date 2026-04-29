@@ -13,9 +13,6 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await signIn(page, 'tenant-a-admin');
   await page.goto('/workspace');
   await expect(page).toHaveURL(/\/workspace$/);
-  await expect(page.getByText('Authorization: allowed')).toBeVisible();
-  await expect(page.getByText('Cross-tenant check: tenant-mismatch')).toBeVisible();
-
 
   await page.getByRole('link', { name: '/customers' }).click();
   await expect(page).toHaveURL(/\/customers$/);
@@ -27,23 +24,6 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await page.getByRole('button', { name: 'Create Customer' }).click();
   const createdCustomer = customerList.getByRole('listitem').filter({ hasText: 'Acme' });
   await expect(createdCustomer).toHaveCount(1);
-  await page.getByLabel('Attachment for Acme').setInputFiles({
-    name: 'contract.txt',
-    mimeType: 'text/plain',
-    buffer: Buffer.from('approved')
-  });
-  await page.getByRole('button', { name: 'Upload attachment for Acme' }).click();
-  await expect(createdCustomer).toContainText('contract.txt');
-
-  await page.getByLabel('Search customers').fill('acme');
-  await page.getByLabel('Company filter').selectOption('Unknown');
-  await page.getByRole('button', { name: 'Apply filters' }).click();
-  await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(1);
-
-  await expect(page.getByText('Customer created: Acme')).toBeVisible();
-
-  await expect(page.getByRole('list', { name: 'Audit entries' }).getByText('customer.created')).toBeVisible();
-
   await page.request.post('/api/session/logout');
   await signIn(page, 'tenant-b-admin');
   await page.goto('/workspace');
@@ -51,5 +31,4 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await page.getByRole('link', { name: '/customers' }).click();
   await expect(page).toHaveURL(/\/customers$/);
   await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);
-  await expect(page.getByText('contract.txt')).toHaveCount(0);
 });

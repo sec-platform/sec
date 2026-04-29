@@ -1,382 +1,88 @@
 #!/usr/bin/env node
-import {
-  addBlock,
-  adaptWorkspace,
-  applyWorkbenchMutations,
-  composeWorkspace,
-  explainWorkspace,
-  initWorkspace,
-  lockWorkspace,
-  repairWorkspace,
-  resolveWorkspace,
-  upgradeWorkspace,
-  verifyWorkspace,
-  writeWorkspaceArtifacts
-} from '../orchestrator.ts';
-import type { CiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
-import { loadManifestById } from '../compiler/parse/load-manifest.ts';
-import { loadPlan } from '../compiler/parse/load-plan.ts';
-import { pathExists, readJson } from '../shared/fs.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
-import {
-  formatDoctorReport,
-  getDoctorReport
-} from '../shared/dependency-environment.ts';
+import { CommandRegistry } from './command-registry.ts';
+import { createLogger } from '../shared/logger.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
-import {
-  ADD_USAGE,
-  USAGE
-} from './usage.ts';
-import {
-  parseArtifactsArgs,
-  parseDoctorArgs,
-  parseExplainArgs,
-  parseLockArgs,
-  parseRepairArgs,
-  parseResetArg,
-  parseUpgradeArgs,
-  parseVerifyArgs,
-  parseWorkbenchArgs
-} from './args.ts';
-import {
-  artifactUploadPathSummary,
-  formatCiArtifactManifest,
-  formatExplainGraphInspect,
-  formatExplainSummary,
-  formatLockInspect,
-  formatRepairSummary,
-  formatUpgradeDiagnostics,
-  formatUpgradeSummary
-} from './formatters.ts';
-import {
-  runAcceptanceCommand,
-  runBenchmarkCommand,
-  runBlocksCommand,
-  runContractCommand,
-  runDemoCommand,
-  runDepsCommand,
-  runInstallCommand,
-  runPolicyCommand,
-  runPostgresCommand,
-  runProvenanceCommand,
-  runReferenceCommand,
-  runReviewCommand,
-  runRuntimeCommand,
-  runTestCommand,
-  runVerificationCommand
-} from './commands.ts';
-import { buildE2eMatrix } from '../shared/review-matrix.ts';
-import type { ExplainGraph } from '../shared/explain-types.ts';
-import type { LockFile } from '../shared/lock-types.ts';
-import type { RepairPlan } from '../shared/repair-types.ts';
-import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
-import type { ViewMutationReport } from '../compiler/workbench/apply-view-mutations.ts';
 
-function formatWorkbenchMutationReport(report: ViewMutationReport): string {
-  const lines = [
-    `Workbench mutations ${report.status}; files=${report.mutationFileCount}; applied=${report.appliedCount}; skipped=${report.skippedCount}`,
-    `Source root: ${report.sourceRoot}; target: ${report.targetPath}`
-  ];
-  for (const mutation of report.mutations) {
-    lines.push(`Mutation ${mutation.id}: ${mutation.kind}; ${mutation.status}; ${mutation.detail}`);
-  }
-  return lines.join('\n');
+import { initCommand } from './commands/init-command.ts';
+import { addCommand } from './commands/add-command.ts';
+import { resolveCommand } from './commands/resolve-command.ts';
+import { composeCommand, adaptCommand } from './commands/compose-adapt-command.ts';
+import { verifyCommand } from './commands/verify-command.ts';
+import { repairCommand } from './commands/repair-command.ts';
+import { upgradeCommand } from './commands/upgrade-command.ts';
+import { lockCommand } from './commands/lock-command.ts';
+import { explainCommand } from './commands/explain-command.ts';
+import { artifactsCommand } from './commands/artifacts-command.ts';
+import { workbenchCommand } from './commands/workbench-command.ts';
+import {
+  doctorCommand,
+  depsCommand,
+  referenceCommand,
+  benchmarkCommand,
+  testCommand,
+  policyCommand,
+  acceptanceCommand,
+  runtimeCommand,
+  verificationCommand,
+  provenanceCommand,
+  reviewCommand,
+  demoCommand,
+  contractCommand,
+  installCommand,
+  blocksCommand,
+  postgresCommand
+} from './commands/inspect-commands.ts';
+
+const ALL_COMMANDS = [
+  initCommand,
+  addCommand,
+  resolveCommand,
+  composeCommand,
+  adaptCommand,
+  verifyCommand,
+  repairCommand,
+  upgradeCommand,
+  lockCommand,
+  explainCommand,
+  artifactsCommand,
+  workbenchCommand,
+  doctorCommand,
+  depsCommand,
+  referenceCommand,
+  benchmarkCommand,
+  testCommand,
+  policyCommand,
+  acceptanceCommand,
+  runtimeCommand,
+  verificationCommand,
+  provenanceCommand,
+  reviewCommand,
+  demoCommand,
+  contractCommand,
+  installCommand,
+  blocksCommand,
+  postgresCommand
+];
+
+export function createDefaultRegistry(): CommandRegistry {
+  const registry = new CommandRegistry(createLogger({ level: 'info' }));
+  registry.registerAll(ALL_COMMANDS);
+  return registry;
 }
 
-function assertNoArgs(command: string, args: string[]): void {
-  if (args.length > 0) {
-    throw new Error(`Usage: platform ${command}`);
-  }
-}
-
-async function readWrittenRepairPlan(workspaceRoot: string): Promise<RepairPlan | null> {
-  const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(repairPlanPath))) {
-    return null;
-  }
-  return readJson<RepairPlan>(repairPlanPath);
-}
+const registry = createDefaultRegistry();
 
 async function main(): Promise<void> {
-  const [command, ...args] = process.argv.slice(2);
-
-  switch (command) {
-    case 'init':
-      await initWorkspace(process.cwd(), { reset: parseResetArg(args) });
-      console.log('Initialized project workspace');
-      return;
-    case 'add': {
-      if (args.length !== 1) {
-        throw new Error(ADD_USAGE);
-      }
-      await addBlock(process.cwd(), args[0]);
-      const plan = await loadPlan(await resolveWorkspacePlanPath(process.cwd()));
-      const manifestEntry = await loadManifestById(args[0], {
-        workspaceRoot: process.cwd(),
-        version: plan.blocks.find((block) => block.id === args[0])?.version,
-        registrySources: plan.registry.sources
-      });
-      console.log(`Added block ${args[0]}@${manifestEntry.manifest.version} from ${manifestEntry.registrySourceId} (${manifestEntry.registryKind})`);
-      return;
-    }
-    case 'resolve': {
-      assertNoArgs('resolve', args);
-      const { lock } = await resolveWorkspace(process.cwd());
-      console.log(`Resolved ${lock.resolvedBlocks.length} blocks`);
-      return;
-    }
-    case 'compose':
-      assertNoArgs('compose', args);
-      await composeWorkspace(process.cwd());
-      console.log('Composed project');
-      return;
-    case 'adapt':
-      assertNoArgs('adapt', args);
-      await adaptWorkspace(process.cwd());
-      console.log('Adapted slots');
-      return;
-    case 'verify': {
-      const verifyArgs = parseVerifyArgs(args);
-      const { report } = await verifyWorkspace(process.cwd(), {
-        lane: verifyArgs.lane,
-        emitTiming: !verifyArgs.json
-      });
-      if (verifyArgs.json) {
-        console.log(JSON.stringify(report, null, verifyArgs.compact ? 0 : 2));
-        return;
-      }
-      console.log(`Verification ${report.summary.status} (${report.summary.requestedLane})`);
-      return;
-    }
-    case 'repair': {
-      const repairArgs = parseRepairArgs(args);
-      if (repairArgs.mode === 'plan') {
-        const { repairPlanPath } = getWorkspacePaths(process.cwd());
-        if (!(await pathExists(repairPlanPath))) {
-          throw new Error('Repair plan not found; run platform repair --dry-run first');
-        }
-        const repairPlan = await readJson<RepairPlan>(repairPlanPath);
-        if (repairArgs.json) {
-          console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(formatRepairSummary(repairPlan, true));
-        return;
-      }
-      try {
-        const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: repairArgs.dryRun });
-        if (repairArgs.json) {
-          console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
-        return;
-      } catch (error) {
-        const repairPlan = await readWrittenRepairPlan(process.cwd());
-        if (repairPlan) {
-          if (repairArgs.json) {
-            console.log(JSON.stringify(repairPlan, null, repairArgs.compact ? 0 : 2));
-          } else {
-            console.log(formatRepairSummary(repairPlan, repairArgs.dryRun));
-          }
-        }
-        throw error;
-      }
-    }
-    case 'upgrade': {
-      const upgradeArgs = parseUpgradeArgs(args);
-      if (upgradeArgs.mode === 'plan') {
-        const { upgradePlanPath } = getWorkspacePaths(process.cwd());
-        if (!(await pathExists(upgradePlanPath))) {
-          throw new Error('Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first');
-        }
-        const upgradePlan = await readJson<UpgradePlan>(upgradePlanPath);
-        if (upgradeArgs.json) {
-          console.log(JSON.stringify(upgradePlan, null, upgradeArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(formatUpgradeSummary(upgradePlan, upgradePlan.status === 'planned'));
-        return;
-      }
-      if (upgradeArgs.mode === 'diagnostics') {
-        const { upgradeDiagnosticsPath } = getWorkspacePaths(process.cwd());
-        if (!(await pathExists(upgradeDiagnosticsPath))) {
-          throw new Error('Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first');
-        }
-        const diagnostics = await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
-        if (upgradeArgs.json) {
-          console.log(JSON.stringify(diagnostics, null, upgradeArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(formatUpgradeDiagnostics(diagnostics));
-        return;
-      }
-      const { upgradePlan } = await upgradeWorkspace(process.cwd(), upgradeArgs.blockId, upgradeArgs.targetVersion, {
-        dryRun: upgradeArgs.dryRun
-      });
-      if (upgradeArgs.json) {
-        console.log(JSON.stringify(upgradePlan, null, upgradeArgs.compact ? 0 : 2));
-        return;
-      }
-      console.log(formatUpgradeSummary(upgradePlan, upgradeArgs.dryRun));
-      return;
-    }
-    case 'lock': {
-      const lockArgs = parseLockArgs(args);
-      if (lockArgs.mode === 'inspect') {
-        const readableLockPath = await resolveWorkspaceLockPath(process.cwd());
-        if (!(await pathExists(readableLockPath))) {
-          throw new Error('Graph lock not found; run platform lock first');
-        }
-        const lock = await readJson<LockFile>(readableLockPath);
-        if (lockArgs.json) {
-          console.log(JSON.stringify(lock, null, lockArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(formatLockInspect(lock));
-        return;
-      }
-      await lockWorkspace(process.cwd());
-      console.log('Locked project');
-      return;
-    }
-    case 'explain': {
-      const explainArgs = parseExplainArgs(args);
-      if (explainArgs.mode === 'graph') {
-        const { explainGraphPath } = getWorkspacePaths(process.cwd());
-        if (!(await pathExists(explainGraphPath))) {
-          throw new Error('Explain graph not found; run platform explain first');
-        }
-        const graph = await readJson<ExplainGraph>(explainGraphPath);
-        if (explainArgs.json) {
-          console.log(JSON.stringify(graph, null, explainArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(formatExplainGraphInspect(graph));
-        return;
-      }
-      const { graph, reviewSummary } = await explainWorkspace(process.cwd());
-      if (explainArgs.json) {
-        console.log(JSON.stringify(
-          { graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) },
-          null,
-          explainArgs.compact ? 0 : 2
-        ));
-        return;
-      }
-      console.log(formatExplainSummary(graph, reviewSummary));
-      return;
-    }
-    case 'artifacts': {
-      const artifactsArgs = parseArtifactsArgs(args);
-      if (artifactsArgs.mode === 'manifest') {
-        const { ciArtifactsPath } = getWorkspacePaths(process.cwd());
-        if (!(await pathExists(ciArtifactsPath))) {
-          throw new Error('Artifact manifest not found; run platform artifacts --json first');
-        }
-        const manifest = await readJson<CiArtifactManifest>(ciArtifactsPath);
-        if (artifactsArgs.json) {
-          console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(formatCiArtifactManifest(manifest));
-        return;
-      }
-      const { manifest } = await writeWorkspaceArtifacts(process.cwd());
-      if (artifactsArgs.mode === 'paths') {
-        const pathSummary = artifactUploadPathSummary(manifest, artifactsArgs.kind);
-        if (artifactsArgs.json) {
-          console.log(JSON.stringify({
-            formatVersion: manifest.formatVersion,
-            root: manifest.root,
-            kind: artifactsArgs.kind ?? 'all',
-            artifactStatus: manifest.summary.artifactStatus,
-            count: pathSummary.paths.length,
-            paths: pathSummary.paths,
-            byKind: pathSummary.byKind,
-            uploadGroupCount: pathSummary.uploadGroups.length,
-            uploadGroups: pathSummary.uploadGroups,
-            missingCount: manifest.missing.length,
-            missingReasonTypeCount: manifest.summary.missingReasonTypeCount,
-            missingReasonCounts: manifest.summary.missingReasonCounts,
-            missing: manifest.missing
-          }, null, artifactsArgs.compact ? 0 : 2));
-          return;
-        }
-        console.log(pathSummary.paths.join('\n'));
-        return;
-      }
-      console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
-      return;
-    }
-    case 'doctor': {
-      const doctorArgs = parseDoctorArgs(args);
-      const report = await getDoctorReport(process.cwd());
-      if (doctorArgs.json) {
-        console.log(JSON.stringify(report, null, doctorArgs.compact ? 0 : 2));
-        return;
-      }
-      console.log(formatDoctorReport(report));
-      return;
-    }
-    case 'deps':
-      await runDepsCommand(args);
-      return;
-    case 'reference':
-      await runReferenceCommand(args);
-      return;
-    case 'benchmark':
-      await runBenchmarkCommand(args);
-      return;
-    case 'test':
-      await runTestCommand(args);
-      return;
-    case 'policy':
-      await runPolicyCommand(args);
-      return;
-    case 'acceptance':
-      await runAcceptanceCommand(args);
-      return;
-    case 'runtime':
-      await runRuntimeCommand(args);
-      return;
-    case 'install':
-      await runInstallCommand(args);
-      return;
-    case 'blocks':
-      await runBlocksCommand(args);
-      return;
-    case 'postgres':
-      await runPostgresCommand(args);
-      return;
-    case 'verification':
-      await runVerificationCommand(args);
-      return;
-    case 'provenance':
-      await runProvenanceCommand(args);
-      return;
-    case 'review':
-      await runReviewCommand(args);
-      return;
-    case 'demo':
-      await runDemoCommand(args);
-      return;
-    case 'contract':
-      await runContractCommand(args);
-      return;
-    case 'workbench': {
-      const workbenchArgs = parseWorkbenchArgs(args);
-      const report = await applyWorkbenchMutations(process.cwd());
-      if (workbenchArgs.json) {
-        console.log(JSON.stringify(report, null, workbenchArgs.compact ? 0 : 2));
-        return;
-      }
-      console.log(formatWorkbenchMutationReport(report));
-      return;
-    }
-    default:
-      console.log(USAGE);
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    console.log(registry.buildUsage());
+    return;
   }
+
+  await registry.dispatch(args, {
+    cwd: process.cwd(),
+    logger: registry.logger
+  });
 }
 
 main().catch((error: unknown) => {

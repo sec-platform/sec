@@ -6,7 +6,7 @@ declare global {
 
 export function getRuntimeStore(): RuntimeStore {
   if (!globalThis.__engineeringCompilerRuntimeStore) {
-    globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('postgres-contract');
+    globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('memory');
   }
   return globalThis.__engineeringCompilerRuntimeStore;
 }
@@ -16,5 +16,5 @@ export function getDatabase(): Database {
 }
 
 export function resetDatabase(): void {
-  globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('postgres-contract');
+  globalThis.__engineeringCompilerRuntimeStore = createRuntimeStore('memory');
 }
