@@ -6,9 +6,9 @@ import { countMatching, summarizeCounts, uniqueSorted } from '../../shared/colle
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { OverrideStatus, ProvenanceFile, ProvenanceOriginType } from '../../shared/provenance-types.ts';
 import type { RepairPlan, RepairTaskCategory } from '../../shared/repair-types.ts';
+import { buildReviewPolicySummary } from '../../shared/review-policy.ts';
 import type {
   ReviewConflictHint,
   ReviewFailurePoint,
@@ -540,65 +540,6 @@ function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics)
   ].join(' ');
 }
 
-function buildPolicySummary(policyReport: PolicyReport | null): ReviewSummary['policySummary'] {
-  if (!policyReport) {
-    return undefined;
-  }
-
-  const sourceSummaries = [
-    ...policyReport.official.sources.map((source) => ({
-      scope: 'official' as const,
-      path: source.path,
-      policyIds: uniqueSorted(source.policyIds)
-    })),
-    ...policyReport.project.sources.map((source) => ({
-      scope: 'project' as const,
-      path: source.path,
-      policyIds: uniqueSorted(source.policyIds)
-    }))
-  ].sort((left, right) => `${left.scope}:${left.path}`.localeCompare(`${right.scope}:${right.path}`));
-  const severityCounts = policyReport.violations.reduce<NonNullable<ReviewSummary['policySummary']>['severityCounts']>(
-    (counts, violation) => {
-      counts[violation.severity] = (counts[violation.severity] ?? 0) + 1;
-      return counts;
-    },
-    {}
-  );
-
-  return {
-    status: policyReport.status,
-    officialPolicyCount: policyReport.official.policies.length,
-    projectPolicyCount: policyReport.project.policies.length,
-    mergedPolicyCount: policyReport.merged.policies.length,
-    sourceCount: sourceSummaries.length,
-    violationCount: policyReport.violations.length,
-    severityCounts,
-    sourceSummaries,
-    mergedSummaries: policyReport.merged.policies
-      .map((policy) => ({
-        id: policy.id,
-        sourceScope: policy.sourceScope,
-        sourcePath: policy.sourcePath,
-        targetCount: policy.targets.length,
-        targets: uniqueSorted(policy.targets)
-      }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
-    violationSummaries: policyReport.violations
-      .map((violation) => ({
-        id: violation.id,
-        severity: violation.severity,
-        rule: violation.rule,
-        fileCount: violation.files.length,
-        files: uniqueSorted(violation.files),
-        appliesTo: uniqueSorted(violation.appliesTo),
-        message: violation.message,
-        sourceScope: violation.sourceScope,
-        sourcePath: violation.sourcePath
-      }))
-      .sort((left, right) => `${left.id}:${left.rule}:${left.message}`.localeCompare(`${right.id}:${right.rule}:${right.message}`))
-  };
-}
-
 function buildUpgradeSummary(
   upgradePlan: UpgradePlan | null,
   diagnostics: UpgradeDiagnostics | null
@@ -843,7 +784,7 @@ export async function buildReviewSummary(
   } = await readReviewGovernanceReports(workspaceRoot);
   const coverageSummary: NonNullable<ReviewSummary['coverageSummary']> = buildCoverageSummary(coverage);
   const provenanceSummary = buildProvenanceSummary(provenance);
-  const policySummary = buildPolicySummary(policyReport);
+  const policySummary = policyReport ? buildReviewPolicySummary(policyReport) : undefined;
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
   const upgradeSummary = buildUpgradeSummary(upgradePlan, upgradeDiagnostics);
   const failurePoints: ReviewFailurePoint[] = [];
