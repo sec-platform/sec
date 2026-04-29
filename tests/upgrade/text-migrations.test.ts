@@ -5,7 +5,7 @@ import { expect, test } from 'vitest';
 import {
   upgradeWorkspace
 } from '../../platform/orchestrator.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
@@ -117,11 +117,11 @@ test('upgrade rejects malformed literal text replace migration entries before pl
     }
   });
 
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+  const diagnostics = await readJson<{
     failedCheck: string;
     errorCode: string;
     details?: unknown;
-  };
+  }>(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-011',
