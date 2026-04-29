@@ -11,7 +11,7 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { expectCliSuccess, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -102,79 +102,53 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
       source: 'generated/reports/current',
       target: 'generated/reports/archive/current'
     });
-    await expect(runCli(workspaceRoot, ['add', 'private/text-upgrade'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Added block private/text-upgrade@0.1.0 from private (private)\n',
-      stderr: ''
-    });
-
-    const textResult = await runCli(workspaceRoot, ['upgrade', 'private/text-upgrade', '0.2.0', '--dry-run']);
-
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Operation roles: directory=1, text=1');
-    expect(textResult.stdout).toContain('Migration mig-upgrade-notes-regex: text-replace-regex;');
-    expect(textResult.stdout).toContain(
-      'target=docs/upgrade-notes.md; role=text; replacementLength=15; pattern=status: pending; flags=g; requiresVerification=true'
+    await expectCliSuccess(
+      workspaceRoot,
+      ['add', 'private/text-upgrade'],
+      'Added block private/text-upgrade@0.1.0 from private (private)\n'
     );
-    expect(textResult.stdout).toContain('Migration mig-report-directory-archive: rename-directory;');
-    expect(textResult.stdout).toContain(
+
+    await expectCliText(workspaceRoot, ['upgrade', 'private/text-upgrade', '0.2.0', '--dry-run'], [
+      'Operation roles: directory=1, text=1',
+      'Migration mig-upgrade-notes-regex: text-replace-regex;',
+      'target=docs/upgrade-notes.md; role=text; replacementLength=15; pattern=status: pending; flags=g; requiresVerification=true',
+      'Migration mig-report-directory-archive: rename-directory;',
       'target=generated/reports/archive/current; source=generated/reports/current; role=directory; requiresVerification=false'
-    );
+    ]);
   });
 });
 
 test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
-    const textResult = await runCli(workspaceRoot, [
+    await expectCliText(workspaceRoot, [
       'upgrade',
       'auth/basic-session',
       '0.1.1',
       '--dry-run'
+    ], [
+      'Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)',
+      'Status: planned; migrations: 2; preflight checks:',
+      'Migration kinds: file-replace=1, json-array-append=1',
+      'Operation roles: file=1, json=1',
+      'Impacts: src/installed/auth/session.ts, upgrade.metadata.json',
+      'Preflight evidence: 10',
+      'Requires verification: true (1 migrations)',
+      'Migration mig-auth-session-refresh: file-replace;',
+      'target=src/installed/auth/session.ts; source=files/src/installed/auth/session.ts; role=file; requiresVerification=true',
+      'Migration mig-auth-session-upgrade-metadata: json-array-append;',
+      'target=upgrade.metadata.json; role=json; path=upgradedBlocks; items=1; requiresVerification=false',
+      'Preflight version-range: passed; evidence=',
+      'Preflight migration-entries: passed; evidence='
     ]);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain(
-      'Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)'
-    );
-    expect(textResult.stdout).toContain(
-      'Status: planned; migrations: 2; preflight checks:'
-    );
-    expect(textResult.stdout).toContain(
-      'Migration kinds: file-replace=1, json-array-append=1'
-    );
-    expect(textResult.stdout).toContain('Operation roles: file=1, json=1');
-    expect(textResult.stdout).toContain(
-      'Impacts: src/installed/auth/session.ts, upgrade.metadata.json'
-    );
-    expect(textResult.stdout).toContain('Preflight evidence: 10');
-    expect(textResult.stdout).toContain('Requires verification: true (1 migrations)');
-    expect(textResult.stdout).toContain(
-      'Migration mig-auth-session-refresh: file-replace;'
-    );
-    expect(textResult.stdout).toContain(
-      'target=src/installed/auth/session.ts; source=files/src/installed/auth/session.ts; role=file; requiresVerification=true'
-    );
-    expect(textResult.stdout).toContain(
-      'Migration mig-auth-session-upgrade-metadata: json-array-append;'
-    );
-    expect(textResult.stdout).toContain(
-      'target=upgrade.metadata.json; role=json; path=upgradedBlocks; items=1; requiresVerification=false'
-    );
-    expect(textResult.stdout).toContain('Preflight version-range: passed; evidence=');
-    expect(textResult.stdout).toContain('Preflight migration-entries: passed; evidence=');
 
-    const result = await runCli(workspaceRoot, [
+    const result = await expectCliSuccess(workspaceRoot, [
       'upgrade',
       'auth/basic-session',
       '0.1.1',
       '--dry-run',
       '--json'
     ]);
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-
     const upgradePlan = JSON.parse(result.stdout) as UpgradePlan;
     expect(result.stdout).toContain('\n  "blockId": "auth/basic-session"');
     expect(upgradePlan).toMatchObject({
@@ -206,30 +180,33 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
       }
     ]);
 
-    const compactResult = await runCli(workspaceRoot, [
-      'upgrade',
-      'auth/basic-session',
-      '0.1.1',
-      '--dry-run',
-      '--json',
-      '--compact'
+    const compactResult = await expectCliJson<UpgradePlan>(
+      workspaceRoot,
+      [
+        'upgrade',
+        'auth/basic-session',
+        '0.1.1',
+        '--dry-run',
+        '--json',
+        '--compact'
+      ],
+      undefined,
+      { compact: true }
+    );
+    expect(compactResult).toEqual(upgradePlan);
+
+    await expectCliText(workspaceRoot, ['upgrade', 'plan'], [
+      'Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)',
+      'Operation roles: file=1, json=1'
     ]);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout).not.toContain('\n  "blockId"');
-    expect(JSON.parse(compactResult.stdout)).toEqual(upgradePlan);
 
-    const inspectText = await runCli(workspaceRoot, ['upgrade', 'plan']);
-    expect(inspectText.code).toBe(0);
-    expect(inspectText.stderr).toBe('');
-    expect(inspectText.stdout).toContain('Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)');
-    expect(inspectText.stdout).toContain('Operation roles: file=1, json=1');
-
-    const inspectJson = await runCli(workspaceRoot, ['upgrade', 'plan', '--json', '--compact']);
-    expect(inspectJson.code).toBe(0);
-    expect(inspectJson.stderr).toBe('');
-    expect(inspectJson.stdout).not.toContain('\n  "blockId"');
-    expect(JSON.parse(inspectJson.stdout)).toEqual(upgradePlan);
+    const inspectJson = await expectCliJson<UpgradePlan>(
+      workspaceRoot,
+      ['upgrade', 'plan', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(inspectJson).toEqual(upgradePlan);
 
     await withTempWorkspace(async (missingPlanWorkspace) => {
       await expect(runCli(missingPlanWorkspace, ['upgrade', 'plan'])).resolves.toMatchObject({
@@ -266,10 +243,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
 
     await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
-    const explainText = await runCli(workspaceRoot, ['explain']);
-    expect(explainText.code).toBe(0);
-    expect(explainText.stderr).toBe('');
-    expect(explainText.stdout).toContain(
+    await expectCliText(workspaceRoot, ['explain'], [
       [
         'Upgrade: planned',
         'auth/basic-session 0.1.0 -> 0.1.1',
@@ -284,12 +258,9 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
         'requires verification: true',
         'verification: required=1, skipped=1'
       ].join('; ')
-    );
+    ]);
 
-    const explainJson = await runCli(workspaceRoot, ['explain', '--json']);
-    expect(explainJson.code).toBe(0);
-    expect(explainJson.stderr).toBe('');
-    const explainPayload = JSON.parse(explainJson.stdout) as {
+    const explainPayload = await expectCliJson<{
       graph: ExplainGraph;
       reviewSummary: {
         upgradeSummary?: {
@@ -326,7 +297,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
           }>;
         };
       };
-    };
+    }>(workspaceRoot, ['explain', '--json']);
     expect(explainPayload.reviewSummary.upgradeSummary).toMatchObject({
       status: 'planned',
       blockId: 'auth/basic-session',
@@ -387,20 +358,20 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
       ])
     );
 
-    const graphText = await runCli(workspaceRoot, ['explain', 'graph']);
-    expect(graphText.code).toBe(0);
-    expect(graphText.stderr).toBe('');
-    expect(graphText.stdout).toContain('Explain graph ');
-    expect(graphText.stdout).toContain('Node types:');
-    expect(graphText.stdout).toContain('Edge types:');
-    expect(graphText.stdout).toContain('Coverage overlay:');
-    expect(graphText.stdout).toContain('Provenance overlay:');
+    await expectCliText(workspaceRoot, ['explain', 'graph'], [
+      'Explain graph ',
+      'Node types:',
+      'Edge types:',
+      'Coverage overlay:',
+      'Provenance overlay:'
+    ]);
 
-    const graphJson = await runCli(workspaceRoot, ['explain', 'graph', '--json', '--compact']);
-    expect(graphJson.code).toBe(0);
-    expect(graphJson.stderr).toBe('');
-    expect(graphJson.stdout).not.toContain('\n  "nodes"');
-    const graphPayload = JSON.parse(graphJson.stdout) as ExplainGraph;
+    const graphPayload = await expectCliJson<ExplainGraph>(
+      workspaceRoot,
+      ['explain', 'graph', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
     expect(graphPayload.nodes).toEqual(explainPayload.graph.nodes);
     expect(graphPayload.edges).toEqual(explainPayload.graph.edges);
 
@@ -423,20 +394,19 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
     };
     await writeJson(upgradeDiagnosticsPath, upgradeDiagnostics);
 
-    const upgradeDiagnosticsText = await runCli(workspaceRoot, ['upgrade', 'diagnostics']);
-    expect(upgradeDiagnosticsText.code).toBe(0);
-    expect(upgradeDiagnosticsText.stderr).toBe('');
-    expect(upgradeDiagnosticsText.stdout).toContain('Upgrade diagnostics apply');
-    expect(upgradeDiagnosticsText.stdout).toContain('Failed check: migration-file-operations; code: UPGRADE-MIGRATION-016');
-    expect(upgradeDiagnosticsText.stdout).toContain(
+    await expectCliText(workspaceRoot, ['upgrade', 'diagnostics'], [
+      'Upgrade diagnostics apply',
+      'Failed check: migration-file-operations; code: UPGRADE-MIGRATION-016',
       'Attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-    );
+    ]);
 
-    const upgradeDiagnosticsJson = await runCli(workspaceRoot, ['upgrade', 'diagnostics', '--json', '--compact']);
-    expect(upgradeDiagnosticsJson.code).toBe(0);
-    expect(upgradeDiagnosticsJson.stderr).toBe('');
-    expect(upgradeDiagnosticsJson.stdout).not.toContain('\n  "formatVersion"');
-    expect(JSON.parse(upgradeDiagnosticsJson.stdout)).toEqual(upgradeDiagnostics);
+    const upgradeDiagnosticsJson = await expectCliJson<UpgradeDiagnostics>(
+      workspaceRoot,
+      ['upgrade', 'diagnostics', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(upgradeDiagnosticsJson).toEqual(upgradeDiagnostics);
 
     await withTempWorkspace(async (missingDiagnosticsWorkspace) => {
       await expect(runCli(missingDiagnosticsWorkspace, ['upgrade', 'diagnostics'])).resolves.toMatchObject({
@@ -448,11 +418,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
       });
     });
 
-    const blockedExplainText = await runCli(workspaceRoot, ['explain']);
-    expect(blockedExplainText.code).toBe(0);
-    expect(blockedExplainText.stderr).toBe('');
-    expect(blockedExplainText.stdout).toContain(
+    await expectCliText(workspaceRoot, ['explain'], [
       'Upgrade diagnostics: apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-    );
+    ]);
   });
 });
