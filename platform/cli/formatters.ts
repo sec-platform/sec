@@ -13,6 +13,7 @@ import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
+import { buildReviewPolicySummary } from '../shared/review-policy.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../shared/review-upgrade.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
@@ -530,42 +531,7 @@ export function buildPolicySourceInspect(report: PolicyReport): PolicySourceInsp
 }
 
 export function buildPolicySummary(report: PolicyReport): NonNullable<ReviewSummary['policySummary']> {
-  const sourceInspect = buildPolicySourceInspect(report);
-  return {
-    status: report.status,
-    officialPolicyCount: report.official.policies.length,
-    projectPolicyCount: report.project.policies.length,
-    mergedPolicyCount: report.merged.policies.length,
-    sourceCount: sourceInspect.sourceCount,
-    violationCount: report.violations.length,
-    severityCounts: report.violations.reduce<Record<string, number>>((counts, violation) => {
-      counts[violation.severity] = (counts[violation.severity] ?? 0) + 1;
-      return counts;
-    }, {}),
-    sourceSummaries: sourceInspect.sources.map((source) => ({
-      scope: source.scope,
-      path: source.path,
-      policyIds: source.policyIds
-    })),
-    mergedSummaries: report.merged.policies.map((policy) => ({
-      id: policy.id,
-      sourceScope: policy.sourceScope,
-      sourcePath: policy.sourcePath,
-      targetCount: policy.targets.length,
-      targets: policy.targets
-    })),
-    violationSummaries: report.violations.map((violation) => ({
-      id: violation.id,
-      severity: violation.severity,
-      rule: violation.rule,
-      fileCount: violation.files.length,
-      files: violation.files,
-      appliesTo: violation.appliesTo,
-      message: violation.message,
-      sourceScope: violation.sourceScope,
-      sourcePath: violation.sourcePath
-    }))
-  };
+  return buildReviewPolicySummary(report);
 }
 
 export function formatPolicySources(report: PolicySourceInspect): string {
