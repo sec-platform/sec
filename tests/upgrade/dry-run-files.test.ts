@@ -2,66 +2,33 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import {
-  upgradeWorkspace
-} from '../../platform/orchestrator.ts';
+import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
-import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
+import { prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
 
 test('upgrade dry-run records delete file migration impacts', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-file-plan-');
-
-  await writeSlotUpgradeFixture(workspaceRoot);
-
-  const { planPath, privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
-  const versionRoot = path.join(
-    privateRegistryRoot,
-    'private.slot-contract',
-    'versions',
-    '0.2.0'
-  );
-  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
-  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
-  const beforePlan = await fs.readFile(planPath, 'utf8');
-  await writeYaml(manifestPath, {
-    ...manifest,
-    upgrade: {
-      from: ['0.1.x'],
-      migrations: [
-        {
-          id: 'mig-delete-obsolete-report',
-          kind: 'delete-file',
-          entry: 'migrations/delete-obsolete-report.json',
-          fromVersion: '0.1.0',
-          toVersion: '0.2.0',
-          requiresVerification: false
-        }
-      ]
+  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+    prefix: 'engineering-compiler-upgrade-delete-file-plan-',
+    migration: {
+      id: 'mig-delete-obsolete-report',
+      kind: 'delete-file',
+      entry: 'migrations/delete-obsolete-report.json',
+      requiresVerification: false,
+      body: {
+        id: 'mig-delete-obsolete-report',
+        kind: 'delete-file',
+        reason: 'Remove obsolete generated report from previous upgrades.',
+        target: 'generated/reports/obsolete.json'
+      }
+    },
+    setup: async ({ paths: workspacePaths }) => {
+      await writeJson(path.join(workspacePaths.projectRoot, 'generated', 'reports', 'obsolete.json'), {
+        status: 'obsolete'
+      });
     }
   });
-  const migrationPath = path.join(
-    versionRoot,
-    'migrations',
-    'delete-obsolete-report.json'
-  );
-  await writeJson(migrationPath, {
-    id: 'mig-delete-obsolete-report',
-    kind: 'delete-file',
-    reason: 'Remove obsolete generated report from previous upgrades.',
-    target: 'generated/reports/obsolete.json'
-  });
-  await writeJson(path.join(projectRoot, 'generated', 'reports', 'obsolete.json'), {
-    status: 'obsolete'
-  });
 
-  const { upgradePlan } = await upgradeWorkspace(
-    workspaceRoot,
-    'private/slot-contract',
-    '0.2.0',
-    { dryRun: true }
-  );
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
@@ -89,57 +56,33 @@ test('upgrade dry-run records delete file migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
 test('upgrade dry-run records copy file migration impacts', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-copy-file-plan-');
-
-  await writeSlotUpgradeFixture(workspaceRoot);
-
-  const { planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
-  const versionRoot = path.join(
-    privateRegistryRoot,
-    'private.slot-contract',
-    'versions',
-    '0.2.0'
-  );
-  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
-  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
-  const beforePlan = await fs.readFile(planPath, 'utf8');
-  await writeYaml(manifestPath, {
-    ...manifest,
-    upgrade: {
-      from: ['0.1.x'],
-      migrations: [
-        {
-          id: 'mig-copy-report-schema',
-          kind: 'copy-file',
-          entry: 'migrations/copy-report-schema.json',
-          fromVersion: '0.1.0',
-          toVersion: '0.2.0',
-          requiresVerification: false
-        }
-      ]
+  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+    prefix: 'engineering-compiler-upgrade-copy-file-plan-',
+    migration: {
+      id: 'mig-copy-report-schema',
+      kind: 'copy-file',
+      entry: 'migrations/copy-report-schema.json',
+      requiresVerification: false,
+      body: {
+        id: 'mig-copy-report-schema',
+        kind: 'copy-file',
+        reason: 'Copy report schema into generated report assets.',
+        source: 'files/generated/reports/schema.json',
+        target: 'generated/reports/schema.json'
+      }
+    },
+    setup: async ({ versionRoot }) => {
+      await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'schema.json'), {
+        schema: 'report-v2'
+      });
     }
   });
-  await writeJson(path.join(versionRoot, 'migrations', 'copy-report-schema.json'), {
-    id: 'mig-copy-report-schema',
-    kind: 'copy-file',
-    reason: 'Copy report schema into generated report assets.',
-    source: 'files/generated/reports/schema.json',
-    target: 'generated/reports/schema.json'
-  });
-  await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'schema.json'), {
-    schema: 'report-v2'
-  });
 
-  const { upgradePlan } = await upgradeWorkspace(
-    workspaceRoot,
-    'private/slot-contract',
-    '0.2.0',
-    { dryRun: true }
-  );
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
@@ -168,62 +111,33 @@ test('upgrade dry-run records copy file migration impacts', async () => {
       source: 'files/generated/reports/schema.json'
     }
   ]);
-  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
 });
 
 test('upgrade dry-run records rename file migration impacts', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-rename-file-plan-');
-
-  await writeSlotUpgradeFixture(workspaceRoot);
-
-  const { planPath, privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
-  const versionRoot = path.join(
-    privateRegistryRoot,
-    'private.slot-contract',
-    'versions',
-    '0.2.0'
-  );
-  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
-  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
-  const beforePlan = await fs.readFile(planPath, 'utf8');
-  await writeYaml(manifestPath, {
-    ...manifest,
-    upgrade: {
-      from: ['0.1.x'],
-      migrations: [
-        {
-          id: 'mig-rename-report',
-          kind: 'rename-file',
-          entry: 'migrations/rename-report.json',
-          fromVersion: '0.1.0',
-          toVersion: '0.2.0',
-          requiresVerification: false
-        }
-      ]
+  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+    prefix: 'engineering-compiler-upgrade-rename-file-plan-',
+    migration: {
+      id: 'mig-rename-report',
+      kind: 'rename-file',
+      entry: 'migrations/rename-report.json',
+      requiresVerification: false,
+      body: {
+        id: 'mig-rename-report',
+        kind: 'rename-file',
+        reason: 'Move generated report into archive directory.',
+        source: 'generated/reports/current.json',
+        target: 'generated/reports/archive/current.json'
+      }
+    },
+    setup: async ({ paths: workspacePaths }) => {
+      await writeJson(path.join(workspacePaths.projectRoot, 'generated', 'reports', 'current.json'), {
+        status: 'current'
+      });
     }
   });
-  const migrationPath = path.join(
-    versionRoot,
-    'migrations',
-    'rename-report.json'
-  );
-  await writeJson(migrationPath, {
-    id: 'mig-rename-report',
-    kind: 'rename-file',
-    reason: 'Move generated report into archive directory.',
-    source: 'generated/reports/current.json',
-    target: 'generated/reports/archive/current.json'
-  });
-  await writeJson(path.join(projectRoot, 'generated', 'reports', 'current.json'), {
-    status: 'current'
-  });
 
-  const { upgradePlan } = await upgradeWorkspace(
-    workspaceRoot,
-    'private/slot-contract',
-    '0.2.0',
-    { dryRun: true }
-  );
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
@@ -256,5 +170,5 @@ test('upgrade dry-run records rename file migration impacts', async () => {
       source: 'generated/reports/current.json'
     }
   ]);
-  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
 });

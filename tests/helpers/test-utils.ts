@@ -14,7 +14,7 @@ import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const deferredCleanupDirs = new Set<string>();
@@ -234,6 +234,54 @@ export async function installPrivateBannerBlock(workspaceRoot: string): Promise<
     `import assert from 'node:assert/strict';\nimport { projectBanner } from '../../src/installed/private/banner.ts';\n\nexport async function runSuite() {\n  assert.equal(projectBanner('customer-admin'), 'private-banner:customer-admin');\n}\n`,
     'utf8'
   );
+}
+
+type SlotUpgradeDryRunFixtureContext = {
+  workspaceRoot: string;
+  paths: ReturnType<typeof getWorkspacePaths>;
+  versionRoot: string;
+};
+
+export async function prepareSlotUpgradeDryRunFixture(options: {
+  prefix: string;
+  migration: {
+    id: string;
+    kind: string;
+    entry: string;
+    requiresVerification: boolean;
+    body: Record<string, unknown>;
+  };
+  setup?: (context: SlotUpgradeDryRunFixtureContext) => Promise<void>;
+}): Promise<SlotUpgradeDryRunFixtureContext & { beforePlan: string }> {
+  const workspaceRoot = await createWorkspace(options.prefix);
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const paths = getWorkspacePaths(workspaceRoot);
+  const versionRoot = path.join(paths.privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+  const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  const beforePlan = await fs.readFile(paths.planPath, 'utf8');
+
+  await options.setup?.({ workspaceRoot, paths, versionRoot });
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: options.migration.id,
+          kind: options.migration.kind,
+          entry: options.migration.entry,
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: options.migration.requiresVerification
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, ...options.migration.entry.split('/')), options.migration.body);
+
+  return { workspaceRoot, paths, versionRoot, beforePlan };
 }
 
 export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<void> {
