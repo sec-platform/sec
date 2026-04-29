@@ -1,57 +1,43 @@
 import { expect, test } from 'vitest';
 
-import { runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits explain JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true });
 
-    const textResult = await runCli(workspaceRoot, ['explain']);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Explain graph');
-    expect(textResult.stdout).toContain('Node types:');
-    expect(textResult.stdout).toContain('block=');
-    expect(textResult.stdout).toContain('policy=');
-    expect(textResult.stdout).toContain('Edge types:');
-    expect(textResult.stdout).toContain('depends_on=');
-    expect(textResult.stdout).toContain('Coverage: 3 blocks; 1 slots;');
-    expect(textResult.stdout).toContain('uncovered blocks=0');
-    expect(textResult.stdout).toContain('uncovered slots=0');
-    expect(textResult.stdout).toContain('Coverage detail: passed;');
-    expect(textResult.stdout).toContain('covered blocks: 3/3');
-    expect(textResult.stdout).toContain('covered slots: 1/1');
-    expect(textResult.stdout).toContain('Provenance origins:');
-    expect(textResult.stdout).toContain('block=');
-    expect(textResult.stdout).toContain('slot=');
-    expect(textResult.stdout).toContain('Provenance detail: artifacts:');
-    expect(textResult.stdout).toContain('registry:');
-    expect(textResult.stdout).toContain('unverified:');
-    expect(textResult.stdout).toContain('Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;');
-    expect(textResult.stdout).toContain('runtime entries: 0; targets: 6');
-    expect(textResult.stdout).toContain(
-      'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0'
-    );
-    expect(textResult.stdout).toContain('Chain: attention; stages: 3/4; attention: 1; failed: 0');
-    expect(textResult.stdout).toContain('E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0');
-    expect(textResult.stdout).toContain('E2E coverage: passed; blocks=3/3; slots=1/1; evidence=blocks=3/3, slots=1/1');
-    expect(textResult.stdout).toContain('E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing');
-    expect(textResult.stdout).toContain('E2E review: passed; review-summary=generated; evidence=review-summary=generated');
-    expect(textResult.stdout).toContain('Impacted: 3 blocks, 1 slots,');
-    expect(textResult.stdout).toContain(
+    await expectCliText(workspaceRoot, ['explain'], [
+      'Explain graph',
+      'Node types:',
+      'block=',
+      'policy=',
+      'Edge types:',
+      'depends_on=',
+      'Coverage: 3 blocks; 1 slots;',
+      'uncovered blocks=0',
+      'uncovered slots=0',
+      'Coverage detail: passed;',
+      'covered blocks: 3/3',
+      'covered slots: 1/1',
+      'Provenance origins:',
+      'block=',
+      'slot=',
+      'Provenance detail: artifacts:',
+      'registry:',
+      'unverified:',
+      'Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;',
+      'runtime entries: 0; targets: 6',
+      'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
+      'Chain: attention; stages: 3/4; attention: 1; failed: 0',
+      'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
+      'E2E coverage: passed; blocks=3/3; slots=1/1; evidence=blocks=3/3, slots=1/1',
+      'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
+      'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
+      'Impacted: 3 blocks, 1 slots,',
       'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
-    );
+    ]);
 
-    const result = await runCli(workspaceRoot, ['explain', '--json']);
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-
-    const compactResult = await runCli(workspaceRoot, ['explain', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout.trim()).not.toContain('\n');
-
-    const payload = JSON.parse(result.stdout) as {
+    const payload = await expectCliJson<{
       graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
       e2eMatrix: {
         status: string;
@@ -132,17 +118,22 @@ test('CLI emits explain JSON for CI consumers', async () => {
         impactedBlocks: string[];
         failurePoints: unknown[];
       };
-    };
-    expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      e2eMatrix: {
-        status: 'attention',
-        rowCount: 4
+    }>(workspaceRoot, ['explain', '--json']);
+    await expectCliJson(
+      workspaceRoot,
+      ['explain', '--json', '--compact'],
+      {
+        e2eMatrix: {
+          status: 'attention',
+          rowCount: 4
+        },
+        reviewSummary: {
+          formatVersion: '2',
+          chainSummary: { stageCount: 4 }
+        }
       },
-      reviewSummary: {
-        formatVersion: '2',
-        chainSummary: { stageCount: 4 }
-      }
-    });
+      { compact: true }
+    );
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
     expect(payload.graph.edges.length).toBeGreaterThan(0);
     expect(payload.e2eMatrix).toMatchObject({
@@ -156,18 +147,19 @@ test('CLI emits explain JSON for CI consumers', async () => {
       ]
     });
 
-    const matrixText = await runCli(workspaceRoot, ['review', 'matrix']);
-    expect(matrixText.code).toBe(0);
-    expect(matrixText.stderr).toBe('');
-    expect(matrixText.stdout).toContain('E2E matrix attention; rows=4');
-    expect(matrixText.stdout).toContain('verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0');
-    expect(matrixText.stdout).toContain('artifacts: attention; total=0; missing=0; evidence=artifacts=missing');
+    await expectCliText(workspaceRoot, ['review', 'matrix'], [
+      'E2E matrix attention; rows=4',
+      'verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
+      'artifacts: attention; total=0; missing=0; evidence=artifacts=missing'
+    ]);
 
-    const matrixJson = await runCli(workspaceRoot, ['review', 'matrix', '--json', '--compact']);
-    expect(matrixJson.code).toBe(0);
-    expect(matrixJson.stderr).toBe('');
-    expect(matrixJson.stdout).not.toContain('\n  "status"');
-    expect(JSON.parse(matrixJson.stdout)).toEqual(payload.e2eMatrix);
+    const matrixPayload = await expectCliJson<typeof payload.e2eMatrix>(
+      workspaceRoot,
+      ['review', 'matrix', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(matrixPayload).toEqual(payload.e2eMatrix);
     expect(payload.reviewSummary.formatVersion).toBe('2');
     expect(payload.reviewSummary.ciSummary).toMatchObject({
       status: 'passed',
