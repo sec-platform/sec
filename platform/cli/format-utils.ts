@@ -22,7 +22,7 @@ export function printJsonOrText<T>(
   console.log(options.json ? formatJson(value, options) : formatText(value));
 }
 
-export function summarizeById(
+function summarizeById(
   entries: Array<{ id: string; count: number }>
 ): Array<{ id: string; count: number }> {
   return mergeCountSummaries(entries);
@@ -32,4 +32,8 @@ export function formatSummaryEntries(entries: Array<{ id: string; count: number 
   return entries.length > 0
     ? entries.map((entry) => `${entry.id}=${entry.count}`).join(', ')
     : 'none';
+}
+
+export function formatMergedSummaryEntries(entries: Array<{ id: string; count: number }>): string {
+  return formatSummaryEntries(summarizeById(entries));
 }
