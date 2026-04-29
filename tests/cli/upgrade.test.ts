@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ExplainGraph,
@@ -224,13 +224,13 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
     await runCliPipeline(workspaceRoot, { init: false, verifyLane: 'fast' });
 
     const { lockPath, upgradeDiagnosticsPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
+    const lock = await readJson<{
       passStatus: { verify: string };
-    };
+    }>(lockPath);
     lock.passStatus.verify = 'succeeded';
     await writeJson(lockPath, lock);
 
-    const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
+    const report = await readJson<VerificationReport>(verificationReportPath);
     report.unit.status = 'passed';
     report.unit.passed = [];
     report.acceptance.status = 'passed';

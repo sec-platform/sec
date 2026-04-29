@@ -17,7 +17,7 @@ import {
   CI_ARTIFACT_MISSING_REASON,
   emptyCiArtifactMissingReasonCounts
 } from '../../platform/shared/ci-artifact-contract.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
@@ -41,7 +41,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   await lockWorkspace(workspaceRoot);
   await explainWorkspace(workspaceRoot);
 
-  const reviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
+  const reviewSummary = await readJson<{
     formatVersion: '2';
     ciSummary: {
       status: 'passed' | 'attention' | 'failed';
@@ -281,7 +281,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     failurePoints: Array<{ lane: 'fast' | 'runtime' | 'all'; kind: string; artifactPath: string; message: string }>;
     regressionRisks: unknown[];
     conflictHints: unknown[];
-  };
+  }>(reviewSummaryPath);
   reviewSummary.failurePoints = [
     {
       lane: 'fast',
@@ -624,10 +624,10 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   };
   await writeJson(reviewSummaryPath, reviewSummary);
 
-  const coverage = JSON.parse(await fs.readFile(acceptanceCoveragePath, 'utf8')) as {
+  const coverage = await readJson<{
     blocks: Array<{ id: string; coveredBy: string[] }>;
     slots: Array<{ id: string; coveredBy: string[] }>;
-  };
+  }>(acceptanceCoveragePath);
   coverage.slots[0].coveredBy = ['disk-driven-acceptance'];
   await writeJson(acceptanceCoveragePath, coverage);
   await writeJson(repairPlanPath, {
