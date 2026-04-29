@@ -1,4 +1,6 @@
+import { CI_ARTIFACT_KINDS } from '../shared/ci-artifact-contract.ts';
 import type { DependencyCleanOptions } from '../shared/dependency-environment.ts';
+import type { CiArtifactKind } from '../shared/ci-artifact-types.ts';
 import type { VerificationLane } from '../shared/verification-types.ts';
 import {
   ACCEPTANCE_USAGE,
@@ -27,7 +29,7 @@ import {
   WORKBENCH_USAGE
 } from './usage.ts';
 
-export type ArtifactPathKind = 'governance' | 'view' | 'test' | 'contract';
+export type ArtifactPathKind = CiArtifactKind;
 
 export type ParsedRepairArgs =
   | { mode: 'run'; dryRun: boolean; json: boolean; compact: boolean }
@@ -211,8 +213,8 @@ export function parseExplainArgs(
 }
 
 function parseArtifactPathKind(value: string): ArtifactPathKind {
-  if (value === 'governance' || value === 'view' || value === 'test' || value === 'contract') {
-    return value;
+  if (CI_ARTIFACT_KINDS.includes(value as CiArtifactKind)) {
+    return value as CiArtifactKind;
   }
   throw new Error(ARTIFACTS_USAGE);
 }

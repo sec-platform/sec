@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { CI_ARTIFACT_MANIFEST_PATH } from '../../shared/ci-artifact-contract.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
@@ -41,7 +42,7 @@ function inferGeneratedByPass(targetPath: string): string {
   if (targetPath === 'control/graph/explain-graph.json') {
     return 'explain';
   }
-  if (targetPath === 'control/ci/artifacts.json') {
+  if (targetPath === CI_ARTIFACT_MANIFEST_PATH) {
     return 'artifacts';
   }
   if (targetPath === 'control/workbench/views/source-view.html' || targetPath === 'control/workbench/views/slot-rule-view.html') {
