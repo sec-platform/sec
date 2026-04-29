@@ -3,7 +3,7 @@ import path from 'node:path';
 import { compilerRoot } from './paths.ts';
 import { ensureDir, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
 import { CompilerError } from './errors.ts';
-import { resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
+import { pathEnvKey, resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
@@ -28,10 +28,6 @@ export interface RuntimeDependencyInstallOptions {
   sharedDepsRoot?: string;
   skipSharedDepsWarmup?: boolean;
   sleep?: (ms: number) => Promise<void>;
-}
-
-function pathEnvKey(): string {
-  return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
 }
 
 function defaultSharedDepsRoot(): string {

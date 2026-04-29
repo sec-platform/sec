@@ -5,6 +5,7 @@ import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
+import { uniqueSorted } from '../../shared/collections.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type {
@@ -22,10 +23,6 @@ function summarizeFailure(report: VerificationReport): string {
 
 function sortedUniqueMessages(messages: string[]): string[] {
   return [...new Set(messages)].sort((left, right) => left.localeCompare(right));
-}
-
-function sortedUniqueTargets(targets: string[]): string[] {
-  return [...new Set(targets.filter((target) => target.length > 0))].sort((left, right) => left.localeCompare(right));
 }
 
 function countLines(value: string): number {
@@ -104,7 +101,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       repairable: true,
       artifactPath: 'tests/acceptance',
       message: report.fast.logs.stderr || 'Acceptance verification failed',
-      targetIds: sortedUniqueTargets(report.acceptance.failed)
+      targetIds: uniqueSorted(report.acceptance.failed)
     });
   }
   if (report.policy.status === 'failed') {
@@ -115,7 +112,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       repairable: false,
       artifactPath: 'control/evidence/policy-report.json',
       message: sortedUniqueMessages(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed',
-      targetIds: sortedUniqueTargets(report.policy.violations.flatMap((violation) => [violation.id, ...violation.files]))
+      targetIds: uniqueSorted(report.policy.violations.flatMap((violation) => [violation.id, ...violation.files]))
     });
   }
   if (report.runtime.build.status === 'failed') {
@@ -136,7 +133,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       repairable: true,
       artifactPath: 'control/evidence/runtime-report.json',
       message: report.runtime.logs.stderr || 'Runtime unit verification failed',
-      targetIds: sortedUniqueTargets(report.runtime.unit.failed)
+      targetIds: uniqueSorted(report.runtime.unit.failed)
     });
   }
   if (report.runtime.acceptance.status === 'failed') {
@@ -147,7 +144,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       repairable: true,
       artifactPath: 'control/evidence/runtime-report.json',
       message: report.runtime.logs.stderr || 'Runtime acceptance verification failed',
-      targetIds: sortedUniqueTargets(report.runtime.acceptance.failed)
+      targetIds: uniqueSorted(report.runtime.acceptance.failed)
     });
   }
 
@@ -217,7 +214,7 @@ function buildRepairTaskReview(
   task: Omit<RepairTask, 'review'>,
   envelope: ReturnType<typeof buildTaskEnvelope>
 ): RepairTask['review'] {
-  const failureTargets = sortedUniqueTargets(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+  const failureTargets = uniqueSorted(task.failurePoints.flatMap((point) => point.targetIds ?? []));
   return {
     allowedPathCount: task.allowedPaths.length,
     requiredSymbolCount: task.requiredSymbols.length,
