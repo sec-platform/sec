@@ -18,7 +18,7 @@ import { upgradeDiagnosticsAttributionParts } from '../shared/review-upgrade.ts'
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import type { ArtifactPathKind } from './args.ts';
-import { formatCounts, formatList, formatSummaryEntries, summarizeById } from './format-utils.ts';
+import { formatCounts, formatList, formatMergedSummaryEntries, formatSummaryEntries } from './format-utils.ts';
 
 export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
@@ -1110,13 +1110,11 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
         `trace: ${repair.verificationTrace.pendingReason}->${repair.verificationTrace.nextAction}`,
         `categories: ${formatSummaryEntries(repair.taskCategorySummaries)}`,
         `issues: ${formatSummaryEntries(repair.failureTaxonomy.issueTypeSummaries)}`,
-        `targets: ${formatSummaryEntries(
-          summarizeById(
-            repair.targetSummaries.map((target) => ({
-              id: target.targetType,
-              count: target.count
-            }))
-          )
+        `targets: ${formatMergedSummaryEntries(
+          repair.targetSummaries.map((target) => ({
+            id: target.targetType,
+            count: target.count
+          }))
         )}`,
         `repairability: ${formatSummaryEntries(repair.failureTaxonomy.repairabilitySummaries)}`
       ].join('; ')
@@ -1137,7 +1135,9 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
         `preflight evidence: ${upgrade.preflightEvidenceCount}`,
         `impacts: ${upgrade.impactCount}`,
         `operations: ${upgrade.migrationOperationCount}`,
-        `operation roles: ${formatSummaryEntries(summarizeById(upgrade.migrationOperationSummaries.map((operation) => ({ id: operation.role, count: 1 }))))}`,
+        `operation roles: ${formatMergedSummaryEntries(
+          upgrade.migrationOperationSummaries.map((operation) => ({ id: operation.role, count: 1 }))
+        )}`,
         `sources: ${upgrade.sourceMigrationCount}`,
         `slots: ${upgrade.slotMigrationCount}`,
         `requires verification: ${upgrade.requiresVerification}`,
