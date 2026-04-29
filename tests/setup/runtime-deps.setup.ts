@@ -15,5 +15,7 @@ async function configureTestTempRoot(): Promise<void> {
 
 export default async function prewarmSharedRuntimeDeps(): Promise<void> {
   await configureTestTempRoot();
-  await ensureSharedDepsReady();
+  if (process.env.PJC_SKIP_RUNTIME_DEPS_SETUP !== '1') {
+    await ensureSharedDepsReady();
+  }
 }

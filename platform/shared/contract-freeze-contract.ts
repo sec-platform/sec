@@ -15,6 +15,12 @@ export type ContractFreezeContract = {
   targets: ContractFreezeTarget[];
 };
 
+export type ContractFreezeRunnerInvocation = {
+  files: string[];
+  args: string[];
+  testNamePattern?: string;
+};
+
 function buildTargetCommand(file: string, testNamePattern?: string): string {
   return testNamePattern
     ? `bunx vitest run ${file} --testNamePattern "${testNamePattern}"`
@@ -25,6 +31,29 @@ function contractFreezeTarget(file: string, testNamePattern?: string): ContractF
   return {
     file,
     command: buildTargetCommand(file, testNamePattern),
+    ...(testNamePattern ? { testNamePattern } : {})
+  };
+}
+
+function uniqueFiles(targets: ContractFreezeTarget[]): string[] {
+  const seen = new Set<string>();
+  return targets
+    .map((target) => target.file)
+    .filter((file) => {
+      if (seen.has(file)) {
+        return false;
+      }
+      seen.add(file);
+      return true;
+    });
+}
+
+function runnerInvocation(files: string[], testNamePattern?: string): ContractFreezeRunnerInvocation {
+  return {
+    files,
+    args: testNamePattern
+      ? ['run', ...files, '--testNamePattern', testNamePattern]
+      : ['run', ...files],
     ...(testNamePattern ? { testNamePattern } : {})
   };
 }
@@ -110,6 +139,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       [
         'root package exposes budget and contract scripts',
         'dev-runner does not expose contract subcommands directly',
+        'fast test runner excludes slow files and skips runtime deps setup',
         'test budget contract documents lanes and their capabilities',
         'benchmark contract documents suite metadata and task definitions',
         'reference check contract documents drift detection commands',
@@ -125,6 +155,26 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       'v0.1 pipeline runs end to end in a temporary workspace'
     )
   ];
+}
+
+export function buildContractFreezeRunnerInvocations(
+  targets = getContractFreezeTargets()
+): ContractFreezeRunnerInvocation[] {
+  const patternedTargets = targets.filter((target) => target.testNamePattern);
+  const unpatternedTargets = targets.filter((target) => !target.testNamePattern);
+  const invocations: ContractFreezeRunnerInvocation[] = [];
+
+  if (patternedTargets.length > 0) {
+    invocations.push(runnerInvocation(
+      uniqueFiles(patternedTargets),
+      patternedTargets.map((target) => `(?:${target.testNamePattern})`).join('|')
+    ));
+  }
+  if (unpatternedTargets.length > 0) {
+    invocations.push(runnerInvocation(uniqueFiles(unpatternedTargets)));
+  }
+
+  return invocations;
 }
 
 export function buildContractFreezeContract(): ContractFreezeContract {

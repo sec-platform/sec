@@ -13,10 +13,26 @@ export type TestBudgetContract = {
   laneCount: number;
   slowLaneCount: number;
   slowLaneIds: TestBudgetLane['id'][];
+  slowTestFileCount: number;
+  slowTestFiles: string[];
   lanes: TestBudgetLane[];
   localDefault: string;
   fullRuntimeGate: string;
 };
+
+const slowTestFiles = [
+  'tests/cli/artifacts.test.ts',
+  'tests/cli/demo-doctor.test.ts',
+  'tests/cli/explain.test.ts',
+  'tests/cli/provenance.test.ts',
+  'tests/override/manifest.test.ts',
+  'tests/pipeline/end-to-end.test.ts',
+  'tests/pipeline/local-views.test.ts',
+  'tests/registry/private-registry.test.ts',
+  'tests/upgrade/conflicts.test.ts',
+  'tests/upgrade/dry-run-plan.test.ts',
+  'tests/upgrade/pipeline.test.ts'
+];
 
 const testBudgetLanes: TestBudgetLane[] = [
   {
@@ -39,6 +55,10 @@ const testBudgetLanes: TestBudgetLane[] = [
   }
 ];
 
+export function getSlowTestFiles(): string[] {
+  return [...slowTestFiles];
+}
+
 export function buildTestBudgetContract(): TestBudgetContract {
   const lanes = testBudgetLanes.map((lane) => ({ ...lane }));
   const slowLaneIds = lanes.filter((lane) => lane.nextBuild || lane.playwright).map((lane) => lane.id);
@@ -50,8 +70,10 @@ export function buildTestBudgetContract(): TestBudgetContract {
     laneCount: lanes.length,
     slowLaneCount: slowLaneIds.length,
     slowLaneIds,
+    slowTestFileCount: slowTestFiles.length,
+    slowTestFiles: getSlowTestFiles(),
     lanes,
-    localDefault: 'fast lane plus targeted named tests',
+    localDefault: 'npm test / npm run check stay on fast tests; use test:all or check:full for slow runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
 }
@@ -64,6 +86,8 @@ export function formatTestBudgetContract(contract: TestBudgetContract): string {
     `Lanes: ${contract.laneCount}`,
     `Slow lane count: ${contract.slowLaneCount}`,
     `Slow lanes: ${contract.slowLaneIds.join(', ')}`,
+    `Slow test files: ${contract.slowTestFileCount}`,
+    `Slow test file list: ${contract.slowTestFiles.join(', ')}`,
     `Local default: ${contract.localDefault}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
     ...contract.lanes.map((lane) => [

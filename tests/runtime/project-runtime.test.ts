@@ -94,6 +94,10 @@ describe('test budget and benchmark contracts', () => {
   test('root package exposes budget and contract scripts', async () => {
     const { scripts } = await readCompilerPackageJson();
 
+    expect(scripts.test).toBe('bun ./platform/dev-runner.ts test:fast');
+    expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
+    expect(scripts.check).toBe('npm run typecheck && npm test');
+    expect(scripts['check:full']).toBe('npm run typecheck && npm run test:all');
     expect(scripts['test:budget']).toBe('npm run platform -- test budget --json');
     expect(scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
     expect(scripts['test:benchmark-contract']).toBe('npm run platform -- benchmark suite --json');
@@ -103,7 +107,23 @@ describe('test budget and benchmark contracts', () => {
   test('dev-runner does not expose contract subcommands directly', async () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
 
-    expectContainsNone(runnerSource, ['reference-clean', 'benchmark-contract', 'test-budget']);
+    expectContainsNone(runnerSource, ['reference-clean', 'benchmark-contract']);
+  });
+
+  test('fast test runner excludes slow files and skips runtime deps setup', async () => {
+    const runnerSource = await readCompilerFile('platform/dev-runner.ts');
+    const setupSource = await readCompilerFile('tests/setup/runtime-deps.setup.ts');
+
+    expectContainsAll(runnerSource, [
+      'test:fast',
+      'getSlowTestFiles',
+      'fastTestArgs',
+      'PJC_SKIP_RUNTIME_DEPS_SETUP'
+    ]);
+    expectContainsAll(setupSource, [
+      "process.env.PJC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
+      'ensureSharedDepsReady'
+    ]);
   });
 
   test('test budget contract documents lanes and their capabilities', async () => {
@@ -115,6 +135,8 @@ describe('test budget and benchmark contracts', () => {
       'laneCount',
       'slowLaneCount',
       'slowLaneIds',
+      'slowTestFiles',
+      'getSlowTestFiles',
       "id: 'fast'",
       'nextBuild: false',
       'playwright: false',
@@ -271,7 +293,8 @@ describe('error protocol and developer contracts', () => {
 
     expectContainsAll(source, [
       "command: 'npm run platform -- contract freeze --json'",
-      "runnerCommand: 'npm run test:contract-freeze'"
+      "runnerCommand: 'npm run test:contract-freeze'",
+      'buildContractFreezeRunnerInvocations'
     ]);
   });
 

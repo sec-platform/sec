@@ -304,6 +304,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   expect(formatTestBudgetContract(contract)).toContain(
     'Lane all; nextBuild=true; playwright=true; command=npm run platform -- verify --lane all'
   );
+  expect(formatTestBudgetContract(contract)).toContain('Slow test files: 11');
+  expect(formatTestBudgetContract(contract)).toContain('tests/pipeline/end-to-end.test.ts');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
@@ -313,6 +315,20 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     laneCount: 3,
     slowLaneCount: 1,
     slowLaneIds: ['all'],
+    slowTestFileCount: 11,
+    slowTestFiles: [
+      'tests/cli/artifacts.test.ts',
+      'tests/cli/demo-doctor.test.ts',
+      'tests/cli/explain.test.ts',
+      'tests/cli/provenance.test.ts',
+      'tests/override/manifest.test.ts',
+      'tests/pipeline/end-to-end.test.ts',
+      'tests/pipeline/local-views.test.ts',
+      'tests/registry/private-registry.test.ts',
+      'tests/upgrade/conflicts.test.ts',
+      'tests/upgrade/dry-run-plan.test.ts',
+      'tests/upgrade/pipeline.test.ts'
+    ],
     lanes: [
       {
         id: 'fast',
@@ -333,7 +349,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         command: 'npm run platform -- verify --lane all'
       }
     ],
-    localDefault: 'fast lane plus targeted named tests',
+    localDefault: 'npm test / npm run check stay on fast tests; use test:all or check:full for slow runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   });
 
@@ -347,6 +363,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Lanes: 3');
     expect(textResult.stdout).toContain('Slow lane count: 1');
     expect(textResult.stdout).toContain('Slow lanes: all');
+    expect(textResult.stdout).toContain('Slow test files: 11');
+    expect(textResult.stdout).toContain('tests/pipeline/end-to-end.test.ts');
     expect(textResult.stdout).toContain('Lane fast; nextBuild=false; playwright=false');
 
     const jsonResult = await runCli(workspaceRoot, ['test', 'budget', '--json']);
@@ -359,6 +377,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       laneCount: 3,
       slowLaneCount: 1,
       slowLaneIds: ['all'],
+      slowTestFileCount: 11,
+      slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts']),
       lanes: expect.arrayContaining([
         expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
       ])
@@ -373,7 +393,9 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       defaultLane: 'fast',
       laneCount: 3,
       slowLaneCount: 1,
-      slowLaneIds: ['all']
+      slowLaneIds: ['all'],
+      slowTestFileCount: 11,
+      slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts'])
     });
   });
 });

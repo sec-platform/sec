@@ -5,7 +5,8 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 ## Start Here
 
 - Install dependencies with `npm install`.
-- Run the full verification pass with `npm run check`.
+- Run the fast local verification pass with `npm run check`.
+- Run the full test regression explicitly with `npm run check:full`.
 - Use the compiler CLI with `npm run platform -- <command>`.
 - Run the quickstart demo with `npm run demo:quickstart`.
 - Run the full product closed loop with `npm run demo:closed-loop`.
@@ -150,8 +151,10 @@ Workbench and IDE integrations must preserve this boundary:
 
 ## Common Commands
 
-- `npm run check`: TypeScript typecheck plus the main test suite
-- `npm test`: run the Node test suite directly
+- `npm run check`: TypeScript typecheck plus the fast local test suite
+- `npm run check:full`: TypeScript typecheck plus the full Vitest regression
+- `npm test`: run the fast local Vitest suite directly
+- `npm run test:all`: run the full Vitest regression, including slow runtime/E2E contract files
 - `npm run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`, including runner command, lane count, slow lane count, and slow lane IDs
 - `npm run test:contract-freeze`: run the CLI/script/governance contract freeze suite through the runner command declared by `platform contract freeze`
 - `npm run test:benchmark-contract`: print the formal benchmark/task-suite JSON contract through `platform benchmark suite`
