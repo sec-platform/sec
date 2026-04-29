@@ -20,6 +20,22 @@ import type { ArtifactPathKind } from './args.ts';
 
 export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
+export type ArtifactUploadPathContract = {
+  formatVersion: CiArtifactManifest['formatVersion'];
+  root: CiArtifactManifest['root'];
+  kind: ArtifactPathKind | 'all';
+  artifactStatus: CiArtifactManifest['summary']['artifactStatus'];
+  count: number;
+  paths: string[];
+  byKind: Partial<Record<ArtifactPathKind, number>>;
+  uploadGroupCount: number;
+  uploadGroups: ArtifactPathUploadGroup[];
+  missingCount: number;
+  missingReasonTypeCount: number;
+  missingReasonCounts: CiArtifactManifest['summary']['missingReasonCounts'];
+  missing: CiArtifactManifest['missing'];
+};
+
 export type InstallManifestEntry = InstallPlanStep & { status: 'installed' };
 
 export type BlockUsageMap = {
@@ -117,7 +133,7 @@ export function artifactUploadPathSummary(
     }))
   ];
   const kindByPath = new Map(entries.map((entry) => [entry.path, entry.kind]));
-  const paths = [...kindByPath.keys()].sort((left, right) => left.localeCompare(right));
+  const paths = uniqueSorted([...kindByPath.keys()]);
   const uploadEntries = paths.flatMap((path) => {
     const pathKind = kindByPath.get(path);
     return pathKind ? [{ path, kind: pathKind }] : [];
@@ -131,10 +147,32 @@ export function artifactUploadPathSummary(
   return { paths, byKind, uploadGroups };
 }
 
+export function buildArtifactUploadPathContract(
+  manifest: CiArtifactManifest,
+  kind?: ArtifactPathKind
+): ArtifactUploadPathContract {
+  const pathSummary = artifactUploadPathSummary(manifest, kind);
+  return {
+    formatVersion: manifest.formatVersion,
+    root: manifest.root,
+    kind: kind ?? 'all',
+    artifactStatus: manifest.summary.artifactStatus,
+    count: pathSummary.paths.length,
+    paths: pathSummary.paths,
+    byKind: pathSummary.byKind,
+    uploadGroupCount: pathSummary.uploadGroups.length,
+    uploadGroups: pathSummary.uploadGroups,
+    missingCount: manifest.missing.length,
+    missingReasonTypeCount: manifest.summary.missingReasonTypeCount,
+    missingReasonCounts: manifest.summary.missingReasonCounts,
+    missing: manifest.missing
+  };
+}
+
 export function formatInstallManifest(manifest: InstallManifestEntry[]): string {
   return [
     `Install manifest ${manifest.length} steps`,
-    `Blocks: ${formatList([...new Set(manifest.map((entry) => entry.blockId))].sort((left, right) => left.localeCompare(right)))}`,
+    `Blocks: ${formatList(uniqueSorted(manifest.map((entry) => entry.blockId)))}`,
     `Actions: ${formatCounts(manifest.map((entry) => entry.action))}`,
     `Registry kinds: ${formatCounts(manifest.map((entry) => entry.registryKind))}`,
     `Statuses: ${formatCounts(manifest.map((entry) => entry.status))}`

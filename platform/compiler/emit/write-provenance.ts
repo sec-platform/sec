@@ -1,6 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { CI_ARTIFACT_MANIFEST_PATH } from '../../shared/ci-artifact-contract.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_PATHS
+} from '../../shared/ci-artifact-contract.ts';
+import { uniqueSorted } from '../../shared/collections.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
@@ -12,10 +18,6 @@ function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;
 }
 
-function unique(values: string[]): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
-
 function buildSlotArtifact(task: LockFile['slotTasks'][number], artifactPath: string): ProvenanceArtifact {
   return {
     path: artifactPath,
@@ -25,43 +27,52 @@ function buildSlotArtifact(task: LockFile['slotTasks'][number], artifactPath: st
     ...(task.sourcePath ? { sourcePath: task.sourcePath, runtimeTarget: task.target } : {}),
     generatedByPass: task.status === 'generated' ? 'compose' : 'adapt',
     generatorTaskId: buildTaskGeneratorId(task.id),
-    verifiedBy: unique(task.provenanceHints.verifiedBy),
+    verifiedBy: uniqueSorted(task.provenanceHints.verifiedBy),
     overrideStatus: 'none'
   };
 }
 
 function inferGeneratedByPass(targetPath: string): string {
-  if (targetPath === 'control/provenance/provenance.json') {
+  if (targetPath === CI_ARTIFACT_FILES.provenance) {
     return 'lock';
   }
   if (targetPath.startsWith('control/evidence/')) {
-    return targetPath === 'control/evidence/block-usage-map.json' || targetPath === 'control/evidence/install-manifest.json'
+    return targetPath === CI_ARTIFACT_FILES.blockUsageMap || targetPath === CI_ARTIFACT_FILES.installManifest
       ? 'compose'
       : 'verify';
   }
-  if (targetPath === 'control/graph/explain-graph.json') {
+  if (targetPath === CI_ARTIFACT_FILES.explainGraph) {
     return 'explain';
   }
   if (targetPath === CI_ARTIFACT_MANIFEST_PATH) {
     return 'artifacts';
   }
-  if (targetPath === 'control/workbench/views/source-view.html' || targetPath === 'control/workbench/views/slot-rule-view.html') {
+  if ((CI_ARTIFACT_PATHS.view as readonly string[]).includes(targetPath)) {
     return 'explain';
   }
-  if (targetPath === 'control/workflow/repair-plan.json') {
+  if (targetPath === CI_ARTIFACT_FILES.repairPlan) {
     return 'repair';
   }
-  if (targetPath === 'control/workflow/upgrade-plan.json' || targetPath === 'control/workflow/upgrade-diagnostics.json') {
+  if (targetPath === CI_ARTIFACT_FILES.upgradePlan || targetPath === CI_ARTIFACT_FILES.upgradeDiagnostics) {
     return 'upgrade';
   }
   if (targetPath === 'provenance.json') {
     return 'lock';
   }
   if (targetPath.startsWith('generated/')) {
-    if (targetPath.includes('verification-report') || targetPath.includes('runtime-report') || targetPath.includes('policy-report') || targetPath.includes('acceptance-coverage')) {
+    if (
+      targetPath.includes('verification-report') ||
+      targetPath.includes('runtime-report') ||
+      targetPath.includes('policy-report') ||
+      targetPath.includes('acceptance-coverage')
+    ) {
       return 'verify';
     }
-    if (targetPath.includes('explain-graph') || targetPath.includes('review-summary') || targetPath.startsWith('generated/views/')) {
+    if (
+      targetPath.includes('explain-graph') ||
+      targetPath.includes('review-summary') ||
+      targetPath.startsWith('generated/views/')
+    ) {
       return 'explain';
     }
     if (targetPath.includes('repair-plan')) {
@@ -79,7 +90,7 @@ function passedVerificationPaths(report: VerificationReport | null): string[] {
     return [];
   }
 
-  return unique([
+  return uniqueSorted([
     ...report.unit.passed.map((file) => `tests/unit/${file}`),
     ...report.acceptance.passed.map((file) => `tests/acceptance/${file}`),
     ...report.runtime.unit.passed,
@@ -101,7 +112,7 @@ function buildBlockVerificationMap(lock: LockFile, report: VerificationReport | 
     if (!blockId) {
       continue;
     }
-    byBlock.set(blockId, unique([...(byBlock.get(blockId) ?? []), testPath]));
+    byBlock.set(blockId, uniqueSorted([...(byBlock.get(blockId) ?? []), testPath]));
   }
   return byBlock;
 }
@@ -181,10 +192,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
 
 export async function writeProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
   const { provenancePath, lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!lock.generatedPaths.includes('control/provenance/provenance.json')) {
-    lock.generatedPaths.push('control/provenance/provenance.json');
-    lock.generatedPaths.sort((left, right) => left.localeCompare(right));
-  }
+  addGeneratedPaths(lock, [CI_ARTIFACT_FILES.provenance]);
 
   const provenance = await buildProvenance(workspaceRoot, lock);
   await fs.mkdir(path.dirname(provenancePath), { recursive: true });

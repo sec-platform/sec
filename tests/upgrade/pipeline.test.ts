@@ -13,6 +13,7 @@ import {
   upgradeWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -169,7 +170,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
   expect(lock.resolvedBlocks.find((block) => block.id === 'auth/basic-session')?.version).toBe('0.1.1');
   expect(lock.passStatus.lock).toBe('succeeded');
   expect(upgradePlan.status).toBe('applied');
-  expect(lock.generatedPaths).toContain('control/workflow/upgrade-plan.json');
+  expect(lock.generatedPaths).toContain(CI_ARTIFACT_FILES.upgradePlan);
 
   const afterUpgrade = await fs.readFile(
     path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts'),

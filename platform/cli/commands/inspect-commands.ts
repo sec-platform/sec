@@ -1,4 +1,4 @@
-import type { CommandHandler, CommandContext } from '../command-registry.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import {
   runDepsCommand,
   runReferenceCommand,
@@ -18,6 +18,7 @@ import {
 } from '../commands.ts';
 import { parseDoctorArgs } from '../args.ts';
 import { getDoctorReport, formatDoctorReport } from '../../shared/dependency-environment.ts';
+import { formatJson } from '../format-utils.ts';
 import {
   DOCTOR_USAGE,
   DEPS_USAGE,
@@ -44,7 +45,7 @@ export const doctorCommand: CommandHandler = {
     const doctorArgs = parseDoctorArgs(args);
     const report = await getDoctorReport(ctx.cwd);
     if (doctorArgs.json) {
-      console.log(JSON.stringify(report, null, doctorArgs.compact ? 0 : 2));
+      console.log(formatJson(report, doctorArgs));
       return;
     }
     console.log(formatDoctorReport(report));

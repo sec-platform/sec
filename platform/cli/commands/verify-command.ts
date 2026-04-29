@@ -1,6 +1,7 @@
-import type { CommandHandler, CommandContext } from '../command-registry.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { parseVerifyArgs } from '../args.ts';
 import { verifyWorkspace } from '../../orchestrator.ts';
+import { formatJson } from '../format-utils.ts';
 import { VERIFY_USAGE } from '../usage.ts';
 
 export const verifyCommand: CommandHandler = {
@@ -13,7 +14,7 @@ export const verifyCommand: CommandHandler = {
       emitTiming: !verifyArgs.json
     });
     if (verifyArgs.json) {
-      console.log(JSON.stringify(report, null, verifyArgs.compact ? 0 : 2));
+      console.log(formatJson(report, verifyArgs));
       return;
     }
     console.log(`Verification ${report.summary.status} (${report.summary.requestedLane})`);

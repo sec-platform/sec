@@ -1,9 +1,10 @@
-import type { CommandHandler, CommandContext } from '../command-registry.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { parseLockArgs } from '../args.ts';
 import { lockWorkspace } from '../../orchestrator.ts';
 import { resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { formatLockInspect } from '../formatters.ts';
+import { formatJson } from '../format-utils.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { LOCK_USAGE } from '../usage.ts';
 
@@ -19,7 +20,7 @@ export const lockCommand: CommandHandler = {
       }
       const lock = await readJson<LockFile>(readableLockPath);
       if (lockArgs.json) {
-        console.log(JSON.stringify(lock, null, lockArgs.compact ? 0 : 2));
+        console.log(formatJson(lock, lockArgs));
         return;
       }
       console.log(formatLockInspect(lock));

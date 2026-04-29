@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { ensureDir, pathExists, writeJson, writeText } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
+import { emptyOverrideManifest } from './provenance-types.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 import { writeYaml } from './yaml.ts';
 
@@ -589,14 +590,10 @@ datasource db {
   }
 
   if (!(await pathExists(overrideManifestPath))) {
-    await writeYaml(overrideManifestPath, {
-      overrides: []
-    });
+    await writeYaml(overrideManifestPath, emptyOverrideManifest());
   }
 
   if (!(await pathExists(legacyOverrideManifestPath))) {
-    await writeYaml(legacyOverrideManifestPath, {
-      overrides: []
-    });
+    await writeYaml(legacyOverrideManifestPath, emptyOverrideManifest());
   }
 }

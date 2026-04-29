@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { applyRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { lockWorkspace, repairWorkspace } from '../../platform/orchestrator.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
@@ -159,7 +160,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     expect(persistedRepairPlan.requiresVerification).toBe(true);
     expect(persistedRepairPlan.tasks[0].category).toBe('slot-rewrite');
     expect(persistedLock.slotTasks[0].status).toBe('filled');
-    expect(persistedLock.generatedPaths).toContain('control/workflow/repair-plan.json');
+    expect(persistedLock.generatedPaths).toContain(CI_ARTIFACT_FILES.repairPlan);
     expect(persistedRepairPlan.tasks[0].failurePoints).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -195,7 +196,7 @@ test('repair dry-run writes a pending plan without touching source or verificati
     expect(persistedLock.passStatus.verify).toBe('failed');
     expect(persistedLock.passStatus.repair).toBe('pending');
     expect(persistedLock.slotTasks[0].status).toBe('failed');
-    expect(persistedLock.generatedPaths).toContain('control/workflow/repair-plan.json');
+    expect(persistedLock.generatedPaths).toContain(CI_ARTIFACT_FILES.repairPlan);
     expect(persistedRepairPlan).toEqual(repairPlan);
   });
 });

@@ -1,3 +1,5 @@
+import { uniqueSorted } from './collections.ts';
+
 export type ContractFreezeTarget = {
   file: string;
   command: string;
@@ -179,9 +181,7 @@ export function buildContractFreezeRunnerInvocations(
 
 export function buildContractFreezeContract(): ContractFreezeContract {
   const targets = getContractFreezeTargets();
-  const targetFiles = [...new Set(targets.map((target) => target.file))].sort((left, right) =>
-    left.localeCompare(right)
-  );
+  const targetFiles = uniqueSorted(targets.map((target) => target.file));
 
   return {
     formatVersion: '1',

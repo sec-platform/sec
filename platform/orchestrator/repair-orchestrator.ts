@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises';
 import { CompilerError } from '../shared/errors.ts';
-import { pathExists, readJson } from '../shared/fs.ts';
+import { readJson } from '../shared/fs.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { buildRepairPlan, applyRepairPlan, previewRepairPlan, writeRepairPlan } from '../compiler/repair/build-repair-plan.ts';
-import type { LockFile, PlanFile } from '../shared/types.ts';
+import type { LockFile } from '../shared/types.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import type { VerificationReport } from '../shared/verification-types.ts';
 

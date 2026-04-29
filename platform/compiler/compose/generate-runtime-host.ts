@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { uniqueSorted } from '../../shared/collections.ts';
 import { ensureDir, writeText } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
@@ -2320,7 +2321,7 @@ function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: 
 
 function generatedPathsForScaffold(lock: LockFile): string[] {
   const entries = scaffoldEntries(lock).map((entry) => entry.relativePath);
-  return [...new Set([...BASE_RUNTIME_SCAFFOLD_PATHS, ...entries])].sort((left, right) => left.localeCompare(right));
+  return uniqueSorted([...BASE_RUNTIME_SCAFFOLD_PATHS, ...entries]);
 }
 
 export async function generateRuntimeHostScaffold(workspaceRoot: string, lock: LockFile): Promise<string[]> {

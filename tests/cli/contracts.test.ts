@@ -7,6 +7,12 @@ import {
   formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
 import {
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_KINDS,
+  CI_ARTIFACT_MANIFEST_PATH,
+  ciArtifactUploadCommand
+} from '../../platform/shared/ci-artifact-contract.ts';
+import {
   buildCiContract,
   formatCiContract
 } from '../../platform/shared/ci-contract.ts';
@@ -316,20 +322,15 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'npm run platform -- demo checklist --json --compact'
     ],
     artifactUploadCommandCount: 4,
-    artifactUploadCommands: [
-      'npm run platform -- artifacts --paths --json --compact --kind governance',
-      'npm run platform -- artifacts --paths --json --compact --kind view',
-      'npm run platform -- artifacts --paths --json --compact --kind test',
-      'npm run platform -- artifacts --paths --json --compact --kind contract'
-    ],
+    artifactUploadCommands: CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand),
     artifactPathCount: 6,
     artifactPaths: [
-      'control/ci/artifacts.json',
-      'control/evidence/acceptance-coverage.json',
-      'control/evidence/review-summary.json',
-      'control/evidence/runtime-report.json',
-      'control/evidence/verification-report.json',
-      'control/graph/explain-graph.json'
+      CI_ARTIFACT_MANIFEST_PATH,
+      CI_ARTIFACT_FILES.acceptanceCoverage,
+      CI_ARTIFACT_FILES.reviewSummary,
+      CI_ARTIFACT_FILES.runtimeReport,
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.explainGraph
     ],
     stepCount: 16,
     steps: expect.arrayContaining([
@@ -338,7 +339,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         phase: 'verify',
         command: 'npm run platform -- verify --json --compact',
         producesCount: 1,
-        produces: ['control/evidence/verification-report.json']
+        produces: [CI_ARTIFACT_FILES.verificationReport]
       }),
       expect.objectContaining({
         id: 'full-runtime-verify',
@@ -346,8 +347,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         command: 'npm run platform -- verify --lane all --json --compact',
         producesCount: 3,
         produces: expect.arrayContaining([
-          'control/evidence/runtime-report.json',
-          'control/evidence/acceptance-coverage.json'
+          CI_ARTIFACT_FILES.runtimeReport,
+          CI_ARTIFACT_FILES.acceptanceCoverage
         ])
       }),
       expect.objectContaining({
@@ -431,11 +432,18 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     );
     expect(textResult.stdout).toContain('Artifact upload command count: 4');
     expect(textResult.stdout).toContain(
-      'Artifact uploads: npm run platform -- artifacts --paths --json --compact --kind governance, npm run platform -- artifacts --paths --json --compact --kind view, npm run platform -- artifacts --paths --json --compact --kind test, npm run platform -- artifacts --paths --json --compact --kind contract'
+      `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`
     );
     expect(textResult.stdout).toContain('Artifact paths: 6');
     expect(textResult.stdout).toContain(
-      'Artifact path list: control/ci/artifacts.json, control/evidence/acceptance-coverage.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json'
+      `Artifact path list: ${[
+        CI_ARTIFACT_MANIFEST_PATH,
+        CI_ARTIFACT_FILES.acceptanceCoverage,
+        CI_ARTIFACT_FILES.reviewSummary,
+        CI_ARTIFACT_FILES.runtimeReport,
+        CI_ARTIFACT_FILES.verificationReport,
+        CI_ARTIFACT_FILES.explainGraph
+      ].join(', ')}`
     );
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3');
     expect(textResult.stdout).toContain('Step typecheck; phase=quality; command=npm run typecheck; producesCount=0');
@@ -478,8 +486,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       artifactUploadCommandCount: 4,
       artifactPathCount: 6,
       artifactPaths: expect.arrayContaining([
-        'control/ci/artifacts.json',
-        'control/evidence/verification-report.json'
+        CI_ARTIFACT_MANIFEST_PATH,
+        CI_ARTIFACT_FILES.verificationReport
       ]),
       stepCount: 16,
       steps: expect.arrayContaining([
@@ -564,12 +572,12 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
     artifactPathCount: 7,
     artifactPaths: [
-      'control/evidence/review-summary.json',
-      'control/evidence/verification-report.json',
-      'control/workflow/repair-plan.json',
-      'control/workflow/upgrade-diagnostics.json',
-      'control/workflow/upgrade-plan.json',
-      'control/workflow/view-mutation-report.json',
+      CI_ARTIFACT_FILES.reviewSummary,
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.repairPlan,
+      CI_ARTIFACT_FILES.upgradeDiagnostics,
+      CI_ARTIFACT_FILES.upgradePlan,
+      CI_ARTIFACT_FILES.viewMutationReport,
       'source/views/mutations'
     ],
     examples: expect.arrayContaining([
@@ -595,7 +603,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: false,
           issueType: 'spec',
           suggestedActions: ['inspect-verification-report', 'run-platform-explain'],
-          artifactPaths: ['control/evidence/verification-report.json', 'control/evidence/review-summary.json']
+          artifactPaths: [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.reviewSummary]
         })
       }),
       expect.objectContaining({
@@ -612,7 +620,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'slot',
           suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'],
-          artifactPaths: ['control/workflow/repair-plan.json', 'control/evidence/review-summary.json']
+          artifactPaths: [CI_ARTIFACT_FILES.repairPlan, CI_ARTIFACT_FILES.reviewSummary]
         })
       }),
       expect.objectContaining({
@@ -637,7 +645,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'composition',
           suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'],
-          artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json']
+          artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan]
         })
       }),
       expect.objectContaining({
@@ -646,7 +654,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'composition',
           suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'],
-          artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json'],
+          artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan],
           details: {
             migrationId: 'mig-customer-normalizer-contract',
             migrationKind: 'slot-contract-update',
@@ -661,7 +669,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'composition',
           suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'],
-          artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json']
+          artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan]
         })
       }),
       expect.objectContaining({
@@ -670,7 +678,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'spec',
           suggestedActions: ['inspect-workbench-mutations', 'run-platform-workbench-mutations-apply'],
-          artifactPaths: ['source/views/mutations', 'control/workflow/view-mutation-report.json']
+          artifactPaths: ['source/views/mutations', CI_ARTIFACT_FILES.viewMutationReport]
         })
       })
     ])
@@ -683,7 +691,17 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Error protocol active');
     expect(textResult.stdout).toContain('Issue type count: 5');
     expect(textResult.stdout).toContain('Artifact paths: 7');
-    expect(textResult.stdout).toContain('Artifact path list: control/evidence/review-summary.json, control/evidence/verification-report.json, control/workflow/repair-plan.json, control/workflow/upgrade-diagnostics.json, control/workflow/upgrade-plan.json, control/workflow/view-mutation-report.json, source/views/mutations');
+    expect(textResult.stdout).toContain(
+      `Artifact path list: ${[
+        CI_ARTIFACT_FILES.reviewSummary,
+        CI_ARTIFACT_FILES.verificationReport,
+        CI_ARTIFACT_FILES.repairPlan,
+        CI_ARTIFACT_FILES.upgradeDiagnostics,
+        CI_ARTIFACT_FILES.upgradePlan,
+        CI_ARTIFACT_FILES.viewMutationReport,
+        'source/views/mutations'
+      ].join(', ')}`
+    );
     expect(textResult.stdout).toContain('Example repair-plan-error; code=REPAIR-BLOCKED-001');
     expect(textResult.stdout).toContain('Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016');
     expect(textResult.stdout).toContain('Example workbench-mutation-error; code=WORKBENCH-MUTATION-002');

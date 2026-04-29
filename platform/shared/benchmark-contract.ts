@@ -23,6 +23,7 @@ export type BenchmarkTaskSuiteContract = {
   scoreDimensions: string[];
 };
 
+import { CI_ARTIFACT_FILES } from './ci-artifact-contract.ts';
 import { uniqueSorted } from './collections.ts';
 
 const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocusCount'>> = [
@@ -32,10 +33,10 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     gate: 'resolve compose adapt verify lock explain',
     command: 'npm run demo:quickstart',
     artifactPaths: [
-      'control/state/graph.lock.json',
-      'control/provenance/provenance.json',
-      'control/evidence/verification-report.json',
-      'control/graph/explain-graph.json'
+      CI_ARTIFACT_FILES.graphLock,
+      CI_ARTIFACT_FILES.provenance,
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.explainGraph
     ],
     scoreFocus: ['success-rate', 'files-touched', 'verification-status']
   },
@@ -45,9 +46,9 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     gate: 'repair verify',
     command: 'npm run platform -- repair --dry-run --json --compact',
     artifactPaths: [
-      'control/workflow/repair-plan.json',
-      'control/evidence/verification-report.json',
-      'control/provenance/provenance.json'
+      CI_ARTIFACT_FILES.repairPlan,
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.provenance
     ],
     scoreFocus: ['repairability', 'attempt-count', 'verification-status']
   },
@@ -57,9 +58,9 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     gate: 'verify explain',
     command: 'npm run platform -- policy report --json --compact',
     artifactPaths: [
-      'control/evidence/policy-report.json',
-      'control/evidence/acceptance-coverage.json',
-      'control/graph/explain-graph.json'
+      CI_ARTIFACT_FILES.policyReport,
+      CI_ARTIFACT_FILES.acceptanceCoverage,
+      CI_ARTIFACT_FILES.explainGraph
     ],
     scoreFocus: ['diagnostic-precision', 'explainability']
   },
@@ -69,9 +70,9 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     gate: 'upgrade --dry-run explain',
     command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
     artifactPaths: [
-      'control/workflow/upgrade-plan.json',
-      'control/workflow/upgrade-diagnostics.json',
-      'control/evidence/review-summary.json'
+      CI_ARTIFACT_FILES.upgradePlan,
+      CI_ARTIFACT_FILES.upgradeDiagnostics,
+      CI_ARTIFACT_FILES.reviewSummary
     ],
     scoreFocus: ['upgrade-safety', 'impact-coverage']
   },
@@ -82,8 +83,8 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
     artifactPaths: [
       'source/patches/override-manifest.yaml',
-      'control/workflow/upgrade-diagnostics.json',
-      'control/evidence/review-summary.json'
+      CI_ARTIFACT_FILES.upgradeDiagnostics,
+      CI_ARTIFACT_FILES.reviewSummary
     ],
     scoreFocus: ['conflict-detection', 'machine-recoverability']
   }

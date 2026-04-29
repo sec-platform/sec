@@ -40,3 +40,7 @@ export interface OverrideEntry {
 export interface OverrideManifest {
   overrides: OverrideEntry[];
 }
+
+export function emptyOverrideManifest(): OverrideManifest {
+  return { overrides: [] };
+}

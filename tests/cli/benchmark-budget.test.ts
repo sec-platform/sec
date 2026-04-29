@@ -1,168 +1,16 @@
 import { expect, test } from 'vitest';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
 import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
 import {
-  buildCiContract,
-  formatCiContract
-} from '../../platform/shared/ci-contract.ts';
-import {
-  buildContractFreezeContract,
-  formatContractFreezeContract
-} from '../../platform/shared/contract-freeze-contract.ts';
-import {
-  buildErrorProtocolContract,
-  formatErrorProtocolContract
-} from '../../platform/shared/error-protocol-contract.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+  CI_ARTIFACT_FILES
+} from '../../platform/shared/ci-artifact-contract.ts';
 import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../../platform/shared/test-budget-contract.ts';
-import {
-  ACCEPTANCE_USAGE,
-  LOCK_USAGE,
-  POLICY_USAGE,
-  POSTGRES_USAGE,
-  REPAIR_USAGE,
-  RUNTIME_USAGE,
-  USAGE
-} from '../../platform/cli/usage.ts';
-import {
-  assertReferenceCheckClean,
-  buildReferenceCheckReport,
-  formatReferenceCheck
-} from '../../platform/shared/reference-check.ts';
-import type {
-  ExplainGraph,
-  RepairPlan,
-  ReviewSummary,
-  UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport
-} from '../../platform/shared/types.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
 import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
-
-function usageErrorStderr(usage: string): string {
-  return [
-    `UNEXPECTED ${usage}`,
-    JSON.stringify({
-      code: 'UNEXPECTED',
-      message: usage,
-      recoverable: true,
-      issueType: 'usage',
-      suggestedActions: ['retry-with-supported-arguments'],
-      artifactPaths: []
-    }),
-    ''
-  ].join('\n');
-}
-
-async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['repair', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(REPAIR_USAGE)
-  });
-}
-
-async function expectLockUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['lock', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(LOCK_USAGE)
-  });
-}
-
-async function expectPolicyUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['policy', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(POLICY_USAGE)
-  });
-}
-
-async function expectAcceptanceUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['acceptance', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(ACCEPTANCE_USAGE)
-  });
-}
-
-async function expectPostgresUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['postgres', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(POSTGRES_USAGE)
-  });
-}
-
-async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
-  const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
-  const blockRoot = path.join(privateRegistryRoot, 'private.banner-basic');
-
-  await fs.mkdir(path.join(blockRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
-  await fs.mkdir(path.join(blockRoot, 'files', 'tests', 'unit'), { recursive: true });
-
-  await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), {
-    id: 'private/banner-basic',
-    version: '0.1.0',
-    kind: 'governance',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
-    compatibility: {
-      blockApi: '1',
-      compilerApi: '1',
-      stackProfiles: ['nextjs-ts-prisma-sqlite']
-    },
-    requires: [],
-    provides: ['governance/banner'],
-    conflicts: [],
-    installs: [
-      {
-        kind: 'copy',
-        from: 'files/src/installed/private/banner.ts',
-        to: 'src/installed/private/banner.ts'
-      },
-      {
-        kind: 'copy',
-        from: 'files/tests/unit/private-banner.test.ts',
-        to: 'tests/unit/private-banner.test.ts'
-      }
-    ],
-    pins: {
-      inputs: [],
-      outputs: [
-        {
-          id: 'banner_message',
-          type: 'string',
-          required: true
-        }
-      ]
-    },
-    slots: [],
-    acceptance: [],
-    routes: []
-  });
-
-  await fs.writeFile(
-    path.join(blockRoot, 'files', 'src', 'installed', 'private', 'banner.ts'),
-    `export function projectBanner(projectName: string): string {\n  return \`private-banner:\${projectName}\`;\n}\n`,
-    'utf8'
-  );
-
-  await fs.writeFile(
-    path.join(blockRoot, 'files', 'tests', 'unit', 'private-banner.test.ts'),
-    `import assert from 'node:assert/strict';\nimport { projectBanner } from '../../src/installed/private/banner.ts';\n\nexport async function runSuite() {\n  assert.equal(projectBanner('customer-admin'), 'private-banner:customer-admin');\n}\n`,
-    'utf8'
-  );
-}
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();
@@ -182,16 +30,16 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     taskCount: 5,
     artifactPathCount: 11,
     artifactPaths: [
-      'control/evidence/acceptance-coverage.json',
-      'control/evidence/policy-report.json',
-      'control/evidence/review-summary.json',
-      'control/evidence/verification-report.json',
-      'control/graph/explain-graph.json',
-      'control/provenance/provenance.json',
-      'control/state/graph.lock.json',
-      'control/workflow/repair-plan.json',
-      'control/workflow/upgrade-diagnostics.json',
-      'control/workflow/upgrade-plan.json',
+      CI_ARTIFACT_FILES.acceptanceCoverage,
+      CI_ARTIFACT_FILES.policyReport,
+      CI_ARTIFACT_FILES.reviewSummary,
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.explainGraph,
+      CI_ARTIFACT_FILES.provenance,
+      CI_ARTIFACT_FILES.graphLock,
+      CI_ARTIFACT_FILES.repairPlan,
+      CI_ARTIFACT_FILES.upgradeDiagnostics,
+      CI_ARTIFACT_FILES.upgradePlan,
       'source/patches/override-manifest.yaml'
     ],
     tasks: expect.arrayContaining([
@@ -201,9 +49,9 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         command: 'npm run demo:quickstart',
         artifactPathCount: 4,
         artifactPaths: expect.arrayContaining([
-          'control/state/graph.lock.json',
-          'control/evidence/verification-report.json',
-          'control/graph/explain-graph.json'
+          CI_ARTIFACT_FILES.graphLock,
+          CI_ARTIFACT_FILES.verificationReport,
+          CI_ARTIFACT_FILES.explainGraph
         ]),
         scoreFocusCount: 3,
         scoreFocus: ['success-rate', 'files-touched', 'verification-status']
@@ -214,8 +62,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         command: 'npm run platform -- repair --dry-run --json --compact',
         artifactPathCount: 3,
         artifactPaths: expect.arrayContaining([
-          'control/workflow/repair-plan.json',
-          'control/provenance/provenance.json'
+          CI_ARTIFACT_FILES.repairPlan,
+          CI_ARTIFACT_FILES.provenance
         ]),
         scoreFocusCount: 3,
         scoreFocus: ['repairability', 'attempt-count', 'verification-status']
@@ -227,7 +75,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         artifactPathCount: 3,
         artifactPaths: expect.arrayContaining([
           'source/patches/override-manifest.yaml',
-          'control/workflow/upgrade-diagnostics.json'
+          CI_ARTIFACT_FILES.upgradeDiagnostics
         ]),
         scoreFocusCount: 2,
         scoreFocus: ['conflict-detection', 'machine-recoverability']
@@ -252,11 +100,25 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(textResult.stdout).toContain('Artifact paths: 11');
     expect(textResult.stdout).toContain('Score dimension count: 9');
     expect(textResult.stdout).toContain(
-      'Artifact path list: control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, control/state/graph.lock.json, control/workflow/repair-plan.json, control/workflow/upgrade-diagnostics.json, control/workflow/upgrade-plan.json, source/patches/override-manifest.yaml'
+      `Artifact path list: ${[
+        CI_ARTIFACT_FILES.acceptanceCoverage,
+        CI_ARTIFACT_FILES.policyReport,
+        CI_ARTIFACT_FILES.reviewSummary,
+        CI_ARTIFACT_FILES.verificationReport,
+        CI_ARTIFACT_FILES.explainGraph,
+        CI_ARTIFACT_FILES.provenance,
+        CI_ARTIFACT_FILES.graphLock,
+        CI_ARTIFACT_FILES.repairPlan,
+        CI_ARTIFACT_FILES.upgradeDiagnostics,
+        CI_ARTIFACT_FILES.upgradePlan,
+        'source/patches/override-manifest.yaml'
+      ].join(', ')}`
     );
     expect(textResult.stdout).toContain('Task override-conflict: surface one override conflict during upgrade planning');
     expect(textResult.stdout).toContain('command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact');
-    expect(textResult.stdout).toContain('artifactCount=3; artifacts=source/patches/override-manifest.yaml, control/workflow/upgrade-diagnostics.json, control/evidence/review-summary.json');
+    expect(textResult.stdout).toContain(
+      `artifactCount=3; artifacts=source/patches/override-manifest.yaml, ${CI_ARTIFACT_FILES.upgradeDiagnostics}, ${CI_ARTIFACT_FILES.reviewSummary}`
+    );
     expect(textResult.stdout).toContain('scoreFocusCount=2; score=conflict-detection, machine-recoverability');
 
     const jsonResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json']);
@@ -269,9 +131,9 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       taskCount: 5,
       artifactPathCount: 11,
       artifactPaths: expect.arrayContaining([
-        'control/evidence/review-summary.json',
-        'control/workflow/upgrade-plan.json',
-        'control/provenance/provenance.json'
+        CI_ARTIFACT_FILES.reviewSummary,
+        CI_ARTIFACT_FILES.upgradePlan,
+        CI_ARTIFACT_FILES.provenance
       ]),
       tasks: expect.arrayContaining([
         expect.objectContaining({ id: 'add-block', artifactPathCount: 4, scoreFocusCount: 3 }),

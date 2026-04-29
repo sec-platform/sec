@@ -1,61 +1,78 @@
-import type {
-  CiArtifactEntry,
-  CiArtifactKind,
-  CiArtifactManifest,
-  CiArtifactMissingEntry,
-  CiArtifactMissingReason,
-  CiArtifactSummary,
-  CiArtifactUploadGroup
+import { uniqueSorted } from './collections.ts';
+import {
+  CI_ARTIFACT_KINDS,
+  CI_ARTIFACT_MISSING_REASON,
+  CI_ARTIFACT_MISSING_REASONS,
+  type CiArtifactEntry,
+  type CiArtifactKind,
+  type CiArtifactManifest,
+  type CiArtifactMissingEntry,
+  type CiArtifactSummary,
+  type CiArtifactUploadGroup
 } from './ci-artifact-types.ts';
 
-export const CI_ARTIFACT_KINDS = [
-  'governance',
-  'view',
-  'test',
-  'contract'
-] as const satisfies readonly CiArtifactKind[];
+export {
+  CI_ARTIFACT_KINDS,
+  CI_ARTIFACT_MISSING_REASON,
+  CI_ARTIFACT_MISSING_REASONS
+} from './ci-artifact-types.ts';
 
-export const CI_ARTIFACT_MANIFEST_PATH = 'control/ci/artifacts.json';
+export const CI_ARTIFACT_FILES = {
+  artifactManifest: 'control/ci/artifacts.json',
+  graphLock: 'control/state/graph.lock.json',
+  provenance: 'control/provenance/provenance.json',
+  blockUsageMap: 'control/evidence/block-usage-map.json',
+  installManifest: 'control/evidence/install-manifest.json',
+  verificationReport: 'control/evidence/verification-report.json',
+  runtimeReport: 'control/evidence/runtime-report.json',
+  policyReport: 'control/evidence/policy-report.json',
+  acceptanceCoverage: 'control/evidence/acceptance-coverage.json',
+  explainGraph: 'control/graph/explain-graph.json',
+  reviewSummary: 'control/evidence/review-summary.json',
+  repairPlan: 'control/workflow/repair-plan.json',
+  upgradePlan: 'control/workflow/upgrade-plan.json',
+  upgradeDiagnostics: 'control/workflow/upgrade-diagnostics.json',
+  viewMutationReport: 'control/workflow/view-mutation-report.json',
+  sourceView: 'control/workbench/views/source-view.html',
+  slotRuleView: 'control/workbench/views/slot-rule-view.html',
+  testResults: 'test-results/**'
+} as const;
+
+export const CI_ARTIFACT_MANIFEST_PATH = CI_ARTIFACT_FILES.artifactManifest;
 
 export const CI_ARTIFACT_PATHS = {
   requiredGovernance: [
-    'control/state/graph.lock.json',
-    'control/provenance/provenance.json',
-    'control/evidence/install-manifest.json',
-    'control/evidence/verification-report.json',
-    'control/evidence/runtime-report.json',
-    'control/evidence/policy-report.json',
-    'control/evidence/acceptance-coverage.json',
-    'control/graph/explain-graph.json',
-    'control/evidence/review-summary.json'
+    CI_ARTIFACT_FILES.graphLock,
+    CI_ARTIFACT_FILES.provenance,
+    CI_ARTIFACT_FILES.installManifest,
+    CI_ARTIFACT_FILES.verificationReport,
+    CI_ARTIFACT_FILES.runtimeReport,
+    CI_ARTIFACT_FILES.policyReport,
+    CI_ARTIFACT_FILES.acceptanceCoverage,
+    CI_ARTIFACT_FILES.explainGraph,
+    CI_ARTIFACT_FILES.reviewSummary
   ],
   optionalGovernance: [
-    'control/workflow/repair-plan.json',
-    'control/workflow/upgrade-plan.json',
-    'control/workflow/upgrade-diagnostics.json',
-    'control/workflow/view-mutation-report.json'
+    CI_ARTIFACT_FILES.repairPlan,
+    CI_ARTIFACT_FILES.upgradePlan,
+    CI_ARTIFACT_FILES.upgradeDiagnostics,
+    CI_ARTIFACT_FILES.viewMutationReport
   ],
   view: [
-    'control/workbench/views/source-view.html',
-    'control/workbench/views/slot-rule-view.html'
+    CI_ARTIFACT_FILES.sourceView,
+    CI_ARTIFACT_FILES.slotRuleView
   ],
   test: [
-    'test-results/**'
+    CI_ARTIFACT_FILES.testResults
   ]
 } as const;
-
-export const CI_ARTIFACT_MISSING_REASONS = [
-  'declared-generated-missing',
-  'fixed-governance-missing',
-  'fixed-view-missing'
-] as const satisfies readonly CiArtifactMissingReason[];
 
 export function normalizeCiArtifactPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
 
 export function uniqueSortedCiArtifactPaths(values: readonly string[]): string[] {
-  return [...new Set(values.map(normalizeCiArtifactPath))].sort((left, right) => left.localeCompare(right));
+  return uniqueSorted(values.map(normalizeCiArtifactPath));
 }
 
 export function ciArtifactUploadName(artifactPath: string): string {

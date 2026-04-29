@@ -1,3 +1,4 @@
+import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import {
   cleanDependencyEnvironment,
   formatDependencyEnvironmentStatus,
@@ -39,19 +40,15 @@ import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import {
-  ACCEPTANCE_USAGE,
   BENCHMARK_USAGE,
   BLOCKS_USAGE,
   CONTRACT_USAGE,
   DEMO_USAGE,
   DEPS_USAGE,
   INSTALL_USAGE,
-  POLICY_USAGE,
   POSTGRES_USAGE,
   PROVENANCE_USAGE,
   REFERENCE_USAGE,
-  REVIEW_USAGE,
-  RUNTIME_USAGE,
   TEST_USAGE,
   VERIFICATION_USAGE
 } from './usage.ts';
@@ -100,55 +97,56 @@ import {
   type InstallManifestEntry,
   type PostgresContract
 } from './formatters.ts';
+import { formatJson } from './format-utils.ts';
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
   const paths = getWorkspacePaths(workspaceRoot);
   const items: DemoChecklistItem[] = await Promise.all([
     {
       id: 'verification-report',
-      artifactPath: 'control/evidence/verification-report.json',
+      artifactPath: CI_ARTIFACT_FILES.verificationReport,
       absolutePath: paths.verificationReportPath,
       command: 'npm run platform -- verify --lane all'
     },
     {
       id: 'runtime-report',
-      artifactPath: 'control/evidence/runtime-report.json',
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
       absolutePath: paths.runtimeReportPath,
       command: 'npm run platform -- verify --lane all'
     },
     {
       id: 'policy-report',
-      artifactPath: 'control/evidence/policy-report.json',
+      artifactPath: CI_ARTIFACT_FILES.policyReport,
       absolutePath: paths.policyReportPath,
       command: 'npm run platform -- verify'
     },
     {
       id: 'acceptance-coverage',
-      artifactPath: 'control/evidence/acceptance-coverage.json',
+      artifactPath: CI_ARTIFACT_FILES.acceptanceCoverage,
       absolutePath: paths.acceptanceCoveragePath,
       command: 'npm run platform -- verify'
     },
     {
       id: 'graph-lock',
-      artifactPath: 'control/state/graph.lock.json',
+      artifactPath: CI_ARTIFACT_FILES.graphLock,
       absolutePath: paths.lockPath,
       command: 'npm run platform -- lock'
     },
     {
       id: 'provenance-registry',
-      artifactPath: 'control/provenance/provenance.json',
+      artifactPath: CI_ARTIFACT_FILES.provenance,
       absolutePath: paths.provenancePath,
       command: 'npm run platform -- adapt'
     },
     {
       id: 'explain-graph',
-      artifactPath: 'control/graph/explain-graph.json',
+      artifactPath: CI_ARTIFACT_FILES.explainGraph,
       absolutePath: paths.explainGraphPath,
       command: 'npm run platform -- explain'
     },
     {
       id: 'review-summary',
-      artifactPath: 'control/evidence/review-summary.json',
+      artifactPath: CI_ARTIFACT_FILES.reviewSummary,
       absolutePath: paths.reviewSummaryPath,
       command: 'npm run platform -- explain'
     }
@@ -176,7 +174,7 @@ export async function runDepsCommand(args: string[], cwd = process.cwd()): Promi
       const outputArgs = parseDepsOutputArgs(subArgs);
       const status = await getDependencyEnvironmentStatus(cwd);
       if (outputArgs.json) {
-        console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
+        console.log(formatJson(status, outputArgs));
         return;
       }
       console.log(formatDependencyEnvironmentStatus(status));
@@ -186,7 +184,7 @@ export async function runDepsCommand(args: string[], cwd = process.cwd()): Promi
       const outputArgs = parseDepsOutputArgs(subArgs);
       const status = await warmupDependencyEnvironment(cwd);
       if (outputArgs.json) {
-        console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
+        console.log(formatJson(status, outputArgs));
         return;
       }
       console.log(formatDependencyEnvironmentStatus(status));
@@ -199,7 +197,7 @@ export async function runDepsCommand(args: string[], cwd = process.cwd()): Promi
       const outputArgs = parseDepsOutputArgs(subArgs.slice(1));
       const status = await relinkProjectDependencies(cwd);
       if (outputArgs.json) {
-        console.log(JSON.stringify(status, null, outputArgs.compact ? 0 : 2));
+        console.log(formatJson(status, outputArgs));
         return;
       }
       console.log(formatDependencyEnvironmentStatus(status));
@@ -225,7 +223,7 @@ export async function runReferenceCommand(args: string[]): Promise<void> {
   const report = await buildReferenceCheckReport();
 
   if (outputArgs.json) {
-    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(report, outputArgs));
   } else {
     console.log(formatReferenceCheck(report));
   }
@@ -241,7 +239,7 @@ export async function runBenchmarkCommand(args: string[]): Promise<void> {
   const outputArgs = parseBenchmarkOutputArgs(args.slice(1));
   const contract = buildBenchmarkTaskSuiteContract();
   if (outputArgs.json) {
-    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(contract, outputArgs));
     return;
   }
 
@@ -256,7 +254,7 @@ export async function runTestCommand(args: string[]): Promise<void> {
   const outputArgs = parseTestOutputArgs(args.slice(1));
   const contract = buildTestBudgetContract();
   if (outputArgs.json) {
-    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(contract, outputArgs));
     return;
   }
 
@@ -274,7 +272,7 @@ export async function runPolicyCommand(args: string[], cwd = process.cwd()): Pro
   if (policyArgs.mode === 'sources') {
     const sourceInspect = buildPolicySourceInspect(report);
     if (policyArgs.json) {
-      console.log(JSON.stringify(sourceInspect, null, policyArgs.compact ? 0 : 2));
+      console.log(formatJson(sourceInspect, policyArgs));
       return;
     }
     console.log(formatPolicySources(sourceInspect));
@@ -282,7 +280,7 @@ export async function runPolicyCommand(args: string[], cwd = process.cwd()): Pro
   }
 
   if (policyArgs.json) {
-    console.log(JSON.stringify(report, null, policyArgs.compact ? 0 : 2));
+    console.log(formatJson(report, policyArgs));
     return;
   }
 
@@ -300,7 +298,7 @@ export async function runAcceptanceCommand(args: string[], cwd = process.cwd()):
   if (acceptanceArgs.mode === 'blocks' || acceptanceArgs.mode === 'slots') {
     const targetInspect = buildAcceptanceTargetInspect(report, acceptanceArgs.mode);
     if (acceptanceArgs.json) {
-      console.log(JSON.stringify(targetInspect, null, acceptanceArgs.compact ? 0 : 2));
+      console.log(formatJson(targetInspect, acceptanceArgs));
       return;
     }
     console.log(formatAcceptanceTargets(targetInspect));
@@ -308,7 +306,7 @@ export async function runAcceptanceCommand(args: string[], cwd = process.cwd()):
   }
 
   if (acceptanceArgs.json) {
-    console.log(JSON.stringify(report, null, acceptanceArgs.compact ? 0 : 2));
+    console.log(formatJson(report, acceptanceArgs));
     return;
   }
 
@@ -326,7 +324,7 @@ export async function runRuntimeCommand(args: string[], cwd = process.cwd()): Pr
   if (outputArgs.mode === 'steps') {
     const inspect = buildRuntimeStepsInspect(report);
     if (outputArgs.json) {
-      console.log(JSON.stringify(inspect, null, outputArgs.compact ? 0 : 2));
+      console.log(formatJson(inspect, outputArgs));
       return;
     }
     console.log(formatRuntimeStepsInspect(inspect));
@@ -334,7 +332,7 @@ export async function runRuntimeCommand(args: string[], cwd = process.cwd()): Pr
   }
 
   if (outputArgs.json) {
-    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(report, outputArgs));
     return;
   }
 
@@ -354,7 +352,7 @@ export async function runInstallCommand(args: string[], cwd = process.cwd()): Pr
 
   const manifest = await readJson<InstallManifestEntry[]>(installManifestPath);
   if (outputArgs.json) {
-    console.log(JSON.stringify(manifest, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(manifest, outputArgs));
     return;
   }
 
@@ -374,7 +372,7 @@ export async function runBlocksCommand(args: string[], cwd = process.cwd()): Pro
 
   const usageMap = await readJson<BlockUsageMap>(blockUsageMapPath);
   if (outputArgs.json) {
-    console.log(JSON.stringify(usageMap, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(usageMap, outputArgs));
     return;
   }
 
@@ -394,7 +392,7 @@ export async function runPostgresCommand(args: string[], cwd = process.cwd()): P
 
   const contract = await readJson<PostgresContract>(postgresContractPath);
   if (outputArgs.json) {
-    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(contract, outputArgs));
     return;
   }
 
@@ -414,7 +412,7 @@ export async function runVerificationCommand(args: string[], cwd = process.cwd()
 
   const report = await readJson<VerificationReport>(verificationReportPath);
   if (outputArgs.json) {
-    console.log(JSON.stringify(report, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(report, outputArgs));
     return;
   }
 
@@ -434,7 +432,7 @@ export async function runProvenanceCommand(args: string[], cwd = process.cwd()):
 
   const provenance = await readJson<ProvenanceFile>(readableProvenancePath);
   if (outputArgs.json) {
-    console.log(JSON.stringify(provenance, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(provenance, outputArgs));
     return;
   }
 
@@ -452,7 +450,7 @@ export async function runReviewCommand(args: string[], cwd = process.cwd()): Pro
   if (reviewArgs.mode === 'matrix') {
     const matrix = buildE2eMatrix(summary);
     if (reviewArgs.json) {
-      console.log(JSON.stringify(matrix, null, reviewArgs.compact ? 0 : 2));
+      console.log(formatJson(matrix, reviewArgs));
       return;
     }
     console.log(formatE2eMatrix(matrix));
@@ -462,7 +460,7 @@ export async function runReviewCommand(args: string[], cwd = process.cwd()): Pro
   if (reviewArgs.mode === 'diagnostics') {
     const diagnostics = buildReviewDiagnosticsInspect(summary);
     if (reviewArgs.json) {
-      console.log(JSON.stringify(diagnostics, null, reviewArgs.compact ? 0 : 2));
+      console.log(formatJson(diagnostics, reviewArgs));
       return;
     }
     console.log(formatReviewDiagnosticsInspect(diagnostics));
@@ -470,7 +468,7 @@ export async function runReviewCommand(args: string[], cwd = process.cwd()): Pro
   }
 
   if (reviewArgs.json) {
-    console.log(JSON.stringify(summary, null, reviewArgs.compact ? 0 : 2));
+    console.log(formatJson(summary, reviewArgs));
     return;
   }
 
@@ -485,7 +483,7 @@ export async function runDemoCommand(args: string[], cwd = process.cwd()): Promi
   const outputArgs = parseDemoOutputArgs(args.slice(1));
   const checklist = await buildDemoChecklist(cwd);
   if (outputArgs.json) {
-    console.log(JSON.stringify(checklist, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(checklist, outputArgs));
     return;
   }
 
@@ -502,7 +500,7 @@ export async function runContractCommand(args: string[]): Promise<void> {
   if (contractKind === 'freeze') {
     const contract = buildContractFreezeContract();
     if (outputArgs.json) {
-      console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+      console.log(formatJson(contract, outputArgs));
       return;
     }
     console.log(formatContractFreezeContract(contract));
@@ -512,7 +510,7 @@ export async function runContractCommand(args: string[]): Promise<void> {
   if (contractKind === 'ci') {
     const contract = buildCiContract();
     if (outputArgs.json) {
-      console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+      console.log(formatJson(contract, outputArgs));
       return;
     }
     console.log(formatCiContract(contract));
@@ -521,7 +519,7 @@ export async function runContractCommand(args: string[]): Promise<void> {
 
   const contract = buildErrorProtocolContract();
   if (outputArgs.json) {
-    console.log(JSON.stringify(contract, null, outputArgs.compact ? 0 : 2));
+    console.log(formatJson(contract, outputArgs));
     return;
   }
   console.log(formatErrorProtocolContract(contract));

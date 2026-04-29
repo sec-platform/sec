@@ -1,9 +1,10 @@
-import type { CommandHandler, CommandContext } from '../command-registry.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { parseUpgradeArgs } from '../args.ts';
 import { upgradeWorkspace } from '../../orchestrator.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { formatUpgradeSummary, formatUpgradeDiagnostics } from '../formatters.ts';
+import { formatJson } from '../format-utils.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
 import { UPGRADE_USAGE } from '../usage.ts';
 
@@ -19,7 +20,7 @@ export const upgradeCommand: CommandHandler = {
       }
       const upgradePlan = await readJson<UpgradePlan>(upgradePlanPath);
       if (upgradeArgs.json) {
-        console.log(JSON.stringify(upgradePlan, null, upgradeArgs.compact ? 0 : 2));
+        console.log(formatJson(upgradePlan, upgradeArgs));
         return;
       }
       console.log(formatUpgradeSummary(upgradePlan, upgradePlan.status === 'planned'));
@@ -32,7 +33,7 @@ export const upgradeCommand: CommandHandler = {
       }
       const diagnostics = await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
       if (upgradeArgs.json) {
-        console.log(JSON.stringify(diagnostics, null, upgradeArgs.compact ? 0 : 2));
+        console.log(formatJson(diagnostics, upgradeArgs));
         return;
       }
       console.log(formatUpgradeDiagnostics(diagnostics));
@@ -42,7 +43,7 @@ export const upgradeCommand: CommandHandler = {
       dryRun: upgradeArgs.dryRun
     });
     if (upgradeArgs.json) {
-      console.log(JSON.stringify(upgradePlan, null, upgradeArgs.compact ? 0 : 2));
+      console.log(formatJson(upgradePlan, upgradeArgs));
       return;
     }
     console.log(formatUpgradeSummary(upgradePlan, upgradeArgs.dryRun));

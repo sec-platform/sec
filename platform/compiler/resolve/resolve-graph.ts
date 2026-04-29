@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { KIND_PRIORITY, PASS_STATUS_PENDING } from '../../shared/constants.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
@@ -231,8 +232,8 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     slotTasks: buildSlotTasks(plan, manifestMap),
     generatedPaths: [
       'generated/routes.ts',
-      'control/evidence/block-usage-map.json',
-      'control/evidence/install-manifest.json'
+      CI_ARTIFACT_FILES.blockUsageMap,
+      CI_ARTIFACT_FILES.installManifest
     ],
     acceptancePlan: plan.acceptance.map((entry) => entry.id),
     passStatus: {

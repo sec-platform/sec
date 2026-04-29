@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
+import { uniqueSorted } from '../../shared/collections.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
@@ -131,7 +134,6 @@ async function runFastVerification(
 }> {
   const unitRoot = path.join(projectRoot, 'tests', 'unit');
   const acceptanceRoot = path.join(projectRoot, 'tests', 'acceptance');
-  const unitFiles = await listSuiteFiles(unitRoot, '.test.ts');
   const acceptanceFiles = await listSuiteFiles(acceptanceRoot, '.test.ts');
   const lane = createSkippedFastLane();
   let failure: unknown | null = null;
@@ -236,12 +238,12 @@ function updateVerifiedSlotTasks(lock: LockFile, report: VerificationReport): vo
     return;
   }
 
-  const verifiedBy = [
+  const verifiedBy = uniqueSorted([
     ...report.unit.passed.map((file) => `tests/unit/${file}`),
     ...report.acceptance.passed.map((file) => `tests/acceptance/${file}`),
     ...report.runtime.unit.passed,
     ...report.runtime.acceptance.passed
-  ].sort((left, right) => left.localeCompare(right));
+  ]);
 
   for (const task of lock.slotTasks) {
     if (task.status === 'filled' || task.status === 'verified') {
@@ -252,17 +254,12 @@ function updateVerifiedSlotTasks(lock: LockFile, report: VerificationReport): vo
 }
 
 function ensureGeneratedPaths(lock: LockFile): void {
-  for (const generatedPath of [
-    'control/evidence/verification-report.json',
-    'control/evidence/runtime-report.json',
-    'control/evidence/policy-report.json',
-    'control/evidence/acceptance-coverage.json'
-  ]) {
-    if (!lock.generatedPaths.includes(generatedPath)) {
-      lock.generatedPaths.push(generatedPath);
-    }
-  }
-  lock.generatedPaths.sort((left, right) => left.localeCompare(right));
+  addGeneratedPaths(lock, [
+    CI_ARTIFACT_FILES.verificationReport,
+    CI_ARTIFACT_FILES.runtimeReport,
+    CI_ARTIFACT_FILES.policyReport,
+    CI_ARTIFACT_FILES.acceptanceCoverage
+  ]);
 }
 
 export async function verifyProject(

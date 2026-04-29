@@ -1,3 +1,4 @@
+import { uniqueSorted } from './collections.ts';
 import type { CompilerErrorDetails } from './errors.ts';
 import { buildErrorProtocol, type ErrorProtocol } from './error-protocol.ts';
 
@@ -107,13 +108,9 @@ export function buildErrorProtocolContract(): ErrorProtocolContract {
     },
     output: buildErrorProtocol(example)
   }));
-  const issueTypes = [...new Set(examples.map((example) => example.output.issueType))].sort(
-    (left, right) => left.localeCompare(right)
-  );
+  const issueTypes = uniqueSorted(examples.map((example) => example.output.issueType));
   const suggestedActions = new Set(examples.flatMap((example) => example.output.suggestedActions));
-  const artifactPaths = [...new Set(examples.flatMap((example) => example.output.artifactPaths))].sort(
-    (left, right) => left.localeCompare(right)
-  );
+  const artifactPaths = uniqueSorted(examples.flatMap((example) => example.output.artifactPaths));
 
   return {
     formatVersion: '1',

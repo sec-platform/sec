@@ -47,8 +47,6 @@ export async function runFastTests(args: string[] = []): Promise<number> {
 export async function runContractFreeze(): Promise<number> {
   const sharedDeps = await ensureSharedDepsReady();
   const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const compilerRoot = path.resolve(sharedDeps.nodeModulesPath, '..');
-
   let exitCode = 0;
   await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
     for (const invocation of buildContractFreezeRunnerInvocations()) {

@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { withTempWorkspace } from '../helpers/test-utils.ts';
 import type {
   AcceptanceCoverageReport,
@@ -107,7 +108,7 @@ test('review summary surfaces provenance summary', async () => {
           overrideStatus: 'manual'
         },
         {
-          path: 'control/evidence/review-summary.json',
+          path: CI_ARTIFACT_FILES.reviewSummary,
           originType: 'generated',
           originId: 'review-summary',
           generatedByPass: 'review',
@@ -132,7 +133,7 @@ test('review summary surfaces provenance summary', async () => {
       registrySummaryCount: 1,
       unverifiedArtifacts: [
         'app/tickets/page.tsx',
-        'control/evidence/review-summary.json',
+        CI_ARTIFACT_FILES.reviewSummary,
         'custom/customer_normalizer.ts'
       ]
     });
@@ -145,7 +146,7 @@ test('review summary surfaces provenance summary', async () => {
       {
         originType: 'generated',
         count: 1,
-        paths: ['control/evidence/review-summary.json']
+        paths: [CI_ARTIFACT_FILES.reviewSummary]
       },
       {
         originType: 'override',
@@ -167,7 +168,7 @@ test('review summary surfaces provenance summary', async () => {
       {
         overrideStatus: 'none',
         count: 3,
-        paths: ['control/evidence/review-summary.json', 'custom/customer_normalizer.ts', 'src/installed/auth/session.ts']
+        paths: [CI_ARTIFACT_FILES.reviewSummary, 'custom/customer_normalizer.ts', 'src/installed/auth/session.ts']
       }
     ]);
     expect(summary.provenanceSummary?.registrySummaries).toEqual([
@@ -193,7 +194,7 @@ test('review summary surfaces provenance summary', async () => {
       {
         pass: 'review',
         count: 1,
-        paths: ['control/evidence/review-summary.json']
+        paths: [CI_ARTIFACT_FILES.reviewSummary]
       }
     ]);
   });

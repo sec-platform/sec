@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildRepairPlan, writeRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
+import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
@@ -212,7 +213,7 @@ test('writeRepairPlan persists generated path in a missing generated directory',
     const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     const persistedLock = await readJson<LockFile>(lockPath);
     expect(persistedRepairPlan).toEqual(repairPlan);
-    expect(persistedLock.generatedPaths).toEqual(['control/provenance/provenance.json', 'control/workflow/repair-plan.json']);
+    expect(persistedLock.generatedPaths).toEqual([CI_ARTIFACT_FILES.provenance, CI_ARTIFACT_FILES.repairPlan]);
   });
 });
 
@@ -311,7 +312,7 @@ test('repair plan includes structured failure points for slot and spec failures'
         kind: 'policy',
         issueType: 'spec',
         repairable: false,
-        artifactPath: 'control/evidence/policy-report.json',
+        artifactPath: CI_ARTIFACT_FILES.policyReport,
         message: 'A policy issue.; Z policy issue.',
         targetIds: ['src/installed/entity/customer-service.ts', 'tenant-scope-required']
       })
@@ -383,7 +384,7 @@ test('repair plan falls back when failed summary has no lane details', () => {
       kind: 'summary',
       issueType: 'unknown',
       repairable: false,
-      artifactPath: 'control/evidence/verification-report.json',
+      artifactPath: CI_ARTIFACT_FILES.verificationReport,
       message: 'Verification failed without lane-specific failure details'
     }
   ]);

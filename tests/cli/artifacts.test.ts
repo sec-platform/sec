@@ -3,165 +3,24 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  buildBenchmarkTaskSuiteContract,
-  formatBenchmarkTaskSuiteContract
-} from '../../platform/shared/benchmark-contract.ts';
-import {
-  buildCiContract,
-  formatCiContract
-} from '../../platform/shared/ci-contract.ts';
-import {
-  buildContractFreezeContract,
-  formatContractFreezeContract
-} from '../../platform/shared/contract-freeze-contract.ts';
-import {
-  buildErrorProtocolContract,
-  formatErrorProtocolContract
-} from '../../platform/shared/error-protocol-contract.ts';
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_MISSING_REASON,
+  ciArtifactUploadName,
+  emptyCiArtifactMissingReasonCounts
+} from '../../platform/shared/ci-artifact-contract.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import {
-  buildTestBudgetContract,
-  formatTestBudgetContract
-} from '../../platform/shared/test-budget-contract.ts';
-import {
-  ACCEPTANCE_USAGE,
-  LOCK_USAGE,
-  POLICY_USAGE,
-  POSTGRES_USAGE,
-  REPAIR_USAGE,
-  RUNTIME_USAGE,
-  USAGE
-} from '../../platform/cli/usage.ts';
-import {
-  assertReferenceCheckClean,
-  buildReferenceCheckReport,
-  formatReferenceCheck
-} from '../../platform/shared/reference-check.ts';
-import type {
-  ExplainGraph,
-  RepairPlan,
-  ReviewSummary,
-  UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport
-} from '../../platform/shared/types.ts';
+import type { CiArtifactManifest, CiArtifactMissingReason } from '../../platform/shared/ci-artifact-types.ts';
 import { pathExists, writeJson } from '../../platform/shared/fs.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
 import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
 
-function usageErrorStderr(usage: string): string {
-  return [
-    `UNEXPECTED ${usage}`,
-    JSON.stringify({
-      code: 'UNEXPECTED',
-      message: usage,
-      recoverable: true,
-      issueType: 'usage',
-      suggestedActions: ['retry-with-supported-arguments'],
-      artifactPaths: []
-    }),
-    ''
-  ].join('\n');
-}
-
-async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['repair', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(REPAIR_USAGE)
-  });
-}
-
-async function expectLockUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['lock', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(LOCK_USAGE)
-  });
-}
-
-async function expectPolicyUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['policy', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(POLICY_USAGE)
-  });
-}
-
-async function expectAcceptanceUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['acceptance', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(ACCEPTANCE_USAGE)
-  });
-}
-
-async function expectPostgresUsageError(workspaceRoot: string, args: string[]): Promise<void> {
-  await expect(runCli(workspaceRoot, ['postgres', ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(POSTGRES_USAGE)
-  });
-}
-
-async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
-  const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
-  const blockRoot = path.join(privateRegistryRoot, 'private.banner-basic');
-
-  await fs.mkdir(path.join(blockRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
-  await fs.mkdir(path.join(blockRoot, 'files', 'tests', 'unit'), { recursive: true });
-
-  await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), {
-    id: 'private/banner-basic',
-    version: '0.1.0',
-    kind: 'governance',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
-    compatibility: {
-      blockApi: '1',
-      compilerApi: '1',
-      stackProfiles: ['nextjs-ts-prisma-sqlite']
-    },
-    requires: [],
-    provides: ['governance/banner'],
-    conflicts: [],
-    installs: [
-      {
-        kind: 'copy',
-        from: 'files/src/installed/private/banner.ts',
-        to: 'src/installed/private/banner.ts'
-      },
-      {
-        kind: 'copy',
-        from: 'files/tests/unit/private-banner.test.ts',
-        to: 'tests/unit/private-banner.test.ts'
-      }
-    ],
-    pins: {
-      inputs: [],
-      outputs: [
-        {
-          id: 'banner_message',
-          type: 'string',
-          required: true
-        }
-      ]
-    },
-    slots: [],
-    acceptance: [],
-    routes: []
-  });
-
-  await fs.writeFile(
-    path.join(blockRoot, 'files', 'src', 'installed', 'private', 'banner.ts'),
-    `export function projectBanner(projectName: string): string {\n  return \`private-banner:\${projectName}\`;\n}\n`,
-    'utf8'
-  );
-
-  await fs.writeFile(
-    path.join(blockRoot, 'files', 'tests', 'unit', 'private-banner.test.ts'),
-    `import assert from 'node:assert/strict';\nimport { projectBanner } from '../../src/installed/private/banner.ts';\n\nexport async function runSuite() {\n  assert.equal(projectBanner('customer-admin'), 'private-banner:customer-admin');\n}\n`,
-    'utf8'
-  );
+function artifactMissingReasonCounts(
+  overrides: Partial<Record<CiArtifactMissingReason, number>> = {}
+): Record<CiArtifactMissingReason, number> {
+  return {
+    ...emptyCiArtifactMissingReasonCounts(),
+    ...overrides
+  };
 }
 
 test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
@@ -348,26 +207,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
 
-    const manifest = JSON.parse(result.stdout) as {
-      formatVersion: string;
-      root: string;
-      summary: {
-        artifactStatus: 'passed' | 'attention';
-        artifactCount: number;
-        governanceCount: number;
-        viewCount: number;
-        testCount: number;
-        contractCount: number;
-        contractPaths: string[];
-        uploadGroupCount: number;
-        missingCount: number;
-        missingReasonTypeCount: number;
-        missingReasonCounts: Record<string, number>;
-      };
-      artifacts: Array<{ path: string; kind: string; uploadName: string; exists: boolean }>;
-      uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
-      missing: Array<{ path: string; reason: string; declaredBy: string }>;
-    };
+    const manifest = JSON.parse(result.stdout) as CiArtifactManifest;
     expect(manifest).toMatchObject({
       formatVersion: '1',
       root: 'workspace'
@@ -422,11 +262,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       uploadGroupCount: expectedUploadGroups.length,
       missingCount: 0,
       missingReasonTypeCount: 0,
-      missingReasonCounts: {
-        'declared-generated-missing': 0,
-        'fixed-governance-missing': 0,
-        'fixed-view-missing': 0
-      }
+      missingReasonCounts: emptyCiArtifactMissingReasonCounts()
     });
     expect(manifest.uploadGroups).toEqual(expectedUploadGroups);
 
@@ -455,25 +291,25 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(manifest.artifacts).toEqual(
       expect.arrayContaining([
         {
-          path: 'control/ci/artifacts.json',
+          path: CI_ARTIFACT_MANIFEST_PATH,
           kind: 'governance',
-          uploadName: 'control__ci__artifacts.json',
+          uploadName: ciArtifactUploadName(CI_ARTIFACT_MANIFEST_PATH),
           exists: true
         },
         {
-          path: 'control/evidence/review-summary.json',
+          path: CI_ARTIFACT_FILES.reviewSummary,
           kind: 'governance',
           uploadName: 'control__evidence__review-summary.json',
           exists: true
         },
         {
-          path: 'control/graph/explain-graph.json',
+          path: CI_ARTIFACT_FILES.explainGraph,
           kind: 'governance',
           uploadName: 'control__graph__explain-graph.json',
           exists: true
         },
         {
-          path: 'control/workbench/views/source-view.html',
+          path: CI_ARTIFACT_FILES.sourceView,
           kind: 'view',
           uploadName: 'control__workbench__views__source-view.html',
           exists: true
@@ -486,10 +322,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
       artifacts: Array<{ path: string; generatedByPass?: string }>;
     };
-    expect(lock.generatedPaths).toContain('control/ci/artifacts.json');
+    expect(lock.generatedPaths).toContain(CI_ARTIFACT_MANIFEST_PATH);
     expect(provenance.artifacts).toContainEqual(
       expect.objectContaining({
-        path: 'control/ci/artifacts.json',
+        path: CI_ARTIFACT_MANIFEST_PATH,
         generatedByPass: 'artifacts'
       })
     );
@@ -618,7 +454,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     const lockMissingDiagnostics = [
       {
         path: 'generated/missing-diagnostic.json',
-        reason: 'declared-generated-missing',
+        reason: CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing,
         declaredBy: 'graph.lock.json'
       }
     ];
@@ -626,11 +462,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(manifestWithLockMissing.summary.uploadGroupCount).toBe(manifestWithLockMissing.uploadGroups.length);
     expect(manifestWithLockMissing.summary.missingCount).toBe(1);
     expect(manifestWithLockMissing.summary.missingReasonTypeCount).toBe(1);
-    expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual({
-      'declared-generated-missing': 1,
-      'fixed-governance-missing': 0,
-      'fixed-view-missing': 0
-    });
+    expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual(artifactMissingReasonCounts({
+      [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
+    }));
     expect(manifestWithLockMissing.missing).toEqual(lockMissingDiagnostics);
 
     const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
@@ -703,11 +537,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       ],
       missingCount: 1,
       missingReasonTypeCount: 1,
-      missingReasonCounts: {
-        'declared-generated-missing': 1,
-        'fixed-governance-missing': 0,
-        'fixed-view-missing': 0
-      },
+      missingReasonCounts: artifactMissingReasonCounts({
+        [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
+      }),
       missing: lockMissingDiagnostics
     });
 
@@ -717,7 +549,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(testManifest.uploadGroups).toContainEqual({
       kind: 'test',
       count: 1,
-      paths: ['test-results/**']
+      paths: [CI_ARTIFACT_FILES.testResults]
     });
 
     const refreshedReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
@@ -730,7 +562,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(refreshedReviewSummary.artifactSummary?.uploadGroups).toContainEqual({
       kind: 'test',
       count: 1,
-      paths: ['test-results/**']
+      paths: [CI_ARTIFACT_FILES.testResults]
     });
 
     const refreshedSourceView = await fs.readFile(sourceViewPath, 'utf8');
@@ -743,7 +575,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(refreshedSourceView).toContain('generated/postgres-contract.json');
     expect(refreshedSourceView).toContain('<td>Test Artifacts</td><td>1</td>');
     expect(refreshedSourceView).toContain('<td>test</td>');
-    expect(refreshedSourceView).toContain('test-results/**');
+    expect(refreshedSourceView).toContain(CI_ARTIFACT_FILES.testResults);
 
     await fs.rm(path.join(workspaceRoot, 'control', 'evidence', 'policy-report.json'));
     await fs.rm(sourceViewPath);
@@ -755,13 +587,13 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     const manifestWithMissing = JSON.parse(missingResult.stdout) as typeof manifest;
     const fixedMissingDiagnostics = [
       {
-        path: 'control/evidence/policy-report.json',
-        reason: 'fixed-governance-missing',
+        path: CI_ARTIFACT_FILES.policyReport,
+        reason: CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing,
         declaredBy: 'artifact-manifest'
       },
       {
-        path: 'control/workbench/views/source-view.html',
-        reason: 'fixed-view-missing',
+        path: CI_ARTIFACT_FILES.sourceView,
+        reason: CI_ARTIFACT_MISSING_REASON.fixedViewMissing,
         declaredBy: 'artifact-manifest'
       },
       ...lockMissingDiagnostics
@@ -769,11 +601,11 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(manifestWithMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithMissing.summary.missingCount).toBe(3);
     expect(manifestWithMissing.summary.missingReasonTypeCount).toBe(3);
-    expect(manifestWithMissing.summary.missingReasonCounts).toEqual({
-      'declared-generated-missing': 1,
-      'fixed-governance-missing': 1,
-      'fixed-view-missing': 1
-    });
+    expect(manifestWithMissing.summary.missingReasonCounts).toEqual(artifactMissingReasonCounts({
+      [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
+      [CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing]: 1,
+      [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
+    }));
     expect(manifestWithMissing.missing).toEqual(fixedMissingDiagnostics);
 
     const compactResult = await runCli(workspaceRoot, ['artifacts', '--json', '--compact']);
@@ -789,10 +621,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(pathsResult.code).toBe(0);
     expect(pathsResult.stderr).toBe('');
     const uploadPaths = pathsResult.stdout.trim().split('\n');
-    expect(uploadPaths).toContain('control/ci/artifacts.json');
-    expect(uploadPaths).toContain('control/evidence/review-summary.json');
+    expect(uploadPaths).toContain(CI_ARTIFACT_MANIFEST_PATH);
+    expect(uploadPaths).toContain(CI_ARTIFACT_FILES.reviewSummary);
     expect(uploadPaths).not.toContain('project/generated/missing-diagnostic.json');
-    expect(uploadPaths).not.toContain('control/workbench/views/source-view.html');
+    expect(uploadPaths).not.toContain(CI_ARTIFACT_FILES.sourceView);
 
     const pathsJsonResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--json']);
     expect(pathsJsonResult.code).toBe(0);
@@ -841,20 +673,20 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     );
     expect(pathsJson.missingCount).toBe(fixedMissingDiagnostics.length);
     expect(pathsJson.missingReasonTypeCount).toBe(3);
-    expect(pathsJson.missingReasonCounts).toEqual({
-      'declared-generated-missing': 1,
-      'fixed-governance-missing': 1,
-      'fixed-view-missing': 1
-    });
+    expect(pathsJson.missingReasonCounts).toEqual(artifactMissingReasonCounts({
+      [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
+      [CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing]: 1,
+      [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
+    }));
     expect(pathsJson.missing).toEqual(fixedMissingDiagnostics);
 
     const governancePathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']);
     expect(governancePathsResult.code).toBe(0);
     expect(governancePathsResult.stderr).toBe('');
     const governanceUploadPaths = governancePathsResult.stdout.trim().split('\n');
-    expect(governanceUploadPaths).toContain('control/ci/artifacts.json');
-    expect(governanceUploadPaths).toContain('control/evidence/review-summary.json');
-    expect(governanceUploadPaths).not.toContain('control/workbench/views/slot-rule-view.html');
+    expect(governanceUploadPaths).toContain(CI_ARTIFACT_MANIFEST_PATH);
+    expect(governanceUploadPaths).toContain(CI_ARTIFACT_FILES.reviewSummary);
+    expect(governanceUploadPaths).not.toContain(CI_ARTIFACT_FILES.slotRuleView);
 
     const viewPathsJsonResult = await runCli(workspaceRoot, [
       'artifacts',
@@ -878,7 +710,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(viewPathsJson.formatVersion).toBe('1');
     expect(viewPathsJson.root).toBe('workspace');
     expect(viewPathsJson.kind).toBe('view');
-    expect(viewPathsJson.paths).toEqual(['control/workbench/views/slot-rule-view.html']);
+    expect(viewPathsJson.paths).toEqual([CI_ARTIFACT_FILES.slotRuleView]);
     expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
     expect(viewPathsJson.byKind).toEqual({ view: 1 });
     expect(viewPathsJson.uploadGroupCount).toBe(1);
@@ -886,10 +718,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       {
         kind: 'view',
         count: 1,
-        paths: ['control/workbench/views/slot-rule-view.html']
+        paths: [CI_ARTIFACT_FILES.slotRuleView]
       }
     ]);
-    expect(viewPathsJson.paths).not.toContain('control/ci/artifacts.json');
+    expect(viewPathsJson.paths).not.toContain(CI_ARTIFACT_MANIFEST_PATH);
 
   });
 }, 120000);

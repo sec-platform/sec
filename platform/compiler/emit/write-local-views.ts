@@ -1,5 +1,8 @@
 import fs from 'node:fs/promises';
+import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
+import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
@@ -27,7 +30,7 @@ function escapeHtml(value: string): string {
 }
 
 function formatList(values: Iterable<string>, fallback = 'none'): string {
-  const items = [...values].sort((left, right) => left.localeCompare(right));
+  const items = uniqueSorted([...values]);
   return items.length > 0 ? items.join(', ') : fallback;
 }
 
@@ -197,7 +200,7 @@ function renderVerticalSummaryCard(lock: LockFile, review: ReviewSummary): strin
     if (!vertical) {
       continue;
     }
-    riskMap.set(vertical, [...(riskMap.get(vertical) ?? []), risk.message].sort((left, right) => left.localeCompare(right)));
+    riskMap.set(vertical, uniqueSorted([...(riskMap.get(vertical) ?? []), risk.message]));
   }
 
   const fallbackSlices = new Map<string, { runtimeEntries: Set<string>; relatedBlocks: Set<string> }>();
@@ -222,13 +225,12 @@ function renderVerticalSummaryCard(lock: LockFile, review: ReviewSummary): strin
     ...riskMap.keys()
   ]);
 
-  const rows = [...sliceIds]
-    .sort((left, right) => left.localeCompare(right))
+  const rows = uniqueSorted([...sliceIds])
     .map((vertical) => {
       const summary = review.verticalSlices.find((slice) => slice.id === vertical);
       const fallback = fallbackSlices.get(vertical);
-      const blocks = summary?.relatedBlocks ?? [...(fallback?.relatedBlocks ?? [])].sort((left, right) => left.localeCompare(right));
-      const runtimeEntries = summary?.runtimeEntries ?? [...(fallback?.runtimeEntries ?? [])].sort((left, right) => left.localeCompare(right));
+      const blocks = summary?.relatedBlocks ?? uniqueSorted([...(fallback?.relatedBlocks ?? [])]);
+      const runtimeEntries = summary?.runtimeEntries ?? uniqueSorted([...(fallback?.runtimeEntries ?? [])]);
       const risks = riskMap.get(vertical) ?? [];
       return `<tr><td>${escapeHtml(vertical)}</td><td>${escapeHtml(blocks.join(', ') || 'none')}</td><td>${escapeHtml(runtimeEntries.join(', ') || 'none')}</td><td>${escapeHtml(risks.join(' | ') || 'none')}</td></tr>`;
     })
@@ -1406,12 +1408,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
 
   const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
   await ensureDir(generatedViewsDir);
-  for (const generatedPath of ['control/workbench/views/source-view.html', 'control/workbench/views/slot-rule-view.html']) {
-    if (!lock.generatedPaths.includes(generatedPath)) {
-      lock.generatedPaths.push(generatedPath);
-    }
-  }
-  lock.generatedPaths.sort((left, right) => left.localeCompare(right));
+  addGeneratedPaths(lock, CI_ARTIFACT_PATHS.view);
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
 
   const [provenance, report, coverage, policyReport, review, graph, repairPlan, upgradeDiagnostics, upgradePlan] = await Promise.all([
