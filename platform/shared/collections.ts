@@ -1,9 +1,17 @@
+type CountSummary<T extends string> = { id: T; count: number };
+
 function countValues<T extends string>(values: Iterable<T>): Map<T, number> {
   const counts = new Map<T, number>();
   for (const value of values) {
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return counts;
+}
+
+function sortedCountSummaries<T extends string>(counts: ReadonlyMap<T, number>): Array<CountSummary<T>> {
+  return [...counts.entries()]
+    .map(([id, count]) => ({ id, count }))
+    .sort((left, right) => left.id.localeCompare(right.id));
 }
 
 export function countPositiveValues(values: Iterable<number>): number {
@@ -27,23 +35,19 @@ export function countMatching<T>(values: Iterable<T>, predicate: (value: T) => b
 }
 
 export function mergeCountSummaries<T extends string>(
-  entries: Iterable<{ id: T; count: number }>
-): Array<{ id: T; count: number }> {
+  entries: Iterable<CountSummary<T>>
+): Array<CountSummary<T>> {
   const counts = new Map<T, number>();
   for (const entry of entries) {
     counts.set(entry.id, (counts.get(entry.id) ?? 0) + entry.count);
   }
-  return [...counts.entries()]
-    .map(([id, count]) => ({ id, count }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+  return sortedCountSummaries(counts);
 }
 
 export function summarizeCounts<T extends string>(
   values: Iterable<T>
-): Array<{ id: T; count: number }> {
-  return [...countValues(values).entries()]
-    .map(([id, count]) => ({ id, count }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+): Array<CountSummary<T>> {
+  return sortedCountSummaries(countValues(values));
 }
 
 export function uniqueSorted<T extends string>(values: readonly T[]): T[] {
