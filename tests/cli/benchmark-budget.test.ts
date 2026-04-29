@@ -8,40 +8,7 @@ import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../../platform/shared/test-budget-contract.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
-
-type CliResult = Awaited<ReturnType<typeof runCli>>;
-
-async function expectCliSuccess(workspaceRoot: string, args: string[]): Promise<CliResult> {
-  const result = await runCli(workspaceRoot, args);
-  expect(result.code).toBe(0);
-  expect(result.stderr).toBe('');
-  return result;
-}
-
-function expectTextMarkers(text: string, markers: string[]): void {
-  for (const marker of markers) {
-    expect(text).toContain(marker);
-  }
-}
-
-async function expectTextCli(workspaceRoot: string, args: string[], markers: string[]): Promise<void> {
-  const result = await expectCliSuccess(workspaceRoot, args);
-  expectTextMarkers(result.stdout, markers);
-}
-
-async function expectJsonCli(
-  workspaceRoot: string,
-  args: string[],
-  expected: object,
-  options: { compact?: boolean } = {}
-): Promise<void> {
-  const result = await expectCliSuccess(workspaceRoot, args);
-  if (options.compact === true) {
-    expect(result.stdout.trim()).not.toContain('\n');
-  }
-  expect(JSON.parse(result.stdout)).toMatchObject(expected);
-}
+import { expectCliJson, expectCliText, expectContainsAll, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();
@@ -60,7 +27,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     'source/patches/override-manifest.yaml'
   ];
 
-  expectTextMarkers(formatted, [
+  expectContainsAll(formatted, [
     'Benchmark suite engineering-compiler-core (active)',
     'Task add-block: install one capability block into a clean workspace; gate=resolve compose adapt verify lock explain'
   ]);
@@ -123,7 +90,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectTextCli(workspaceRoot, ['benchmark', 'suite'], [
+    await expectCliText(workspaceRoot, ['benchmark', 'suite'], [
       'Benchmark suite engineering-compiler-core (active)',
       'Command: npm run platform -- benchmark suite --json',
       'Runner command: npm run test:benchmark-contract',
@@ -136,7 +103,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       'scoreFocusCount=2; score=conflict-detection, machine-recoverability'
     ]);
 
-    await expectJsonCli(workspaceRoot, ['benchmark', 'suite', '--json'], {
+    await expectCliJson(workspaceRoot, ['benchmark', 'suite', '--json'], {
       suiteId: 'engineering-compiler-core',
       command: 'npm run platform -- benchmark suite --json',
       runnerCommand: 'npm run test:benchmark-contract',
@@ -154,7 +121,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       scoreDimensionCount: 9
     });
 
-    await expectJsonCli(
+    await expectCliJson(
       workspaceRoot,
       ['benchmark', 'suite', '--json', '--compact'],
       {
@@ -177,7 +144,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   const contract = buildTestBudgetContract();
   const formatted = formatTestBudgetContract(contract);
 
-  expectTextMarkers(formatted, [
+  expectContainsAll(formatted, [
     'Test budget default lane: fast',
     'Lane all; nextBuild=true; playwright=true; command=npm run platform -- verify --lane all',
     'Slow test files: 22',
@@ -242,7 +209,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectTextCli(workspaceRoot, ['test', 'budget'], [
+    await expectCliText(workspaceRoot, ['test', 'budget'], [
       'Test budget default lane: fast',
       'Command: npm run platform -- test budget --json',
       'Runner command: npm run test:budget',
@@ -254,7 +221,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       'Lane fast; nextBuild=false; playwright=false'
     ]);
 
-    await expectJsonCli(workspaceRoot, ['test', 'budget', '--json'], {
+    await expectCliJson(workspaceRoot, ['test', 'budget', '--json'], {
       command: 'npm run platform -- test budget --json',
       runnerCommand: 'npm run test:budget',
       defaultLane: 'fast',
@@ -268,7 +235,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       ])
     });
 
-    await expectJsonCli(
+    await expectCliJson(
       workspaceRoot,
       ['test', 'budget', '--json', '--compact'],
       {
