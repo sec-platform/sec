@@ -1,3 +1,4 @@
+import { countPositiveValues } from './collections.ts';
 import type { ReviewSummary } from './review-types.ts';
 
 export type E2eMatrixRow = {
@@ -16,8 +17,7 @@ export type E2eMatrix = {
 
 function countMissingReasonTypes(reviewSummary: ReviewSummary): number {
   return reviewSummary.artifactSummary?.missingReasonTypeCount
-    ?? Object.values(reviewSummary.artifactSummary?.missingReasonCounts ?? {})
-      .filter((count) => count > 0).length;
+    ?? countPositiveValues(Object.values(reviewSummary.artifactSummary?.missingReasonCounts ?? {}));
 }
 
 export function e2eStageEvidence(reviewSummary: ReviewSummary, stageId: string): string[] {

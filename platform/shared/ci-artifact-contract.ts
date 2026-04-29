@@ -8,7 +8,7 @@ import {
   type CiArtifactSummary,
   type CiArtifactUploadGroup
 } from './ci-artifact-types.ts';
-import { uniqueSorted } from './collections.ts';
+import { countPositiveValues, uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 
 export {
@@ -142,7 +142,7 @@ export function countCiArtifactMissingReasons(
 export function countCiArtifactMissingReasonTypes(
   missingReasonCounts: CiArtifactSummary['missingReasonCounts']
 ): number {
-  return Object.values(missingReasonCounts).filter((count) => count > 0).length;
+  return countPositiveValues(Object.values(missingReasonCounts));
 }
 
 export function emptyCiArtifactManifest(): CiArtifactManifest {
