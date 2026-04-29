@@ -26,7 +26,7 @@ import {
   VERIFY_USAGE,
   WORKBENCH_USAGE
 } from '../../platform/cli/usage.ts';
-import { runCliInProcess as runCli, usageErrorStderr, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliText, runCliInProcess as runCli, usageErrorStderr, withTempWorkspace } from '../helpers/test-utils.ts';
 
 type UsageErrorCase = {
   args: string[];
@@ -58,16 +58,13 @@ async function expectUsageErrors(workspaceRoot: string, cases: UsageErrorCase[])
 test('CLI prints usage for missing or unknown commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     for (const args of [[], ['unknown'], ['unknown', '--flag']]) {
-      const result = await runCli(workspaceRoot, args);
-      expect(result).toMatchObject({
-        code: 0,
-        stderr: ''
-      });
-      expect(result.stdout).toContain('Usage: platform');
-      expect(result.stdout).toContain('init');
-      expect(result.stdout).toContain('resolve');
-      expect(result.stdout).toContain('compose');
-      expect(result.stdout).toContain('verify');
+      await expectCliText(workspaceRoot, args, [
+        'Usage: platform',
+        'init',
+        'resolve',
+        'compose',
+        'verify'
+      ]);
     }
   });
 });
