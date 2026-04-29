@@ -215,13 +215,26 @@ function buildReviewChainSummary(
   };
 }
 
-function countBy<T>(values: T[], key: (value: T) => string): Map<string, T[]> {
-  const groups = new Map<string, T[]>();
+function groupBy<T, K extends string>(values: readonly T[], key: (value: T) => K): Map<K, T[]> {
+  const groups = new Map<K, T[]>();
   for (const value of values) {
     const groupKey = key(value);
-    groups.set(groupKey, [...(groups.get(groupKey) ?? []), value]);
+    const group = groups.get(groupKey) ?? [];
+    group.push(value);
+    groups.set(groupKey, group);
   }
   return groups;
+}
+
+function buildPathGroupSummaries<T, K extends string, S>(
+  values: readonly T[],
+  key: (value: T) => K,
+  buildSummary: (group: K, values: readonly T[]) => S,
+  sortKey: (summary: S) => string
+): S[] {
+  return [...groupBy(values, key).entries()]
+    .map(([group, groupValues]) => buildSummary(group, groupValues))
+    .sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
 }
 
 function buildCoverageSummary(
@@ -264,38 +277,50 @@ function buildCoverageSummary(
 }
 
 function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['provenanceSummary'] {
-  const originSummaries = [...countBy(provenance.artifacts, (artifact) => artifact.originType).entries()]
-    .map(([originType, artifacts]) => ({
-      originType: originType as ProvenanceOriginType,
+  const originSummaries = buildPathGroupSummaries(
+    provenance.artifacts,
+    (artifact) => artifact.originType,
+    (originType: ProvenanceOriginType, artifacts) => ({
+      originType,
       count: artifacts.length,
       paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
-    }))
-    .sort((left, right) => left.originType.localeCompare(right.originType));
-  const overrideSummaries = [...countBy(provenance.artifacts, (artifact) => artifact.overrideStatus).entries()]
-    .map(([overrideStatus, artifacts]) => ({
-      overrideStatus: overrideStatus as OverrideStatus,
+    }),
+    (summary) => summary.originType
+  );
+  const overrideSummaries = buildPathGroupSummaries(
+    provenance.artifacts,
+    (artifact) => artifact.overrideStatus,
+    (overrideStatus: OverrideStatus, artifacts) => ({
+      overrideStatus,
       count: artifacts.length,
       paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
-    }))
-    .sort((left, right) => left.overrideStatus.localeCompare(right.overrideStatus));
+    }),
+    (summary) => summary.overrideStatus
+  );
   const registryArtifacts = provenance.artifacts.filter((artifact) => artifact.registrySourceId);
-  const registrySummaries = [...countBy(registryArtifacts, (artifact) => artifact.registrySourceId ?? '').entries()]
-    .map(([registrySourceId, artifacts]) => ({
+  const registrySummaries = buildPathGroupSummaries(
+    registryArtifacts,
+    (artifact) => artifact.registrySourceId ?? '',
+    (registrySourceId, artifacts) => ({
       registrySourceId,
       ...(artifacts[0].registryKind ? { registryKind: artifacts[0].registryKind } : {}),
       ...(artifacts[0].registryLocation ? { registryLocation: artifacts[0].registryLocation } : {}),
       count: artifacts.length,
       paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
-    }))
-    .sort((left, right) => left.registrySourceId.localeCompare(right.registrySourceId));
+    }),
+    (summary) => summary.registrySourceId
+  );
   const generatedPassArtifacts = provenance.artifacts.filter((artifact) => artifact.generatedByPass);
-  const generatedPassSummaries = [...countBy(generatedPassArtifacts, (artifact) => artifact.generatedByPass ?? '').entries()]
-    .map(([pass, artifacts]) => ({
+  const generatedPassSummaries = buildPathGroupSummaries(
+    generatedPassArtifacts,
+    (artifact) => artifact.generatedByPass ?? '',
+    (pass, artifacts) => ({
       pass,
       count: artifacts.length,
       paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
-    }))
-    .sort((left, right) => left.pass.localeCompare(right.pass));
+    }),
+    (summary) => summary.pass
+  );
   const unverifiedArtifacts = provenance.artifacts.filter((artifact) => artifact.verifiedBy.length === 0);
 
   return {
