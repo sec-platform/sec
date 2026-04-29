@@ -3,13 +3,24 @@ import path from 'node:path';
 import { expect, test } from 'vitest';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   PlanFile
 } from '../../platform/shared/types.ts';
 import { readYaml } from '../../platform/shared/yaml.ts';
 import { expectCliJson, expectCliSuccess, expectCliText, installPrivateBannerBlock, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+
+type ViewMutationReportSnapshot = {
+  formatVersion: string;
+  status: string;
+  mutationFileCount: number;
+  mutationCount: number;
+};
+
+type WorkspaceLockSnapshot = {
+  resolvedBlocks: Array<{ id: string; registrySourceId: string; registryKind: string; registryLocation: string }>;
+};
 
 test('CLI accepts init commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -89,7 +100,7 @@ test('CLI applies Workbench view mutations back to source app plan', async () =>
       { compact: true }
     );
 
-    const report = JSON.parse(await fs.readFile(paths.viewMutationReportPath, 'utf8'));
+    const report = await readJson<ViewMutationReportSnapshot>(paths.viewMutationReportPath);
     expect(report).toMatchObject({
       formatVersion: '1',
       status: 'skipped',
@@ -147,9 +158,7 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
     await expect(fs.readFile(planPath, 'utf8')).resolves.toContain('private/banner-basic');
 
     await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 4 blocks\n');
-    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
-      resolvedBlocks: Array<{ id: string; registrySourceId: string; registryKind: string; registryLocation: string }>;
-    };
+    const lock = await readJson<WorkspaceLockSnapshot>(lockPath);
     expect(lock.resolvedBlocks.find((block) => block.id === 'private/banner-basic')).toMatchObject({
       registrySourceId: 'private',
       registryKind: 'private',
