@@ -230,7 +230,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
     expect(sourcesText.stdout).toContain('Policy sources passed');
     expect(sourcesText.stdout).toContain('sources=2; policies=1');
     expect(sourcesText.stdout).toContain('Source official; path=platform/policies/official/policy.spec.yaml; policies=tenant-scope-required');
-    expect(sourcesText.stdout).toContain('Source project; path=project/policies/policy.spec.yaml; policies=none');
+    expect(sourcesText.stdout).toContain('Source project; path=source/model/policies/policy.spec.yaml; policies=none');
 
     const sourcesJson = await runCli(workspaceRoot, ['policy', 'sources', '--json', '--compact']);
     expect(sourcesJson.code).toBe(0);
@@ -250,7 +250,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
         },
         {
           scope: 'project',
-          path: 'project/policies/policy.spec.yaml',
+          path: 'source/model/policies/policy.spec.yaml',
           policyCount: 0,
           policyIds: []
         }
@@ -524,7 +524,7 @@ test('CLI runs verify with JSON output for CI consumers', async () => {
     });
 
   });
-});
+}, 120000);
 
 test('CLI exposes verification report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

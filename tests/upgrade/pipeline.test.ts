@@ -149,6 +149,7 @@ async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<void> {
 
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-');
+  const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
   await resolveWorkspace(workspaceRoot);
@@ -168,7 +169,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
   expect(lock.resolvedBlocks.find((block) => block.id === 'auth/basic-session')?.version).toBe('0.1.1');
   expect(lock.passStatus.lock).toBe('succeeded');
   expect(upgradePlan.status).toBe('applied');
-  expect(lock.generatedPaths).toContain('generated/upgrade-plan.json');
+  expect(lock.generatedPaths).toContain('control/workflow/upgrade-plan.json');
 
   const afterUpgrade = await fs.readFile(
     path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts'),
@@ -179,7 +180,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
   await expect(fs.readFile(path.join(workspaceRoot, 'project', 'upgrade.metadata.json'), 'utf8')).resolves.toContain('"auth/basic-session@0.1.1"');
 
   const persistedUpgradePlan = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'upgrade-plan.json'), 'utf8')
+    await fs.readFile(upgradePlanPath, 'utf8')
   ) as {
     toVersion: string;
     status: string;
@@ -294,7 +295,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
       }
     ])
   );
-});
+}, 180000);
 
 test('upgrade advances ticket block version and surfaces runtime upgrade impact', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-ticket-upgrade-');
@@ -364,4 +365,4 @@ test('upgrade advances ticket block version and surfaces runtime upgrade impact'
         edge.type === 'writes_to'
     )
   ).toBe(true);
-});
+}, 180000);

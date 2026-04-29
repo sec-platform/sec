@@ -12,12 +12,13 @@ function usage(): never {
 }
 
 async function runContractFreeze(): Promise<number> {
+  const binPath = path.join(compilerRoot, 'node_modules', '.bin');
   for (const target of getContractFreezeTargets()) {
-    const args = ['test', target.file];
+    const args = ['run', target.file];
     if (target.testNamePattern) {
-      args.push('--test-name-pattern', target.testNamePattern);
+      args.push('--testNamePattern', target.testNamePattern);
     }
-    const code = await runDevCommand('bun', args, process.env);
+    const code = await runDevCommand(commandPath(binPath, 'vitest'), args, process.env);
     if (code !== 0) {
       return code;
     }

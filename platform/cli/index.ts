@@ -2,6 +2,7 @@
 import {
   addBlock,
   adaptWorkspace,
+  applyWorkbenchMutations,
   composeWorkspace,
   explainWorkspace,
   initWorkspace,
@@ -16,7 +17,7 @@ import type { CiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
-import { getWorkspacePaths } from '../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
 import {
   formatDoctorReport,
   getDoctorReport
@@ -34,7 +35,8 @@ import {
   parseRepairArgs,
   parseResetArg,
   parseUpgradeArgs,
-  parseVerifyArgs
+  parseVerifyArgs,
+  parseWorkbenchArgs
 } from './args.ts';
 import {
   artifactUploadPathSummary,
@@ -68,6 +70,18 @@ import type { ExplainGraph } from '../shared/explain-types.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
+import type { ViewMutationReport } from '../compiler/workbench/apply-view-mutations.ts';
+
+function formatWorkbenchMutationReport(report: ViewMutationReport): string {
+  const lines = [
+    `Workbench mutations ${report.status}; files=${report.mutationFileCount}; applied=${report.appliedCount}; skipped=${report.skippedCount}`,
+    `Source root: ${report.sourceRoot}; target: ${report.targetPath}`
+  ];
+  for (const mutation of report.mutations) {
+    lines.push(`Mutation ${mutation.id}: ${mutation.kind}; ${mutation.status}; ${mutation.detail}`);
+  }
+  return lines.join('\n');
+}
 
 function assertNoArgs(command: string, args: string[]): void {
   if (args.length > 0) {
@@ -96,8 +110,7 @@ async function main(): Promise<void> {
         throw new Error(ADD_USAGE);
       }
       await addBlock(process.cwd(), args[0]);
-      const { planPath } = getWorkspacePaths(process.cwd());
-      const plan = await loadPlan(planPath);
+      const plan = await loadPlan(await resolveWorkspacePlanPath(process.cwd()));
       const manifestEntry = await loadManifestById(args[0], {
         workspaceRoot: process.cwd(),
         version: plan.blocks.find((block) => block.id === args[0])?.version,
@@ -211,11 +224,11 @@ async function main(): Promise<void> {
     case 'lock': {
       const lockArgs = parseLockArgs(args);
       if (lockArgs.mode === 'inspect') {
-        const { lockPath } = getWorkspacePaths(process.cwd());
-        if (!(await pathExists(lockPath))) {
+        const readableLockPath = await resolveWorkspaceLockPath(process.cwd());
+        if (!(await pathExists(readableLockPath))) {
           throw new Error('Graph lock not found; run platform lock first');
         }
-        const lock = await readJson<LockFile>(lockPath);
+        const lock = await readJson<LockFile>(readableLockPath);
         if (lockArgs.json) {
           console.log(JSON.stringify(lock, null, lockArgs.compact ? 0 : 2));
           return;
@@ -351,6 +364,16 @@ async function main(): Promise<void> {
     case 'contract':
       await runContractCommand(args);
       return;
+    case 'workbench': {
+      const workbenchArgs = parseWorkbenchArgs(args);
+      const report = await applyWorkbenchMutations(process.cwd());
+      if (workbenchArgs.json) {
+        console.log(JSON.stringify(report, null, workbenchArgs.compact ? 0 : 2));
+        return;
+      }
+      console.log(formatWorkbenchMutationReport(report));
+      return;
+    }
     default:
       console.log(USAGE);
   }

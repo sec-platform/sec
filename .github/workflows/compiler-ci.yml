@@ -80,12 +80,12 @@ jobs:
         shell: pwsh
         run: |
           node ./platform/cli/index.ts artifacts --json
-          $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
+          $manifest = Get-Content control/ci/artifacts.json -Raw | ConvertFrom-Json
           $governancePaths = @(node ./platform/cli/index.ts artifacts --paths --kind governance)
           $viewPaths = @(node ./platform/cli/index.ts artifacts --paths --kind view)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
-            Write-Warning "Missing generated artifacts: $($missing -join ', ')"
+            Write-Warning "Missing workspace artifacts: $($missing -join ', ')"
           }
           "governance_paths<<EOF" >> $env:GITHUB_OUTPUT
           $governancePaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT
@@ -197,13 +197,13 @@ jobs:
         shell: pwsh
         run: |
           node ./platform/cli/index.ts artifacts --json
-          $manifest = Get-Content project/generated/ci-artifacts.json -Raw | ConvertFrom-Json
+          $manifest = Get-Content control/ci/artifacts.json -Raw | ConvertFrom-Json
           $governancePaths = @(node ./platform/cli/index.ts artifacts --paths --kind governance)
           $viewPaths = @(node ./platform/cli/index.ts artifacts --paths --kind view)
           $testPaths = @(node ./platform/cli/index.ts artifacts --paths --kind test)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
-            Write-Warning "Missing generated artifacts: $($missing -join ', ')"
+            Write-Warning "Missing workspace artifacts: $($missing -join ', ')"
           }
           "governance_paths<<EOF" >> $env:GITHUB_OUTPUT
           $governancePaths | Sort-Object -Unique >> $env:GITHUB_OUTPUT

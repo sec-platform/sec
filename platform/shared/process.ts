@@ -8,12 +8,16 @@ export interface CommandResult {
   stderr: string;
 }
 
+function isNodeScript(candidate: string): boolean {
+  return ['.js', '.cjs', '.mjs'].includes(path.extname(candidate).toLowerCase());
+}
+
 function npmCliCandidates(): string[] {
   return [
     process.env.npm_execpath,
     path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
     path.join(path.dirname(path.dirname(process.execPath)), 'node_modules', 'npm', 'bin', 'npm-cli.js')
-  ].filter((candidate): candidate is string => Boolean(candidate));
+  ].filter((candidate): candidate is string => typeof candidate === 'string' && isNodeScript(candidate));
 }
 
 export function resolveNpmInvocation(args: string[]): { command: string; args: string[] } {

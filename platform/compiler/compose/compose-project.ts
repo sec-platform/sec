@@ -43,11 +43,15 @@ function renderSlotSkeleton(task: SlotTask): string {
   return `// @generated slot-id:${task.id} block:${task.block}\n${importLine}export function ${task.symbol}(${signature} {\n  throw new Error('Not implemented');\n}\n`;
 }
 
+function normalizeNewlines(value: string): string {
+  return value.replace(/\r\n/g, '\n');
+}
+
 async function mergePrisma(sourcePath: string, targetPath: string): Promise<void> {
   const source = await readText(sourcePath);
   const existing = (await pathExists(targetPath)) ? await readText(targetPath) : '';
   const trimmed = source.trim();
-  if (existing.includes(trimmed)) {
+  if (normalizeNewlines(existing).includes(normalizeNewlines(trimmed))) {
     return;
   }
   const next = `${existing.trimEnd()}\n\n${trimmed}\n`;
@@ -76,7 +80,7 @@ async function applyInstallStep(workspaceRoot: string, projectRoot: string, step
 }
 
 export async function composeProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
-  const { projectRoot, generatedDir, installManifestPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const installManifest: Array<InstallPlanStep & { status: 'installed' }> = [];
 
   await ensureProjectBase(workspaceRoot);
@@ -87,8 +91,10 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
   }
 
   await ensureDir(generatedDir);
+  await ensureDir(path.dirname(blockUsageMapPath));
+  await ensureDir(path.dirname(installManifestPath));
   await writeText(path.join(generatedDir, 'routes.ts'), await renderRouteGraph(workspaceRoot, lock));
-  await writeJson(path.join(generatedDir, 'block-usage-map.json'), {
+  await writeJson(blockUsageMapPath, {
     blocks: lock.resolvedBlocks.map((block) => ({
       id: block.id,
       installOrder: block.installOrder
@@ -104,7 +110,7 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
   }
 
   const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
-  ensureGeneratedPaths(lock, [...runtimeScaffoldPaths, 'generated/routes.ts', 'generated/block-usage-map.json', 'generated/install-manifest.json']);
+  ensureGeneratedPaths(lock, [...runtimeScaffoldPaths, 'generated/routes.ts', 'control/evidence/block-usage-map.json', 'control/evidence/install-manifest.json']);
 
   await applyOverrides(workspaceRoot, 'compose');
 

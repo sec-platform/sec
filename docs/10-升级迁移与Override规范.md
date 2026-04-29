@@ -26,18 +26,20 @@
 - 为热修复而产生
 - 必须在后续阶段回收或固化
 
-## 3. `overrides/` 区规则
+## 3. `source/patches/` 区规则
 
 ### `v0.1`
 
-- 目录可预留，不要求启用
+- 顶层 `source/patches/` 是默认 override/patch/rule 源码区。
+- `project/overrides/**` 只保留为兼容期入口。
 
 ### `v0.2+`
 
 - 默认结构：
 
 ```text
-overrides/
+source/patches/
+  override-manifest.yaml
   rules/
   patches/
   manifests/
@@ -45,8 +47,9 @@ overrides/
 
 ### 规则
 
-- override 只能通过显式映射接入主项目
-- override 不得直接替换 lock 或 provenance
+- override 只能通过显式映射接入主项目。
+- override 不得直接替换 `control/state/graph.lock.json`、`control/provenance/provenance.json` 或任何 `control/**` artifact。
+- 如果人工直接修改 `project/**`，平台应把它识别为 drift/manual override，并引导回写到 `source/model`、`source/views`、`source/code` 或 `source/patches`。
 
 ## 4. override 清单
 
@@ -70,8 +73,8 @@ overrides:
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | `id` | 是 | override 唯一标识 |
-| `entry` | 是 | 相对 `overrides/` 的源文件路径，必须位于 `patches/`、`rules/` 或 `manifests/` |
-| `target` | 是 | 相对项目根目录的目标路径 |
+| `entry` | 是 | 相对 `source/patches/` 的源文件路径，必须位于 `patches/`、`rules/` 或 `manifests/` |
+| `target` | 是 | 相对 `project/` runtime target 的目标路径，或由治理 workflow 显式允许的 workspace artifact 路径 |
 | `reason` | 是 | 触发 override 的原因 |
 | `source` | 是 | `manual` / `rule-backed` |
 | `appliesAfter` | 是 | 当前支持 `compose` / `adapt` |
@@ -81,10 +84,10 @@ overrides:
 
 ### 输入
 
-- 当前 `graph.lock.json`
+- 当前 `control/state/graph.lock.json`
 - 目标 block version
 - block upgrade metadata
-- 当前 overrides
+- 当前 `source/patches/override-manifest.yaml` 与兼容期 overrides
 
 ### 步骤
 
@@ -149,9 +152,11 @@ overrides:
 
 ### 推荐顺序
 
-1. 如果人工修改能表达为 slot description，则回写到 slot
-2. 若能表达为规则文件，则写为 `overrides/rules/*`
-3. 若只能表达为代码 patch，则写 `override-manifest.yaml`
+1. 如果人工修改能表达为 slot description，则回写到 `source/code/slots/**` 或 `source/app.yaml` 的 slot 描述。
+2. 若能表达为业务模型、权限、数据流或视图 mutation，则回写到 `source/model/**` 或 `source/views/mutations/*.json`，并通过 `platform workbench mutations apply` 应用到 `source/app.yaml`。
+3. 若能表达为规则文件，则写为 `source/patches/rules/*`。
+4. 若只能表达为代码 patch，则写入 `source/patches/patches/*` 并登记到 `source/patches/override-manifest.yaml`。
+5. 若修改具备复用价值，应提升为 `source/blocks/private/**`。
 
 ### 不推荐
 

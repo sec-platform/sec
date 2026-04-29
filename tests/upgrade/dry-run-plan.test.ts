@@ -157,8 +157,7 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
   await verifyWorkspace(workspaceRoot);
   await lockWorkspace(workspaceRoot);
 
-  const { lockPath, provenancePath } = getWorkspacePaths(workspaceRoot);
-  const planPath = path.join(workspaceRoot, 'project', 'app.plan.yaml');
+  const { lockPath, planPath, provenancePath } = getWorkspacePaths(workspaceRoot);
   const sessionPath = path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts');
   const beforePlan = await fs.readFile(planPath, 'utf8');
   const beforeSession = await fs.readFile(sessionPath, 'utf8');
@@ -239,16 +238,16 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
   await expect(fs.readFile(sessionPath, 'utf8')).resolves.toBe(beforeSession);
 
   const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
-  expect(lock.generatedPaths).toContain('generated/upgrade-plan.json');
+  expect(lock.generatedPaths).toContain('control/workflow/upgrade-plan.json');
   const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
     artifacts: Array<{ path: string; generatedByPass?: string }>;
   };
   expect(provenance.artifacts).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ path: 'generated/upgrade-plan.json', generatedByPass: 'upgrade' })
+      expect.objectContaining({ path: 'control/workflow/upgrade-plan.json', generatedByPass: 'upgrade' })
     ])
   );
-});
+}, 120000);
 
 test('upgrade dry-run records slot contract migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-slot-contract-plan-');

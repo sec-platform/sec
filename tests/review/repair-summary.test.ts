@@ -149,7 +149,7 @@ test('review summary surfaces pending repair tasks', async () => {
               kind: 'policy',
               issueType: 'spec',
               repairable: false,
-              artifactPath: 'generated/policy-report.json',
+              artifactPath: 'control/evidence/policy-report.json',
               message: 'tenant scope missing',
               targetIds: ['tenant-scope-required']
             }
@@ -255,7 +255,7 @@ test('review summary surfaces pending repair tasks', async () => {
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'repair',
-      artifactPath: 'generated/repair-plan.json',
+      artifactPath: 'control/workflow/repair-plan.json',
       message: 'Repair blocked at spec: policy failure is outside automatic slot repair: tenant scope missing'
     });
     expect(summary.conflictHints).toEqual([

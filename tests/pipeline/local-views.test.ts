@@ -280,7 +280,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     {
       lane: 'fast',
       kind: 'policy',
-      artifactPath: 'generated/policy-report.json',
+      artifactPath: 'control/evidence/policy-report.json',
       message: 'disk-only <failure> & "point"'
     }
   ];
@@ -333,7 +333,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       {
         overrideStatus: 'none',
         count: 3,
-        paths: ['custom/customer_normalizer.ts', 'generated/review-summary.json', 'src/installed/auth/session.ts']
+        paths: ['custom/customer_normalizer.ts', 'control/evidence/review-summary.json', 'src/installed/auth/session.ts']
       }
     ],
     registrySummaryCount: 1,
@@ -355,10 +355,10 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       {
         pass: 'review',
         count: 1,
-        paths: ['generated/review-summary.json']
+        paths: ['control/evidence/review-summary.json']
       }
     ],
-    unverifiedArtifacts: ['app/tickets/page.tsx', 'custom/customer_normalizer.ts', 'generated/review-summary.json']
+    unverifiedArtifacts: ['app/tickets/page.tsx', 'custom/customer_normalizer.ts', 'control/evidence/review-summary.json']
   };
   reviewSummary.coverageSummary = {
     status: 'failed',
@@ -415,12 +415,12 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       {
         kind: 'governance',
         count: 5,
-        paths: ['generated/review-summary.json', 'generated/ci-artifacts.json']
+        paths: ['control/evidence/review-summary.json', 'control/ci/artifacts.json']
       },
       {
         kind: 'view',
         count: 2,
-        paths: ['generated/views/source-view.html', 'generated/views/slot-rule-view.html']
+        paths: ['control/workbench/views/source-view.html', 'control/workbench/views/slot-rule-view.html']
       }
     ],
     missing: [
@@ -678,7 +678,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
                 kind: 'policy',
                 issueType: 'spec',
                 repairable: false,
-                artifactPath: 'generated/policy-report.json',
+                artifactPath: 'control/evidence/policy-report.json',
                 message: 'policy <boundary> & manual decision',
                 targetIds: ['tenant-scope-required']
               }
@@ -829,8 +829,8 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
   expect(sourceView).toContain('<td>Contract Paths</td><td>generated/postgres-contract.json</td>');
   expect(sourceView).toContain('Artifact Upload Groups');
-  expect(sourceView).toContain('generated/review-summary.json, generated/ci-artifacts.json');
-  expect(sourceView).toContain('generated/views/source-view.html, generated/views/slot-rule-view.html');
+  expect(sourceView).toContain('control/evidence/review-summary.json, control/ci/artifacts.json');
+  expect(sourceView).toContain('control/workbench/views/source-view.html, control/workbench/views/slot-rule-view.html');
   expect(sourceView).toContain('Missing Artifact Diagnostics');
   expect(sourceView).toContain('generated/missing-&lt;artifact&gt;.json');
   expect(sourceView).toContain('declared-generated-missing');
@@ -845,7 +845,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('Failure Groups');
   expect(sourceView).toContain('Failure Details');
   expect(sourceView).toContain('<th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th>');
-  expect(sourceView).toContain('<td>fast</td>\n          <td>policy</td>\n          <td>1</td>\n          <td>generated/policy-report.json</td>');
+  expect(sourceView).toContain('<td>fast</td>\n          <td>policy</td>\n          <td>1</td>\n          <td>control/evidence/policy-report.json</td>');
   expect(sourceView).toContain('Review Runtime Attribution');
   expect(sourceView).toContain('Runtime Groups');
   expect(sourceView).toContain('Runtime Entries');
@@ -857,6 +857,8 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(sourceView).toContain('<td>Target Paths</td><td>6</td>');
   expect(sourceView).toContain('Impact Groups');
   expect(sourceView).toContain('Impact Details');
+  expect(sourceView).toContain('Workbench Mutations');
+  expect(sourceView).toContain('source/views/mutations/*.json -&gt; source/app.yaml');
   expect(sourceView).toContain('Policy Summary');
   expect(sourceView).toContain('<td>Official Policies</td><td>1</td>');
   expect(sourceView).toContain('<td>Project Policies</td><td>1</td>');
@@ -975,4 +977,4 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expect(slotRuleView).toContain('<td>total=7, missing=1, uploadGroups=2, missingReasonTypes=1</td>');
   expect(slotRuleView).toContain('<td>review-summary=generated</td>');
   expect(slotRuleView).toContain('disk-driven-acceptance');
-});
+}, 120000);

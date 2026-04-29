@@ -59,7 +59,7 @@ export function buildErrorProtocol(error: {
       recoverable: false,
       issueType: 'spec',
       suggestedActions: ['inspect-verification-report', 'run-platform-explain'],
-      artifactPaths: ['project/generated/verification-report.json', 'project/generated/review-summary.json'],
+      artifactPaths: ['control/evidence/verification-report.json', 'control/evidence/review-summary.json'],
       details: error.details
     };
   }
@@ -71,7 +71,7 @@ export function buildErrorProtocol(error: {
       recoverable: true,
       issueType: 'composition',
       suggestedActions: ['run-platform-verify', 'retry-platform-repair-dry-run'],
-      artifactPaths: ['project/generated/verification-report.json'],
+      artifactPaths: ['control/evidence/verification-report.json'],
       details: error.details
     };
   }
@@ -83,7 +83,7 @@ export function buildErrorProtocol(error: {
       recoverable: true,
       issueType: 'slot',
       suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'],
-      artifactPaths: ['project/generated/repair-plan.json', 'project/generated/review-summary.json'],
+      artifactPaths: ['control/workflow/repair-plan.json', 'control/evidence/review-summary.json'],
       details: error.details
     };
   }
@@ -107,7 +107,7 @@ export function buildErrorProtocol(error: {
       recoverable: true,
       issueType: 'composition',
       suggestedActions: ['choose-compatible-upgrade-target', 'run-platform-upgrade-dry-run'],
-      artifactPaths: ['project/generated/upgrade-diagnostics.json'],
+      artifactPaths: ['control/workflow/upgrade-diagnostics.json'],
       details: error.details
     };
   }
@@ -119,7 +119,7 @@ export function buildErrorProtocol(error: {
       recoverable: true,
       issueType: 'composition',
       suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'],
-      artifactPaths: ['project/generated/upgrade-diagnostics.json', 'project/generated/upgrade-plan.json'],
+      artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json'],
       details: error.details
     };
   }
@@ -131,7 +131,19 @@ export function buildErrorProtocol(error: {
       recoverable: true,
       issueType: 'composition',
       suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'],
-      artifactPaths: ['project/generated/upgrade-diagnostics.json', 'project/generated/upgrade-plan.json'],
+      artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json'],
+      details: error.details
+    };
+  }
+
+  if (code.startsWith('WORKBENCH-MUTATION-')) {
+    return {
+      code,
+      message,
+      recoverable: true,
+      issueType: 'spec',
+      suggestedActions: ['inspect-workbench-mutations', 'run-platform-workbench-mutations-apply'],
+      artifactPaths: ['source/views/mutations', 'control/workflow/view-mutation-report.json'],
       details: error.details
     };
   }

@@ -212,7 +212,7 @@ test('writeRepairPlan persists generated path in a missing generated directory',
     const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     const persistedLock = await readJson<LockFile>(lockPath);
     expect(persistedRepairPlan).toEqual(repairPlan);
-    expect(persistedLock.generatedPaths).toEqual(['generated/repair-plan.json', 'provenance.json']);
+    expect(persistedLock.generatedPaths).toEqual(['control/provenance/provenance.json', 'control/workflow/repair-plan.json']);
   });
 });
 
@@ -311,7 +311,7 @@ test('repair plan includes structured failure points for slot and spec failures'
         kind: 'policy',
         issueType: 'spec',
         repairable: false,
-        artifactPath: 'generated/policy-report.json',
+        artifactPath: 'control/evidence/policy-report.json',
         message: 'A policy issue.; Z policy issue.',
         targetIds: ['src/installed/entity/customer-service.ts', 'tenant-scope-required']
       })
@@ -383,7 +383,7 @@ test('repair plan falls back when failed summary has no lane details', () => {
       kind: 'summary',
       issueType: 'unknown',
       repairable: false,
-      artifactPath: 'generated/verification-report.json',
+      artifactPath: 'control/evidence/verification-report.json',
       message: 'Verification failed without lane-specific failure details'
     }
   ]);

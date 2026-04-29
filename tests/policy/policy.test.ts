@@ -168,12 +168,12 @@ test('policy gate loads developer source policy files', async () => {
 
   expect(report.status).toBe('passed');
   expect(report.project.sources).toContainEqual({
-    path: 'project/source/policies/tenant-source.yaml',
+    path: 'source/model/policies/tenant-source.yaml',
     policyIds: ['source-layer-policy']
   });
   expect(report.merged.policies.find((policy) => policy.id === 'source-layer-policy')).toMatchObject({
     sourceScope: 'project',
-    sourcePath: 'project/source/policies/tenant-source.yaml'
+    sourcePath: 'source/model/policies/tenant-source.yaml'
   });
 });
 
@@ -564,8 +564,9 @@ test('policy gate fails when tenant scoping is removed from customer queries', a
 
   await expect(verifyWorkspace(workspaceRoot)).rejects.toThrow();
 
+  const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
   const report = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'verification-report.json'), 'utf8')
+    await fs.readFile(verificationReportPath, 'utf8')
   ) as { policy: { status: string; violations: Array<{ id: string; sourceScope: string; sourcePath: string }> } };
   expect(report.policy.status).toBe('failed');
   expect(report.policy.violations[0]?.id).toBe('tenant-scope-required');

@@ -127,7 +127,7 @@ test('writeReviewSummary persists generated path in lock', async () => {
   });
   expect(summary.conflictHints).toEqual([]);
   expect(persistedSummary).toEqual(summary);
-  expect(persistedLock.generatedPaths).toEqual(['generated/review-summary.json']);
+  expect(persistedLock.generatedPaths).toEqual(['control/evidence/review-summary.json']);
 });
 
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
@@ -158,13 +158,13 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
       {
         lane: 'all',
         kind: 'summary',
-        artifactPath: 'generated/verification-report.json',
+        artifactPath: 'control/evidence/verification-report.json',
         message: 'Verification failed in lanes: fast'
       },
       {
         lane: 'fast',
         kind: 'policy',
-        artifactPath: 'generated/policy-report.json',
+        artifactPath: 'control/evidence/policy-report.json',
         message: 'Policy tenant-scope-required: Tenant-scoped queries must derive tenant context and filter by tenantId.'
       }
     ])
@@ -282,25 +282,25 @@ test('buildReviewSummary adds failed verification targets as structured failure 
       {
         lane: 'fast',
         kind: 'acceptance',
-        artifactPath: 'generated/verification-report.json',
+        artifactPath: 'control/evidence/verification-report.json',
         message: 'Fast-lane acceptance test failed: tests/acceptance/customer-normalizer.test.ts'
       },
       {
         lane: 'runtime',
         kind: 'unit',
-        artifactPath: 'generated/runtime-report.json',
+        artifactPath: 'control/evidence/runtime-report.json',
         message: 'Runtime unit tests failed'
       },
       {
         lane: 'runtime',
         kind: 'unit',
-        artifactPath: 'generated/runtime-report.json',
+        artifactPath: 'control/evidence/runtime-report.json',
         message: 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts'
       },
       {
         lane: 'runtime',
         kind: 'acceptance',
-        artifactPath: 'generated/runtime-report.json',
+        artifactPath: 'control/evidence/runtime-report.json',
         message: 'Runtime acceptance test failed: tests/runtime/acceptance/customer-flow.spec.ts'
       }
     ])

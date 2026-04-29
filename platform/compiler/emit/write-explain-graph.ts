@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
@@ -564,8 +565,8 @@ export async function writeExplainGraph(
   provenance: ProvenanceFile
 ): Promise<ExplainGraph> {
   const { acceptanceCoveragePath, explainGraphPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!lock.generatedPaths.includes('generated/explain-graph.json')) {
-    lock.generatedPaths.push('generated/explain-graph.json');
+  if (!lock.generatedPaths.includes('control/graph/explain-graph.json')) {
+    lock.generatedPaths.push('control/graph/explain-graph.json');
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   }
   if (!(await pathExists(acceptanceCoveragePath))) {
@@ -573,7 +574,7 @@ export async function writeExplainGraph(
   }
 
   const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
-  const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === 'generated/explain-graph.json')
+  const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === 'control/graph/explain-graph.json')
     ? provenance
     : await buildProvenance(workspaceRoot, lock);
   const graph = await buildExplainGraph(
@@ -587,6 +588,8 @@ export async function writeExplainGraph(
     await readUpgradeDiagnostics(workspaceRoot)
   );
 
+  await fs.mkdir(path.dirname(explainGraphPath), { recursive: true });
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
   await fs.writeFile(explainGraphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   await writeProvenance(workspaceRoot, lock);

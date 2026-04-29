@@ -1,5 +1,5 @@
 export const USAGE = [
-  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|install|blocks|postgres|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract>',
+  'Usage: node platform/cli/index.ts <init|add|resolve|compose|adapt|verify|repair|upgrade|lock|explain|artifacts|install|blocks|postgres|doctor|deps|reference|benchmark|test|policy|acceptance|runtime|verification|provenance|review|demo|contract|workbench>',
   '',
   'Closed loop: npm run demo:closed-loop',
   'Readiness: platform doctor',
@@ -29,6 +29,7 @@ export const PROVENANCE_USAGE = 'Usage: platform provenance registry [--json [--
 export const REVIEW_USAGE = 'Usage: platform review <summary|matrix|diagnostics> [--json [--compact]]';
 export const DEMO_USAGE = 'Usage: platform demo checklist [--json [--compact]]';
 export const CONTRACT_USAGE = 'Usage: platform contract <freeze|errors|ci> [--json [--compact]]';
+export const WORKBENCH_USAGE = 'Usage: platform workbench mutations apply [--json [--compact]]';
 export const DEPS_USAGE = [
   'Usage: platform deps <status|warmup|relink|clean>',
   '  platform deps status [--json [--compact]]',

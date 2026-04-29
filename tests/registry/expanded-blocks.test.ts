@@ -10,6 +10,7 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('expanded official block set composes and verifies as one project', async () => {
@@ -78,7 +79,8 @@ test('expanded official block set composes and verifies as one project', async (
     'updated_at'
   ]);
 
-  const lock = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'project', 'graph.lock.json'), 'utf8')) as typeof resolvedLock;
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as typeof resolvedLock;
   expect(lock.passStatus.verify).toBe('pending');
   expect(lock.resolvedBlocks.some((block) => block.id === 'rbac/basic')).toBe(true);
   expect(lock.resolvedBlocks.some((block) => block.id === 'audit/basic')).toBe(true);
@@ -131,8 +133,9 @@ test('expanded official block set composes and verifies as one project', async (
 });
 
 test('reference project coverage has no uncovered blocks', async () => {
+  const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
   const coverage = JSON.parse(
-    await fs.readFile(path.join(process.cwd(), 'project', 'generated', 'acceptance-coverage.json'), 'utf8')
+    await fs.readFile(acceptanceCoveragePath, 'utf8')
   ) as { uncoveredBlocks: string[]; uncoveredSlots: string[] };
 
   expect(coverage.uncoveredBlocks).toEqual([]);

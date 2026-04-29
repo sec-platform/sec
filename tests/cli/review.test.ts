@@ -344,7 +344,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
           lane: 'fast',
           kind: 'policy',
           message: 'Policy tenant-scope-required: missing tenant guard',
-          artifactPath: 'generated/policy-report.json'
+          artifactPath: 'control/evidence/policy-report.json'
         }
       ],
       regressionRisks: [
@@ -414,11 +414,11 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     expect(diagnosticsResult.code).toBe(0);
     expect(diagnosticsResult.stderr).toBe('');
     expect(diagnosticsResult.stdout).toContain('Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1');
-    expect(diagnosticsResult.stdout).toContain('Artifacts: generated/policy-report.json');
+    expect(diagnosticsResult.stdout).toContain('Artifacts: control/evidence/policy-report.json');
     expect(diagnosticsResult.stdout).toContain('Blocks: tenant/basic-workspace');
     expect(diagnosticsResult.stdout).toContain('Slots: customer_normalizer');
     expect(diagnosticsResult.stdout).toContain(
-      'Diagnostic failure:0; kind=policy; lane=fast; artifact=generated/policy-report.json; Policy tenant-scope-required: missing tenant guard'
+      'Diagnostic failure:0; kind=policy; lane=fast; artifact=control/evidence/policy-report.json; Policy tenant-scope-required: missing tenant guard'
     );
     expect(diagnosticsResult.stdout).toContain(
       'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; slot=none; Block tenant/basic-workspace has uncovered acceptance'
@@ -438,7 +438,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       regressionRiskCount: 2,
       conflictHintCount: 1,
       artifactPathCount: 1,
-      artifactPaths: ['generated/policy-report.json'],
+      artifactPaths: ['control/evidence/policy-report.json'],
       blockCount: 1,
       blocks: ['tenant/basic-workspace'],
       slotCount: 1,

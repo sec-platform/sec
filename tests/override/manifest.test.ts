@@ -18,7 +18,7 @@ import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('override-manifest can replace a generated file and surface override provenance', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-override-');
-  const { overrideManifestPath, projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { overrideManifestPath, projectRoot, provenancePath, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
   await resolveWorkspace(workspaceRoot);
@@ -57,7 +57,7 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
 `;
 
   await fs.writeFile(
-    path.join(projectRoot, 'overrides', 'patches', 'customer-normalizer.override.ts'),
+    path.join(sourceOverridesRoot, 'patches', 'customer-normalizer.override.ts'),
     customerNormalizerOverride,
     'utf8'
   );
@@ -88,7 +88,7 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
     )
   ).toBe(true);
 
-  const provenance = JSON.parse(await fs.readFile(path.join(projectRoot, 'provenance.json'), 'utf8')) as {
+  const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
     artifacts: Array<{ path: string; originType: string; overrideStatus: string }>;
   };
   expect(
@@ -122,13 +122,13 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
 
 test('override-manifest loads developer source layer overrides before legacy overrides', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-source-override-');
-  const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
+  const { overrideManifestPath, legacyOverrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
   await resolveWorkspace(workspaceRoot);
   await composeWorkspace(workspaceRoot);
 
-  await writeYaml(overrideManifestPath, {
+  await writeYaml(legacyOverrideManifestPath, {
     overrides: [
       {
         id: 'customer-normalizer-legacy-manual',
@@ -148,7 +148,7 @@ test('override-manifest loads developer source layer overrides before legacy ove
     'utf8'
   );
 
-  await writeYaml(path.join(sourceOverridesRoot, 'override-manifest.yaml'), {
+  await writeYaml(overrideManifestPath, {
     overrides: [
       {
         id: 'customer-normalizer-source-manual',
@@ -177,7 +177,7 @@ test('override-manifest loads developer source layer overrides before legacy ove
 
 test('override-manifest surfaces ticket runtime override attribution', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-ticket-override-');
-  const { overrideManifestPath, projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
   await addBlock(workspaceRoot, 'ticket/basic');
@@ -208,7 +208,7 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
       }
     ]
   });
-  const ticketPageOverridePath = path.join(projectRoot, 'overrides', 'patches', 'ticket-page.override.tsx');
+  const ticketPageOverridePath = path.join(sourceOverridesRoot, 'patches', 'ticket-page.override.tsx');
   await fs.writeFile(ticketPageOverridePath, ticketPageOverride, 'utf8');
 
   await adaptWorkspace(workspaceRoot);

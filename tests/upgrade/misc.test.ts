@@ -21,9 +21,10 @@ import type { LockFile } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 
 async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<void> {
-  const { lockPath, planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const { lockPath, planPath, privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
   const blockRoot = path.join(privateRegistryRoot, 'private.slot-contract');
   const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
+  await fs.mkdir(projectRoot, { recursive: true });
   const baseManifest = {
     id: 'private/slot-contract',
     version: '0.1.0',

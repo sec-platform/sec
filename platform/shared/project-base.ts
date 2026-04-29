@@ -8,6 +8,10 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   const {
     projectRoot,
     developerSourceRoot,
+    sourceCodeRoot,
+    sourceModelRoot,
+    sourceBlocksRoot,
+    sourcePatchesRoot,
     sourceSlotsRoot,
     sourceOverridesRoot,
     sourcePoliciesRoot,
@@ -15,12 +19,25 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     sourceAssetsRoot,
     sourcePrivateRegistryRoot,
     sourceViewsRoot,
+    sourceViewMutationsRoot,
     sourceEnvRoot,
     privateRegistryRoot,
+    controlRoot,
+    controlStateRoot,
+    controlEvidenceRoot,
+    controlProvenanceRoot,
+    controlGraphRoot,
+    controlWorkflowRoot,
+    controlWorkbenchRoot,
+    controlAuditRoot,
+    controlCiRoot,
+    localStateRoot,
     generatedDir,
+    generatedViewsDir,
     projectPackagePath,
     provenancePath,
     overrideManifestPath,
+    legacyOverrideManifestPath,
     policySpecPath
   } = getWorkspacePaths(workspaceRoot);
   await ensureDir(projectRoot);
@@ -41,29 +58,108 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   await ensureDir(path.join(projectRoot, 'overrides', 'manifests'));
   await ensureDir(path.join(projectRoot, 'policies'));
   await ensureDir(developerSourceRoot);
+  await ensureDir(sourceCodeRoot);
+  await ensureDir(sourceModelRoot);
+  await ensureDir(sourceBlocksRoot);
+  await ensureDir(sourcePatchesRoot);
   await ensureDir(sourceSlotsRoot);
+  await ensureDir(path.join(sourceCodeRoot, 'app'));
+  await ensureDir(path.join(sourceCodeRoot, 'server'));
+  await ensureDir(path.join(sourceCodeRoot, 'ui'));
+  await ensureDir(path.join(sourceCodeRoot, 'shared'));
+  await ensureDir(path.join(sourceCodeRoot, 'integrations'));
+  await ensureDir(path.join(sourceCodeRoot, 'opaque'));
+  await ensureDir(path.join(sourceCodeRoot, 'lab'));
   await ensureDir(sourceOverridesRoot);
   await ensureDir(path.join(sourceOverridesRoot, 'rules'));
   await ensureDir(path.join(sourceOverridesRoot, 'patches'));
   await ensureDir(path.join(sourceOverridesRoot, 'manifests'));
   await ensureDir(sourcePoliciesRoot);
   await ensureDir(sourceAcceptanceRoot);
+  await ensureDir(path.join(sourceModelRoot, 'capabilities'));
+  await ensureDir(path.join(sourceModelRoot, 'entities'));
+  await ensureDir(path.join(sourceModelRoot, 'flows'));
+  await ensureDir(path.join(sourceModelRoot, 'permissions'));
   await ensureDir(sourceAssetsRoot);
+  await ensureDir(path.join(sourceAssetsRoot, 'copy'));
+  await ensureDir(path.join(sourceAssetsRoot, 'design'));
+  await ensureDir(path.join(sourceAssetsRoot, 'fixtures'));
+  await ensureDir(path.join(sourceAssetsRoot, 'seeds'));
   await ensureDir(sourcePrivateRegistryRoot);
   await ensureDir(sourceViewsRoot);
+  await ensureDir(path.join(sourceViewsRoot, 'workspace'));
+  await ensureDir(path.join(sourceViewsRoot, 'graphs'));
+  await ensureDir(path.join(sourceViewsRoot, 'screens'));
+  await ensureDir(path.join(sourceViewsRoot, 'forms'));
+  await ensureDir(path.join(sourceViewsRoot, 'tables'));
+  await ensureDir(path.join(sourceViewsRoot, 'dashboards'));
+  await ensureDir(path.join(sourceViewsRoot, 'editors'));
+  await ensureDir(sourceViewMutationsRoot);
   await ensureDir(sourceEnvRoot);
+  await ensureDir(path.join(sourceEnvRoot, 'templates'));
+  await ensureDir(path.join(sourceEnvRoot, 'bindings'));
+  await ensureDir(controlRoot);
+  await ensureDir(controlStateRoot);
+  await ensureDir(controlEvidenceRoot);
+  await ensureDir(controlProvenanceRoot);
+  await ensureDir(controlGraphRoot);
+  await ensureDir(controlWorkflowRoot);
+  await ensureDir(controlWorkbenchRoot);
+  await ensureDir(generatedViewsDir);
+  await ensureDir(controlAuditRoot);
+  await ensureDir(controlCiRoot);
+  await ensureDir(localStateRoot);
+  await ensureDir(path.join(localStateRoot, 'cache'));
+  await ensureDir(path.join(localStateRoot, 'tmp'));
+  await ensureDir(path.join(localStateRoot, 'indexes'));
+  await ensureDir(path.join(localStateRoot, 'test-workspaces'));
+  await ensureDir(path.join(localStateRoot, 'generated-preview'));
+  await ensureDir(path.join(localStateRoot, 'ai-sessions'));
   await ensureDir(generatedDir);
   await ensureDir(path.join(projectRoot, 'prisma'));
   await ensureDir(privateRegistryRoot);
 
   for (const sourceDir of [
     sourceSlotsRoot,
+    path.join(sourceCodeRoot, 'app'),
+    path.join(sourceCodeRoot, 'server'),
+    path.join(sourceCodeRoot, 'ui'),
+    path.join(sourceCodeRoot, 'shared'),
+    path.join(sourceCodeRoot, 'integrations'),
+    path.join(sourceCodeRoot, 'opaque'),
+    path.join(sourceCodeRoot, 'lab'),
     sourcePoliciesRoot,
     sourceAcceptanceRoot,
+    path.join(sourceModelRoot, 'capabilities'),
+    path.join(sourceModelRoot, 'entities'),
+    path.join(sourceModelRoot, 'flows'),
+    path.join(sourceModelRoot, 'permissions'),
     sourceAssetsRoot,
+    path.join(sourceAssetsRoot, 'copy'),
+    path.join(sourceAssetsRoot, 'design'),
+    path.join(sourceAssetsRoot, 'fixtures'),
+    path.join(sourceAssetsRoot, 'seeds'),
     sourcePrivateRegistryRoot,
     sourceViewsRoot,
-    sourceEnvRoot
+    path.join(sourceViewsRoot, 'workspace'),
+    path.join(sourceViewsRoot, 'graphs'),
+    path.join(sourceViewsRoot, 'screens'),
+    path.join(sourceViewsRoot, 'forms'),
+    path.join(sourceViewsRoot, 'tables'),
+    path.join(sourceViewsRoot, 'dashboards'),
+    path.join(sourceViewsRoot, 'editors'),
+    sourceViewMutationsRoot,
+    sourceEnvRoot,
+    path.join(sourceEnvRoot, 'templates'),
+    path.join(sourceEnvRoot, 'bindings'),
+    controlStateRoot,
+    controlEvidenceRoot,
+    controlProvenanceRoot,
+    controlGraphRoot,
+    controlWorkflowRoot,
+    generatedViewsDir,
+    controlAuditRoot,
+    controlCiRoot
   ]) {
     await writeText(path.join(sourceDir, '.gitkeep'), '\n');
   }
@@ -494,6 +590,12 @@ datasource db {
 
   if (!(await pathExists(overrideManifestPath))) {
     await writeYaml(overrideManifestPath, {
+      overrides: []
+    });
+  }
+
+  if (!(await pathExists(legacyOverrideManifestPath))) {
+    await writeYaml(legacyOverrideManifestPath, {
       overrides: []
     });
   }

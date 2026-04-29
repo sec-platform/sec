@@ -1,0 +1,60 @@
+app:
+  name: customer-admin
+  stack: nextjs-ts-prisma-sqlite
+  packageManager: pnpm
+  mode: single-tenant
+registry:
+  sources:
+    - id: official
+      kind: official
+      location: compiler
+      path: platform/registry/official
+    - id: source-private
+      kind: private
+      location: workspace
+      path: source/blocks/private
+    - id: private
+      kind: private
+      location: workspace
+      path: platform/registry/private
+blocks:
+  - id: auth/basic-session
+    version: 0.1.0
+  - id: tenant/basic-workspace
+    version: 0.1.0
+  - id: entity/customer-basic
+    version: 0.1.0
+  - id: rbac/basic
+    version: 0.1.0
+  - id: audit/basic
+    version: 0.1.0
+  - id: export/csv-basic
+    version: 0.1.0
+  - id: file/upload
+    version: 0.1.0
+  - id: notify/email-basic
+    version: 0.1.0
+  - id: table/filter-search
+    version: 0.1.0
+  - id: infra/postgres
+    version: 0.1.0
+slots:
+  - id: customer_normalizer
+    block: entity/customer-basic
+    kind: adapter
+    target: custom/customer_normalizer.ts
+    sourcePath: source/code/slots/customer_normalizer.ts
+    symbol: normalizeCustomerInput
+    description: Name required; email lowercased; phone digits only; company defaults to Unknown.
+acceptance:
+  - id: user_can_login
+  - id: user_can_create_customer
+  - id: user_can_list_customers
+  - id: tenant_only_sees_own_customers
+  - id: customer_can_be_exported
+  - id: customer_can_upload_attachment
+  - id: customer_creation_sends_email_notification
+  - id: customer_list_can_be_filtered
+  - id: audit_entry_can_be_created
+  - id: user_can_access_authorized_route
+  - id: postgres_contract_is_available

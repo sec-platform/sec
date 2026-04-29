@@ -128,8 +128,8 @@ export function validatePlan(plan: PlanFile): void {
     if (!slot.target.startsWith('custom/')) {
       throw new CompilerError('PLAN-VALIDATION-008', `Slot "${slot.id}" must target custom/ in v0.1`);
     }
-    if (slot.sourcePath && !slot.sourcePath.startsWith('source/slots/')) {
-      throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target source/slots/`);
+    if (slot.sourcePath && !slot.sourcePath.startsWith('source/code/slots/') && !slot.sourcePath.startsWith('source/slots/')) {
+      throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target source/code/slots/`);
     }
     slotIds.add(slot.id);
   }

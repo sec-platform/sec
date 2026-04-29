@@ -30,7 +30,8 @@ import {
   POSTGRES_USAGE,
   REPAIR_USAGE,
   RUNTIME_USAGE,
-  USAGE
+  USAGE,
+  WORKBENCH_USAGE
 } from '../../platform/cli/usage.ts';
 import {
   assertReferenceCheckClean,
@@ -499,6 +500,26 @@ test('CLI reports argument usage errors', async () => {
       code: 1,
       stdout: '',
       stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
+    });
+    await expect(runCli(workspaceRoot, ['workbench'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr(WORKBENCH_USAGE)
+    });
+    await expect(runCli(workspaceRoot, ['workbench', 'mutations'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr(WORKBENCH_USAGE)
+    });
+    await expect(runCli(workspaceRoot, ['workbench', 'mutations', 'apply', '--compact'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr(WORKBENCH_USAGE)
+    });
+    await expect(runCli(workspaceRoot, ['workbench', 'mutations', 'apply', '--json', '--compact', '--extra'])).resolves.toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: usageErrorStderr(WORKBENCH_USAGE)
     });
     await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
       code: 1,

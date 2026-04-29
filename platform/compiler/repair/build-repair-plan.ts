@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
 import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
@@ -82,7 +82,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'build',
       issueType: 'unknown',
       repairable: false,
-      artifactPath: 'generated/verification-report.json',
+      artifactPath: 'control/evidence/verification-report.json',
       message: report.fast.logs.stderr || 'Typecheck failed'
     });
   }
@@ -113,7 +113,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'policy',
       issueType: 'spec',
       repairable: false,
-      artifactPath: 'generated/policy-report.json',
+      artifactPath: 'control/evidence/policy-report.json',
       message: sortedUniqueMessages(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed',
       targetIds: sortedUniqueTargets(report.policy.violations.flatMap((violation) => [violation.id, ...violation.files]))
     });
@@ -124,7 +124,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'runtime-build',
       issueType: 'kernel',
       repairable: false,
-      artifactPath: 'generated/runtime-report.json',
+      artifactPath: 'control/evidence/runtime-report.json',
       message: report.runtime.logs.stderr || 'Runtime build failed'
     });
   }
@@ -134,7 +134,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'runtime-unit',
       issueType: 'slot',
       repairable: true,
-      artifactPath: 'generated/runtime-report.json',
+      artifactPath: 'control/evidence/runtime-report.json',
       message: report.runtime.logs.stderr || 'Runtime unit verification failed',
       targetIds: sortedUniqueTargets(report.runtime.unit.failed)
     });
@@ -145,7 +145,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
       kind: 'runtime-acceptance',
       issueType: 'slot',
       repairable: true,
-      artifactPath: 'generated/runtime-report.json',
+      artifactPath: 'control/evidence/runtime-report.json',
       message: report.runtime.logs.stderr || 'Runtime acceptance verification failed',
       targetIds: sortedUniqueTargets(report.runtime.acceptance.failed)
     });
@@ -159,7 +159,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
           kind: 'summary',
           issueType: 'unknown',
           repairable: false,
-          artifactPath: 'generated/verification-report.json',
+          artifactPath: 'control/evidence/verification-report.json',
           message: 'Verification failed without lane-specific failure details'
         }
       ];
@@ -302,17 +302,17 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
 }
 
 export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
   const repairableTasks = repairPlan.tasks.filter((task) => task.failurePoints.some((point) => point.repairable));
 
   for (const repairTask of repairableTasks) {
     if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
       throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
     }
-    const targetPath = path.resolve(projectRoot, repairTask.targetFile);
-    const projectRootWithSeparator = `${projectRoot}${path.sep}`;
-    if (targetPath !== projectRoot && !targetPath.startsWith(projectRootWithSeparator)) {
-      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes project root`);
+    const targetPath = resolveWorkspaceArtifactPath(workspaceRoot, repairTask.targetFile);
+    const rootWithSeparator = `${root}${path.sep}`;
+    if (targetPath !== root && !targetPath.startsWith(rootWithSeparator)) {
+      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes workspace root`);
     }
     const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
     if (!slotTask) {
@@ -336,7 +336,7 @@ export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, l
 }
 
 export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
   const repairableTasks = repairPlan.tasks.filter((task) => task.failurePoints.some((point) => point.repairable));
 
   if (repairPlan.status === 'pending' && repairableTasks.length === 0) {
@@ -347,10 +347,10 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
     if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
       throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
     }
-    const targetPath = path.resolve(projectRoot, repairTask.targetFile);
-    const projectRootWithSeparator = `${projectRoot}${path.sep}`;
-    if (targetPath !== projectRoot && !targetPath.startsWith(projectRootWithSeparator)) {
-      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes project root`);
+    const targetPath = resolveWorkspaceArtifactPath(workspaceRoot, repairTask.targetFile);
+    const rootWithSeparator = `${root}${path.sep}`;
+    if (targetPath !== root && !targetPath.startsWith(rootWithSeparator)) {
+      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes workspace root`);
     }
     const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
     if (!slotTask) {
@@ -367,9 +367,9 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, source, 'utf8');
     if (slotTask.sourcePath) {
-      const runtimeTargetPath = path.resolve(projectRoot, slotTask.target);
+      const runtimeTargetPath = resolveWorkspaceArtifactPath(workspaceRoot, slotTask.target);
       await fs.mkdir(path.dirname(runtimeTargetPath), { recursive: true });
-      await fs.writeFile(runtimeTargetPath, rebaseRelativeImports(source, slotTask.sourcePath, slotTask.target), 'utf8');
+      await fs.writeFile(runtimeTargetPath, rebaseRelativeImports(source, slotTask.sourcePath, toProjectRuntimePath(slotTask.target)), 'utf8');
     }
     slotTask.status = 'filled';
   }
@@ -379,8 +379,8 @@ export async function writeRepairPlan(workspaceRoot: string, plan: RepairPlan, l
   const { repairPlanPath, lockPath } = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(path.dirname(repairPlanPath), { recursive: true });
   await fs.writeFile(repairPlanPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');
-  if (!lock.generatedPaths.includes('generated/repair-plan.json')) {
-    lock.generatedPaths.push('generated/repair-plan.json');
+  if (!lock.generatedPaths.includes('control/workflow/repair-plan.json')) {
+    lock.generatedPaths.push('control/workflow/repair-plan.json');
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   }
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');

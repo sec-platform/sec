@@ -23,7 +23,8 @@ import {
   TEST_USAGE,
   UPGRADE_USAGE,
   VERIFICATION_USAGE,
-  VERIFY_USAGE
+  VERIFY_USAGE,
+  WORKBENCH_USAGE
 } from './usage.ts';
 
 export type ArtifactPathKind = 'governance' | 'view' | 'test' | 'contract';
@@ -353,6 +354,13 @@ export function parsePostgresOutputArgs(args: string[]): { json: boolean; compac
 
 export function parseVerificationOutputArgs(args: string[]): { json: boolean; compact: boolean } {
   return parseOptionalJsonOutputArgs(args, VERIFICATION_USAGE);
+}
+
+export function parseWorkbenchArgs(args: string[]): { json: boolean; compact: boolean } {
+  if (args[0] !== 'mutations' || args[1] !== 'apply') {
+    throw new Error(WORKBENCH_USAGE);
+  }
+  return parseOptionalJsonOutputArgs(args.slice(2), WORKBENCH_USAGE);
 }
 
 export function parseProvenanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {

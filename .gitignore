@@ -25,6 +25,7 @@ test-results/
 playwright-report/
 *.egg-info/
 .shared-deps/
+.pjc/
 project/.runtime-deps.stamp.json
 .tmp/
 .claude/scheduled_tasks.lock

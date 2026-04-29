@@ -63,27 +63,29 @@
 | 单槽位合成 | done | `customer_normalizer` slot 通过 task envelope 限定写入边界。 |
 | fast/runtime verification | done | 默认 verify/PR 跑 fast lane 与 runtime service 级测试；all/full 才跑完整 Next build + Playwright acceptance，并输出结构化 report、verification report CLI inspect、runtime report CLI inspect 与 runtime steps inspect。 |
 | acceptance coverage | done | 验收覆盖可映射 block/slot，支持依赖满足判断，并暴露 review summary、CLI explain 和本地视图覆盖摘要。 |
-| provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `provenance.json`，并暴露 provenance registry CLI、review summary、CLI explain 和本地视图 provenance 摘要。 |
+| provenance | done | 安装产物、slot 产物、generated 产物和 override 可进入 `control/provenance/provenance.json`，并暴露 provenance registry CLI、review summary、CLI explain 和本地视图 provenance 摘要。 |
 | explain graph | done | graph 包含 block/capability/slot/file/acceptance/pin/policy/override/repair/upgrade 节点、policy target/violation 边、slot 合同升级影响边、repair task/category 归因边、upgrade preflight/verification 归因边，以及 CLI 普通文本 review、只读 graph inspect 与 graph 类型摘要。 |
 | review summary | done | 结构化输出 change sources、runtime entries、vertical slices、install impacts、顶层 activity counts、install impact summary、impacted blocks/slots、acceptance coverage、provenance、failure points、regression risks、conflict hints、E2E chain summary，并暴露 review summary CLI、repair、upgrade verification、policy governance 摘要。 |
 | repair 基础 | done | verification 失败时可生成 repair plan，并可对 repairable slot 执行受限写回。 |
 | upgrade 基础 | done | 支持至少一个官方块升级，包含 migration、override 冲突检测、带 phase 的 planning/apply 阶段阻断诊断、verify、lock/provenance 更新和回滚。 |
 | migration 类型 | active | 已支持 `file-replace`、`copy-file`、`copy-directory`、`config-rewrite(set/delete)`、`json-array-append/remove`、`json-object-merge`、`text-append`、`text-replace`、`text-replace-regex`、`create-directory`、`delete-file`、`delete-directory`、`rename-file`、`rename-directory` 与 `slot-contract-update` 计划迁移；执行型迁移类型继续扩展。 |
 | policy gate | done | 支持 official/project policy merge、递归 YAML 加载、安装目标定位、violation report、policy report CLI、review summary、CLI explain 和本地视图治理摘要。 |
-| 本地治理产物 | done | `generated/**`、`provenance.json`、`graph.lock.json`、contract artifact 摘要和带导航的本地 HTML 视图是当前稳定治理产物集合。 |
+| 本地治理产物 | done | `control/state/**`、`control/evidence/**`、`control/provenance/**`、`control/graph/**`、`control/workflow/**`、`control/workbench/views/**`、`control/ci/**` 与 runtime contract artifact 摘要是当前稳定治理产物集合。 |
 | 开发者工具入口 | done | `doctor` 与 `deps status/warmup/relink/clean` 成为依赖环境的正式入口，普通项目开发者默认不直接修改平台源码。 |
+| Workbench 结构化回写 | done | `source/views/mutations/*.json` 作为视图编辑输入，`platform workbench mutations apply` 回写 `source/app.yaml` 并生成 `control/workflow/view-mutation-report.json`。 |
 
 ### 开发者入口与依赖环境策略
 
 - 平台源码本身是工具实现层，普通项目开发者默认不直接修改 `platform/compiler/**`、`platform/shared/**`、`platform/registry/official/**`。
 - 最终成品必须提供对外开发环境：CLI 是最低可用入口，Workbench/IDE 插件是产品化入口；两者都写入同一套 workspace 合同，而不是要求开发者打开平台源码目录操作。
-- 项目开发者的默认工作面收敛到 `project/source/**`：`slots/`、`overrides/`、`policies/`、`acceptance/`、`assets/`、`views/`、`env/` 与 `registry/private/`。
-- `project/app.plan.yaml` 仍是 v0.1 兼容的计划入口；后续迁移到更完整 source layer 时必须保持 CLI/Workbench/IDE 读写同一套 workspace 合同。
-- `project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**` 是兼容期入口；新能力优先落到 `project/source/**`，避免继续把开发者操作面混入生成应用源码或平台源码。
-- `project/src/installed/**`、`project/generated/**`、运行时 scaffold 和治理产物视为编译产物或 build state；需要人工介入时优先回写为 slot、rule-backed override、policy 或 private block，而不是长期手改生成源码。
+- 项目开发者的默认工作面收敛到顶层 `source/**`：`app.yaml`、`code/`、`model/`、`patches/`、`assets/`、`views/`、`env/` 与 `blocks/private/`。
+- `source/app.yaml` 是新计划入口；`project/app.plan.yaml` 仅是旧 v0.1 兼容路径。CLI、Workbench、IDE 必须读写同一套 workspace contract。
+- `project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**` 是兼容期入口；新能力优先落到 `source/**`，避免继续把开发者操作面混入生成应用源码或平台源码。
+- `project/src/installed/**`、runtime scaffold、runtime tests 和被目标项目消费的 `project/generated/**` 是生成目标层；治理产物进入 `control/**`。需要人工介入时优先回写为 slot、model、view mutation、rule-backed patch、policy 或 private block，而不是长期手改生成源码。
 - CLI 是一等入口；工作台或 IDE 插件只能补充交互体验，不替代 CLI 合同。
-- Workbench/IDE 插件必须遵守同一边界：可读 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；可写 `project/app.plan.yaml`、`project/source/**` 和仍处于兼容期的 `project/custom/**`、`project/overrides/**`、`project/policies/**`、MVP 临时私有 registry；禁止直接写 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
-- Workbench/IDE 插件至少要复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain` 这些命令入口，而不是旁路实现另一套规则。
+- Workbench/IDE 插件必须遵守同一边界：可读 `source/**`、`project/**` 和 `control/**`；可写 `source/app.yaml`、`source/code/**`、`source/model/**`、`source/patches/**`、`source/assets/**`、`source/views/**`、`source/env/**`、`source/blocks/private/**` 以及兼容期输入；禁止直接写 compiler internals、shared utilities、official registry、generated scaffold、control artifact 和依赖目录。
+- Workbench/IDE 插件至少要复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain`、`workbench mutations apply` 这些命令入口，而不是旁路实现另一套规则。
+- Workbench 结构化编辑的默认路径是 `source/views/mutations/*.json`；应用结果只能落到 `source/app.yaml`，报告落到 `control/workflow/view-mutation-report.json`，不得直接写 `project/**`。
 - `platform doctor` 用于检查本地依赖环境、缓存状态和推荐动作。
 - `platform deps status` 输出 root/shared/project/npm cache 的状态、元数据大小、顶层条目数量、链接关系和 cold/warm/dirty/stale 模式；为保证每次检查足够快，禁止递归扫描 `node_modules` 计算真实总字节数。
 - `platform deps status --json [--compact]` 输出稳定依赖环境合同，供 CI、Workbench 和 IDE 插件直接消费。
@@ -137,12 +139,12 @@
        - `platform review matrix [--json --compact]` 只读输出最新 E2E matrix。
        - 矩阵行复用 verification、coverage、artifacts、review 四个 chain stage。
        - evidence 从现有 review summary 派生，不新增执行流程。
-       - `generated/views/source-view.html` 与 `generated/views/slot-rule-view.html` 复用同一 evidence helper 展示 E2E Chain Summary 证据列。
+       - `control/workbench/views/source-view.html` 与 `control/workbench/views/slot-rule-view.html` 复用同一 evidence helper 展示 E2E Chain Summary 证据列。
      - JSON contract 冻结清单：done。
        - `platform artifacts --paths --kind contract` 输出可上传 contract 清单。
        - `platform artifacts --paths --json --kind contract` 输出结构化 contract 清单。
        - `platform artifacts --paths --json --compact --kind governance|view|test|contract` 输出稳定单行上传路径合同。
-       - `platform artifacts manifest [--json --compact]` 可只读检查最新 `generated/ci-artifacts.json`，不重新生成 artifact manifest。
+       - `platform artifacts manifest [--json --compact]` 可只读检查最新 `control/ci/artifacts.json`，不重新生成 artifact manifest。
        - contract 清单从 `generated/*-contract.json` 和 artifact summary 派生，并进入 artifact manifest / review summary 的 contract upload group。
      - artifact / graph / review golden output：active。
        - `platform explain --json --compact` 输出稳定单行 JSON 合同。
@@ -187,8 +189,8 @@
        - `platform reference check` 作为正式 CLI 入口。
        - `platform reference check --json [--compact]` 输出稳定 reference drift 合同，包含顶层 inspect command、runner command 与 refresh/diff 复现命令。
        - `npm run reference:check` 复用正式 CLI 入口。
-       - gate 通过 `reference:refresh` 刷新后运行 `git diff --name-only --exit-code -- project`。
-       - 失败时直接暴露 reference workspace 与编译主链的不一致。
+       - gate 通过 `reference:refresh` 刷新后运行 `git diff --name-only --exit-code -- source project control`。
+       - 失败时直接暴露 reference workspace 的开发源、生成目标或控制产物与编译主链的不一致。
      - 重复概念删除和命名收敛：active。
        - `platform`：原始 CLI 操作入口。
        - `reference`：不重置的主链刷新入口。
@@ -198,46 +200,46 @@
      - 收敛整改总表：active。
        - P0：固定唯一主闭环，统一对外叙事到 quickstart -> verify --lane all -> artifacts -> explain。
        - P0：冻结治理 contract 清单，覆盖 graph.lock、provenance、verification/runtime/policy/coverage、explain-graph、review-summary。
-         - `project/graph.lock.json`
-         - `project/provenance.json`
-         - `project/generated/verification-report.json`
-         - `project/generated/runtime-report.json`
-         - `project/generated/policy-report.json`
-         - `project/generated/acceptance-coverage.json`
-         - `project/generated/explain-graph.json`
-         - `project/generated/review-summary.json`
+         - `control/state/graph.lock.json`
+         - `control/provenance/provenance.json`
+         - `control/evidence/verification-report.json`
+         - `control/evidence/runtime-report.json`
+         - `control/evidence/policy-report.json`
+         - `control/evidence/acceptance-coverage.json`
+         - `control/graph/explain-graph.json`
+         - `control/evidence/review-summary.json`
        - P0：建立 benchmark/task-suite 最小合同，已通过 `platform benchmark suite --json [--compact]` 冻结任务集、顶层 runner command、聚合 artifact paths 与评分维度，再扩 runner。
        - P0：把 AI slot 文档协议与现有 TaskEnvelope/repair/provenance 代码字段逐项对齐：active。
         - TaskEnvelope `sourceSlot` 已回显 lock 中 slot 状态、writable zones 与 provenance hints。
         - repair plan review 已回显同一 envelope 写入边界与 source provenance，供 dry-run JSON 审查。
-       - P1：增加 reference workspace 无漂移 gate，证明 checked-in `project/` 与主链刷新结果一致。
+       - P1：增加 reference workspace 无漂移 gate，证明 checked-in `source/`、`project/`、`control/` 与主链刷新结果一致。
        - P1：补测试分层地图，区分 fast/runtime/all、contract freeze、reference drift、benchmark。
          - fast：默认本地 verify 与定向命名测试；禁止 Next build、Playwright install、浏览器 acceptance。
          - runtime：只给运行时/服务链路定向验证使用；仍禁止完整浏览器链路。
          - all：仅用于 demo/release/full-runtime gate，允许 Next build、Playwright install、browser acceptance。
          - contract freeze：优先用脚本/CLI JSON 合同与元数据断言，不新增大快照。
-         - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单、顶层 inspect command、runner command、聚合 test target files，并为每个 target 暴露可复现 `bun test` 命令。
+         - `platform contract freeze --json [--compact]` 输出稳定 contract-freeze target 清单、顶层 inspect command、runner command、聚合 test target files，并为每个 target 暴露可复现 `bunx vitest run ... --testNamePattern ...` 命令。
          - `platform contract errors --json [--compact]` 输出稳定 error protocol 合同，包含 issue type count，并覆盖 usage、unexpected、kernel，以及 verify blocked/acceptance、repair preflight/plan、upgrade noop/blocked/migration/rollback/conflict 的真实错误码样例。
          - `platform contract ci --json [--compact]` 输出稳定团队 CI 命令合同，覆盖顶层 verify commands、verify/quality/diagnostic/artifact upload command counts、per-step produces count、typecheck gate、顶层 quality commands、contract freeze gate、reference drift gate、review matrix/review diagnostics/demo checklist diagnostic、顶层 diagnostic commands、governance/view/test/contract artifact upload 路径入口与聚合 produced artifact paths。
         - `platform contract errors --json [--compact]` 输出稳定错误协议合同，包含 verify/repair/upgrade 失败可参考的 diagnostic artifact paths。
-         - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `generated/policy-report.json`。
-         - `platform policy sources --json [--compact]` 输出稳定 policy source 合同，直接消费最新 `generated/policy-report.json`。
-         - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `generated/acceptance-coverage.json`。
-         - `platform acceptance blocks --json [--compact]` 输出稳定 acceptance block coverage 合同，直接消费最新 `generated/acceptance-coverage.json`。
-         - `platform acceptance slots --json [--compact]` 输出稳定 acceptance slot coverage 合同，直接消费最新 `generated/acceptance-coverage.json`。
-         - `platform install manifest --json [--compact]` 输出稳定 install manifest 合同，直接消费最新 `generated/install-manifest.json`。
-         - `platform blocks usage --json [--compact]` 输出稳定 block usage map 合同，直接消费最新 `generated/block-usage-map.json`。
-         - `platform repair plan --json [--compact]` 输出稳定 repair plan 合同，直接消费最新 `generated/repair-plan.json`。
+         - `platform policy report --json [--compact]` 输出稳定 policy governance report 合同，直接消费最新 `control/evidence/policy-report.json`。
+         - `platform policy sources --json [--compact]` 输出稳定 policy source 合同，直接消费最新 `control/evidence/policy-report.json`。
+         - `platform acceptance coverage --json [--compact]` 输出稳定 acceptance coverage report 合同，直接消费最新 `control/evidence/acceptance-coverage.json`。
+         - `platform acceptance blocks --json [--compact]` 输出稳定 acceptance block coverage 合同，直接消费最新 `control/evidence/acceptance-coverage.json`。
+         - `platform acceptance slots --json [--compact]` 输出稳定 acceptance slot coverage 合同，直接消费最新 `control/evidence/acceptance-coverage.json`。
+         - `platform install manifest --json [--compact]` 输出稳定 install manifest 合同，直接消费最新 `control/evidence/install-manifest.json`。
+         - `platform blocks usage --json [--compact]` 输出稳定 block usage map 合同，直接消费最新 `control/evidence/block-usage-map.json`。
+         - `platform repair plan --json [--compact]` 输出稳定 repair plan 合同，直接消费最新 `control/workflow/repair-plan.json`。
          - `platform postgres contract --json [--compact]` 输出稳定 Postgres contract 合同，直接消费最新 `generated/postgres-contract.json`。
-         - `platform lock inspect --json [--compact]` 输出稳定 graph lock 合同，直接消费最新 `graph.lock.json`。
-         - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `generated/runtime-report.json`。
-        - `platform runtime steps --json [--compact]` 输出稳定 runtime step inspect 合同，从同一 `generated/runtime-report.json` 派生 build/unit/acceptance 步骤摘要。
-         - `platform verification report --json [--compact]` 输出稳定 verification report 合同，直接消费最新 `generated/verification-report.json`。
+         - `platform lock inspect --json [--compact]` 输出稳定 graph lock 合同，直接消费最新 `control/state/graph.lock.json`。
+         - `platform runtime report --json [--compact]` 输出稳定 runtime verification report 合同，直接消费最新 `control/evidence/runtime-report.json`。
+        - `platform runtime steps --json [--compact]` 输出稳定 runtime step inspect 合同，从同一 `control/evidence/runtime-report.json` 派生 build/unit/acceptance 步骤摘要。
+         - `platform verification report --json [--compact]` 输出稳定 verification report 合同，直接消费最新 `control/evidence/verification-report.json`。
         - `platform verify --json [--compact]` 执行验证并直接输出同一 verification report 合同。
-         - `platform provenance registry --json [--compact]` 输出稳定 provenance registry 合同，直接消费最新 `provenance.json`。
-         - `platform review summary --json [--compact]` 输出稳定 review summary 合同，直接消费最新 `generated/review-summary.json`。
-         - `platform review diagnostics --json [--compact]` 输出稳定 review diagnostics 合同，从同一 `generated/review-summary.json` 派生 failure/risk/conflict 诊断。
-         - `npm run test:contract-freeze` 固定运行 `platform contract freeze` runner command 声明的 `tests/cli.test.ts`、`tests/project-runtime.test.ts`、`tests/pipeline.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
+         - `platform provenance registry --json [--compact]` 输出稳定 provenance registry 合同，直接消费最新 `control/provenance/provenance.json`。
+         - `platform review summary --json [--compact]` 输出稳定 review summary 合同，直接消费最新 `control/evidence/review-summary.json`。
+         - `platform review diagnostics --json [--compact]` 输出稳定 review diagnostics 合同，从同一 `control/evidence/review-summary.json` 派生 failure/risk/conflict 诊断。
+         - `npm run test:contract-freeze` 固定运行 `platform contract freeze` runner command 声明的 split CLI contract tests、`tests/runtime/project-runtime.test.ts` 与 `tests/pipeline/end-to-end.test.ts`，冻结 CLI 入口、脚本元数据和治理产物清单。
          - slow-test budget：固定由 `platform test budget` 与 `npm run test:budget` 冻结 fast/runtime/all 慢测预算。
          - reference drift：固定由 `platform reference check` 与 `npm run reference:check` 守护 checked-in `project/`，JSON 输出用 runner command 和 failedStage 区分入口与 refresh/diff 阶段。
          - benchmark：固定由 `platform benchmark suite` 与 `npm run test:benchmark-contract` 冻结任务集与评分维度。
@@ -615,7 +617,7 @@
        - `repair --dry-run --json [--compact]`。
        - 输出机器可解析 `RepairPlan`。
        - 保持普通文本输出不变。
-       - dry-run JSON 会写入 `generated/repair-plan.json`。
+       - dry-run JSON 会写入 `control/workflow/repair-plan.json`。
        - blocked repair JSON 输出：
          - 保持失败退出码。
          - stdout 输出已写入的 blocked `RepairPlan`。
@@ -662,7 +664,7 @@
        - policy target。
        - runtime target。
        - 输出位置：
-         - `generated/review-summary.json`。
+         - `control/evidence/review-summary.json`。
          - CLI explain 文本。
          - Source View。
      - 切口 B：把 repair task 拆成明确类别：
@@ -673,8 +675,8 @@
          - `config-repair`。
          - `generated-artifact-refresh`。
        - 输出位置：
-         - `generated/repair-plan.json`。
-         - `generated/review-summary.json`。
+         - `control/workflow/repair-plan.json`。
+         - `control/evidence/review-summary.json`。
          - CLI explain 文本。
          - Source View。
      - 切口 C：补 repair 阻断解释：
@@ -719,7 +721,7 @@
      - `pipeline.test.ts`。
      - 针对 repair plan/local view 的定向测试。
      - CLI JSON 消费测试：
-       - `tests/cli.test.ts`。
+       - `tests/cli/*.test.ts`。
        - `repair --dry-run --json`。
        - blocked repair JSON 输出。
        - argument usage 边界。
@@ -739,9 +741,9 @@
    - 已完成：
      - policy report 读取进入 review summary。
      - `platform policy report` 提供最新 policy governance report 文本 inspect 入口。
-     - `platform policy report --json [--compact]` 提供稳定机器可读合同，直接消费最新 `generated/policy-report.json`。
-     - `platform policy sources --json [--compact]` 提供稳定 policy source 只读合同，直接消费最新 `generated/policy-report.json`。
-     - policy governance summary 进入 `generated/review-summary.json`：
+     - `platform policy report --json [--compact]` 提供稳定机器可读合同，直接消费最新 `control/evidence/policy-report.json`。
+     - `platform policy sources --json [--compact]` 提供稳定 policy source 只读合同，直接消费最新 `control/evidence/policy-report.json`。
+     - policy governance summary 进入 `control/evidence/review-summary.json`：
        - `status`。
        - official policy 数量。
        - project policy 数量。
@@ -803,9 +805,9 @@
        - CLI explain 文本。
        - local Source View HTML。
    - 每个切口的验证口径：
-     - `tests/review-policy-summary.test.ts`。
-     - `tests/cli.test.ts`。
-     - `tests/pipeline.test.ts`。
+     - `tests/review/policy-summary.test.ts`。
+     - `tests/cli/*.test.ts`。
+     - `tests/pipeline/end-to-end.test.ts`。
    - 完成定义：
      - review summary 能独立说明 policy merge 与 violation 状态。
      - CLI explain 能一眼看到 policy governance 总览。
@@ -819,9 +821,9 @@
      - 为后续团队 review assist 提供覆盖缺口的稳定摘要。
    - 已完成：
      - `platform acceptance coverage` 提供最新 acceptance coverage report 文本 inspect 入口。
-     - `platform acceptance coverage --json [--compact]` 提供稳定机器可读合同，直接消费最新 `generated/acceptance-coverage.json`。
-     - `platform acceptance blocks|slots --json [--compact]` 提供稳定 block/slot coverage 只读合同，直接消费最新 `generated/acceptance-coverage.json`。
-     - coverage summary 进入 `generated/review-summary.json`：
+     - `platform acceptance coverage --json [--compact]` 提供稳定机器可读合同，直接消费最新 `control/evidence/acceptance-coverage.json`。
+     - `platform acceptance blocks|slots --json [--compact]` 提供稳定 block/slot coverage 只读合同，直接消费最新 `control/evidence/acceptance-coverage.json`。
+     - coverage summary 进入 `control/evidence/review-summary.json`：
        - status。
        - acceptance passed count。
        - block count。
@@ -872,9 +874,9 @@
        - CLI explain 文本。
        - local Source View HTML。
    - 每个切口的验证口径：
-     - `tests/review-coverage-summary.test.ts`。
-     - `tests/cli.test.ts`。
-     - `tests/pipeline.test.ts`。
+     - `tests/review/coverage-summary.test.ts`。
+     - `tests/cli/*.test.ts`。
+     - `tests/pipeline/end-to-end.test.ts`。
    - 完成定义：
      - review summary 能独立说明 acceptance 覆盖状态。
      - CLI explain 能一眼看到覆盖比例。
@@ -887,7 +889,7 @@
      - 让来源、覆盖、registry 和 generated pass 能被 review/CLI/local view 直接消费。
      - 为后续团队 review assist 提供文件来源可信度摘要。
    - 已完成：
-     - provenance summary 进入 `generated/review-summary.json`：
+     - provenance summary 进入 `control/evidence/review-summary.json`：
        - artifact count。
        - verified artifact count。
        - unverified artifact count。
@@ -919,7 +921,7 @@
        - registry count。
        - unverified count。
      - `platform provenance registry` 提供最新 provenance registry 文本 inspect 入口。
-     - `platform provenance registry --json [--compact]` 提供稳定机器可读合同，直接消费最新 `provenance.json`。
+     - `platform provenance registry --json [--compact]` 提供稳定机器可读合同，直接消费最新 `control/provenance/provenance.json`。
      - local Source View 显示：
        - Provenance Summary。
        - Provenance Origin Summary。
@@ -948,9 +950,9 @@
        - provenance registry CLI。
        - local Source View HTML。
    - 每个切口的验证口径：
-     - `tests/review-provenance-summary.test.ts`。
-     - `tests/cli.test.ts`。
-     - `tests/pipeline.test.ts`。
+     - `tests/review/provenance-summary.test.ts`。
+     - `tests/cli/*.test.ts`。
+     - `tests/pipeline/end-to-end.test.ts`。
    - 完成定义：
      - review summary 能独立说明 artifact 来源结构。
      - CLI explain 能一眼看到 provenance 风险面。
@@ -964,7 +966,7 @@
      - 让纵切面、动作、runtime entry 和目标路径聚合可被 review/CLI/local view 直接消费。
      - 为后续团队 review assist 提供“本次组合影响面”的稳定摘要。
    - 已完成：
-     - install impact summary 进入 `generated/review-summary.json`：
+     - install impact summary 进入 `control/evidence/review-summary.json`：
        - impact count。
        - block count。
        - action kind count。
@@ -1024,9 +1026,9 @@
        - CLI explain 文本。
        - local Source View HTML。
    - 每个切口的验证口径：
-     - `tests/review-summary.test.ts`。
-     - `tests/cli.test.ts`。
-     - `tests/pipeline.test.ts`。
+     - `tests/review/summary.test.ts`。
+     - `tests/cli/*.test.ts`。
+     - `tests/pipeline/end-to-end.test.ts`。
    - 完成定义：
      - review summary 能独立说明安装影响聚合面。
      - CLI explain 能一眼看到安装影响大小。
@@ -1433,9 +1435,9 @@
            - `explain --json`。
            - local source view。
          - `artifacts --json` 后自动刷新：
-           - `generated/review-summary.json`。
-           - `generated/views/source-view.html`。
-           - `generated/views/slot-rule-view.html`。
+           - `control/evidence/review-summary.json`。
+           - `control/workbench/views/source-view.html`。
+           - `control/workbench/views/slot-rule-view.html`。
            - 缺少 explain/view 前置产物时跳过刷新，不阻断失败诊断。
          - 输出 lock 声明但缺失的 generated artifact。
          - 缺失项包含：
@@ -1457,7 +1459,7 @@
            - review summary。
            - `explain --json`。
            - local source view。
-         - 持久化 `generated/ci-artifacts.json`。
+         - 持久化 `control/ci/artifacts.json`。
          - 写入 lock/provenance。
        - 补对应测试夹具与快照。
    - 进入条件：
@@ -1484,7 +1486,7 @@
 ### 现在必须决定
 
 - `v0.1` 仍以当前 Customer Admin 母例为实现目标，不在首条闭环前切换到 ticket/work-tracking。
-- 权威输入必须是 `app.plan.yaml`、`block.manifest.yaml`、`graph.lock.json`、slot、acceptance、policy 和 provenance，而不是聊天记录或生成源码。
+- 权威输入必须是 `app.plan.yaml`、`block.manifest.yaml`、`control/state/graph.lock.json`、slot、acceptance、policy 和 provenance，而不是聊天记录或生成源码。
 - AI 只能作为受控 pass：`Align`、`Synthesize`、`Repair`，不能成为全仓主控制器。
 - 真实源码必须落地，不能只保留 UX 映射或虚拟描述；源码是可审查、可部署、可调试的编译产物。
 - `v0.1` 必须先证明 `resolve -> compose -> adapt -> verify -> lock` 的重复闭环。
@@ -1493,7 +1495,7 @@
 
 - `ticket/basic` 或 work-tracking 行业母例，作为 `v0.2+` 更强 demo。
 - `Kernel Block`、冷热路径、性能预算和 benchmark harness，用于未来高性能/底层系统接入。
-- `provenance.json`、`explain-graph.json`、`acceptance coverage graph` 和 `policy gate` 的正式字段。
+- `control/provenance/provenance.json`、`explain-graph.json`、`acceptance coverage graph` 和 `policy gate` 的正式字段。
 - upgrade / override 冲突分析、rule-backed override、迁移计划和回滚路径。
 - 私有 registry、团队 CI、托管验证、双视图工作台和权限审计。
 - 自举与自维护路径：先让系统描述和生成外围，再逐步接管 block、spec、验收和平台工具，而不是直接自改核心编译器。
@@ -1539,7 +1541,7 @@
 ### 退出条件
 
 - 四份文档对技术栈、母例、阶段目标、块边界、AI 写入边界描述一致。
-- `app.plan.yaml`、`block.manifest.yaml`、`graph.lock.json` 已冻结为可编码接口。
+- `app.plan.yaml`、`block.manifest.yaml`、`control/state/graph.lock.json` 已冻结为可编码接口。
 
 ### 风险
 
@@ -1558,7 +1560,7 @@
 - 实现：
   - `app.plan.yaml` parser
   - `block.manifest.yaml` parser
-  - `graph.lock.json` 生成
+  - `control/state/graph.lock.json` 生成
   - resolver 最小规则
   - composer 骨架
   - CLI 壳命令
@@ -1581,7 +1583,7 @@
 
 - 从空目录开始，CLI 能产出可运行项目。
 - 三个块来自 registry 安装，不靠手工搬运。
-- AI 默认只能修改 `source/slots/customer_normalizer.ts`；`custom/customer_normalizer.ts` 由 compiler 物化保留 v0.1 兼容。
+- AI 默认只能修改 `source/code/slots/customer_normalizer.ts`；`custom/customer_normalizer.ts` 由 compiler 物化保留 v0.1 兼容。
 - 主验收链路通过。
 
 ### AI 可自主承担
@@ -1591,7 +1593,7 @@
 
 ### 里程碑
 
-- `M1`：规格冻结并可生成 `graph.lock.json`
+- `M1`：规格冻结并可生成 `control/state/graph.lock.json`
 - `M2`：三块可被确定性安装
 - `M3`：AI 只在单一 slot 生效
 - `M4`：端到端验收通过并可重复执行
@@ -1700,9 +1702,9 @@
 ### 验证口径
 
 - 主测：
-  - `tests/pipeline.test.ts`
-  - `tests/explain-graph.test.ts`
-  - `tests/review-summary.test.ts`
+  - `tests/pipeline/end-to-end.test.ts`
+  - `tests/explain/graph.test.ts`
+  - `tests/review/summary.test.ts`
   - `tests/repair.test.ts`
   - `tests/upgrade.test.ts`
 - 组合测：
@@ -1788,9 +1790,9 @@
 
 ### 验证口径
 
-- `tests/private-registry.test.ts`
-- `tests/cli.test.ts`
-- `tests/pipeline.test.ts`
+- `tests/registry/private-registry.test.ts`
+- `tests/cli/*.test.ts`
+- `tests/pipeline/end-to-end.test.ts`
 - 团队 CI 样板项目的定向回归。
 
 ### 退出条件

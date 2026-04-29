@@ -2,7 +2,15 @@ import fs from 'node:fs/promises';
 import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from './shared/constants.ts';
 import { CompilerError } from './shared/errors.ts';
 import { pathExists, readJson, removeDir, writeJson } from './shared/fs.ts';
-import { getWorkspacePaths, officialRegistryRelativePath, privateRegistryRelativePath, sourcePrivateRegistryRelativePath } from './shared/paths.ts';
+import {
+  getWorkspacePaths,
+  officialRegistryRelativePath,
+  privateRegistryRelativePath,
+  resolveWorkspaceLockPath,
+  resolveWorkspacePlanPath,
+  resolveWorkspaceProvenancePath,
+  sourcePrivateRegistryRelativePath
+} from './shared/paths.ts';
 import { ensureProjectBase } from './shared/project-base.ts';
 import { writeYaml } from './shared/yaml.ts';
 import { alignInterfaces } from './compiler/align/align-interfaces.ts';
@@ -18,6 +26,7 @@ import { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } 
 import { resolveGraph } from './compiler/resolve/resolve-graph.ts';
 import { adaptProject } from './compiler/synthesize/adapt-project.ts';
 import { upgradeWorkspace as runUpgradeWorkspace } from './upgrade/upgrade-workspace.ts';
+import { applyViewMutations, type ViewMutationReport } from './compiler/workbench/apply-view-mutations.ts';
 import { validateResolvedTemplates } from './compiler/verify/validate-resolved-templates.ts';
 import { verifyProject } from './compiler/verify/verify-project.ts';
 import type { AcceptanceCoverageReport } from './shared/acceptance-types.ts';
@@ -70,7 +79,7 @@ function defaultPlan(): PlanFile {
         block: 'entity/customer-basic',
         kind: 'adapter',
         target: 'custom/customer_normalizer.ts',
-        sourcePath: 'source/slots/customer_normalizer.ts',
+        sourcePath: 'source/code/slots/customer_normalizer.ts',
         symbol: 'normalizeCustomerInput',
         description: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
       }
@@ -83,9 +92,13 @@ export async function initWorkspace(
   workspaceRoot = process.cwd(),
   options: { reset?: boolean } = {}
 ): Promise<{ planPath: string; lockPath: string }> {
-  const { projectRoot, planPath, lockPath, generatedDir } = getWorkspacePaths(workspaceRoot);
-  if (options.reset && (await pathExists(projectRoot))) {
-    await removeDir(projectRoot);
+  const { projectRoot, developerSourceRoot, controlRoot, localStateRoot, planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  if (options.reset) {
+    await Promise.all([projectRoot, developerSourceRoot, controlRoot, localStateRoot].map(async (targetRoot) => {
+      if (await pathExists(targetRoot)) {
+        await removeDir(targetRoot);
+      }
+    }));
   }
 
   await ensureProjectBase(workspaceRoot);
@@ -103,23 +116,27 @@ export async function initWorkspace(
     slotTasks: [],
     generatedPaths: [
       'generated/routes.ts',
-      'generated/block-usage-map.json',
-      'generated/install-manifest.json',
-      'generated/verification-report.json'
+      'control/evidence/block-usage-map.json',
+      'control/evidence/install-manifest.json',
+      'control/evidence/verification-report.json'
     ],
     acceptancePlan: DEFAULT_ACCEPTANCE.map((entry) => entry.id),
     passStatus: { ...PASS_STATUS_PENDING }
   });
-  await writeJson(`${generatedDir}/verification-report.json`, {
+  await writeJson(verificationReportPath, {
     summary: { status: 'pending' }
   });
 
   return { planPath, lockPath };
 }
 
+export async function applyWorkbenchMutations(workspaceRoot = process.cwd()): Promise<ViewMutationReport> {
+  return applyViewMutations(workspaceRoot);
+}
+
 export async function addBlock(workspaceRoot = process.cwd(), blockId: string): Promise<PlanFile> {
   const { planPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
+  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
   if (plan.blocks.some((entry) => entry.id === blockId)) {
     return plan;
   }
@@ -142,8 +159,8 @@ export async function addBlock(workspaceRoot = process.cwd(), blockId: string): 
 export async function resolveWorkspace(
   workspaceRoot = process.cwd()
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
-  const { planPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
   const manifestMap = new Map<string, ManifestEntry>();
   for (const block of plan.blocks) {
     manifestMap.set(
@@ -165,12 +182,12 @@ export async function resolveWorkspace(
 export async function composeWorkspace(
   workspaceRoot = process.cwd()
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
-  const { planPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(lockPath))) {
+  const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
+  if (!(await pathExists(readableLockPath))) {
     throw new CompilerError('COMPOSE-BLOCKED-001', 'graph.lock.json is missing');
   }
-  const plan = await loadPlan(planPath);
-  const lock = await readJson<LockFile>(lockPath);
+  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
+  const lock = await readJson<LockFile>(readableLockPath);
   await composeProject(workspaceRoot, lock);
   return { plan, lock };
 }
@@ -178,9 +195,8 @@ export async function composeWorkspace(
 export async function adaptWorkspace(
   workspaceRoot = process.cwd()
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
-  const { planPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
-  const lock = await readJson<LockFile>(lockPath);
+  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
+  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
   await adaptProject(workspaceRoot, plan, lock);
   return { plan, lock };
 }
@@ -189,8 +205,7 @@ export async function verifyWorkspace(
   workspaceRoot = process.cwd(),
   options: { lane?: VerificationLane; emitTiming?: boolean } = {}
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
   const report = await verifyProject(workspaceRoot, lock, options.lane ?? 'all', { emitTiming: options.emitTiming });
   return { lock, report };
 }
@@ -199,9 +214,9 @@ export async function repairWorkspace(
   workspaceRoot = process.cwd(),
   options: { dryRun?: boolean } = {}
 ): Promise<{ lock: LockFile; repairPlan: RepairPlan }> {
-  const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
-  const lock = await readJson<LockFile>(lockPath);
+  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
+  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
 
   if (lock.passStatus.verify === 'pending') {
     throw new CompilerError('REPAIR-BLOCKED-002', 'verify must run before repair');
@@ -244,8 +259,7 @@ export async function repairWorkspace(
 }
 
 export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<LockFile> {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
   await lockProject(workspaceRoot, lock);
   return lock;
 }
@@ -255,12 +269,12 @@ async function refreshReviewArtifacts(workspaceRoot: string, lock: LockFile): Pr
     acceptanceCoveragePath,
     explainGraphPath,
     policyReportPath,
-    provenancePath,
     reviewSummaryPath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
+  const readableProvenancePath = await resolveWorkspaceProvenancePath(workspaceRoot);
   if (
-    !(await pathExists(provenancePath)) ||
+    !(await pathExists(readableProvenancePath)) ||
     !(await pathExists(verificationReportPath)) ||
     !(await pathExists(acceptanceCoveragePath)) ||
     !(await pathExists(policyReportPath)) ||
@@ -270,7 +284,7 @@ async function refreshReviewArtifacts(workspaceRoot: string, lock: LockFile): Pr
     return null;
   }
 
-  const provenance = await readJson<ProvenanceFile>(provenancePath);
+  const provenance = await readJson<ProvenanceFile>(readableProvenancePath);
   const report = await readJson<VerificationReport>(verificationReportPath);
   const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
   const reviewSummary = await writeReviewSummary(workspaceRoot, lock, provenance, report, coverage);
@@ -282,9 +296,8 @@ export async function writeWorkspaceArtifacts(workspaceRoot = process.cwd()): Pr
   manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>;
   reviewSummary: ReviewSummary | null;
 }> {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
   const manifest = await writeCiArtifactManifest(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
   const reviewSummary = await refreshReviewArtifacts(workspaceRoot, lock);
   return { manifest, reviewSummary };
 }
@@ -300,21 +313,19 @@ export async function explainWorkspace(
 }> {
   const {
     acceptanceCoveragePath,
-    lockPath,
-    provenancePath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
 
   if (lock.passStatus.lock !== 'succeeded') {
     throw new CompilerError('EXPLAIN-BLOCKED-001', 'lock must succeed before explain');
   }
 
-  const provenance = await readJson<ProvenanceFile>(provenancePath);
+  const provenance = await readJson<ProvenanceFile>(await resolveWorkspaceProvenancePath(workspaceRoot));
   const report = await readJson<VerificationReport>(verificationReportPath);
   const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
   const graph = await writeExplainGraph(workspaceRoot, lock, provenance);
-  const refreshedProvenance = await readJson<ProvenanceFile>(provenancePath);
+  const refreshedProvenance = await readJson<ProvenanceFile>(await resolveWorkspaceProvenancePath(workspaceRoot));
   const reviewSummary = await writeReviewSummary(workspaceRoot, lock, refreshedProvenance, report, coverage);
   await writeLocalViews(workspaceRoot);
   return { lock, provenance: refreshedProvenance, report, graph, reviewSummary };

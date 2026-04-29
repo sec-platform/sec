@@ -31,7 +31,7 @@ import {
   formatReferenceCheck
 } from '../shared/reference-check.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
-import { getWorkspacePaths } from '../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
@@ -106,49 +106,49 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
   const items: DemoChecklistItem[] = await Promise.all([
     {
       id: 'verification-report',
-      artifactPath: 'project/generated/verification-report.json',
+      artifactPath: 'control/evidence/verification-report.json',
       absolutePath: paths.verificationReportPath,
       command: 'npm run platform -- verify --lane all'
     },
     {
       id: 'runtime-report',
-      artifactPath: 'project/generated/runtime-report.json',
+      artifactPath: 'control/evidence/runtime-report.json',
       absolutePath: paths.runtimeReportPath,
       command: 'npm run platform -- verify --lane all'
     },
     {
       id: 'policy-report',
-      artifactPath: 'project/generated/policy-report.json',
+      artifactPath: 'control/evidence/policy-report.json',
       absolutePath: paths.policyReportPath,
       command: 'npm run platform -- verify'
     },
     {
       id: 'acceptance-coverage',
-      artifactPath: 'project/generated/acceptance-coverage.json',
+      artifactPath: 'control/evidence/acceptance-coverage.json',
       absolutePath: paths.acceptanceCoveragePath,
       command: 'npm run platform -- verify'
     },
     {
       id: 'graph-lock',
-      artifactPath: 'project/graph.lock.json',
+      artifactPath: 'control/state/graph.lock.json',
       absolutePath: paths.lockPath,
       command: 'npm run platform -- lock'
     },
     {
       id: 'provenance-registry',
-      artifactPath: 'project/provenance.json',
+      artifactPath: 'control/provenance/provenance.json',
       absolutePath: paths.provenancePath,
       command: 'npm run platform -- adapt'
     },
     {
       id: 'explain-graph',
-      artifactPath: 'project/generated/explain-graph.json',
+      artifactPath: 'control/graph/explain-graph.json',
       absolutePath: paths.explainGraphPath,
       command: 'npm run platform -- explain'
     },
     {
       id: 'review-summary',
-      artifactPath: 'project/generated/review-summary.json',
+      artifactPath: 'control/evidence/review-summary.json',
       absolutePath: paths.reviewSummaryPath,
       command: 'npm run platform -- explain'
     }
@@ -427,12 +427,12 @@ export async function runProvenanceCommand(args: string[], cwd = process.cwd()):
   }
 
   const outputArgs = parseProvenanceOutputArgs(args.slice(1));
-  const { provenancePath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(provenancePath))) {
+  const readableProvenancePath = await resolveWorkspaceProvenancePath(cwd);
+  if (!(await pathExists(readableProvenancePath))) {
     throw new Error('Provenance registry not found; run platform adapt or lock first');
   }
 
-  const provenance = await readJson<ProvenanceFile>(provenancePath);
+  const provenance = await readJson<ProvenanceFile>(readableProvenancePath);
   if (outputArgs.json) {
     console.log(JSON.stringify(provenance, null, outputArgs.compact ? 0 : 2));
     return;

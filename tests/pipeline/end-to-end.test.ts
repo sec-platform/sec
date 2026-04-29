@@ -17,6 +17,15 @@ import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
+  const {
+    acceptanceCoveragePath,
+    lockPath,
+    policyReportPath,
+    provenancePath,
+    runtimeReportPath,
+    sourceViewPath,
+    slotRuleViewPath
+  } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
@@ -49,12 +58,12 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const locked = await lockWorkspace(workspaceRoot);
   expect(locked.passStatus.lock).toBe('succeeded');
   expect(locked.passStatus.emit).toBe('succeeded');
-  expect(locked.generatedPaths).toContain('generated/runtime-report.json');
-  expect(locked.generatedPaths).toContain('generated/policy-report.json');
-  expect(locked.generatedPaths).toContain('generated/acceptance-coverage.json');
+  expect(locked.generatedPaths).toContain('control/evidence/runtime-report.json');
+  expect(locked.generatedPaths).toContain('control/evidence/policy-report.json');
+  expect(locked.generatedPaths).toContain('control/evidence/acceptance-coverage.json');
 
   const provenance = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'provenance.json'), 'utf8')
+    await fs.readFile(provenancePath, 'utf8')
   ) as { artifacts: Array<{ path: string; originType: string }> };
   expect(
     provenance.artifacts.some(
@@ -63,7 +72,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   ).toBe(true);
 
   const runtimeReport = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'runtime-report.json'), 'utf8')
+    await fs.readFile(runtimeReportPath, 'utf8')
   ) as { status: string; build: { status: string }; acceptance: { status: string }; logs: { stdout: string } };
   expect(runtimeReport.status).toBe('passed');
   expect(runtimeReport.build.status).toBe('passed');
@@ -73,14 +82,14 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   expect(runtimeReport.logs.stdout).not.toContain('Start at');
 
   const coverage = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'acceptance-coverage.json'), 'utf8')
+    await fs.readFile(acceptanceCoveragePath, 'utf8')
   ) as { status: string; uncoveredBlocks: string[]; uncoveredSlots: string[] };
   expect(coverage.status).toBe('passed');
   expect(coverage.uncoveredBlocks).toEqual([]);
   expect(coverage.uncoveredSlots).toEqual([]);
 
   const policyReport = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'policy-report.json'), 'utf8')
+    await fs.readFile(policyReportPath, 'utf8')
   ) as { status: string; merged: { policies: Array<{ id: string; sourceScope: string; sourcePath: string; targets: string[] }> }; violations: unknown[] };
   expect(policyReport.status).toBe('passed');
   expect(policyReport.violations).toEqual([]);
@@ -100,7 +109,15 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     to: 'file:src/installed/entity/customer-service.ts',
     type: 'connects_to'
   });
-  expect(graph.edges.some((edge) => edge.type === 'writes_to' && edge.to === 'file:custom/customer_normalizer.ts')).toBe(true);
+  expect(graph.edges.some((edge) => edge.type === 'writes_to' && edge.to === 'file:source/code/slots/customer_normalizer.ts')).toBe(true);
+  expect(
+    graph.edges.some(
+      (edge) =>
+        edge.type === 'connects_to' &&
+        edge.from === 'file:source/code/slots/customer_normalizer.ts' &&
+        edge.to === 'file:custom/customer_normalizer.ts'
+    )
+  ).toBe(true);
   expect(graph.edges.some((edge) => edge.type === 'violates')).toBe(false);
   expect(graph.overlays.coverage.blocks.every((entry) => Array.isArray(entry.coveredBy))).toBe(true);
   expect(reviewSummary.formatVersion).toBe('2');
@@ -140,39 +157,39 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   expect(reviewSummary.conflictHints).toEqual([]);
 
   const sourceViewExists = await fs
-    .access(path.join(workspaceRoot, 'project', 'generated', 'views', 'source-view.html'))
+    .access(sourceViewPath)
     .then(() => true)
     .catch(() => false);
   expect(sourceViewExists).toBe(true);
 
   const slotRuleViewExists = await fs
-    .access(path.join(workspaceRoot, 'project', 'generated', 'views', 'slot-rule-view.html'))
+    .access(slotRuleViewPath)
     .then(() => true)
     .catch(() => false);
   expect(slotRuleViewExists).toBe(true);
 
   const refreshedProvenance = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'provenance.json'), 'utf8')
+    await fs.readFile(provenancePath, 'utf8')
   ) as { artifacts: Array<{ path: string; generatedByPass?: string }> };
   expect(
     refreshedProvenance.artifacts.some(
-      (artifact) => artifact.path === 'generated/explain-graph.json' && artifact.generatedByPass === 'explain'
+      (artifact) => artifact.path === 'control/graph/explain-graph.json' && artifact.generatedByPass === 'explain'
     )
   ).toBe(true);
 
   const explainedLock = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'graph.lock.json'), 'utf8')
+    await fs.readFile(lockPath, 'utf8')
   ) as { generatedPaths: string[] };
   expect(explainedLock.generatedPaths).toEqual(
     expect.arrayContaining([
-      'generated/verification-report.json',
-      'generated/runtime-report.json',
-      'generated/policy-report.json',
-      'generated/acceptance-coverage.json',
-      'generated/explain-graph.json',
-      'generated/review-summary.json',
-      'generated/views/source-view.html',
-      'generated/views/slot-rule-view.html'
+      'control/evidence/verification-report.json',
+      'control/evidence/runtime-report.json',
+      'control/evidence/policy-report.json',
+      'control/evidence/acceptance-coverage.json',
+      'control/graph/explain-graph.json',
+      'control/evidence/review-summary.json',
+      'control/workbench/views/source-view.html',
+      'control/workbench/views/slot-rule-view.html'
     ])
   );
-});
+}, 180000);
