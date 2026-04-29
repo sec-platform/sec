@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { expectCliJson, expectCliSuccess, expectCliText, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes policy report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -237,9 +237,12 @@ test('CLI runs verify with JSON output for CI consumers', async () => {
     await runCliPipeline(workspaceRoot);
     await expectCliText(workspaceRoot, ['verify', '--lane', 'fast'], ['Verification passed (fast)\n']);
 
-    const verifyJsonResult = await expectCliSuccess(workspaceRoot, ['verify', '--lane', 'fast', '--json']);
-    expect(verifyJsonResult.stdout).toContain('\n  "summary"');
-    const directVerificationReport = JSON.parse(verifyJsonResult.stdout) as VerificationReport;
+    const directVerificationReport = await expectCliJson<VerificationReport>(
+      workspaceRoot,
+      ['verify', '--lane', 'fast', '--json'],
+      undefined,
+      { stdoutMarkers: ['\n  "summary"'] }
+    );
     expect(directVerificationReport).toMatchObject({
       summary: {
         status: 'passed',

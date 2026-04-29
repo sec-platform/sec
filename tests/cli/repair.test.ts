@@ -38,9 +38,12 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
       'Unit verification failed for customer_normalizer'
     ]);
 
-    const result = await expectCliSuccess(workspaceRoot, ['repair', '--dry-run', '--json']);
-    const repairPlan = JSON.parse(result.stdout) as RepairPlan;
-    expect(result.stdout).toContain('\n  "status": "pending"');
+    const repairPlan = await expectCliJson<RepairPlan>(
+      workspaceRoot,
+      ['repair', '--dry-run', '--json'],
+      undefined,
+      { stdoutMarkers: ['\n  "status": "pending"'] }
+    );
     expect(repairPlan).toMatchObject({
       formatVersion: '1',
       status: 'pending',
@@ -104,9 +107,13 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
       'Task repair_slot_customer_normalizer: entity/customer-basic -> source/code/slots/customer_normalizer.ts'
     ]);
 
-    const planJson = await expectCliSuccess(workspaceRoot, ['repair', 'plan', '--json']);
-    expect(planJson.stdout).toContain('\n  "status": "pending"');
-    expect(JSON.parse(planJson.stdout)).toEqual(repairPlan);
+    const planJson = await expectCliJson<RepairPlan>(
+      workspaceRoot,
+      ['repair', 'plan', '--json'],
+      undefined,
+      { stdoutMarkers: ['\n  "status": "pending"'] }
+    );
+    expect(planJson).toEqual(repairPlan);
 
     const planCompactJson = await expectCliJson<RepairPlan>(
       workspaceRoot,

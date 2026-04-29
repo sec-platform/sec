@@ -253,15 +253,23 @@ export async function expectCliText(
   return result;
 }
 
+type CliJsonOptions = {
+  compact?: boolean;
+  stdoutMarkers?: readonly string[];
+};
+
 export async function expectCliJson<T = unknown>(
   workspaceRoot: string,
   args: string[],
   expected?: object,
-  options: { compact?: boolean } = {}
+  options: CliJsonOptions = {}
 ): Promise<T> {
   const result = await expectCliSuccess(workspaceRoot, args);
   if (options.compact === true) {
     expect(result.stdout.trim()).not.toContain('\n');
+  }
+  if (options.stdoutMarkers !== undefined) {
+    expectContainsAll(result.stdout, options.stdoutMarkers);
   }
   const payload = JSON.parse(result.stdout) as T;
   if (expected !== undefined) {
