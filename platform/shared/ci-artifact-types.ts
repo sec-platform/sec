@@ -1,3 +1,5 @@
+import { CONTRACT_FORMAT_VERSION } from './constants.ts';
+
 export const CI_ARTIFACT_KINDS = [
   'governance',
   'view',
@@ -57,7 +59,7 @@ export interface CiArtifactSummary {
 }
 
 export interface CiArtifactManifest {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   root: 'workspace';
   summary: CiArtifactSummary;
   artifacts: CiArtifactEntry[];

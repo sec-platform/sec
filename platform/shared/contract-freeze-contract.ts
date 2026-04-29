@@ -1,4 +1,5 @@
 import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 
 export type ContractFreezeTarget = {
   file: string;
@@ -7,8 +8,8 @@ export type ContractFreezeTarget = {
 };
 
 export type ContractFreezeContract = {
-  formatVersion: '1';
-  status: 'active';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
+  status: typeof CONTRACT_STATUS_ACTIVE;
   command: string;
   runnerCommand: string;
   targetFileCount: number;
@@ -184,8 +185,8 @@ export function buildContractFreezeContract(): ContractFreezeContract {
   const targetFiles = uniqueSorted(targets.map((target) => target.file));
 
   return {
-    formatVersion: '1',
-    status: 'active',
+    formatVersion: CONTRACT_FORMAT_VERSION,
+    status: CONTRACT_STATUS_ACTIVE,
     command: 'npm run platform -- contract freeze --json',
     runnerCommand: 'npm run test:contract-freeze',
     targetFileCount: targetFiles.length,

@@ -33,6 +33,10 @@ function posixPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
 
+export function relativePosixPath(from: string, to: string): string {
+  return posixPath(path.relative(from, to));
+}
+
 export function isSafeRelativePath(value: string, options: { allowEmpty?: boolean } = {}): boolean {
   if (value.length === 0) {
     return options.allowEmpty === true;
@@ -147,7 +151,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
 }
 
 export function workspaceRelativePath(workspaceRoot: string, targetPath: string): string {
-  return posixPath(path.relative(path.resolve(workspaceRoot), targetPath));
+  return relativePosixPath(path.resolve(workspaceRoot), targetPath);
 }
 
 async function resolveCanonicalOrLegacyPath(canonicalPath: string, legacyPath: string): Promise<string> {

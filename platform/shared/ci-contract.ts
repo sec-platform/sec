@@ -1,4 +1,5 @@
 import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_KINDS,
@@ -17,8 +18,8 @@ export type CiContractStep = {
 };
 
 export type CiContract = {
-  formatVersion: '1';
-  status: 'active';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
+  status: typeof CONTRACT_STATUS_ACTIVE;
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
@@ -162,8 +163,8 @@ export function buildCiContract(): CiContract {
   const artifactPaths = uniqueSorted(ciSteps.flatMap((step) => step.produces));
 
   return {
-    formatVersion: '1',
-    status: 'active',
+    formatVersion: CONTRACT_FORMAT_VERSION,
+    status: CONTRACT_STATUS_ACTIVE,
     command: 'npm run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',

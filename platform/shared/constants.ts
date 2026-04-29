@@ -2,6 +2,8 @@ import type { AcceptanceItem } from './acceptance-types.ts';
 import type { PassStatus } from './lock-types.ts';
 
 export const SUPPORTED_STACK = 'nextjs-ts-prisma-sqlite' as const;
+export const CONTRACT_FORMAT_VERSION = '1' as const;
+export const CONTRACT_STATUS_ACTIVE = 'active' as const;
 
 export const PASS_SEQUENCE = [
   'parse',

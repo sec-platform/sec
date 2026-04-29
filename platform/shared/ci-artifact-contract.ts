@@ -1,4 +1,5 @@
 import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import {
   CI_ARTIFACT_KINDS,
   CI_ARTIFACT_MISSING_REASON,
@@ -147,7 +148,7 @@ export function countCiArtifactMissingReasonTypes(
 
 export function emptyCiArtifactManifest(): CiArtifactManifest {
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     root: 'workspace',
     summary: {
       artifactStatus: 'passed',

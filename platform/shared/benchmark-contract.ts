@@ -1,3 +1,7 @@
+import { CI_ARTIFACT_FILES } from './ci-artifact-contract.ts';
+import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
+
 export type BenchmarkTask = {
   id: string;
   goal: string;
@@ -10,9 +14,9 @@ export type BenchmarkTask = {
 };
 
 export type BenchmarkTaskSuiteContract = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   suiteId: string;
-  status: 'active';
+  status: typeof CONTRACT_STATUS_ACTIVE;
   command: string;
   runnerCommand: string;
   taskCount: number;
@@ -22,9 +26,6 @@ export type BenchmarkTaskSuiteContract = {
   scoreDimensionCount: number;
   scoreDimensions: string[];
 };
-
-import { CI_ARTIFACT_FILES } from './ci-artifact-contract.ts';
-import { uniqueSorted } from './collections.ts';
 
 const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocusCount'>> = [
   {
@@ -105,9 +106,9 @@ const scoreDimensions = [
 export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
   const artifactPaths = uniqueSorted(benchmarkTasks.flatMap((task) => task.artifactPaths));
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     suiteId: 'engineering-compiler-core',
-    status: 'active',
+    status: CONTRACT_STATUS_ACTIVE,
     command: 'npm run platform -- benchmark suite --json',
     runnerCommand: 'npm run test:benchmark-contract',
     taskCount: benchmarkTasks.length,

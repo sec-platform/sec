@@ -1,4 +1,5 @@
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
+import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
 import {
   cleanDependencyEnvironment,
   formatDependencyEnvironmentStatus,
@@ -31,7 +32,8 @@ import {
   buildReferenceCheckReport,
   formatReferenceCheck
 } from '../shared/reference-check.ts';
-import { pathExists, readJson } from '../shared/fs.ts';
+import { pathExists } from '../shared/fs.ts';
+import { readRequiredJson } from './command-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
@@ -97,7 +99,7 @@ import {
   type InstallManifestEntry,
   type PostgresContract
 } from './formatters.ts';
-import { formatJson } from './format-utils.ts';
+import { printJsonOrText } from './format-utils.ts';
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
   const paths = getWorkspacePaths(workspaceRoot);
@@ -158,7 +160,7 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
   })));
   const missingCount = items.filter((item) => item.status === 'missing').length;
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     status: missingCount === 0 ? 'passed' : 'attention',
     itemCount: items.length,
     missingCount,
@@ -173,21 +175,13 @@ export async function runDepsCommand(args: string[], cwd = process.cwd()): Promi
     case 'status': {
       const outputArgs = parseDepsOutputArgs(subArgs);
       const status = await getDependencyEnvironmentStatus(cwd);
-      if (outputArgs.json) {
-        console.log(formatJson(status, outputArgs));
-        return;
-      }
-      console.log(formatDependencyEnvironmentStatus(status));
+      printJsonOrText(status, outputArgs, formatDependencyEnvironmentStatus);
       return;
     }
     case 'warmup': {
       const outputArgs = parseDepsOutputArgs(subArgs);
       const status = await warmupDependencyEnvironment(cwd);
-      if (outputArgs.json) {
-        console.log(formatJson(status, outputArgs));
-        return;
-      }
-      console.log(formatDependencyEnvironmentStatus(status));
+      printJsonOrText(status, outputArgs, formatDependencyEnvironmentStatus);
       return;
     }
     case 'relink': {
@@ -196,11 +190,7 @@ export async function runDepsCommand(args: string[], cwd = process.cwd()): Promi
       }
       const outputArgs = parseDepsOutputArgs(subArgs.slice(1));
       const status = await relinkProjectDependencies(cwd);
-      if (outputArgs.json) {
-        console.log(formatJson(status, outputArgs));
-        return;
-      }
-      console.log(formatDependencyEnvironmentStatus(status));
+      printJsonOrText(status, outputArgs, formatDependencyEnvironmentStatus);
       return;
     }
     case 'clean': {
@@ -222,11 +212,7 @@ export async function runReferenceCommand(args: string[]): Promise<void> {
   const outputArgs = parseReferenceOutputArgs(args.slice(1));
   const report = await buildReferenceCheckReport();
 
-  if (outputArgs.json) {
-    console.log(formatJson(report, outputArgs));
-  } else {
-    console.log(formatReferenceCheck(report));
-  }
+  printJsonOrText(report, outputArgs, formatReferenceCheck);
 
   assertReferenceCheckClean(report);
 }
@@ -238,12 +224,7 @@ export async function runBenchmarkCommand(args: string[]): Promise<void> {
 
   const outputArgs = parseBenchmarkOutputArgs(args.slice(1));
   const contract = buildBenchmarkTaskSuiteContract();
-  if (outputArgs.json) {
-    console.log(formatJson(contract, outputArgs));
-    return;
-  }
-
-  console.log(formatBenchmarkTaskSuiteContract(contract));
+  printJsonOrText(contract, outputArgs, formatBenchmarkTaskSuiteContract);
 }
 
 export async function runTestCommand(args: string[]): Promise<void> {
@@ -253,90 +234,49 @@ export async function runTestCommand(args: string[]): Promise<void> {
 
   const outputArgs = parseTestOutputArgs(args.slice(1));
   const contract = buildTestBudgetContract();
-  if (outputArgs.json) {
-    console.log(formatJson(contract, outputArgs));
-    return;
-  }
-
-  console.log(formatTestBudgetContract(contract));
+  printJsonOrText(contract, outputArgs, formatTestBudgetContract);
 }
 
 export async function runPolicyCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const policyArgs = parsePolicyArgs(args);
   const { policyReportPath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(policyReportPath))) {
-    throw new Error('Policy report not found; run platform verify first');
-  }
-
-  const report = await readJson<PolicyReport>(policyReportPath);
+  const report = await readRequiredJson<PolicyReport>(policyReportPath, 'Policy report not found; run platform verify first');
   if (policyArgs.mode === 'sources') {
     const sourceInspect = buildPolicySourceInspect(report);
-    if (policyArgs.json) {
-      console.log(formatJson(sourceInspect, policyArgs));
-      return;
-    }
-    console.log(formatPolicySources(sourceInspect));
+    printJsonOrText(sourceInspect, policyArgs, formatPolicySources);
     return;
   }
 
-  if (policyArgs.json) {
-    console.log(formatJson(report, policyArgs));
-    return;
-  }
-
-  console.log(formatPolicyReport(buildPolicySummary(report)));
+  printJsonOrText(report, policyArgs, (value) => formatPolicyReport(buildPolicySummary(value)));
 }
 
 export async function runAcceptanceCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const acceptanceArgs = parseAcceptanceArgs(args);
   const { acceptanceCoveragePath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(acceptanceCoveragePath))) {
-    throw new Error('Acceptance coverage report not found; run platform verify first');
-  }
-
-  const report = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
+  const report = await readRequiredJson<AcceptanceCoverageReport>(
+    acceptanceCoveragePath,
+    'Acceptance coverage report not found; run platform verify first'
+  );
   if (acceptanceArgs.mode === 'blocks' || acceptanceArgs.mode === 'slots') {
     const targetInspect = buildAcceptanceTargetInspect(report, acceptanceArgs.mode);
-    if (acceptanceArgs.json) {
-      console.log(formatJson(targetInspect, acceptanceArgs));
-      return;
-    }
-    console.log(formatAcceptanceTargets(targetInspect));
+    printJsonOrText(targetInspect, acceptanceArgs, formatAcceptanceTargets);
     return;
   }
 
-  if (acceptanceArgs.json) {
-    console.log(formatJson(report, acceptanceArgs));
-    return;
-  }
-
-  console.log(formatAcceptanceCoverage(report));
+  printJsonOrText(report, acceptanceArgs, formatAcceptanceCoverage);
 }
 
 export async function runRuntimeCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const outputArgs = parseRuntimeOutputArgs(args);
   const { runtimeReportPath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(runtimeReportPath))) {
-    throw new Error('Runtime report not found; run platform verify first');
-  }
-
-  const report = await readJson<RuntimeVerificationLaneReport>(runtimeReportPath);
+  const report = await readRequiredJson<RuntimeVerificationLaneReport>(runtimeReportPath, 'Runtime report not found; run platform verify first');
   if (outputArgs.mode === 'steps') {
     const inspect = buildRuntimeStepsInspect(report);
-    if (outputArgs.json) {
-      console.log(formatJson(inspect, outputArgs));
-      return;
-    }
-    console.log(formatRuntimeStepsInspect(inspect));
+    printJsonOrText(inspect, outputArgs, formatRuntimeStepsInspect);
     return;
   }
 
-  if (outputArgs.json) {
-    console.log(formatJson(report, outputArgs));
-    return;
-  }
-
-  console.log(formatRuntimeReport(report));
+  printJsonOrText(report, outputArgs, formatRuntimeReport);
 }
 
 export async function runInstallCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -346,17 +286,8 @@ export async function runInstallCommand(args: string[], cwd = process.cwd()): Pr
 
   const outputArgs = parseInstallOutputArgs(args.slice(1));
   const { installManifestPath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(installManifestPath))) {
-    throw new Error('Install manifest not found; run platform compose first');
-  }
-
-  const manifest = await readJson<InstallManifestEntry[]>(installManifestPath);
-  if (outputArgs.json) {
-    console.log(formatJson(manifest, outputArgs));
-    return;
-  }
-
-  console.log(formatInstallManifest(manifest));
+  const manifest = await readRequiredJson<InstallManifestEntry[]>(installManifestPath, 'Install manifest not found; run platform compose first');
+  printJsonOrText(manifest, outputArgs, formatInstallManifest);
 }
 
 export async function runBlocksCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -366,17 +297,8 @@ export async function runBlocksCommand(args: string[], cwd = process.cwd()): Pro
 
   const outputArgs = parseBlocksOutputArgs(args.slice(1));
   const { blockUsageMapPath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(blockUsageMapPath))) {
-    throw new Error('Block usage map not found; run platform compose first');
-  }
-
-  const usageMap = await readJson<BlockUsageMap>(blockUsageMapPath);
-  if (outputArgs.json) {
-    console.log(formatJson(usageMap, outputArgs));
-    return;
-  }
-
-  console.log(formatBlockUsageMap(usageMap));
+  const usageMap = await readRequiredJson<BlockUsageMap>(blockUsageMapPath, 'Block usage map not found; run platform compose first');
+  printJsonOrText(usageMap, outputArgs, formatBlockUsageMap);
 }
 
 export async function runPostgresCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -386,17 +308,8 @@ export async function runPostgresCommand(args: string[], cwd = process.cwd()): P
 
   const outputArgs = parsePostgresOutputArgs(args.slice(1));
   const { postgresContractPath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(postgresContractPath))) {
-    throw new Error('Postgres contract not found; run platform compose first');
-  }
-
-  const contract = await readJson<PostgresContract>(postgresContractPath);
-  if (outputArgs.json) {
-    console.log(formatJson(contract, outputArgs));
-    return;
-  }
-
-  console.log(formatPostgresContract(contract));
+  const contract = await readRequiredJson<PostgresContract>(postgresContractPath, 'Postgres contract not found; run platform compose first');
+  printJsonOrText(contract, outputArgs, formatPostgresContract);
 }
 
 export async function runVerificationCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -406,17 +319,8 @@ export async function runVerificationCommand(args: string[], cwd = process.cwd()
 
   const outputArgs = parseVerificationOutputArgs(args.slice(1));
   const { verificationReportPath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(verificationReportPath))) {
-    throw new Error('Verification report not found; run platform verify first');
-  }
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  if (outputArgs.json) {
-    console.log(formatJson(report, outputArgs));
-    return;
-  }
-
-  console.log(formatVerificationReport(report));
+  const report = await readRequiredJson<VerificationReport>(verificationReportPath, 'Verification report not found; run platform verify first');
+  printJsonOrText(report, outputArgs, formatVerificationReport);
 }
 
 export async function runProvenanceCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -426,53 +330,30 @@ export async function runProvenanceCommand(args: string[], cwd = process.cwd()):
 
   const outputArgs = parseProvenanceOutputArgs(args.slice(1));
   const readableProvenancePath = await resolveWorkspaceProvenancePath(cwd);
-  if (!(await pathExists(readableProvenancePath))) {
-    throw new Error('Provenance registry not found; run platform adapt or lock first');
-  }
-
-  const provenance = await readJson<ProvenanceFile>(readableProvenancePath);
-  if (outputArgs.json) {
-    console.log(formatJson(provenance, outputArgs));
-    return;
-  }
-
-  console.log(formatProvenanceRegistry(provenance));
+  const provenance = await readRequiredJson<ProvenanceFile>(
+    readableProvenancePath,
+    'Provenance registry not found; run platform adapt or lock first'
+  );
+  printJsonOrText(provenance, outputArgs, formatProvenanceRegistry);
 }
 
 export async function runReviewCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const reviewArgs = parseReviewArgs(args);
   const { reviewSummaryPath } = getWorkspacePaths(cwd);
-  if (!(await pathExists(reviewSummaryPath))) {
-    throw new Error('Review summary not found; run platform explain first');
-  }
-
-  const summary = await readJson<ReviewSummary>(reviewSummaryPath);
+  const summary = await readRequiredJson<ReviewSummary>(reviewSummaryPath, 'Review summary not found; run platform explain first');
   if (reviewArgs.mode === 'matrix') {
     const matrix = buildE2eMatrix(summary);
-    if (reviewArgs.json) {
-      console.log(formatJson(matrix, reviewArgs));
-      return;
-    }
-    console.log(formatE2eMatrix(matrix));
+    printJsonOrText(matrix, reviewArgs, formatE2eMatrix);
     return;
   }
 
   if (reviewArgs.mode === 'diagnostics') {
     const diagnostics = buildReviewDiagnosticsInspect(summary);
-    if (reviewArgs.json) {
-      console.log(formatJson(diagnostics, reviewArgs));
-      return;
-    }
-    console.log(formatReviewDiagnosticsInspect(diagnostics));
+    printJsonOrText(diagnostics, reviewArgs, formatReviewDiagnosticsInspect);
     return;
   }
 
-  if (reviewArgs.json) {
-    console.log(formatJson(summary, reviewArgs));
-    return;
-  }
-
-  console.log(formatReviewSummaryContract(summary));
+  printJsonOrText(summary, reviewArgs, formatReviewSummaryContract);
 }
 
 export async function runDemoCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -482,12 +363,7 @@ export async function runDemoCommand(args: string[], cwd = process.cwd()): Promi
 
   const outputArgs = parseDemoOutputArgs(args.slice(1));
   const checklist = await buildDemoChecklist(cwd);
-  if (outputArgs.json) {
-    console.log(formatJson(checklist, outputArgs));
-    return;
-  }
-
-  console.log(formatDemoChecklist(checklist));
+  printJsonOrText(checklist, outputArgs, formatDemoChecklist);
 }
 
 export async function runContractCommand(args: string[]): Promise<void> {
@@ -499,29 +375,17 @@ export async function runContractCommand(args: string[]): Promise<void> {
   const outputArgs = parseContractOutputArgs(outputRawArgs);
   if (contractKind === 'freeze') {
     const contract = buildContractFreezeContract();
-    if (outputArgs.json) {
-      console.log(formatJson(contract, outputArgs));
-      return;
-    }
-    console.log(formatContractFreezeContract(contract));
+    printJsonOrText(contract, outputArgs, formatContractFreezeContract);
     return;
   }
 
   if (contractKind === 'ci') {
     const contract = buildCiContract();
-    if (outputArgs.json) {
-      console.log(formatJson(contract, outputArgs));
-      return;
-    }
-    console.log(formatCiContract(contract));
+    printJsonOrText(contract, outputArgs, formatCiContract);
     return;
   }
 
   const contract = buildErrorProtocolContract();
-  if (outputArgs.json) {
-    console.log(formatJson(contract, outputArgs));
-    return;
-  }
-  console.log(formatErrorProtocolContract(contract));
+  printJsonOrText(contract, outputArgs, formatErrorProtocolContract);
 }
 

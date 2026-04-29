@@ -1,6 +1,6 @@
 import path from 'node:path';
 import ts from 'typescript';
-import { compilerRoot } from '../../shared/paths.ts';
+import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { pathExists } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { withProjectDependencyBridge } from '../../shared/project-runtime.ts';
@@ -12,7 +12,7 @@ function formatDiagnostic(diagnostic: ts.Diagnostic): string {
   }
 
   const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-  const filePath = path.relative(process.cwd(), diagnostic.file.fileName).replaceAll('\\', '/');
+  const filePath = relativePosixPath(process.cwd(), diagnostic.file.fileName);
   return `${filePath}:${position.line + 1}:${position.character + 1} ${message}`;
 }
 

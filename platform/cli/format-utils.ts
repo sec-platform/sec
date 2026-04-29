@@ -18,6 +18,14 @@ export function formatJson(value: unknown, options: { compact: boolean }): strin
   return JSON.stringify(value, null, options.compact ? 0 : 2);
 }
 
+export function printJsonOrText<T>(
+  value: T,
+  options: { json: boolean; compact: boolean },
+  formatText: (value: T) => string
+): void {
+  console.log(options.json ? formatJson(value, options) : formatText(value));
+}
+
 export function summarizeById(
   entries: Array<{ id: string; count: number }>
 ): Array<{ id: string; count: number }> {

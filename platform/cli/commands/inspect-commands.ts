@@ -18,7 +18,7 @@ import {
 } from '../commands.ts';
 import { parseDoctorArgs } from '../args.ts';
 import { getDoctorReport, formatDoctorReport } from '../../shared/dependency-environment.ts';
-import { formatJson } from '../format-utils.ts';
+import { printJsonOrText } from '../format-utils.ts';
 import {
   DOCTOR_USAGE,
   DEPS_USAGE,
@@ -44,11 +44,7 @@ export const doctorCommand: CommandHandler = {
   async execute(args, ctx) {
     const doctorArgs = parseDoctorArgs(args);
     const report = await getDoctorReport(ctx.cwd);
-    if (doctorArgs.json) {
-      console.log(formatJson(report, doctorArgs));
-      return;
-    }
-    console.log(formatDoctorReport(report));
+    printJsonOrText(report, doctorArgs, formatDoctorReport);
   }
 };
 
