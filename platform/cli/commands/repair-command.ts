@@ -1,12 +1,12 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { parseRepairArgs } from '../args.ts';
 import { repairWorkspace } from '../../orchestrator.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
-import { readRequiredJson } from '../command-utils.ts';
-import { formatRepairSummary } from '../formatters.ts';
-import { printJsonOrText } from '../format-utils.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
+import { parseRepairArgs } from '../args.ts';
+import type { CommandHandler } from '../command-registry.ts';
+import { readRequiredJson } from '../command-utils.ts';
+import { printJsonOrText } from '../format-utils.ts';
+import { formatRepairSummary } from '../formatters.ts';
 import { REPAIR_USAGE } from '../usage.ts';
 
 export const repairCommand: CommandHandler = {

@@ -19,6 +19,10 @@ export async function readJson<T>(filePath: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
+export async function readOptionalJson<T>(filePath: string): Promise<T | null> {
+  return (await pathExists(filePath)) ? readJson<T>(filePath) : null;
+}
+
 export async function writeJson(filePath: string, value: unknown): Promise<void> {
   await ensureDir(path.dirname(filePath));
   await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');

@@ -1,11 +1,11 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { parseUpgradeArgs } from '../args.ts';
 import { upgradeWorkspace } from '../../orchestrator.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { readRequiredJson } from '../command-utils.ts';
-import { formatUpgradeSummary, formatUpgradeDiagnostics } from '../formatters.ts';
-import { printJsonOrText } from '../format-utils.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
+import { parseUpgradeArgs } from '../args.ts';
+import type { CommandHandler } from '../command-registry.ts';
+import { readRequiredJson } from '../command-utils.ts';
+import { printJsonOrText } from '../format-utils.ts';
+import { formatUpgradeDiagnostics, formatUpgradeSummary } from '../formatters.ts';
 import { UPGRADE_USAGE } from '../usage.ts';
 
 export const upgradeCommand: CommandHandler = {

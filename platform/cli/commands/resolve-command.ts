@@ -1,5 +1,5 @@
-import type { CommandHandler } from '../command-registry.ts';
 import { resolveWorkspace } from '../../orchestrator.ts';
+import type { CommandHandler } from '../command-registry.ts';
 
 export const resolveCommand: CommandHandler = {
   name: 'resolve',

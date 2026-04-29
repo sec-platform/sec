@@ -1,7 +1,7 @@
 import path from 'node:path';
+import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
 import { runDevCommand } from './command-runner.ts';
 import { commandPath, pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
-import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
 
 export async function runTypecheck(args: string[] = []): Promise<number> {
   const sharedDeps = await ensureSharedDepsReady();

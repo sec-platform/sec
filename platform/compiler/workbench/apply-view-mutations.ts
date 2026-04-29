@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, listFilesRecursive, pathExists, readJson, writeJson } from '../../shared/fs.ts';
-import { loadPlan } from '../parse/load-plan.ts';
 import { getWorkspacePaths, workspaceRelativePath } from '../../shared/paths.ts';
-import { writeYaml } from '../../shared/yaml.ts';
 import type { AppMode, PlanFile } from '../../shared/plan-manifest-types.ts';
+import { writeYaml } from '../../shared/yaml.ts';
+import { loadPlan } from '../parse/load-plan.ts';
 
 export type ViewMutationKind = 'set-app-name' | 'set-app-mode' | 'add-acceptance' | 'set-slot-description' | 'set-slot-source-path';
 

@@ -1,7 +1,7 @@
-import { readJson } from '../shared/fs.ts';
-import { resolveWorkspaceLockPath } from '../shared/paths.ts';
 import { verifyProject } from '../compiler/verify/verify-project.ts';
+import { readJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
+import { resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type { VerificationLane, VerificationReport } from '../shared/verification-types.ts';
 
 export async function verifyWorkspace(

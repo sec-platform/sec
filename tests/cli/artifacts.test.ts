@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import {
   CI_ARTIFACT_FILES,
@@ -9,10 +9,10 @@ import {
   ciArtifactUploadName,
   emptyCiArtifactMissingReasonCounts
 } from '../../platform/shared/ci-artifact-contract.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { CiArtifactManifest, CiArtifactMissingReason } from '../../platform/shared/ci-artifact-types.ts';
 import { pathExists, writeJson } from '../../platform/shared/fs.ts';
-import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 function artifactMissingReasonCounts(
   overrides: Partial<Record<CiArtifactMissingReason, number>> = {}

@@ -1,5 +1,5 @@
+import { adaptWorkspace, composeWorkspace } from '../../orchestrator.ts';
 import type { CommandHandler } from '../command-registry.ts';
-import { composeWorkspace, adaptWorkspace } from '../../orchestrator.ts';
 
 export const composeCommand: CommandHandler = {
   name: 'compose',

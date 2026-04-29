@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { compilerRoot } from '../shared/paths.ts';
 import { pathExists } from '../shared/fs.ts';
+import { compilerRoot } from '../shared/paths.ts';
 export { pathEnvKey } from '../shared/process.ts';
 
 export function getTestWorkspaceTempRoot(): string {

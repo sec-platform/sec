@@ -1,6 +1,5 @@
-import { readYaml } from '../../shared/yaml.ts';
-import { CompilerError } from '../../shared/errors.ts';
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import {
   isSafeRelativePath,
   officialRegistryRelativePath,
@@ -8,6 +7,7 @@ import {
   sourcePrivateRegistryRelativePath
 } from '../../shared/paths.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
+import { readYaml } from '../../shared/yaml.ts';
 
 function defaultRegistry(): PlanRegistry {
   return {

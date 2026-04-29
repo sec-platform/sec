@@ -1,12 +1,12 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { parseExplainArgs } from '../args.ts';
 import { explainWorkspace } from '../../orchestrator.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
-import { readRequiredJson } from '../command-utils.ts';
-import { formatExplainGraphInspect, formatExplainSummary } from '../formatters.ts';
-import { printJsonOrText } from '../format-utils.ts';
-import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import { buildE2eMatrix } from '../../shared/review-matrix.ts';
+import { parseExplainArgs } from '../args.ts';
+import type { CommandHandler } from '../command-registry.ts';
+import { readRequiredJson } from '../command-utils.ts';
+import { printJsonOrText } from '../format-utils.ts';
+import { formatExplainGraphInspect, formatExplainSummary } from '../formatters.ts';
 import { EXPLAIN_USAGE } from '../usage.ts';
 
 export const explainCommand: CommandHandler = {

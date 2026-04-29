@@ -1,6 +1,6 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { parseResetArg } from '../args.ts';
 import { initWorkspace } from '../../orchestrator.ts';
+import { parseResetArg } from '../args.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { INIT_USAGE } from '../usage.ts';
 
 export const initCommand: CommandHandler = {

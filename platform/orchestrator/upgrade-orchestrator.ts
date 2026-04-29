@@ -1,5 +1,5 @@
-import { upgradeWorkspace as runUpgradeWorkspace } from '../upgrade/upgrade-workspace.ts';
 import type { LockFile, PlanFile, UpgradePlan } from '../shared/types.ts';
+import { upgradeWorkspace as runUpgradeWorkspace } from '../upgrade/upgrade-workspace.ts';
 
 export async function upgradeWorkspace(
   workspaceRoot = process.cwd(),

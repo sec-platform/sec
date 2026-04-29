@@ -1,17 +1,16 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import path from 'node:path';
+import { expect, test } from 'vitest';
 
-import {
-  initWorkspace,
-  resolveWorkspace,
-  composeWorkspace,
-  adaptWorkspace,
-  verifyWorkspace,
-  lockWorkspace,
-  explainWorkspace
-} from '../../platform/orchestrator.ts';
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
+import {
+  adaptWorkspace,
+  composeWorkspace,
+  explainWorkspace,
+  initWorkspace,
+  lockWorkspace,
+  resolveWorkspace,
+  verifyWorkspace
+} from '../../platform/orchestrator.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,

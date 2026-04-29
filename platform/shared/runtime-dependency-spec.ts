@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { CompilerError } from './errors.ts';
 import { readJson } from './fs.ts';
 import { compilerRoot } from './paths.ts';
-import { CompilerError } from './errors.ts';
 
 interface RootPackageJson {
   dependencies?: Record<string, string>;

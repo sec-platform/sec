@@ -1,11 +1,11 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-acceptance-coverage.ts';
+import type { BlockManifest, LockFile, RuntimeVerificationLaneReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { withTempWorkspace } from '../helpers/test-utils.ts';
-import type { BlockManifest, LockFile, RuntimeVerificationLaneReport } from '../../platform/shared/types.ts';
 
 function manifest(id: string, acceptance: BlockManifest['acceptance']): BlockManifest {
   return {

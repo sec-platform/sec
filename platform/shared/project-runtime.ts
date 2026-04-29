@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { compilerRoot } from './paths.ts';
-import { ensureDir, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
 import { CompilerError } from './errors.ts';
+import { ensureDir, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
+import { compilerRoot } from './paths.ts';
 import { pathEnvKey, resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 

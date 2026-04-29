@@ -1,4 +1,26 @@
-export type { RegistryKind, RegistryLocation } from './registry-types.ts';
+export type {
+  AcceptanceCoverageEntry,
+  AcceptanceCoverageReport,
+  AcceptanceItem
+} from './acceptance-types.ts';
+export type {
+  CiArtifactDeclaredBy,
+  CiArtifactEntry,
+  CiArtifactKind,
+  CiArtifactManifest,
+  CiArtifactMissingEntry,
+  CiArtifactMissingReason,
+  CiArtifactSummary,
+  CiArtifactUploadGroup
+} from './ci-artifact-types.ts';
+export type {
+  CoverageOverlay,
+  ExplainEdgeType,
+  ExplainGraph,
+  ExplainGraphEdge,
+  ExplainGraphNode,
+  ExplainNodeType
+} from './explain-types.ts';
 export type {
   InstallPlanStep,
   LockFile,
@@ -48,49 +70,6 @@ export type {
   UpgradeTextReplaceRegexMigrationEntry
 } from './plan-manifest-types.ts';
 export type {
-  RepairBlocker,
-  RepairFailurePoint,
-  RepairPlan,
-  RepairTask,
-  RepairTaskCategory,
-  RepairTaskPreview,
-  RepairTaskReview
-} from './repair-types.ts';
-export type {
-  UpgradeDiagnostics,
-  UpgradeDiagnosticsPhase,
-  UpgradeMigrationOperation,
-  UpgradeMigrationOperationRole,
-  UpgradeMigrationSummary,
-  UpgradePlan,
-  UpgradePreflightCheck,
-  UpgradePreflightCheckId
-} from './upgrade-types.ts';
-export type {
-  OverrideApplyPhase,
-  OverrideEntry,
-  OverrideManifest,
-  OverrideSource,
-  OverrideStatus,
-  ProvenanceArtifact,
-  ProvenanceFile,
-  ProvenanceOriginType
-} from './provenance-types.ts';
-export type {
-  CoverageOverlay,
-  ExplainEdgeType,
-  ExplainGraph,
-  ExplainGraphEdge,
-  ExplainGraphNode,
-  ExplainNodeType
-} from './explain-types.ts';
-export type {
-  AcceptanceCoverageEntry,
-  AcceptanceCoverageReport,
-  AcceptanceItem
-} from './acceptance-types.ts';
-export type { WorkspacePaths } from './workspace-types.ts';
-export type {
   MergedPolicyReportEntry,
   PolicyReport,
   PolicyRule,
@@ -101,24 +80,25 @@ export type {
   PolicyViolation
 } from './policy-types.ts';
 export type {
-  FastVerificationLaneReport,
-  RuntimeVerificationLaneReport,
-  VerificationLane,
-  VerificationLogs,
-  VerificationReport,
-  VerificationStatus,
-  VerificationStepReport
-} from './verification-types.ts';
+  OverrideApplyPhase,
+  OverrideEntry,
+  OverrideManifest,
+  OverrideSource,
+  OverrideStatus,
+  ProvenanceArtifact,
+  ProvenanceFile,
+  ProvenanceOriginType
+} from './provenance-types.ts';
+export type { RegistryKind, RegistryLocation } from './registry-types.ts';
 export type {
-  CiArtifactDeclaredBy,
-  CiArtifactEntry,
-  CiArtifactKind,
-  CiArtifactManifest,
-  CiArtifactMissingEntry,
-  CiArtifactMissingReason,
-  CiArtifactSummary,
-  CiArtifactUploadGroup
-} from './ci-artifact-types.ts';
+  RepairBlocker,
+  RepairFailurePoint,
+  RepairPlan,
+  RepairTask,
+  RepairTaskCategory,
+  RepairTaskPreview,
+  RepairTaskReview
+} from './repair-types.ts';
 export type {
   ReviewArtifactMissingEntry,
   ReviewArtifactSummary,
@@ -165,3 +145,23 @@ export type {
   ReviewVerticalSlice
 } from './review-types.ts';
 export type { TaskEnvelope } from './task-envelope-types.ts';
+export type {
+  UpgradeDiagnostics,
+  UpgradeDiagnosticsPhase,
+  UpgradeMigrationOperation,
+  UpgradeMigrationOperationRole,
+  UpgradeMigrationSummary,
+  UpgradePlan,
+  UpgradePreflightCheck,
+  UpgradePreflightCheckId
+} from './upgrade-types.ts';
+export type {
+  FastVerificationLaneReport,
+  RuntimeVerificationLaneReport,
+  VerificationLane,
+  VerificationLogs,
+  VerificationReport,
+  VerificationStatus,
+  VerificationStepReport
+} from './verification-types.ts';
+export type { WorkspacePaths } from './workspace-types.ts';

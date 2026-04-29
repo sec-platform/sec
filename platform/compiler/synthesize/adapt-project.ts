@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
+import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import { applyOverrides } from '../compose/apply-overrides.ts';
 import { buildTaskEnvelope } from './build-task-envelope.ts';
 import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
-import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 
 function projectRelativeImport(fromFile: string, toFile: string): string {
   const relativePath = path.posix.relative(path.posix.dirname(fromFile), toFile);

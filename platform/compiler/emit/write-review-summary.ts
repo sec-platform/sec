@@ -1,9 +1,23 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import type { PolicyReport } from '../../shared/policy-types.ts';
+import type { OverrideStatus, ProvenanceFile, ProvenanceOriginType } from '../../shared/provenance-types.ts';
+import type { RepairPlan, RepairTaskCategory } from '../../shared/repair-types.ts';
+import type {
+  ReviewConflictHint,
+  ReviewFailurePoint,
+  ReviewInstallImpact,
+  ReviewRegressionRisk,
+  ReviewSummary
+} from '../../shared/review-types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
+import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
@@ -14,20 +28,6 @@ import {
   classifyRuntimeEntry,
   detectVerticalFromPath
 } from './runtime-attribution.ts';
-import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
-import type { PolicyReport } from '../../shared/policy-types.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
-import type { ProvenanceFile, ProvenanceOriginType, OverrideStatus } from '../../shared/provenance-types.ts';
-import type { RepairPlan, RepairTaskCategory } from '../../shared/repair-types.ts';
-import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
-import type {
-  ReviewConflictHint,
-  ReviewInstallImpact,
-  ReviewFailurePoint,
-  ReviewRegressionRisk,
-  ReviewSummary
-} from '../../shared/review-types.ts';
-import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
 
 function compareFailurePoints(left: ReviewFailurePoint, right: ReviewFailurePoint): number {
   return `${left.kind}:${left.lane}:${left.message}:${left.artifactPath}`.localeCompare(

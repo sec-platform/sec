@@ -1,12 +1,12 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { parseArtifactsArgs } from '../args.ts';
 import { buildCiArtifactManifest } from '../../compiler/emit/ci-artifacts.ts';
 import { writeWorkspaceArtifacts } from '../../orchestrator.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
-import { readRequiredJson } from '../command-utils.ts';
-import { buildArtifactUploadPathContract, formatCiArtifactManifest } from '../formatters.ts';
-import { formatJson, printJsonOrText } from '../format-utils.ts';
 import type { CiArtifactManifest } from '../../shared/ci-artifact-types.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import { parseArtifactsArgs } from '../args.ts';
+import type { CommandHandler } from '../command-registry.ts';
+import { readRequiredJson } from '../command-utils.ts';
+import { formatJson, printJsonOrText } from '../format-utils.ts';
+import { buildArtifactUploadPathContract, formatCiArtifactManifest } from '../formatters.ts';
 import { ARTIFACTS_USAGE } from '../usage.ts';
 
 export const artifactsCommand: CommandHandler = {

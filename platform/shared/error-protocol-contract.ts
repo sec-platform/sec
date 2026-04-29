@@ -1,7 +1,7 @@
 import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
-import type { CompilerErrorDetails } from './errors.ts';
 import { buildErrorProtocol, type ErrorProtocol } from './error-protocol.ts';
+import type { CompilerErrorDetails } from './errors.ts';
 
 export type ErrorProtocolExample = {
   id: string;

@@ -1,19 +1,10 @@
 import { expect, test } from 'vitest';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
-  ACCEPTANCE_USAGE,
-  LOCK_USAGE,
-  POLICY_USAGE,
-  POSTGRES_USAGE,
-  REPAIR_USAGE,
   RUNTIME_USAGE,
   WORKBENCH_USAGE
 } from '../../platform/cli/usage.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace, runCliInProcess as runCli, usageErrorStderr, expectRepairUsageError, expectLockUsageError, expectPolicyUsageError, expectAcceptanceUsageError, expectPostgresUsageError, installPrivateBannerBlock } from '../helpers/test-utils.ts';
+import { expectAcceptanceUsageError, expectLockUsageError, expectPolicyUsageError, expectPostgresUsageError, expectRepairUsageError, runCliInProcess as runCli, usageErrorStderr, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI prints usage for missing or unknown commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

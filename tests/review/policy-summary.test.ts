@@ -3,7 +3,6 @@ import { expect, test } from 'vitest';
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
@@ -11,6 +10,7 @@ import type {
   ProvenanceFile,
   VerificationReport
 } from '../../platform/shared/types.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces policy governance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

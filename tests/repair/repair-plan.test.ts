@@ -1,14 +1,14 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import { buildRepairPlan, writeRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 const plan: PlanFile = {
   app: {

@@ -1,15 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
-import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
+import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
+import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
-import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { defaultInstallRegistry } from './install-strategies.ts';
-import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 
 async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
   const routeEntries = await Promise.all(

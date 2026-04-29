@@ -1,8 +1,8 @@
 import path from 'node:path';
 import ts from 'typescript';
-import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
-import { pathExists } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { pathExists } from '../../shared/fs.ts';
+import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { withProjectDependencyBridge } from '../../shared/project-runtime.ts';
 
 function formatDiagnostic(diagnostic: ts.Diagnostic): string {

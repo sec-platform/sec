@@ -1,20 +1,20 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
+import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
+import { pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { pathExists, readJson } from '../../shared/fs.ts';
-import { CompilerError } from '../../shared/errors.ts';
-import { buildProvenance, writeProvenance } from './write-provenance.ts';
-import { buildRuntimeAttribution } from './runtime-attribution.ts';
-import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
-import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
+import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
+import { buildRuntimeAttribution } from './runtime-attribution.ts';
+import { buildProvenance, writeProvenance } from './write-provenance.ts';
 
 function pushNode(nodes: ExplainGraphNode[], node: ExplainGraphNode): void {
   if (!nodes.some((candidate) => candidate.id === node.id)) {
@@ -30,34 +30,22 @@ function pushEdge(edges: ExplainGraphEdge[], edge: ExplainGraphEdge): void {
 
 async function readPolicyReport(workspaceRoot: string): Promise<PolicyReport | null> {
   const { policyReportPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(policyReportPath))) {
-    return null;
-  }
-  return readJson<PolicyReport>(policyReportPath);
+  return readOptionalJson<PolicyReport>(policyReportPath);
 }
 
 async function readUpgradePlan(workspaceRoot: string): Promise<UpgradePlan | null> {
   const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(upgradePlanPath))) {
-    return null;
-  }
-  return readJson<UpgradePlan>(upgradePlanPath);
+  return readOptionalJson<UpgradePlan>(upgradePlanPath);
 }
 
 async function readUpgradeDiagnostics(workspaceRoot: string): Promise<UpgradeDiagnostics | null> {
   const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(upgradeDiagnosticsPath))) {
-    return null;
-  }
-  return readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
+  return readOptionalJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
 }
 
 async function readRepairPlan(workspaceRoot: string): Promise<RepairPlan | null> {
   const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(repairPlanPath))) {
-    return null;
-  }
-  return readJson<RepairPlan>(repairPlanPath);
+  return readOptionalJson<RepairPlan>(repairPlanPath);
 }
 
 function readUpgradeDiagnosticsString(diagnostics: UpgradeDiagnostics, key: string): string | null {

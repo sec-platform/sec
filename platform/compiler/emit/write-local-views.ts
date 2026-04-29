@@ -1,25 +1,25 @@
 import fs from 'node:fs/promises';
+import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
-import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
-import { buildE2eMatrix } from '../../shared/review-matrix.ts';
-import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
-import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
-import type { PolicyReport } from '../../shared/policy-types.ts';
+import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
+import { buildE2eMatrix } from '../../shared/review-matrix.ts';
+import type { ReviewSummary } from '../../shared/review-types.ts';
 import type {
   UpgradeDiagnostics,
   UpgradeMigrationOperation,
   UpgradePlan
 } from '../../shared/upgrade-types.ts';
-import type { ReviewSummary } from '../../shared/review-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 
 function escapeHtml(value: string): string {
   return value
@@ -455,14 +455,6 @@ function renderViewNav(current: 'source' | 'slot-rule'): string {
 async function readRequiredArtifact<T>(filePath: string, label: string): Promise<T> {
   if (!(await pathExists(filePath))) {
     throw new CompilerError('EXPLAIN-BLOCKED-003', `${label} is missing`);
-  }
-
-  return readJson<T>(filePath);
-}
-
-async function readOptionalArtifact<T>(filePath: string): Promise<T | null> {
-  if (!(await pathExists(filePath))) {
-    return null;
   }
 
   return readJson<T>(filePath);
@@ -1418,9 +1410,9 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     readRequiredArtifact<PolicyReport>(policyReportPath, 'policy-report.json'),
     readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
     readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json'),
-    readOptionalArtifact<RepairPlan>(repairPlanPath),
-    readOptionalArtifact<UpgradeDiagnostics>(upgradeDiagnosticsPath),
-    readOptionalArtifact<UpgradePlan>(upgradePlanPath)
+    readOptionalJson<RepairPlan>(repairPlanPath),
+    readOptionalJson<UpgradeDiagnostics>(upgradeDiagnosticsPath),
+    readOptionalJson<UpgradePlan>(upgradePlanPath)
   ]);
 
   await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport, repairPlan, upgradeDiagnostics, upgradePlan), 'utf8');

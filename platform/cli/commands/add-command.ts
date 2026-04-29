@@ -1,8 +1,8 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { addBlock } from '../../orchestrator.ts';
 import { loadManifestById } from '../../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../../compiler/parse/load-plan.ts';
+import { addBlock } from '../../orchestrator.ts';
 import { resolveWorkspacePlanPath } from '../../shared/paths.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { ADD_USAGE } from '../usage.ts';
 
 export const addCommand: CommandHandler = {

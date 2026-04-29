@@ -1,17 +1,17 @@
-import { CompilerError } from '../shared/errors.ts';
-import { pathExists, readJson } from '../shared/fs.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
-import { lockProject } from '../compiler/emit/lock-project.ts';
 import { writeCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
+import { lockProject } from '../compiler/emit/lock-project.ts';
 import { writeExplainGraph } from '../compiler/emit/write-explain-graph.ts';
 import { writeLocalViews } from '../compiler/emit/write-local-views.ts';
 import { writeReviewSummary } from '../compiler/emit/write-review-summary.ts';
-import type { LockFile } from '../shared/lock-types.ts';
+import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
+import { CompilerError } from '../shared/errors.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
+import { pathExists, readJson } from '../shared/fs.ts';
+import type { LockFile } from '../shared/lock-types.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import type { VerificationReport } from '../shared/verification-types.ts';
-import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 
 export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<LockFile> {
   const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));

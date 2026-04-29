@@ -1,13 +1,13 @@
+import { alignInterfaces } from '../compiler/align/align-interfaces.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
-import { getWorkspacePaths } from '../shared/paths.ts';
-import { writeYaml } from '../shared/yaml.ts';
-import { writeJson } from '../shared/fs.ts';
-import { alignInterfaces } from '../compiler/align/align-interfaces.ts';
 import { resolveGraph } from '../compiler/resolve/resolve-graph.ts';
 import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-templates.ts';
-import type { LockFile, PlanFile } from '../shared/types.ts';
+import { writeJson } from '../shared/fs.ts';
+import { getWorkspacePaths } from '../shared/paths.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
+import type { LockFile, PlanFile } from '../shared/types.ts';
+import { writeYaml } from '../shared/yaml.ts';
 
 export async function addBlock(workspaceRoot = process.cwd(), blockId: string): Promise<PlanFile> {
   const { planPath } = getWorkspacePaths(workspaceRoot);

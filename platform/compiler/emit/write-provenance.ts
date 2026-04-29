@@ -6,13 +6,13 @@ import {
   CI_ARTIFACT_PATHS
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
+import { readOptionalJson } from '../../shared/fs.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { pathExists, readJson } from '../../shared/fs.ts';
-import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 
 function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;
@@ -119,10 +119,7 @@ function buildBlockVerificationMap(lock: LockFile, report: VerificationReport | 
 
 async function readVerificationReport(workspaceRoot: string): Promise<VerificationReport | null> {
   const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(verificationReportPath))) {
-    return null;
-  }
-  return readJson<VerificationReport>(verificationReportPath);
+  return readOptionalJson<VerificationReport>(verificationReportPath);
 }
 
 export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {

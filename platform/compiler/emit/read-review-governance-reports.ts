@@ -1,4 +1,4 @@
-import { pathExists, readJson } from '../../shared/fs.ts';
+import { readOptionalJson } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
@@ -13,18 +13,10 @@ export interface ReviewGovernanceReports {
 
 export async function readReviewGovernanceReports(workspaceRoot: string): Promise<ReviewGovernanceReports> {
   const { policyReportPath, repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-  const policyReport = (await pathExists(policyReportPath))
-    ? await readJson<PolicyReport>(policyReportPath)
-    : null;
-  const repairPlan = (await pathExists(repairPlanPath))
-    ? await readJson<RepairPlan>(repairPlanPath)
-    : null;
-  const upgradePlan = (await pathExists(upgradePlanPath))
-    ? await readJson<UpgradePlan>(upgradePlanPath)
-    : null;
-  const upgradeDiagnostics = (await pathExists(upgradeDiagnosticsPath))
-    ? await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath)
-    : null;
+  const policyReport = await readOptionalJson<PolicyReport>(policyReportPath);
+  const repairPlan = await readOptionalJson<RepairPlan>(repairPlanPath);
+  const upgradePlan = await readOptionalJson<UpgradePlan>(upgradePlanPath);
+  const upgradeDiagnostics = await readOptionalJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
 
   return {
     policyReport,

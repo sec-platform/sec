@@ -1,8 +1,5 @@
-import { uniqueSorted } from './collections.ts';
-import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import {
   CI_ARTIFACT_KINDS,
-  CI_ARTIFACT_MISSING_REASON,
   CI_ARTIFACT_MISSING_REASONS,
   type CiArtifactEntry,
   type CiArtifactKind,
@@ -11,6 +8,8 @@ import {
   type CiArtifactSummary,
   type CiArtifactUploadGroup
 } from './ci-artifact-types.ts';
+import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 
 export {
   CI_ARTIFACT_KINDS,

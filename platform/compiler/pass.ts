@@ -1,7 +1,7 @@
+import { PASS_DEPENDENCIES } from '../shared/constants.ts';
 import type { LockFile, PassState } from '../shared/lock-types.ts';
 import type { Logger } from '../shared/logger.ts';
 import { defaultLogger } from '../shared/logger.ts';
-import { PASS_DEPENDENCIES } from '../shared/constants.ts';
 
 export interface PassContext {
   workspaceRoot: string;

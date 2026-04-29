@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
   ensureProjectDependencies,
@@ -11,15 +12,14 @@ import {
   withProjectDependencyBridge,
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
 import {
   createWorkspace,
+  expectContainsAll,
+  expectContainsNone,
   installRuntimeDeps,
   readCompilerFile,
-  readCompilerPackageJson,
-  expectContainsAll,
-  expectContainsNone
+  readCompilerPackageJson
 } from '../helpers/test-utils.ts';
 
 describe('shared runtime dependency installation', () => {
@@ -94,6 +94,8 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
     expect(scripts.check).toBe('npm run typecheck && npm test');
     expect(scripts['check:full']).toBe('npm run typecheck && npm run test:all');
+    expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
+    expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['test:budget']).toBe('npm run platform -- test budget --json');
     expect(scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
     expect(scripts['test:benchmark-contract']).toBe('npm run platform -- benchmark suite --json');

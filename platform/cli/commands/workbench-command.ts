@@ -1,7 +1,7 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { parseWorkbenchArgs } from '../args.ts';
-import { applyWorkbenchMutations } from '../../orchestrator.ts';
 import type { ViewMutationReport } from '../../compiler/workbench/apply-view-mutations.ts';
+import { applyWorkbenchMutations } from '../../orchestrator.ts';
+import { parseWorkbenchArgs } from '../args.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { printJsonOrText } from '../format-utils.ts';
 import { WORKBENCH_USAGE } from '../usage.ts';
 

@@ -1,5 +1,18 @@
+import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
+import {
+  buildBenchmarkTaskSuiteContract,
+  formatBenchmarkTaskSuiteContract
+} from '../shared/benchmark-contract.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
+import {
+  buildCiContract,
+  formatCiContract
+} from '../shared/ci-contract.ts';
 import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
+import {
+  buildContractFreezeContract,
+  formatContractFreezeContract
+} from '../shared/contract-freeze-contract.ts';
 import {
   cleanDependencyEnvironment,
   formatDependencyEnvironmentStatus,
@@ -8,52 +21,25 @@ import {
   warmupDependencyEnvironment
 } from '../shared/dependency-environment.ts';
 import {
-  buildBenchmarkTaskSuiteContract,
-  formatBenchmarkTaskSuiteContract
-} from '../shared/benchmark-contract.ts';
-import {
-  buildCiContract,
-  formatCiContract
-} from '../shared/ci-contract.ts';
-import {
-  buildContractFreezeContract,
-  formatContractFreezeContract
-} from '../shared/contract-freeze-contract.ts';
-import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../shared/error-protocol-contract.ts';
-import {
-  buildTestBudgetContract,
-  formatTestBudgetContract
-} from '../shared/test-budget-contract.ts';
+import { pathExists } from '../shared/fs.ts';
+import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
+import type { PolicyReport } from '../shared/policy-types.ts';
+import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import {
   assertReferenceCheckClean,
   buildReferenceCheckReport,
   formatReferenceCheck
 } from '../shared/reference-check.ts';
-import { pathExists } from '../shared/fs.ts';
-import { readRequiredJson } from './command-utils.ts';
-import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
-import type { ProvenanceFile } from '../shared/provenance-types.ts';
-import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
-import type { PolicyReport } from '../shared/policy-types.ts';
-import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import {
-  BENCHMARK_USAGE,
-  BLOCKS_USAGE,
-  CONTRACT_USAGE,
-  DEMO_USAGE,
-  DEPS_USAGE,
-  INSTALL_USAGE,
-  POSTGRES_USAGE,
-  PROVENANCE_USAGE,
-  REFERENCE_USAGE,
-  TEST_USAGE,
-  VERIFICATION_USAGE
-} from './usage.ts';
+  buildTestBudgetContract,
+  formatTestBudgetContract
+} from '../shared/test-budget-contract.ts';
+import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import {
   parseAcceptanceArgs,
   parseBenchmarkOutputArgs,
@@ -72,6 +58,8 @@ import {
   parseTestOutputArgs,
   parseVerificationOutputArgs
 } from './args.ts';
+import { readRequiredJson } from './command-utils.ts';
+import { printJsonOrText } from './format-utils.ts';
 import {
   buildAcceptanceTargetInspect,
   buildPolicySourceInspect,
@@ -99,7 +87,19 @@ import {
   type InstallManifestEntry,
   type PostgresContract
 } from './formatters.ts';
-import { printJsonOrText } from './format-utils.ts';
+import {
+  BENCHMARK_USAGE,
+  BLOCKS_USAGE,
+  CONTRACT_USAGE,
+  DEMO_USAGE,
+  DEPS_USAGE,
+  INSTALL_USAGE,
+  POSTGRES_USAGE,
+  PROVENANCE_USAGE,
+  REFERENCE_USAGE,
+  TEST_USAGE,
+  VERIFICATION_USAGE
+} from './usage.ts';
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
   const paths = getWorkspacePaths(workspaceRoot);

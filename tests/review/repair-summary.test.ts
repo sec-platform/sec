@@ -4,8 +4,8 @@ import { buildReviewSummary } from '../../platform/compiler/emit/write-review-su
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
 import type { AcceptanceCoverageReport, LockFile, ProvenanceFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
