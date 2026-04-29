@@ -159,6 +159,20 @@ type ReviewReportOptions = Partial<Omit<VerificationReport, 'fast' | 'runtime' |
   summary?: Partial<VerificationReport['summary']>;
 };
 
+type ReviewInputsOptions = {
+  lock?: ReviewLockOptions;
+  provenance?: ProvenanceFile['artifacts'];
+  report?: ReviewReportOptions;
+  coverage?: Partial<AcceptanceCoverageReport>;
+};
+
+export type ReviewInputs = {
+  lock: LockFile;
+  provenance: ProvenanceFile;
+  report: VerificationReport;
+  coverage: AcceptanceCoverageReport;
+};
+
 export function buildPassingReviewReport(options: ReviewReportOptions = {}): VerificationReport {
   const base: VerificationReport = {
     build: { status: 'passed' },
@@ -195,6 +209,15 @@ export function buildPassingReviewReport(options: ReviewReportOptions = {}): Ver
     runtime: { ...base.runtime, ...options.runtime },
     summary: { ...base.summary, ...options.summary },
     logs: options.logs ?? base.logs
+  };
+}
+
+export function buildReviewInputs(options: ReviewInputsOptions = {}): ReviewInputs {
+  return {
+    lock: buildReviewLock(options.lock),
+    provenance: buildReviewProvenance(options.provenance),
+    report: buildPassingReviewReport(options.report),
+    coverage: buildPassingReviewCoverage(options.coverage)
   };
 }
 

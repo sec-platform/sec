@@ -9,38 +9,31 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
-import {
-  buildPassingReviewCoverage,
-  buildPassingReviewReport,
-  buildReviewLock,
-  buildReviewProvenance,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-    const lock = buildReviewLock({
-      resolvedBlocks: [{
-        id: 'auth/basic-session',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 1,
-        manifestPath: 'block.manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
-      }],
-      resolvedCapabilities: ['auth/session'],
-      passStatus: {
-        lock: 'succeeded',
-        emit: 'succeeded'
+    const { lock, provenance, report, coverage } = buildReviewInputs({
+      lock: {
+        resolvedBlocks: [{
+          id: 'auth/basic-session',
+          version: '0.1.0',
+          kind: 'capability',
+          installOrder: 1,
+          manifestPath: 'block.manifest.yaml',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official'
+        }],
+        resolvedCapabilities: ['auth/session'],
+        passStatus: {
+          lock: 'succeeded',
+          emit: 'succeeded'
+        }
       }
     });
-    const provenance = buildReviewProvenance();
-    const report = buildPassingReviewReport();
-    const coverage = buildPassingReviewCoverage();
     const upgradePlan: UpgradePlan = {
       formatVersion: '1',
       blockId: 'auth/basic-session',
@@ -333,10 +326,12 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
 test('review summary preserves upgrade diagnostics details without an upgrade plan', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const lock = buildReviewLock({
-      passStatus: {
-        lock: 'succeeded',
-        emit: 'succeeded'
+    const { lock, provenance, report, coverage } = buildReviewInputs({
+      lock: {
+        passStatus: {
+          lock: 'succeeded',
+          emit: 'succeeded'
+        }
       }
     });
     const diagnostics: UpgradeDiagnostics = {
@@ -359,13 +354,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
 
     await writeJson(upgradeDiagnosticsPath, diagnostics);
 
-    const summary = await buildReviewSummary(
-      workspaceRoot,
-      lock,
-      buildReviewProvenance(),
-      buildPassingReviewReport(),
-      buildPassingReviewCoverage()
-    );
+    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
     expect(summary.upgradeSummary).toMatchObject({
       status: 'blocked',
@@ -418,18 +407,15 @@ test('review summary includes entry migration attribution in upgrade failure poi
 
     await writeJson(upgradeDiagnosticsPath, diagnostics);
 
-    const summary = await buildReviewSummary(
-      workspaceRoot,
-      buildReviewLock({
+    const { lock, provenance, report, coverage } = buildReviewInputs({
+      lock: {
         passStatus: {
           lock: 'succeeded',
           emit: 'succeeded'
         }
-      }),
-      buildReviewProvenance(),
-      buildPassingReviewReport(),
-      buildPassingReviewCoverage()
-    );
+      }
+    });
+    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
@@ -463,18 +449,15 @@ test('review summary includes apply migration attribution in upgrade failure poi
 
     await writeJson(upgradeDiagnosticsPath, diagnostics);
 
-    const summary = await buildReviewSummary(
-      workspaceRoot,
-      buildReviewLock({
+    const { lock, provenance, report, coverage } = buildReviewInputs({
+      lock: {
         passStatus: {
           lock: 'succeeded',
           emit: 'succeeded'
         }
-      }),
-      buildReviewProvenance(),
-      buildPassingReviewReport(),
-      buildPassingReviewCoverage()
-    );
+      }
+    });
+    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',

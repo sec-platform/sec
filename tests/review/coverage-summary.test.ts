@@ -2,41 +2,37 @@ import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import type { AcceptanceCoverageReport } from '../../platform/shared/types.ts';
-import {
-  buildPassingReviewReport,
-  buildReviewLock,
-  buildReviewProvenance,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces acceptance coverage summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const lock = buildReviewLock({
-      passStatus: {
-        verify: 'failed'
-      }
-    });
-    const provenance = buildReviewProvenance();
-    const report = buildPassingReviewReport({
-      acceptance: { status: 'failed', passed: ['customer_crud'], failed: ['tenant_scope'] },
-      fast: {
-        acceptance: { status: 'passed', passed: ['customer_crud'], failed: [] }
-      },
-      runtime: {
-        status: 'failed',
-        build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
-        unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
-        acceptance: {
-          status: 'failed',
-          passed: ['customer_crud'],
-          failed: ['tenant_scope'],
-          command: 'npm run test:acceptance'
+    const { lock, provenance, report } = buildReviewInputs({
+      lock: {
+        passStatus: {
+          verify: 'failed'
         }
       },
-      summary: {
-        status: 'failed',
-        requestedLane: 'all',
-        failedLanes: ['runtime']
+      report: {
+        acceptance: { status: 'failed', passed: ['customer_crud'], failed: ['tenant_scope'] },
+        fast: {
+          acceptance: { status: 'passed', passed: ['customer_crud'], failed: [] }
+        },
+        runtime: {
+          status: 'failed',
+          build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
+          unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
+          acceptance: {
+            status: 'failed',
+            passed: ['customer_crud'],
+            failed: ['tenant_scope'],
+            command: 'npm run test:acceptance'
+          }
+        },
+        summary: {
+          status: 'failed',
+          requestedLane: 'all',
+          failedLanes: ['runtime']
+        }
       }
     });
     const coverage: AcceptanceCoverageReport = {
