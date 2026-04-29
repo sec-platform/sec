@@ -5,23 +5,20 @@ import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
-import {
-  buildPassingReviewCoverage,
-  buildReviewLock,
-  buildReviewProvenance,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
-    const lock = buildReviewLock({
-      passStatus: {
-        verify: 'failed',
-        repair: 'succeeded'
-      }
+    const { lock, provenance, coverage } = buildReviewInputs({
+      lock: {
+        passStatus: {
+          verify: 'failed',
+          repair: 'succeeded'
+        }
+      },
+      coverage: { status: 'failed' }
     });
-    const provenance = buildReviewProvenance();
     const report: VerificationReport = {
       build: { status: 'passed' },
       unit: { status: 'failed', passed: [] },
@@ -49,7 +46,6 @@ test('review summary surfaces pending repair tasks', async () => {
       },
       logs: { stdout: '', stderr: '' }
     };
-    const coverage = buildPassingReviewCoverage({ status: 'failed' });
     const repairPlan: RepairPlan = {
       formatVersion: '1',
       status: 'pending',

@@ -2,64 +2,53 @@ import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import {
-  buildPassingReviewCoverage,
-  buildPassingReviewReport,
-  buildReviewLock,
-  buildReviewProvenance,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces provenance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const lock = buildReviewLock();
-    const provenance = buildReviewProvenance([
-      {
-        path: 'src/installed/auth/session.ts',
-        originType: 'block',
-        originId: 'auth/basic-session',
-        sourceBlock: 'auth/basic-session',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official/auth.basic-session',
-        generatedByPass: 'compose',
-        verifiedBy: ['user_can_login'],
-        overrideStatus: 'none'
-      },
-      {
-        path: 'custom/customer_normalizer.ts',
-        originType: 'slot',
-        originId: 'customer_normalizer',
-        generatedByPass: 'adapt',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      },
-      {
-        path: 'app/tickets/page.tsx',
-        originType: 'override',
-        originId: 'ticket-page-runtime-manual',
-        generatedByPass: 'compose',
-        verifiedBy: [],
-        overrideStatus: 'manual'
-      },
-      {
-        path: CI_ARTIFACT_FILES.reviewSummary,
-        originType: 'generated',
-        originId: 'review-summary',
-        generatedByPass: 'review',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      }
-    ]);
+    const { lock, provenance, report, coverage } = buildReviewInputs({
+      provenance: [
+        {
+          path: 'src/installed/auth/session.ts',
+          originType: 'block',
+          originId: 'auth/basic-session',
+          sourceBlock: 'auth/basic-session',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official/auth.basic-session',
+          generatedByPass: 'compose',
+          verifiedBy: ['user_can_login'],
+          overrideStatus: 'none'
+        },
+        {
+          path: 'custom/customer_normalizer.ts',
+          originType: 'slot',
+          originId: 'customer_normalizer',
+          generatedByPass: 'adapt',
+          verifiedBy: [],
+          overrideStatus: 'none'
+        },
+        {
+          path: 'app/tickets/page.tsx',
+          originType: 'override',
+          originId: 'ticket-page-runtime-manual',
+          generatedByPass: 'compose',
+          verifiedBy: [],
+          overrideStatus: 'manual'
+        },
+        {
+          path: CI_ARTIFACT_FILES.reviewSummary,
+          originType: 'generated',
+          originId: 'review-summary',
+          generatedByPass: 'review',
+          verifiedBy: [],
+          overrideStatus: 'none'
+        }
+      ]
+    });
 
-    const summary = await buildReviewSummary(
-      workspaceRoot,
-      lock,
-      provenance,
-      buildPassingReviewReport(),
-      buildPassingReviewCoverage()
-    );
+    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
     expect(summary.provenanceSummary).toMatchObject({
       artifactCount: 4,

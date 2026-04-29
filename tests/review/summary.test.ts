@@ -21,7 +21,7 @@ import type {
 } from '../../platform/shared/types.ts';
 import {
   buildPassingReviewCoverage,
-  buildPassingReviewReport,
+  buildReviewInputs,
   buildReviewLock,
   buildReviewProvenance,
   createWorkspace
@@ -47,13 +47,12 @@ async function readReviewInputs(workspaceRoot: string): Promise<{
 test('writeReviewSummary persists generated path in lock', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-write-');
   const { lockPath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
-  const lock = buildReviewLock({
-    app: { stack: 'nextjs' },
-    passStatus: { lock: 'succeeded' }
+  const { lock, provenance, report, coverage } = buildReviewInputs({
+    lock: {
+      app: { stack: 'nextjs' },
+      passStatus: { lock: 'succeeded' }
+    }
   });
-  const provenance = buildReviewProvenance();
-  const report = buildPassingReviewReport();
-  const coverage = buildPassingReviewCoverage();
   await writeJson(lockPath, lock);
 
   const summary = await writeReviewSummary(workspaceRoot, lock, provenance, report, coverage);
@@ -238,138 +237,139 @@ test('buildReviewSummary adds failed verification targets as structured failure 
 
 test('buildReviewSummary groups ticket runtime entries into explicit vertical attribution', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-ticket-attribution-');
-  const lock = buildReviewLock({
-    app: { stack: 'nextjs' },
-    resolvedBlocks: [
+  const { lock, provenance, coverage, report } = buildReviewInputs({
+    lock: {
+      app: { stack: 'nextjs' },
+      resolvedBlocks: [
+        {
+          id: 'ticket/basic',
+          version: '0.1.0',
+          kind: 'capability',
+          installOrder: 1,
+          manifestPath: 'manifest.yaml',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official'
+        },
+        {
+          id: 'export/csv-basic',
+          version: '0.1.0',
+          kind: 'capability',
+          installOrder: 2,
+          manifestPath: 'manifest.yaml',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official'
+        },
+        {
+          id: 'reporting/ticket-summary',
+          version: '0.1.0',
+          kind: 'capability',
+          installOrder: 3,
+          manifestPath: 'manifest.yaml',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official'
+        }
+      ],
+      installPlan: [
+        {
+          stepId: 'ticket/basic:1',
+          blockId: 'ticket/basic',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official',
+          sourceRoot: 'ticket.basic',
+          action: 'copy',
+          from: 'files/app/tickets/page.tsx',
+          to: 'app/tickets/page.tsx'
+        },
+        {
+          stepId: 'export/csv-basic:2',
+          blockId: 'export/csv-basic',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official',
+          sourceRoot: 'export.csv-basic',
+          action: 'copy',
+          from: 'files/app/api/tickets/export/route.ts',
+          to: 'app/api/tickets/export/route.ts'
+        },
+        {
+          stepId: 'reporting/ticket-summary:3',
+          blockId: 'reporting/ticket-summary',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official',
+          sourceRoot: 'reporting.ticket-summary',
+          action: 'copy',
+          from: 'files/app/api/tickets/summary/route.ts',
+          to: 'app/api/tickets/summary/route.ts'
+        },
+        {
+          stepId: 'reporting/ticket-summary:4',
+          blockId: 'reporting/ticket-summary',
+          registrySourceId: 'official',
+          registryKind: 'official',
+          registryLocation: 'compiler',
+          registryPath: 'platform/registry/official',
+          sourceRoot: 'reporting.ticket-summary',
+          action: 'copy',
+          from: 'files/src/installed/reporting/ticket-summary.ts',
+          to: 'src/installed/reporting/ticket-summary.ts'
+        }
+      ],
+      generatedPaths: [
+        'app/tickets/page.tsx',
+        'app/api/tickets/route.ts',
+        'app/api/tickets/export/route.ts',
+        'app/api/tickets/summary/route.ts',
+        'app/api/tickets/summary/export/route.ts'
+      ],
+      passStatus: { lock: 'succeeded' }
+    },
+    provenance: [
       {
-        id: 'ticket/basic',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 1,
-        manifestPath: 'manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
+        path: 'app/tickets/page.tsx',
+        originType: 'generated',
+        originId: 'app/tickets/page.tsx',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none'
       },
       {
-        id: 'export/csv-basic',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 2,
-        manifestPath: 'manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
+        path: 'app/api/tickets/summary/route.ts',
+        originType: 'generated',
+        originId: 'app/api/tickets/summary/route.ts',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none'
       },
       {
-        id: 'reporting/ticket-summary',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 3,
-        manifestPath: 'manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
+        path: 'app/api/tickets/summary/export/route.ts',
+        originType: 'generated',
+        originId: 'app/api/tickets/summary/export/route.ts',
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none'
       }
     ],
-    installPlan: [
-      {
-        stepId: 'ticket/basic:1',
-        blockId: 'ticket/basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
-        sourceRoot: 'ticket.basic',
-        action: 'copy',
-        from: 'files/app/tickets/page.tsx',
-        to: 'app/tickets/page.tsx'
+    report: {
+      runtime: {
+        status: 'passed',
+        build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
+        unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
+        acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' }
       },
-      {
-        stepId: 'export/csv-basic:2',
-        blockId: 'export/csv-basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
-        sourceRoot: 'export.csv-basic',
-        action: 'copy',
-        from: 'files/app/api/tickets/export/route.ts',
-        to: 'app/api/tickets/export/route.ts'
-      },
-      {
-        stepId: 'reporting/ticket-summary:3',
-        blockId: 'reporting/ticket-summary',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
-        sourceRoot: 'reporting.ticket-summary',
-        action: 'copy',
-        from: 'files/app/api/tickets/summary/route.ts',
-        to: 'app/api/tickets/summary/route.ts'
-      },
-      {
-        stepId: 'reporting/ticket-summary:4',
-        blockId: 'reporting/ticket-summary',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
-        sourceRoot: 'reporting.ticket-summary',
-        action: 'copy',
-        from: 'files/src/installed/reporting/ticket-summary.ts',
-        to: 'src/installed/reporting/ticket-summary.ts'
+      summary: {
+        requestedLane: 'all'
       }
-    ],
-    generatedPaths: [
-      'app/tickets/page.tsx',
-      'app/api/tickets/route.ts',
-      'app/api/tickets/export/route.ts',
-      'app/api/tickets/summary/route.ts',
-      'app/api/tickets/summary/export/route.ts'
-    ],
-    passStatus: { lock: 'succeeded' }
-  });
-  const provenance = buildReviewProvenance([
-    {
-      path: 'app/tickets/page.tsx',
-      originType: 'generated',
-      originId: 'app/tickets/page.tsx',
-      generatedByPass: 'compose',
-      verifiedBy: [],
-      overrideStatus: 'none'
-    },
-    {
-      path: 'app/api/tickets/summary/route.ts',
-      originType: 'generated',
-      originId: 'app/api/tickets/summary/route.ts',
-      generatedByPass: 'compose',
-      verifiedBy: [],
-      overrideStatus: 'none'
-    },
-    {
-      path: 'app/api/tickets/summary/export/route.ts',
-      originType: 'generated',
-      originId: 'app/api/tickets/summary/export/route.ts',
-      generatedByPass: 'compose',
-      verifiedBy: [],
-      overrideStatus: 'none'
-    }
-  ]);
-  const coverage = buildPassingReviewCoverage();
-  const report = buildPassingReviewReport({
-    runtime: {
-      status: 'passed',
-      build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
-      unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
-      acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' }
-    },
-    summary: {
-      requestedLane: 'all'
     }
   });
 

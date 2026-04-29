@@ -7,22 +7,18 @@ import type {
   PolicyReport,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import {
-  buildPassingReviewCoverage,
-  buildReviewLock,
-  buildReviewProvenance,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces policy governance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { policyReportPath } = getWorkspacePaths(workspaceRoot);
-    const lock = buildReviewLock({
-      passStatus: {
-        verify: 'failed'
+    const { lock, provenance, coverage } = buildReviewInputs({
+      lock: {
+        passStatus: {
+          verify: 'failed'
+        }
       }
     });
-    const provenance = buildReviewProvenance();
     const report: VerificationReport = {
       build: { status: 'passed' },
       unit: { status: 'passed', passed: [] },
@@ -78,7 +74,6 @@ test('review summary surfaces policy governance summary', async () => {
       },
       logs: { stdout: '', stderr: '' }
     };
-    const coverage = buildPassingReviewCoverage();
     const policyReport: PolicyReport = {
       status: 'failed',
       official: {
