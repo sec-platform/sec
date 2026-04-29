@@ -86,7 +86,7 @@
 - Workbench/IDE 插件必须遵守同一边界：可读 `source/**`、`project/**` 和 `control/**`；可写 `source/app.yaml`、`source/code/**`、`source/model/**`、`source/patches/**`、`source/assets/**`、`source/views/**`、`source/env/**`、`source/blocks/private/**` 以及兼容期输入；禁止直接写 compiler internals、shared utilities、official registry、generated scaffold、control artifact 和依赖目录。
 - Workbench/IDE 插件至少要复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain`、`workbench mutations apply` 这些命令入口，而不是旁路实现另一套规则。
 - Workbench 结构化编辑的默认路径是 `source/views/mutations/*.json`；应用结果只能落到 `source/app.yaml`，报告落到 `control/workflow/view-mutation-report.json`，不得直接写 `project/**`。
-- `platform doctor` 用于检查本地依赖环境、缓存状态和推荐动作。
+- `platform doctor` 用于检查四根 workspace 是否存在、本地依赖环境、缓存状态和推荐动作。
 - `platform deps status` 输出 root/shared/project/npm cache 的状态、元数据大小、顶层条目数量、链接关系和 cold/warm/dirty/stale 模式；为保证每次检查足够快，禁止递归扫描 `node_modules` 计算真实总字节数。
 - `platform deps status --json [--compact]` 输出稳定依赖环境合同，供 CI、Workbench 和 IDE 插件直接消费。
 - `platform deps warmup` 预热 `.shared-deps`，作为 generated project runtime 的共享实体依赖层。

@@ -164,6 +164,31 @@ function combineDoctorStatus(checks: DoctorCheck[]): DoctorCheckStatus {
   return 'ok';
 }
 
+async function workspaceRootsDoctorCheck(paths: ReturnType<typeof getWorkspacePaths>): Promise<DoctorCheck> {
+  const roots = [
+    { id: 'source', path: paths.developerSourceRoot },
+    { id: 'project', path: paths.projectRoot },
+    { id: 'control', path: paths.controlRoot },
+    { id: '.pjc', path: paths.localStateRoot }
+  ];
+  const missingRoots = (await Promise.all(
+    roots.map(async (root) => ({
+      id: root.id,
+      exists: await pathExists(root.path)
+    }))
+  ))
+    .filter((root) => !root.exists)
+    .map((root) => root.id);
+
+  return {
+    id: 'workspace-roots',
+    status: missingRoots.length === 0 ? 'ok' : 'warn',
+    message: missingRoots.length === 0
+      ? 'Workspace roots exist: source, project, control, .pjc.'
+      : `Workspace roots missing: ${missingRoots.join(', ')}; run platform init.`
+  };
+}
+
 function dependencyDoctorCheck(status: DependencyEnvironmentStatus): DoctorCheck {
   if (status.mode === 'warm-project') {
     return {
@@ -267,6 +292,7 @@ export async function getDoctorReport(
       message: `Node.js ${process.versions.node} detected; Node.js 22 or newer is required.`
     },
     await executableCheck('bun', 'bun', true),
+    await workspaceRootsDoctorCheck(paths),
     {
       id: 'workspace-plan',
       status: workspacePlanExists ? 'ok' : 'warn',

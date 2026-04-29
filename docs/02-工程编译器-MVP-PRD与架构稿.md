@@ -717,7 +717,7 @@ control/
 - `platform upgrade`
   - 从 `v0.2` 起做块升级与迁移
 - `platform doctor`
-  - 检查本地外部开发环境、依赖布局、缓存和推荐动作
+  - 检查四根 workspace、本地外部开发环境、依赖布局、缓存和推荐动作
 - `platform deps status`
   - 查看 root/shared/project/npm cache 的状态、元数据大小、顶层条目数量和链接关系；为保证入口足够快，禁止递归扫描 `node_modules` 计算真实总字节数
 - `platform deps warmup`
