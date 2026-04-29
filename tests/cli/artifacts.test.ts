@@ -19,7 +19,7 @@ import type {
 } from '../../platform/shared/ci-artifact-types.ts';
 import { pathExists, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { expectCliSuccess, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 type ReviewArtifactSummary = CiArtifactSummary & {
   uploadGroups?: CiArtifactUploadGroup[];
@@ -84,19 +84,19 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 3 blocks\n');
     await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');
 
-    const installText = await runCli(workspaceRoot, ['install', 'manifest']);
-    expect(installText.code).toBe(0);
-    expect(installText.stderr).toBe('');
-    expect(installText.stdout).toContain('Install manifest 6 steps');
-    expect(installText.stdout).toContain('Blocks: auth/basic-session, entity/customer-basic, tenant/basic-workspace');
-    expect(installText.stdout).toContain('Actions: copy=5, merge-prisma=1');
-    expect(installText.stdout).toContain('Statuses: installed=6');
+    await expectCliText(workspaceRoot, ['install', 'manifest'], [
+      'Install manifest 6 steps',
+      'Blocks: auth/basic-session, entity/customer-basic, tenant/basic-workspace',
+      'Actions: copy=5, merge-prisma=1',
+      'Statuses: installed=6'
+    ]);
 
-    const installJson = await runCli(workspaceRoot, ['install', 'manifest', '--json', '--compact']);
-    expect(installJson.code).toBe(0);
-    expect(installJson.stderr).toBe('');
-    expect(installJson.stdout).not.toContain('\n  "stepId"');
-    const installManifest = JSON.parse(installJson.stdout) as Array<{ blockId: string; status: string }>;
+    const installManifest = await expectCliJson<Array<{ blockId: string; status: string }>>(
+      workspaceRoot,
+      ['install', 'manifest', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
     expect(installManifest).toHaveLength(6);
     expect(installManifest).toEqual(
       expect.arrayContaining([
@@ -114,19 +114,18 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       });
     });
 
-    const blockUsageText = await runCli(workspaceRoot, ['blocks', 'usage']);
-    expect(blockUsageText.code).toBe(0);
-    expect(blockUsageText.stderr).toBe('');
-    expect(blockUsageText.stdout).toContain('Block usage map 3 blocks');
-    expect(blockUsageText.stdout).toContain(
+    await expectCliText(workspaceRoot, ['blocks', 'usage'], [
+      'Block usage map 3 blocks',
       'Install order: 1:auth/basic-session, 2:tenant/basic-workspace, 3:entity/customer-basic'
-    );
+    ]);
 
-    const blockUsageJson = await runCli(workspaceRoot, ['blocks', 'usage', '--json', '--compact']);
-    expect(blockUsageJson.code).toBe(0);
-    expect(blockUsageJson.stderr).toBe('');
-    expect(blockUsageJson.stdout).not.toContain('\n  "blocks"');
-    expect(JSON.parse(blockUsageJson.stdout)).toEqual({
+    const blockUsageJson = await expectCliJson(
+      workspaceRoot,
+      ['blocks', 'usage', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(blockUsageJson).toEqual({
       blocks: [
         { id: 'auth/basic-session', installOrder: 1 },
         { id: 'tenant/basic-workspace', installOrder: 2 },
@@ -155,18 +154,19 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     };
     await writeJson(postgresContractPath, postgresContract);
 
-    const postgresText = await runCli(workspaceRoot, ['postgres', 'contract']);
-    expect(postgresText.code).toBe(0);
-    expect(postgresText.stderr).toBe('');
-    expect(postgresText.stdout).toContain('Postgres contract postgres');
-    expect(postgresText.stdout).toContain('mode=contract-only; tables=3; tenantScoped=3');
-    expect(postgresText.stdout).toContain('Table list: customers, tickets, worklogs');
+    await expectCliText(workspaceRoot, ['postgres', 'contract'], [
+      'Postgres contract postgres',
+      'mode=contract-only; tables=3; tenantScoped=3',
+      'Table list: customers, tickets, worklogs'
+    ]);
 
-    const postgresJson = await runCli(workspaceRoot, ['postgres', 'contract', '--json', '--compact']);
-    expect(postgresJson.code).toBe(0);
-    expect(postgresJson.stderr).toBe('');
-    expect(postgresJson.stdout).not.toContain('\n  "provider"');
-    expect(JSON.parse(postgresJson.stdout)).toEqual(postgresContract);
+    const postgresJson = await expectCliJson(
+      workspaceRoot,
+      ['postgres', 'contract', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(postgresJson).toEqual(postgresContract);
 
     await withTempWorkspace(async (missingPostgresWorkspace) => {
       await expect(runCli(missingPostgresWorkspace, ['postgres', 'contract'])).resolves.toMatchObject({
@@ -180,20 +180,20 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     await expectCliSuccess(workspaceRoot, ['verify', '--lane', 'all']);
     await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
-    const lockText = await runCli(workspaceRoot, ['lock', 'inspect']);
-    expect(lockText.code).toBe(0);
-    expect(lockText.stderr).toBe('');
-    expect(lockText.stdout).toContain('Graph lock ');
-    expect(lockText.stdout).toContain('stack=nextjs-ts-prisma-sqlite;');
-    expect(lockText.stdout).toContain('blocks=3; slots=1;');
-    expect(lockText.stdout).toContain('Block order: 1:auth/basic-session@0.1.0, 2:tenant/basic-workspace@0.1.0, 3:entity/customer-basic@0.1.0');
-    expect(lockText.stdout).toContain('Pass status:');
+    await expectCliText(workspaceRoot, ['lock', 'inspect'], [
+      'Graph lock ',
+      'stack=nextjs-ts-prisma-sqlite;',
+      'blocks=3; slots=1;',
+      'Block order: 1:auth/basic-session@0.1.0, 2:tenant/basic-workspace@0.1.0, 3:entity/customer-basic@0.1.0',
+      'Pass status:'
+    ]);
 
-    const lockJson = await runCli(workspaceRoot, ['lock', 'inspect', '--json', '--compact']);
-    expect(lockJson.code).toBe(0);
-    expect(lockJson.stderr).toBe('');
-    expect(lockJson.stdout).not.toContain('\n  "formatVersion"');
-    const lockPayload = JSON.parse(lockJson.stdout) as { resolvedBlocks: Array<{ id: string }>; slotTasks: unknown[] };
+    const lockPayload = await expectCliJson<{ resolvedBlocks: Array<{ id: string }>; slotTasks: unknown[] }>(
+      workspaceRoot,
+      ['lock', 'inspect', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
     expect(lockPayload.resolvedBlocks.map((block) => block.id)).toEqual([
       'auth/basic-session',
       'tenant/basic-workspace',
@@ -217,26 +217,25 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       const provenanceBeforePaths = await fs.readFile(provenancePath, 'utf8');
       expect(await pathExists(ciArtifactsPath)).toBe(false);
 
-      const pathsPreview = await runCli(workspaceRoot, [
-        'artifacts',
-        '--paths',
-        '--json',
-        '--compact',
-        '--kind',
-        'governance'
-      ]);
-      expect(pathsPreview.code).toBe(0);
-      expect(pathsPreview.stderr).toBe('');
+      await expectCliJson(
+        workspaceRoot,
+        [
+          'artifacts',
+          '--paths',
+          '--json',
+          '--compact',
+          '--kind',
+          'governance'
+        ],
+        undefined,
+        { compact: true }
+      );
       expect(await pathExists(ciArtifactsPath)).toBe(false);
       expect(await fs.readFile(lockPath, 'utf8')).toBe(lockBeforePaths);
       expect(await fs.readFile(provenancePath, 'utf8')).toBe(provenanceBeforePaths);
     }
 
-    const result = await runCli(workspaceRoot, ['artifacts', '--json']);
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-
-    const manifest = JSON.parse(result.stdout) as CiArtifactManifest;
+    const manifest = await expectCliJson<CiArtifactManifest>(workspaceRoot, ['artifacts', '--json']);
     expect(manifest).toMatchObject({
       formatVersion: '1',
       root: 'workspace'
@@ -267,19 +266,18 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     });
     expect(manifest.uploadGroups).toEqual(expectedUploadGroups);
 
-    const inspectText = await runCli(workspaceRoot, ['artifacts', 'manifest']);
-    expect(inspectText.code).toBe(0);
-    expect(inspectText.stderr).toBe('');
-    expect(inspectText.stdout).toContain('Artifact manifest passed');
-    expect(inspectText.stdout).toContain(
+    await expectCliText(workspaceRoot, ['artifacts', 'manifest'], [
+      'Artifact manifest passed',
       `artifacts=${manifest.summary.artifactCount}; missing=0; upload groups=${manifest.summary.uploadGroupCount}`
-    );
+    ]);
 
-    const inspectJson = await runCli(workspaceRoot, ['artifacts', 'manifest', '--json', '--compact']);
-    expect(inspectJson.code).toBe(0);
-    expect(inspectJson.stderr).toBe('');
-    expect(inspectJson.stdout).not.toContain('\n  "formatVersion"');
-    expect(JSON.parse(inspectJson.stdout)).toEqual(manifest);
+    const inspectJson = await expectCliJson<CiArtifactManifest>(
+      workspaceRoot,
+      ['artifacts', 'manifest', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(inspectJson).toEqual(manifest);
 
     await withTempWorkspace(async (missingManifestWorkspace) => {
       await expect(runCli(missingManifestWorkspace, ['artifacts', 'manifest'])).resolves.toMatchObject({
@@ -331,12 +329,11 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       })
     );
 
-    const explainResult = await runCli(workspaceRoot, ['explain', '--json']);
-    const explainPayload = JSON.parse(explainResult.stdout) as {
+    const explainPayload = await expectCliJson<{
       reviewSummary: {
         artifactSummary?: ReviewArtifactSummary;
       };
-    };
+    }>(workspaceRoot, ['explain', '--json']);
     expect(explainPayload.reviewSummary.artifactSummary).toMatchObject(manifest.summary);
     expect(explainPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(manifest.uploadGroups);
 
@@ -347,10 +344,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     lockWithContractArtifact.generatedPaths.push('generated/postgres-contract.json');
     await fs.writeFile(lockPath, `${JSON.stringify(lockWithContractArtifact, null, 2)}\n`, 'utf8');
 
-    const contractResult = await runCli(workspaceRoot, ['artifacts', '--json']);
-    expect(contractResult.code).toBe(0);
-    expect(contractResult.stderr).toBe('');
-    const contractManifest = JSON.parse(contractResult.stdout) as typeof manifest;
+    const contractManifest = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     expect(contractManifest.summary).toMatchObject({
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json'],
@@ -369,32 +363,32 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       ['generated/postgres-contract.json']
     );
 
-    const contractPathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'contract']);
-    expect(contractPathsResult.code).toBe(0);
-    expect(contractPathsResult.stderr).toBe('');
-    expect(contractPathsResult.stdout.trim()).toBe('project/generated/postgres-contract.json');
+    await expectCliSuccess(
+      workspaceRoot,
+      ['artifacts', '--paths', '--kind', 'contract'],
+      'project/generated/postgres-contract.json\n'
+    );
 
-    const contractPathsJsonResult = await runCli(workspaceRoot, [
+    const contractPathsJson = await expectCliJson<ArtifactPathsPayload>(workspaceRoot, [
       'artifacts',
       '--paths',
       '--json',
       '--kind',
       'contract'
     ]);
-    expect(contractPathsJsonResult.code).toBe(0);
-    expect(contractPathsJsonResult.stderr).toBe('');
-    const contractPathsCompactResult = await runCli(workspaceRoot, [
-      'artifacts',
-      '--paths',
-      '--json',
-      '--compact',
-      '--kind',
-      'contract'
-    ]);
-    expect(contractPathsCompactResult.code).toBe(0);
-    expect(contractPathsCompactResult.stderr).toBe('');
-    expect(contractPathsCompactResult.stdout.trim()).not.toContain('\n');
-    const contractPathsJson = JSON.parse(contractPathsJsonResult.stdout) as ArtifactPathsPayload;
+    const contractPathsCompact = await expectCliJson<ArtifactPathsPayload>(
+      workspaceRoot,
+      [
+        'artifacts',
+        '--paths',
+        '--json',
+        '--compact',
+        '--kind',
+        'contract'
+      ],
+      undefined,
+      { compact: true }
+    );
     expect(contractPathsJson).toMatchObject({
       kind: 'contract',
       count: 1,
@@ -405,17 +399,14 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
         uploadGroup('contract', 1, ['project/generated/postgres-contract.json'])
       ]
     });
-    expect(JSON.parse(contractPathsCompactResult.stdout)).toEqual(contractPathsJson);
+    expect(contractPathsCompact).toEqual(contractPathsJson);
 
-    const explainWithContractResult = await runCli(workspaceRoot, ['explain']);
-    expect(explainWithContractResult.code).toBe(0);
-    expect(explainWithContractResult.stderr).toBe('');
-    expect(explainWithContractResult.stdout).toContain(
-      `E2E artifacts: passed; total=${contractManifest.summary.artifactCount}; missing=0; evidence=total=${contractManifest.summary.artifactCount}, missing=0, uploadGroups=${contractManifest.summary.uploadGroupCount}, missingReasonTypes=0`
-    );
-    expect(explainWithContractResult.stdout).toContain('missing reason types: 0');
-    expect(explainWithContractResult.stdout).toContain('contracts: 1');
-    expect(explainWithContractResult.stdout).toContain(`upload groups: ${contractManifest.summary.uploadGroupCount}`);
+    await expectCliText(workspaceRoot, ['explain'], [
+      `E2E artifacts: passed; total=${contractManifest.summary.artifactCount}; missing=0; evidence=total=${contractManifest.summary.artifactCount}, missing=0, uploadGroups=${contractManifest.summary.uploadGroupCount}, missingReasonTypes=0`,
+      'missing reason types: 0',
+      'contracts: 1',
+      `upload groups: ${contractManifest.summary.uploadGroupCount}`
+    ]);
 
     const contractReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
       artifactSummary?: ReviewArtifactSummary;
@@ -436,11 +427,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     lockWithMissingArtifact.generatedPaths.push('generated/missing-diagnostic.json');
     await fs.writeFile(lockPath, `${JSON.stringify(lockWithMissingArtifact, null, 2)}\n`, 'utf8');
 
-    const lockMissingResult = await runCli(workspaceRoot, ['artifacts', '--json']);
-    expect(lockMissingResult.code).toBe(0);
-    expect(lockMissingResult.stderr).toBe('');
-
-    const manifestWithLockMissing = JSON.parse(lockMissingResult.stdout) as typeof manifest;
+    const manifestWithLockMissing = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     const lockMissingDiagnostics = [
       {
         path: 'generated/missing-diagnostic.json',
@@ -457,15 +444,14 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     }));
     expect(manifestWithLockMissing.missing).toEqual(lockMissingDiagnostics);
 
-    const explainWithMissingResult = await runCli(workspaceRoot, ['explain', '--json']);
-    const explainWithMissingPayload = JSON.parse(explainWithMissingResult.stdout) as {
+    const explainWithMissingPayload = await expectCliJson<{
       e2eMatrix: {
         rows: Array<{ stage: string; evidenceCount: number; evidence: string[] }>;
       };
       reviewSummary: {
         artifactSummary?: ReviewArtifactSummary;
       };
-    };
+    }>(workspaceRoot, ['explain', '--json']);
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(
       manifestWithLockMissing.uploadGroups
     );
@@ -481,29 +467,22 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     });
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(lockMissingDiagnostics);
 
-    const testPathsBeforeFixture = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
-    expect(testPathsBeforeFixture.code).toBe(0);
-    expect(testPathsBeforeFixture.stderr).toBe('');
+    const testPathsBeforeFixture = await expectCliSuccess(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
     expect(testPathsBeforeFixture.stdout === '\n' || testPathsBeforeFixture.stdout === 'project/test-results/**\n').toBe(true);
 
     await fs.mkdir(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'project', 'test-results', 'runtime.xml'), '<testsuite />\n', 'utf8');
 
-    const testPathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
-    expect(testPathsResult.code).toBe(0);
-    expect(testPathsResult.stderr).toBe('');
-    expect(testPathsResult.stdout).toBe('project/test-results/**\n');
+    await expectCliSuccess(workspaceRoot, ['artifacts', '--paths', '--kind', 'test'], 'project/test-results/**\n');
 
-    const testPathsJsonResult = await runCli(workspaceRoot, [
+    const testPathsJson = await expectCliJson<ArtifactPathsPayload>(workspaceRoot, [
       'artifacts',
       '--paths',
       '--json',
       '--kind',
       'test'
     ]);
-    expect(testPathsJsonResult.code).toBe(0);
-    expect(testPathsJsonResult.stderr).toBe('');
-    expect(JSON.parse(testPathsJsonResult.stdout)).toEqual({
+    expect(testPathsJson).toEqual({
       formatVersion: '1',
       root: 'workspace',
       kind: 'test',
@@ -523,8 +502,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       missing: lockMissingDiagnostics
     });
 
-    const testManifestResult = await runCli(workspaceRoot, ['artifacts', '--json']);
-    const testManifest = JSON.parse(testManifestResult.stdout) as typeof manifest;
+    const testManifest = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     expect(testManifest.summary.testCount).toBe(1);
     expectUploadGroup(testManifest.uploadGroups, 'test', [CI_ARTIFACT_FILES.testResults]);
 
@@ -556,11 +534,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     await fs.rm(path.join(workspaceRoot, 'control', 'evidence', 'policy-report.json'));
     await fs.rm(sourceViewPath);
 
-    const missingResult = await runCli(workspaceRoot, ['artifacts', '--json']);
-    expect(missingResult.code).toBe(0);
-    expect(missingResult.stderr).toBe('');
-
-    const manifestWithMissing = JSON.parse(missingResult.stdout) as typeof manifest;
+    const manifestWithMissing = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     const fixedMissingDiagnostics = [
       {
         path: CI_ARTIFACT_FILES.policyReport,
@@ -584,28 +558,24 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     }));
     expect(manifestWithMissing.missing).toEqual(fixedMissingDiagnostics);
 
-    const compactResult = await runCli(workspaceRoot, ['artifacts', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      formatVersion: '1',
-      root: 'workspace'
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['artifacts', '--json', '--compact'],
+      {
+        formatVersion: '1',
+        root: 'workspace'
+      },
+      { compact: true }
+    );
 
-    const pathsResult = await runCli(workspaceRoot, ['artifacts', '--paths']);
-    expect(pathsResult.code).toBe(0);
-    expect(pathsResult.stderr).toBe('');
+    const pathsResult = await expectCliSuccess(workspaceRoot, ['artifacts', '--paths']);
     const uploadPaths = pathsResult.stdout.trim().split('\n');
     expect(uploadPaths).toContain(CI_ARTIFACT_MANIFEST_PATH);
     expect(uploadPaths).toContain(CI_ARTIFACT_FILES.reviewSummary);
     expect(uploadPaths).not.toContain('project/generated/missing-diagnostic.json');
     expect(uploadPaths).not.toContain(CI_ARTIFACT_FILES.sourceView);
 
-    const pathsJsonResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--json']);
-    expect(pathsJsonResult.code).toBe(0);
-    expect(pathsJsonResult.stderr).toBe('');
-    const pathsJson = JSON.parse(pathsJsonResult.stdout) as ArtifactPathsPayload;
+    const pathsJson = await expectCliJson<ArtifactPathsPayload>(workspaceRoot, ['artifacts', '--paths', '--json']);
     expect(pathsJson.formatVersion).toBe('1');
     expect(pathsJson.root).toBe('workspace');
     expect(pathsJson.kind).toBe('all');
@@ -633,24 +603,19 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     }));
     expect(pathsJson.missing).toEqual(fixedMissingDiagnostics);
 
-    const governancePathsResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']);
-    expect(governancePathsResult.code).toBe(0);
-    expect(governancePathsResult.stderr).toBe('');
+    const governancePathsResult = await expectCliSuccess(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']);
     const governanceUploadPaths = governancePathsResult.stdout.trim().split('\n');
     expect(governanceUploadPaths).toContain(CI_ARTIFACT_MANIFEST_PATH);
     expect(governanceUploadPaths).toContain(CI_ARTIFACT_FILES.reviewSummary);
     expect(governanceUploadPaths).not.toContain(CI_ARTIFACT_FILES.slotRuleView);
 
-    const viewPathsJsonResult = await runCli(workspaceRoot, [
+    const viewPathsJson = await expectCliJson<ArtifactPathsPayload>(workspaceRoot, [
       'artifacts',
       '--paths',
       '--json',
       '--kind',
       'view'
     ]);
-    expect(viewPathsJsonResult.code).toBe(0);
-    expect(viewPathsJsonResult.stderr).toBe('');
-    const viewPathsJson = JSON.parse(viewPathsJsonResult.stdout) as ArtifactPathsPayload;
     expect(viewPathsJson.formatVersion).toBe('1');
     expect(viewPathsJson.root).toBe('workspace');
     expect(viewPathsJson.kind).toBe('view');
