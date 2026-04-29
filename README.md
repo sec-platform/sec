@@ -154,7 +154,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run check`: TypeScript typecheck plus the fast local test suite
 - `npm run check:full`: TypeScript typecheck plus the full Vitest regression
 - `npm test`: run the fast local Vitest suite directly
-- `npm run test:all`: run the full Vitest regression, including slow runtime/E2E contract files
+- `npm run test:all`: run the full Vitest regression, including slow integration/runtime/E2E contract files
 - `npm run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`, including runner command, lane count, slow lane count, and slow lane IDs
 - `npm run test:contract-freeze`: run the CLI/script/governance contract freeze suite through the runner command declared by `platform contract freeze`
 - `npm run test:benchmark-contract`: print the formal benchmark/task-suite JSON contract through `platform benchmark suite`

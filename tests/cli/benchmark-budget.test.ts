@@ -304,7 +304,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   expect(formatTestBudgetContract(contract)).toContain(
     'Lane all; nextBuild=true; playwright=true; command=npm run platform -- verify --lane all'
   );
-  expect(formatTestBudgetContract(contract)).toContain('Slow test files: 11');
+  expect(formatTestBudgetContract(contract)).toContain('Slow test files: 22');
   expect(formatTestBudgetContract(contract)).toContain('tests/pipeline/end-to-end.test.ts');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
@@ -315,16 +315,27 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     laneCount: 3,
     slowLaneCount: 1,
     slowLaneIds: ['all'],
-    slowTestFileCount: 11,
+    slowTestFileCount: 22,
     slowTestFiles: [
       'tests/cli/artifacts.test.ts',
       'tests/cli/demo-doctor.test.ts',
       'tests/cli/explain.test.ts',
       'tests/cli/provenance.test.ts',
+      'tests/cli/repair.test.ts',
+      'tests/cli/upgrade.test.ts',
+      'tests/cli/verification.test.ts',
+      'tests/cli/workspace.test.ts',
+      'tests/explain/graph.test.ts',
       'tests/override/manifest.test.ts',
       'tests/pipeline/end-to-end.test.ts',
+      'tests/pipeline/lanes.test.ts',
       'tests/pipeline/local-views.test.ts',
+      'tests/pipeline/runtime-host.test.ts',
+      'tests/policy/policy.test.ts',
+      'tests/registry/expanded-blocks.test.ts',
       'tests/registry/private-registry.test.ts',
+      'tests/registry/registry.test.ts',
+      'tests/review/summary.test.ts',
       'tests/upgrade/conflicts.test.ts',
       'tests/upgrade/dry-run-plan.test.ts',
       'tests/upgrade/pipeline.test.ts'
@@ -363,7 +374,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain('Lanes: 3');
     expect(textResult.stdout).toContain('Slow lane count: 1');
     expect(textResult.stdout).toContain('Slow lanes: all');
-    expect(textResult.stdout).toContain('Slow test files: 11');
+    expect(textResult.stdout).toContain('Slow test files: 22');
     expect(textResult.stdout).toContain('tests/pipeline/end-to-end.test.ts');
     expect(textResult.stdout).toContain('Lane fast; nextBuild=false; playwright=false');
 
@@ -377,7 +388,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       laneCount: 3,
       slowLaneCount: 1,
       slowLaneIds: ['all'],
-      slowTestFileCount: 11,
+      slowTestFileCount: 22,
       slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts']),
       lanes: expect.arrayContaining([
         expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
@@ -394,7 +405,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       laneCount: 3,
       slowLaneCount: 1,
       slowLaneIds: ['all'],
-      slowTestFileCount: 11,
+      slowTestFileCount: 22,
       slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts'])
     });
   });
