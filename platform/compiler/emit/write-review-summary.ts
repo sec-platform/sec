@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
-import { uniqueSorted } from '../../shared/collections.ts';
+import { summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -316,25 +316,14 @@ function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['prov
   };
 }
 
-function summarizeRepairTaxonomy(values: string[]): Array<{ id: string; count: number }> {
-  const counts = values.reduce<Map<string, number>>((summary, value) => {
-    summary.set(value, (summary.get(value) ?? 0) + 1);
-    return summary;
-  }, new Map());
-
-  return [...counts.entries()]
-    .map(([id, count]) => ({ id, count }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-}
-
 function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['failureTaxonomy'] {
   const failurePoints = repairFailurePoints(repairPlan);
 
   return {
-    laneSummaries: summarizeRepairTaxonomy(failurePoints.map((point) => point.lane)),
-    kindSummaries: summarizeRepairTaxonomy(failurePoints.map((point) => point.kind)),
-    issueTypeSummaries: summarizeRepairTaxonomy(failurePoints.map((point) => point.issueType)),
-    repairabilitySummaries: summarizeRepairTaxonomy(
+    laneSummaries: summarizeCounts(failurePoints.map((point) => point.lane)),
+    kindSummaries: summarizeCounts(failurePoints.map((point) => point.kind)),
+    issueTypeSummaries: summarizeCounts(failurePoints.map((point) => point.issueType)),
+    repairabilitySummaries: summarizeCounts(
       failurePoints.map((point) => point.repairable ? 'repairable' : 'blocked')
     )
   };
@@ -503,7 +492,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
     verificationTrace: buildRepairVerificationTrace(repairPlan),
     failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
     targetSummaries: buildRepairTargetSummaries(repairPlan),
-    taskCategorySummaries: summarizeRepairTaxonomy(repairPlan.tasks.map(repairTaskCategory)),
+    taskCategorySummaries: summarizeCounts(repairPlan.tasks.map(repairTaskCategory)),
     targetFileCount: targetFiles.length,
     targetFiles,
     taskSummaries,
