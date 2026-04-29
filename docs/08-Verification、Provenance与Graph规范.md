@@ -12,6 +12,8 @@
 
 当前已实现：`verify --lane fast|runtime|all --json [--compact]`，输出 `control/evidence/verification-report.json`。
 
+CI 质量门禁由 `platform/shared/ci-contract.ts` 统一声明；`imports:check` 在 typecheck 之后检查 TypeScript import baseline，漂移时本地运行 `imports:organize` 修复，定时 full CI 复用同一门禁。
+
 ## 2. Acceptance
 
 ### `source/app.yaml`

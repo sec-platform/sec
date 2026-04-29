@@ -1,38 +1,10 @@
 import { expect, test } from 'vitest';
 
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes provenance registry as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'all'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Locked project\n',
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true });
 
     const textResult = await runCli(workspaceRoot, ['provenance', 'registry']);
     expect(textResult.code).toBe(0);

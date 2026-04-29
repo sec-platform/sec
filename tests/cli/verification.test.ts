@@ -3,34 +3,11 @@ import { expect, test } from 'vitest';
 import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes policy report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const textResult = await runCli(workspaceRoot, ['policy', 'report']);
     expect(textResult.code).toBe(0);
@@ -102,30 +79,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
 
 test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const textResult = await runCli(workspaceRoot, ['acceptance', 'coverage']);
     expect(textResult.code).toBe(0);
@@ -223,30 +177,7 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
 
 test('CLI exposes runtime report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const textResult = await runCli(workspaceRoot, ['runtime', 'report']);
     expect(textResult.code).toBe(0);
@@ -313,26 +244,7 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
 
 test('CLI runs verify with JSON output for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot);
     const verifyResult = await runCli(workspaceRoot, ['verify', '--lane', 'fast']);
     expect(verifyResult.code).toBe(0);
     expect(verifyResult.stderr).toBe('');
@@ -369,30 +281,7 @@ test('CLI runs verify with JSON output for CI consumers', async () => {
 
 test('CLI exposes verification report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const textResult = await runCli(workspaceRoot, ['verification', 'report']);
     expect(textResult.code).toBe(0);

@@ -92,6 +92,42 @@ export async function installRuntimeDeps(cwd: string): Promise<void> {
 
 export type CliResult = { code: number; stdout: string; stderr: string };
 
+export async function expectCliSuccess(
+  workspaceRoot: string,
+  args: string[],
+  expectedStdout?: string
+): Promise<CliResult> {
+  const result = await runCliInProcess(workspaceRoot, args);
+  expect(result.code).toBe(0);
+  expect(result.stderr).toBe('');
+  if (expectedStdout !== undefined) {
+    expect(result.stdout).toBe(expectedStdout);
+  }
+  return result;
+}
+
+export async function runCliPipeline(
+  workspaceRoot: string,
+  options: { init?: boolean; verifyLane?: 'fast' | 'all'; lock?: boolean; explain?: boolean } = {}
+): Promise<void> {
+  if (options.init !== false) {
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
+  }
+  await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 3 blocks\n');
+  await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');
+  await expectCliSuccess(workspaceRoot, ['adapt'], 'Adapted slots\n');
+  if (options.verifyLane) {
+    const verification = await expectCliSuccess(workspaceRoot, ['verify', '--lane', options.verifyLane]);
+    expect(verification.stdout).toContain(`Verification passed (${options.verifyLane})`);
+  }
+  if (options.lock) {
+    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
+  }
+  if (options.explain) {
+    await expectCliSuccess(workspaceRoot, ['explain']);
+  }
+}
+
 export function usageErrorStderr(usage: string): string {
   return [
     `UNEXPECTED ${usage}`,

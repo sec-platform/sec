@@ -12,7 +12,7 @@ import {
 import type { CiArtifactManifest, CiArtifactMissingReason } from '../../platform/shared/ci-artifact-types.ts';
 import { pathExists, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliSuccess, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 function artifactMissingReasonCounts(
   overrides: Partial<Record<CiArtifactMissingReason, number>> = {}
@@ -25,21 +25,9 @@ function artifactMissingReasonCounts(
 
 test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
+    await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 3 blocks\n');
+    await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');
 
     const installText = await runCli(workspaceRoot, ['install', 'manifest']);
     expect(installText.code).toBe(0);
@@ -133,20 +121,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       });
     });
 
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'all'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Locked project\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['adapt'], 'Adapted slots\n');
+    await expectCliSuccess(workspaceRoot, ['verify', '--lane', 'all']);
+    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
     const lockText = await runCli(workspaceRoot, ['lock', 'inspect']);
     expect(lockText.code).toBe(0);
@@ -177,10 +154,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       });
     });
 
-    await expect(runCli(workspaceRoot, ['explain'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['explain']);
 
     {
       const { ciArtifactsPath, lockPath, provenancePath } = getWorkspacePaths(workspaceRoot);

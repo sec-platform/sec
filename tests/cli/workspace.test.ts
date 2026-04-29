@@ -9,30 +9,18 @@ import type {
   PlanFile
 } from '../../platform/shared/types.ts';
 import { readYaml } from '../../platform/shared/yaml.ts';
-import { installPrivateBannerBlock, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliSuccess, installPrivateBannerBlock, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI accepts init commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
   });
 });
 
 test('CLI init creates the developer source layer', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
 
     const paths = getWorkspacePaths(workspaceRoot);
     await expect(fs.stat(paths.developerSourceRoot)).resolves.toMatchObject({});
@@ -50,11 +38,7 @@ test('CLI init creates the developer source layer', async () => {
 
 test('CLI applies Workbench view mutations back to source app plan', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
 
     const paths = getWorkspacePaths(workspaceRoot);
     await writeJson(path.join(paths.sourceViewMutationsRoot, 'workspace-name.json'), {
@@ -118,11 +102,7 @@ test('CLI applies Workbench view mutations back to source app plan', async () =>
 
 test('CLI rejects Workbench slot source mutations outside slot source', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
 
     const paths = getWorkspacePaths(workspaceRoot);
     await writeJson(path.join(paths.sourceViewMutationsRoot, 'invalid-slot-source.json'), {
@@ -148,26 +128,7 @@ test('CLI rejects Workbench slot source mutations outside slot source', async ()
 
 test('CLI defaults verification to the fast lane', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot);
 
     const result = await runCli(workspaceRoot, ['verify']);
     expect(result.code).toBe(0);
@@ -178,11 +139,7 @@ test('CLI defaults verification to the fast lane', async () => {
 
 test('CLI adds private registry blocks and preserves registry metadata on resolve', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
     await installPrivateBannerBlock(workspaceRoot);
     const { lockPath, planPath } = getWorkspacePaths(workspaceRoot);
 
