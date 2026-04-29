@@ -5,26 +5,9 @@
     "user_can_login",
     "user_can_create_customer",
     "user_can_list_customers",
-    "tenant_only_sees_own_customers",
-    "customer_can_be_exported",
-    "customer_can_upload_attachment",
-    "customer_creation_sends_email_notification",
-    "customer_list_can_be_filtered",
-    "audit_entry_can_be_created",
-    "user_can_access_authorized_route",
-    "postgres_contract_is_available"
+    "tenant_only_sees_own_customers"
   ],
   "blocks": [
-    {
-      "id": "infra/postgres",
-      "declaredAcceptance": [
-        "postgres_contract_is_available"
-      ],
-      "coveredBy": [
-        "postgres_contract_is_available"
-      ],
-      "uncovered": false
-    },
     {
       "id": "auth/basic-session",
       "declaredAcceptance": [
@@ -32,26 +15,6 @@
       ],
       "coveredBy": [
         "user_can_login"
-      ],
-      "uncovered": false
-    },
-    {
-      "id": "audit/basic",
-      "declaredAcceptance": [
-        "audit_entry_can_be_created"
-      ],
-      "coveredBy": [
-        "audit_entry_can_be_created"
-      ],
-      "uncovered": false
-    },
-    {
-      "id": "rbac/basic",
-      "declaredAcceptance": [
-        "user_can_access_authorized_route"
-      ],
-      "coveredBy": [
-        "user_can_access_authorized_route"
       ],
       "uncovered": false
     },
@@ -76,46 +39,6 @@
         "tenant_only_sees_own_customers",
         "user_can_create_customer",
         "user_can_list_customers"
-      ],
-      "uncovered": false
-    },
-    {
-      "id": "export/csv-basic",
-      "declaredAcceptance": [
-        "customer_can_be_exported"
-      ],
-      "coveredBy": [
-        "customer_can_be_exported"
-      ],
-      "uncovered": false
-    },
-    {
-      "id": "file/upload",
-      "declaredAcceptance": [
-        "customer_can_upload_attachment"
-      ],
-      "coveredBy": [
-        "customer_can_upload_attachment"
-      ],
-      "uncovered": false
-    },
-    {
-      "id": "notify/email-basic",
-      "declaredAcceptance": [
-        "customer_creation_sends_email_notification"
-      ],
-      "coveredBy": [
-        "customer_creation_sends_email_notification"
-      ],
-      "uncovered": false
-    },
-    {
-      "id": "table/filter-search",
-      "declaredAcceptance": [
-        "customer_list_can_be_filtered"
-      ],
-      "coveredBy": [
-        "customer_list_can_be_filtered"
       ],
       "uncovered": false
     }

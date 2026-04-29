@@ -2,14 +2,6 @@
   "formatVersion": "1",
   "artifacts": [
     {
-      "path": "app/api/customers/[customerId]/attachments/route.ts",
-      "originType": "generated",
-      "originId": "app/api/customers/[customerId]/attachments/route.ts",
-      "generatedByPass": "compose",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
       "path": "app/api/customers/route.ts",
       "originType": "generated",
       "originId": "app/api/customers/route.ts",
@@ -90,14 +82,6 @@
       "overrideStatus": "none"
     },
     {
-      "path": "components/customer-attachment-form.tsx",
-      "originType": "generated",
-      "originId": "components/customer-attachment-form.tsx",
-      "generatedByPass": "compose",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
       "path": "components/customer-form.tsx",
       "originType": "generated",
       "originId": "components/customer-form.tsx",
@@ -118,14 +102,6 @@
       "originType": "generated",
       "originId": "components/logout-button.tsx",
       "generatedByPass": "compose",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "control/ci/artifacts.json",
-      "originType": "generated",
-      "originId": "control/ci/artifacts.json",
-      "generatedByPass": "artifacts",
       "verifiedBy": [],
       "overrideStatus": "none"
     },
@@ -157,14 +133,6 @@
       "path": "control/evidence/policy-report.json",
       "originType": "generated",
       "originId": "control/evidence/policy-report.json",
-      "generatedByPass": "verify",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "control/evidence/review-summary.json",
-      "originType": "generated",
-      "originId": "control/evidence/review-summary.json",
       "generatedByPass": "verify",
       "verifiedBy": [],
       "overrideStatus": "none"
@@ -202,22 +170,6 @@
       "overrideStatus": "none"
     },
     {
-      "path": "control/workbench/views/slot-rule-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/slot-rule-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "control/workbench/views/source-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/source-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
       "path": "custom/customer_normalizer.ts",
       "originType": "slot",
       "originId": "customer_normalizer",
@@ -230,29 +182,7 @@
         "tests/acceptance/customer-flow.test.ts",
         "tests/runtime/acceptance/customer-flow.spec.ts",
         "tests/runtime/unit/customer-runtime.test.ts",
-        "tests/unit/audit-log.test.ts",
-        "tests/unit/customer-attachments.test.ts",
-        "tests/unit/customer-export.test.ts",
-        "tests/unit/customer-filter.test.ts",
-        "tests/unit/customer-normalizer.test.ts",
-        "tests/unit/email-outbox.test.ts",
-        "tests/unit/postgres-contract.test.ts",
-        "tests/unit/rbac-authorize.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "generated/postgres-contract.json",
-      "originType": "block",
-      "originId": "infra/postgres",
-      "sourceBlock": "infra/postgres",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/postgres-contract.test.ts"
+        "tests/unit/customer-normalizer.test.ts"
       ],
       "overrideStatus": "none"
     },
@@ -333,44 +263,7 @@
         "tests/acceptance/customer-flow.test.ts",
         "tests/runtime/acceptance/customer-flow.spec.ts",
         "tests/runtime/unit/customer-runtime.test.ts",
-        "tests/unit/audit-log.test.ts",
-        "tests/unit/customer-attachments.test.ts",
-        "tests/unit/customer-export.test.ts",
-        "tests/unit/customer-filter.test.ts",
-        "tests/unit/customer-normalizer.test.ts",
-        "tests/unit/email-outbox.test.ts",
-        "tests/unit/postgres-contract.test.ts",
-        "tests/unit/rbac-authorize.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "src/installed/audit/logger.ts",
-      "originType": "block",
-      "originId": "audit/basic",
-      "sourceBlock": "audit/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/audit-log.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "src/installed/auth/authorize.ts",
-      "originType": "block",
-      "originId": "rbac/basic",
-      "sourceBlock": "rbac/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/rbac-authorize.test.ts"
+        "tests/unit/customer-normalizer.test.ts"
       ],
       "overrideStatus": "none"
     },
@@ -400,81 +293,6 @@
       "verifiedBy": [
         "tests/acceptance/customer-flow.test.ts",
         "tests/unit/customer-normalizer.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "src/installed/export/customer-csv.ts",
-      "originType": "block",
-      "originId": "export/csv-basic",
-      "sourceBlock": "export/csv-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/customer-export.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "src/installed/file/customer-attachments.ts",
-      "originType": "block",
-      "originId": "file/upload",
-      "sourceBlock": "file/upload",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/customer-attachments.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "src/installed/infra/postgres-contract.ts",
-      "originType": "block",
-      "originId": "infra/postgres",
-      "sourceBlock": "infra/postgres",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/postgres-contract.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "src/installed/notify/email-outbox.ts",
-      "originType": "block",
-      "originId": "notify/email-basic",
-      "sourceBlock": "notify/email-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/email-outbox.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "src/installed/table/customer-filter.ts",
-      "originType": "block",
-      "originId": "table/filter-search",
-      "sourceBlock": "table/filter-search",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/customer-filter.test.ts"
       ],
       "overrideStatus": "none"
     },
@@ -524,66 +342,6 @@
       "overrideStatus": "none"
     },
     {
-      "path": "tests/unit/audit-log.test.ts",
-      "originType": "block",
-      "originId": "audit/basic",
-      "sourceBlock": "audit/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/audit-log.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "tests/unit/customer-attachments.test.ts",
-      "originType": "block",
-      "originId": "file/upload",
-      "sourceBlock": "file/upload",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/customer-attachments.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "tests/unit/customer-export.test.ts",
-      "originType": "block",
-      "originId": "export/csv-basic",
-      "sourceBlock": "export/csv-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/customer-export.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "tests/unit/customer-filter.test.ts",
-      "originType": "block",
-      "originId": "table/filter-search",
-      "sourceBlock": "table/filter-search",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/customer-filter.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
       "path": "tests/unit/customer-normalizer.test.ts",
       "originType": "block",
       "originId": "entity/customer-basic",
@@ -596,51 +354,6 @@
       "verifiedBy": [
         "tests/acceptance/customer-flow.test.ts",
         "tests/unit/customer-normalizer.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "tests/unit/email-outbox.test.ts",
-      "originType": "block",
-      "originId": "notify/email-basic",
-      "sourceBlock": "notify/email-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/email-outbox.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "tests/unit/postgres-contract.test.ts",
-      "originType": "block",
-      "originId": "infra/postgres",
-      "sourceBlock": "infra/postgres",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/postgres-contract.test.ts"
-      ],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "tests/unit/rbac-authorize.test.ts",
-      "originType": "block",
-      "originId": "rbac/basic",
-      "sourceBlock": "rbac/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "generatedByPass": "compose",
-      "verifiedBy": [
-        "tests/unit/rbac-authorize.test.ts"
       ],
       "overrideStatus": "none"
     },

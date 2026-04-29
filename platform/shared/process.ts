@@ -8,6 +8,13 @@ export interface CommandResult {
   stderr: string;
 }
 
+export interface RunCommandOptions {
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 function isNodeScript(candidate: string): boolean {
   return ['.js', '.cjs', '.mjs'].includes(path.extname(candidate).toLowerCase());
 }
@@ -38,10 +45,7 @@ export function resolveNpmInvocation(args: string[]): { command: string; args: s
 export async function runCommand(
   command: string,
   args: string[],
-  options: {
-    cwd: string;
-    env?: NodeJS.ProcessEnv;
-  }
+  options: RunCommandOptions
 ): Promise<CommandResult> {
   const env = Object.fromEntries(
     Object.entries({
@@ -60,14 +64,35 @@ export async function runCommand(
     let stdout = '';
     let stderr = '';
 
+    const onAbort = (): void => {
+      child.kill('SIGTERM');
+      reject(new Error(`Command "${command}" was aborted`));
+    };
+
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (options.timeoutMs && options.timeoutMs > 0) {
+      timeoutId = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error(`Command "${command}" timed out after ${options.timeoutMs}ms`));
+      }, options.timeoutMs);
+    }
+
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk);
     });
     child.stderr.on('data', (chunk) => {
       stderr += String(chunk);
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      options.signal?.removeEventListener('abort', onAbort);
+      reject(error);
+    });
     child.on('close', (code) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      options.signal?.removeEventListener('abort', onAbort);
       resolve({
         code: code ?? 1,
         stdout,
@@ -75,4 +100,34 @@ export async function runCommand(
       });
     });
   });
+}
+
+export async function runCommandWithRetry(
+  command: string,
+  args: string[],
+  options: RunCommandOptions & { maxRetries?: number; retryDelayMs?: number }
+): Promise<CommandResult> {
+  const maxRetries = options.maxRetries ?? 3;
+  const retryDelayMs = options.retryDelayMs ?? 1000;
+  let lastResult: CommandResult | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await runCommand(command, args, options);
+      if (result.code === 0) {
+        return result;
+      }
+      lastResult = result;
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+    } catch (error) {
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+
+  return lastResult!;
 }

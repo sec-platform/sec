@@ -112,10 +112,13 @@ describe('test budget and benchmark contracts', () => {
 
   test('fast test runner excludes slow files and skips runtime deps setup', async () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
+    const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
     const setupSource = await readCompilerFile('tests/setup/runtime-deps.setup.ts');
 
     expectContainsAll(runnerSource, [
-      'test:fast',
+      'test:fast'
+    ]);
+    expectContainsAll(testRunnerSource, [
       'getSlowTestFiles',
       'fastTestArgs',
       'PJC_SKIP_RUNTIME_DEPS_SETUP'

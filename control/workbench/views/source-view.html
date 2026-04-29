@@ -22,7 +22,7 @@
         <h2>CI Summary</h2>
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>0</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>10</td></tr><tr><td>Impacted Slots</td><td>1</td></tr><tr><td>Runtime Entries</td><td>9</td></tr><tr><td>Chain Status</td><td>passed</td></tr><tr><td>Chain Stages</td><td>4/4</td></tr><tr><td>Chain Attention Stages</td><td>0</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr><tr><td>Artifact Status</td><td>passed</td></tr><tr><td>Artifacts</td><td>38</td></tr><tr><td>Governance Artifacts</td><td>35</td></tr><tr><td>View Artifacts</td><td>2</td></tr><tr><td>Test Artifacts</td><td>1</td></tr><tr><td>Contract Artifacts</td><td>0</td></tr><tr><td>Contract Paths</td><td>none</td></tr><tr><td>Upload Groups</td><td>3</td></tr><tr><td>Missing Artifacts</td><td>0</td></tr><tr><td>Missing Reason Types</td><td>0</td></tr></tbody>
+          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>0</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>3</td></tr><tr><td>Impacted Slots</td><td>1</td></tr><tr><td>Runtime Entries</td><td>8</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Chain Attention Stages</td><td>1</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr></tbody>
         </table>
         <h3>E2E Chain Summary</h3>
         <table>
@@ -35,36 +35,19 @@
         </tr><tr>
           <td>coverage</td>
           <td>passed</td>
-          <td>blocks=10/10; slots=1/1</td>
-          <td>blocks=10/10, slots=1/1</td>
+          <td>blocks=3/3; slots=1/1</td>
+          <td>blocks=3/3, slots=1/1</td>
         </tr><tr>
           <td>artifacts</td>
-          <td>passed</td>
-          <td>total=38; missing=0</td>
-          <td>total=38, missing=0, uploadGroups=3, missingReasonTypes=0</td>
+          <td>attention</td>
+          <td>total=0; missing=0</td>
+          <td>artifacts=missing</td>
         </tr><tr>
           <td>review</td>
           <td>passed</td>
           <td>review-summary=generated</td>
           <td>review-summary=generated</td>
         </tr></tbody>
-        </table>
-<h3>Artifact Upload Groups</h3>
-        <table>
-          <thead><tr><th>Kind</th><th>Count</th><th>Paths</th></tr></thead>
-          <tbody><tr>
-              <td>governance</td>
-              <td>35</td>
-              <td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-attachment-form.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/ci/artifacts.json, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, control/state/graph.lock.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tsconfig.json</td>
-            </tr><tr>
-              <td>view</td>
-              <td>2</td>
-              <td>control/workbench/views/slot-rule-view.html, control/workbench/views/source-view.html</td>
-            </tr><tr>
-              <td>test</td>
-              <td>1</td>
-              <td>test-results/**</td>
-            </tr></tbody>
         </table>
       </section>
       <section class="card">
@@ -84,11 +67,11 @@
       </section>
       <section class="card">
         <h1>Source View</h1>
-        <p>Blocks: 10 | Slots: 1 | Files: 59</p>
+        <p>Blocks: 3 | Slots: 1 | Files: 38</p>
         <table>
           <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
           <tbody>
-            <tr><td>app/api/customers/[customerId]/attachments/route.ts</td><td>generated:app/api/customers/[customerId]/attachments/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/customers/route.ts</td><td>generated:app/api/customers/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/current/route.ts</td><td>generated:app/api/session/current/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/login/route.ts</td><td>generated:app/api/session/login/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/logout/route.ts</td><td>generated:app/api/session/logout/route.ts</td><td></td><td>none</td></tr><tr><td>app/customers/page.tsx</td><td>generated:app/customers/page.tsx</td><td></td><td>none</td></tr><tr><td>app/globals.css</td><td>generated:app/globals.css</td><td></td><td>none</td></tr><tr><td>app/layout.tsx</td><td>generated:app/layout.tsx</td><td></td><td>none</td></tr><tr><td>app/login/page.tsx</td><td>generated:app/login/page.tsx</td><td></td><td>none</td></tr><tr><td>app/page.tsx</td><td>generated:app/page.tsx</td><td></td><td>none</td></tr><tr><td>app/workspace/page.tsx</td><td>generated:app/workspace/page.tsx</td><td></td><td>none</td></tr><tr><td>components/customer-attachment-form.tsx</td><td>generated:components/customer-attachment-form.tsx</td><td></td><td>none</td></tr><tr><td>components/customer-form.tsx</td><td>generated:components/customer-form.tsx</td><td></td><td>none</td></tr><tr><td>components/login-form.tsx</td><td>generated:components/login-form.tsx</td><td></td><td>none</td></tr><tr><td>components/logout-button.tsx</td><td>generated:components/logout-button.tsx</td><td></td><td>none</td></tr><tr><td>control/ci/artifacts.json</td><td>generated:control/ci/artifacts.json</td><td></td><td>none</td></tr><tr><td>control/evidence/acceptance-coverage.json</td><td>generated:control/evidence/acceptance-coverage.json</td><td></td><td>none</td></tr><tr><td>control/evidence/block-usage-map.json</td><td>generated:control/evidence/block-usage-map.json</td><td></td><td>none</td></tr><tr><td>control/evidence/install-manifest.json</td><td>generated:control/evidence/install-manifest.json</td><td></td><td>none</td></tr><tr><td>control/evidence/policy-report.json</td><td>generated:control/evidence/policy-report.json</td><td></td><td>none</td></tr><tr><td>control/evidence/review-summary.json</td><td>generated:control/evidence/review-summary.json</td><td></td><td>none</td></tr><tr><td>control/evidence/runtime-report.json</td><td>generated:control/evidence/runtime-report.json</td><td></td><td>none</td></tr><tr><td>control/evidence/verification-report.json</td><td>generated:control/evidence/verification-report.json</td><td></td><td>none</td></tr><tr><td>control/graph/explain-graph.json</td><td>generated:control/graph/explain-graph.json</td><td></td><td>none</td></tr><tr><td>control/provenance/provenance.json</td><td>generated:control/provenance/provenance.json</td><td></td><td>none</td></tr><tr><td>control/workbench/views/slot-rule-view.html</td><td>generated:control/workbench/views/slot-rule-view.html</td><td></td><td>none</td></tr><tr><td>control/workbench/views/source-view.html</td><td>generated:control/workbench/views/source-view.html</td><td></td><td>none</td></tr><tr><td>custom/customer_normalizer.ts</td><td>slot:customer_normalizer</td><td></td><td>none</td></tr><tr><td>generated/postgres-contract.json</td><td>block:infra/postgres</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>generated/routes.ts</td><td>generated:generated/routes.ts</td><td></td><td>none</td></tr><tr><td>lib/session.ts</td><td>generated:lib/session.ts</td><td></td><td>none</td></tr><tr><td>lib/store.ts</td><td>generated:lib/store.ts</td><td></td><td>none</td></tr><tr><td>next-env.d.ts</td><td>generated:next-env.d.ts</td><td></td><td>none</td></tr><tr><td>next.config.mjs</td><td>generated:next.config.mjs</td><td></td><td>none</td></tr><tr><td>package.json</td><td>generated:package.json</td><td></td><td>none</td></tr><tr><td>prisma/schema.prisma</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>source/code/slots/customer_normalizer.ts</td><td>slot:customer_normalizer</td><td></td><td>none</td></tr><tr><td>src/installed/audit/logger.ts</td><td>block:audit/basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/auth/authorize.ts</td><td>block:rbac/basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/auth/session.ts</td><td>block:auth/basic-session</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/entity/customer-service.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/export/customer-csv.ts</td><td>block:export/csv-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/file/customer-attachments.ts</td><td>block:file/upload</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/infra/postgres-contract.ts</td><td>block:infra/postgres</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/notify/email-outbox.ts</td><td>block:notify/email-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/table/customer-filter.ts</td><td>block:table/filter-search</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/tenant/context.ts</td><td>block:tenant/basic-workspace</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/acceptance/customer-flow.test.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/runtime/acceptance/customer-flow.spec.ts</td><td>generated:tests/runtime/acceptance/customer-flow.spec.ts</td><td></td><td>none</td></tr><tr><td>tests/runtime/unit/customer-runtime.test.ts</td><td>generated:tests/runtime/unit/customer-runtime.test.ts</td><td></td><td>none</td></tr><tr><td>tests/unit/audit-log.test.ts</td><td>block:audit/basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/unit/customer-attachments.test.ts</td><td>block:file/upload</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/unit/customer-export.test.ts</td><td>block:export/csv-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/unit/customer-filter.test.ts</td><td>block:table/filter-search</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/unit/customer-normalizer.test.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/unit/email-outbox.test.ts</td><td>block:notify/email-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/unit/postgres-contract.test.ts</td><td>block:infra/postgres</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/unit/rbac-authorize.test.ts</td><td>block:rbac/basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tsconfig.json</td><td>generated:tsconfig.json</td><td></td><td>none</td></tr>
+            <tr><td>app/api/customers/route.ts</td><td>generated:app/api/customers/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/current/route.ts</td><td>generated:app/api/session/current/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/login/route.ts</td><td>generated:app/api/session/login/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/logout/route.ts</td><td>generated:app/api/session/logout/route.ts</td><td></td><td>none</td></tr><tr><td>app/customers/page.tsx</td><td>generated:app/customers/page.tsx</td><td></td><td>none</td></tr><tr><td>app/globals.css</td><td>generated:app/globals.css</td><td></td><td>none</td></tr><tr><td>app/layout.tsx</td><td>generated:app/layout.tsx</td><td></td><td>none</td></tr><tr><td>app/login/page.tsx</td><td>generated:app/login/page.tsx</td><td></td><td>none</td></tr><tr><td>app/page.tsx</td><td>generated:app/page.tsx</td><td></td><td>none</td></tr><tr><td>app/workspace/page.tsx</td><td>generated:app/workspace/page.tsx</td><td></td><td>none</td></tr><tr><td>components/customer-form.tsx</td><td>generated:components/customer-form.tsx</td><td></td><td>none</td></tr><tr><td>components/login-form.tsx</td><td>generated:components/login-form.tsx</td><td></td><td>none</td></tr><tr><td>components/logout-button.tsx</td><td>generated:components/logout-button.tsx</td><td></td><td>none</td></tr><tr><td>control/evidence/acceptance-coverage.json</td><td>generated:control/evidence/acceptance-coverage.json</td><td></td><td>none</td></tr><tr><td>control/evidence/block-usage-map.json</td><td>generated:control/evidence/block-usage-map.json</td><td></td><td>none</td></tr><tr><td>control/evidence/install-manifest.json</td><td>generated:control/evidence/install-manifest.json</td><td></td><td>none</td></tr><tr><td>control/evidence/policy-report.json</td><td>generated:control/evidence/policy-report.json</td><td></td><td>none</td></tr><tr><td>control/evidence/runtime-report.json</td><td>generated:control/evidence/runtime-report.json</td><td></td><td>none</td></tr><tr><td>control/evidence/verification-report.json</td><td>generated:control/evidence/verification-report.json</td><td></td><td>none</td></tr><tr><td>control/graph/explain-graph.json</td><td>generated:control/graph/explain-graph.json</td><td></td><td>none</td></tr><tr><td>control/provenance/provenance.json</td><td>generated:control/provenance/provenance.json</td><td></td><td>none</td></tr><tr><td>custom/customer_normalizer.ts</td><td>slot:customer_normalizer</td><td></td><td>none</td></tr><tr><td>generated/routes.ts</td><td>generated:generated/routes.ts</td><td></td><td>none</td></tr><tr><td>lib/session.ts</td><td>generated:lib/session.ts</td><td></td><td>none</td></tr><tr><td>lib/store.ts</td><td>generated:lib/store.ts</td><td></td><td>none</td></tr><tr><td>next-env.d.ts</td><td>generated:next-env.d.ts</td><td></td><td>none</td></tr><tr><td>next.config.mjs</td><td>generated:next.config.mjs</td><td></td><td>none</td></tr><tr><td>package.json</td><td>generated:package.json</td><td></td><td>none</td></tr><tr><td>prisma/schema.prisma</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>source/code/slots/customer_normalizer.ts</td><td>slot:customer_normalizer</td><td></td><td>none</td></tr><tr><td>src/installed/auth/session.ts</td><td>block:auth/basic-session</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/entity/customer-service.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/tenant/context.ts</td><td>block:tenant/basic-workspace</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/acceptance/customer-flow.test.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/runtime/acceptance/customer-flow.spec.ts</td><td>generated:tests/runtime/acceptance/customer-flow.spec.ts</td><td></td><td>none</td></tr><tr><td>tests/runtime/unit/customer-runtime.test.ts</td><td>generated:tests/runtime/unit/customer-runtime.test.ts</td><td></td><td>none</td></tr><tr><td>tests/unit/customer-normalizer.test.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tsconfig.json</td><td>generated:tsconfig.json</td><td></td><td>none</td></tr>
           </tbody>
         </table>
       </section>
@@ -96,14 +79,14 @@
         <h2>Runtime Entry Points</h2>
         <table>
           <thead><tr><th>Kind</th><th>Path</th></tr></thead>
-          <tbody><tr><td>api</td><td>app/api/customers/[customerId]/attachments/route.ts</td></tr><tr><td>api</td><td>app/api/customers/route.ts</td></tr><tr><td>api</td><td>app/api/session/current/route.ts</td></tr><tr><td>api</td><td>app/api/session/login/route.ts</td></tr><tr><td>api</td><td>app/api/session/logout/route.ts</td></tr><tr><td>page</td><td>app/customers/page.tsx</td></tr><tr><td>page</td><td>app/login/page.tsx</td></tr><tr><td>page</td><td>app/page.tsx</td></tr><tr><td>page</td><td>app/workspace/page.tsx</td></tr></tbody>
+          <tbody><tr><td>api</td><td>app/api/customers/route.ts</td></tr><tr><td>api</td><td>app/api/session/current/route.ts</td></tr><tr><td>api</td><td>app/api/session/login/route.ts</td></tr><tr><td>api</td><td>app/api/session/logout/route.ts</td></tr><tr><td>page</td><td>app/customers/page.tsx</td></tr><tr><td>page</td><td>app/login/page.tsx</td></tr><tr><td>page</td><td>app/page.tsx</td></tr><tr><td>page</td><td>app/workspace/page.tsx</td></tr></tbody>
         </table>
       </section>
 <section class="card">
         <h2>Vertical Summary</h2>
         <table>
           <thead><tr><th>Vertical</th><th>Blocks</th><th>Runtime Entries</th><th>Regression Risks</th></tr></thead>
-          <tbody><tr><td>customer</td><td>entity/customer-basic</td><td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/customers/page.tsx</td><td>none</td></tr></tbody>
+          <tbody><tr><td>customer</td><td>entity/customer-basic</td><td>app/api/customers/route.ts, app/customers/page.tsx</td><td>none</td></tr></tbody>
         </table>
       </section>
 <section class="card">
@@ -111,73 +94,24 @@
         <table>
           <thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Verticals</th><th>Runtime Entries</th></tr></thead>
           <tbody><tr>
-          <td>infra/postgres</td>
-          <td>infra</td>
-          <td>1</td>
-          <td>3</td>
-          <td>none</td>
-          <td>none</td>
-        </tr><tr>
           <td>auth/basic-session</td>
           <td>capability</td>
-          <td>2</td>
           <td>1</td>
-          <td>none</td>
-          <td>none</td>
-        </tr><tr>
-          <td>audit/basic</td>
-          <td>capability</td>
-          <td>3</td>
-          <td>2</td>
-          <td>none</td>
-          <td>none</td>
-        </tr><tr>
-          <td>rbac/basic</td>
-          <td>capability</td>
-          <td>4</td>
-          <td>2</td>
+          <td>1</td>
           <td>none</td>
           <td>none</td>
         </tr><tr>
           <td>tenant/basic-workspace</td>
           <td>capability</td>
-          <td>5</td>
+          <td>2</td>
           <td>1</td>
           <td>none</td>
           <td>none</td>
         </tr><tr>
           <td>entity/customer-basic</td>
           <td>capability</td>
-          <td>6</td>
+          <td>3</td>
           <td>4</td>
-          <td>customer</td>
-          <td>none</td>
-        </tr><tr>
-          <td>export/csv-basic</td>
-          <td>capability</td>
-          <td>7</td>
-          <td>2</td>
-          <td>customer</td>
-          <td>none</td>
-        </tr><tr>
-          <td>file/upload</td>
-          <td>capability</td>
-          <td>8</td>
-          <td>2</td>
-          <td>customer</td>
-          <td>none</td>
-        </tr><tr>
-          <td>notify/email-basic</td>
-          <td>capability</td>
-          <td>9</td>
-          <td>2</td>
-          <td>none</td>
-          <td>none</td>
-        </tr><tr>
-          <td>table/filter-search</td>
-          <td>capability</td>
-          <td>10</td>
-          <td>2</td>
           <td>customer</td>
           <td>none</td>
         </tr></tbody>
@@ -204,7 +138,7 @@
           <tbody><tr>
           <td>customer</td>
           <td>api</td>
-          <td>2</td>
+          <td>1</td>
           <td>entity/customer-basic</td>
         </tr><tr>
           <td>customer</td>
@@ -227,11 +161,6 @@
         <table>
           <thead><tr><th>Kind</th><th>Vertical</th><th>Path</th><th>Related Blocks</th></tr></thead>
           <tbody><tr>
-          <td>api</td>
-          <td>customer</td>
-          <td>app/api/customers/[customerId]/attachments/route.ts</td>
-          <td>entity/customer-basic</td>
-        </tr><tr>
           <td>api</td>
           <td>customer</td>
           <td>app/api/customers/route.ts</td>
@@ -278,36 +207,29 @@
         <h2>Install Impact Summary</h2>
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Impacts</td><td>10</td></tr><tr><td>Blocks</td><td>10</td></tr><tr><td>Action Kinds</td><td>2</td></tr><tr><td>Source Roots</td><td>10</td></tr><tr><td>Target Paths</td><td>21</td></tr><tr><td>Verticals</td><td>1</td></tr><tr><td>Runtime Entries</td><td>0</td></tr><tr><td>Groups</td><td>2</td></tr></tbody>
+          <tbody><tr><td>Impacts</td><td>3</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Action Kinds</td><td>2</td></tr><tr><td>Source Roots</td><td>3</td></tr><tr><td>Target Paths</td><td>6</td></tr><tr><td>Verticals</td><td>1</td></tr><tr><td>Runtime Entries</td><td>0</td></tr><tr><td>Groups</td><td>2</td></tr></tbody>
         </table>
         <h3>Impact Groups</h3>
         <table>
           <thead><tr><th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
           <tbody><tr>
           <td>customer</td>
-          <td>4</td>
+          <td>1</td>
           <td>copy, merge-prisma</td>
           <td>none</td>
-          <td>prisma/schema.prisma, src/installed/entity/customer-service.ts, src/installed/export/customer-csv.ts, src/installed/file/customer-attachments.ts, src/installed/table/customer-filter.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-export.test.ts, tests/unit/customer-filter.test.ts, tests/unit/customer-normalizer.test.ts</td>
+          <td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
         </tr><tr>
           <td>none</td>
-          <td>6</td>
+          <td>2</td>
           <td>copy</td>
           <td>none</td>
-          <td>generated/postgres-contract.json, src/installed/audit/logger.ts, src/installed/auth/authorize.ts, src/installed/auth/session.ts, src/installed/infra/postgres-contract.ts, src/installed/notify/email-outbox.ts, src/installed/tenant/context.ts, tests/unit/audit-log.test.ts, tests/unit/email-outbox.test.ts, tests/unit/postgres-contract.test.ts, tests/unit/rbac-authorize.test.ts</td>
+          <td>src/installed/auth/session.ts, src/installed/tenant/context.ts</td>
         </tr></tbody>
         </table>
         <h3>Impact Details</h3>
         <table>
           <thead><tr><th>Block</th><th>Actions</th><th>Sources</th><th>Verticals</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
           <tbody><tr>
-          <td>audit/basic</td>
-          <td>copy</td>
-          <td>audit.basic</td>
-          <td>none</td>
-          <td>none</td>
-          <td>src/installed/audit/logger.ts, tests/unit/audit-log.test.ts</td>
-        </tr><tr>
           <td>auth/basic-session</td>
           <td>copy</td>
           <td>auth.basic-session</td>
@@ -322,48 +244,6 @@
           <td>none</td>
           <td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
         </tr><tr>
-          <td>export/csv-basic</td>
-          <td>copy</td>
-          <td>export.csv-basic</td>
-          <td>customer</td>
-          <td>none</td>
-          <td>src/installed/export/customer-csv.ts, tests/unit/customer-export.test.ts</td>
-        </tr><tr>
-          <td>file/upload</td>
-          <td>copy</td>
-          <td>file.upload</td>
-          <td>customer</td>
-          <td>none</td>
-          <td>src/installed/file/customer-attachments.ts, tests/unit/customer-attachments.test.ts</td>
-        </tr><tr>
-          <td>infra/postgres</td>
-          <td>copy</td>
-          <td>infra.postgres</td>
-          <td>none</td>
-          <td>none</td>
-          <td>generated/postgres-contract.json, src/installed/infra/postgres-contract.ts, tests/unit/postgres-contract.test.ts</td>
-        </tr><tr>
-          <td>notify/email-basic</td>
-          <td>copy</td>
-          <td>notify.email-basic</td>
-          <td>none</td>
-          <td>none</td>
-          <td>src/installed/notify/email-outbox.ts, tests/unit/email-outbox.test.ts</td>
-        </tr><tr>
-          <td>rbac/basic</td>
-          <td>copy</td>
-          <td>rbac.basic</td>
-          <td>none</td>
-          <td>none</td>
-          <td>src/installed/auth/authorize.ts, tests/unit/rbac-authorize.test.ts</td>
-        </tr><tr>
-          <td>table/filter-search</td>
-          <td>copy</td>
-          <td>table.filter-search</td>
-          <td>customer</td>
-          <td>none</td>
-          <td>src/installed/table/customer-filter.ts, tests/unit/customer-filter.test.ts</td>
-        </tr><tr>
           <td>tenant/basic-workspace</td>
           <td>copy</td>
           <td>tenant.basic-workspace</td>
@@ -377,19 +257,19 @@
         <h2>Provenance Summary</h2>
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Artifacts</td><td>59</td></tr><tr><td>Verified Artifacts</td><td>21</td></tr><tr><td>Unverified Artifacts</td><td>38</td></tr><tr><td>Override Artifacts</td><td>0</td></tr><tr><td>Registry Artifacts</td><td>21</td></tr><tr><td>Generated Artifacts</td><td>59</td></tr><tr><td>Generated Passes</td><td>6</td></tr></tbody>
+          <tbody><tr><td>Artifacts</td><td>38</td></tr><tr><td>Verified Artifacts</td><td>6</td></tr><tr><td>Unverified Artifacts</td><td>32</td></tr><tr><td>Override Artifacts</td><td>0</td></tr><tr><td>Registry Artifacts</td><td>6</td></tr><tr><td>Generated Artifacts</td><td>38</td></tr><tr><td>Generated Passes</td><td>5</td></tr></tbody>
         </table>
         <h3>Provenance Origin Summary</h3>
         <table>
           <thead><tr><th>Origin</th><th>Count</th><th>Paths</th></tr></thead>
           <tbody><tr>
           <td>block</td>
-          <td>21</td>
-          <td>generated/postgres-contract.json, prisma/schema.prisma, src/installed/audit/logger.ts, src/installed/auth/authorize.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/export/customer-csv.ts, src/installed/file/customer-attachments.ts, src/installed/infra/postgres-contract.ts, src/installed/notify/email-outbox.ts, src/installed/table/customer-filter.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/unit/audit-log.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-export.test.ts, tests/unit/customer-filter.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/email-outbox.test.ts, tests/unit/postgres-contract.test.ts, tests/unit/rbac-authorize.test.ts</td>
+          <td>6</td>
+          <td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
         </tr><tr>
           <td>generated</td>
-          <td>36</td>
-          <td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-attachment-form.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/ci/artifacts.json, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, control/workbench/views/slot-rule-view.html, control/workbench/views/source-view.html, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tsconfig.json</td>
+          <td>30</td>
+          <td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tsconfig.json</td>
         </tr><tr>
           <td>slot</td>
           <td>2</td>
@@ -401,8 +281,8 @@
           <thead><tr><th>Status</th><th>Count</th><th>Paths</th></tr></thead>
           <tbody><tr>
           <td>none</td>
-          <td>59</td>
-          <td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-attachment-form.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/ci/artifacts.json, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, control/workbench/views/slot-rule-view.html, control/workbench/views/source-view.html, custom/customer_normalizer.ts, generated/postgres-contract.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, source/code/slots/customer_normalizer.ts, src/installed/audit/logger.ts, src/installed/auth/authorize.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/export/customer-csv.ts, src/installed/file/customer-attachments.ts, src/installed/infra/postgres-contract.ts, src/installed/notify/email-outbox.ts, src/installed/table/customer-filter.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/unit/audit-log.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-export.test.ts, tests/unit/customer-filter.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/email-outbox.test.ts, tests/unit/postgres-contract.test.ts, tests/unit/rbac-authorize.test.ts, tsconfig.json</td>
+          <td>38</td>
+          <td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, custom/customer_normalizer.ts, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, source/code/slots/customer_normalizer.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td>
         </tr></tbody>
         </table>
         <h3>Provenance Registry Summary</h3>
@@ -412,8 +292,8 @@
           <td>official</td>
           <td>official</td>
           <td>compiler</td>
-          <td>21</td>
-          <td>generated/postgres-contract.json, prisma/schema.prisma, src/installed/audit/logger.ts, src/installed/auth/authorize.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/export/customer-csv.ts, src/installed/file/customer-attachments.ts, src/installed/infra/postgres-contract.ts, src/installed/notify/email-outbox.ts, src/installed/table/customer-filter.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/unit/audit-log.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-export.test.ts, tests/unit/customer-filter.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/email-outbox.test.ts, tests/unit/postgres-contract.test.ts, tests/unit/rbac-authorize.test.ts</td>
+          <td>6</td>
+          <td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
         </tr></tbody>
         </table>
         <h3>Provenance Generated Pass Summary</h3>
@@ -424,25 +304,21 @@
           <td>2</td>
           <td>custom/customer_normalizer.ts, source/code/slots/customer_normalizer.ts</td>
         </tr><tr>
-          <td>artifacts</td>
-          <td>1</td>
-          <td>control/ci/artifacts.json</td>
-        </tr><tr>
           <td>compose</td>
-          <td>47</td>
-          <td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-attachment-form.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, generated/postgres-contract.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, src/installed/audit/logger.ts, src/installed/auth/authorize.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/export/customer-csv.ts, src/installed/file/customer-attachments.ts, src/installed/infra/postgres-contract.ts, src/installed/notify/email-outbox.ts, src/installed/table/customer-filter.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/unit/audit-log.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-export.test.ts, tests/unit/customer-filter.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/email-outbox.test.ts, tests/unit/postgres-contract.test.ts, tests/unit/rbac-authorize.test.ts, tsconfig.json</td>
+          <td>30</td>
+          <td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td>
         </tr><tr>
           <td>explain</td>
-          <td>3</td>
-          <td>control/graph/explain-graph.json, control/workbench/views/slot-rule-view.html, control/workbench/views/source-view.html</td>
+          <td>1</td>
+          <td>control/graph/explain-graph.json</td>
         </tr><tr>
           <td>lock</td>
           <td>1</td>
           <td>control/provenance/provenance.json</td>
         </tr><tr>
           <td>verify</td>
-          <td>5</td>
-          <td>control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json</td>
+          <td>4</td>
+          <td>control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json</td>
         </tr></tbody>
         </table>
       </section>
@@ -450,17 +326,12 @@
         <h2>Acceptance Coverage Summary</h2>
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Acceptance Passed</td><td>11</td></tr><tr><td>Blocks</td><td>10</td></tr><tr><td>Covered Blocks</td><td>10</td></tr><tr><td>Uncovered Blocks</td><td>0</td></tr><tr><td>Slots</td><td>1</td></tr><tr><td>Covered Slots</td><td>1</td></tr><tr><td>Uncovered Slots</td><td>0</td></tr></tbody>
+          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Acceptance Passed</td><td>4</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Covered Blocks</td><td>3</td></tr><tr><td>Uncovered Blocks</td><td>0</td></tr><tr><td>Slots</td><td>1</td></tr><tr><td>Covered Slots</td><td>1</td></tr><tr><td>Uncovered Slots</td><td>0</td></tr></tbody>
         </table>
         <h3>Block Coverage Summary</h3>
         <table>
           <thead><tr><th>Block</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead>
           <tbody><tr>
-          <td>audit/basic</td>
-          <td>1</td>
-          <td>1</td>
-          <td>audit_entry_can_be_created</td>
-        </tr><tr>
           <td>auth/basic-session</td>
           <td>1</td>
           <td>1</td>
@@ -470,36 +341,6 @@
           <td>3</td>
           <td>3</td>
           <td>tenant_only_sees_own_customers, user_can_create_customer, user_can_list_customers</td>
-        </tr><tr>
-          <td>export/csv-basic</td>
-          <td>1</td>
-          <td>1</td>
-          <td>customer_can_be_exported</td>
-        </tr><tr>
-          <td>file/upload</td>
-          <td>1</td>
-          <td>1</td>
-          <td>customer_can_upload_attachment</td>
-        </tr><tr>
-          <td>infra/postgres</td>
-          <td>1</td>
-          <td>1</td>
-          <td>postgres_contract_is_available</td>
-        </tr><tr>
-          <td>notify/email-basic</td>
-          <td>1</td>
-          <td>1</td>
-          <td>customer_creation_sends_email_notification</td>
-        </tr><tr>
-          <td>rbac/basic</td>
-          <td>1</td>
-          <td>1</td>
-          <td>user_can_access_authorized_route</td>
-        </tr><tr>
-          <td>table/filter-search</td>
-          <td>1</td>
-          <td>1</td>
-          <td>customer_list_can_be_filtered</td>
         </tr><tr>
           <td>tenant/basic-workspace</td>
           <td>1</td>
@@ -522,7 +363,7 @@
         <h2>Policy Summary</h2>
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Official Policies</td><td>1</td></tr><tr><td>Project Policies</td><td>0</td></tr><tr><td>Merged Policies</td><td>1</td></tr><tr><td>Policy Sources</td><td>3</td></tr><tr><td>Violations</td><td>0</td></tr></tbody>
+          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Official Policies</td><td>1</td></tr><tr><td>Project Policies</td><td>0</td></tr><tr><td>Merged Policies</td><td>1</td></tr><tr><td>Policy Sources</td><td>2</td></tr><tr><td>Violations</td><td>0</td></tr></tbody>
         </table>
         <h3>Policy Severity Summary</h3>
         <table>
@@ -536,10 +377,6 @@
           <td>official</td>
           <td>platform/policies/official/policy.spec.yaml</td>
           <td>tenant-scope-required</td>
-        </tr><tr>
-          <td>project</td>
-          <td>project/policies/policy.spec.yaml</td>
-          <td>none</td>
         </tr><tr>
           <td>project</td>
           <td>source/model/policies/policy.spec.yaml</td>
@@ -566,7 +403,7 @@
         <h2>Policy Sources</h2>
         <table>
           <thead><tr><th>Path</th><th>Policy IDs</th></tr></thead>
-          <tbody><tr><td>platform/policies/official/policy.spec.yaml</td><td>tenant-scope-required</td></tr><tr><td>project/policies/policy.spec.yaml</td><td>none</td></tr><tr><td>source/model/policies/policy.spec.yaml</td><td>none</td></tr></tbody>
+          <tbody><tr><td>platform/policies/official/policy.spec.yaml</td><td>tenant-scope-required</td></tr><tr><td>source/model/policies/policy.spec.yaml</td><td>none</td></tr></tbody>
         </table>
       </section>
 <section class="card">
@@ -598,8 +435,8 @@
         </table>
       </section>
 <section class="card"><h2>Explain Graph</h2><pre>{
-  &quot;nodes&quot;: 109,
-  &quot;edges&quot;: 126
+  &quot;nodes&quot;: 58,
+  &quot;edges&quot;: 67
 }</pre></section>
     </main>
   </body>

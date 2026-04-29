@@ -18,10 +18,6 @@
     "policies": [],
     "sources": [
       {
-        "path": "project/policies/policy.spec.yaml",
-        "policyIds": []
-      },
-      {
         "path": "source/model/policies/policy.spec.yaml",
         "policyIds": []
       }

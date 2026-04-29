@@ -7,43 +7,10 @@
   },
   "resolvedBlocks": [
     {
-      "id": "infra/postgres",
-      "version": "0.1.0",
-      "kind": "infra",
-      "installOrder": 1,
-      "manifestPath": "block.manifest.yaml",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
-    },
-    {
       "id": "auth/basic-session",
       "version": "0.1.0",
       "kind": "capability",
-      "installOrder": 2,
-      "manifestPath": "block.manifest.yaml",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
-    },
-    {
-      "id": "audit/basic",
-      "version": "0.1.0",
-      "kind": "capability",
-      "installOrder": 3,
-      "manifestPath": "block.manifest.yaml",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
-    },
-    {
-      "id": "rbac/basic",
-      "version": "0.1.0",
-      "kind": "capability",
-      "installOrder": 4,
+      "installOrder": 1,
       "manifestPath": "block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -54,7 +21,7 @@
       "id": "tenant/basic-workspace",
       "version": "0.1.0",
       "kind": "capability",
-      "installOrder": 5,
+      "installOrder": 2,
       "manifestPath": "block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -65,51 +32,7 @@
       "id": "entity/customer-basic",
       "version": "0.1.0",
       "kind": "capability",
-      "installOrder": 6,
-      "manifestPath": "block.manifest.yaml",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
-    },
-    {
-      "id": "export/csv-basic",
-      "version": "0.1.0",
-      "kind": "capability",
-      "installOrder": 7,
-      "manifestPath": "block.manifest.yaml",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
-    },
-    {
-      "id": "file/upload",
-      "version": "0.1.0",
-      "kind": "capability",
-      "installOrder": 8,
-      "manifestPath": "block.manifest.yaml",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
-    },
-    {
-      "id": "notify/email-basic",
-      "version": "0.1.0",
-      "kind": "capability",
-      "installOrder": 9,
-      "manifestPath": "block.manifest.yaml",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
-    },
-    {
-      "id": "table/filter-search",
-      "version": "0.1.0",
-      "kind": "capability",
-      "installOrder": 10,
+      "installOrder": 3,
       "manifestPath": "block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -118,57 +41,14 @@
     }
   ],
   "resolvedCapabilities": [
-    "audit/log",
-    "auth/authorize",
     "auth/session",
-    "customer/export",
     "customer/read",
     "customer/write",
-    "db/postgres",
-    "file/upload",
-    "notify/email",
-    "table/filter-search",
     "tenant/context"
   ],
   "installPlan": [
     {
-      "stepId": "infra/postgres:1",
-      "blockId": "infra/postgres",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "infra.postgres",
-      "action": "copy",
-      "from": "files/src/installed/infra/postgres-contract.ts",
-      "to": "src/installed/infra/postgres-contract.ts"
-    },
-    {
-      "stepId": "infra/postgres:2",
-      "blockId": "infra/postgres",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "infra.postgres",
-      "action": "copy",
-      "from": "files/generated/postgres-contract.json",
-      "to": "generated/postgres-contract.json"
-    },
-    {
-      "stepId": "infra/postgres:3",
-      "blockId": "infra/postgres",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "infra.postgres",
-      "action": "copy",
-      "from": "files/tests/unit/postgres-contract.test.ts",
-      "to": "tests/unit/postgres-contract.test.ts"
-    },
-    {
-      "stepId": "auth/basic-session:4",
+      "stepId": "auth/basic-session:1",
       "blockId": "auth/basic-session",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -180,55 +60,7 @@
       "to": "src/installed/auth/session.ts"
     },
     {
-      "stepId": "audit/basic:5",
-      "blockId": "audit/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "audit.basic",
-      "action": "copy",
-      "from": "files/src/installed/audit/logger.ts",
-      "to": "src/installed/audit/logger.ts"
-    },
-    {
-      "stepId": "audit/basic:6",
-      "blockId": "audit/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "audit.basic",
-      "action": "copy",
-      "from": "files/tests/unit/audit-log.test.ts",
-      "to": "tests/unit/audit-log.test.ts"
-    },
-    {
-      "stepId": "rbac/basic:7",
-      "blockId": "rbac/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "rbac.basic",
-      "action": "copy",
-      "from": "files/src/installed/auth/authorize.ts",
-      "to": "src/installed/auth/authorize.ts"
-    },
-    {
-      "stepId": "rbac/basic:8",
-      "blockId": "rbac/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "rbac.basic",
-      "action": "copy",
-      "from": "files/tests/unit/rbac-authorize.test.ts",
-      "to": "tests/unit/rbac-authorize.test.ts"
-    },
-    {
-      "stepId": "tenant/basic-workspace:9",
+      "stepId": "tenant/basic-workspace:2",
       "blockId": "tenant/basic-workspace",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -240,7 +72,7 @@
       "to": "src/installed/tenant/context.ts"
     },
     {
-      "stepId": "entity/customer-basic:10",
+      "stepId": "entity/customer-basic:3",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -252,7 +84,7 @@
       "to": "src/installed/entity/customer-service.ts"
     },
     {
-      "stepId": "entity/customer-basic:11",
+      "stepId": "entity/customer-basic:4",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -264,7 +96,7 @@
       "to": "prisma/schema.prisma"
     },
     {
-      "stepId": "entity/customer-basic:12",
+      "stepId": "entity/customer-basic:5",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -276,7 +108,7 @@
       "to": "tests/unit/customer-normalizer.test.ts"
     },
     {
-      "stepId": "entity/customer-basic:13",
+      "stepId": "entity/customer-basic:6",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -286,102 +118,6 @@
       "action": "copy",
       "from": "files/tests/acceptance/customer-flow.test.ts",
       "to": "tests/acceptance/customer-flow.test.ts"
-    },
-    {
-      "stepId": "export/csv-basic:14",
-      "blockId": "export/csv-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "export.csv-basic",
-      "action": "copy",
-      "from": "files/src/installed/export/customer-csv.ts",
-      "to": "src/installed/export/customer-csv.ts"
-    },
-    {
-      "stepId": "export/csv-basic:15",
-      "blockId": "export/csv-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "export.csv-basic",
-      "action": "copy",
-      "from": "files/tests/unit/customer-export.test.ts",
-      "to": "tests/unit/customer-export.test.ts"
-    },
-    {
-      "stepId": "file/upload:16",
-      "blockId": "file/upload",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "file.upload",
-      "action": "copy",
-      "from": "files/src/installed/file/customer-attachments.ts",
-      "to": "src/installed/file/customer-attachments.ts"
-    },
-    {
-      "stepId": "file/upload:17",
-      "blockId": "file/upload",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "file.upload",
-      "action": "copy",
-      "from": "files/tests/unit/customer-attachments.test.ts",
-      "to": "tests/unit/customer-attachments.test.ts"
-    },
-    {
-      "stepId": "notify/email-basic:18",
-      "blockId": "notify/email-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "notify.email-basic",
-      "action": "copy",
-      "from": "files/src/installed/notify/email-outbox.ts",
-      "to": "src/installed/notify/email-outbox.ts"
-    },
-    {
-      "stepId": "notify/email-basic:19",
-      "blockId": "notify/email-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "notify.email-basic",
-      "action": "copy",
-      "from": "files/tests/unit/email-outbox.test.ts",
-      "to": "tests/unit/email-outbox.test.ts"
-    },
-    {
-      "stepId": "table/filter-search:20",
-      "blockId": "table/filter-search",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "table.filter-search",
-      "action": "copy",
-      "from": "files/src/installed/table/customer-filter.ts",
-      "to": "src/installed/table/customer-filter.ts"
-    },
-    {
-      "stepId": "table/filter-search:21",
-      "blockId": "table/filter-search",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "table.filter-search",
-      "action": "copy",
-      "from": "files/tests/unit/customer-filter.test.ts",
-      "to": "tests/unit/customer-filter.test.ts"
     }
   ],
   "slotTasks": [
@@ -405,20 +141,12 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/unit/audit-log.test.ts",
-          "tests/unit/customer-attachments.test.ts",
-          "tests/unit/customer-export.test.ts",
-          "tests/unit/customer-filter.test.ts",
-          "tests/unit/customer-normalizer.test.ts",
-          "tests/unit/email-outbox.test.ts",
-          "tests/unit/postgres-contract.test.ts",
-          "tests/unit/rbac-authorize.test.ts"
+          "tests/unit/customer-normalizer.test.ts"
         ]
       }
     }
   ],
   "generatedPaths": [
-    "app/api/customers/[customerId]/attachments/route.ts",
     "app/api/customers/route.ts",
     "app/api/session/current/route.ts",
     "app/api/session/login/route.ts",
@@ -429,11 +157,9 @@
     "app/login/page.tsx",
     "app/page.tsx",
     "app/workspace/page.tsx",
-    "components/customer-attachment-form.tsx",
     "components/customer-form.tsx",
     "components/login-form.tsx",
     "components/logout-button.tsx",
-    "control/ci/artifacts.json",
     "control/evidence/acceptance-coverage.json",
     "control/evidence/block-usage-map.json",
     "control/evidence/install-manifest.json",
@@ -459,14 +185,7 @@
     "user_can_login",
     "user_can_create_customer",
     "user_can_list_customers",
-    "tenant_only_sees_own_customers",
-    "customer_can_be_exported",
-    "customer_can_upload_attachment",
-    "customer_creation_sends_email_notification",
-    "customer_list_can_be_filtered",
-    "audit_entry_can_be_created",
-    "user_can_access_authorized_route",
-    "postgres_contract_is_available"
+    "tenant_only_sees_own_customers"
   ],
   "passStatus": {
     "parse": "succeeded",

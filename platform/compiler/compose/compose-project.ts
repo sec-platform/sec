@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getWorkspacePaths, resolveRegistryRoot } from '../../shared/paths.ts';
-import { CompilerError } from '../../shared/errors.ts';
-import { copyRecursive, ensureDir, pathExists, readText, writeJson, writeText } from '../../shared/fs.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
+import { defaultInstallRegistry } from './install-strategies.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 
 function ensureGeneratedPaths(lock: LockFile, paths: string[]): void {
@@ -19,16 +19,16 @@ function ensureGeneratedPaths(lock: LockFile, paths: string[]): void {
 }
 
 async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
-  const routeEntries: string[] = [];
+  const routeEntries = await Promise.all(
+    lock.resolvedBlocks.map(async (block) => {
+      const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
+      return manifestEntry.manifest.routes.map(
+        (route) => `  { blockId: '${block.id}', path: '${route.path}', file: '${route.file}' }`
+      );
+    })
+  );
 
-  for (const block of lock.resolvedBlocks) {
-    const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
-    for (const route of manifestEntry.manifest.routes) {
-      routeEntries.push(`  { blockId: '${block.id}', path: '${route.path}', file: '${route.file}' }`);
-    }
-  }
-
-  return `export interface GeneratedRoute {\n  blockId: string;\n  path: string;\n  file: string;\n}\n\nexport const routes: GeneratedRoute[] = [\n${routeEntries.join(',\n')}\n];\n`;
+  return `export interface GeneratedRoute {\n  blockId: string;\n  path: string;\n  file: string;\n}\n\nexport const routes: GeneratedRoute[] = [\n${routeEntries.flat().join(',\n')}\n];\n`;
 }
 
 function renderSlotSkeleton(task: SlotTask): string {
@@ -43,71 +43,45 @@ function renderSlotSkeleton(task: SlotTask): string {
   return `// @generated slot-id:${task.id} block:${task.block}\n${importLine}export function ${task.symbol}(${signature} {\n  throw new Error('Not implemented');\n}\n`;
 }
 
-function normalizeNewlines(value: string): string {
-  return value.replace(/\r\n/g, '\n');
-}
-
-async function mergePrisma(sourcePath: string, targetPath: string): Promise<void> {
-  const source = await readText(sourcePath);
-  const existing = (await pathExists(targetPath)) ? await readText(targetPath) : '';
-  const trimmed = source.trim();
-  if (normalizeNewlines(existing).includes(normalizeNewlines(trimmed))) {
-    return;
-  }
-  const next = `${existing.trimEnd()}\n\n${trimmed}\n`;
-  await writeText(targetPath, next);
-}
-
-async function applyInstallStep(workspaceRoot: string, projectRoot: string, step: InstallPlanStep): Promise<void> {
-  const sourcePath = path.join(
-    resolveRegistryRoot(workspaceRoot, step.registryLocation, step.registryPath),
-    step.sourceRoot,
-    step.from
-  );
-  const targetPath = path.join(projectRoot, step.to);
-
-  if (step.action === 'copy') {
-    await copyRecursive(sourcePath, targetPath);
-    return;
-  }
-
-  if (step.action === 'merge-prisma') {
-    await mergePrisma(sourcePath, targetPath);
-    return;
-  }
-
-  throw new CompilerError('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
-}
-
 export async function composeProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
   const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  const installManifest: Array<InstallPlanStep & { status: 'installed' }> = [];
 
   await ensureProjectBase(workspaceRoot);
 
-  for (const step of lock.installPlan) {
-    await applyInstallStep(workspaceRoot, projectRoot, step);
-    installManifest.push({ ...step, status: 'installed' });
-  }
+  const installContext = { workspaceRoot, projectRoot, lock };
+  await defaultInstallRegistry.executeAll(lock.installPlan, installContext);
 
-  await ensureDir(generatedDir);
-  await ensureDir(path.dirname(blockUsageMapPath));
-  await ensureDir(path.dirname(installManifestPath));
-  await writeText(path.join(generatedDir, 'routes.ts'), await renderRouteGraph(workspaceRoot, lock));
-  await writeJson(blockUsageMapPath, {
-    blocks: lock.resolvedBlocks.map((block) => ({
-      id: block.id,
-      installOrder: block.installOrder
-    }))
-  });
+  const installManifest: Array<InstallPlanStep & { status: 'installed' }> = lock.installPlan.map((step) => ({
+    ...step,
+    status: 'installed' as const
+  }));
 
-  for (const task of lock.slotTasks) {
-    const targetPath = path.join(projectRoot, task.target);
-    if (!(await pathExists(targetPath))) {
-      await writeText(targetPath, renderSlotSkeleton(task));
-    }
-    task.status = 'generated';
-  }
+  const [routesContent] = await Promise.all([
+    renderRouteGraph(workspaceRoot, lock),
+    ensureDir(generatedDir),
+    ensureDir(path.dirname(blockUsageMapPath)),
+    ensureDir(path.dirname(installManifestPath))
+  ]);
+
+  await Promise.all([
+    writeText(path.join(generatedDir, 'routes.ts'), routesContent),
+    writeJson(blockUsageMapPath, {
+      blocks: lock.resolvedBlocks.map((block) => ({
+        id: block.id,
+        installOrder: block.installOrder
+      }))
+    })
+  ]);
+
+  await Promise.all(
+    lock.slotTasks.map(async (task) => {
+      const targetPath = path.join(projectRoot, task.target);
+      if (!(await pathExists(targetPath))) {
+        await writeText(targetPath, renderSlotSkeleton(task));
+      }
+      task.status = 'generated';
+    })
+  );
 
   const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
   ensureGeneratedPaths(lock, [...runtimeScaffoldPaths, 'generated/routes.ts', 'control/evidence/block-usage-map.json', 'control/evidence/install-manifest.json']);
