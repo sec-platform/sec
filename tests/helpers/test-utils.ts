@@ -2,8 +2,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, expect } from 'vitest';
 
-import { compilerRoot } from '../../platform/shared/paths.ts';
+import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
+import { writeYaml } from '../../platform/shared/yaml.ts';
+import type { LockFile } from '../../platform/shared/types.ts';
+import {
+  ACCEPTANCE_USAGE,
+  LOCK_USAGE,
+  POLICY_USAGE,
+  POSTGRES_USAGE,
+  REPAIR_USAGE
+} from '../../platform/cli/usage.ts';
 import { createDefaultRegistry } from '../../platform/cli/index.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
@@ -81,6 +91,241 @@ export async function installRuntimeDeps(cwd: string): Promise<void> {
 }
 
 export type CliResult = { code: number; stdout: string; stderr: string };
+
+export function usageErrorStderr(usage: string): string {
+  return [
+    `UNEXPECTED ${usage}`,
+    JSON.stringify({
+      code: 'UNEXPECTED',
+      message: usage,
+      recoverable: true,
+      issueType: 'usage',
+      suggestedActions: ['retry-with-supported-arguments'],
+      artifactPaths: []
+    }),
+    ''
+  ].join('\n');
+}
+
+export async function expectCliUsageError(
+  workspaceRoot: string,
+  command: string,
+  args: string[],
+  usage: string
+): Promise<void> {
+  await expect(runCliInProcess(workspaceRoot, [command, ...args])).resolves.toMatchObject({
+    code: 1,
+    stdout: '',
+    stderr: usageErrorStderr(usage)
+  });
+}
+
+export async function expectRepairUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expectCliUsageError(workspaceRoot, 'repair', args, REPAIR_USAGE);
+}
+
+export async function expectLockUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expectCliUsageError(workspaceRoot, 'lock', args, LOCK_USAGE);
+}
+
+export async function expectPolicyUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expectCliUsageError(workspaceRoot, 'policy', args, POLICY_USAGE);
+}
+
+export async function expectAcceptanceUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expectCliUsageError(workspaceRoot, 'acceptance', args, ACCEPTANCE_USAGE);
+}
+
+export async function expectPostgresUsageError(workspaceRoot: string, args: string[]): Promise<void> {
+  await expectCliUsageError(workspaceRoot, 'postgres', args, POSTGRES_USAGE);
+}
+
+export async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
+  const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const blockRoot = path.join(privateRegistryRoot, 'private.banner-basic');
+
+  await fs.mkdir(path.join(blockRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
+  await fs.mkdir(path.join(blockRoot, 'files', 'tests', 'unit'), { recursive: true });
+
+  await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), {
+    id: 'private/banner-basic',
+    version: '0.1.0',
+    kind: 'governance',
+    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    compatibility: {
+      blockApi: '1',
+      compilerApi: '1',
+      stackProfiles: ['nextjs-ts-prisma-sqlite']
+    },
+    requires: [],
+    provides: ['governance/banner'],
+    conflicts: [],
+    installs: [
+      {
+        kind: 'copy',
+        from: 'files/src/installed/private/banner.ts',
+        to: 'src/installed/private/banner.ts'
+      },
+      {
+        kind: 'copy',
+        from: 'files/tests/unit/private-banner.test.ts',
+        to: 'tests/unit/private-banner.test.ts'
+      }
+    ],
+    pins: {
+      inputs: [],
+      outputs: [
+        {
+          id: 'banner_message',
+          type: 'string',
+          required: true
+        }
+      ]
+    },
+    slots: [],
+    acceptance: [],
+    routes: []
+  });
+
+  await fs.writeFile(
+    path.join(blockRoot, 'files', 'src', 'installed', 'private', 'banner.ts'),
+    `export function projectBanner(projectName: string): string {\n  return \`private-banner:\${projectName}\`;\n}\n`,
+    'utf8'
+  );
+
+  await fs.writeFile(
+    path.join(blockRoot, 'files', 'tests', 'unit', 'private-banner.test.ts'),
+    `import assert from 'node:assert/strict';\nimport { projectBanner } from '../../src/installed/private/banner.ts';\n\nexport async function runSuite() {\n  assert.equal(projectBanner('customer-admin'), 'private-banner:customer-admin');\n}\n`,
+    'utf8'
+  );
+}
+
+export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<void> {
+  const { lockPath, planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const blockRoot = path.join(privateRegistryRoot, 'private.slot-contract');
+  const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
+  const baseManifest = {
+    id: 'private/slot-contract',
+    version: '0.1.0',
+    kind: 'capability',
+    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    requires: [],
+    provides: ['private/slot-contract'],
+    conflicts: [],
+    installs: [
+      {
+        kind: 'copy',
+        from: 'files/src/installed/private/slot-contract.ts',
+        to: 'src/installed/private/slot-contract.ts'
+      }
+    ],
+    pins: {
+      inputs: [],
+      outputs: []
+    },
+    slots: [
+      {
+        id: 'customer_normalizer',
+        kind: 'adapter',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomer',
+        inputType: 'CustomerInputV1',
+        outputType: 'CustomerRecordInput',
+        writableZones: ['custom/customer_normalizer.ts']
+      }
+    ],
+    acceptance: [],
+    routes: []
+  };
+
+  await writeYaml(planPath, {
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs-ts-prisma-sqlite',
+      packageManager: 'pnpm',
+      mode: 'single-tenant'
+    },
+    registry: {
+      sources: [
+        {
+          id: 'private',
+          kind: 'private',
+          location: 'workspace',
+          path: 'platform/registry/private'
+        }
+      ]
+    },
+    blocks: [{ id: 'private/slot-contract', version: '0.1.0' }],
+    slots: [],
+    acceptance: []
+  });
+  await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), baseManifest);
+  await writeYaml(path.join(versionRoot, 'block.manifest.yaml'), {
+    ...baseManifest,
+    version: '0.2.0',
+    slots: [
+      {
+        id: 'customer_normalizer',
+        kind: 'adapter',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomer',
+        inputType: 'CustomerInputV2',
+        outputType: 'CustomerRecordInput',
+        writableZones: ['custom/customer_normalizer.ts']
+      }
+    ],
+    upgrade: {
+      from: ['0.1.x'],
+      migrations: [
+        {
+          id: 'mig-customer-normalizer-contract',
+          kind: 'slot-contract-update',
+          entry: 'migrations/customer-normalizer-contract.json',
+          fromVersion: '0.1.0',
+          toVersion: '0.2.0',
+          requiresVerification: true
+        }
+      ]
+    }
+  });
+  await writeJson(path.join(versionRoot, 'migrations', 'customer-normalizer-contract.json'), {
+    id: 'mig-customer-normalizer-contract',
+    kind: 'slot-contract-update',
+    reason: 'Update customer normalizer input contract to v2.',
+    target: 'custom/customer_normalizer.ts',
+    slotId: 'customer_normalizer',
+    inputType: 'CustomerInputV2',
+    outputType: 'CustomerRecordInput',
+    writableZones: ['custom/customer_normalizer.ts']
+  });
+
+  const lock: LockFile = {
+    formatVersion: '1',
+    app: {
+      name: 'customer-admin',
+      stack: 'nextjs-ts-prisma-sqlite',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'succeeded',
+      repair: 'skipped',
+      lock: 'succeeded',
+      emit: 'succeeded'
+    }
+  };
+  await writeJson(lockPath, lock);
+}
 
 export async function runCliInProcess(workspaceRoot: string, args: string[]): Promise<CliResult> {
   const stdoutChunks: string[] = [];

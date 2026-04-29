@@ -1,4 +1,5 @@
 import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
 import { compilerRoot } from './paths.ts';
 import { resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
@@ -7,7 +8,7 @@ export type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'dif
 export type ReferenceCheckFailedStage = 'none' | 'refresh' | 'diff';
 
 export type ReferenceCheckReport = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   status: ReferenceCheckStatus;
   failedStage: ReferenceCheckFailedStage;
   root: string;
@@ -56,7 +57,7 @@ export async function buildReferenceCheckReport(options: {
       : 'diff';
 
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     status,
     failedStage,
     root,

@@ -2,7 +2,7 @@ import type { CommandHandler } from '../command-registry.ts';
 import { parseWorkbenchArgs } from '../args.ts';
 import { applyWorkbenchMutations } from '../../orchestrator.ts';
 import type { ViewMutationReport } from '../../compiler/workbench/apply-view-mutations.ts';
-import { formatJson } from '../format-utils.ts';
+import { printJsonOrText } from '../format-utils.ts';
 import { WORKBENCH_USAGE } from '../usage.ts';
 
 function formatWorkbenchMutationReport(report: ViewMutationReport): string {
@@ -22,10 +22,6 @@ export const workbenchCommand: CommandHandler = {
   async execute(args, ctx) {
     const workbenchArgs = parseWorkbenchArgs(args);
     const report = await applyWorkbenchMutations(ctx.cwd);
-    if (workbenchArgs.json) {
-      console.log(formatJson(report, workbenchArgs));
-      return;
-    }
-    console.log(formatWorkbenchMutationReport(report));
+    printJsonOrText(report, workbenchArgs, formatWorkbenchMutationReport);
   }
 };

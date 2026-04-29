@@ -1,4 +1,5 @@
 import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 import type { CompilerErrorDetails } from './errors.ts';
 import { buildErrorProtocol, type ErrorProtocol } from './error-protocol.ts';
 
@@ -13,8 +14,8 @@ export type ErrorProtocolExample = {
 };
 
 export type ErrorProtocolContract = {
-  formatVersion: '1';
-  status: 'active';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
+  status: typeof CONTRACT_STATUS_ACTIVE;
   command: string;
   exampleCount: number;
   examples: ErrorProtocolExample[];
@@ -113,8 +114,8 @@ export function buildErrorProtocolContract(): ErrorProtocolContract {
   const artifactPaths = uniqueSorted(examples.flatMap((example) => example.output.artifactPaths));
 
   return {
-    formatVersion: '1',
-    status: 'active',
+    formatVersion: CONTRACT_FORMAT_VERSION,
+    status: CONTRACT_STATUS_ACTIVE,
     command: 'npm run platform -- contract errors --json',
     exampleCount: examples.length,
     examples,

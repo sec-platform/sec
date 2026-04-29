@@ -11,7 +11,7 @@ import {
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
+import { compilerRoot, relativePosixPath } from '../../platform/shared/paths.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
@@ -38,7 +38,7 @@ async function createOfficialPolicyDir(prefix: string): Promise<string> {
 }
 
 function normalizePolicyPath(rootDir: string, filePath: string, scope: 'official' | 'project'): string {
-  const relativePath = path.relative(rootDir, filePath).replaceAll('\\', '/');
+  const relativePath = relativePosixPath(rootDir, filePath);
   return scope === 'official' ? `platform/policies/official/${relativePath}` : `project/policies/${relativePath}`;
 }
 

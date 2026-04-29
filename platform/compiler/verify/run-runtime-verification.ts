@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { compilerRoot } from '../../shared/paths.ts';
+import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { listFilesRecursive } from '../../shared/fs.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
 import { pathEnvKey, resolveNpmInvocation, runCommand } from '../../shared/process.ts';
@@ -40,7 +40,7 @@ function appendCommandOutput(
 
 function relativeFiles(rootDir: string, files: string[]): string[] {
   return files
-    .map((file) => path.relative(rootDir, file).replaceAll('\\', '/'))
+    .map((file) => relativePosixPath(rootDir, file))
     .sort((left, right) => left.localeCompare(right));
 }
 

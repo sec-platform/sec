@@ -1,7 +1,8 @@
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../shared/ci-artifact-contract.ts';
+import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
 import { toWorkspaceArtifactPath } from '../shared/paths.ts';
 import { uniqueSorted } from '../shared/collections.ts';
-import { formatCounts, formatList } from './format-utils.ts';
+import { formatCounts, formatList, formatSummaryEntries, readObjectString, summarizeById } from './format-utils.ts';
 import type { CiArtifactManifest, CiArtifactUploadGroup } from '../shared/ci-artifact-types.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
@@ -67,7 +68,7 @@ export type RuntimeStepInspect = {
 };
 
 export type RuntimeStepsInspect = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   status: RuntimeVerificationLaneReport['status'];
   stepCount: number;
   passedCount: number;
@@ -84,7 +85,7 @@ export type DemoChecklistItem = {
 };
 
 export type DemoChecklist = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   status: 'passed' | 'attention';
   itemCount: number;
   missingCount: number;
@@ -289,7 +290,7 @@ export type ReviewDiagnosticEntry =
   };
 
 export type ReviewDiagnosticsInspect = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   status: ReviewSummary['ciSummary']['status'];
   diagnosticCount: number;
   failureCount: number;
@@ -335,7 +336,7 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
   const slots = uniqueSorted(summary.regressionRisks.map((risk) => risk.slotId ?? ''));
 
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     status: summary.ciSummary.status,
     diagnosticCount: diagnostics.length,
     failureCount: summary.failurePoints.length,
@@ -392,32 +393,6 @@ export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect
     `Slots: ${formatList(inspect.slots)}`,
     ...inspect.diagnostics.slice(0, 10).map((entry) => formatReviewDiagnostic(entry))
   ].join('\n');
-}
-
-function formatSummaryEntries(entries: Array<{ id: string; count: number }>): string {
-  return entries.length > 0
-    ? entries.map((entry) => `${entry.id}=${entry.count}`).join(', ')
-    : 'none';
-}
-
-function summarizeById(
-  entries: Array<{ id: string; count: number }>
-): Array<{ id: string; count: number }> {
-  const counts = new Map<string, number>();
-  for (const entry of entries) {
-    counts.set(entry.id, (counts.get(entry.id) ?? 0) + entry.count);
-  }
-  return [...counts.entries()]
-    .map(([id, count]) => ({ id, count }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-}
-
-function readObjectString(value: unknown, key: string): string | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === 'string' && field.length > 0 ? field : null;
 }
 
 export function formatUpgradeDiagnosticsDetails(details: unknown): string {
@@ -542,7 +517,7 @@ function formatUpgradeMigrationDetails(
 }
 
 export type PolicySourceInspect = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   status: PolicyReport['status'];
   sourceCount: number;
   policyCount: number;
@@ -570,7 +545,7 @@ export function buildPolicySourceInspect(report: PolicyReport): PolicySourceInsp
     }))
   ].sort((left, right) => left.scope.localeCompare(right.scope) || left.path.localeCompare(right.path));
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     status: report.status,
     sourceCount: sources.length,
     policyCount: sources.reduce((count, source) => count + source.policyCount, 0),
@@ -673,7 +648,7 @@ export function formatPolicyReport(report: NonNullable<ReviewSummary['policySumm
 }
 
 export type AcceptanceTargetInspect = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   status: AcceptanceCoverageReport['status'];
   targetKind: 'blocks' | 'slots';
   targetCount: number;
@@ -690,7 +665,7 @@ export function buildAcceptanceTargetInspect(
   const entries = targetKind === 'blocks' ? report.blocks : report.slots;
   const uncoveredIds = targetKind === 'blocks' ? report.uncoveredBlocks : report.uncoveredSlots;
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     status: report.status,
     targetKind,
     targetCount: entries.length,
@@ -789,7 +764,7 @@ export function buildRuntimeStepsInspect(report: RuntimeVerificationLaneReport):
     buildRuntimeStepInspect('acceptance', report.acceptance)
   ];
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     status: report.status,
     stepCount: steps.length,
     passedCount: steps.filter((step) => step.status === 'passed').length,

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { uniqueSorted } from '../../shared/collections.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath } from '../../shared/paths.ts';
+import { getWorkspacePaths, relativePosixPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { listFilesRecursive, pathExists, readJson, readText } from '../../shared/fs.ts';
 import { readYaml } from '../../shared/yaml.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
@@ -33,7 +33,7 @@ function normalizePolicies(spec: PolicySpec | null | undefined): PolicySpec {
 }
 
 function normalizeRelativePath(rootPath: string, filePath: string): string {
-  return path.relative(rootPath, filePath).replaceAll('\\', '/');
+  return relativePosixPath(rootPath, filePath);
 }
 
 function withinScopePath(scope: PolicySourceScope, rootPath: string, filePath: string, sourcePrefix?: string): string {

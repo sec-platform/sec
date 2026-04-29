@@ -1,3 +1,5 @@
+import { CONTRACT_FORMAT_VERSION } from './constants.ts';
+
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';
   nextBuild: boolean;
@@ -6,7 +8,7 @@ export type TestBudgetLane = {
 };
 
 export type TestBudgetContract = {
-  formatVersion: '1';
+  formatVersion: typeof CONTRACT_FORMAT_VERSION;
   command: string;
   runnerCommand: string;
   defaultLane: TestBudgetLane['id'];
@@ -74,7 +76,7 @@ export function buildTestBudgetContract(): TestBudgetContract {
   const lanes = testBudgetLanes.map((lane) => ({ ...lane }));
   const slowLaneIds = lanes.filter((lane) => lane.nextBuild || lane.playwright).map((lane) => lane.id);
   return {
-    formatVersion: '1',
+    formatVersion: CONTRACT_FORMAT_VERSION,
     command: 'npm run platform -- test budget --json',
     runnerCommand: 'npm run test:budget',
     defaultLane: 'fast',

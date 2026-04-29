@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
@@ -103,7 +103,7 @@ async function listSuiteFiles(rootDir: string, suffix: string): Promise<string[]
   return (await listFilesRecursive(rootDir))
     .filter((file) => file.endsWith(suffix))
     .sort((left, right) => left.localeCompare(right))
-    .map((file) => path.relative(rootDir, file).replaceAll('\\', '/'));
+    .map((file) => relativePosixPath(rootDir, file));
 }
 
 async function runSuiteFiles(rootDir: string, suffix: string): Promise<string[]> {
@@ -119,7 +119,7 @@ async function runSuiteFiles(rootDir: string, suffix: string): Promise<string[]>
       throw new CompilerError('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
     }
     await testModule.runSuite();
-    results.push(path.relative(rootDir, file).replaceAll('\\', '/'));
+    results.push(relativePosixPath(rootDir, file));
   }
 
   return results;

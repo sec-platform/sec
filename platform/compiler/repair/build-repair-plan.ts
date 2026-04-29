@@ -86,6 +86,39 @@ function countChangedLines(before: string, after: string): Pick<RepairTaskPrevie
   return { addedLines, removedLines };
 }
 
+type PreparedRepairWriteTask = {
+  repairTask: RepairTask;
+  targetPath: string;
+  slotTask: LockFile['slotTasks'][number];
+  source: string;
+};
+
+function prepareRepairWriteTasks(
+  workspaceRoot: string,
+  plan: PlanFile,
+  lock: LockFile,
+  repairPlan: RepairPlan
+): PreparedRepairWriteTask[] {
+  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+  return repairPlan.tasks
+    .filter((task) => task.failurePoints.some((point) => point.repairable))
+    .map((repairTask) => {
+      if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
+        throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
+      }
+      const targetPath = resolveRepairTargetPath(workspaceRoot, root, repairTask.targetFile);
+      const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
+      if (!slotTask) {
+        throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
+      }
+      const envelope = buildTaskEnvelope(plan, lock, slotTask);
+      if (!envelope.allowedPaths.includes(repairTask.targetFile)) {
+        throw new CompilerError('REPAIR-SCOPE-003', `Repair envelope does not allow "${repairTask.targetFile}"`);
+      }
+      return { repairTask, targetPath, slotTask, source: synthesizeSlotSource(envelope) };
+    });
+}
+
 function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
   const points: RepairFailurePoint[] = [];
 
@@ -315,58 +348,25 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
 }
 
 export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
-  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-  const repairableTasks = repairPlan.tasks.filter((task) => task.failurePoints.some((point) => point.repairable));
-
-  for (const repairTask of repairableTasks) {
-    if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
-      throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
-    }
-    const targetPath = resolveRepairTargetPath(workspaceRoot, root, repairTask.targetFile);
-    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
-    if (!slotTask) {
-      throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
-    }
-    const envelope = buildTaskEnvelope(plan, lock, slotTask);
-    if (!envelope.allowedPaths.includes(repairTask.targetFile)) {
-      throw new CompilerError('REPAIR-SCOPE-003', `Repair envelope does not allow "${repairTask.targetFile}"`);
-    }
+  for (const { repairTask, targetPath, source } of prepareRepairWriteTasks(workspaceRoot, plan, lock, repairPlan)) {
     const before = await fs.readFile(targetPath, 'utf8').catch(() => '');
-    const after = synthesizeSlotSource(envelope);
-    const { addedLines, removedLines } = countChangedLines(before, after);
+    const { addedLines, removedLines } = countChangedLines(before, source);
     repairTask.preview = {
       beforeLines: countLines(before),
-      afterLines: countLines(after),
+      afterLines: countLines(source),
       addedLines,
       removedLines,
-      changed: before !== after
+      changed: before !== source
     };
   }
 }
 
 export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
-  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-  const repairableTasks = repairPlan.tasks.filter((task) => task.failurePoints.some((point) => point.repairable));
+  const writeTasks = prepareRepairWriteTasks(workspaceRoot, plan, lock, repairPlan);
 
-  if (repairPlan.status === 'pending' && repairableTasks.length === 0) {
+  if (repairPlan.status === 'pending' && writeTasks.length === 0) {
     throw new CompilerError('REPAIR-BLOCKED-003', 'No repairable failure points found for current repair plan');
   }
-
-  const writeTasks = repairableTasks.map((repairTask) => {
-    if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
-      throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
-    }
-    const targetPath = resolveRepairTargetPath(workspaceRoot, root, repairTask.targetFile);
-    const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
-    if (!slotTask) {
-      throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
-    }
-    const envelope = buildTaskEnvelope(plan, lock, slotTask);
-    if (!envelope.allowedPaths.includes(repairTask.targetFile)) {
-      throw new CompilerError('REPAIR-SCOPE-003', `Repair envelope does not allow "${repairTask.targetFile}"`);
-    }
-    return { targetPath, slotTask, source: synthesizeSlotSource(envelope) };
-  });
 
   for (const { targetPath, slotTask, source } of writeTasks) {
     await fs.mkdir(path.dirname(targetPath), { recursive: true });

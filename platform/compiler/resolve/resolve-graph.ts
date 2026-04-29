@@ -1,7 +1,7 @@
-import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { KIND_PRIORITY, PASS_STATUS_PENDING } from '../../shared/constants.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { relativePosixPath } from '../../shared/paths.ts';
 import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
 import type { LockFile, SlotTask } from '../../shared/lock-types.ts';
 import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
@@ -194,7 +194,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     version: entry.manifest.version,
     kind: entry.manifest.kind,
     installOrder: index + 1,
-    manifestPath: path.relative(entry.manifestRoot, entry.manifestPath).replaceAll('\\', '/'),
+    manifestPath: relativePosixPath(entry.manifestRoot, entry.manifestPath),
     registrySourceId: entry.registrySourceId,
     registryKind: entry.registryKind,
     registryLocation: entry.registryLocation,
@@ -211,7 +211,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
         registryKind: block.registryKind,
         registryLocation: block.registryLocation,
         registryPath: block.registryPath,
-        sourceRoot: path.relative(block.registryRoot, block.manifestRoot).replaceAll('\\', '/'),
+        sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),
         action: install.kind,
         from: install.from,
         to: install.to

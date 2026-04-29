@@ -2,9 +2,9 @@ import type { CommandHandler } from '../command-registry.ts';
 import { parseUpgradeArgs } from '../args.ts';
 import { upgradeWorkspace } from '../../orchestrator.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { pathExists, readJson } from '../../shared/fs.ts';
+import { readRequiredJson } from '../command-utils.ts';
 import { formatUpgradeSummary, formatUpgradeDiagnostics } from '../formatters.ts';
-import { formatJson } from '../format-utils.ts';
+import { printJsonOrText } from '../format-utils.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
 import { UPGRADE_USAGE } from '../usage.ts';
 
@@ -15,37 +15,25 @@ export const upgradeCommand: CommandHandler = {
     const upgradeArgs = parseUpgradeArgs(args);
     if (upgradeArgs.mode === 'plan') {
       const { upgradePlanPath } = getWorkspacePaths(ctx.cwd);
-      if (!(await pathExists(upgradePlanPath))) {
-        throw new Error('Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first');
-      }
-      const upgradePlan = await readJson<UpgradePlan>(upgradePlanPath);
-      if (upgradeArgs.json) {
-        console.log(formatJson(upgradePlan, upgradeArgs));
-        return;
-      }
-      console.log(formatUpgradeSummary(upgradePlan, upgradePlan.status === 'planned'));
+      const upgradePlan = await readRequiredJson<UpgradePlan>(
+        upgradePlanPath,
+        'Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first'
+      );
+      printJsonOrText(upgradePlan, upgradeArgs, (plan) => formatUpgradeSummary(plan, plan.status === 'planned'));
       return;
     }
     if (upgradeArgs.mode === 'diagnostics') {
       const { upgradeDiagnosticsPath } = getWorkspacePaths(ctx.cwd);
-      if (!(await pathExists(upgradeDiagnosticsPath))) {
-        throw new Error('Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first');
-      }
-      const diagnostics = await readJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
-      if (upgradeArgs.json) {
-        console.log(formatJson(diagnostics, upgradeArgs));
-        return;
-      }
-      console.log(formatUpgradeDiagnostics(diagnostics));
+      const diagnostics = await readRequiredJson<UpgradeDiagnostics>(
+        upgradeDiagnosticsPath,
+        'Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first'
+      );
+      printJsonOrText(diagnostics, upgradeArgs, formatUpgradeDiagnostics);
       return;
     }
     const { upgradePlan } = await upgradeWorkspace(ctx.cwd, upgradeArgs.blockId, upgradeArgs.targetVersion, {
       dryRun: upgradeArgs.dryRun
     });
-    if (upgradeArgs.json) {
-      console.log(formatJson(upgradePlan, upgradeArgs));
-      return;
-    }
-    console.log(formatUpgradeSummary(upgradePlan, upgradeArgs.dryRun));
+    printJsonOrText(upgradePlan, upgradeArgs, (plan) => formatUpgradeSummary(plan, upgradeArgs.dryRun));
   }
 };
