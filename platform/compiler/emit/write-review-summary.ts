@@ -873,7 +873,7 @@ export async function buildReviewSummary(
       lane: 'all',
       kind: 'summary',
       message: `Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`,
-      artifactPath: 'generated/verification-report.json'
+      artifactPath: 'control/evidence/verification-report.json'
     });
   }
 
@@ -882,7 +882,7 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'policy',
       message: `Policy ${violation.id}: ${violation.message}`,
-      artifactPath: 'generated/policy-report.json'
+      artifactPath: 'control/evidence/policy-report.json'
     });
   }
 
@@ -891,7 +891,7 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'build',
       message: 'Fast-lane typecheck failed',
-      artifactPath: 'generated/verification-report.json'
+      artifactPath: 'control/evidence/verification-report.json'
     });
   }
   if (report.fast.unit.status === 'failed') {
@@ -899,7 +899,7 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'unit',
       message: 'Fast-lane unit tests failed',
-      artifactPath: 'generated/verification-report.json'
+      artifactPath: 'control/evidence/verification-report.json'
     });
   }
   if (report.fast.acceptance.status === 'failed') {
@@ -907,14 +907,14 @@ export async function buildReviewSummary(
       lane: 'fast',
       kind: 'acceptance',
       message: 'Fast-lane acceptance tests failed',
-      artifactPath: 'generated/verification-report.json'
+      artifactPath: 'control/evidence/verification-report.json'
     });
     for (const target of report.fast.acceptance.failed) {
       addFailurePoint(failurePoints, {
         lane: 'fast',
         kind: 'acceptance',
         message: `Fast-lane acceptance test failed: ${target}`,
-        artifactPath: 'generated/verification-report.json'
+        artifactPath: 'control/evidence/verification-report.json'
       });
     }
   }
@@ -923,7 +923,7 @@ export async function buildReviewSummary(
       lane: 'runtime',
       kind: 'build',
       message: 'Runtime build failed',
-      artifactPath: 'generated/runtime-report.json'
+      artifactPath: 'control/evidence/runtime-report.json'
     });
     addFailedTargets(
       failurePoints,
@@ -931,7 +931,7 @@ export async function buildReviewSummary(
       'build',
       report.runtime.build,
       'Runtime build failed',
-      'generated/runtime-report.json'
+      'control/evidence/runtime-report.json'
     );
   }
   if (report.runtime.unit.status === 'failed') {
@@ -939,7 +939,7 @@ export async function buildReviewSummary(
       lane: 'runtime',
       kind: 'unit',
       message: 'Runtime unit tests failed',
-      artifactPath: 'generated/runtime-report.json'
+      artifactPath: 'control/evidence/runtime-report.json'
     });
     addFailedTargets(
       failurePoints,
@@ -947,7 +947,7 @@ export async function buildReviewSummary(
       'unit',
       report.runtime.unit,
       'Runtime unit test failed',
-      'generated/runtime-report.json'
+      'control/evidence/runtime-report.json'
     );
   }
   if (report.runtime.acceptance.status === 'failed') {
@@ -955,7 +955,7 @@ export async function buildReviewSummary(
       lane: 'runtime',
       kind: 'acceptance',
       message: 'Runtime acceptance tests failed',
-      artifactPath: 'generated/runtime-report.json'
+      artifactPath: 'control/evidence/runtime-report.json'
     });
     addFailedTargets(
       failurePoints,
@@ -963,7 +963,7 @@ export async function buildReviewSummary(
       'acceptance',
       report.runtime.acceptance,
       'Runtime acceptance test failed',
-      'generated/runtime-report.json'
+      'control/evidence/runtime-report.json'
     );
   }
 
@@ -1039,7 +1039,7 @@ export async function buildReviewSummary(
       lane: 'all',
       kind: 'upgrade',
       message: formatUpgradeDiagnosticsFailureMessage(upgradeDiagnostics),
-      artifactPath: 'generated/upgrade-diagnostics.json'
+      artifactPath: 'control/workflow/upgrade-diagnostics.json'
     });
   }
 
@@ -1054,7 +1054,7 @@ export async function buildReviewSummary(
       addFailurePoint(failurePoints, {
         lane: 'all',
         kind: 'repair',
-        artifactPath: 'generated/repair-plan.json',
+        artifactPath: 'control/workflow/repair-plan.json',
         message: `Repair blocked at ${blocker.boundary}: ${blocker.reason}`
       });
       addConflictHint(conflictHints, {
@@ -1156,12 +1156,13 @@ export async function writeReviewSummary(
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
   const { reviewSummaryPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!lock.generatedPaths.includes('generated/review-summary.json')) {
-    lock.generatedPaths.push('generated/review-summary.json');
+  if (!lock.generatedPaths.includes('control/evidence/review-summary.json')) {
+    lock.generatedPaths.push('control/evidence/review-summary.json');
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   }
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
   await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
   await fs.writeFile(reviewSummaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   return summary;

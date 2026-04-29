@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
@@ -29,41 +30,45 @@ function buildSlotArtifact(task: LockFile['slotTasks'][number], artifactPath: st
 }
 
 function inferGeneratedByPass(targetPath: string): string {
+  if (targetPath === 'control/provenance/provenance.json') {
+    return 'lock';
+  }
+  if (targetPath.startsWith('control/evidence/')) {
+    return targetPath === 'control/evidence/block-usage-map.json' || targetPath === 'control/evidence/install-manifest.json'
+      ? 'compose'
+      : 'verify';
+  }
+  if (targetPath === 'control/graph/explain-graph.json') {
+    return 'explain';
+  }
+  if (targetPath === 'control/ci/artifacts.json') {
+    return 'artifacts';
+  }
+  if (targetPath === 'control/workbench/views/source-view.html' || targetPath === 'control/workbench/views/slot-rule-view.html') {
+    return 'explain';
+  }
+  if (targetPath === 'control/workflow/repair-plan.json') {
+    return 'repair';
+  }
+  if (targetPath === 'control/workflow/upgrade-plan.json' || targetPath === 'control/workflow/upgrade-diagnostics.json') {
+    return 'upgrade';
+  }
   if (targetPath === 'provenance.json') {
     return 'lock';
   }
-  if (targetPath === 'generated/verification-report.json') {
-    return 'verify';
-  }
-  if (targetPath === 'generated/runtime-report.json') {
-    return 'verify';
-  }
-  if (targetPath === 'generated/policy-report.json') {
-    return 'verify';
-  }
-  if (targetPath === 'generated/acceptance-coverage.json') {
-    return 'verify';
-  }
-  if (targetPath === 'generated/explain-graph.json') {
-    return 'explain';
-  }
-  if (targetPath === 'generated/review-summary.json') {
-    return 'explain';
-  }
-  if (targetPath === 'generated/ci-artifacts.json') {
-    return 'artifacts';
-  }
-  if (targetPath === 'generated/views/source-view.html' || targetPath === 'generated/views/slot-rule-view.html') {
-    return 'explain';
-  }
-  if (targetPath === 'generated/repair-plan.json') {
-    return 'repair';
-  }
-  if (targetPath === 'generated/upgrade-plan.json') {
-    return 'upgrade';
-  }
-  if (targetPath === 'generated/upgrade-diagnostics.json') {
-    return 'upgrade';
+  if (targetPath.startsWith('generated/')) {
+    if (targetPath.includes('verification-report') || targetPath.includes('runtime-report') || targetPath.includes('policy-report') || targetPath.includes('acceptance-coverage')) {
+      return 'verify';
+    }
+    if (targetPath.includes('explain-graph') || targetPath.includes('review-summary') || targetPath.startsWith('generated/views/')) {
+      return 'explain';
+    }
+    if (targetPath.includes('repair-plan')) {
+      return 'repair';
+    }
+    if (targetPath.includes('upgrade-plan') || targetPath.includes('upgrade-diagnostics')) {
+      return 'upgrade';
+    }
   }
   return 'compose';
 }
@@ -175,12 +180,14 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
 
 export async function writeProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
   const { provenancePath, lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!lock.generatedPaths.includes('provenance.json')) {
-    lock.generatedPaths.push('provenance.json');
+  if (!lock.generatedPaths.includes('control/provenance/provenance.json')) {
+    lock.generatedPaths.push('control/provenance/provenance.json');
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   }
 
   const provenance = await buildProvenance(workspaceRoot, lock);
+  await fs.mkdir(path.dirname(provenancePath), { recursive: true });
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
   await fs.writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, 'utf8');
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   return provenance;

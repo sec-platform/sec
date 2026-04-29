@@ -61,20 +61,20 @@ taskId: fill_slot_customer_normalizer
 taskKind: adapter-slot
 phase: adapt
 targetBlock: entity/customer-basic
-targetFile: source/slots/customer_normalizer.ts
+targetFile: source/code/slots/customer_normalizer.ts
 sourceSlot:
   id: customer_normalizer
   status: filled
   runtimeTarget: custom/customer_normalizer.ts
-  sourcePath: source/slots/customer_normalizer.ts
+  sourcePath: source/code/slots/customer_normalizer.ts
   writableZones:
-    - source/slots/customer_normalizer.ts
+    - source/code/slots/customer_normalizer.ts
     - custom/
   provenanceHints:
     generator: mock-local-synthesizer
     verifiedBy: []
 allowedPaths:
-  - source/slots/customer_normalizer.ts
+  - source/code/slots/customer_normalizer.ts
 requiredSymbols:
   - normalizeCustomerInput
 forbiddenOperations:
@@ -105,7 +105,7 @@ expectedOutput:
 | `taskKind` | 是 | `adapter-slot` / `policy-slot` / `repair` / `alignment` |
 | `phase` | 是 | 所属 pass |
 | `targetBlock` | 否 | 相关 block |
-| `targetFile` | 是 | 主要写入文件；声明 `sourcePath` 的 slot 默认指向 `source/slots/**` |
+| `targetFile` | 是 | 主要写入文件；声明 `sourcePath` 的 slot 默认指向 `source/code/slots/**` |
 | `sourceSlot` | 是 | 来自 `graph.lock.json` 的 slot 状态、`sourcePath`、`runtimeTarget`、writable zones 与 provenance hints |
 | `allowedPaths[]` | 是 | 从 `targetFile` 收窄出的实际允许写入文件；源码层 slot 默认只允许写 `sourcePath`，runtime target 由 compiler 物化 |
 | `requiredSymbols[]` | 否 | 必须保留或导出的符号 |
@@ -129,18 +129,20 @@ expectedOutput:
 
 - 文件路径权限只是最低层检查；AI 还必须满足 task kind、phase、zone、artifact ownership 和 forbidden operations 组成的语义权限。
 - `acceptance`、policy、`testsToPass`、verification report 和 explain graph 在普通 slot / repair task 中是约束输入，不是可被 AI 修改的输出。
-- `project/generated/**`、`project/src/installed/**`、`graph.lock.json`、`provenance.json` 和迁移顺序只能由对应 compiler pass 或显式治理 workflow 更新。
+- `project/generated/**` 中的 runtime 生成物、`project/src/installed/**`、`control/state/graph.lock.json`、`control/provenance/provenance.json`、`control/evidence/**`、`control/graph/**`、`control/workflow/**` 和迁移顺序只能由对应 compiler pass 或显式治理 workflow 更新。
+- Workbench/IDE 若要改变 `source/app.yaml`，应先写 `source/views/mutations/*.json`，再通过 `platform workbench mutations apply` 生成 `control/workflow/view-mutation-report.json`；不得把普通 AI task envelope 扩大成直接写控制面或生成目标层。
 - 如果修复需要改变规格、验收、policy 或 block 选择，应返回 Spec Issue / Composition Issue，而不是扩大当前 envelope。
 
 ### `v0.1` 默认允许路径
 
-- `source/slots/customer_normalizer.ts`：默认开发者源码 slot。
+- `source/code/slots/customer_normalizer.ts`：默认开发者源码 slot。
 - `custom/customer_normalizer.ts`：无 `sourcePath` 时的兼容写入目标；声明 `sourcePath` 后仅由 compiler 物化。
 
 ### `v0.2+` 扩展允许路径
 
-- `overrides/*`
-- repair envelope 中列出的局部业务文件
+- `source/patches/*`
+- `source/code/{app,server,ui,shared,integrations,opaque}/*` 中由 envelope 明确列出的局部业务文件
+- 兼容期 `project/overrides/*` 或 `project/custom/*`，但只能在无 sourcePath 或显式治理 workflow 下写入
 
 ## 5. Prompt / Context 组装
 

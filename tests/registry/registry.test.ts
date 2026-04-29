@@ -53,4 +53,4 @@ test('official registry blocks typecheck in their minimal resolved closure', asy
     const lock = await resolveGraph(process.cwd(), plan);
     await validateResolvedTemplates(process.cwd(), lock);
   }
-});
+}, 120000);

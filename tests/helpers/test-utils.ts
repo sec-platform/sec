@@ -23,6 +23,7 @@ import {
 import {
   addBlock,
   adaptWorkspace,
+  applyWorkbenchMutations,
   composeWorkspace,
   explainWorkspace,
   initWorkspace,
@@ -33,10 +34,20 @@ import {
   verifyWorkspace,
   writeWorkspaceArtifacts
 } from '../../platform/orchestrator.ts';
-import { parseArtifactsArgs, parseDoctorArgs, parseExplainArgs, parseLockArgs, parseRepairArgs, parseResetArg, parseUpgradeArgs, parseVerifyArgs } from '../../platform/cli/args.ts';
+import {
+  parseArtifactsArgs,
+  parseDoctorArgs,
+  parseExplainArgs,
+  parseLockArgs,
+  parseRepairArgs,
+  parseResetArg,
+  parseUpgradeArgs,
+  parseVerifyArgs,
+  parseWorkbenchArgs
+} from '../../platform/cli/args.ts';
 import { loadManifestById } from '../../platform/compiler/parse/load-manifest.ts';
 import { loadPlan } from '../../platform/compiler/parse/load-plan.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspacePlanPath } from '../../platform/shared/paths.ts';
 import { pathExists, readJson } from '../../platform/shared/fs.ts';
 import {
   artifactUploadPathSummary,
@@ -55,6 +66,7 @@ import type { ExplainGraph } from '../../platform/shared/explain-types.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
 import type { RepairPlan } from '../../platform/shared/repair-types.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../platform/shared/upgrade-types.ts';
+import type { ViewMutationReport } from '../../platform/compiler/workbench/apply-view-mutations.ts';
 import { ADD_USAGE, USAGE } from '../../platform/cli/usage.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
@@ -139,6 +151,17 @@ function assertNoArgs(command: string, args: string[]): void {
   }
 }
 
+function formatWorkbenchMutationReport(report: ViewMutationReport): string {
+  const lines = [
+    `Workbench mutations ${report.status}; files=${report.mutationFileCount}; applied=${report.appliedCount}; skipped=${report.skippedCount}`,
+    `Source root: ${report.sourceRoot}; target: ${report.targetPath}`
+  ];
+  for (const mutation of report.mutations) {
+    lines.push(`Mutation ${mutation.id}: ${mutation.kind}; ${mutation.status}; ${mutation.detail}`);
+  }
+  return lines.join('\n');
+}
+
 export async function runCliInProcess(workspaceRoot: string, args: string[]): Promise<CliResult> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
@@ -161,8 +184,7 @@ export async function runCliInProcess(workspaceRoot: string, args: string[]): Pr
       case 'add': {
         if (commandArgs.length !== 1) throw new Error(ADD_USAGE);
         await addBlock(workspaceRoot, commandArgs[0]);
-        const { planPath } = getWorkspacePaths(workspaceRoot);
-        const plan = await loadPlan(planPath);
+        const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
         const manifestEntry = await loadManifestById(commandArgs[0], {
           workspaceRoot,
           version: plan.blocks.find((b) => b.id === commandArgs[0])?.version,
@@ -332,6 +354,16 @@ export async function runCliInProcess(workspaceRoot: string, args: string[]): Pr
       case 'contract':
         await runContractCommand(commandArgs);
         break;
+      case 'workbench': {
+        const workbenchArgs = parseWorkbenchArgs(commandArgs);
+        const report = await applyWorkbenchMutations(workspaceRoot);
+        if (workbenchArgs.json) {
+          console.log(JSON.stringify(report, null, workbenchArgs.compact ? 0 : 2));
+        } else {
+          console.log(formatWorkbenchMutationReport(report));
+        }
+        break;
+      }
       case 'install':
         await runInstallCommand(commandArgs, workspaceRoot);
         break;

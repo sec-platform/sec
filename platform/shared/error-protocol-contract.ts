@@ -86,6 +86,11 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
     message: 'Override "manual-auth-session-hotfix" conflicts with upgrade of "auth/basic-session"'
   },
   {
+    id: 'workbench-mutation-error',
+    code: 'WORKBENCH-MUTATION-002',
+    message: 'rename.sourcePath must stay under source/code/slots/**'
+  },
+  {
     id: 'kernel-error',
     code: 'KERNEL-FAILED',
     message: 'Kernel failure'

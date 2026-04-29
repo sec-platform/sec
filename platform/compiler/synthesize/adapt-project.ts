@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { applyOverrides } from '../compose/apply-overrides.ts';
 import { buildTaskEnvelope } from './build-task-envelope.ts';
@@ -21,7 +21,7 @@ function rebaseRelativeImports(source: string, fromFile: string, toFile: string)
 }
 
 export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: LockFile): Promise<LockFile> {
-  const { projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
 
   if (lock.passStatus.compose !== 'succeeded') {
     throw new CompilerError('SLOT-WRITE-003', 'compose must succeed before adapt');
@@ -32,8 +32,8 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
       continue;
     }
     const envelope = buildTaskEnvelope(plan, lock, task);
-    const targetPath = path.join(projectRoot, task.target);
-    const sourcePath = task.sourcePath ? path.join(projectRoot, task.sourcePath) : targetPath;
+    const targetPath = resolveWorkspaceArtifactPath(workspaceRoot, task.target);
+    const sourcePath = task.sourcePath ? resolveWorkspaceArtifactPath(workspaceRoot, task.sourcePath) : targetPath;
     const authoredSource = await fs.readFile(sourcePath, 'utf8').catch(async (error: unknown) => {
       if (error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT') {
         const synthesizedSource = synthesizeSlotSource(envelope);
@@ -43,7 +43,7 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
       }
       throw error;
     });
-    const runtimeSource = task.sourcePath ? rebaseRelativeImports(authoredSource, task.sourcePath, task.target) : authoredSource;
+    const runtimeSource = task.sourcePath ? rebaseRelativeImports(authoredSource, task.sourcePath, toProjectRuntimePath(task.target)) : authoredSource;
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, runtimeSource, 'utf8');
     task.status = 'filled';

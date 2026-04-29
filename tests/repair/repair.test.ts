@@ -159,7 +159,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     expect(persistedRepairPlan.requiresVerification).toBe(true);
     expect(persistedRepairPlan.tasks[0].category).toBe('slot-rewrite');
     expect(persistedLock.slotTasks[0].status).toBe('filled');
-    expect(persistedLock.generatedPaths).toContain('generated/repair-plan.json');
+    expect(persistedLock.generatedPaths).toContain('control/workflow/repair-plan.json');
     expect(persistedRepairPlan.tasks[0].failurePoints).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -195,7 +195,7 @@ test('repair dry-run writes a pending plan without touching source or verificati
     expect(persistedLock.passStatus.verify).toBe('failed');
     expect(persistedLock.passStatus.repair).toBe('pending');
     expect(persistedLock.slotTasks[0].status).toBe('failed');
-    expect(persistedLock.generatedPaths).toContain('generated/repair-plan.json');
+    expect(persistedLock.generatedPaths).toContain('control/workflow/repair-plan.json');
     expect(persistedRepairPlan).toEqual(repairPlan);
   });
 });
@@ -267,7 +267,7 @@ test('repair CLI reports dry-run plans without applying them', async () => {
   });
 });
 
-test('repair blocks targets that escape the project root before writing source', async () => {
+test('repair blocks targets that escape the workspace root before writing source', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
     const fixtureLock = lock();
@@ -283,8 +283,8 @@ test('repair blocks targets that escape the project root before writing source',
           phase: 'repair',
           sourceSlotId: 'customer_normalizer',
           targetBlock: 'entity/customer-basic',
-          targetFile: '../outside.ts',
-          allowedPaths: ['../outside.ts'],
+          targetFile: '../../outside.ts',
+          allowedPaths: ['../../outside.ts'],
           requiredSymbols: ['normalizeCustomerInput'],
           forbiddenOperations: [],
           testsToPass: [],
@@ -304,8 +304,8 @@ test('repair blocks targets that escape the project root before writing source',
     };
 
     await expect(applyRepairPlan(workspaceRoot, plan(), fixtureLock, repairPlan)).rejects.toThrow(
-      'Repair target "../outside.ts" escapes project root'
+      'Repair target "../../outside.ts" escapes workspace root'
     );
-    await expect(fs.readFile(path.join(workspaceRoot, 'outside.ts'), 'utf8')).rejects.toThrow();
+    await expect(fs.readFile(path.resolve(workspaceRoot, '..', 'outside.ts'), 'utf8')).rejects.toThrow();
   });
 });

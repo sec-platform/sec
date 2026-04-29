@@ -139,9 +139,9 @@ describe('test budget and benchmark contracts', () => {
       "id: 'add-block'",
       "command: 'npm run demo:quickstart'",
       "id: 'repair-slot'",
-      "project/generated/repair-plan.json",
+      "control/workflow/repair-plan.json",
       "id: 'override-conflict'",
-      "project/generated/upgrade-diagnostics.json"
+      "control/workflow/upgrade-diagnostics.json"
     ]);
   });
 
@@ -151,7 +151,7 @@ describe('test budget and benchmark contracts', () => {
     expectContainsAll(source, [
       "command: 'npm run platform -- reference check --json'",
       "runnerCommand: 'npm run reference:check'",
-      "['diff', '--name-only', '--exit-code', '--', 'project']",
+      "['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']",
       "['run', 'reference:refresh']",
       "failedStage: ReferenceCheckFailedStage"
     ]);
@@ -228,7 +228,7 @@ describe('error protocol and developer contracts', () => {
       'platform reference check --json [--compact]',
       'failedStage',
       'platform benchmark suite --json [--compact]',
-      'project/generated/review-summary.json'
+      'control/evidence/review-summary.json'
     ]);
   });
 
@@ -252,6 +252,9 @@ describe('error protocol and developer contracts', () => {
       'npm run platform -- provenance registry --json --compact',
       'npm run platform -- review summary --json --compact',
       'npm run platform -- review diagnostics --json --compact',
+      'npm run platform -- workbench mutations apply --json --compact',
+      'source/views/mutations/*.json',
+      'control/workflow/view-mutation-report.json',
       'npm run platform -- repair --dry-run --json --compact',
       'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
       'npm run platform -- test budget --json --compact',
@@ -259,7 +262,7 @@ describe('error protocol and developer contracts', () => {
       'npm run platform -- reference check --json --compact',
       'npm run platform -- benchmark suite --json --compact',
       'Governance contract freeze currently covers:',
-      'project/generated/explain-graph.json'
+      'control/graph/explain-graph.json'
     ]);
   });
 

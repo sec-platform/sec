@@ -30,7 +30,7 @@ export async function buildReferenceCheckReport(options: {
   const root = options.root ?? compilerRoot;
   const commandRunner = options.commandRunner ?? runCommand;
   const refreshArgs = ['run', 'reference:refresh'];
-  const diffArgs = ['diff', '--name-only', '--exit-code', '--', 'project'];
+  const diffArgs = ['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control'];
   const refreshInvocation = resolveNpmInvocation(refreshArgs);
   const refreshResult = await commandRunner(refreshInvocation.command, refreshInvocation.args, {
     cwd: root
@@ -65,7 +65,7 @@ export async function buildReferenceCheckReport(options: {
     runnerCommand: 'npm run reference:check',
     refreshCommand: 'npm run reference:refresh',
     refreshExitCode: refreshResult.code,
-    diffCommand: 'git diff --name-only --exit-code -- project',
+    diffCommand: 'git diff --name-only --exit-code -- source project control',
     diffExitCode: diffResult.code,
     changedPathCount: changedPaths.length,
     changedPaths,
@@ -73,7 +73,7 @@ export async function buildReferenceCheckReport(options: {
       status === 'clean'
         ? 'none'
         : status === 'drifted'
-          ? 'inspect-project-drift-and-refresh-reference'
+          ? 'inspect-workspace-drift-and-refresh-reference'
           : status === 'refresh-failed'
             ? 'fix-reference-refresh-before-reference-check'
             : 'inspect-git-diff-command'

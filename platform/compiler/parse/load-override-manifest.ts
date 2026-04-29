@@ -6,7 +6,7 @@ import { readYaml } from '../../shared/yaml.ts';
 import type { OverrideApplyPhase, OverrideEntry, OverrideManifest } from '../../shared/provenance-types.ts';
 
 const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
-const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/'];
+const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/', 'control/', 'source/', '.pjc/'];
 const BLOCKED_OVERRIDE_TARGETS = new Set(['app.plan.yaml', 'graph.lock.json', 'provenance.json', 'package.json', 'tsconfig.json']);
 
 function normalizeOverrideEntry(entry: Partial<OverrideEntry>): OverrideEntry {
@@ -45,7 +45,7 @@ export function validateOverrideManifest(manifest: OverrideManifest): OverrideMa
     if (!entry.entry.startsWith('patches/') && !entry.entry.startsWith('rules/') && !entry.entry.startsWith('manifests/')) {
       throw new CompilerError(
         'OVERRIDE-SCHEMA-004',
-        `Override "${entry.id}" entry must be under overrides/patches, overrides/rules, or overrides/manifests`
+        `Override "${entry.id}" entry must be under patches/, rules/, or manifests/`
       );
     }
     if (BLOCKED_OVERRIDE_TARGETS.has(entry.target) || BLOCKED_OVERRIDE_TARGET_PREFIXES.some((prefix) => entry.target.startsWith(prefix))) {
@@ -63,9 +63,12 @@ export function validateOverrideManifest(manifest: OverrideManifest): OverrideMa
 }
 
 export async function resolveOverrideManifestPath(workspaceRoot: string): Promise<string> {
-  const { overrideManifestPath, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
-  const sourceOverrideManifestPath = path.join(sourceOverridesRoot, 'override-manifest.yaml');
-  return (await pathExists(sourceOverrideManifestPath)) ? sourceOverrideManifestPath : overrideManifestPath;
+  const { overrideManifestPath, legacyOverrideManifestPath, legacySourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
+  if (await pathExists(overrideManifestPath)) {
+    return overrideManifestPath;
+  }
+  const legacySourceOverrideManifestPath = path.join(legacySourceOverridesRoot, 'override-manifest.yaml');
+  return (await pathExists(legacySourceOverrideManifestPath)) ? legacySourceOverrideManifestPath : legacyOverrideManifestPath;
 }
 
 export async function loadOverrideManifest(workspaceRoot: string): Promise<OverrideManifest> {

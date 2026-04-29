@@ -515,9 +515,9 @@ test('writeExplainGraph does not require a policy report', async () => {
   expect(graph.nodes.some((node) => node.type === 'policy')).toBe(false);
   expect(writtenGraph.nodes).toEqual(graph.nodes);
   expect(writtenLock.generatedPaths).toEqual(
-    expect.arrayContaining(['generated/explain-graph.json', 'provenance.json'])
+    expect.arrayContaining(['control/graph/explain-graph.json', 'control/provenance/provenance.json'])
   );
   expect(writtenProvenance.artifacts.map((artifact) => artifact.path)).toEqual(
-    expect.arrayContaining(['generated/explain-graph.json', 'provenance.json'])
+    expect.arrayContaining(['control/graph/explain-graph.json', 'control/provenance/provenance.json'])
   );
 });

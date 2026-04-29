@@ -13,7 +13,7 @@ import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-
 import { verifyProject } from '../compiler/verify/verify-project.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
-import { getWorkspacePaths } from '../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import type {
@@ -1409,7 +1409,7 @@ async function writeUpgradeDiagnostics(
   if (!lock) {
     return;
   }
-  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'generated/upgrade-diagnostics.json');
+  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'control/workflow/upgrade-diagnostics.json');
 }
 
 function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Record<string, number> {
@@ -1588,15 +1588,91 @@ function buildUpgradePlan(
   };
 }
 
+const VOLATILE_PROJECT_SNAPSHOT_ENTRIES = new Set(['node_modules', '.next', 'test-results', 'playwright-report', 'coverage']);
+
+function isMissingPathError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+async function copyProjectSnapshot(source: string, target: string): Promise<void> {
+  let stat: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stat = await fs.stat(source);
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return;
+    }
+    throw error;
+  }
+
+  if (stat.isDirectory()) {
+    await ensureDir(target);
+    let entries: string[];
+    try {
+      entries = await fs.readdir(source);
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        return;
+      }
+      throw error;
+    }
+    for (const entry of entries) {
+      if (VOLATILE_PROJECT_SNAPSHOT_ENTRIES.has(entry)) {
+        continue;
+      }
+      await copyProjectSnapshot(path.join(source, entry), path.join(target, entry));
+    }
+    return;
+  }
+
+  await ensureDir(path.dirname(target));
+  try {
+    await fs.copyFile(source, target);
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function removeProjectSnapshotContents(projectRoot: string): Promise<void> {
+  if (!(await pathExists(projectRoot))) {
+    return;
+  }
+
+  const entries = await fs.readdir(projectRoot);
+  for (const entry of entries) {
+    if (VOLATILE_PROJECT_SNAPSHOT_ENTRIES.has(entry)) {
+      continue;
+    }
+    await removeDir(path.join(projectRoot, entry));
+  }
+}
+
 async function snapshotProject(projectRoot: string): Promise<string> {
   const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-'));
-  await copyRecursive(projectRoot, backupRoot);
+  await copyProjectSnapshot(projectRoot, backupRoot);
   return backupRoot;
 }
 
 async function restoreProject(projectRoot: string, backupRoot: string): Promise<void> {
-  await removeDir(projectRoot);
-  await copyRecursive(backupRoot, projectRoot);
+  await ensureDir(projectRoot);
+  await removeProjectSnapshotContents(projectRoot);
+  await copyProjectSnapshot(backupRoot, projectRoot);
+}
+
+async function snapshotTextFile(filePath: string): Promise<string | null> {
+  return (await pathExists(filePath)) ? fs.readFile(filePath, 'utf8') : null;
+}
+
+async function restoreTextFile(filePath: string, snapshot: string | null): Promise<void> {
+  if (snapshot === null) {
+    await removeDir(filePath);
+    return;
+  }
+  await ensureDir(path.dirname(filePath));
+  await fs.writeFile(filePath, snapshot, 'utf8');
 }
 
 export async function upgradeWorkspace(
@@ -1606,8 +1682,9 @@ export async function upgradeWorkspace(
   options: { dryRun?: boolean } = {}
 ): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
   const { projectRoot, planPath, lockPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
-  const existingLock = (await pathExists(lockPath)) ? await readJson<LockFile>(lockPath) : null;
+  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
+  const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
+  const existingLock = (await pathExists(readableLockPath)) ? await readJson<LockFile>(readableLockPath) : null;
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
   let targetManifestRoot = '';
   let migrationEntries: UpgradeMigrationEntry[] = [];
@@ -1673,13 +1750,15 @@ export async function upgradeWorkspace(
     throw error;
   }
   if (options.dryRun) {
-    const lock = await readJson<LockFile>(lockPath);
+    const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
     await writeJson(upgradePlanPath, upgradePlan);
-    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'generated/upgrade-plan.json');
+    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'control/workflow/upgrade-plan.json');
     return { plan, lock, upgradePlan };
   }
 
   const backupRoot = await snapshotProject(projectRoot);
+  const planSnapshot = await snapshotTextFile(planPath);
+  const lockSnapshot = await snapshotTextFile(lockPath);
   await writeJson(upgradePlanPath, upgradePlan);
 
   try {
@@ -1692,21 +1771,23 @@ export async function upgradeWorkspace(
     await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
 
     await composeProject(workspaceRoot, lock);
-    lock = await readJson<LockFile>(lockPath);
+    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
     await adaptProject(workspaceRoot, plan, lock);
-    lock = await readJson<LockFile>(lockPath);
+    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
     await verifyProject(workspaceRoot, lock);
-    lock = await readJson<LockFile>(lockPath);
+    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
     await lockProject(workspaceRoot, lock);
-    lock = await readJson<LockFile>(lockPath);
+    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
 
-    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'generated/upgrade-plan.json');
+    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, 'control/workflow/upgrade-plan.json');
 
     upgradePlan.status = 'applied';
     await writeJson(upgradePlanPath, upgradePlan);
     return { plan, lock, upgradePlan };
   } catch (error) {
     await restoreProject(projectRoot, backupRoot);
+    await restoreTextFile(planPath, planSnapshot);
+    await restoreTextFile(lockPath, lockSnapshot);
     if (error instanceof CompilerError) {
       const rollbackError = withRollbackDiagnostics(error);
       await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'apply', rollbackError, existingLock);

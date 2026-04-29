@@ -103,18 +103,18 @@ policies:
 
 ## 5. Provenance 模型
 
-### `provenance.json`
+### `control/provenance/provenance.json`
 
 ```json
 {
   "formatVersion": "1",
   "artifacts": [
     {
-      "path": "source/slots/customer_normalizer.ts",
+      "path": "source/code/slots/customer_normalizer.ts",
       "originType": "slot",
       "originId": "customer_normalizer",
       "sourceBlock": "entity/customer-basic",
-      "sourcePath": "source/slots/customer_normalizer.ts",
+      "sourcePath": "source/code/slots/customer_normalizer.ts",
       "runtimeTarget": "custom/customer_normalizer.ts",
       "generatedByPass": "adapt",
       "generatorTaskId": "fill_slot_customer_normalizer",
@@ -129,7 +129,7 @@ policies:
       "originType": "slot",
       "originId": "customer_normalizer",
       "sourceBlock": "entity/customer-basic",
-      "sourcePath": "source/slots/customer_normalizer.ts",
+      "sourcePath": "source/code/slots/customer_normalizer.ts",
       "runtimeTarget": "custom/customer_normalizer.ts",
       "generatedByPass": "adapt",
       "generatorTaskId": "fill_slot_customer_normalizer",
@@ -307,12 +307,12 @@ Review 不应只比较源码 diff；平台应从同一批 governance artifact �
 ## 10. `v0.1` 最低要求
 
 - 输出 `verification-report.json`
-- `graph.lock.json` 中记录 slot task 与 generated paths
+- `control/state/graph.lock.json` 中记录 slot task 与 generated paths
 - 主验收链路至少覆盖三块和单槽位的主路径
 
 ## 11. `v0.2` 必须补齐
 
-- `provenance.json`
+- `control/provenance/provenance.json`
 - `platform explain`
 - `Acceptance Coverage Graph`
 - policy violations 报告

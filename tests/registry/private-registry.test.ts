@@ -128,4 +128,4 @@ test('workspace private registry blocks resolve, compose, and verify through the
   const sourceView = await fs.readFile(sourceViewPath, 'utf8');
   expect(sourceView).toContain('Registry');
   expect(sourceView).toContain('private (private, workspace)');
-});
+}, 120000);

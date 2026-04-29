@@ -182,17 +182,17 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     taskCount: 5,
     artifactPathCount: 11,
     artifactPaths: [
-      'project/generated/acceptance-coverage.json',
-      'project/generated/explain-graph.json',
-      'project/generated/policy-report.json',
-      'project/generated/repair-plan.json',
-      'project/generated/review-summary.json',
-      'project/generated/upgrade-diagnostics.json',
-      'project/generated/upgrade-plan.json',
-      'project/generated/verification-report.json',
-      'project/graph.lock.json',
-      'project/overrides/override.manifest.yaml',
-      'project/provenance.json'
+      'control/evidence/acceptance-coverage.json',
+      'control/evidence/policy-report.json',
+      'control/evidence/review-summary.json',
+      'control/evidence/verification-report.json',
+      'control/graph/explain-graph.json',
+      'control/provenance/provenance.json',
+      'control/state/graph.lock.json',
+      'control/workflow/repair-plan.json',
+      'control/workflow/upgrade-diagnostics.json',
+      'control/workflow/upgrade-plan.json',
+      'source/patches/override-manifest.yaml'
     ],
     tasks: expect.arrayContaining([
       expect.objectContaining({
@@ -201,9 +201,9 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         command: 'npm run demo:quickstart',
         artifactPathCount: 4,
         artifactPaths: expect.arrayContaining([
-          'project/graph.lock.json',
-          'project/generated/verification-report.json',
-          'project/generated/explain-graph.json'
+          'control/state/graph.lock.json',
+          'control/evidence/verification-report.json',
+          'control/graph/explain-graph.json'
         ]),
         scoreFocusCount: 3,
         scoreFocus: ['success-rate', 'files-touched', 'verification-status']
@@ -214,8 +214,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         command: 'npm run platform -- repair --dry-run --json --compact',
         artifactPathCount: 3,
         artifactPaths: expect.arrayContaining([
-          'project/generated/repair-plan.json',
-          'project/provenance.json'
+          'control/workflow/repair-plan.json',
+          'control/provenance/provenance.json'
         ]),
         scoreFocusCount: 3,
         scoreFocus: ['repairability', 'attempt-count', 'verification-status']
@@ -226,8 +226,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
         command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
         artifactPathCount: 3,
         artifactPaths: expect.arrayContaining([
-          'project/overrides/override.manifest.yaml',
-          'project/generated/upgrade-diagnostics.json'
+          'source/patches/override-manifest.yaml',
+          'control/workflow/upgrade-diagnostics.json'
         ]),
         scoreFocusCount: 2,
         scoreFocus: ['conflict-detection', 'machine-recoverability']
@@ -252,11 +252,11 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     expect(textResult.stdout).toContain('Artifact paths: 11');
     expect(textResult.stdout).toContain('Score dimension count: 9');
     expect(textResult.stdout).toContain(
-      'Artifact path list: project/generated/acceptance-coverage.json, project/generated/explain-graph.json, project/generated/policy-report.json, project/generated/repair-plan.json, project/generated/review-summary.json, project/generated/upgrade-diagnostics.json, project/generated/upgrade-plan.json, project/generated/verification-report.json, project/graph.lock.json, project/overrides/override.manifest.yaml, project/provenance.json'
+      'Artifact path list: control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, control/state/graph.lock.json, control/workflow/repair-plan.json, control/workflow/upgrade-diagnostics.json, control/workflow/upgrade-plan.json, source/patches/override-manifest.yaml'
     );
     expect(textResult.stdout).toContain('Task override-conflict: surface one override conflict during upgrade planning');
     expect(textResult.stdout).toContain('command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact');
-    expect(textResult.stdout).toContain('artifactCount=3; artifacts=project/overrides/override.manifest.yaml, project/generated/upgrade-diagnostics.json, project/generated/review-summary.json');
+    expect(textResult.stdout).toContain('artifactCount=3; artifacts=source/patches/override-manifest.yaml, control/workflow/upgrade-diagnostics.json, control/evidence/review-summary.json');
     expect(textResult.stdout).toContain('scoreFocusCount=2; score=conflict-detection, machine-recoverability');
 
     const jsonResult = await runCli(workspaceRoot, ['benchmark', 'suite', '--json']);
@@ -269,9 +269,9 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       taskCount: 5,
       artifactPathCount: 11,
       artifactPaths: expect.arrayContaining([
-        'project/generated/review-summary.json',
-        'project/generated/upgrade-plan.json',
-        'project/provenance.json'
+        'control/evidence/review-summary.json',
+        'control/workflow/upgrade-plan.json',
+        'control/provenance/provenance.json'
       ]),
       tasks: expect.arrayContaining([
         expect.objectContaining({ id: 'add-block', artifactPathCount: 4, scoreFocusCount: 3 }),

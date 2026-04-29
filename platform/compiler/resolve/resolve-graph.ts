@@ -231,8 +231,8 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     slotTasks: buildSlotTasks(plan, manifestMap),
     generatedPaths: [
       'generated/routes.ts',
-      'generated/block-usage-map.json',
-      'generated/install-manifest.json'
+      'control/evidence/block-usage-map.json',
+      'control/evidence/install-manifest.json'
     ],
     acceptancePlan: plan.acceptance.map((entry) => entry.id),
     passStatus: {

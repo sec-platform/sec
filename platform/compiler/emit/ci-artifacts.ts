@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathExists, readJson } from '../../shared/fs.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 
@@ -47,31 +47,32 @@ export interface CiArtifactMissingEntry {
 
 export interface CiArtifactManifest {
   formatVersion: '1';
-  root: 'project';
+  root: 'workspace';
   summary: CiArtifactSummary;
   artifacts: CiArtifactEntry[];
   uploadGroups: CiArtifactUploadGroup[];
   missing: CiArtifactMissingEntry[];
 }
 
-const CI_ARTIFACT_PATH = 'generated/ci-artifacts.json';
+const CI_ARTIFACT_PATH = 'control/ci/artifacts.json';
 
 const REQUIRED_GOVERNANCE_ARTIFACTS = [
-  'graph.lock.json',
-  'provenance.json',
-  'generated/install-manifest.json',
-  'generated/verification-report.json',
-  'generated/runtime-report.json',
-  'generated/policy-report.json',
-  'generated/acceptance-coverage.json',
-  'generated/explain-graph.json',
-  'generated/review-summary.json'
+  'control/state/graph.lock.json',
+  'control/provenance/provenance.json',
+  'control/evidence/install-manifest.json',
+  'control/evidence/verification-report.json',
+  'control/evidence/runtime-report.json',
+  'control/evidence/policy-report.json',
+  'control/evidence/acceptance-coverage.json',
+  'control/graph/explain-graph.json',
+  'control/evidence/review-summary.json'
 ];
 
 const OPTIONAL_GOVERNANCE_ARTIFACTS = [
-  'generated/repair-plan.json',
-  'generated/upgrade-plan.json',
-  'generated/upgrade-diagnostics.json'
+  'control/workflow/repair-plan.json',
+  'control/workflow/upgrade-plan.json',
+  'control/workflow/upgrade-diagnostics.json',
+  'control/workflow/view-mutation-report.json'
 ];
 
 const GOVERNANCE_ARTIFACTS = [
@@ -80,8 +81,8 @@ const GOVERNANCE_ARTIFACTS = [
 ];
 
 const VIEW_ARTIFACTS = [
-  'generated/views/source-view.html',
-  'generated/views/slot-rule-view.html'
+  'control/workbench/views/source-view.html',
+  'control/workbench/views/slot-rule-view.html'
 ];
 
 const TEST_ARTIFACTS = [
@@ -113,7 +114,7 @@ function artifactKindFor(artifactPath: string): CiArtifactKind {
   if (isContractArtifactPath(artifactPath)) {
     return 'contract';
   }
-  if (artifactPath.startsWith('generated/views/')) {
+  if (artifactPath.startsWith('control/workbench/views/') || artifactPath.startsWith('generated/views/')) {
     return 'view';
   }
   if (artifactPath.startsWith('test-results/')) {
@@ -160,16 +161,15 @@ function countMissingReasonTypes(
 }
 
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(lockPath))) {
+  const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
+  if (!(await pathExists(readableLockPath))) {
     return { paths: [], lockExists: false };
   }
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await readJson<LockFile>(readableLockPath);
   return { paths: lock.generatedPaths, lockExists: true };
 }
 
 export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const generatedPathResult = await readGeneratedPaths(workspaceRoot);
   const artifacts = uniqueSorted([
     CI_ARTIFACT_PATH,
@@ -186,8 +186,8 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
 
   for (const artifactPath of artifacts) {
     const exists = artifactPath.endsWith('/**')
-      ? await pathExists(path.join(projectRoot, artifactPath.slice(0, -3)))
-      : await pathExists(path.join(projectRoot, artifactPath));
+      ? await pathExists(resolveWorkspaceArtifactPath(workspaceRoot, artifactPath.slice(0, -3)))
+      : await pathExists(resolveWorkspaceArtifactPath(workspaceRoot, artifactPath));
     if (generatedPathResult.lockExists && requiredGovernanceArtifacts.has(artifactPath) && !exists) {
       missing.push({
         path: artifactPath,
@@ -226,7 +226,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   const missingReasonCounts = buildMissingReasonCounts(sortedMissing);
   return {
     formatVersion: '1',
-    root: 'project',
+    root: 'workspace',
     summary: {
       artifactStatus: sortedMissing.length > 0 ? 'attention' : 'passed',
       artifactCount: entries.length,
@@ -248,7 +248,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
 
 export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
   if (!lock.generatedPaths.includes(CI_ARTIFACT_PATH)) {
     lock.generatedPaths.push(CI_ARTIFACT_PATH);
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
@@ -260,7 +260,7 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     `${JSON.stringify(
       {
         formatVersion: '1',
-        root: 'project',
+        root: 'workspace',
         summary: {
           artifactStatus: 'passed',
           artifactCount: 0,

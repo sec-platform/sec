@@ -373,10 +373,10 @@
 
 ## 数据与文件约定
 
-### 1. `app.plan.yaml`
+### 1. `source/app.yaml`
 
-- 角色：开发者编写的工程规格。
-- 所在位置：项目根目录。
+- 角色：开发者编写的工程规格，是顶层 source layer 的入口。
+- 所在位置：workspace 顶层 `source/app.yaml`；`project/app.plan.yaml` 只作为旧 v0.1 兼容入口。
 - `v0.1` 必填字段：
 
 ```yaml
@@ -394,7 +394,7 @@ registry:
     - id: source-private
       kind: private
       location: workspace
-      path: project/source/registry/private
+      path: source/blocks/private
     - id: private
       kind: private
       location: workspace
@@ -410,7 +410,7 @@ slots:
     block: entity/customer-basic
     kind: adapter
     target: custom/customer_normalizer.ts
-    sourcePath: source/slots/customer_normalizer.ts
+    sourcePath: source/code/slots/customer_normalizer.ts
     symbol: normalizeCustomerInput
     description: |
       customer name 必填；
@@ -498,10 +498,10 @@ upgrade:
   migrations: []
 ```
 
-### 3. `graph.lock.json`
+### 3. `control/state/graph.lock.json`
 
 - 角色：记录解析出的装配图、安装顺序、待执行任务和预留来源信息。
-- 所在位置：项目根目录。
+- 所在位置：`control/state/graph.lock.json`；旧 `project/graph.lock.json` 只作为兼容历史路径。
 - `v0.1` 最小结构：
 
 ```json
@@ -538,9 +538,9 @@ upgrade:
       "id": "customer_normalizer",
       "block": "entity/customer-basic",
       "target": "custom/customer_normalizer.ts",
-      "sourcePath": "source/slots/customer_normalizer.ts",
+      "sourcePath": "source/code/slots/customer_normalizer.ts",
       "status": "pending",
-      "writableZones": ["source/slots/customer_normalizer.ts", "custom/"],
+      "writableZones": ["source/code/slots/customer_normalizer.ts", "custom/"],
       "provenance": {
         "generator": null,
         "verifiedBy": []
@@ -549,7 +549,8 @@ upgrade:
   ],
   "generatedPaths": [
     "generated/routes.ts",
-    "generated/block-usage-map.json"
+    "control/evidence/block-usage-map.json",
+    "control/evidence/install-manifest.json"
   ],
   "acceptancePlan": [
     "user_can_login",
@@ -560,11 +561,11 @@ upgrade:
 }
 ```
 
-### 4. `provenance.json`
+### 4. `control/provenance/provenance.json`
 
-- 角色：从 `v0.2` 起承载完整来源追踪。
-- 所在位置：项目根目录。
-- 状态：`v0.1` 保留为预留接口，不强制输出。
+- 角色：承载完整来源追踪，连接 source authoring、project runtime materialization、control evidence 和验证结果。
+- 所在位置：`control/provenance/provenance.json`；旧 `project/provenance.json` 只作为兼容历史路径。
+- 状态：`v0.1` 已作为治理闭环产物输出，必须由 lock/provenance pass 维护。
 
 ### 5. 目录约定
 
@@ -586,43 +587,97 @@ platform/
   policies/
   upgrade/
 
+source/
+  app.yaml
+  code/
+    slots/
+    app/
+    server/
+    ui/
+    shared/
+    integrations/
+    opaque/
+    lab/
+  model/
+    policies/
+    acceptance/
+    capabilities/
+    entities/
+    flows/
+    permissions/
+  patches/
+    rules/
+    patches/
+    manifests/
+  blocks/private/
+  assets/
+  views/
+    mutations/
+  env/
+
 project/
-  app.plan.yaml
-  graph.lock.json
-  provenance.json
+  app/
+  components/
+  lib/
   src/
   prisma/
   tests/
   generated/
   custom/
-  overrides/
+
+control/
+  state/graph.lock.json
+  evidence/
+  provenance/provenance.json
+  graph/explain-graph.json
+  workflow/
+    view-mutation-report.json
+  workbench/views/
+  audit/
+  ci/
+
+.pjc/
+  cache/
+  tmp/
+  indexes/
+  test-workspaces/
+  generated-preview/
+  ai-sessions/
 ```
 
-- `app.plan.yaml` 默认同时声明两个 registry source：
-  - `official`：编译器内置官方块目录
-  - `private`：当前 workspace 下的 `platform/registry/private`
-- `overrides/` 默认包含 `override-manifest.yaml`、`patches/`、`rules/`、`manifests/`。
+- `source/app.yaml` 默认声明三个 registry source：
+  - `official`：编译器内置官方块目录 `platform/registry/official`
+  - `source-private`：当前 workspace 的 `source/blocks/private`
+  - `private`：兼容期私有 registry `platform/registry/private`
+- `source/patches/` 默认包含 `override-manifest.yaml`、`patches/`、`rules/`、`manifests/`。
+- `project/generated/**` 只保留 target runtime 实际导入或读取的生成物，例如 routes 和 runtime contract；治理证据、graph、provenance、workflow 与 Workbench view 不再落在 `project/generated/**`。
 
 ### 6. 对外开发环境边界
 
 - 对最终成品而言，`platform/` 是工具实现，不是普通项目开发者的工作区。
 - 普通项目开发者应通过 CLI、Workbench 或 IDE 插件进入外部开发环境；这些入口必须写入同一套 workspace 合同，而不是要求开发者进入平台源码目录。
-- 默认外部工作面应收敛为 `Developer Source Layer`：
-  - `project/app.plan.yaml`：v0.1 兼容入口，承载产品计划、块选择、slot、验收意图和 registry source。
-  - `project/source/slots/**`：项目自有 slot 实现与 AI 可写任务源码。
-  - `project/source/overrides/**`：受治理的 override、patch、rule 和 manifest。
-  - `project/source/policies/**`：项目策略输入。
-  - `project/source/acceptance/**`：项目级验收扩展和验收说明。
-  - `project/source/assets/**`：项目级设计、文案、示例数据、导入导出样例等非生成资产。
-  - `project/source/views/**`：Workbench/IDE 视图配置和导航偏好。
-  - `project/source/env/**`：环境声明、示例变量和本地配置模板。
-  - `project/source/registry/private/**`：长期私有 block 草稿和 workspace 私有 registry 目标区。
-- v0.1 兼容入口 `project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**` 可以继续读取或写入，但新能力应优先落到 `project/source/**`。
+- 默认外部工作面应收敛为 `Developer Source Layer`，即 workspace 顶层 `source/**`：
+  - `source/app.yaml`：承载产品计划、块选择、slot、验收意图和 registry source。
+  - `source/code/slots/**`：项目自有 slot 实现与 AI 可写任务源码。
+  - `source/code/{app,server,ui,shared,integrations}/**`：可被平台通过显式合同建模的个性化前后端代码。
+  - `source/code/opaque/**`：平台不重写内部逻辑，但治理入口、导出、输入输出、effects、权限、provenance 和 verification 的个性化代码。
+  - `source/code/lab/**`：临时实验区，发布前必须提升为 slot、app/server/ui/shared/integration code、patch 或 private block。
+  - `source/model/policies/**`、`source/model/acceptance/**`、`source/model/capabilities/**`、`source/model/entities/**`、`source/model/flows/**`、`source/model/permissions/**`：平台可理解的业务、数据流、权限流和验收事实源。
+  - `source/patches/**`：受治理的 override、patch、rule 和 manifest。
+  - `source/assets/**`：设计、文案、fixture、seed 和导入导出样例等非生成资产。
+  - `source/views/**`：Workbench/IDE 的双向视图规格；视图编辑必须先写入 `source/views/mutations/*.json`，再由 `platform workbench mutations apply` 回写到 `source/app.yaml`。
+  - `source/env/**`：环境声明、示例变量和本地配置模板。
+  - `source/blocks/private/**`：长期私有 block 草稿和 workspace 私有 registry 目标区。
+- 生成目标层是 `project/**`：运行时源码、安装块、runtime scaffold、runtime tests、`project/custom/**` 与被运行时消费的 `project/generated/**` 都可读可调试，但直接手改应被识别为 drift/override 并回收到 `source/model`、`source/views`、`source/code` 或 `source/patches`。
+- 控制面是 `control/**`：`state`、`evidence`、`provenance`、`graph`、`workflow`、`workbench`、`audit`、`ci` 都属于项目控制平面，不是只给平台内部看的产物垃圾桶；Workbench、CI、review、repair、upgrade 和 agent 都应消费这些稳定 artifact。
+- 本地状态是 `.pjc/**`：cache、tmp、indexes、generated-preview、test-workspaces、ai-sessions 等可删除状态，不进入产品事实源。
+- v0.1 兼容入口 `project/custom/**`、`project/overrides/**`、`project/policies/**` 与 `platform/registry/private/**` 可以继续读取或写入，但新能力应优先落到 `source/**`。
 - 默认禁止把以下路径作为产品开发入口：
   - `platform/compiler/**`
   - `platform/shared/**`
   - `platform/registry/official/**`
-  - `project/generated/**`
+  - `project/generated/**` 中的运行时生成物
+  - `control/**` 中由 pass 拥有的状态、证据、图谱、provenance、workflow 和 Workbench projection
   - 编译器生成的 runtime scaffold。
 - 如果产品需求似乎必须修改平台源码，应先转换为 plan/spec、private block、slot/rule、policy 或 governed override；只有平台工具本身演进时才进入 `platform/**` 实现层。
 - 对外开发环境至少暴露这些能力：
@@ -631,8 +686,9 @@ project/
   - graph/provenance/review 视图。
   - slot、policy、override 和 private block 的编辑入口。
 - Workbench 是 CLI 合同上的产品化界面：可以提供表单、图谱、双视图、验证面板和升级审查，但不得绕过 CLI/pass 合同直接改内部平台实现。
-- Workbench/IDE 插件的最小命令面必须复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain`。
-- Workbench/IDE 插件允许读取 plan、private block manifest、override、policy、generated governance artifact、provenance 和 graph lock；允许写入 `project/app.plan.yaml`、`project/source/**` 和仍处于兼容期的 `project/custom/**`、`project/overrides/**`、`project/policies/**`、MVP 临时私有 registry；禁止直接写入 compiler internals、shared utilities、official registry、generated scaffold 和依赖目录。
+- Workbench/IDE 插件的最小命令面必须复用 `doctor`、`deps status`、`add`、`resolve`、`compose`、`adapt`、`verify`、`repair`、`upgrade --dry-run`、`lock`、`explain`、`workbench mutations apply`。
+- Workbench/IDE 插件允许读取 `source/**`、`project/**` 的运行时投影和 `control/**` 的治理/解释产物；允许写入 `source/app.yaml`、`source/code/**`、`source/model/**`、`source/patches/**`、`source/assets/**`、`source/views/**`、`source/env/**`、`source/blocks/private/**`，以及仍处于兼容期的 `project/custom/**`、`project/overrides/**`、`project/policies/**`、`platform/registry/private/**`；禁止直接写入 compiler internals、shared utilities、official registry、generated scaffold、control artifact 和依赖目录。
+- 当前 Workbench 双向编辑闭环的稳定输入是 `source/views/mutations/*.json`；稳定输出是 `source/app.yaml` 与 `control/workflow/view-mutation-report.json`，不允许 Workbench 直接改 `project/**` 或手写 `control/**`。
 
 ## 编译流程
 
@@ -641,9 +697,9 @@ project/
 - `platform init`
   - 初始化母栈项目
 - `platform add <block-id>`
-  - 向 `app.plan.yaml` 追加块
+  - 向 `source/app.yaml` 追加块
 - `platform resolve`
-  - 生成 `graph.lock.json`
+  - 生成 `control/state/graph.lock.json`
 - `platform compose`
   - 安装块和生成骨架
 - `platform adapt`
@@ -653,9 +709,11 @@ project/
 - `platform repair`
   - 根据失败项生成局部修复任务
 - `platform lock`
-  - 固化最终锁信息
+  - 固化最终锁信息并刷新 `control/provenance/provenance.json`
 - `platform explain`
-  - 输出 block graph、slot graph 和 provenance 摘要
+  - 输出 block graph、slot graph、provenance 摘要、review summary 和 Workbench 视图投影到 `control/**`
+- `platform workbench mutations apply [--json [--compact]]`
+  - 将 `source/views/mutations/*.json` 中的结构化视图编辑应用回 `source/app.yaml`，并写出 `control/workflow/view-mutation-report.json`
 - `platform upgrade`
   - 从 `v0.2` 起做块升级与迁移
 - `platform doctor`
@@ -736,7 +794,7 @@ project/
 ```text
 任务名：fill_slot_customer_normalizer
 任务类型：adapter-slot
-允许修改：source/slots/customer_normalizer.ts
+允许修改：source/code/slots/customer_normalizer.ts
 物化目标：custom/customer_normalizer.ts
 要求保留：normalizeCustomerInput
 禁止行为：改其他文件、引入新依赖、访问数据库、改 Prisma schema
@@ -772,7 +830,7 @@ project/
 ### 单槽位
 
 - `customer_normalizer`
-  - 源码文件：`source/slots/customer_normalizer.ts`
+  - 源码文件：`source/code/slots/customer_normalizer.ts`
   - 物化目标：`custom/customer_normalizer.ts`
   - 允许导出：
 

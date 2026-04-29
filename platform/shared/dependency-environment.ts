@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { compilerRoot, getWorkspacePaths } from './paths.ts';
+import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from './paths.ts';
 import { pathExists, removeDir } from './fs.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady, readRuntimeDepsStamp } from './project-runtime.ts';
 import { loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
@@ -257,6 +257,8 @@ export async function getDoctorReport(
 ): Promise<DoctorReport> {
   const paths = getWorkspacePaths(workspaceRoot);
   const dependencies = await getDependencyEnvironmentStatus(workspaceRoot, options);
+  const workspacePlanPath = await resolveWorkspacePlanPath(workspaceRoot);
+  const workspacePlanExists = await pathExists(workspacePlanPath);
   const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
   const checks: DoctorCheck[] = [
     {
@@ -267,8 +269,8 @@ export async function getDoctorReport(
     await executableCheck('bun', 'bun', true),
     {
       id: 'workspace-plan',
-      status: (await pathExists(paths.planPath)) ? 'ok' : 'warn',
-      message: (await pathExists(paths.planPath))
+      status: workspacePlanExists ? 'ok' : 'warn',
+      message: workspacePlanExists
         ? 'Workspace plan exists.'
         : 'Workspace plan is missing; run platform init before product development.'
     },

@@ -1,0 +1,310 @@
+{
+  "formatVersion": "1",
+  "root": "workspace",
+  "summary": {
+    "artifactStatus": "passed",
+    "artifactCount": 38,
+    "governanceCount": 35,
+    "viewCount": 2,
+    "testCount": 1,
+    "contractCount": 0,
+    "contractPaths": [],
+    "uploadGroupCount": 3,
+    "missingCount": 0,
+    "missingReasonTypeCount": 0,
+    "missingReasonCounts": {
+      "declared-generated-missing": 0,
+      "fixed-governance-missing": 0,
+      "fixed-view-missing": 0
+    }
+  },
+  "artifacts": [
+    {
+      "path": "app/api/customers/[customerId]/attachments/route.ts",
+      "kind": "governance",
+      "uploadName": "app__api__customers__[customerId]__attachments__route.ts",
+      "exists": true
+    },
+    {
+      "path": "app/api/customers/route.ts",
+      "kind": "governance",
+      "uploadName": "app__api__customers__route.ts",
+      "exists": true
+    },
+    {
+      "path": "app/api/session/current/route.ts",
+      "kind": "governance",
+      "uploadName": "app__api__session__current__route.ts",
+      "exists": true
+    },
+    {
+      "path": "app/api/session/login/route.ts",
+      "kind": "governance",
+      "uploadName": "app__api__session__login__route.ts",
+      "exists": true
+    },
+    {
+      "path": "app/api/session/logout/route.ts",
+      "kind": "governance",
+      "uploadName": "app__api__session__logout__route.ts",
+      "exists": true
+    },
+    {
+      "path": "app/customers/page.tsx",
+      "kind": "governance",
+      "uploadName": "app__customers__page.tsx",
+      "exists": true
+    },
+    {
+      "path": "app/globals.css",
+      "kind": "governance",
+      "uploadName": "app__globals.css",
+      "exists": true
+    },
+    {
+      "path": "app/layout.tsx",
+      "kind": "governance",
+      "uploadName": "app__layout.tsx",
+      "exists": true
+    },
+    {
+      "path": "app/login/page.tsx",
+      "kind": "governance",
+      "uploadName": "app__login__page.tsx",
+      "exists": true
+    },
+    {
+      "path": "app/page.tsx",
+      "kind": "governance",
+      "uploadName": "app__page.tsx",
+      "exists": true
+    },
+    {
+      "path": "app/workspace/page.tsx",
+      "kind": "governance",
+      "uploadName": "app__workspace__page.tsx",
+      "exists": true
+    },
+    {
+      "path": "components/customer-attachment-form.tsx",
+      "kind": "governance",
+      "uploadName": "components__customer-attachment-form.tsx",
+      "exists": true
+    },
+    {
+      "path": "components/customer-form.tsx",
+      "kind": "governance",
+      "uploadName": "components__customer-form.tsx",
+      "exists": true
+    },
+    {
+      "path": "components/login-form.tsx",
+      "kind": "governance",
+      "uploadName": "components__login-form.tsx",
+      "exists": true
+    },
+    {
+      "path": "components/logout-button.tsx",
+      "kind": "governance",
+      "uploadName": "components__logout-button.tsx",
+      "exists": true
+    },
+    {
+      "path": "control/ci/artifacts.json",
+      "kind": "governance",
+      "uploadName": "control__ci__artifacts.json",
+      "exists": true
+    },
+    {
+      "path": "control/evidence/acceptance-coverage.json",
+      "kind": "governance",
+      "uploadName": "control__evidence__acceptance-coverage.json",
+      "exists": true
+    },
+    {
+      "path": "control/evidence/block-usage-map.json",
+      "kind": "governance",
+      "uploadName": "control__evidence__block-usage-map.json",
+      "exists": true
+    },
+    {
+      "path": "control/evidence/install-manifest.json",
+      "kind": "governance",
+      "uploadName": "control__evidence__install-manifest.json",
+      "exists": true
+    },
+    {
+      "path": "control/evidence/policy-report.json",
+      "kind": "governance",
+      "uploadName": "control__evidence__policy-report.json",
+      "exists": true
+    },
+    {
+      "path": "control/evidence/review-summary.json",
+      "kind": "governance",
+      "uploadName": "control__evidence__review-summary.json",
+      "exists": true
+    },
+    {
+      "path": "control/evidence/runtime-report.json",
+      "kind": "governance",
+      "uploadName": "control__evidence__runtime-report.json",
+      "exists": true
+    },
+    {
+      "path": "control/evidence/verification-report.json",
+      "kind": "governance",
+      "uploadName": "control__evidence__verification-report.json",
+      "exists": true
+    },
+    {
+      "path": "control/graph/explain-graph.json",
+      "kind": "governance",
+      "uploadName": "control__graph__explain-graph.json",
+      "exists": true
+    },
+    {
+      "path": "control/provenance/provenance.json",
+      "kind": "governance",
+      "uploadName": "control__provenance__provenance.json",
+      "exists": true
+    },
+    {
+      "path": "control/state/graph.lock.json",
+      "kind": "governance",
+      "uploadName": "control__state__graph.lock.json",
+      "exists": true
+    },
+    {
+      "path": "control/workbench/views/slot-rule-view.html",
+      "kind": "view",
+      "uploadName": "control__workbench__views__slot-rule-view.html",
+      "exists": true
+    },
+    {
+      "path": "control/workbench/views/source-view.html",
+      "kind": "view",
+      "uploadName": "control__workbench__views__source-view.html",
+      "exists": true
+    },
+    {
+      "path": "generated/routes.ts",
+      "kind": "governance",
+      "uploadName": "generated__routes.ts",
+      "exists": true
+    },
+    {
+      "path": "lib/session.ts",
+      "kind": "governance",
+      "uploadName": "lib__session.ts",
+      "exists": true
+    },
+    {
+      "path": "lib/store.ts",
+      "kind": "governance",
+      "uploadName": "lib__store.ts",
+      "exists": true
+    },
+    {
+      "path": "next-env.d.ts",
+      "kind": "governance",
+      "uploadName": "next-env.d.ts",
+      "exists": true
+    },
+    {
+      "path": "next.config.mjs",
+      "kind": "governance",
+      "uploadName": "next.config.mjs",
+      "exists": true
+    },
+    {
+      "path": "package.json",
+      "kind": "governance",
+      "uploadName": "package.json",
+      "exists": true
+    },
+    {
+      "path": "test-results/**",
+      "kind": "test",
+      "uploadName": "test-results__**",
+      "exists": true
+    },
+    {
+      "path": "tests/runtime/acceptance/customer-flow.spec.ts",
+      "kind": "governance",
+      "uploadName": "tests__runtime__acceptance__customer-flow.spec.ts",
+      "exists": true
+    },
+    {
+      "path": "tests/runtime/unit/customer-runtime.test.ts",
+      "kind": "governance",
+      "uploadName": "tests__runtime__unit__customer-runtime.test.ts",
+      "exists": true
+    },
+    {
+      "path": "tsconfig.json",
+      "kind": "governance",
+      "uploadName": "tsconfig.json",
+      "exists": true
+    }
+  ],
+  "uploadGroups": [
+    {
+      "kind": "governance",
+      "count": 35,
+      "paths": [
+        "app/api/customers/[customerId]/attachments/route.ts",
+        "app/api/customers/route.ts",
+        "app/api/session/current/route.ts",
+        "app/api/session/login/route.ts",
+        "app/api/session/logout/route.ts",
+        "app/customers/page.tsx",
+        "app/globals.css",
+        "app/layout.tsx",
+        "app/login/page.tsx",
+        "app/page.tsx",
+        "app/workspace/page.tsx",
+        "components/customer-attachment-form.tsx",
+        "components/customer-form.tsx",
+        "components/login-form.tsx",
+        "components/logout-button.tsx",
+        "control/ci/artifacts.json",
+        "control/evidence/acceptance-coverage.json",
+        "control/evidence/block-usage-map.json",
+        "control/evidence/install-manifest.json",
+        "control/evidence/policy-report.json",
+        "control/evidence/review-summary.json",
+        "control/evidence/runtime-report.json",
+        "control/evidence/verification-report.json",
+        "control/graph/explain-graph.json",
+        "control/provenance/provenance.json",
+        "control/state/graph.lock.json",
+        "generated/routes.ts",
+        "lib/session.ts",
+        "lib/store.ts",
+        "next-env.d.ts",
+        "next.config.mjs",
+        "package.json",
+        "tests/runtime/acceptance/customer-flow.spec.ts",
+        "tests/runtime/unit/customer-runtime.test.ts",
+        "tsconfig.json"
+      ]
+    },
+    {
+      "kind": "view",
+      "count": 2,
+      "paths": [
+        "control/workbench/views/slot-rule-view.html",
+        "control/workbench/views/source-view.html"
+      ]
+    },
+    {
+      "kind": "test",
+      "count": 1,
+      "paths": [
+        "test-results/**"
+      ]
+    }
+  ],
+  "missing": []
+}

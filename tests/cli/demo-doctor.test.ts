@@ -170,7 +170,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
     expect(missingText.code).toBe(0);
     expect(missingText.stderr).toBe('');
     expect(missingText.stdout).toContain('Demo checklist attention; items=8; missing=8');
-    expect(missingText.stdout).toContain('verification-report: missing; project/generated/verification-report.json');
+    expect(missingText.stdout).toContain('verification-report: missing; control/evidence/verification-report.json');
     expect(missingText.stdout).toContain('Next command: npm run demo:quickstart');
 
     await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
@@ -211,7 +211,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
     expect(readyText.code).toBe(0);
     expect(readyText.stderr).toBe('');
     expect(readyText.stdout).toContain('Demo checklist passed; items=8; missing=0');
-    expect(readyText.stdout).toContain('review-summary: passed; project/generated/review-summary.json');
+    expect(readyText.stdout).toContain('review-summary: passed; control/evidence/review-summary.json');
     expect(readyText.stdout).toContain('Next command: npm run demo:closed-loop');
 
     const readyJson = await runCli(workspaceRoot, ['demo', 'checklist', '--json', '--compact']);
@@ -228,7 +228,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
         {
           id: 'explain-graph',
           status: 'passed',
-          artifactPath: 'project/generated/explain-graph.json',
+          artifactPath: 'control/graph/explain-graph.json',
           command: 'npm run platform -- explain'
         }
       ])

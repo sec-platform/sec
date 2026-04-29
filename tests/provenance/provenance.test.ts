@@ -63,9 +63,9 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
         }
       ],
       generatedPaths: [
-        'generated/explain-graph.json',
-        'generated/repair-plan.json',
-        'generated/upgrade-plan.json'
+        'control/graph/explain-graph.json',
+        'control/workflow/repair-plan.json',
+        'control/workflow/upgrade-plan.json'
       ],
       acceptancePlan: [],
       passStatus: {
@@ -120,10 +120,10 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       verifiedBy: ['tests/unit/customer-runtime.test.ts']
     });
     expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([
+      ['control/graph/explain-graph.json', 'explain'],
+      ['control/workflow/repair-plan.json', 'repair'],
+      ['control/workflow/upgrade-plan.json', 'upgrade'],
       ['custom/customer_normalizer.ts', 'adapt'],
-      ['generated/explain-graph.json', 'explain'],
-      ['generated/repair-plan.json', 'repair'],
-      ['generated/upgrade-plan.json', 'upgrade'],
       ['src/installed/entity/customer-service.ts', 'compose'],
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);

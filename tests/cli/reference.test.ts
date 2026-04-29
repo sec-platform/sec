@@ -169,8 +169,8 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     root: compilerRoot,
     commandRunner: async (command, args) => {
       if (command === 'git') {
-        expect(args).toEqual(['diff', '--name-only', '--exit-code', '--', 'project']);
-        return { code: 1, stdout: 'project/app.plan.yaml\nproject/generated/review-summary.json\n', stderr: '' };
+        expect(args).toEqual(['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']);
+        return { code: 1, stdout: 'source/app.yaml\ncontrol/evidence/review-summary.json\n', stderr: '' };
       }
 
       expect(args.slice(-2)).toEqual(['run', 'reference:refresh']);
@@ -183,10 +183,10 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
   expect(formatReferenceCheck(report)).toContain('Command: npm run platform -- reference check --json');
   expect(formatReferenceCheck(report)).toContain('Runner command: npm run reference:check');
   expect(formatReferenceCheck(report)).toContain(
-    'Commands: refresh=npm run reference:refresh; diff=git diff --name-only --exit-code -- project'
+    'Commands: refresh=npm run reference:refresh; diff=git diff --name-only --exit-code -- source project control'
   );
   expect(formatReferenceCheck(report)).toContain(
-    'Changed paths: project/app.plan.yaml, project/generated/review-summary.json'
+    'Changed paths: control/evidence/review-summary.json, source/app.yaml'
   );
   expect(JSON.stringify(report)).not.toContain('\n');
   expect(report).toMatchObject({
@@ -198,11 +198,11 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     runnerCommand: 'npm run reference:check',
     refreshCommand: 'npm run reference:refresh',
     refreshExitCode: 0,
-    diffCommand: 'git diff --name-only --exit-code -- project',
+    diffCommand: 'git diff --name-only --exit-code -- source project control',
     diffExitCode: 1,
     changedPathCount: 2,
-    changedPaths: ['project/app.plan.yaml', 'project/generated/review-summary.json'],
-    recommendedAction: 'inspect-project-drift-and-refresh-reference'
+    changedPaths: ['control/evidence/review-summary.json', 'source/app.yaml'],
+    recommendedAction: 'inspect-workspace-drift-and-refresh-reference'
   });
   expect(() => assertReferenceCheckClean(report)).toThrow('reference workspace drift detected');
 

@@ -97,6 +97,7 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 - `COMPOSE-PATH-004`
 - `SLOT-WRITE-002`
 - `VERIFY-ACCEPTANCE-005`
+- `WORKBENCH-MUTATION-002`
 
 ## 6. 错误域
 
@@ -104,7 +105,7 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 
 | Issue 类型 | 典型错误域 | 是否默认允许 AI 修复 |
 | --- | --- | --- |
-| Spec Issue | PLAN / ALIGN / VERIFY policy | 否，需人工确认规格变更 |
+| Spec Issue | PLAN / ALIGN / VERIFY policy / WORKBENCH-MUTATION | 否，需人工确认规格变更 |
 | Composition Issue | MANIFEST / RESOLVE / COMPOSE | 否，优先修编译器或 block 元数据 |
 | Slot Issue | SLOT / VERIFY unit / VERIFY acceptance | 是，但只能在 task envelope 范围内 |
 | Kernel Issue | VERIFY perf / VERIFY correctness / external harness | 否，默认返回 kernel 维护者 |
@@ -148,6 +149,11 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 
 - 版本不兼容、migration 缺失、override 冲突
 
+### WORKBENCH-MUTATION
+
+- 视图 mutation 文件 schema 错误、unsupported mutation kind、越界 sourcePath、目标 slot 缺失
+- 默认恢复动作是检查 `source/views/mutations/*.json`，修正后重跑 `platform workbench mutations apply`
+
 ## 7. `v0.1` 最低错误码清单
 
 | 错误码 | 含义 | 默认处理 |
@@ -162,6 +168,8 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 | `COMPOSE-MERGE-002` | 依赖合并冲突 | 终止 |
 | `SLOT-WRITE-001` | 写出允许路径 | 终止当前 task |
 | `SLOT-SYMBOL-002` | 未导出要求符号 | 终止当前 task |
+| `WORKBENCH-MUTATION-001` | mutation 文件或字段 schema 非法 | 修正 `source/views/mutations/*.json` 后重试 |
+| `WORKBENCH-MUTATION-002` | mutation 目标路径越界 | 修正为 `source/code/slots/**` 后重试 |
 | `VERIFY-BUILD-001` | 构建失败 | 进入 repair |
 | `VERIFY-UNIT-002` | 单测失败 | 进入 repair |
 | `VERIFY-ACCEPTANCE-003` | 验收失败 | 进入 repair |
@@ -192,10 +200,10 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 
 ### 检查点文件
 
-- `graph.lock.json`
-- `install-manifest.json`
-- `verification-report.json`
-- `provenance.json`
+- `control/state/graph.lock.json`
+- `control/evidence/install-manifest.json`
+- `control/evidence/verification-report.json`
+- `control/provenance/provenance.json`
 
 ### 规则
 
@@ -218,11 +226,12 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 ## 11. `repair` 合同
 
 - `repair` 只能处理失败项最小闭包范围。
-- `repair` 不得改动 plan、manifest 和 lock。
+- `repair` 不得改动 `source/app.yaml`、block manifest、`control/state/graph.lock.json` 和非 workflow 归属的 control artifact。
 - `repair` 默认只允许写：
-  - `custom/`
-  - 显式授权的 `overrides/`
-  - 明确列入 repair envelope 的业务文件
+  - `source/code/slots/**` 中由 envelope 明确授权的 slot 源码
+  - 声明 `sourcePath` 后由 repair/adapt pass 物化的 `project/custom/**`
+  - 显式授权的 `source/patches/**`
+  - 明确列入 repair envelope 的 `source/code/**` 局部业务文件
 
 ### `repair-plan.json` 最小归因字段
 
@@ -248,7 +257,7 @@ parse -> align -> resolve -> compose -> adapt -> verify -> lock -> emit
 - `artifactPath`：指向对应 verification、policy、runtime 或测试目录产物。
 - `message`：给 Agent 或人工审查的最小失败说明。
 
-`review-summary.json` 在检测到 `generated/repair-plan.json` 时，必须用 `repair-plan-present` conflict hint 暴露待处理 repair task，避免 repair 计划被 explain/review 流程遗漏。
+`control/evidence/review-summary.json` 在检测到 `control/workflow/repair-plan.json` 时，必须用 `repair-plan-present` conflict hint 暴露待处理 repair task，避免 repair 计划被 explain/review 流程遗漏。
 
 ## 12. 人工干预点
 

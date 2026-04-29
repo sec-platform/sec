@@ -16,15 +16,21 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 
 The platform is a software tool, not the normal editing surface for product developers. Product developers should work through the external workspace contract and platform commands instead of entering platform source folders.
 
-Default developer surface:
+Default workspace contract:
 
-- `project/app.plan.yaml`: v0.1-compatible product plan, selected blocks, registry sources, slots, and acceptance intent
-- `project/source/slots/**`: project-owned slot source; compiler passes materialize v0.1 runtime targets under `project/custom/**`
-- `project/source/overrides/**`: governed overrides, patches, rules, and override manifests
-- `project/source/policies/**`: project policy input
-- `project/source/acceptance/**`: project acceptance extensions
-- `project/source/assets/**`, `project/source/views/**`, `project/source/env/**`: workspace assets, view preferences, and environment declarations
-- `project/source/registry/private/**`: workspace-private block drafts; preferred before the compatibility private registry
+- `source/app.yaml`: product plan, selected blocks, registry sources, slots, and acceptance intent
+- `source/code/slots/**`: project-owned slot source; compiler passes materialize v0.1 runtime targets under `project/custom/**`
+- `source/code/{app,server,ui,shared,integrations}/**`: user-owned application code that the platform can model through explicit contracts
+- `source/code/opaque/**`: user-owned modules whose internals are not rewritten, while exports, effects, permissions, provenance, and verification remain governed
+- `source/code/lab/**`: temporary experiments that must be promoted into slots, app code, patches, or private blocks before shipping
+- `source/model/**`: product model inputs, including policies, acceptance, capabilities, entities, flows, and permissions
+- `source/patches/**`: governed overrides, rules, patches, and override manifests
+- `source/assets/**`, `source/views/**`, `source/env/**`: workspace assets, Workbench view specs, and environment declarations
+- `source/views/mutations/*.json`: structured Workbench/IDE edits that are applied back to `source/app.yaml`
+- `source/blocks/private/**`: workspace-private block drafts; preferred before the compatibility private registry
+- `project/**`: generated runnable target; inspectable and debuggable, but not the default authoring surface
+- `control/**`: control plane for state, evidence, graph, provenance, workflow, Workbench projections, audit, and CI upload manifests
+- `.pjc/**`: local cache, temporary indexes, previews, and AI session state; safe to recreate
 - Compatibility inputs: `project/custom/**`, `project/overrides/**`, `project/policies/**`, and `platform/registry/private/**`
 
 Internal implementation surface:
@@ -36,11 +42,11 @@ Internal implementation surface:
 
 If a product change appears to require editing internal platform source, first express it as one of these external inputs:
 
-- a plan/spec change in `project/app.plan.yaml`
-- a private block under `platform/registry/private/**`
-- a slot or adapter rule
-- a rule-backed override under `project/overrides/**`
-- a policy update under `project/policies/**`
+- a plan/spec change in `source/app.yaml`
+- a private block under `source/blocks/private/**`
+- a slot or adapter rule under `source/code/slots/**`
+- a rule-backed patch or override manifest under `source/patches/**`
+- a policy update under `source/model/policies/**`
 
 Use these entry commands for normal development:
 
@@ -51,6 +57,8 @@ Use these entry commands for normal development:
 - `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
 - `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts with upload group counts
 - `npm run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
+- `npm run platform -- workbench mutations apply`: apply structured Workbench edits from `source/views/mutations/*.json` back to `source/app.yaml`
+- `npm run platform -- workbench mutations apply --json --compact`: emit the compact Workbench mutation report contract
 - `npm run platform -- demo checklist`: inspect the local demo readiness checklist from existing governance artifacts
 - `npm run platform -- demo checklist --json --compact`: emit the compact demo readiness checklist contract
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
@@ -116,22 +124,26 @@ For the final product shape, the expected external developer environment is a CL
 
 Workbench and IDE integrations must preserve this boundary:
 
-- Allowed reads: workspace plan, private block manifests, overrides, policies, generated governance artifacts, provenance, and graph lock files
-- Allowed writes: `project/app.plan.yaml`, `project/source/**`, compatibility inputs under `project/custom/**`, `project/overrides/**`, `project/policies/**`, and the temporary MVP private registry path
-- Required command surface: `doctor`, `deps status`, `add`, `resolve`, `compose`, `adapt`, `verify`, `repair`, `upgrade --dry-run`, `lock`, and `explain`
-- Forbidden writes: compiler internals, shared platform utilities, official registry blocks, generated runtime scaffold, and dependency directories outside the controlled `deps` commands
+- Allowed reads: `source/**`, generated runtime summaries under `project/**`, and governance/control artifacts under `control/**`
+- Allowed writes: `source/app.yaml`, `source/code/**`, `source/model/**`, `source/patches/**`, `source/assets/**`, `source/views/**`, `source/env/**`, `source/blocks/private/**`, plus compatibility inputs under `project/custom/**`, `project/overrides/**`, `project/policies/**`, and `platform/registry/private/**`
+- Required command surface: `doctor`, `deps status`, `add`, `resolve`, `compose`, `adapt`, `verify`, `repair`, `upgrade --dry-run`, `lock`, `explain`, and `workbench mutations apply`
+- Structured view edits must be written as mutation files under `source/views/mutations/*.json`; the compiler applies them to `source/app.yaml` and writes `control/workflow/view-mutation-report.json`
+- Forbidden writes: compiler internals, shared platform utilities, official registry blocks, generated runtime scaffold, control-plane artifacts outside their owning pass, and dependency directories outside the controlled `deps` commands
 
 ## Repository Layout
 
-- `platform/`: compiler pipeline, adapters, and the CLI entrypoint at `platform/cli/index.ts`
-- `project/`: reference project inputs and generated artifacts that the compiler works against
+- `platform/`: compiler pipeline, adapters, registries, and the CLI entrypoint at `platform/cli/index.ts`
+- `source/`: checked-in developer authoring source and project intent
+- `project/`: generated runnable reference target and runtime-compatible materialized files
+- `control/`: checked-in control-plane state, evidence, provenance, graph, workflow, Workbench views, audit, and CI artifact manifests
+- `.pjc/`: local cache, previews, indexes, test workspaces, and AI session state
 - `tests/`: pipeline, registry, and repair coverage
 - `docs/`: design notes, implementation specs, and rollout material
 
 ## Command Entry Taxonomy
 
 - `npm run platform -- <command>`: raw compiler CLI entry for targeted operations.
-- `npm run reference:*`: refresh the checked-in `project/` workspace without resetting it.
+- `npm run reference:*`: refresh the checked-in `source/` -> `project/` -> `control/` workspace without resetting it.
 - `npm run demo:*`: reset or package a user-facing demo path from the reference workspace.
 - `npm run dogfood:*`: exercise the checked-in reference workspace as the product dogfood surface.
 - `npm run test:*`: run development verification or print verification budget contracts.
@@ -149,7 +161,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- demo checklist`: inspect whether existing governance artifacts satisfy local demo readiness
 - `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
 - `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
-- `npm run reference:refresh`: refresh `project/` in place through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
+- `npm run reference:refresh`: refresh `source/` into `project/` and `control/` through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
 - `npm run reference:check`: run the formal reference drift gate through the runner command exposed by `platform reference check`
 - `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
 - `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
@@ -173,6 +185,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `npm run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
 - `npm run platform -- review diagnostics --json --compact`: emit the compact review diagnostics contract
 - `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
+- `npm run platform -- workbench mutations apply --json --compact`: emit the compact Workbench mutation report after applying `source/views/mutations/*.json` to `source/app.yaml`
 - `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
 - `npm run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
 - `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
@@ -189,11 +202,13 @@ Workbench and IDE integrations must preserve this boundary:
 
 ## Governance Artifacts
 
-- `verify` writes governance artifacts under `project/generated/`, including `verification-report.json`, `runtime-report.json`, `policy-report.json`, and `acceptance-coverage.json`.
-- `explain` writes `project/generated/explain-graph.json`, `project/generated/review-summary.json`, and the local HTML views under `project/generated/views/`; its JSON review summary includes top-level activity counts, provenance generated artifact count, and provenance group counts, and its text output and E2E evidence include artifact upload group, missing reason type, and per-stage evidence counts.
-- Governance contract freeze currently covers: `project/graph.lock.json`, `project/provenance.json`, `project/generated/verification-report.json`, `project/generated/runtime-report.json`, `project/generated/policy-report.json`, `project/generated/acceptance-coverage.json`, `project/generated/explain-graph.json`, and `project/generated/review-summary.json`.
-- CI restores a complete governance view from exactly three stable paths: `project/generated/**`, `project/provenance.json`, and `project/graph.lock.json`; artifact manifests expose upload group counts and missing reason type counts for upload planning.
-- `.shared-deps/` is a local Bun/npm cache used to warm runtime dependencies; it is intentionally ignored and is not part of the shipped governance artifacts.
-- `infra/postgres` currently ships a contract-only Postgres path. It emits `project/generated/postgres-contract.json` and keeps the local runtime on the in-memory store until a real Postgres verification lane is added.
+- `resolve` writes graph state to `control/state/graph.lock.json`; `compose` writes install/block usage evidence to `control/evidence/**` and runtime routes to `project/generated/routes.ts`.
+- `verify` writes governance evidence under `control/evidence/`, including `verification-report.json`, `runtime-report.json`, `policy-report.json`, and `acceptance-coverage.json`.
+- `lock` writes provenance to `control/provenance/provenance.json`; `explain` writes `control/graph/explain-graph.json`, `control/evidence/review-summary.json`, and local HTML Workbench projections under `control/workbench/views/`.
+- `workbench mutations apply` writes `control/workflow/view-mutation-report.json` after applying structured edits from `source/views/mutations/*.json` to `source/app.yaml`.
+- Governance contract freeze currently covers: `control/state/graph.lock.json`, `control/provenance/provenance.json`, `control/evidence/verification-report.json`, `control/evidence/runtime-report.json`, `control/evidence/policy-report.json`, `control/evidence/acceptance-coverage.json`, `control/graph/explain-graph.json`, and `control/evidence/review-summary.json`.
+- CI restores a complete governance view from stable `control/**` paths plus runtime contract artifacts that remain under `project/generated/**`; artifact manifests expose upload group counts and missing reason type counts for upload planning.
+- `.shared-deps/` and `.pjc/**` are local caches used to warm dependencies and hold temporary compiler/Workbench/AI state; they are intentionally not shipped governance artifacts.
+- `infra/postgres` currently ships a contract-only Postgres path. It emits `project/generated/postgres-contract.json` because that file is a generated runtime contract consumed by the target project, not a control-plane evidence artifact.
 
 When working in Codex web, start from the repo root. Most tasks either touch `platform/` or validate behavior through `tests/`.

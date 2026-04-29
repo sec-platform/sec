@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { listFilesRecursive, pathExists, readJson, readText } from '../../shared/fs.ts';
 import { readYaml } from '../../shared/yaml.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
@@ -209,11 +209,12 @@ function buildPolicyReport(
 }
 
 export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport> {
-  const { officialPoliciesRoot, projectPoliciesRoot, sourcePoliciesRoot, projectRoot, lockPath } = getWorkspacePaths(workspaceRoot);
+  const { officialPoliciesRoot, projectPoliciesRoot, sourcePoliciesRoot, legacySourcePoliciesRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
   const official = await loadPolicyScope('official', officialPoliciesRoot);
   const project = mergePolicyScopes([
     await loadPolicyScope('project', projectPoliciesRoot, 'project/policies'),
-    await loadPolicyScope('project', sourcePoliciesRoot, 'project/source/policies')
+    await loadPolicyScope('project', sourcePoliciesRoot, 'source/model/policies'),
+    await loadPolicyScope('project', legacySourcePoliciesRoot, 'project/source/policies')
   ]);
   const mergedPolicies = mergePolicies(official, project);
 
@@ -222,7 +223,8 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
   }
 
   const violations: PolicyViolation[] = [];
-  const lock = (await pathExists(lockPath)) ? await readJson<LockFile>(lockPath) : null;
+  const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
+  const lock = (await pathExists(readableLockPath)) ? await readJson<LockFile>(readableLockPath) : null;
 
   for (const definition of mergedPolicies.values()) {
     if (definition.policy.rule !== 'tenant_context_must_flow_to_query') {

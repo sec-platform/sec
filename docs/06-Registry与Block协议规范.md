@@ -33,6 +33,10 @@ registry:
       kind: official
       location: compiler
       path: platform/registry/official
+    - id: source-private
+      kind: private
+      location: workspace
+      path: source/blocks/private
     - id: private
       kind: private
       location: workspace
@@ -40,7 +44,8 @@ registry:
 ```
 
 - `official` 由编译器随仓库分发。
-- `private` 由当前 workspace 提供，可被团队按项目直接扩展。
+- `source-private` 是当前 workspace 顶层 source layer 下的默认私有 block 草稿区。
+- `private` 是兼容期 workspace registry 路径，用于读取旧项目或迁移前资产。
 
 ### block 目录结构
 
@@ -186,8 +191,11 @@ compatibility:
 - block 不得安装到：
   - `platform/cli/`
   - 其他 block manifest
-  - `graph.lock.json`
-  - `provenance.json`
+  - `control/state/graph.lock.json`
+  - `control/provenance/provenance.json`
+  - `control/evidence/**`
+  - `control/graph/**`
+  - `control/workflow/**`
 - block 不得修改不属于自己的 `writableZones`。
 
 ## 7. 测试与 fixtures 协议

@@ -59,6 +59,9 @@ export function synthesizeSlotSource(envelope: TaskEnvelope): string {
   steps.push('    company');
   steps.push('  };');
 
-  const databaseImport = projectRelativeImport(envelope.targetFile, 'src/runtime/database.ts');
+  const runtimeDatabasePath = envelope.targetFile.startsWith('source/')
+    ? 'project/src/runtime/database.ts'
+    : 'src/runtime/database.ts';
+  const databaseImport = projectRelativeImport(envelope.targetFile, runtimeDatabasePath);
   return `// @generated task:${envelope.taskId}\nimport type { CustomerInput, NormalizedCustomerInput } from '${databaseImport}';\n\nexport function normalizeCustomerInput(input: CustomerInput): NormalizedCustomerInput {\n${steps.join('\n')}\n}\n`;
 }

@@ -167,30 +167,46 @@ async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
   expect(formatContractFreezeContract(contract)).toContain('Contract freeze active');
-  expect(formatContractFreezeContract(contract)).toContain('Target tests/cli.test.ts; command=bun test tests/cli.test.ts --test-name-pattern');
+  expect(formatContractFreezeContract(contract)).toContain('Target tests/cli/contracts.test.ts; command=bunx vitest run tests/cli/contracts.test.ts --testNamePattern');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
     status: 'active',
     command: 'npm run platform -- contract freeze --json',
     runnerCommand: 'npm run test:contract-freeze',
-    targetFileCount: 3,
-    targetFiles: ['tests/cli.test.ts', 'tests/pipeline.test.ts', 'tests/project-runtime.test.ts'],
-    targetCount: 3,
+    targetFileCount: 15,
+    targetFiles: [
+      'tests/cli/artifacts.test.ts',
+      'tests/cli/benchmark-budget.test.ts',
+      'tests/cli/contracts.test.ts',
+      'tests/cli/demo-doctor.test.ts',
+      'tests/cli/environment.test.ts',
+      'tests/cli/explain.test.ts',
+      'tests/cli/provenance.test.ts',
+      'tests/cli/reference.test.ts',
+      'tests/cli/repair.test.ts',
+      'tests/cli/review.test.ts',
+      'tests/cli/upgrade.test.ts',
+      'tests/cli/usage.test.ts',
+      'tests/cli/verification.test.ts',
+      'tests/pipeline/end-to-end.test.ts',
+      'tests/runtime/project-runtime.test.ts'
+    ],
+    targetCount: 15,
     targets: expect.arrayContaining([
       expect.objectContaining({
-        file: 'tests/cli.test.ts',
-        command: expect.stringContaining('bun test tests/cli.test.ts --test-name-pattern'),
+        file: 'tests/cli/contracts.test.ts',
+        command: expect.stringContaining('bunx vitest run tests/cli/contracts.test.ts --testNamePattern'),
         testNamePattern: expect.stringContaining('CLI exposes contract freeze target list as text and JSON contracts')
       }),
       expect.objectContaining({
-        file: 'tests/project-runtime.test.ts',
-        command: expect.stringContaining('bun test tests/project-runtime.test.ts --test-name-pattern'),
-        testNamePattern: expect.stringContaining('test budget and benchmark contracts document slow lanes')
+        file: 'tests/runtime/project-runtime.test.ts',
+        command: expect.stringContaining('bunx vitest run tests/runtime/project-runtime.test.ts --testNamePattern'),
+        testNamePattern: expect.stringContaining('test budget contract documents lanes and their capabilities')
       }),
       expect.objectContaining({
-        file: 'tests/pipeline.test.ts',
-        command: 'bun test tests/pipeline.test.ts --test-name-pattern "v0.1 pipeline runs end to end in a temporary workspace"',
+        file: 'tests/pipeline/end-to-end.test.ts',
+        command: 'bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern "v0.1 pipeline runs end to end in a temporary workspace"',
         testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
       })
     ])
@@ -203,9 +219,10 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(textResult.stdout).toContain('Contract freeze active');
     expect(textResult.stdout).toContain('Command: npm run platform -- contract freeze --json');
     expect(textResult.stdout).toContain('Runner command: npm run test:contract-freeze');
-    expect(textResult.stdout).toContain('Target files: 3');
-    expect(textResult.stdout).toContain('Target file list: tests/cli.test.ts, tests/pipeline.test.ts, tests/project-runtime.test.ts');
-    expect(textResult.stdout).toContain('Target tests/pipeline.test.ts; command=bun test tests/pipeline.test.ts --test-name-pattern');
+    expect(textResult.stdout).toContain('Target files: 15');
+    expect(textResult.stdout).toContain('Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts');
+    expect(textResult.stdout).toContain('tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts');
+    expect(textResult.stdout).toContain('Target tests/pipeline/end-to-end.test.ts; command=bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json']);
     expect(jsonResult.code).toBe(0);
@@ -214,9 +231,25 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
       status: 'active',
       command: 'npm run platform -- contract freeze --json',
       runnerCommand: 'npm run test:contract-freeze',
-      targetFileCount: 3,
-      targetFiles: ['tests/cli.test.ts', 'tests/pipeline.test.ts', 'tests/project-runtime.test.ts'],
-      targetCount: 3
+      targetFileCount: 15,
+      targetFiles: [
+        'tests/cli/artifacts.test.ts',
+        'tests/cli/benchmark-budget.test.ts',
+        'tests/cli/contracts.test.ts',
+        'tests/cli/demo-doctor.test.ts',
+        'tests/cli/environment.test.ts',
+        'tests/cli/explain.test.ts',
+        'tests/cli/provenance.test.ts',
+        'tests/cli/reference.test.ts',
+        'tests/cli/repair.test.ts',
+        'tests/cli/review.test.ts',
+        'tests/cli/upgrade.test.ts',
+        'tests/cli/usage.test.ts',
+        'tests/cli/verification.test.ts',
+        'tests/pipeline/end-to-end.test.ts',
+        'tests/runtime/project-runtime.test.ts'
+      ],
+      targetCount: 15
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json', '--compact']);
@@ -226,8 +259,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
       runnerCommand: 'npm run test:contract-freeze',
-      targetFileCount: 3,
-      targetCount: 3
+      targetFileCount: 15,
+      targetCount: 15
     });
   });
 });
@@ -273,12 +306,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     ],
     artifactPathCount: 6,
     artifactPaths: [
-      'project/generated/acceptance-coverage.json',
-      'project/generated/ci-artifacts.json',
-      'project/generated/explain-graph.json',
-      'project/generated/review-summary.json',
-      'project/generated/runtime-report.json',
-      'project/generated/verification-report.json'
+      'control/ci/artifacts.json',
+      'control/evidence/acceptance-coverage.json',
+      'control/evidence/review-summary.json',
+      'control/evidence/runtime-report.json',
+      'control/evidence/verification-report.json',
+      'control/graph/explain-graph.json'
     ],
     stepCount: 16,
     steps: expect.arrayContaining([
@@ -287,7 +320,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         phase: 'verify',
         command: 'npm run platform -- verify --json --compact',
         producesCount: 1,
-        produces: ['project/generated/verification-report.json']
+        produces: ['control/evidence/verification-report.json']
       }),
       expect.objectContaining({
         id: 'full-runtime-verify',
@@ -295,8 +328,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         command: 'npm run platform -- verify --lane all --json --compact',
         producesCount: 3,
         produces: expect.arrayContaining([
-          'project/generated/runtime-report.json',
-          'project/generated/acceptance-coverage.json'
+          'control/evidence/runtime-report.json',
+          'control/evidence/acceptance-coverage.json'
         ])
       }),
       expect.objectContaining({
@@ -384,7 +417,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     );
     expect(textResult.stdout).toContain('Artifact paths: 6');
     expect(textResult.stdout).toContain(
-      'Artifact path list: project/generated/acceptance-coverage.json, project/generated/ci-artifacts.json, project/generated/explain-graph.json, project/generated/review-summary.json, project/generated/runtime-report.json, project/generated/verification-report.json'
+      'Artifact path list: control/ci/artifacts.json, control/evidence/acceptance-coverage.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json'
     );
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3');
     expect(textResult.stdout).toContain('Step typecheck; phase=quality; command=npm run typecheck; producesCount=0');
@@ -427,8 +460,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       artifactUploadCommandCount: 4,
       artifactPathCount: 6,
       artifactPaths: expect.arrayContaining([
-        'project/generated/ci-artifacts.json',
-        'project/generated/verification-report.json'
+        'control/ci/artifacts.json',
+        'control/evidence/verification-report.json'
       ]),
       stepCount: 16,
       steps: expect.arrayContaining([
@@ -490,16 +523,18 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     formatVersion: '1',
     status: 'active',
     command: 'npm run platform -- contract errors --json',
-    exampleCount: 12,
+    exampleCount: 13,
     issueTypeCount: 5,
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
-    artifactPathCount: 5,
+    artifactPathCount: 7,
     artifactPaths: [
-      'project/generated/repair-plan.json',
-      'project/generated/review-summary.json',
-      'project/generated/upgrade-diagnostics.json',
-      'project/generated/upgrade-plan.json',
-      'project/generated/verification-report.json'
+      'control/evidence/review-summary.json',
+      'control/evidence/verification-report.json',
+      'control/workflow/repair-plan.json',
+      'control/workflow/upgrade-diagnostics.json',
+      'control/workflow/upgrade-plan.json',
+      'control/workflow/view-mutation-report.json',
+      'source/views/mutations'
     ],
     examples: expect.arrayContaining([
       expect.objectContaining({
@@ -524,7 +559,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: false,
           issueType: 'spec',
           suggestedActions: ['inspect-verification-report', 'run-platform-explain'],
-          artifactPaths: ['project/generated/verification-report.json', 'project/generated/review-summary.json']
+          artifactPaths: ['control/evidence/verification-report.json', 'control/evidence/review-summary.json']
         })
       }),
       expect.objectContaining({
@@ -541,7 +576,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'slot',
           suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'],
-          artifactPaths: ['project/generated/repair-plan.json', 'project/generated/review-summary.json']
+          artifactPaths: ['control/workflow/repair-plan.json', 'control/evidence/review-summary.json']
         })
       }),
       expect.objectContaining({
@@ -566,7 +601,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'composition',
           suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'],
-          artifactPaths: ['project/generated/upgrade-diagnostics.json', 'project/generated/upgrade-plan.json']
+          artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json']
         })
       }),
       expect.objectContaining({
@@ -575,7 +610,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'composition',
           suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'],
-          artifactPaths: ['project/generated/upgrade-diagnostics.json', 'project/generated/upgrade-plan.json'],
+          artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json'],
           details: {
             migrationId: 'mig-customer-normalizer-contract',
             migrationKind: 'slot-contract-update',
@@ -590,7 +625,16 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'composition',
           suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'],
-          artifactPaths: ['project/generated/upgrade-diagnostics.json', 'project/generated/upgrade-plan.json']
+          artifactPaths: ['control/workflow/upgrade-diagnostics.json', 'control/workflow/upgrade-plan.json']
+        })
+      }),
+      expect.objectContaining({
+        id: 'workbench-mutation-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'spec',
+          suggestedActions: ['inspect-workbench-mutations', 'run-platform-workbench-mutations-apply'],
+          artifactPaths: ['source/views/mutations', 'control/workflow/view-mutation-report.json']
         })
       })
     ])
@@ -602,20 +646,21 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(textResult.stderr).toBe('');
     expect(textResult.stdout).toContain('Error protocol active');
     expect(textResult.stdout).toContain('Issue type count: 5');
-    expect(textResult.stdout).toContain('Artifact paths: 5');
-    expect(textResult.stdout).toContain('Artifact path list: project/generated/repair-plan.json, project/generated/review-summary.json, project/generated/upgrade-diagnostics.json, project/generated/upgrade-plan.json, project/generated/verification-report.json');
+    expect(textResult.stdout).toContain('Artifact paths: 7');
+    expect(textResult.stdout).toContain('Artifact path list: control/evidence/review-summary.json, control/evidence/verification-report.json, control/workflow/repair-plan.json, control/workflow/upgrade-diagnostics.json, control/workflow/upgrade-plan.json, control/workflow/view-mutation-report.json, source/views/mutations');
     expect(textResult.stdout).toContain('Example repair-plan-error; code=REPAIR-BLOCKED-001');
     expect(textResult.stdout).toContain('Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016');
+    expect(textResult.stdout).toContain('Example workbench-mutation-error; code=WORKBENCH-MUTATION-002');
 
     const jsonResult = await runCli(workspaceRoot, ['contract', 'errors', '--json']);
     expect(jsonResult.code).toBe(0);
     expect(jsonResult.stderr).toBe('');
     expect(JSON.parse(jsonResult.stdout)).toMatchObject({
       status: 'active',
-      exampleCount: 12,
+      exampleCount: 13,
       issueTypeCount: 5,
-      suggestedActionCount: 18,
-      artifactPathCount: 5
+      suggestedActionCount: 20,
+      artifactPathCount: 7
     });
 
     const compactResult = await runCli(workspaceRoot, ['contract', 'errors', '--json', '--compact']);
@@ -624,9 +669,9 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       status: 'active',
-      exampleCount: 12,
+      exampleCount: 13,
       issueTypeCount: 5,
-      artifactPathCount: 5
+      artifactPathCount: 7
     });
   });
 });

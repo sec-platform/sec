@@ -253,10 +253,10 @@ function updateVerifiedSlotTasks(lock: LockFile, report: VerificationReport): vo
 
 function ensureGeneratedPaths(lock: LockFile): void {
   for (const generatedPath of [
-    'generated/verification-report.json',
-    'generated/runtime-report.json',
-    'generated/policy-report.json',
-    'generated/acceptance-coverage.json'
+    'control/evidence/verification-report.json',
+    'control/evidence/runtime-report.json',
+    'control/evidence/policy-report.json',
+    'control/evidence/acceptance-coverage.json'
   ]) {
     if (!lock.generatedPaths.includes(generatedPath)) {
       lock.generatedPaths.push(generatedPath);

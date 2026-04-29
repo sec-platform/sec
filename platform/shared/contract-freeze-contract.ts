@@ -17,8 +17,8 @@ export type ContractFreezeContract = {
 
 function buildTargetCommand(file: string, testNamePattern?: string): string {
   return testNamePattern
-    ? `bun test ${file} --test-name-pattern "${testNamePattern}"`
-    : `bun test ${file}`;
+    ? `bunx vitest run ${file} --testNamePattern "${testNamePattern}"`
+    : `bunx vitest run ${file}`;
 }
 
 function contractFreezeTarget(file: string, testNamePattern?: string): ContractFreezeTarget {
@@ -32,43 +32,96 @@ function contractFreezeTarget(file: string, testNamePattern?: string): ContractF
 export function getContractFreezeTargets(): ContractFreezeTarget[] {
   return [
     contractFreezeTarget(
-      'tests/cli.test.ts',
+      'tests/cli/usage.test.ts',
       [
         'CLI prints usage for missing or unknown commands',
-        'CLI exposes doctor as text and JSON readiness contracts',
-        'CLI exposes dependency environment maintenance entrypoints',
-        'CLI exposes reference drift check as text and JSON contracts',
-        'CLI exposes benchmark task-suite as text and JSON contracts',
-        'CLI exposes test budget as text and JSON contracts',
-        'CLI exposes contract freeze target list as text and JSON contracts',
-        'CLI exposes CI command contract as text and JSON contracts',
-        'CLI exposes error protocol as text and JSON contracts',
-        'CLI exposes policy report as text and JSON contracts',
-        'CLI exposes acceptance coverage as text and JSON contracts',
-        'CLI exposes runtime report as text and JSON contracts',
-        'CLI exposes verification report as text and JSON contracts',
-        'CLI runs verify with JSON output for CI consumers',
-        'CLI exposes provenance registry as text and JSON contracts',
-        'CLI exposes review summary as text and JSON contracts',
-        'CLI emits repair dry-run JSON for CI consumers',
-        'CLI emits blocked repair JSON for CI consumers',
-        'CLI emits upgrade dry-run JSON for CI consumers',
-        'CLI emits explain JSON for CI consumers',
-        'CLI emits artifact manifest JSON for CI upload consumers',
         'CLI reports argument usage errors'
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/project-runtime.test.ts',
+      'tests/cli/demo-doctor.test.ts',
       [
-        'root package exposes demo scripts through the existing platform chain',
-        'test budget and benchmark contracts document slow lanes and task-suite scope',
-        'error protocol, closed loop entry, and test lane map stay frozen in developer contracts',
-        'reference refresh and shared cache contract stay anchored in repo metadata'
+        'CLI exposes demo checklist as text and JSON readiness contracts',
+        'CLI exposes doctor as text and JSON readiness contracts'
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/pipeline.test.ts',
+      'tests/cli/environment.test.ts',
+      'CLI exposes dependency environment maintenance entrypoints'
+    ),
+    contractFreezeTarget(
+      'tests/cli/reference.test.ts',
+      'CLI exposes reference drift check as text and JSON contracts'
+    ),
+    contractFreezeTarget(
+      'tests/cli/benchmark-budget.test.ts',
+      [
+        'CLI exposes benchmark task-suite as text and JSON contracts',
+        'CLI exposes test budget as text and JSON contracts'
+      ].join('|')
+    ),
+    contractFreezeTarget(
+      'tests/cli/contracts.test.ts',
+      [
+        'CLI exposes contract freeze target list as text and JSON contracts',
+        'CLI exposes CI command contract as text and JSON contracts',
+        'CLI exposes error protocol as text and JSON contracts'
+      ].join('|')
+    ),
+    contractFreezeTarget(
+      'tests/cli/verification.test.ts',
+      [
+        'CLI exposes policy report as text and JSON contracts',
+        'CLI exposes acceptance coverage as text and JSON contracts',
+        'CLI exposes runtime report as text and JSON contracts',
+        'CLI runs verify with JSON output for CI consumers',
+        'CLI exposes verification report as text and JSON contracts'
+      ].join('|')
+    ),
+    contractFreezeTarget(
+      'tests/cli/provenance.test.ts',
+      'CLI exposes provenance registry as text and JSON contracts'
+    ),
+    contractFreezeTarget(
+      'tests/cli/review.test.ts',
+      'CLI exposes review summary as text and JSON contracts'
+    ),
+    contractFreezeTarget(
+      'tests/cli/repair.test.ts',
+      [
+        'CLI emits repair dry-run JSON for CI consumers',
+        'CLI emits blocked repair JSON for CI consumers'
+      ].join('|')
+    ),
+    contractFreezeTarget(
+      'tests/cli/upgrade.test.ts',
+      'CLI emits upgrade dry-run JSON for CI consumers'
+    ),
+    contractFreezeTarget(
+      'tests/cli/explain.test.ts',
+      'CLI emits explain JSON for CI consumers'
+    ),
+    contractFreezeTarget(
+      'tests/cli/artifacts.test.ts',
+      'CLI emits artifact manifest JSON for CI upload consumers'
+    ),
+    contractFreezeTarget(
+      'tests/runtime/project-runtime.test.ts',
+      [
+        'root package exposes budget and contract scripts',
+        'dev-runner does not expose contract subcommands directly',
+        'test budget contract documents lanes and their capabilities',
+        'benchmark contract documents suite metadata and task definitions',
+        'reference check contract documents drift detection commands',
+        'README documents closed-loop and CLI surface',
+        'contract freeze contract documents runner wiring',
+        'error protocol defines issue types and code prefixes',
+        'error protocol contract documents error shape and sample IDs',
+        'CLI surfaces protocol fields in error output'
+      ].join('|')
+    ),
+    contractFreezeTarget(
+      'tests/pipeline/end-to-end.test.ts',
       'v0.1 pipeline runs end to end in a temporary workspace'
     )
   ];

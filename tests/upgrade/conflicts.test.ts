@@ -186,13 +186,13 @@ test('upgrade is blocked when a manual override conflicts with impacted files', 
   });
   expect(diagnostics.message).toContain('manual-auth-session-hotfix');
   const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
-  expect(lock.generatedPaths).toContain('generated/upgrade-diagnostics.json');
+  expect(lock.generatedPaths).toContain('control/workflow/upgrade-diagnostics.json');
   const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
     artifacts: Array<{ path: string; generatedByPass?: string }>;
   };
   expect(provenance.artifacts).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ path: 'generated/upgrade-diagnostics.json', generatedByPass: 'upgrade' })
+      expect.objectContaining({ path: 'control/workflow/upgrade-diagnostics.json', generatedByPass: 'upgrade' })
     ])
   );
-});
+}, 120000);

@@ -1227,14 +1227,18 @@ function renderReviewSummaryTables(review: ReviewSummary): string {
 
 function renderDeveloperSourceLayerCard(lock: LockFile): string {
   const sourceAreas = [
-    ['Slots', 'project/source/slots/**'],
-    ['Overrides', 'project/source/overrides/**'],
-    ['Policies', 'project/source/policies/**'],
-    ['Acceptance', 'project/source/acceptance/**'],
-    ['Assets', 'project/source/assets/**'],
-    ['Views', 'project/source/views/**'],
-    ['Env', 'project/source/env/**'],
-    ['Private Registry', 'project/source/registry/private/**']
+    ['App Plan', 'source/app.yaml'],
+    ['Model', 'source/model/**'],
+    ['Slots', 'source/code/slots/**'],
+    ['Application Code', 'source/code/{app,server,ui,shared,integrations}/**'],
+    ['Opaque Code', 'source/code/opaque/**'],
+    ['Lab Code', 'source/code/lab/**'],
+    ['Patches', 'source/patches/**'],
+    ['Assets', 'source/assets/**'],
+    ['Views', 'source/views/**'],
+    ['Workbench Mutations', 'source/views/mutations/*.json -> source/app.yaml'],
+    ['Env', 'source/env/**'],
+    ['Private Blocks', 'source/blocks/private/**']
   ];
   const areaRows = sourceAreas
     .map(([label, sourcePath]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(sourcePath)}</td></tr>`)
@@ -1245,7 +1249,8 @@ function renderDeveloperSourceLayerCard(lock: LockFile): string {
 
   return `<section class="card">
         <h2>Developer Source Layer</h2>
-        <p>Default editable workspace inputs live under project/source; compatibility targets remain readable and materialized by compiler passes.</p>
+        <p>Default editable workspace inputs live under top-level source; project remains the materialized runtime target and control stores evidence, graph, provenance, workflow, and Workbench projections.</p>
+        <p>Workbench edits are accepted as structured mutations under source/views/mutations and applied back to source/app.yaml.</p>
         <h3>Editable Areas</h3>
         <table>
           <thead><tr><th>Area</th><th>Path</th></tr></thead>
@@ -1401,7 +1406,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
 
   const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
   await ensureDir(generatedViewsDir);
-  for (const generatedPath of ['generated/views/source-view.html', 'generated/views/slot-rule-view.html']) {
+  for (const generatedPath of ['control/workbench/views/source-view.html', 'control/workbench/views/slot-rule-view.html']) {
     if (!lock.generatedPaths.includes(generatedPath)) {
       lock.generatedPaths.push(generatedPath);
     }

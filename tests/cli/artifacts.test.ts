@@ -349,7 +349,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     };
     expect(manifest).toMatchObject({
       formatVersion: '1',
-      root: 'project'
+      root: 'workspace'
     });
     expect(manifest.missing).toEqual([]);
     const governancePaths = manifest.artifacts
@@ -434,27 +434,27 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(manifest.artifacts).toEqual(
       expect.arrayContaining([
         {
-          path: 'generated/ci-artifacts.json',
+          path: 'control/ci/artifacts.json',
           kind: 'governance',
-          uploadName: 'generated__ci-artifacts.json',
+          uploadName: 'control__ci__artifacts.json',
           exists: true
         },
         {
-          path: 'generated/review-summary.json',
+          path: 'control/evidence/review-summary.json',
           kind: 'governance',
-          uploadName: 'generated__review-summary.json',
+          uploadName: 'control__evidence__review-summary.json',
           exists: true
         },
         {
-          path: 'generated/explain-graph.json',
+          path: 'control/graph/explain-graph.json',
           kind: 'governance',
-          uploadName: 'generated__explain-graph.json',
+          uploadName: 'control__graph__explain-graph.json',
           exists: true
         },
         {
-          path: 'generated/views/source-view.html',
+          path: 'control/workbench/views/source-view.html',
           kind: 'view',
-          uploadName: 'generated__views__source-view.html',
+          uploadName: 'control__workbench__views__source-view.html',
           exists: true
         }
       ])
@@ -465,10 +465,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
       artifacts: Array<{ path: string; generatedByPass?: string }>;
     };
-    expect(lock.generatedPaths).toContain('generated/ci-artifacts.json');
+    expect(lock.generatedPaths).toContain('control/ci/artifacts.json');
     expect(provenance.artifacts).toContainEqual(
       expect.objectContaining({
-        path: 'generated/ci-artifacts.json',
+        path: 'control/ci/artifacts.json',
         generatedByPass: 'artifacts'
       })
     );
@@ -664,7 +664,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(testPathsJsonResult.stderr).toBe('');
     expect(JSON.parse(testPathsJsonResult.stdout)).toEqual({
       formatVersion: '1',
-      root: 'project',
+      root: 'workspace',
       kind: 'test',
       artifactStatus: 'attention',
       count: 1,
@@ -724,7 +724,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(refreshedSourceView).toContain('<td>test</td>');
     expect(refreshedSourceView).toContain('test-results/**');
 
-    await fs.rm(path.join(workspaceRoot, 'project', 'generated', 'policy-report.json'));
+    await fs.rm(path.join(workspaceRoot, 'control', 'evidence', 'policy-report.json'));
     await fs.rm(sourceViewPath);
 
     const missingResult = await runCli(workspaceRoot, ['artifacts', '--json']);
@@ -733,17 +733,17 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
 
     const manifestWithMissing = JSON.parse(missingResult.stdout) as typeof manifest;
     const fixedMissingDiagnostics = [
-      ...lockMissingDiagnostics,
       {
-        path: 'generated/policy-report.json',
+        path: 'control/evidence/policy-report.json',
         reason: 'fixed-governance-missing',
         declaredBy: 'artifact-manifest'
       },
       {
-        path: 'generated/views/source-view.html',
+        path: 'control/workbench/views/source-view.html',
         reason: 'fixed-view-missing',
         declaredBy: 'artifact-manifest'
-      }
+      },
+      ...lockMissingDiagnostics
     ];
     expect(manifestWithMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithMissing.summary.missingCount).toBe(3);
@@ -761,17 +761,17 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(compactResult.stdout.trim()).not.toContain('\n');
     expect(JSON.parse(compactResult.stdout)).toMatchObject({
       formatVersion: '1',
-      root: 'project'
+      root: 'workspace'
     });
 
     const pathsResult = await runCli(workspaceRoot, ['artifacts', '--paths']);
     expect(pathsResult.code).toBe(0);
     expect(pathsResult.stderr).toBe('');
     const uploadPaths = pathsResult.stdout.trim().split('\n');
-    expect(uploadPaths).toContain('project/generated/ci-artifacts.json');
-    expect(uploadPaths).toContain('project/generated/review-summary.json');
+    expect(uploadPaths).toContain('control/ci/artifacts.json');
+    expect(uploadPaths).toContain('control/evidence/review-summary.json');
     expect(uploadPaths).not.toContain('project/generated/missing-diagnostic.json');
-    expect(uploadPaths).not.toContain('project/generated/views/source-view.html');
+    expect(uploadPaths).not.toContain('control/workbench/views/source-view.html');
 
     const pathsJsonResult = await runCli(workspaceRoot, ['artifacts', '--paths', '--json']);
     expect(pathsJsonResult.code).toBe(0);
@@ -792,7 +792,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       missing: typeof fixedMissingDiagnostics;
     };
     expect(pathsJson.formatVersion).toBe('1');
-    expect(pathsJson.root).toBe('project');
+    expect(pathsJson.root).toBe('workspace');
     expect(pathsJson.kind).toBe('all');
     expect(pathsJson.artifactStatus).toBe('attention');
     expect(pathsJson.count).toBe(uploadPaths.length);
@@ -831,9 +831,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(governancePathsResult.code).toBe(0);
     expect(governancePathsResult.stderr).toBe('');
     const governanceUploadPaths = governancePathsResult.stdout.trim().split('\n');
-    expect(governanceUploadPaths).toContain('project/generated/ci-artifacts.json');
-    expect(governanceUploadPaths).toContain('project/generated/review-summary.json');
-    expect(governanceUploadPaths).not.toContain('project/generated/views/slot-rule-view.html');
+    expect(governanceUploadPaths).toContain('control/ci/artifacts.json');
+    expect(governanceUploadPaths).toContain('control/evidence/review-summary.json');
+    expect(governanceUploadPaths).not.toContain('control/workbench/views/slot-rule-view.html');
 
     const viewPathsJsonResult = await runCli(workspaceRoot, [
       'artifacts',
@@ -855,9 +855,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       uploadGroups: Array<{ kind: string; count: number; paths: string[] }>;
     };
     expect(viewPathsJson.formatVersion).toBe('1');
-    expect(viewPathsJson.root).toBe('project');
+    expect(viewPathsJson.root).toBe('workspace');
     expect(viewPathsJson.kind).toBe('view');
-    expect(viewPathsJson.paths).toEqual(['project/generated/views/slot-rule-view.html']);
+    expect(viewPathsJson.paths).toEqual(['control/workbench/views/slot-rule-view.html']);
     expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
     expect(viewPathsJson.byKind).toEqual({ view: 1 });
     expect(viewPathsJson.uploadGroupCount).toBe(1);
@@ -865,10 +865,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       {
         kind: 'view',
         count: 1,
-        paths: ['project/generated/views/slot-rule-view.html']
+        paths: ['control/workbench/views/slot-rule-view.html']
       }
     ]);
-    expect(viewPathsJson.paths).not.toContain('project/generated/ci-artifacts.json');
+    expect(viewPathsJson.paths).not.toContain('control/ci/artifacts.json');
 
   });
 }, 120000);

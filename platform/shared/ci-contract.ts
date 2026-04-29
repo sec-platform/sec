@@ -40,7 +40,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     phase: 'verify',
     command: 'npm run platform -- verify --json --compact',
     purpose: 'Run the default fast verification lane for pull requests.',
-    produces: ['project/generated/verification-report.json']
+    produces: ['control/evidence/verification-report.json']
   },
   {
     id: 'full-runtime-verify',
@@ -48,9 +48,9 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     command: 'npm run platform -- verify --lane all --json --compact',
     purpose: 'Run the full runtime gate for release, demo, or scheduled CI.',
     produces: [
-      'project/generated/verification-report.json',
-      'project/generated/runtime-report.json',
-      'project/generated/acceptance-coverage.json'
+      'control/evidence/verification-report.json',
+      'control/evidence/runtime-report.json',
+      'control/evidence/acceptance-coverage.json'
     ]
   },
   {
@@ -86,7 +86,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     phase: 'diagnostics',
     command: 'npm run platform -- review summary --json --compact',
     purpose: 'Expose policy, provenance, repair, upgrade, and artifact review evidence.',
-    produces: ['project/generated/review-summary.json']
+    produces: ['control/evidence/review-summary.json']
   },
   {
     id: 'diagnostic-review-matrix',
@@ -108,8 +108,8 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     command: 'npm run platform -- explain --json --compact',
     purpose: 'Expose the explain graph and review summary for failed CI triage.',
     produces: [
-      'project/generated/explain-graph.json',
-      'project/generated/review-summary.json'
+      'control/graph/explain-graph.json',
+      'control/evidence/review-summary.json'
     ]
   },
   {
@@ -124,28 +124,28 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     phase: 'artifacts',
     command: 'npm run platform -- artifacts --paths --json --compact --kind governance',
     purpose: 'Emit upload paths for governance artifacts.',
-    produces: ['project/generated/ci-artifacts.json']
+    produces: ['control/ci/artifacts.json']
   },
   {
     id: 'view-artifacts',
     phase: 'artifacts',
     command: 'npm run platform -- artifacts --paths --json --compact --kind view',
     purpose: 'Emit upload paths for generated view artifacts.',
-    produces: ['project/generated/ci-artifacts.json']
+    produces: ['control/ci/artifacts.json']
   },
   {
     id: 'test-artifacts',
     phase: 'artifacts',
     command: 'npm run platform -- artifacts --paths --json --compact --kind test',
     purpose: 'Emit upload paths for runtime test artifacts.',
-    produces: ['project/generated/ci-artifacts.json']
+    produces: ['control/ci/artifacts.json']
   },
   {
     id: 'contract-artifacts',
     phase: 'artifacts',
     command: 'npm run platform -- artifacts --paths --json --compact --kind contract',
     purpose: 'Emit upload paths for contract artifacts.',
-    produces: ['project/generated/ci-artifacts.json']
+    produces: ['control/ci/artifacts.json']
   }
 ];
 

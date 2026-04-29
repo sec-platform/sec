@@ -1,3 +1,4 @@
+import { toWorkspaceArtifactPath } from '../shared/paths.ts';
 import type { CiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
@@ -99,20 +100,20 @@ export function artifactUploadPathSummary(
   uploadGroups: ArtifactPathUploadGroup[];
 } {
   const contractPaths = new Set(
-    manifest.summary.contractPaths.map((artifactPath) => `project/${artifactPath}`)
+    manifest.summary.contractPaths.map((artifactPath) => toWorkspaceArtifactPath(artifactPath))
   );
   const artifacts = kind === 'contract'
-    ? manifest.artifacts.filter((artifact) => contractPaths.has(`project/${artifact.path}`))
+    ? manifest.artifacts.filter((artifact) => contractPaths.has(toWorkspaceArtifactPath(artifact.path)))
     : kind
       ? manifest.artifacts.filter((artifact) => artifact.kind === kind)
       : manifest.artifacts;
   const includeManifest = kind === undefined || kind === 'governance';
   const entries = [
     ...(includeManifest
-      ? [{ path: 'project/generated/ci-artifacts.json', kind: 'governance' as const }]
+      ? [{ path: 'control/ci/artifacts.json', kind: 'governance' as const }]
       : []),
     ...artifacts.map((artifact) => ({
-      path: `project/${artifact.path}`,
+      path: toWorkspaceArtifactPath(artifact.path),
       kind: kind === 'contract' ? 'contract' as const : artifact.kind
     }))
   ];
