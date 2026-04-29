@@ -3,6 +3,7 @@ import type {
   CiArtifactSummary,
   CiArtifactUploadGroup
 } from './ci-artifact-types.ts';
+import { countPositiveValues } from './collections.ts';
 
 export type ReviewArtifactMissingEntry = CiArtifactMissingEntry;
 export type ReviewArtifactUploadGroup = CiArtifactUploadGroup;
@@ -20,4 +21,13 @@ export interface ReviewArtifactSummary
     >> {
   uploadGroups?: CiArtifactUploadGroup[];
   missing?: CiArtifactMissingEntry[];
+}
+
+export function reviewArtifactMissingReasonTypeCount(summary?: ReviewArtifactSummary): number {
+  return summary?.missingReasonTypeCount
+    ?? countPositiveValues(Object.values(summary?.missingReasonCounts ?? {}));
+}
+
+export function reviewArtifactUploadGroupCount(summary?: ReviewArtifactSummary): number {
+  return summary?.uploadGroupCount ?? summary?.uploadGroups?.length ?? 0;
 }

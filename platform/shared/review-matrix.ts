@@ -1,4 +1,4 @@
-import { countPositiveValues } from './collections.ts';
+import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from './review-artifact.ts';
 import type { ReviewSummary } from './review-types.ts';
 
 export type E2eMatrixRow = {
@@ -14,11 +14,6 @@ export type E2eMatrix = {
   rowCount: number;
   rows: E2eMatrixRow[];
 };
-
-function countMissingReasonTypes(reviewSummary: ReviewSummary): number {
-  return reviewSummary.artifactSummary?.missingReasonTypeCount
-    ?? countPositiveValues(Object.values(reviewSummary.artifactSummary?.missingReasonCounts ?? {}));
-}
 
 export function e2eStageEvidence(reviewSummary: ReviewSummary, stageId: string): string[] {
   const evidenceByStage: Record<string, string[]> = {
@@ -36,12 +31,8 @@ export function e2eStageEvidence(reviewSummary: ReviewSummary, stageId: string):
       ? [
           `total=${reviewSummary.artifactSummary.artifactCount}`,
           `missing=${reviewSummary.artifactSummary.missingCount}`,
-          `uploadGroups=${
-            reviewSummary.artifactSummary.uploadGroupCount
-              ?? reviewSummary.artifactSummary.uploadGroups?.length
-              ?? 0
-          }`,
-          `missingReasonTypes=${countMissingReasonTypes(reviewSummary)}`
+          `uploadGroups=${reviewArtifactUploadGroupCount(reviewSummary.artifactSummary)}`,
+          `missingReasonTypes=${reviewArtifactMissingReasonTypeCount(reviewSummary.artifactSummary)}`
         ]
       : ['artifacts=missing'],
     review: ['review-summary=generated']
