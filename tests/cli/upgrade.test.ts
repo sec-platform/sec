@@ -11,15 +11,11 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliSuccess, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
 
     const { privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
     const blockRoot = path.join(privateRegistryRoot, 'private.text-upgrade');
@@ -130,11 +126,7 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
 
 test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
     const textResult = await runCli(workspaceRoot, [
       'upgrade',
       'auth/basic-session',
@@ -249,25 +241,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
       });
     });
 
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { init: false, verifyLane: 'fast' });
 
     const { lockPath, upgradeDiagnosticsPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
@@ -290,11 +264,7 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
     report.summary.failedLanes = [];
     await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
-    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Locked project\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
     const explainText = await runCli(workspaceRoot, ['explain']);
     expect(explainText.code).toBe(0);

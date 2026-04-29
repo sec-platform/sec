@@ -7,34 +7,11 @@ import type {
   RepairPlan,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliSuccess, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits repair dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const { lockPath, repairPlanPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { passStatus: { verify: string } };
@@ -176,11 +153,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     report.summary.failedLanes = [];
     await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
-    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Locked project\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
     const explainText = await runCli(workspaceRoot, ['explain']);
     expect(explainText.code).toBe(0);
@@ -293,30 +266,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
 
 test('CLI emits blocked repair JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const { lockPath, repairPlanPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {

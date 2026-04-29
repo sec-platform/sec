@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliSuccess, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes dependency environment maintenance entrypoints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -39,11 +39,7 @@ test('CLI exposes dependency environment maintenance entrypoints', async () => {
       recommendedAction: expect.any(String)
     });
 
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
 
     const depsRelinkJson = await runCli(workspaceRoot, ['deps', 'relink', 'project', '--json']);
     expect(depsRelinkJson.code).toBe(0);

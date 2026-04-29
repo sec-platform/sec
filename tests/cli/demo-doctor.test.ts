@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliSuccess, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes demo checklist as text and JSON readiness contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -12,39 +12,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
     expect(missingText.stdout).toContain(`verification-report: missing; ${CI_ARTIFACT_FILES.verificationReport}`);
     expect(missingText.stdout).toContain('Next command: npm run demo:quickstart');
 
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 3 blocks\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['compose'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Composed project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['adapt'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Adapted slots\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'all'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['lock'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Locked project\n',
-      stderr: ''
-    });
-    await expect(runCli(workspaceRoot, ['explain'])).resolves.toMatchObject({
-      code: 0,
-      stderr: ''
-    });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true, explain: true });
 
     const readyText = await runCli(workspaceRoot, ['demo', 'checklist']);
     expect(readyText.code).toBe(0);
@@ -119,11 +87,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
       dependencies: expect.objectContaining({ mode: expect.any(String) })
     });
 
-    await expect(runCli(workspaceRoot, ['init', '--reset'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Initialized project workspace\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
     const initializedDoctorJson = await runCli(workspaceRoot, ['doctor', '--json', '--compact']);
     expect(initializedDoctorJson.code).toBe(0);
     expect(initializedDoctorJson.stderr).toBe('');
