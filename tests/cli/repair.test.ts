@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
 import { expect, test } from 'vitest';
 
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ExplainGraph,
@@ -15,11 +14,11 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const { lockPath, repairPlanPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { passStatus: { verify: string } };
+    const lock = await readJson<{ passStatus: { verify: string } }>(lockPath);
     lock.passStatus.verify = 'failed';
     await writeJson(lockPath, lock);
 
-    const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
+    const report = await readJson<VerificationReport>(verificationReportPath);
     report.unit.status = 'failed';
     report.fast.status = 'failed';
     report.fast.unit.status = 'failed';
@@ -100,7 +99,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
       changed: false
     });
 
-    const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
+    const writtenRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     expect(writtenRepairPlan).toEqual(repairPlan);
 
     await expectCliText(workspaceRoot, ['repair', 'plan'], [
@@ -260,15 +259,15 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
     const { lockPath, repairPlanPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
+    const lock = await readJson<{
       passStatus: { verify: string };
       slotTasks: unknown[];
-    };
+    }>(lockPath);
     lock.passStatus.verify = 'failed';
     lock.slotTasks = [];
     await writeJson(lockPath, lock);
 
-    const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
+    const report = await readJson<VerificationReport>(verificationReportPath);
     report.unit.status = 'failed';
     report.fast.status = 'failed';
     report.fast.unit.status = 'failed';
@@ -318,7 +317,7 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
       })
     ]);
 
-    const writtenRepairPlan = JSON.parse(await fs.readFile(repairPlanPath, 'utf8')) as RepairPlan;
+    const writtenRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     expect(writtenRepairPlan).toEqual(repairPlan);
 
     await expectCliText(workspaceRoot, ['repair', 'plan'], [

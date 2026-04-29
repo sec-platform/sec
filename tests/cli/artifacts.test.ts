@@ -17,7 +17,7 @@ import type {
   CiArtifactSummary,
   CiArtifactUploadGroup
 } from '../../platform/shared/ci-artifact-types.ts';
-import { pathExists, writeJson } from '../../platform/shared/fs.ts';
+import { pathExists, readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
@@ -317,10 +317,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     );
 
     const { lockPath, provenancePath, reviewSummaryPath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
-    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
-    const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+    const lock = await readJson<{ generatedPaths: string[] }>(lockPath);
+    const provenance = await readJson<{
       artifacts: Array<{ path: string; generatedByPass?: string }>;
-    };
+    }>(provenancePath);
     expect(lock.generatedPaths).toContain(CI_ARTIFACT_MANIFEST_PATH);
     expect(provenance.artifacts).toContainEqual(
       expect.objectContaining({
@@ -340,7 +340,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     const contractArtifactPath = path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json');
     await fs.mkdir(path.dirname(contractArtifactPath), { recursive: true });
     await fs.writeFile(contractArtifactPath, '{"provider":"postgres"}\n', 'utf8');
-    const lockWithContractArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
+    const lockWithContractArtifact = await readJson<{ generatedPaths: string[] }>(lockPath);
     lockWithContractArtifact.generatedPaths.push('generated/postgres-contract.json');
     await writeJson(lockPath, lockWithContractArtifact);
 
@@ -408,9 +408,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       `upload groups: ${contractManifest.summary.uploadGroupCount}`
     ]);
 
-    const contractReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
+    const contractReviewSummary = await readJson<{
       artifactSummary?: ReviewArtifactSummary;
-    };
+    }>(reviewSummaryPath);
     expect(contractReviewSummary.artifactSummary).toMatchObject({
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json'],
@@ -423,7 +423,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       ['generated/postgres-contract.json']
     );
 
-    const lockWithMissingArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
+    const lockWithMissingArtifact = await readJson<{ generatedPaths: string[] }>(lockPath);
     lockWithMissingArtifact.generatedPaths.push('generated/missing-diagnostic.json');
     await writeJson(lockPath, lockWithMissingArtifact);
 
@@ -506,9 +506,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(testManifest.summary.testCount).toBe(1);
     expectUploadGroup(testManifest.uploadGroups, 'test', [CI_ARTIFACT_FILES.testResults]);
 
-    const refreshedReviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
+    const refreshedReviewSummary = await readJson<{
       artifactSummary?: ReviewArtifactSummary;
-    };
+    }>(reviewSummaryPath);
     expect(refreshedReviewSummary.artifactSummary).toMatchObject({
       testCount: 1,
       missingReasonTypeCount: 1
