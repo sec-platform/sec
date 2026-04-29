@@ -59,6 +59,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Check organized imports
+        run: npm run imports:check
+
       - name: Test budget contract
         run: npm run platform -- test budget --json --compact
 
@@ -199,6 +202,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Check organized imports
+        run: npm run imports:check
 
       - name: Test budget contract
         run: npm run platform -- test budget --json --compact

@@ -1,5 +1,5 @@
-import { CompilerError } from '../../shared/errors.ts';
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
 
 export function alignInterfaces(plan: PlanFile, manifestMap: Map<string, ManifestEntry>): void {

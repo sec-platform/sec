@@ -1,11 +1,5 @@
 import { expect, test } from 'vitest';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
-import {
-  buildBenchmarkTaskSuiteContract,
-  formatBenchmarkTaskSuiteContract
-} from '../../platform/shared/benchmark-contract.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_KINDS,
@@ -25,36 +19,7 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import {
-  buildTestBudgetContract,
-  formatTestBudgetContract
-} from '../../platform/shared/test-budget-contract.ts';
-import {
-  ACCEPTANCE_USAGE,
-  LOCK_USAGE,
-  POLICY_USAGE,
-  POSTGRES_USAGE,
-  REPAIR_USAGE,
-  RUNTIME_USAGE,
-  USAGE
-} from '../../platform/cli/usage.ts';
-import {
-  assertReferenceCheckClean,
-  buildReferenceCheckReport,
-  formatReferenceCheck
-} from '../../platform/shared/reference-check.ts';
-import type {
-  ExplainGraph,
-  RepairPlan,
-  ReviewSummary,
-  UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport
-} from '../../platform/shared/types.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
-import { readCompilerFile, withTempWorkspace, runCliInProcess as runCli, usageErrorStderr, expectRepairUsageError, expectLockUsageError, expectPolicyUsageError, expectAcceptanceUsageError, expectPostgresUsageError, installPrivateBannerBlock } from '../helpers/test-utils.ts';
+import { readCompilerFile, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
@@ -190,9 +155,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'npm run platform -- verify --json --compact',
       'npm run platform -- verify --lane all --json --compact'
     ],
-    qualityCommandCount: 5,
+    qualityCommandCount: 6,
     qualityCommands: [
       'npm run typecheck',
+      'npm run imports:check',
       'npm run platform -- test budget --json --compact',
       'npm run test:contract-freeze',
       'npm run platform -- benchmark suite --json --compact',
@@ -217,7 +183,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       CI_ARTIFACT_FILES.verificationReport,
       CI_ARTIFACT_FILES.explainGraph
     ],
-    stepCount: 16,
+    stepCount: 17,
     steps: expect.arrayContaining([
       expect.objectContaining({
         id: 'pr-fast-verify',
@@ -240,6 +206,13 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         id: 'typecheck',
         phase: 'quality',
         command: 'npm run typecheck',
+        producesCount: 0,
+        produces: []
+      }),
+      expect.objectContaining({
+        id: 'organized-imports',
+        phase: 'quality',
+        command: 'npm run imports:check',
         producesCount: 0,
         produces: []
       }),
@@ -307,9 +280,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     expect(textResult.stdout).toContain(
       'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact'
     );
-    expect(textResult.stdout).toContain('Quality command count: 5');
+    expect(textResult.stdout).toContain('Quality command count: 6');
     expect(textResult.stdout).toContain(
-      'Quality commands: npm run typecheck, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
+      'Quality commands: npm run typecheck, npm run imports:check, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
     );
     expect(textResult.stdout).toContain('Diagnostic command count: 5');
     expect(textResult.stdout).toContain(
@@ -332,6 +305,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     );
     expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3');
     expect(textResult.stdout).toContain('Step typecheck; phase=quality; command=npm run typecheck; producesCount=0');
+    expect(textResult.stdout).toContain('Step organized-imports; phase=quality; command=npm run imports:check; producesCount=0');
     expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
     expect(textResult.stdout).toContain('Step contract-freeze; phase=quality; command=npm run test:contract-freeze');
     expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
@@ -352,9 +326,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- verify --json --compact',
         'npm run platform -- verify --lane all --json --compact'
       ],
-      qualityCommandCount: 5,
+      qualityCommandCount: 6,
       qualityCommands: [
         'npm run typecheck',
+        'npm run imports:check',
         'npm run platform -- test budget --json --compact',
         'npm run test:contract-freeze',
         'npm run platform -- benchmark suite --json --compact',
@@ -374,10 +349,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         CI_ARTIFACT_MANIFEST_PATH,
         CI_ARTIFACT_FILES.verificationReport
       ]),
-      stepCount: 16,
+      stepCount: 17,
       steps: expect.arrayContaining([
         expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
         expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
+        expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
         expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
         expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
         expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
@@ -396,9 +372,10 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'npm run platform -- verify --json --compact',
         'npm run platform -- verify --lane all --json --compact'
       ],
-      qualityCommandCount: 5,
+      qualityCommandCount: 6,
       qualityCommands: [
         'npm run typecheck',
+        'npm run imports:check',
         'npm run platform -- test budget --json --compact',
         'npm run test:contract-freeze',
         'npm run platform -- benchmark suite --json --compact',
@@ -417,6 +394,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       steps: expect.arrayContaining([
         expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
         expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
+        expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
         expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
         expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
         expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })

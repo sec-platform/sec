@@ -1,10 +1,10 @@
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { KIND_PRIORITY, PASS_STATUS_PENDING } from '../../shared/constants.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { relativePosixPath } from '../../shared/paths.ts';
-import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
 import type { LockFile, SlotTask } from '../../shared/lock-types.ts';
+import { relativePosixPath } from '../../shared/paths.ts';
 import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
+import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
 
 function compareBlocks(left: ManifestEntry, right: ManifestEntry): number {
   const leftPriority = KIND_PRIORITY[left.manifest.kind] ?? 99;

@@ -1,5 +1,3 @@
-import { uniqueSorted } from './collections.ts';
-import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_KINDS,
@@ -7,6 +5,8 @@ import {
   ciArtifactUploadCommand
 } from './ci-artifact-contract.ts';
 import type { CiArtifactKind } from './ci-artifact-types.ts';
+import { uniqueSorted } from './collections.ts';
+import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 
 export type CiContractStep = {
   id: string;
@@ -58,6 +58,13 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     phase: 'quality',
     command: 'npm run typecheck',
     purpose: 'Run TypeScript static checks before CI gates that execute generated workspaces.',
+    produces: []
+  },
+  {
+    id: 'organized-imports',
+    phase: 'quality',
+    command: 'npm run imports:check',
+    purpose: 'Ensure TypeScript import declarations are normalized by the shared organizer.',
     produces: []
   },
   {

@@ -1,13 +1,11 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import { buildExplainGraph, writeExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
 import { initWorkspace, resolveWorkspace } from '../../platform/orchestrator.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
@@ -17,6 +15,7 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {

@@ -1,55 +1,15 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
-import {
-  buildBenchmarkTaskSuiteContract,
-  formatBenchmarkTaskSuiteContract
-} from '../../platform/shared/benchmark-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import {
-  buildCiContract,
-  formatCiContract
-} from '../../platform/shared/ci-contract.ts';
-import {
-  buildContractFreezeContract,
-  formatContractFreezeContract
-} from '../../platform/shared/contract-freeze-contract.ts';
-import {
-  buildErrorProtocolContract,
-  formatErrorProtocolContract
-} from '../../platform/shared/error-protocol-contract.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import {
-  buildTestBudgetContract,
-  formatTestBudgetContract
-} from '../../platform/shared/test-budget-contract.ts';
-import {
-  ACCEPTANCE_USAGE,
-  LOCK_USAGE,
-  POLICY_USAGE,
-  POSTGRES_USAGE,
-  REPAIR_USAGE,
-  RUNTIME_USAGE,
-  USAGE
-} from '../../platform/cli/usage.ts';
-import {
-  assertReferenceCheckClean,
-  buildReferenceCheckReport,
-  formatReferenceCheck
-} from '../../platform/shared/reference-check.ts';
-import type {
-  ExplainGraph,
-  PlanFile,
-  RepairPlan,
-  ReviewSummary,
-  UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport
-} from '../../platform/shared/types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace, runCliInProcess as runCli, usageErrorStderr, expectRepairUsageError, expectLockUsageError, expectPolicyUsageError, expectAcceptanceUsageError, expectPostgresUsageError, installPrivateBannerBlock } from '../helpers/test-utils.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import type {
+  PlanFile
+} from '../../platform/shared/types.ts';
+import { readYaml } from '../../platform/shared/yaml.ts';
+import { installPrivateBannerBlock, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI accepts init commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-contract.ts';
+import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
 import { getSlowTestFiles } from '../shared/test-budget-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { commandPath, pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
-import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
 
 function fastTestArgs(args: string[]): string[] {
   return ['run', ...getSlowTestFiles().flatMap((file) => ['--exclude', file]), ...args];

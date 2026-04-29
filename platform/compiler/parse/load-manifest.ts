@@ -1,21 +1,21 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { CompilerError } from '../../shared/errors.ts';
+import type { ResolvedBlock } from '../../shared/lock-types.ts';
 import {
   blockDirName,
   isSafeRelativePath,
   officialRegistryRelativePath,
   resolveRegistryRoot
 } from '../../shared/paths.ts';
-import { readYaml } from '../../shared/yaml.ts';
-import { CompilerError } from '../../shared/errors.ts';
-import type { ResolvedBlock } from '../../shared/lock-types.ts';
-import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
 import type {
   BlockManifest,
   ManifestEntry,
   PlanRegistrySource
 } from '../../shared/plan-manifest-types.ts';
+import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
+import { readYaml } from '../../shared/yaml.ts';
 
 export interface ResolvedRegistrySource {
   id: string;

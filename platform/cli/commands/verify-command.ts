@@ -1,6 +1,6 @@
-import type { CommandHandler } from '../command-registry.ts';
-import { parseVerifyArgs } from '../args.ts';
 import { verifyWorkspace } from '../../orchestrator.ts';
+import { parseVerifyArgs } from '../args.ts';
+import type { CommandHandler } from '../command-registry.ts';
 import { printJsonOrText } from '../format-utils.ts';
 import { VERIFY_USAGE } from '../usage.ts';
 

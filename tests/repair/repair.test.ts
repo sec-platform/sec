@@ -1,15 +1,15 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import { applyRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { lockWorkspace, repairWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+import { writeYaml } from '../../platform/shared/yaml.ts';
+import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 function plan(): PlanFile {
   return {

@@ -1,9 +1,8 @@
 import path from 'node:path';
 import { uniqueSorted } from '../../shared/collections.ts';
-import { getWorkspacePaths, relativePosixPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { listFilesRecursive, pathExists, readJson, readText } from '../../shared/fs.ts';
-import { readYaml } from '../../shared/yaml.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
+import { getWorkspacePaths, relativePosixPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import type {
   MergedPolicyReportEntry,
   PolicyReport,
@@ -13,6 +12,7 @@ import type {
   PolicySpec,
   PolicyViolation
 } from '../../shared/policy-types.ts';
+import { readYaml } from '../../shared/yaml.ts';
 
 interface LoadedPolicyDefinition {
   policy: PolicyRule;

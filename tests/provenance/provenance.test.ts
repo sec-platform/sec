@@ -4,8 +4,8 @@ import { buildProvenance } from '../../platform/compiler/emit/write-provenance.t
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
 import type { LockFile, VerificationReport } from '../../platform/shared/types.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('buildProvenance sorts and deduplicates slot verification hints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

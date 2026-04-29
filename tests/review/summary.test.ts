@@ -1,7 +1,8 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
+import { buildReviewSummary, writeReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import {
   adaptWorkspace,
   composeWorkspace,
@@ -9,17 +10,16 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { buildReviewSummary, writeReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
   ProvenanceFile,
   VerificationReport
 } from '../../platform/shared/types.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
 
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;

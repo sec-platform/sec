@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import {
   adaptWorkspace,

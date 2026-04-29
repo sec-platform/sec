@@ -1,24 +1,15 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import {
-  adaptWorkspace,
-  addBlock,
-  composeWorkspace,
-  explainWorkspace,
-  initWorkspace,
-  lockWorkspace,
-  resolveWorkspace,
-  upgradeWorkspace,
-  verifyWorkspace
+  upgradeWorkspace
 } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
+import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
 
 test('delete directory migrations remove project directories recursively', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-directory-apply-');

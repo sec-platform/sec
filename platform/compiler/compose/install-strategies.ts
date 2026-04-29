@@ -1,7 +1,7 @@
 import { CompilerError } from '../../shared/errors.ts';
 import { copyRecursive, pathExists, readText, writeText } from '../../shared/fs.ts';
+import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
 import { resolvePathInside, resolveRegistryRoot } from '../../shared/paths.ts';
-import type { LockFile, InstallPlanStep } from '../../shared/lock-types.ts';
 
 export interface InstallContext {
   workspaceRoot: string;

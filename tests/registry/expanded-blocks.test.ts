@@ -1,10 +1,10 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import {
-  addBlock,
   adaptWorkspace,
+  addBlock,
   composeWorkspace,
   initWorkspace,
   resolveWorkspace,

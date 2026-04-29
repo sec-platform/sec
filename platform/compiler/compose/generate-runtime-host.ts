@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { ensureDir, writeText } from '../../shared/fs.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
 
 const BASE_RUNTIME_SCAFFOLD_PATHS = [
   'package.json',

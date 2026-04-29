@@ -10,7 +10,7 @@ import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../../platform/shared/test-budget-contract.ts';
-import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
+import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();

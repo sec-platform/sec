@@ -1,10 +1,9 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
-import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import {
-  addBlock,
   adaptWorkspace,
+  addBlock,
   composeWorkspace,
   explainWorkspace,
   initWorkspace,
@@ -13,7 +12,6 @@ import {
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
 import { createWorkspace, installPrivateBannerBlock } from '../helpers/test-utils.ts';
 
 test('workspace private registry blocks resolve, compose, and verify through the normal pipeline', async () => {

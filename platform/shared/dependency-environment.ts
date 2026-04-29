@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from './paths.ts';
 import { pathExists, removeDir } from './fs.ts';
+import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from './paths.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady, readRuntimeDepsStamp } from './project-runtime.ts';
 import { loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 

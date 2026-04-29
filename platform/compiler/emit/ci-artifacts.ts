@@ -1,15 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { pathExists, readJson } from '../../shared/fs.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
-import { writeProvenance } from './write-provenance.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
 import {
+  buildCiArtifactUploadGroups,
   CI_ARTIFACT_MANIFEST_PATH,
   CI_ARTIFACT_MISSING_REASON,
   CI_ARTIFACT_PATHS,
-  buildCiArtifactUploadGroups,
   ciArtifactKindForPath,
   ciArtifactUploadName,
   countCiArtifactMissingReasons,
@@ -25,6 +20,11 @@ import type {
   CiArtifactManifest,
   CiArtifactMissingEntry
 } from '../../shared/ci-artifact-types.ts';
+import { pathExists, readJson } from '../../shared/fs.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
+import { writeProvenance } from './write-provenance.ts';
 
 interface GeneratedPathResult {
   paths: string[];

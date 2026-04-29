@@ -1,10 +1,10 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
+import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
-import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
 
 function fileReplace(target: string, source = 'files/source.ts'): UpgradeMigrationEntry {
   return {

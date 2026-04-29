@@ -1,5 +1,5 @@
 import type { ManifestEntry } from '../../shared/plan-manifest-types.ts';
-import { loadManifestById, loadAllManifests } from './load-manifest.ts';
+import { loadAllManifests, loadManifestById } from './load-manifest.ts';
 
 interface CacheKey {
   blockId: string;

@@ -1,18 +1,13 @@
 import { expect, test } from 'vitest';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 import {
-  initWorkspace,
-  resolveWorkspace,
-  composeWorkspace,
   adaptWorkspace,
-  verifyWorkspace,
+  composeWorkspace,
+  initWorkspace,
   lockWorkspace,
-  explainWorkspace
+  resolveWorkspace,
+  verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('fast lane alone does not unlock the workspace', async () => {

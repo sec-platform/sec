@@ -2,11 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, expect } from 'vitest';
 
-import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
+import { createDefaultRegistry } from '../../platform/cli/index.ts';
 import {
   ACCEPTANCE_USAGE,
   LOCK_USAGE,
@@ -14,7 +10,11 @@ import {
   POSTGRES_USAGE,
   REPAIR_USAGE
 } from '../../platform/cli/usage.ts';
-import { createDefaultRegistry } from '../../platform/cli/index.ts';
+import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
+import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
+import type { LockFile } from '../../platform/shared/types.ts';
+import { writeYaml } from '../../platform/shared/yaml.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const deferredCleanupDirs = new Set<string>();

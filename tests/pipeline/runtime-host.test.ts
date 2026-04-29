@@ -1,18 +1,12 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
 import {
-  initWorkspace,
-  resolveWorkspace,
   composeWorkspace,
-  adaptWorkspace,
-  verifyWorkspace,
-  lockWorkspace,
-  explainWorkspace
+  initWorkspace,
+  resolveWorkspace
 } from '../../platform/orchestrator.ts';
-import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('compose refreshes runtime host scaffold for an existing workspace baseline', async () => {

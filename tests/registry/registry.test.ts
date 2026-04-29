@@ -1,10 +1,10 @@
 import { expect, test } from 'vitest';
 
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import { officialRegistryRelativePath, privateRegistryRelativePath } from '../../platform/shared/paths.ts';
 import { loadAllManifests } from '../../platform/compiler/parse/load-manifest.ts';
 import { resolveGraph } from '../../platform/compiler/resolve/resolve-graph.ts';
 import { validateResolvedTemplates } from '../../platform/compiler/verify/validate-resolved-templates.ts';
+import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
+import { officialRegistryRelativePath, privateRegistryRelativePath } from '../../platform/shared/paths.ts';
 import type { ManifestEntry, PlanFile } from '../../platform/shared/types.ts';
 
 function buildValidationPlan(entry: ManifestEntry): PlanFile {

@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { listFilesRecursive } from '../../shared/fs.ts';
-import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
+import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { pathEnvKey, resolveNpmInvocation, runCommand } from '../../shared/process.ts';
+import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/verification-types.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';

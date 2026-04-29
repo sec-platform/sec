@@ -1,14 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
-import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
-import { CompilerError } from '../../shared/errors.ts';
-import { writeProvenance } from '../emit/write-provenance.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type {
   RepairBlocker,
@@ -18,6 +15,9 @@ import type {
   RepairTaskPreview
 } from '../../shared/repair-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { writeProvenance } from '../emit/write-provenance.ts';
+import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
+import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
 
 function summarizeFailure(report: VerificationReport): string {
   return `build=${report.build.status}; unit=${report.unit.status}; acceptance=${report.acceptance.status}; policy=${report.policy.status}; runtime=${report.runtime.status}`;

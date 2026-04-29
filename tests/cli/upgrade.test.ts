@@ -1,53 +1,17 @@
-import { expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { expect, test } from 'vitest';
 
-import {
-  buildBenchmarkTaskSuiteContract,
-  formatBenchmarkTaskSuiteContract
-} from '../../platform/shared/benchmark-contract.ts';
-import {
-  buildCiContract,
-  formatCiContract
-} from '../../platform/shared/ci-contract.ts';
-import {
-  buildContractFreezeContract,
-  formatContractFreezeContract
-} from '../../platform/shared/contract-freeze-contract.ts';
-import {
-  buildErrorProtocolContract,
-  formatErrorProtocolContract
-} from '../../platform/shared/error-protocol-contract.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import {
-  buildTestBudgetContract,
-  formatTestBudgetContract
-} from '../../platform/shared/test-budget-contract.ts';
-import {
-  ACCEPTANCE_USAGE,
-  LOCK_USAGE,
-  POLICY_USAGE,
-  POSTGRES_USAGE,
-  REPAIR_USAGE,
-  RUNTIME_USAGE,
-  USAGE
-} from '../../platform/cli/usage.ts';
-import {
-  assertReferenceCheckClean,
-  buildReferenceCheckReport,
-  formatReferenceCheck
-} from '../../platform/shared/reference-check.ts';
 import type {
   ExplainGraph,
-  RepairPlan,
-  ReviewSummary,
   UpgradeDiagnostics,
   UpgradePlan,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace, runCliInProcess as runCli, usageErrorStderr, expectRepairUsageError, expectLockUsageError, expectPolicyUsageError, expectAcceptanceUsageError, expectPostgresUsageError, installPrivateBannerBlock } from '../helpers/test-utils.ts';
+import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

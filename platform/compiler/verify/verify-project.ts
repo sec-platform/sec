@@ -3,11 +3,11 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
-import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
-import { CompilerError } from '../../shared/errors.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type {
   FastVerificationLaneReport,

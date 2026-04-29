@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises';
-import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { readJson } from '../../shared/fs.ts';
-import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { writeProvenance } from './write-provenance.ts';
 
 export async function lockProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
   const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);

@@ -2,8 +2,8 @@ import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
 import { pathExists, readText, writeText } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import { loadOverrideManifest, resolveOverrideManifestPath } from '../parse/load-override-manifest.ts';
 import type { OverrideApplyPhase } from '../../shared/provenance-types.ts';
+import { loadOverrideManifest, resolveOverrideManifestPath } from '../parse/load-override-manifest.ts';
 
 export async function applyOverrides(workspaceRoot: string, phase: OverrideApplyPhase): Promise<void> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);

@@ -1,7 +1,8 @@
-import { afterAll, expect, test } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { afterAll, expect, test } from 'vitest';
 
+import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
 import {
   adaptWorkspace,
   addBlock,
@@ -10,13 +11,11 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
-import { compilerRoot, relativePosixPath } from '../../platform/shared/paths.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../platform/shared/paths.ts';
+import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
 
 const activeOfficialPolicyDirs = new Set<string>();
 const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');

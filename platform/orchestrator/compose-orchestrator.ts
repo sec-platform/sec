@@ -1,9 +1,9 @@
+import { composeProject } from '../compiler/compose/compose-project.ts';
+import { loadPlan } from '../compiler/parse/load-plan.ts';
+import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import { resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
-import { composeProject } from '../compiler/compose/compose-project.ts';
-import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
-import { loadPlan } from '../compiler/parse/load-plan.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
 
 export async function composeWorkspace(

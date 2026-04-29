@@ -13,23 +13,23 @@ import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-
 import { verifyProject } from '../compiler/verify/verify-project.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../shared/collections.ts';
-import { addGeneratedPaths } from '../shared/lock-utils.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
-import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
-import { writeYaml } from '../shared/yaml.ts';
 import type { LockFile } from '../shared/lock-types.ts';
-import type {
-  UpgradeDiagnostics,
-  UpgradePlan,
-  UpgradePreflightCheck
-} from '../shared/upgrade-types.ts';
+import { addGeneratedPaths } from '../shared/lock-utils.ts';
+import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
 import type {
   ManifestSlot,
   PlanFile,
   UpgradeMigration,
   UpgradeMigrationEntry
 } from '../shared/plan-manifest-types.ts';
+import type {
+  UpgradeDiagnostics,
+  UpgradePlan,
+  UpgradePreflightCheck
+} from '../shared/upgrade-types.ts';
+import { writeYaml } from '../shared/yaml.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
   if (range === version) {

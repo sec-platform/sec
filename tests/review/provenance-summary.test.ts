@@ -2,13 +2,13 @@ import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
   ProvenanceFile,
   VerificationReport
 } from '../../platform/shared/types.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 const report: VerificationReport = {
   build: { status: 'passed' },

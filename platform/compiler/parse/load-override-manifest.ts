@@ -2,8 +2,8 @@ import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
 import { pathExists } from '../../shared/fs.ts';
 import { getWorkspacePaths, isSafeRelativePath } from '../../shared/paths.ts';
-import { readYaml } from '../../shared/yaml.ts';
 import { emptyOverrideManifest, type OverrideApplyPhase, type OverrideEntry, type OverrideManifest } from '../../shared/provenance-types.ts';
+import { readYaml } from '../../shared/yaml.ts';
 
 const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
 const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/', 'control/', 'source/', '.pjc/'];

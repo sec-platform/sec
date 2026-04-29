@@ -1,38 +1,38 @@
 #!/usr/bin/env node
-import { CommandRegistry } from './command-registry.ts';
-import { createLogger } from '../shared/logger.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
+import { createLogger } from '../shared/logger.ts';
+import { CommandRegistry } from './command-registry.ts';
 import { formatJson } from './format-utils.ts';
 
-import { initCommand } from './commands/init-command.ts';
 import { addCommand } from './commands/add-command.ts';
-import { resolveCommand } from './commands/resolve-command.ts';
-import { composeCommand, adaptCommand } from './commands/compose-adapt-command.ts';
-import { verifyCommand } from './commands/verify-command.ts';
-import { repairCommand } from './commands/repair-command.ts';
-import { upgradeCommand } from './commands/upgrade-command.ts';
-import { lockCommand } from './commands/lock-command.ts';
-import { explainCommand } from './commands/explain-command.ts';
 import { artifactsCommand } from './commands/artifacts-command.ts';
-import { workbenchCommand } from './commands/workbench-command.ts';
+import { adaptCommand, composeCommand } from './commands/compose-adapt-command.ts';
+import { explainCommand } from './commands/explain-command.ts';
+import { initCommand } from './commands/init-command.ts';
 import {
-  doctorCommand,
-  depsCommand,
-  referenceCommand,
-  benchmarkCommand,
-  testCommand,
-  policyCommand,
   acceptanceCommand,
-  runtimeCommand,
-  verificationCommand,
-  provenanceCommand,
-  reviewCommand,
-  demoCommand,
-  contractCommand,
-  installCommand,
+  benchmarkCommand,
   blocksCommand,
-  postgresCommand
+  contractCommand,
+  demoCommand,
+  depsCommand,
+  doctorCommand,
+  installCommand,
+  policyCommand,
+  postgresCommand,
+  provenanceCommand,
+  referenceCommand,
+  reviewCommand,
+  runtimeCommand,
+  testCommand,
+  verificationCommand
 } from './commands/inspect-commands.ts';
+import { lockCommand } from './commands/lock-command.ts';
+import { repairCommand } from './commands/repair-command.ts';
+import { resolveCommand } from './commands/resolve-command.ts';
+import { upgradeCommand } from './commands/upgrade-command.ts';
+import { verifyCommand } from './commands/verify-command.ts';
+import { workbenchCommand } from './commands/workbench-command.ts';
 
 const ALL_COMMANDS = [
   initCommand,

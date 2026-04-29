@@ -1,41 +1,41 @@
+import { formatDoctorReport, getDoctorReport } from '../../shared/dependency-environment.ts';
+import { parseDoctorArgs } from '../args.ts';
 import type { CommandHandler } from '../command-registry.ts';
 import {
-  runDepsCommand,
-  runReferenceCommand,
-  runBenchmarkCommand,
-  runTestCommand,
-  runPolicyCommand,
   runAcceptanceCommand,
-  runRuntimeCommand,
-  runVerificationCommand,
-  runProvenanceCommand,
-  runReviewCommand,
-  runDemoCommand,
-  runContractCommand,
-  runInstallCommand,
+  runBenchmarkCommand,
   runBlocksCommand,
-  runPostgresCommand
+  runContractCommand,
+  runDemoCommand,
+  runDepsCommand,
+  runInstallCommand,
+  runPolicyCommand,
+  runPostgresCommand,
+  runProvenanceCommand,
+  runReferenceCommand,
+  runReviewCommand,
+  runRuntimeCommand,
+  runTestCommand,
+  runVerificationCommand
 } from '../commands.ts';
-import { parseDoctorArgs } from '../args.ts';
-import { getDoctorReport, formatDoctorReport } from '../../shared/dependency-environment.ts';
 import { printJsonOrText } from '../format-utils.ts';
 import {
-  DOCTOR_USAGE,
-  DEPS_USAGE,
-  REFERENCE_USAGE,
-  BENCHMARK_USAGE,
-  TEST_USAGE,
-  POLICY_USAGE,
   ACCEPTANCE_USAGE,
-  RUNTIME_USAGE,
-  VERIFICATION_USAGE,
-  PROVENANCE_USAGE,
-  REVIEW_USAGE,
-  DEMO_USAGE,
-  CONTRACT_USAGE,
-  INSTALL_USAGE,
+  BENCHMARK_USAGE,
   BLOCKS_USAGE,
-  POSTGRES_USAGE
+  CONTRACT_USAGE,
+  DEMO_USAGE,
+  DEPS_USAGE,
+  DOCTOR_USAGE,
+  INSTALL_USAGE,
+  POLICY_USAGE,
+  POSTGRES_USAGE,
+  PROVENANCE_USAGE,
+  REFERENCE_USAGE,
+  REVIEW_USAGE,
+  RUNTIME_USAGE,
+  TEST_USAGE,
+  VERIFICATION_USAGE
 } from '../usage.ts';
 
 export const doctorCommand: CommandHandler = {

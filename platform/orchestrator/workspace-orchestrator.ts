@@ -1,10 +1,10 @@
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
-import { PASS_STATUS_PENDING, SUPPORTED_STACK, DEFAULT_ACCEPTANCE } from '../shared/constants.ts';
+import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from '../shared/constants.ts';
 import { pathExists, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
+import type { PlanFile } from '../shared/plan-manifest-types.ts';
 import { ensureProjectBase } from '../shared/project-base.ts';
 import { writeYaml } from '../shared/yaml.ts';
-import type { PlanFile } from '../shared/plan-manifest-types.ts';
 
 function defaultPlan(): PlanFile {
   return {
