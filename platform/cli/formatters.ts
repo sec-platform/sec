@@ -1,7 +1,8 @@
+import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../shared/ci-artifact-contract.ts';
 import { toWorkspaceArtifactPath } from '../shared/paths.ts';
 import { uniqueSorted } from '../shared/collections.ts';
 import { formatCounts, formatList } from './format-utils.ts';
-import type { CiArtifactManifest } from '../shared/ci-artifact-types.ts';
+import type { CiArtifactManifest, CiArtifactUploadGroup } from '../shared/ci-artifact-types.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   AcceptanceCoverageEntry,
@@ -17,11 +18,7 @@ import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import type { ArtifactPathKind } from './args.ts';
 
-export type ArtifactPathUploadGroup = {
-  kind: ArtifactPathKind;
-  count: number;
-  paths: string[];
-};
+export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
 export type InstallManifestEntry = InstallPlanStep & { status: 'installed' };
 
@@ -112,7 +109,7 @@ export function artifactUploadPathSummary(
   const includeManifest = kind === undefined || kind === 'governance';
   const entries = [
     ...(includeManifest
-      ? [{ path: 'control/ci/artifacts.json', kind: 'governance' as const }]
+      ? [{ path: CI_ARTIFACT_MANIFEST_PATH, kind: 'governance' as const }]
       : []),
     ...artifacts.map((artifact) => ({
       path: toWorkspaceArtifactPath(artifact.path),
@@ -121,21 +118,15 @@ export function artifactUploadPathSummary(
   ];
   const kindByPath = new Map(entries.map((entry) => [entry.path, entry.kind]));
   const paths = [...kindByPath.keys()].sort((left, right) => left.localeCompare(right));
-  const byKind: Partial<Record<ArtifactPathKind, number>> = {};
-  for (const path of paths) {
+  const uploadEntries = paths.flatMap((path) => {
     const pathKind = kindByPath.get(path);
-    if (pathKind) {
-      byKind[pathKind] = (byKind[pathKind] ?? 0) + 1;
-    }
+    return pathKind ? [{ path, kind: pathKind }] : [];
+  });
+  const byKind: Partial<Record<ArtifactPathKind, number>> = {};
+  for (const entry of uploadEntries) {
+    byKind[entry.kind] = (byKind[entry.kind] ?? 0) + 1;
   }
-
-  const uploadGroups = (['governance', 'view', 'test', 'contract'] as const)
-    .map((groupKind) => ({
-      kind: groupKind,
-      count: paths.filter((path) => kindByPath.get(path) === groupKind).length,
-      paths: paths.filter((path) => kindByPath.get(path) === groupKind)
-    }))
-    .filter((group) => group.count > 0);
+  const uploadGroups = buildCiArtifactUploadGroups(uploadEntries);
 
   return { paths, byKind, uploadGroups };
 }

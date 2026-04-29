@@ -4,13 +4,24 @@ import { pathExists, readJson } from '../../shared/fs.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import {
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_PATHS,
+  buildCiArtifactUploadGroups,
+  ciArtifactKindForPath,
+  ciArtifactUploadName,
+  countCiArtifactMissingReasons,
+  countCiArtifactMissingReasonTypes,
+  emptyCiArtifactManifest,
+  fixedCiArtifactPaths,
+  isCiContractArtifactPath,
+  normalizeCiArtifactPath,
+  uniqueSortedCiArtifactPaths
+} from '../../shared/ci-artifact-contract.ts';
 import type {
   CiArtifactEntry,
-  CiArtifactKind,
   CiArtifactManifest,
-  CiArtifactMissingEntry,
-  CiArtifactSummary,
-  CiArtifactUploadGroup
+  CiArtifactMissingEntry
 } from '../../shared/ci-artifact-types.ts';
 
 interface GeneratedPathResult {
@@ -18,110 +29,12 @@ interface GeneratedPathResult {
   lockExists: boolean;
 }
 
-const CI_ARTIFACT_PATH = 'control/ci/artifacts.json';
-
-const REQUIRED_GOVERNANCE_ARTIFACTS = [
-  'control/state/graph.lock.json',
-  'control/provenance/provenance.json',
-  'control/evidence/install-manifest.json',
-  'control/evidence/verification-report.json',
-  'control/evidence/runtime-report.json',
-  'control/evidence/policy-report.json',
-  'control/evidence/acceptance-coverage.json',
-  'control/graph/explain-graph.json',
-  'control/evidence/review-summary.json'
-];
-
-const OPTIONAL_GOVERNANCE_ARTIFACTS = [
-  'control/workflow/repair-plan.json',
-  'control/workflow/upgrade-plan.json',
-  'control/workflow/upgrade-diagnostics.json',
-  'control/workflow/view-mutation-report.json'
-];
-
-const GOVERNANCE_ARTIFACTS = [
-  ...REQUIRED_GOVERNANCE_ARTIFACTS,
-  ...OPTIONAL_GOVERNANCE_ARTIFACTS
-];
-
-const VIEW_ARTIFACTS = [
-  'control/workbench/views/source-view.html',
-  'control/workbench/views/slot-rule-view.html'
-];
-
-const TEST_ARTIFACTS = [
-  'test-results/**'
-];
-
-function normalizeArtifactPath(value: string): string {
-  return value.replaceAll('\\', '/');
-}
-
-function uploadNameFor(artifactPath: string): string {
-  return artifactPath.replaceAll('/', '__');
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values.map(normalizeArtifactPath))].sort((left, right) => left.localeCompare(right));
-}
-
 function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissingEntry[] {
-  const entriesByPath = new Map(entries.map((entry) => [normalizeArtifactPath(entry.path), entry]));
+  const entriesByPath = new Map(entries.map((entry) => [
+    normalizeCiArtifactPath(entry.path),
+    { ...entry, path: normalizeCiArtifactPath(entry.path) }
+  ]));
   return [...entriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
-}
-
-function isContractArtifactPath(artifactPath: string): boolean {
-  return artifactPath.startsWith('generated/') && artifactPath.endsWith('-contract.json');
-}
-
-function artifactKindFor(artifactPath: string): CiArtifactKind {
-  if (isContractArtifactPath(artifactPath)) {
-    return 'contract';
-  }
-  if (artifactPath.startsWith('control/workbench/views/') || artifactPath.startsWith('generated/views/')) {
-    return 'view';
-  }
-  if (artifactPath.startsWith('test-results/')) {
-    return 'test';
-  }
-  return 'governance';
-}
-
-function buildUploadGroups(entries: CiArtifactEntry[]): CiArtifactUploadGroup[] {
-  return (['governance', 'view', 'test', 'contract'] as const)
-    .map((kind) => {
-      const paths = entries
-        .filter((entry) => entry.kind === kind)
-        .map((entry) => entry.path);
-      return {
-        kind,
-        count: paths.length,
-        paths
-      };
-    })
-    .filter((group) => group.count > 0);
-}
-
-function buildMissingReasonCounts(
-  missing: CiArtifactMissingEntry[]
-): CiArtifactSummary['missingReasonCounts'] {
-  return {
-    'declared-generated-missing': missing.filter(
-      (entry) => entry.reason === 'declared-generated-missing'
-    ).length,
-    'fixed-governance-missing': missing.filter(
-      (entry) => entry.reason === 'fixed-governance-missing'
-    ).length,
-    'fixed-view-missing': missing.filter(
-      (entry) => entry.reason === 'fixed-view-missing'
-    ).length
-  };
-}
-
-function countMissingReasonTypes(
-  missingReasonCounts: CiArtifactSummary['missingReasonCounts']
-): number {
-  return Object.values(missingReasonCounts).filter((count) => count > 0).length;
 }
 
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
@@ -135,18 +48,15 @@ async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathR
 
 export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
   const generatedPathResult = await readGeneratedPaths(workspaceRoot);
-  const artifacts = uniqueSorted([
-    CI_ARTIFACT_PATH,
-    ...GOVERNANCE_ARTIFACTS,
-    ...VIEW_ARTIFACTS,
-    ...TEST_ARTIFACTS,
+  const artifacts = uniqueSortedCiArtifactPaths([
+    ...fixedCiArtifactPaths(),
     ...generatedPathResult.paths
   ]);
   const entries: CiArtifactEntry[] = [];
   const missing: CiArtifactMissingEntry[] = [];
-  const generatedPaths = new Set(generatedPathResult.paths.map(normalizeArtifactPath));
-  const requiredGovernanceArtifacts = new Set(REQUIRED_GOVERNANCE_ARTIFACTS.map(normalizeArtifactPath));
-  const viewArtifacts = new Set(VIEW_ARTIFACTS.map(normalizeArtifactPath));
+  const generatedPaths = new Set(generatedPathResult.paths.map(normalizeCiArtifactPath));
+  const requiredGovernanceArtifacts = new Set(CI_ARTIFACT_PATHS.requiredGovernance.map(normalizeCiArtifactPath));
+  const viewArtifacts = new Set(CI_ARTIFACT_PATHS.view.map(normalizeCiArtifactPath));
 
   for (const artifactPath of artifacts) {
     const exists = artifactPath.endsWith('/**')
@@ -176,18 +86,18 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     }
     entries.push({
       path: artifactPath,
-      kind: artifactKindFor(artifactPath),
-      uploadName: uploadNameFor(artifactPath),
+      kind: ciArtifactKindForPath(artifactPath),
+      uploadName: ciArtifactUploadName(artifactPath),
       exists
     });
   }
 
   const sortedMissing = generatedPathResult.lockExists ? uniqueSortedMissing(missing) : [];
-  const contractPaths = uniqueSorted(entries
+  const contractPaths = uniqueSortedCiArtifactPaths(entries
     .map((entry) => entry.path)
-    .filter(isContractArtifactPath));
-  const uploadGroups = buildUploadGroups(entries);
-  const missingReasonCounts = buildMissingReasonCounts(sortedMissing);
+    .filter(isCiContractArtifactPath));
+  const uploadGroups = buildCiArtifactUploadGroups(entries);
+  const missingReasonCounts = countCiArtifactMissingReasons(sortedMissing);
   return {
     formatVersion: '1',
     root: 'workspace',
@@ -201,7 +111,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
       contractPaths,
       uploadGroupCount: uploadGroups.length,
       missingCount: sortedMissing.length,
-      missingReasonTypeCount: countMissingReasonTypes(missingReasonCounts),
+      missingReasonTypeCount: countCiArtifactMissingReasonTypes(missingReasonCounts),
       missingReasonCounts
     },
     artifacts: entries,
@@ -213,42 +123,15 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
 export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
-  if (!lock.generatedPaths.includes(CI_ARTIFACT_PATH)) {
-    lock.generatedPaths.push(CI_ARTIFACT_PATH);
+  if (!lock.generatedPaths.includes(CI_ARTIFACT_MANIFEST_PATH)) {
+    lock.generatedPaths.push(CI_ARTIFACT_MANIFEST_PATH);
     lock.generatedPaths.sort((left, right) => left.localeCompare(right));
   }
   await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   await fs.mkdir(path.dirname(ciArtifactsPath), { recursive: true });
   await fs.writeFile(
     ciArtifactsPath,
-    `${JSON.stringify(
-      {
-        formatVersion: '1',
-        root: 'workspace',
-        summary: {
-          artifactStatus: 'passed',
-          artifactCount: 0,
-          governanceCount: 0,
-          viewCount: 0,
-          testCount: 0,
-          contractCount: 0,
-          contractPaths: [],
-          uploadGroupCount: 0,
-          missingCount: 0,
-          missingReasonTypeCount: 0,
-          missingReasonCounts: {
-            'declared-generated-missing': 0,
-            'fixed-governance-missing': 0,
-            'fixed-view-missing': 0
-          }
-        },
-        artifacts: [],
-        uploadGroups: [],
-        missing: []
-      },
-      null,
-      2
-    )}\n`,
+    `${JSON.stringify(emptyCiArtifactManifest(), null, 2)}\n`,
     'utf8'
   );
   const manifest = await buildCiArtifactManifest(workspaceRoot);

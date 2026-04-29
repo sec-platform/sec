@@ -1,3 +1,10 @@
+import {
+  CI_ARTIFACT_KINDS,
+  CI_ARTIFACT_MANIFEST_PATH,
+  ciArtifactUploadCommand
+} from './ci-artifact-contract.ts';
+import type { CiArtifactKind } from './ci-artifact-types.ts';
+
 export type CiContractStep = {
   id: string;
   phase: 'verify' | 'quality' | 'diagnostics' | 'artifacts';
@@ -26,6 +33,21 @@ export type CiContract = {
   stepCount: number;
   steps: CiContractStep[];
 };
+
+const ciArtifactPurposes: Record<CiArtifactKind, string> = {
+  governance: 'Emit upload paths for governance artifacts.',
+  view: 'Emit upload paths for generated view artifacts.',
+  test: 'Emit upload paths for runtime test artifacts.',
+  contract: 'Emit upload paths for contract artifacts.'
+};
+
+const ciArtifactSteps = CI_ARTIFACT_KINDS.map((kind): Omit<CiContractStep, 'producesCount'> => ({
+  id: `${kind}-artifacts`,
+  phase: 'artifacts',
+  command: ciArtifactUploadCommand(kind),
+  purpose: ciArtifactPurposes[kind],
+  produces: [CI_ARTIFACT_MANIFEST_PATH]
+}));
 
 const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
@@ -119,34 +141,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     purpose: 'Expose whether existing governance artifacts satisfy local demo readiness.',
     produces: []
   },
-  {
-    id: 'governance-artifacts',
-    phase: 'artifacts',
-    command: 'npm run platform -- artifacts --paths --json --compact --kind governance',
-    purpose: 'Emit upload paths for governance artifacts.',
-    produces: ['control/ci/artifacts.json']
-  },
-  {
-    id: 'view-artifacts',
-    phase: 'artifacts',
-    command: 'npm run platform -- artifacts --paths --json --compact --kind view',
-    purpose: 'Emit upload paths for generated view artifacts.',
-    produces: ['control/ci/artifacts.json']
-  },
-  {
-    id: 'test-artifacts',
-    phase: 'artifacts',
-    command: 'npm run platform -- artifacts --paths --json --compact --kind test',
-    purpose: 'Emit upload paths for runtime test artifacts.',
-    produces: ['control/ci/artifacts.json']
-  },
-  {
-    id: 'contract-artifacts',
-    phase: 'artifacts',
-    command: 'npm run platform -- artifacts --paths --json --compact --kind contract',
-    purpose: 'Emit upload paths for contract artifacts.',
-    produces: ['control/ci/artifacts.json']
-  }
+  ...ciArtifactSteps
 ];
 
 export function buildCiContract(): CiContract {
