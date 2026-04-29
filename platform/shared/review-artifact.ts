@@ -1,27 +1,23 @@
-export interface ReviewArtifactMissingEntry {
-  path: string;
-  reason: string;
-  declaredBy: string;
-}
+import type {
+  CiArtifactMissingEntry,
+  CiArtifactSummary,
+  CiArtifactUploadGroup
+} from './ci-artifact-types.ts';
 
-export interface ReviewArtifactUploadGroup {
-  kind: string;
-  count: number;
-  paths: string[];
-}
+export type ReviewArtifactMissingEntry = CiArtifactMissingEntry;
+export type ReviewArtifactUploadGroup = CiArtifactUploadGroup;
 
-export interface ReviewArtifactSummary {
-  artifactStatus?: 'passed' | 'attention';
-  artifactCount: number;
-  governanceCount: number;
-  viewCount: number;
-  testCount?: number;
-  contractCount?: number;
-  contractPaths?: string[];
-  uploadGroupCount?: number;
-  missingCount: number;
-  missingReasonTypeCount?: number;
-  missingReasonCounts?: Record<string, number>;
-  uploadGroups?: ReviewArtifactUploadGroup[];
-  missing?: ReviewArtifactMissingEntry[];
+export interface ReviewArtifactSummary
+  extends Pick<CiArtifactSummary, 'artifactCount' | 'governanceCount' | 'viewCount' | 'missingCount'>,
+    Partial<Pick<CiArtifactSummary,
+      | 'artifactStatus'
+      | 'testCount'
+      | 'contractCount'
+      | 'contractPaths'
+      | 'uploadGroupCount'
+      | 'missingReasonTypeCount'
+      | 'missingReasonCounts'
+    >> {
+  uploadGroups?: CiArtifactUploadGroup[];
+  missing?: CiArtifactMissingEntry[];
 }

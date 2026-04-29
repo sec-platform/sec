@@ -110,6 +110,16 @@ export type {
   VerificationStepReport
 } from './verification-types.ts';
 export type {
+  CiArtifactDeclaredBy,
+  CiArtifactEntry,
+  CiArtifactKind,
+  CiArtifactManifest,
+  CiArtifactMissingEntry,
+  CiArtifactMissingReason,
+  CiArtifactSummary,
+  CiArtifactUploadGroup
+} from './ci-artifact-types.ts';
+export type {
   ReviewArtifactMissingEntry,
   ReviewArtifactSummary,
   ReviewArtifactUploadGroup,

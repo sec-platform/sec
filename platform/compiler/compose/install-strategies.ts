@@ -1,7 +1,6 @@
-import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
 import { copyRecursive, pathExists, readText, writeText } from '../../shared/fs.ts';
-import { resolveRegistryRoot } from '../../shared/paths.ts';
+import { resolvePathInside, resolveRegistryRoot } from '../../shared/paths.ts';
 import type { LockFile, InstallPlanStep } from '../../shared/lock-types.ts';
 
 export interface InstallContext {
@@ -17,15 +16,21 @@ export interface InstallStrategy {
 }
 
 function resolveSourcePath(step: InstallPlanStep, context: InstallContext): string {
-  return path.join(
-    resolveRegistryRoot(context.workspaceRoot, step.registryLocation, step.registryPath),
-    step.sourceRoot,
-    step.from
-  );
+  const registryRoot = resolveRegistryRoot(context.workspaceRoot, step.registryLocation, step.registryPath);
+  const sourceRoot = resolvePathInside(registryRoot, step.sourceRoot, { allowEmpty: true });
+  const sourcePath = sourceRoot ? resolvePathInside(sourceRoot, step.from) : null;
+  if (!sourcePath) {
+    throw new CompilerError('COMPOSE-PATH-003', `Install source path "${step.from}" escapes registry source root`);
+  }
+  return sourcePath;
 }
 
 function resolveTargetPath(step: InstallPlanStep, context: InstallContext): string {
-  return path.join(context.projectRoot, step.to);
+  const targetPath = resolvePathInside(context.projectRoot, step.to);
+  if (!targetPath) {
+    throw new CompilerError('COMPOSE-PATH-004', `Install target path "${step.to}" escapes project root`);
+  }
+  return targetPath;
 }
 
 function normalizeNewlines(value: string): string {

@@ -45,7 +45,7 @@ import type {
   UpgradePlan,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { pathExists, writeJson } from '../../platform/shared/fs.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
 
@@ -322,6 +322,27 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       code: 0,
       stderr: ''
     });
+
+    {
+      const { ciArtifactsPath, lockPath, provenancePath } = getWorkspacePaths(workspaceRoot);
+      const lockBeforePaths = await fs.readFile(lockPath, 'utf8');
+      const provenanceBeforePaths = await fs.readFile(provenancePath, 'utf8');
+      expect(await pathExists(ciArtifactsPath)).toBe(false);
+
+      const pathsPreview = await runCli(workspaceRoot, [
+        'artifacts',
+        '--paths',
+        '--json',
+        '--compact',
+        '--kind',
+        'governance'
+      ]);
+      expect(pathsPreview.code).toBe(0);
+      expect(pathsPreview.stderr).toBe('');
+      expect(await pathExists(ciArtifactsPath)).toBe(false);
+      expect(await fs.readFile(lockPath, 'utf8')).toBe(lockBeforePaths);
+      expect(await fs.readFile(provenancePath, 'utf8')).toBe(provenanceBeforePaths);
+    }
 
     const result = await runCli(workspaceRoot, ['artifacts', '--json']);
     expect(result.code).toBe(0);

@@ -48,7 +48,7 @@ import type {
 } from '../../platform/shared/types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
+import { readCompilerFile, withTempWorkspace, runCliInProcess as runCli } from '../helpers/test-utils.ts';
 
 function usageErrorStderr(usage: string): string {
   return [
@@ -530,6 +530,24 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       ])
     });
   });
+});
+
+test('GitHub compiler CI workflow covers CI command contract gates', async () => {
+  const workflow = await readCompilerFile('.github/workflows/compiler-ci.yml');
+  const contract = buildCiContract();
+  const requiredWorkflowCommands = [
+    ...contract.verifyCommands,
+    ...contract.qualityCommands,
+    ...contract.artifactUploadCommands
+  ];
+  const missingCommands = requiredWorkflowCommands.filter((command) => {
+    const directCliCommand = command.replace('npm run platform -- ', 'node ./platform/cli/index.ts ');
+    return !workflow.includes(command) && !workflow.includes(directCliCommand);
+  });
+
+  expect(missingCommands).toEqual([]);
+  expect(workflow).toContain('contract_paths');
+  expect(workflow).toContain('compiler-contract-artifacts');
 });
 
 test('CLI exposes error protocol as text and JSON contracts', async () => {

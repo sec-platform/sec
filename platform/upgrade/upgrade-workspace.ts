@@ -13,7 +13,7 @@ import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-
 import { verifyProject } from '../compiler/verify/verify-project.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
+import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
 import { writeYaml } from '../shared/yaml.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import type {
@@ -247,7 +247,10 @@ async function loadMigrationEntries(
   }
 
   for (const migration of migrations) {
-    const entryPath = path.join(targetManifestRoot, migration.entry);
+    const entryPath = resolveManifestPath(targetManifestRoot, migration.entry, {
+      migrationId: migration.id,
+      role: 'manifest-source'
+    });
     if (!(await pathExists(entryPath))) {
       throw new CompilerError(
         'UPGRADE-MIGRATION-002',
@@ -301,9 +304,8 @@ function migrationPathDetails(
 }
 
 function resolveProjectPath(projectRoot: string, relativePath: string, context: MigrationPathContext = {}): string {
-  const resolvedPath = path.resolve(projectRoot, relativePath);
-  const projectRootWithSeparator = `${projectRoot}${path.sep}`;
-  if (resolvedPath !== projectRoot && !resolvedPath.startsWith(projectRootWithSeparator)) {
+  const resolvedPath = resolvePathInside(projectRoot, relativePath);
+  if (!resolvedPath) {
     throw new CompilerError(
       'UPGRADE-MIGRATION-004',
       `Migration path "${relativePath}" escapes project root`,
@@ -314,9 +316,8 @@ function resolveProjectPath(projectRoot: string, relativePath: string, context: 
 }
 
 function resolveManifestPath(manifestRoot: string, relativePath: string, context: MigrationPathContext = {}): string {
-  const resolvedPath = path.resolve(manifestRoot, relativePath);
-  const manifestRootWithSeparator = `${manifestRoot}${path.sep}`;
-  if (resolvedPath !== manifestRoot && !resolvedPath.startsWith(manifestRootWithSeparator)) {
+  const resolvedPath = resolvePathInside(manifestRoot, relativePath);
+  if (!resolvedPath) {
     throw new CompilerError(
       'UPGRADE-MIGRATION-005',
       `Migration source "${relativePath}" escapes manifest root`,

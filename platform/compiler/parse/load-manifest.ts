@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   blockDirName,
+  isSafeRelativePath,
   officialRegistryRelativePath,
   resolveRegistryRoot
 } from '../../shared/paths.ts';
@@ -128,6 +129,22 @@ export function validateManifest(manifest: BlockManifest): void {
   }
   if (!Array.isArray(manifest.installs) || manifest.installs.length === 0) {
     throw new CompilerError('MANIFEST-SCHEMA-003', `Manifest "${manifest.id}" must declare installs`);
+  }
+  for (const install of manifest.installs) {
+    if (!install.kind || !install.from || !install.to) {
+      throw new CompilerError('MANIFEST-SCHEMA-005', `Manifest "${manifest.id}" install entries require kind/from/to`);
+    }
+    if (!isSafeRelativePath(install.from) || !isSafeRelativePath(install.to)) {
+      throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest "${manifest.id}" install paths must stay inside their allowed roots`);
+    }
+  }
+  for (const slot of manifest.slots) {
+    if (!slot.target || !isSafeRelativePath(slot.target)) {
+      throw new CompilerError('MANIFEST-SCHEMA-007', `Manifest "${manifest.id}" slot targets must stay inside the project tree`);
+    }
+    if (slot.writableZones?.some((zone) => !isSafeRelativePath(zone))) {
+      throw new CompilerError('MANIFEST-SCHEMA-008', `Manifest "${manifest.id}" slot writableZones must stay inside the project tree`);
+    }
   }
 }
 

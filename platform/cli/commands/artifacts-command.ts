@@ -1,10 +1,11 @@
 import type { CommandHandler, CommandContext } from '../command-registry.ts';
 import { parseArtifactsArgs } from '../args.ts';
+import { buildCiArtifactManifest } from '../../compiler/emit/ci-artifacts.ts';
 import { writeWorkspaceArtifacts } from '../../orchestrator.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { pathExists, readJson } from '../../shared/fs.ts';
 import { artifactUploadPathSummary, formatCiArtifactManifest } from '../formatters.ts';
-import type { CiArtifactManifest } from '../../compiler/emit/ci-artifacts.ts';
+import type { CiArtifactManifest } from '../../shared/ci-artifact-types.ts';
 import { ARTIFACTS_USAGE } from '../usage.ts';
 
 export const artifactsCommand: CommandHandler = {
@@ -25,8 +26,8 @@ export const artifactsCommand: CommandHandler = {
       console.log(formatCiArtifactManifest(manifest));
       return;
     }
-    const { manifest } = await writeWorkspaceArtifacts(ctx.cwd);
     if (artifactsArgs.mode === 'paths') {
+      const manifest = await buildCiArtifactManifest(ctx.cwd);
       const pathSummary = artifactUploadPathSummary(manifest, artifactsArgs.kind);
       if (artifactsArgs.json) {
         console.log(JSON.stringify({
@@ -49,6 +50,7 @@ export const artifactsCommand: CommandHandler = {
       console.log(pathSummary.paths.join('\n'));
       return;
     }
+    const { manifest } = await writeWorkspaceArtifacts(ctx.cwd);
     console.log(JSON.stringify(manifest, null, artifactsArgs.compact ? 0 : 2));
   }
 };

@@ -48,6 +48,20 @@ function slotWritePath(task: { sourcePath?: string; target: string }): string {
   return task.sourcePath ?? task.target;
 }
 
+function resolveRepairTargetPath(workspaceRoot: string, root: string, targetFile: string): string {
+  let targetPath: string;
+  try {
+    targetPath = resolveWorkspaceArtifactPath(workspaceRoot, targetFile);
+  } catch {
+    throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${targetFile}" escapes workspace root`);
+  }
+  const rootWithSeparator = `${root}${path.sep}`;
+  if (targetPath !== root && !targetPath.startsWith(rootWithSeparator)) {
+    throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${targetFile}" escapes workspace root`);
+  }
+  return targetPath;
+}
+
 function countChangedLines(before: string, after: string): Pick<RepairTaskPreview, 'addedLines' | 'removedLines'> {
   const beforeLines = before.split('\n');
   const afterLines = after.split('\n');
@@ -306,11 +320,7 @@ export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, l
     if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
       throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
     }
-    const targetPath = resolveWorkspaceArtifactPath(workspaceRoot, repairTask.targetFile);
-    const rootWithSeparator = `${root}${path.sep}`;
-    if (targetPath !== root && !targetPath.startsWith(rootWithSeparator)) {
-      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes workspace root`);
-    }
+    const targetPath = resolveRepairTargetPath(workspaceRoot, root, repairTask.targetFile);
     const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
     if (!slotTask) {
       throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);
@@ -344,11 +354,7 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
     if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
       throw new CompilerError('REPAIR-SCOPE-001', `Repair target "${repairTask.targetFile}" is not allowed`);
     }
-    const targetPath = resolveWorkspaceArtifactPath(workspaceRoot, repairTask.targetFile);
-    const rootWithSeparator = `${root}${path.sep}`;
-    if (targetPath !== root && !targetPath.startsWith(rootWithSeparator)) {
-      throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${repairTask.targetFile}" escapes workspace root`);
-    }
+    const targetPath = resolveRepairTargetPath(workspaceRoot, root, repairTask.targetFile);
     const slotTask = lock.slotTasks.find((task) => task.id === repairTask.sourceSlotId && slotWritePath(task) === repairTask.targetFile);
     if (!slotTask) {
       throw new CompilerError('REPAIR-SCOPE-002', `Repair slot "${repairTask.sourceSlotId}" is missing from graph.lock.json`);

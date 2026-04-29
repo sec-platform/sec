@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { applyOverrides } from './apply-overrides.ts';
@@ -75,7 +75,10 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
 
   await Promise.all(
     lock.slotTasks.map(async (task) => {
-      const targetPath = path.join(projectRoot, task.target);
+      const targetPath = resolvePathInside(projectRoot, task.target);
+      if (!targetPath) {
+        throw new Error(`Slot target "${task.target}" escapes project root`);
+      }
       if (!(await pathExists(targetPath))) {
         await writeText(targetPath, renderSlotSkeleton(task));
       }

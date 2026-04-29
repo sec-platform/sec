@@ -1,7 +1,7 @@
 import { toWorkspaceArtifactPath } from '../shared/paths.ts';
 import { uniqueSorted } from '../shared/collections.ts';
 import { formatCounts, formatList } from './format-utils.ts';
-import type { CiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
+import type { CiArtifactManifest } from '../shared/ci-artifact-types.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../shared/review-matrix.ts';
 import type {
   AcceptanceCoverageEntry,
