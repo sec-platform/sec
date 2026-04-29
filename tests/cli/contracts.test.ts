@@ -19,7 +19,7 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
-import { readCompilerFile, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, readCompilerFile, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
@@ -87,21 +87,17 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    const textResult = await runCli(workspaceRoot, ['contract', 'freeze']);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Contract freeze active');
-    expect(textResult.stdout).toContain('Command: npm run platform -- contract freeze --json');
-    expect(textResult.stdout).toContain('Runner command: npm run test:contract-freeze');
-    expect(textResult.stdout).toContain('Target files: 15');
-    expect(textResult.stdout).toContain('Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts');
-    expect(textResult.stdout).toContain('tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts');
-    expect(textResult.stdout).toContain('Target tests/pipeline/end-to-end.test.ts; command=bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern');
+    await expectCliText(workspaceRoot, ['contract', 'freeze'], [
+      'Contract freeze active',
+      'Command: npm run platform -- contract freeze --json',
+      'Runner command: npm run test:contract-freeze',
+      'Target files: 15',
+      'Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
+      'tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts',
+      'Target tests/pipeline/end-to-end.test.ts; command=bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern'
+    ]);
 
-    const jsonResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json']);
-    expect(jsonResult.code).toBe(0);
-    expect(jsonResult.stderr).toBe('');
-    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+    await expectCliJson(workspaceRoot, ['contract', 'freeze', '--json'], {
       status: 'active',
       command: 'npm run platform -- contract freeze --json',
       runnerCommand: 'npm run test:contract-freeze',
@@ -126,16 +122,17 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
       targetCount: 15
     });
 
-    const compactResult = await runCli(workspaceRoot, ['contract', 'freeze', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      status: 'active',
-      runnerCommand: 'npm run test:contract-freeze',
-      targetFileCount: 15,
-      targetCount: 15
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['contract', 'freeze', '--json', '--compact'],
+      {
+        status: 'active',
+        runnerCommand: 'npm run test:contract-freeze',
+        targetFileCount: 15,
+        targetCount: 15
+      },
+      { compact: true }
+    );
   });
 });
 
@@ -272,28 +269,17 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    const textResult = await runCli(workspaceRoot, ['contract', 'ci']);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('CI contract active');
-    expect(textResult.stdout).toContain('Verify command count: 2');
-    expect(textResult.stdout).toContain(
-      'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact'
-    );
-    expect(textResult.stdout).toContain('Quality command count: 6');
-    expect(textResult.stdout).toContain(
-      'Quality commands: npm run typecheck, npm run imports:check, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact'
-    );
-    expect(textResult.stdout).toContain('Diagnostic command count: 5');
-    expect(textResult.stdout).toContain(
-      'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- review matrix --json --compact, npm run platform -- review diagnostics --json --compact, npm run platform -- explain --json --compact, npm run platform -- demo checklist --json --compact'
-    );
-    expect(textResult.stdout).toContain('Artifact upload command count: 4');
-    expect(textResult.stdout).toContain(
-      `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`
-    );
-    expect(textResult.stdout).toContain('Artifact paths: 6');
-    expect(textResult.stdout).toContain(
+    await expectCliText(workspaceRoot, ['contract', 'ci'], [
+      'CI contract active',
+      'Verify command count: 2',
+      'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact',
+      'Quality command count: 6',
+      'Quality commands: npm run typecheck, npm run imports:check, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact',
+      'Diagnostic command count: 5',
+      'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- review matrix --json --compact, npm run platform -- review diagnostics --json --compact, npm run platform -- explain --json --compact, npm run platform -- demo checklist --json --compact',
+      'Artifact upload command count: 4',
+      `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`,
+      'Artifact paths: 6',
       `Artifact path list: ${[
         CI_ARTIFACT_MANIFEST_PATH,
         CI_ARTIFACT_FILES.acceptanceCoverage,
@@ -301,24 +287,21 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         CI_ARTIFACT_FILES.runtimeReport,
         CI_ARTIFACT_FILES.verificationReport,
         CI_ARTIFACT_FILES.explainGraph
-      ].join(', ')}`
-    );
-    expect(textResult.stdout).toContain('Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3');
-    expect(textResult.stdout).toContain('Step typecheck; phase=quality; command=npm run typecheck; producesCount=0');
-    expect(textResult.stdout).toContain('Step organized-imports; phase=quality; command=npm run imports:check; producesCount=0');
-    expect(textResult.stdout).toContain('Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact');
-    expect(textResult.stdout).toContain('Step contract-freeze; phase=quality; command=npm run test:contract-freeze');
-    expect(textResult.stdout).toContain('Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact');
-    expect(textResult.stdout).toContain('Step reference-drift; phase=quality; command=npm run platform -- reference check --json --compact');
-    expect(textResult.stdout).toContain('Step diagnostic-review-matrix; phase=diagnostics; command=npm run platform -- review matrix --json --compact; producesCount=0');
-    expect(textResult.stdout).toContain('Step diagnostic-review-diagnostics; phase=diagnostics; command=npm run platform -- review diagnostics --json --compact; producesCount=0');
-    expect(textResult.stdout).toContain('Step diagnostic-demo-checklist; phase=diagnostics; command=npm run platform -- demo checklist --json --compact; producesCount=0');
-    expect(textResult.stdout).toContain('Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract');
+      ].join(', ')}`,
+      'Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3',
+      'Step typecheck; phase=quality; command=npm run typecheck; producesCount=0',
+      'Step organized-imports; phase=quality; command=npm run imports:check; producesCount=0',
+      'Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact',
+      'Step contract-freeze; phase=quality; command=npm run test:contract-freeze',
+      'Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact',
+      'Step reference-drift; phase=quality; command=npm run platform -- reference check --json --compact',
+      'Step diagnostic-review-matrix; phase=diagnostics; command=npm run platform -- review matrix --json --compact; producesCount=0',
+      'Step diagnostic-review-diagnostics; phase=diagnostics; command=npm run platform -- review diagnostics --json --compact; producesCount=0',
+      'Step diagnostic-demo-checklist; phase=diagnostics; command=npm run platform -- demo checklist --json --compact; producesCount=0',
+      'Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract'
+    ]);
 
-    const jsonResult = await runCli(workspaceRoot, ['contract', 'ci', '--json']);
-    expect(jsonResult.code).toBe(0);
-    expect(jsonResult.stderr).toBe('');
-    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+    await expectCliJson(workspaceRoot, ['contract', 'ci', '--json'], {
       status: 'active',
       defaultGate: 'pr-fast-verify',
       verifyCommandCount: 2,
@@ -360,46 +343,47 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       ])
     });
 
-    const compactResult = await runCli(workspaceRoot, ['contract', 'ci', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      status: 'active',
-      fullRuntimeGate: 'full-runtime-verify',
-      verifyCommandCount: 2,
-      verifyCommands: [
-        'npm run platform -- verify --json --compact',
-        'npm run platform -- verify --lane all --json --compact'
-      ],
-      qualityCommandCount: 6,
-      qualityCommands: [
-        'npm run typecheck',
-        'npm run imports:check',
-        'npm run platform -- test budget --json --compact',
-        'npm run test:contract-freeze',
-        'npm run platform -- benchmark suite --json --compact',
-        'npm run platform -- reference check --json --compact'
-      ],
-      diagnosticCommandCount: 5,
-      diagnosticCommands: [
-        'npm run platform -- review summary --json --compact',
-        'npm run platform -- review matrix --json --compact',
-        'npm run platform -- review diagnostics --json --compact',
-        'npm run platform -- explain --json --compact',
-        'npm run platform -- demo checklist --json --compact'
-      ],
-      artifactUploadCommandCount: 4,
-      artifactPathCount: 6,
-      steps: expect.arrayContaining([
-        expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
-        expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
-        expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
-        expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
-        expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
-        expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
-      ])
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['contract', 'ci', '--json', '--compact'],
+      {
+        status: 'active',
+        fullRuntimeGate: 'full-runtime-verify',
+        verifyCommandCount: 2,
+        verifyCommands: [
+          'npm run platform -- verify --json --compact',
+          'npm run platform -- verify --lane all --json --compact'
+        ],
+        qualityCommandCount: 6,
+        qualityCommands: [
+          'npm run typecheck',
+          'npm run imports:check',
+          'npm run platform -- test budget --json --compact',
+          'npm run test:contract-freeze',
+          'npm run platform -- benchmark suite --json --compact',
+          'npm run platform -- reference check --json --compact'
+        ],
+        diagnosticCommandCount: 5,
+        diagnosticCommands: [
+          'npm run platform -- review summary --json --compact',
+          'npm run platform -- review matrix --json --compact',
+          'npm run platform -- review diagnostics --json --compact',
+          'npm run platform -- explain --json --compact',
+          'npm run platform -- demo checklist --json --compact'
+        ],
+        artifactUploadCommandCount: 4,
+        artifactPathCount: 6,
+        steps: expect.arrayContaining([
+          expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
+          expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
+          expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
+          expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
+          expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
+          expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
+        ])
+      },
+      { compact: true }
+    );
   });
 });
 
@@ -548,13 +532,10 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    const textResult = await runCli(workspaceRoot, ['contract', 'errors']);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Error protocol active');
-    expect(textResult.stdout).toContain('Issue type count: 5');
-    expect(textResult.stdout).toContain('Artifact paths: 7');
-    expect(textResult.stdout).toContain(
+    await expectCliText(workspaceRoot, ['contract', 'errors'], [
+      'Error protocol active',
+      'Issue type count: 5',
+      'Artifact paths: 7',
       `Artifact path list: ${[
         CI_ARTIFACT_FILES.reviewSummary,
         CI_ARTIFACT_FILES.verificationReport,
@@ -563,16 +544,13 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         CI_ARTIFACT_FILES.upgradePlan,
         CI_ARTIFACT_FILES.viewMutationReport,
         'source/views/mutations'
-      ].join(', ')}`
-    );
-    expect(textResult.stdout).toContain('Example repair-plan-error; code=REPAIR-BLOCKED-001');
-    expect(textResult.stdout).toContain('Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016');
-    expect(textResult.stdout).toContain('Example workbench-mutation-error; code=WORKBENCH-MUTATION-002');
+      ].join(', ')}`,
+      'Example repair-plan-error; code=REPAIR-BLOCKED-001',
+      'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
+      'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002'
+    ]);
 
-    const jsonResult = await runCli(workspaceRoot, ['contract', 'errors', '--json']);
-    expect(jsonResult.code).toBe(0);
-    expect(jsonResult.stderr).toBe('');
-    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+    await expectCliJson(workspaceRoot, ['contract', 'errors', '--json'], {
       status: 'active',
       exampleCount: 13,
       issueTypeCount: 5,
@@ -580,15 +558,16 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
       artifactPathCount: 7
     });
 
-    const compactResult = await runCli(workspaceRoot, ['contract', 'errors', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      status: 'active',
-      exampleCount: 13,
-      issueTypeCount: 5,
-      artifactPathCount: 7
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['contract', 'errors', '--json', '--compact'],
+      {
+        status: 'active',
+        exampleCount: 13,
+        issueTypeCount: 5,
+        artifactPathCount: 7
+      },
+      { compact: true }
+    );
   });
 });
