@@ -1,5 +1,6 @@
-import fs from 'node:fs/promises';
 import { expect, test } from 'vitest';
+
+import { readJson } from '../../platform/shared/fs.ts';
 
 import {
   adaptWorkspace,
@@ -41,23 +42,23 @@ test('upgrade is blocked when a manual override conflicts with impacted files', 
   });
 
   await expect(upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1')).rejects.toThrow();
-  const diagnostics = JSON.parse(await fs.readFile(upgradeDiagnosticsPath, 'utf8')) as {
+  const diagnostics = await readJson<{
     status: string;
     failedCheck: string;
     errorCode: string;
     message: string;
-  };
+  }>(upgradeDiagnosticsPath);
   expect(diagnostics).toMatchObject({
     status: 'blocked',
     failedCheck: 'override-conflicts',
     errorCode: 'UPGRADE-CONFLICT-001'
   });
   expect(diagnostics.message).toContain('manual-auth-session-hotfix');
-  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
+  const lock = await readJson<{ generatedPaths: string[] }>(lockPath);
   expect(lock.generatedPaths).toContain(CI_ARTIFACT_FILES.upgradeDiagnostics);
-  const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+  const provenance = await readJson<{
     artifacts: Array<{ path: string; generatedByPass?: string }>;
-  };
+  }>(provenancePath);
   expect(provenance.artifacts).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ path: CI_ARTIFACT_FILES.upgradeDiagnostics, generatedByPass: 'upgrade' })
