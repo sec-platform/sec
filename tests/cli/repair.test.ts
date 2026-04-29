@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { expect, test } from 'vitest';
 
+import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ExplainGraph,
@@ -16,7 +17,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     const { lockPath, repairPlanPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { passStatus: { verify: string } };
     lock.passStatus.verify = 'failed';
-    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lock);
 
     const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
     report.unit.status = 'failed';
@@ -26,7 +27,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     report.summary.status = 'failed';
     report.summary.failedLanes = ['fast'];
     report.logs.stderr = 'Unit verification failed for customer_normalizer';
-    await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(verificationReportPath, report);
 
     await expectCliText(workspaceRoot, ['repair', '--dry-run'], [
       'Repair pending (1 tasks, 0 blockers) (dry-run)',
@@ -140,14 +141,14 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
     expect(compactResult).toEqual(repairPlan);
 
     lock.passStatus.verify = 'succeeded';
-    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lock);
     report.unit.status = 'passed';
     report.fast.status = 'passed';
     report.fast.unit.status = 'passed';
     report.summary.status = 'passed';
     report.summary.requestedLane = 'all';
     report.summary.failedLanes = [];
-    await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(verificationReportPath, report);
 
     await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
@@ -265,7 +266,7 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
     };
     lock.passStatus.verify = 'failed';
     lock.slotTasks = [];
-    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lock);
 
     const report = JSON.parse(await fs.readFile(verificationReportPath, 'utf8')) as VerificationReport;
     report.unit.status = 'failed';
@@ -275,7 +276,7 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
     report.summary.status = 'failed';
     report.summary.failedLanes = ['fast'];
     report.logs.stderr = 'Unit verification failed without slot ownership';
-    await fs.writeFile(verificationReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(verificationReportPath, report);
 
     const textResult = await runCli(workspaceRoot, ['repair', '--dry-run']);
     expect(textResult.code).toBe(1);

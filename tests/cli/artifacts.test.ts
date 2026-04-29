@@ -342,7 +342,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     await fs.writeFile(contractArtifactPath, '{"provider":"postgres"}\n', 'utf8');
     const lockWithContractArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
     lockWithContractArtifact.generatedPaths.push('generated/postgres-contract.json');
-    await fs.writeFile(lockPath, `${JSON.stringify(lockWithContractArtifact, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lockWithContractArtifact);
 
     const contractManifest = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     expect(contractManifest.summary).toMatchObject({
@@ -425,7 +425,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
 
     const lockWithMissingArtifact = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
     lockWithMissingArtifact.generatedPaths.push('generated/missing-diagnostic.json');
-    await fs.writeFile(lockPath, `${JSON.stringify(lockWithMissingArtifact, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lockWithMissingArtifact);
 
     const manifestWithLockMissing = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     const lockMissingDiagnostics = [

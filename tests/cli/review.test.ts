@@ -3,6 +3,7 @@ import path from 'node:path';
 import { expect, test } from 'vitest';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ReviewSummary
@@ -212,7 +213,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         }
       ]
     };
-    await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
+    await writeJson(reviewSummaryPath, reviewSummary);
 
     await expectCliText(workspaceRoot, ['review', 'summary'], [
       'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
