@@ -9,6 +9,16 @@ import { printJsonOrText } from '../format-utils.ts';
 import { formatRepairSummary } from '../formatters.ts';
 import { REPAIR_USAGE } from '../usage.ts';
 
+type RepairArgs = ReturnType<typeof parseRepairArgs>;
+
+function printRepairPlan(
+  repairPlan: RepairPlan,
+  repairArgs: RepairArgs,
+  dryRun: boolean
+): void {
+  printJsonOrText(repairPlan, repairArgs, (plan) => formatRepairSummary(plan, dryRun));
+}
+
 export const repairCommand: CommandHandler = {
   name: 'repair',
   usage: REPAIR_USAGE,
@@ -16,19 +26,22 @@ export const repairCommand: CommandHandler = {
     const repairArgs = parseRepairArgs(args);
     if (repairArgs.mode === 'plan') {
       const { repairPlanPath } = getWorkspacePaths(ctx.cwd);
-      const repairPlan = await readRequiredJson<RepairPlan>(repairPlanPath, 'Repair plan not found; run platform repair --dry-run first');
-      printJsonOrText(repairPlan, repairArgs, (plan) => formatRepairSummary(plan, true));
+      const repairPlan = await readRequiredJson<RepairPlan>(
+        repairPlanPath,
+        'Repair plan not found; run platform repair --dry-run first'
+      );
+      printRepairPlan(repairPlan, repairArgs, true);
       return;
     }
     try {
       const { repairPlan } = await repairWorkspace(ctx.cwd, { dryRun: repairArgs.dryRun });
-      printJsonOrText(repairPlan, repairArgs, (plan) => formatRepairSummary(plan, repairArgs.dryRun));
+      printRepairPlan(repairPlan, repairArgs, repairArgs.dryRun);
       return;
     } catch (error) {
       const { repairPlanPath } = getWorkspacePaths(ctx.cwd);
       if (await pathExists(repairPlanPath)) {
         const repairPlan = await readJson<RepairPlan>(repairPlanPath);
-        printJsonOrText(repairPlan, repairArgs, (plan) => formatRepairSummary(plan, repairArgs.dryRun));
+        printRepairPlan(repairPlan, repairArgs, repairArgs.dryRun);
       }
       throw error;
     }
