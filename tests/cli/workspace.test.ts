@@ -9,7 +9,7 @@ import type {
   PlanFile
 } from '../../platform/shared/types.ts';
 import { readYaml } from '../../platform/shared/yaml.ts';
-import { expectCliSuccess, installPrivateBannerBlock, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, installPrivateBannerBlock, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI accepts init commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -63,32 +63,31 @@ test('CLI applies Workbench view mutations back to source app plan', async () =>
       ]
     });
 
-    const textResult = await runCli(workspaceRoot, ['workbench', 'mutations', 'apply']);
-    expect(textResult).toMatchObject({
-      code: 0,
-      stderr: ''
-    });
-    expect(textResult.stdout).toContain('Workbench mutations applied; files=1; applied=3; skipped=0');
-    expect(textResult.stdout).toContain('target: source/app.yaml');
+    await expectCliText(workspaceRoot, ['workbench', 'mutations', 'apply'], [
+      'Workbench mutations applied; files=1; applied=3; skipped=0',
+      'target: source/app.yaml'
+    ]);
 
     const plan = await readYaml<PlanFile>(paths.planPath);
     expect(plan.app.name).toBe('field-service-admin');
     expect(plan.acceptance.map((entry) => entry.id)).toContain('view_can_update_workspace_name');
     expect(plan.slots.find((slot) => slot.id === 'customer_normalizer')?.description).toBe('Workbench-edited slot description.');
 
-    const jsonResult = await runCli(workspaceRoot, ['workbench', 'mutations', 'apply', '--json', '--compact']);
-    expect(jsonResult.code).toBe(0);
-    expect(jsonResult.stderr).toBe('');
-    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
-      formatVersion: '1',
-      status: 'skipped',
-      sourceRoot: 'source/views/mutations',
-      targetPath: 'source/app.yaml',
-      mutationFileCount: 1,
-      mutationCount: 3,
-      appliedCount: 0,
-      skippedCount: 3
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['workbench', 'mutations', 'apply', '--json', '--compact'],
+      {
+        formatVersion: '1',
+        status: 'skipped',
+        sourceRoot: 'source/views/mutations',
+        targetPath: 'source/app.yaml',
+        mutationFileCount: 1,
+        mutationCount: 3,
+        appliedCount: 0,
+        skippedCount: 3
+      },
+      { compact: true }
+    );
 
     const report = JSON.parse(await fs.readFile(paths.viewMutationReportPath, 'utf8'));
     expect(report).toMatchObject({
@@ -130,10 +129,7 @@ test('CLI defaults verification to the fast lane', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot);
 
-    const result = await runCli(workspaceRoot, ['verify']);
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(result.stdout).toContain('Verification passed (fast)\n');
+    await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
   });
 });
 
@@ -143,18 +139,14 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
     await installPrivateBannerBlock(workspaceRoot);
     const { lockPath, planPath } = getWorkspacePaths(workspaceRoot);
 
-    await expect(runCli(workspaceRoot, ['add', 'private/banner-basic'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Added block private/banner-basic@0.1.0 from private (private)\n',
-      stderr: ''
-    });
+    await expectCliSuccess(
+      workspaceRoot,
+      ['add', 'private/banner-basic'],
+      'Added block private/banner-basic@0.1.0 from private (private)\n'
+    );
     await expect(fs.readFile(planPath, 'utf8')).resolves.toContain('private/banner-basic');
 
-    await expect(runCli(workspaceRoot, ['resolve'])).resolves.toMatchObject({
-      code: 0,
-      stdout: 'Resolved 4 blocks\n',
-      stderr: ''
-    });
+    await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 4 blocks\n');
     const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
       resolvedBlocks: Array<{ id: string; registrySourceId: string; registryKind: string; registryLocation: string }>;
     };
