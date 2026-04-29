@@ -7,7 +7,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ReviewSummary
 } from '../../platform/shared/types.ts';
-import { runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes review summary as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -214,29 +214,19 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     };
     await fs.writeFile(reviewSummaryPath, `${JSON.stringify(reviewSummary, null, 2)}\n`, 'utf8');
 
-    const textResult = await runCli(workspaceRoot, ['review', 'summary']);
-    expect(textResult.code).toBe(0);
-    expect(textResult.stderr).toBe('');
-    expect(textResult.stdout).toContain('Review summary attention; format=2; stages=2/4; attention=1; failed=1');
-    expect(textResult.stdout).toContain('CI attention; failures=1; risks=2; conflicts=1');
-    expect(textResult.stdout).toContain('Impact blocks=1; slots=1; runtime=1; changeSources=1; installImpacts=1');
-    expect(textResult.stdout).toContain('Coverage failed; blocks=1/2; slots=1/1');
-    expect(textResult.stdout).toContain('Provenance artifacts=5; registry=2; generated=2; unverified=3');
-    expect(textResult.stdout).toContain(
-      'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2'
-    );
-    expect(textResult.stdout).toContain('Stages: verification=passed, coverage=failed, artifacts=attention, review=passed');
-    expect(textResult.stdout).toContain(
-      'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true'
-    );
-    expect(textResult.stdout).toContain(
+    await expectCliText(workspaceRoot, ['review', 'summary'], [
+      'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
+      'CI attention; failures=1; risks=2; conflicts=1',
+      'Impact blocks=1; slots=1; runtime=1; changeSources=1; installImpacts=1',
+      'Coverage failed; blocks=1/2; slots=1/1',
+      'Provenance artifacts=5; registry=2; generated=2; unverified=3',
+      'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2',
+      'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
+      'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true',
       'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-    );
+    ]);
 
-    const jsonResult = await runCli(workspaceRoot, ['review', 'summary', '--json']);
-    expect(jsonResult.code).toBe(0);
-    expect(jsonResult.stderr).toBe('');
-    expect(JSON.parse(jsonResult.stdout)).toMatchObject({
+    await expectCliJson(workspaceRoot, ['review', 'summary', '--json'], {
       formatVersion: '2',
       changeSourceCount: 1,
       runtimeEntryCount: 1,
@@ -255,27 +245,17 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       }
     });
 
-    const diagnosticsResult = await runCli(workspaceRoot, ['review', 'diagnostics']);
-    expect(diagnosticsResult.code).toBe(0);
-    expect(diagnosticsResult.stderr).toBe('');
-    expect(diagnosticsResult.stdout).toContain('Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1');
-    expect(diagnosticsResult.stdout).toContain(`Artifacts: ${CI_ARTIFACT_FILES.policyReport}`);
-    expect(diagnosticsResult.stdout).toContain('Blocks: tenant/basic-workspace');
-    expect(diagnosticsResult.stdout).toContain('Slots: customer_normalizer');
-    expect(diagnosticsResult.stdout).toContain(
-      `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`
-    );
-    expect(diagnosticsResult.stdout).toContain(
-      'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; slot=none; Block tenant/basic-workspace has uncovered acceptance'
-    );
-    expect(diagnosticsResult.stdout).toContain(
+    await expectCliText(workspaceRoot, ['review', 'diagnostics'], [
+      'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
+      `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
+      'Blocks: tenant/basic-workspace',
+      'Slots: customer_normalizer',
+      `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
+      'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; slot=none; Block tenant/basic-workspace has uncovered acceptance',
       'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
-    );
+    ]);
 
-    const diagnosticsJsonResult = await runCli(workspaceRoot, ['review', 'diagnostics', '--json']);
-    expect(diagnosticsJsonResult.code).toBe(0);
-    expect(diagnosticsJsonResult.stderr).toBe('');
-    expect(JSON.parse(diagnosticsJsonResult.stdout)).toMatchObject({
+    await expectCliJson(workspaceRoot, ['review', 'diagnostics', '--json'], {
       formatVersion: '1',
       status: 'attention',
       diagnosticCount: 4,
@@ -295,23 +275,25 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       ])
     });
 
-    const diagnosticsCompactResult = await runCli(workspaceRoot, ['review', 'diagnostics', '--json', '--compact']);
-    expect(diagnosticsCompactResult.code).toBe(0);
-    expect(diagnosticsCompactResult.stderr).toBe('');
-    expect(diagnosticsCompactResult.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(diagnosticsCompactResult.stdout)).toMatchObject({
-      formatVersion: '1',
-      diagnosticCount: 4,
-      artifactPathCount: 1
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['review', 'diagnostics', '--json', '--compact'],
+      {
+        formatVersion: '1',
+        diagnosticCount: 4,
+        artifactPathCount: 1
+      },
+      { compact: true }
+    );
 
-    const compactResult = await runCli(workspaceRoot, ['review', 'summary', '--json', '--compact']);
-    expect(compactResult.code).toBe(0);
-    expect(compactResult.stderr).toBe('');
-    expect(compactResult.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(compactResult.stdout)).toMatchObject({
-      formatVersion: '2',
-      chainSummary: { status: 'attention' }
-    });
+    await expectCliJson(
+      workspaceRoot,
+      ['review', 'summary', '--json', '--compact'],
+      {
+        formatVersion: '2',
+        chainSummary: { status: 'attention' }
+      },
+      { compact: true }
+    );
   });
 });
