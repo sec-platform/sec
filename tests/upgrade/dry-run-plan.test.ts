@@ -12,6 +12,7 @@ import {
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
 
@@ -105,11 +106,11 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
   await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
   await expect(fs.readFile(sessionPath, 'utf8')).resolves.toBe(beforeSession);
 
-  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { generatedPaths: string[] };
+  const lock = await readJson<{ generatedPaths: string[] }>(lockPath);
   expect(lock.generatedPaths).toContain(CI_ARTIFACT_FILES.upgradePlan);
-  const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+  const provenance = await readJson<{
     artifacts: Array<{ path: string; generatedByPass?: string }>;
-  };
+  }>(provenancePath);
   expect(provenance.artifacts).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ path: CI_ARTIFACT_FILES.upgradePlan, generatedByPass: 'upgrade' })
