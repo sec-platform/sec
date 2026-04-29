@@ -8,6 +8,7 @@ export const USAGE = [
 
 export const INIT_USAGE = 'Usage: platform init [--reset]';
 export const ADD_USAGE = 'Usage: platform add <block-id>';
+export const RESOLVE_USAGE = 'Usage: platform resolve';
 export const VERIFY_USAGE = 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]';
 export const REPAIR_USAGE = 'Usage: platform repair ([--dry-run] [--json [--compact]]|plan [--json [--compact]])';
 export const UPGRADE_USAGE = 'Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]';

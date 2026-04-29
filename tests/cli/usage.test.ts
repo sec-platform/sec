@@ -1,10 +1,59 @@
 import { expect, test } from 'vitest';
 
 import {
+  ACCEPTANCE_USAGE,
+  ADD_USAGE,
+  ARTIFACTS_USAGE,
+  BENCHMARK_USAGE,
+  BLOCKS_USAGE,
+  CONTRACT_USAGE,
+  DOCTOR_USAGE,
+  EXPLAIN_USAGE,
+  INIT_USAGE,
+  INSTALL_USAGE,
+  LOCK_USAGE,
+  POLICY_USAGE,
+  POSTGRES_USAGE,
+  PROVENANCE_USAGE,
+  REFERENCE_USAGE,
+  REPAIR_USAGE,
+  RESOLVE_USAGE,
+  REVIEW_USAGE,
   RUNTIME_USAGE,
+  TEST_USAGE,
+  UPGRADE_USAGE,
+  VERIFICATION_USAGE,
+  VERIFY_USAGE,
   WORKBENCH_USAGE
 } from '../../platform/cli/usage.ts';
-import { expectAcceptanceUsageError, expectLockUsageError, expectPolicyUsageError, expectPostgresUsageError, expectRepairUsageError, runCliInProcess as runCli, usageErrorStderr, withTempWorkspace } from '../helpers/test-utils.ts';
+import { runCliInProcess as runCli, usageErrorStderr, withTempWorkspace } from '../helpers/test-utils.ts';
+
+type UsageErrorCase = {
+  args: string[];
+  usage: string;
+};
+
+function usageCases(usage: string, argsList: string[][]): UsageErrorCase[] {
+  return argsList.map((args) => ({ args, usage }));
+}
+
+async function expectUsageError(
+  workspaceRoot: string,
+  args: string[],
+  usage: string
+): Promise<void> {
+  await expect(runCli(workspaceRoot, args)).resolves.toMatchObject({
+    code: 1,
+    stdout: '',
+    stderr: usageErrorStderr(usage)
+  });
+}
+
+async function expectUsageErrors(workspaceRoot: string, cases: UsageErrorCase[]): Promise<void> {
+  for (const entry of cases) {
+    await expectUsageError(workspaceRoot, entry.args, entry.usage);
+  }
+}
 
 test('CLI prints usage for missing or unknown commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -25,381 +74,147 @@ test('CLI prints usage for missing or unknown commands', async () => {
 
 test('CLI reports argument usage errors', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(runCli(workspaceRoot, ['init', '--unknown'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform init [--reset]')
-    });
-    await expect(runCli(workspaceRoot, ['init', '--reset', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform init [--reset]')
-    });
-    await expect(runCli(workspaceRoot, ['add'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform add <block-id>')
-    });
-    await expect(runCli(workspaceRoot, ['add', 'entity/customer-basic', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform add <block-id>')
-    });
-    await expectRepairUsageError(workspaceRoot, ['--extra']);
-    await expectRepairUsageError(workspaceRoot, ['--dry-run', '--extra']);
-    await expectRepairUsageError(workspaceRoot, ['--compact']);
-    await expectRepairUsageError(workspaceRoot, ['--json', '--compact', '--extra']);
-    await expectRepairUsageError(workspaceRoot, ['plan', '--compact']);
-    await expectRepairUsageError(workspaceRoot, ['plan', '--json', '--extra']);
-    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--dry-run', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'entity/customer-basic', '0.2.0', '--json', '--compact', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'plan', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'plan', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'plan', '--json', '--compact', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'diagnostics', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'diagnostics', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['upgrade', 'diagnostics', '--json', '--compact', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform upgrade (<block-id> <target-version> [--dry-run]|plan|diagnostics) [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['explain', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]|graph [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['explain', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]|graph [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['explain', '--json', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform explain [--json [--compact]]|graph [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts', '--json', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts', '--paths', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts', 'manifest', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts', 'manifest', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['artifacts', 'manifest', '--json', '--compact', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform artifacts (--json [--compact]|manifest [--json [--compact]]|--paths [--json [--compact]] [--kind governance|view|test|contract])')
-    });
-    await expect(runCli(workspaceRoot, ['doctor', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform doctor [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['doctor', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform doctor [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['doctor', '--json', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform doctor [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['reference'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform reference check [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['reference', 'check', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform reference check [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['reference', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform reference check [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['benchmark'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform benchmark suite [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['benchmark', 'suite', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform benchmark suite [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['benchmark', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform benchmark suite [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['test'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['test', 'budget', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['test', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform test budget [--json [--compact]]')
-    });
-    await expectPolicyUsageError(workspaceRoot, []);
-    await expectPolicyUsageError(workspaceRoot, ['report', '--compact']);
-    await expectPolicyUsageError(workspaceRoot, ['sources', '--compact']);
-    await expectPolicyUsageError(workspaceRoot, ['status']);
-    await expectAcceptanceUsageError(workspaceRoot, []);
-    await expectAcceptanceUsageError(workspaceRoot, ['coverage', '--compact']);
-    await expectAcceptanceUsageError(workspaceRoot, ['blocks', '--compact']);
-    await expectAcceptanceUsageError(workspaceRoot, ['slots', '--compact']);
-    await expectAcceptanceUsageError(workspaceRoot, ['status']);
-    await expect(runCli(workspaceRoot, ['runtime'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr(RUNTIME_USAGE)
-    });
-    await expect(runCli(workspaceRoot, ['runtime', 'report', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr(RUNTIME_USAGE)
-    });
-    await expect(runCli(workspaceRoot, ['runtime', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr(RUNTIME_USAGE)
-    });
-    await expect(runCli(workspaceRoot, ['install'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform install manifest [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['install', 'manifest', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform install manifest [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['install', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform install manifest [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['blocks'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform blocks usage [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['blocks', 'usage', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform blocks usage [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['blocks', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform blocks usage [--json [--compact]]')
-    });
-    await expectPostgresUsageError(workspaceRoot, []);
-    await expectPostgresUsageError(workspaceRoot, ['contract', '--compact']);
-    await expectPostgresUsageError(workspaceRoot, ['status']);
-    await expectLockUsageError(workspaceRoot, ['--json']);
-    await expectLockUsageError(workspaceRoot, ['inspect', '--compact']);
-    await expectLockUsageError(workspaceRoot, ['status']);
-    await expect(runCli(workspaceRoot, ['verification'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verification report [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['verification', 'report', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verification report [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['verification', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verification report [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['provenance'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform provenance registry [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['provenance', 'registry', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform provenance registry [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['provenance', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform provenance registry [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['review'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform review <summary|matrix|diagnostics> [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['review', 'summary', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform review <summary|matrix|diagnostics> [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['review', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform review <summary|matrix|diagnostics> [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['contract'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['contract', 'freeze', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['contract', 'errors', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['contract', 'status'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform contract <freeze|errors|ci> [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['workbench'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr(WORKBENCH_USAGE)
-    });
-    await expect(runCli(workspaceRoot, ['workbench', 'mutations'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr(WORKBENCH_USAGE)
-    });
-    await expect(runCli(workspaceRoot, ['workbench', 'mutations', 'apply', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr(WORKBENCH_USAGE)
-    });
-    await expect(runCli(workspaceRoot, ['workbench', 'mutations', 'apply', '--json', '--compact', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr(WORKBENCH_USAGE)
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'slow'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['verify', 'fast'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--lane', 'fast', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--compact'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['verify', '--json', '--compact', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]')
-    });
-    await expect(runCli(workspaceRoot, ['resolve', '--extra'])).resolves.toMatchObject({
-      code: 1,
-      stdout: '',
-      stderr: usageErrorStderr('Usage: platform resolve')
-    });
+    await expectUsageErrors(workspaceRoot, [
+      ...usageCases(INIT_USAGE, [
+        ['init', '--unknown'],
+        ['init', '--reset', '--extra']
+      ]),
+      ...usageCases(ADD_USAGE, [
+        ['add'],
+        ['add', 'entity/customer-basic', '--extra']
+      ]),
+      ...usageCases(REPAIR_USAGE, [
+        ['repair', '--extra'],
+        ['repair', '--dry-run', '--extra'],
+        ['repair', '--compact'],
+        ['repair', '--json', '--compact', '--extra'],
+        ['repair', 'plan', '--compact'],
+        ['repair', 'plan', '--json', '--extra']
+      ]),
+      ...usageCases(UPGRADE_USAGE, [
+        ['upgrade', 'entity/customer-basic'],
+        ['upgrade', 'entity/customer-basic', '0.2.0', '--extra'],
+        ['upgrade', 'entity/customer-basic', '0.2.0', '--dry-run', '--extra'],
+        ['upgrade', 'entity/customer-basic', '0.2.0', '--compact'],
+        ['upgrade', 'entity/customer-basic', '0.2.0', '--json', '--compact', '--extra'],
+        ['upgrade', 'plan', '--compact'],
+        ['upgrade', 'plan', '--extra'],
+        ['upgrade', 'plan', '--json', '--compact', '--extra'],
+        ['upgrade', 'diagnostics', '--compact'],
+        ['upgrade', 'diagnostics', '--extra'],
+        ['upgrade', 'diagnostics', '--json', '--compact', '--extra']
+      ]),
+      ...usageCases(EXPLAIN_USAGE, [
+        ['explain', '--extra'],
+        ['explain', '--compact'],
+        ['explain', '--json', '--extra']
+      ]),
+      ...usageCases(ARTIFACTS_USAGE, [
+        ['artifacts'],
+        ['artifacts', '--compact'],
+        ['artifacts', '--paths', '--extra'],
+        ['artifacts', '--json', '--extra'],
+        ['artifacts', '--paths', '--compact'],
+        ['artifacts', 'manifest', '--compact'],
+        ['artifacts', 'manifest', '--extra'],
+        ['artifacts', 'manifest', '--json', '--compact', '--extra']
+      ]),
+      ...usageCases(DOCTOR_USAGE, [
+        ['doctor', '--extra'],
+        ['doctor', '--compact'],
+        ['doctor', '--json', '--extra']
+      ]),
+      ...usageCases(REFERENCE_USAGE, [
+        ['reference'],
+        ['reference', 'check', '--compact'],
+        ['reference', 'status']
+      ]),
+      ...usageCases(BENCHMARK_USAGE, [
+        ['benchmark'],
+        ['benchmark', 'suite', '--compact'],
+        ['benchmark', 'status']
+      ]),
+      ...usageCases(TEST_USAGE, [
+        ['test'],
+        ['test', 'budget', '--compact'],
+        ['test', 'status']
+      ]),
+      ...usageCases(POLICY_USAGE, [
+        ['policy'],
+        ['policy', 'report', '--compact'],
+        ['policy', 'sources', '--compact'],
+        ['policy', 'status']
+      ]),
+      ...usageCases(ACCEPTANCE_USAGE, [
+        ['acceptance'],
+        ['acceptance', 'coverage', '--compact'],
+        ['acceptance', 'blocks', '--compact'],
+        ['acceptance', 'slots', '--compact'],
+        ['acceptance', 'status']
+      ]),
+      ...usageCases(RUNTIME_USAGE, [
+        ['runtime'],
+        ['runtime', 'report', '--compact'],
+        ['runtime', 'status']
+      ]),
+      ...usageCases(INSTALL_USAGE, [
+        ['install'],
+        ['install', 'manifest', '--compact'],
+        ['install', 'status']
+      ]),
+      ...usageCases(BLOCKS_USAGE, [
+        ['blocks'],
+        ['blocks', 'usage', '--compact'],
+        ['blocks', 'status']
+      ]),
+      ...usageCases(POSTGRES_USAGE, [
+        ['postgres'],
+        ['postgres', 'contract', '--compact'],
+        ['postgres', 'status']
+      ]),
+      ...usageCases(LOCK_USAGE, [
+        ['lock', '--json'],
+        ['lock', 'inspect', '--compact'],
+        ['lock', 'status']
+      ]),
+      ...usageCases(VERIFICATION_USAGE, [
+        ['verification'],
+        ['verification', 'report', '--compact'],
+        ['verification', 'status']
+      ]),
+      ...usageCases(PROVENANCE_USAGE, [
+        ['provenance'],
+        ['provenance', 'registry', '--compact'],
+        ['provenance', 'status']
+      ]),
+      ...usageCases(REVIEW_USAGE, [
+        ['review'],
+        ['review', 'summary', '--compact'],
+        ['review', 'status']
+      ]),
+      ...usageCases(CONTRACT_USAGE, [
+        ['contract'],
+        ['contract', 'freeze', '--compact'],
+        ['contract', 'errors', '--compact'],
+        ['contract', 'status']
+      ]),
+      ...usageCases(WORKBENCH_USAGE, [
+        ['workbench'],
+        ['workbench', 'mutations'],
+        ['workbench', 'mutations', 'apply', '--compact'],
+        ['workbench', 'mutations', 'apply', '--json', '--compact', '--extra']
+      ]),
+      ...usageCases(VERIFY_USAGE, [
+        ['verify', '--lane', 'slow'],
+        ['verify', '--lane'],
+        ['verify', 'fast'],
+        ['verify', '--lane', 'fast', '--extra'],
+        ['verify', '--compact'],
+        ['verify', '--json', '--compact', '--extra']
+      ]),
+      ...usageCases(RESOLVE_USAGE, [
+        ['resolve', '--extra']
+      ])
+    ]);
   });
 });
