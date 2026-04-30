@@ -61,7 +61,7 @@ function createWorkspaceCommand(name: string, usage: string, run: WorkspaceComma
   };
 }
 
-export const doctorCommand: CommandHandler = {
+const doctorCommand: CommandHandler = {
   name: 'doctor',
   usage: DOCTOR_USAGE,
   async execute(args, ctx) {
@@ -71,18 +71,21 @@ export const doctorCommand: CommandHandler = {
   }
 };
 
-export const depsCommand = createWorkspaceCommand('deps', DEPS_USAGE, runDepsCommand);
-export const referenceCommand = createArgsCommand('reference', REFERENCE_USAGE, runReferenceCommand);
-export const benchmarkCommand = createArgsCommand('benchmark', BENCHMARK_USAGE, runBenchmarkCommand);
-export const testCommand = createArgsCommand('test', TEST_USAGE, runTestCommand);
-export const policyCommand = createWorkspaceCommand('policy', POLICY_USAGE, runPolicyCommand);
-export const acceptanceCommand = createWorkspaceCommand('acceptance', ACCEPTANCE_USAGE, runAcceptanceCommand);
-export const runtimeCommand = createWorkspaceCommand('runtime', RUNTIME_USAGE, runRuntimeCommand);
-export const verificationCommand = createWorkspaceCommand('verification', VERIFICATION_USAGE, runVerificationCommand);
-export const provenanceCommand = createWorkspaceCommand('provenance', PROVENANCE_USAGE, runProvenanceCommand);
-export const reviewCommand = createWorkspaceCommand('review', REVIEW_USAGE, runReviewCommand);
-export const demoCommand = createWorkspaceCommand('demo', DEMO_USAGE, runDemoCommand);
-export const contractCommand = createArgsCommand('contract', CONTRACT_USAGE, runContractCommand);
-export const installCommand = createWorkspaceCommand('install', INSTALL_USAGE, runInstallCommand);
-export const blocksCommand = createWorkspaceCommand('blocks', BLOCKS_USAGE, runBlocksCommand);
-export const postgresCommand = createWorkspaceCommand('postgres', POSTGRES_USAGE, runPostgresCommand);
+export const inspectCommands: CommandHandler[] = [
+  doctorCommand,
+  createWorkspaceCommand('deps', DEPS_USAGE, runDepsCommand),
+  createArgsCommand('reference', REFERENCE_USAGE, runReferenceCommand),
+  createArgsCommand('benchmark', BENCHMARK_USAGE, runBenchmarkCommand),
+  createArgsCommand('test', TEST_USAGE, runTestCommand),
+  createWorkspaceCommand('policy', POLICY_USAGE, runPolicyCommand),
+  createWorkspaceCommand('acceptance', ACCEPTANCE_USAGE, runAcceptanceCommand),
+  createWorkspaceCommand('runtime', RUNTIME_USAGE, runRuntimeCommand),
+  createWorkspaceCommand('verification', VERIFICATION_USAGE, runVerificationCommand),
+  createWorkspaceCommand('provenance', PROVENANCE_USAGE, runProvenanceCommand),
+  createWorkspaceCommand('review', REVIEW_USAGE, runReviewCommand),
+  createWorkspaceCommand('demo', DEMO_USAGE, runDemoCommand),
+  createArgsCommand('contract', CONTRACT_USAGE, runContractCommand),
+  createWorkspaceCommand('install', INSTALL_USAGE, runInstallCommand),
+  createWorkspaceCommand('blocks', BLOCKS_USAGE, runBlocksCommand),
+  createWorkspaceCommand('postgres', POSTGRES_USAGE, runPostgresCommand)
+];
