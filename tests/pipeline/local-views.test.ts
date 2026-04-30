@@ -14,12 +14,13 @@ import {
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
-  CI_ARTIFACT_MISSING_REASON,
-  emptyCiArtifactMissingReasonCounts
+  CI_ARTIFACT_MISSING_REASON
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
+  buildArtifactMissingReasonCounts,
+  buildArtifactUploadGroup,
   buildOfficialRegistrySummary,
   createWorkspace,
   expectContainsAll,
@@ -409,21 +410,12 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     contractCount: 1,
     contractPaths: ['generated/postgres-contract.json'],
     missingCount: 1,
-    missingReasonCounts: {
-      ...emptyCiArtifactMissingReasonCounts(),
+    missingReasonCounts: buildArtifactMissingReasonCounts({
       [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
-    },
+    }),
     uploadGroups: [
-      {
-        kind: 'governance',
-        count: 5,
-        paths: [CI_ARTIFACT_FILES.reviewSummary, CI_ARTIFACT_MANIFEST_PATH]
-      },
-      {
-        kind: 'view',
-        count: 2,
-        paths: [CI_ARTIFACT_FILES.sourceView, CI_ARTIFACT_FILES.slotRuleView]
-      }
+      buildArtifactUploadGroup('governance', 5, [CI_ARTIFACT_FILES.reviewSummary, CI_ARTIFACT_MANIFEST_PATH]),
+      buildArtifactUploadGroup('view', 2, [CI_ARTIFACT_FILES.sourceView, CI_ARTIFACT_FILES.slotRuleView])
     ],
     missing: [
       {
