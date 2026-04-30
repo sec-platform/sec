@@ -1,20 +1,12 @@
 import { expect, test } from 'vitest';
 
-import { expectCliJson, expectCliText, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliVariants, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes provenance registry as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true });
 
-    await expectCliText(workspaceRoot, ['provenance', 'registry'], [
-      'Provenance registry; artifacts=',
-      'Origins: block=',
-      'slot=',
-      'Registry sources: official=',
-      'origin=slot:'
-    ]);
-
-    const provenance = await expectCliJson<{
+    const { json: provenance } = await expectCliVariants<{
       formatVersion: string;
       artifacts: Array<{
         path: string;
@@ -23,7 +15,19 @@ test('CLI exposes provenance registry as text and JSON contracts', async () => {
         verifiedBy: string[];
         overrideStatus: string;
       }>;
-    }>(workspaceRoot, ['provenance', 'registry', '--json']);
+    }>(workspaceRoot, ['provenance', 'registry'], {
+      text: [
+        'Provenance registry; artifacts=',
+        'Origins: block=',
+        'slot=',
+        'Registry sources: official=',
+        'origin=slot:'
+      ],
+      compactJson: {
+        formatVersion: '1',
+        artifacts: expect.any(Array)
+      }
+    });
     expect(provenance.formatVersion).toBe('1');
     expect(provenance.artifacts).toEqual(
       expect.arrayContaining([
@@ -38,16 +42,6 @@ test('CLI exposes provenance registry as text and JSON contracts', async () => {
           registrySourceId: 'official'
         })
       ])
-    );
-
-    await expectCliJson(
-      workspaceRoot,
-      ['provenance', 'registry', '--json', '--compact'],
-      {
-        formatVersion: '1',
-        artifacts: expect.any(Array)
-      },
-      { compact: true }
     );
   });
 }, 120000);

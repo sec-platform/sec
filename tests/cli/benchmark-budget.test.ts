@@ -8,7 +8,7 @@ import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../../platform/shared/test-budget-contract.ts';
-import { expectCliJson, expectCliText, expectContainsAll, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliVariants, expectContainsAll, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();
@@ -90,41 +90,37 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['benchmark', 'suite'], [
-      'Benchmark suite engineering-compiler-core (active)',
-      'Command: npm run platform -- benchmark suite --json',
-      'Runner command: npm run test:benchmark-contract',
-      'Artifact paths: 11',
-      'Score dimension count: 9',
-      `Artifact path list: ${artifactPaths.join(', ')}`,
-      'Task override-conflict: surface one override conflict during upgrade planning',
-      'command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
-      `artifactCount=3; artifacts=source/patches/override-manifest.yaml, ${CI_ARTIFACT_FILES.upgradeDiagnostics}, ${CI_ARTIFACT_FILES.reviewSummary}`,
-      'scoreFocusCount=2; score=conflict-detection, machine-recoverability'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['benchmark', 'suite', '--json'], {
-      suiteId: 'engineering-compiler-core',
-      command: 'npm run platform -- benchmark suite --json',
-      runnerCommand: 'npm run test:benchmark-contract',
-      taskCount: 5,
-      artifactPathCount: 11,
-      artifactPaths: expect.arrayContaining([
-        CI_ARTIFACT_FILES.reviewSummary,
-        CI_ARTIFACT_FILES.upgradePlan,
-        CI_ARTIFACT_FILES.provenance
-      ]),
-      tasks: expect.arrayContaining([
-        expect.objectContaining({ id: 'add-block', artifactPathCount: 4, scoreFocusCount: 3 }),
-        expect.objectContaining({ id: 'override-conflict', artifactPathCount: 3, scoreFocusCount: 2 })
-      ]),
-      scoreDimensionCount: 9
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['benchmark', 'suite', '--json', '--compact'],
-      {
+    await expectCliVariants(workspaceRoot, ['benchmark', 'suite'], {
+      text: [
+        'Benchmark suite engineering-compiler-core (active)',
+        'Command: npm run platform -- benchmark suite --json',
+        'Runner command: npm run test:benchmark-contract',
+        'Artifact paths: 11',
+        'Score dimension count: 9',
+        `Artifact path list: ${artifactPaths.join(', ')}`,
+        'Task override-conflict: surface one override conflict during upgrade planning',
+        'command=npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+        `artifactCount=3; artifacts=source/patches/override-manifest.yaml, ${CI_ARTIFACT_FILES.upgradeDiagnostics}, ${CI_ARTIFACT_FILES.reviewSummary}`,
+        'scoreFocusCount=2; score=conflict-detection, machine-recoverability'
+      ],
+      json: {
+        suiteId: 'engineering-compiler-core',
+        command: 'npm run platform -- benchmark suite --json',
+        runnerCommand: 'npm run test:benchmark-contract',
+        taskCount: 5,
+        artifactPathCount: 11,
+        artifactPaths: expect.arrayContaining([
+          CI_ARTIFACT_FILES.reviewSummary,
+          CI_ARTIFACT_FILES.upgradePlan,
+          CI_ARTIFACT_FILES.provenance
+        ]),
+        tasks: expect.arrayContaining([
+          expect.objectContaining({ id: 'add-block', artifactPathCount: 4, scoreFocusCount: 3 }),
+          expect.objectContaining({ id: 'override-conflict', artifactPathCount: 3, scoreFocusCount: 2 })
+        ]),
+        scoreDimensionCount: 9
+      },
+      compactJson: {
         suiteId: 'engineering-compiler-core',
         runnerCommand: 'npm run test:benchmark-contract',
         taskCount: 5,
@@ -134,9 +130,8 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
           expect.objectContaining({ id: 'override-conflict', artifactPathCount: 3, scoreFocusCount: 2 })
         ]),
         scoreDimensionCount: 9
-      },
-      { compact: true }
-    );
+      }
+    });
   });
 });
 
@@ -209,36 +204,32 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['test', 'budget'], [
-      'Test budget default lane: fast',
-      'Command: npm run platform -- test budget --json',
-      'Runner command: npm run test:budget',
-      'Lanes: 3',
-      'Slow lane count: 1',
-      'Slow lanes: all',
-      'Slow test files: 22',
-      'tests/pipeline/end-to-end.test.ts',
-      'Lane fast; nextBuild=false; playwright=false'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['test', 'budget', '--json'], {
-      command: 'npm run platform -- test budget --json',
-      runnerCommand: 'npm run test:budget',
-      defaultLane: 'fast',
-      laneCount: 3,
-      slowLaneCount: 1,
-      slowLaneIds: ['all'],
-      slowTestFileCount: 22,
-      slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts']),
-      lanes: expect.arrayContaining([
-        expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
-      ])
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['test', 'budget', '--json', '--compact'],
-      {
+    await expectCliVariants(workspaceRoot, ['test', 'budget'], {
+      text: [
+        'Test budget default lane: fast',
+        'Command: npm run platform -- test budget --json',
+        'Runner command: npm run test:budget',
+        'Lanes: 3',
+        'Slow lane count: 1',
+        'Slow lanes: all',
+        'Slow test files: 22',
+        'tests/pipeline/end-to-end.test.ts',
+        'Lane fast; nextBuild=false; playwright=false'
+      ],
+      json: {
+        command: 'npm run platform -- test budget --json',
+        runnerCommand: 'npm run test:budget',
+        defaultLane: 'fast',
+        laneCount: 3,
+        slowLaneCount: 1,
+        slowLaneIds: ['all'],
+        slowTestFileCount: 22,
+        slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts']),
+        lanes: expect.arrayContaining([
+          expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
+        ])
+      },
+      compactJson: {
         runnerCommand: 'npm run test:budget',
         defaultLane: 'fast',
         laneCount: 3,
@@ -246,8 +237,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         slowLaneIds: ['all'],
         slowTestFileCount: 22,
         slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts'])
-      },
-      { compact: true }
-    );
+      }
+    });
   });
 });
