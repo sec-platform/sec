@@ -28,14 +28,10 @@ import type {
 import { PASS_STATUS_PENDING, SUPPORTED_STACK } from '../../platform/shared/constants.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import {
-  compilerRoot,
-  getWorkspacePaths,
-  officialRegistryRelativePath,
-  privateRegistryRelativePath
-} from '../../platform/shared/paths.ts';
-import type { LockFile, ManifestEntry, PlanFile, PolicyReport } from '../../platform/shared/types.ts';
+import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
+import type { LockFile, PlanFile, PolicyReport } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const deferredCleanupDirs = new Set<string>();
@@ -123,58 +119,11 @@ export async function readCompilerPackageJson(): Promise<CompilerPackage> {
   return cachedRootPackage;
 }
 
-function buildSingleTenantPlanApp(options: Partial<PlanFile['app']> = {}): PlanFile['app'] {
-  return {
-    name: 'customer-admin',
-    stack: SUPPORTED_STACK,
-    packageManager: 'pnpm',
-    mode: 'single-tenant',
-    ...options
-  };
-}
-
 function buildSingleTenantLockApp(options: Partial<LockFile['app']> = {}): LockFile['app'] {
   return {
     name: options.name ?? 'customer-admin',
     stack: options.stack ?? SUPPORTED_STACK,
     mode: options.mode ?? 'single-tenant'
-  };
-}
-
-function buildOfficialPlanRegistrySource(): PlanFile['registry']['sources'][number] {
-  return {
-    id: 'official',
-    kind: 'official',
-    location: 'compiler',
-    path: officialRegistryRelativePath.replaceAll('\\', '/')
-  };
-}
-
-function buildPrivatePlanRegistrySource(): PlanFile['registry']['sources'][number] {
-  return {
-    id: 'private',
-    kind: 'private',
-    location: 'workspace',
-    path: privateRegistryRelativePath.replaceAll('\\', '/')
-  };
-}
-
-export function buildManifestValidationPlan(entry: ManifestEntry): PlanFile {
-  return {
-    app: buildSingleTenantPlanApp({ name: `validate-${entry.manifest.id.replaceAll('/', '-')}` }),
-    registry: {
-      sources: [buildOfficialPlanRegistrySource(), buildPrivatePlanRegistrySource()]
-    },
-    blocks: [{ id: entry.manifest.id, version: entry.manifest.version }],
-    slots: entry.manifest.slots.map((slot) => ({
-      id: slot.id,
-      block: entry.manifest.id,
-      kind: slot.kind,
-      target: slot.target,
-      symbol: slot.symbol,
-      description: `Template validation placeholder for ${slot.id}`
-    })),
-    acceptance: []
   };
 }
 
