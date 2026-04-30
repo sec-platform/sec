@@ -5,7 +5,7 @@ import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type {
@@ -384,7 +384,6 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
 export async function writeRepairPlan(workspaceRoot: string, plan: RepairPlan, lock: LockFile): Promise<void> {
   const { repairPlanPath, lockPath } = getWorkspacePaths(workspaceRoot);
   await writeJson(repairPlanPath, plan);
-  addGeneratedPaths(lock, [CI_ARTIFACT_FILES.repairPlan]);
-  await writeJson(lockPath, lock);
+  await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_FILES.repairPlan]);
   await writeProvenance(workspaceRoot, lock);
 }

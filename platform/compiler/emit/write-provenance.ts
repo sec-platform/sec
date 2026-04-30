@@ -6,7 +6,7 @@ import {
 import { uniqueSorted } from '../../shared/collections.ts';
 import { readOptionalJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
@@ -187,10 +187,14 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
 
 export async function writeProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
   const { provenancePath, lockPath } = getWorkspacePaths(workspaceRoot);
-  addGeneratedPaths(lock, [CI_ARTIFACT_FILES.provenance]);
-
-  const provenance = await buildProvenance(workspaceRoot, lock);
-  await writeJson(provenancePath, provenance);
-  await writeJson(lockPath, lock);
-  return provenance;
+  return writeGeneratedArtifactWithLock(
+    lockPath,
+    lock,
+    [CI_ARTIFACT_FILES.provenance],
+    async () => {
+      const provenance = await buildProvenance(workspaceRoot, lock);
+      await writeJson(provenancePath, provenance);
+      return provenance;
+    }
+  );
 }

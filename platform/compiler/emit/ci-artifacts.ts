@@ -21,7 +21,7 @@ import type {
 import { countMatching } from '../../shared/collections.ts';
 import { pathExists, readJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 
@@ -124,8 +124,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
 export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
-  addGeneratedPaths(lock, [CI_ARTIFACT_MANIFEST_PATH]);
-  await writeJson(lockPath, lock);
+  await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_MANIFEST_PATH]);
   await writeJson(ciArtifactsPath, emptyCiArtifactManifest());
   const manifest = await buildCiArtifactManifest(workspaceRoot);
   await writeJson(ciArtifactsPath, manifest);

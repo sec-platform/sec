@@ -4,7 +4,7 @@ import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
 import { pathExists, readJson, readOptionalJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
@@ -553,28 +553,34 @@ export async function writeExplainGraph(
   provenance: ProvenanceFile
 ): Promise<ExplainGraph> {
   const { acceptanceCoveragePath, explainGraphPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  addGeneratedPaths(lock, [CI_ARTIFACT_FILES.explainGraph]);
-  if (!(await pathExists(acceptanceCoveragePath))) {
-    throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
-  }
-
-  const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
-  const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === CI_ARTIFACT_FILES.explainGraph)
-    ? provenance
-    : await buildProvenance(workspaceRoot, lock);
-  const graph = await buildExplainGraph(
-    workspaceRoot,
+  const graph = await writeGeneratedArtifactWithLock(
+    lockPath,
     lock,
-    nextProvenance,
-    coverage,
-    await readPolicyReport(workspaceRoot),
-    await readUpgradePlan(workspaceRoot),
-    await readRepairPlan(workspaceRoot),
-    await readUpgradeDiagnostics(workspaceRoot)
-  );
+    [CI_ARTIFACT_FILES.explainGraph],
+    async () => {
+      if (!(await pathExists(acceptanceCoveragePath))) {
+        throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
+      }
 
-  await writeJson(explainGraphPath, graph);
-  await writeJson(lockPath, lock);
+      const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
+      const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === CI_ARTIFACT_FILES.explainGraph)
+        ? provenance
+        : await buildProvenance(workspaceRoot, lock);
+      const nextGraph = await buildExplainGraph(
+        workspaceRoot,
+        lock,
+        nextProvenance,
+        coverage,
+        await readPolicyReport(workspaceRoot),
+        await readUpgradePlan(workspaceRoot),
+        await readRepairPlan(workspaceRoot),
+        await readUpgradeDiagnostics(workspaceRoot)
+      );
+
+      await writeJson(explainGraphPath, nextGraph);
+      return nextGraph;
+    }
+  );
   await writeProvenance(workspaceRoot, lock);
   return graph;
 }
