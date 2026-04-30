@@ -8,7 +8,7 @@ import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
-import { buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialResolvedBlock, buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
 
 const plan: PlanFile = {
   app: {
@@ -42,17 +42,11 @@ const lock: LockFile = {
     mode: 'single-tenant'
   },
   resolvedBlocks: [
-    {
+    buildOfficialResolvedBlock({
       id: 'entity/customer-basic',
-      version: '0.1.0',
-      kind: 'capability',
       installOrder: 1,
-      manifestPath: 'block.manifest.yaml',
-      registrySourceId: 'official',
-      registryKind: 'official',
-      registryLocation: 'compiler',
-      registryPath: 'platform/registry/official'
-    }
+      manifestPath: 'block.manifest.yaml'
+    })
   ],
   resolvedCapabilities: ['customer/write'],
   installPlan: [],

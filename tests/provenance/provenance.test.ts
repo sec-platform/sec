@@ -5,7 +5,7 @@ import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
-import { buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialCopyInstallStep, buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('buildProvenance sorts and deduplicates slot verification hints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -19,30 +19,20 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       resolvedBlocks: [],
       resolvedCapabilities: [],
       installPlan: [
-        {
+        buildOfficialCopyInstallStep({
           stepId: 'copy_customer_runtime_test',
           blockId: 'entity/customer-basic',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official',
           sourceRoot: 'platform/registry/official/entity.customer-basic/files',
-          action: 'copy',
           from: 'files/tests/unit/customer-runtime.test.ts',
           to: 'tests/unit/customer-runtime.test.ts'
-        },
-        {
+        }),
+        buildOfficialCopyInstallStep({
           stepId: 'copy_customer_service',
           blockId: 'entity/customer-basic',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official',
           sourceRoot: 'platform/registry/official/entity.customer-basic/files',
-          action: 'copy',
           from: 'files/src/installed/entity/customer-service.ts',
           to: 'src/installed/entity/customer-service.ts'
-        }
+        })
       ],
       slotTasks: [
         {
