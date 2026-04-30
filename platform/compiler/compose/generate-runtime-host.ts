@@ -67,6 +67,10 @@ export default function HomePage() {
 `;
 }
 
+function renderOptional(enabled: boolean, source: string): string {
+  return enabled ? source : '';
+}
+
 function renderLoginPage(): string {
   return `import { redirect } from 'next/navigation';
 import { LoginForm } from '../../components/login-form.tsx';
@@ -96,25 +100,19 @@ export default async function LoginPage() {
 function renderWorkspacePage(options: {
   rbacEnabled: boolean;
 }): string {
-  const rbacImport = options.rbacEnabled
-    ? `
-import { canAccessWorkspace } from '../../src/installed/auth/authorize.ts';`
-    : '';
-  const rbacSetup = options.rbacEnabled
-    ? `
+  const rbacImport = renderOptional(options.rbacEnabled, `
+import { canAccessWorkspace } from '../../src/installed/auth/authorize.ts';`);
+  const rbacSetup = renderOptional(options.rbacEnabled, `
   const ownWorkspaceDecision = canAccessWorkspace(session, session.tenantId);
   const otherTenantId = session.tenantId === 'tenant-a' ? 'tenant-b' : 'tenant-a';
   const otherWorkspaceDecision = canAccessWorkspace(session, otherTenantId);
-`
-    : '';
-  const rbacView = options.rbacEnabled
-    ? `
+`);
+  const rbacView = renderOptional(options.rbacEnabled, `
         <div className=\"stack\" aria-label=\"Authorization summary\">
           <p>Authorization: {ownWorkspaceDecision.reason}</p>
           <p>Cross-tenant check: {otherWorkspaceDecision.reason}</p>
         </div>
-`
-    : '';
+`);
 
   return `import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -163,14 +161,14 @@ function renderCustomersPage(options: {
     `import Link from 'next/link';`,
     `import { redirect } from 'next/navigation';`,
     `import { CustomerForm } from '../../components/customer-form.tsx';`,
-    options.fileUploadEnabled ? `import { CustomerAttachmentForm } from '../../components/customer-attachment-form.tsx';` : '',
+    renderOptional(options.fileUploadEnabled, `import { CustomerAttachmentForm } from '../../components/customer-attachment-form.tsx';`),
     `import { LogoutButton } from '../../components/logout-button.tsx';`,
     `import { getCurrentSession } from '../../lib/session.ts';`,
     `import { getDatabase } from '../../lib/store.ts';`,
     `import { listCustomers } from '../../src/installed/entity/customer-service.ts';`,
-    options.fileUploadEnabled ? `import { listCustomerAttachments } from '../../src/installed/file/customer-attachments.ts';` : '',
-    options.notifyEmailEnabled ? `import { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : '',
-    options.tableFilterEnabled ? `import { filterCustomers, listCustomerCompanies } from '../../src/installed/table/customer-filter.ts';` : ''
+    renderOptional(options.fileUploadEnabled, `import { listCustomerAttachments } from '../../src/installed/file/customer-attachments.ts';`),
+    renderOptional(options.notifyEmailEnabled, `import { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';`),
+    renderOptional(options.tableFilterEnabled, `import { filterCustomers, listCustomerCompanies } from '../../src/installed/table/customer-filter.ts';`)
   ].filter(Boolean).join('\n');
 
   const searchSetup = options.tableFilterEnabled
@@ -182,8 +180,7 @@ function renderCustomersPage(options: {
 `
     : `  const customers = allCustomers;
 `;
-  const tableFilters = options.tableFilterEnabled
-    ? `
+  const tableFilters = renderOptional(options.tableFilterEnabled, `
       <section className=\"card stack\">
         <h2>Filters</h2>
         <form className=\"row\" action=\"/customers\">
@@ -203,14 +200,10 @@ function renderCustomersPage(options: {
           <button type=\"submit\">Apply filters</button>
         </form>
       </section>
-`
-    : '';
-  const attachmentSetup = options.fileUploadEnabled
-    ? `  const attachmentsByCustomer = new Map(customers.map((customer) => [customer.id, listCustomerAttachments(database, session, customer.id)]));
-`
-    : '';
-  const attachmentView = options.fileUploadEnabled
-    ? `
+`);
+  const attachmentSetup = renderOptional(options.fileUploadEnabled, `  const attachmentsByCustomer = new Map(customers.map((customer) => [customer.id, listCustomerAttachments(database, session, customer.id)]));
+`);
+  const attachmentView = renderOptional(options.fileUploadEnabled, `
               <div className=\"stack\" style={{ marginTop: 12 }}>
                 <CustomerAttachmentForm customerId={customer.id} customerName={customer.name} />
                 <ul className=\"clean\" aria-label={\`Attachments for \${customer.name}\`}>
@@ -218,18 +211,12 @@ function renderCustomersPage(options: {
                     <li key={attachment.id}>{attachment.fileName} ({attachment.contentType})</li>
                   ))}
                 </ul>
-              </div>`
-    : '';
-  const notificationSetup = options.notifyEmailEnabled
-    ? `  const notifications = listEmailNotifications(database, session);
-`
-    : '';
-  const auditSetup = options.auditEnabled
-    ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId);
-`
-    : '';
-  const notificationView = options.notifyEmailEnabled
-    ? `
+              </div>`);
+  const notificationSetup = renderOptional(options.notifyEmailEnabled, `  const notifications = listEmailNotifications(database, session);
+`);
+  const auditSetup = renderOptional(options.auditEnabled, `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId);
+`);
+  const notificationView = renderOptional(options.notifyEmailEnabled, `
       <section className=\"card stack\">
         <h2>Email Notifications</h2>
         <ul className=\"clean\" aria-label=\"Notifications\">
@@ -242,10 +229,8 @@ function renderCustomersPage(options: {
           {notifications.length === 0 ? <li>No notifications yet.</li> : null}
         </ul>
       </section>
-`
-    : '';
-  const auditView = options.auditEnabled
-    ? `
+`);
+  const auditView = renderOptional(options.auditEnabled, `
       <section className=\"card stack\">
         <h2>Audit Trail</h2>
         <ul className=\"clean\" aria-label=\"Audit entries\">
@@ -258,8 +243,7 @@ function renderCustomersPage(options: {
           {auditEntries.length === 0 ? <li>No audit entries yet.</li> : null}
         </ul>
       </section>
-`
-    : '';
+`);
 
   return `${imports}
 
@@ -322,27 +306,19 @@ function renderTicketsPage(options: {
   worklogEnabled: boolean;
 }): string {
   const ticketSummaryExportEnabled = options.ticketReportingEnabled && options.exportCsvEnabled;
-  const auditSetup = options.auditEnabled
-    ? `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
-`
-    : '';
+  const auditSetup = renderOptional(options.auditEnabled, `  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
+`);
   const attachmentSetup = `  const attachmentsByTicket = new Map(tickets.map((ticket) => [ticket.id, listTicketAttachments(database, session, ticket.id)]));
 `;
   const commentSetup = `  const commentsByTicket = new Map(tickets.map((ticket) => [ticket.id, listTicketComments(database, session, ticket.id)]));
 `;
-  const notificationSetup = options.notifyEmailEnabled
-    ? `  const ticketNotifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'ticket');
-`
-    : '';
-  const reportingSetup = options.ticketReportingEnabled
-    ? `  const ticketSummary = summarizeTickets(tickets);
-`
-    : '';
-  const worklogSetup = options.worklogEnabled
-    ? `  const worklogsByTicket = new Map(tickets.map((ticket) => [ticket.id, listWorklogs(database, session, ticket.id)]));
+  const notificationSetup = renderOptional(options.notifyEmailEnabled, `  const ticketNotifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'ticket');
+`);
+  const reportingSetup = renderOptional(options.ticketReportingEnabled, `  const ticketSummary = summarizeTickets(tickets);
+`);
+  const worklogSetup = renderOptional(options.worklogEnabled, `  const worklogsByTicket = new Map(tickets.map((ticket) => [ticket.id, listWorklogs(database, session, ticket.id)]));
   const worklogMinutesByTicket = new Map(tickets.map((ticket) => [ticket.id, summarizeWorklogMinutes(database, session, ticket.id)]));
-`
-    : '';
+`);
   const attachmentView = `
               <div className="stack" style={{ marginTop: 12 }}>
                 <TicketAttachmentForm ticketId={ticket.id} ticketTitle={ticket.title} />
@@ -363,8 +339,7 @@ function renderTicketsPage(options: {
                   {(commentsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No comments yet.</li> : null}
                 </ul>
               </div>`;
-  const worklogView = options.worklogEnabled
-    ? `
+  const worklogView = renderOptional(options.worklogEnabled, `
               <div className="stack" style={{ marginTop: 12 }}>
                 <TicketWorklogForm ticketId={ticket.id} ticketTitle={ticket.title} />
                 <div>Total worklog minutes: {worklogMinutesByTicket.get(ticket.id) ?? 0}</div>
@@ -374,10 +349,8 @@ function renderTicketsPage(options: {
                   ))}
                   {(worklogsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No worklogs yet.</li> : null}
                 </ul>
-              </div>`
-    : '';
-  const notificationView = options.notifyEmailEnabled
-    ? `
+              </div>`);
+  const notificationView = renderOptional(options.notifyEmailEnabled, `
       <section className="card stack">
         <h2>Ticket Notifications</h2>
         <ul className="clean" aria-label="Ticket notifications">
@@ -390,14 +363,10 @@ function renderTicketsPage(options: {
           {ticketNotifications.length === 0 ? <li>No ticket notifications yet.</li> : null}
         </ul>
       </section>
-`
-    : '';
-  const exportAction = options.exportCsvEnabled
-    ? `
-            <a href={exportHref}>Export tickets CSV</a>`
-    : '';
-  const auditView = options.auditEnabled
-    ? `
+`);
+  const exportAction = renderOptional(options.exportCsvEnabled, `
+            <a href={exportHref}>Export tickets CSV</a>`);
+  const auditView = renderOptional(options.auditEnabled, `
       <section className="card stack">
         <h2>Ticket Audit Trail</h2>
         <ul className="clean" aria-label="Ticket audit entries">
@@ -410,18 +379,12 @@ function renderTicketsPage(options: {
           {auditEntries.length === 0 ? <li>No ticket audit entries yet.</li> : null}
         </ul>
       </section>
-`
-    : '';
-  const summaryExportAction = ticketSummaryExportEnabled
-    ? `
-            <a href={summaryExportHref}>Export ticket summary CSV</a>`
-    : '';
-  const summaryExportHrefSetup = ticketSummaryExportEnabled
-    ? `  const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
-`
-    : '';
-  const reportingView = options.ticketReportingEnabled
-    ? `
+`);
+  const summaryExportAction = renderOptional(ticketSummaryExportEnabled, `
+            <a href={summaryExportHref}>Export ticket summary CSV</a>`);
+  const summaryExportHrefSetup = renderOptional(ticketSummaryExportEnabled, `  const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
+`);
+  const reportingView = renderOptional(options.ticketReportingEnabled, `
       <section className="card stack">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <h2>Ticket Summary</h2>
@@ -447,20 +410,19 @@ function renderTicketsPage(options: {
           {ticketSummary.byAssignee.length === 0 ? <li>No assignee summary yet.</li> : null}
         </ul>
       </section>
-`
-    : '';
+`);
 
   return `import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { TicketAttachmentForm } from '../../components/ticket-attachment-form.tsx';
-import { TicketCommentForm } from '../../components/ticket-comment-form.tsx';${options.worklogEnabled ? `
-import { TicketWorklogForm } from '../../components/ticket-worklog-form.tsx';` : ''}
+import { TicketCommentForm } from '../../components/ticket-comment-form.tsx';${renderOptional(options.worklogEnabled, `
+import { TicketWorklogForm } from '../../components/ticket-worklog-form.tsx';`)}
 import { TicketForm } from '../../components/ticket-form.tsx';
 import { TicketStatusForm } from '../../components/ticket-status-form.tsx';
 import { LogoutButton } from '../../components/logout-button.tsx';
 import { getCurrentSession } from '../../lib/session.ts';
 import { getDatabase } from '../../lib/store.ts';
-import { listTicketAttachments, listTicketComments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${options.notifyEmailEnabled ? `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';` : ''}${options.ticketReportingEnabled ? `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';` : ''}${options.worklogEnabled ? `\nimport { listWorklogs, summarizeWorklogMinutes } from '../../src/installed/worklog/worklog-service.ts';` : ''}
+import { listTicketAttachments, listTicketComments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';${renderOptional(options.notifyEmailEnabled, `\nimport { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';`)}${renderOptional(options.ticketReportingEnabled, `\nimport { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';`)}${renderOptional(options.worklogEnabled, `\nimport { listWorklogs, summarizeWorklogMinutes } from '../../src/installed/worklog/worklog-service.ts';`)}
 
 interface TicketsPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
