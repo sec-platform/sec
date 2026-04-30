@@ -27,6 +27,7 @@ import {
 } from '../shared/error-protocol-contract.ts';
 import { pathExists } from '../shared/fs.ts';
 import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
+import { platformCommand } from '../shared/platform-command.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import {
@@ -109,49 +110,49 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
       id: 'verification-report',
       artifactPath: CI_ARTIFACT_FILES.verificationReport,
       absolutePath: paths.verificationReportPath,
-      command: 'npm run platform -- verify --lane all'
+      command: platformCommand('verify', '--lane', 'all')
     },
     {
       id: 'runtime-report',
       artifactPath: CI_ARTIFACT_FILES.runtimeReport,
       absolutePath: paths.runtimeReportPath,
-      command: 'npm run platform -- verify --lane all'
+      command: platformCommand('verify', '--lane', 'all')
     },
     {
       id: 'policy-report',
       artifactPath: CI_ARTIFACT_FILES.policyReport,
       absolutePath: paths.policyReportPath,
-      command: 'npm run platform -- verify'
+      command: platformCommand('verify')
     },
     {
       id: 'acceptance-coverage',
       artifactPath: CI_ARTIFACT_FILES.acceptanceCoverage,
       absolutePath: paths.acceptanceCoveragePath,
-      command: 'npm run platform -- verify'
+      command: platformCommand('verify')
     },
     {
       id: 'graph-lock',
       artifactPath: CI_ARTIFACT_FILES.graphLock,
       absolutePath: paths.lockPath,
-      command: 'npm run platform -- lock'
+      command: platformCommand('lock')
     },
     {
       id: 'provenance-registry',
       artifactPath: CI_ARTIFACT_FILES.provenance,
       absolutePath: paths.provenancePath,
-      command: 'npm run platform -- adapt'
+      command: platformCommand('adapt')
     },
     {
       id: 'explain-graph',
       artifactPath: CI_ARTIFACT_FILES.explainGraph,
       absolutePath: paths.explainGraphPath,
-      command: 'npm run platform -- explain'
+      command: platformCommand('explain')
     },
     {
       id: 'review-summary',
       artifactPath: CI_ARTIFACT_FILES.reviewSummary,
       absolutePath: paths.reviewSummaryPath,
-      command: 'npm run platform -- explain'
+      command: platformCommand('explain')
     }
   ].map(async (item) => ({
     id: item.id,

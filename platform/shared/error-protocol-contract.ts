@@ -2,6 +2,7 @@ import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 import { buildErrorProtocol, type ErrorProtocol } from './error-protocol.ts';
 import type { CompilerErrorDetails } from './errors.ts';
+import { platformCommand } from './platform-command.ts';
 
 export type ErrorProtocolExample = {
   id: string;
@@ -116,7 +117,7 @@ export function buildErrorProtocolContract(): ErrorProtocolContract {
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: CONTRACT_STATUS_ACTIVE,
-    command: 'npm run platform -- contract errors --json',
+    command: platformCommand('contract', 'errors', '--json'),
     exampleCount: examples.length,
     examples,
     issueTypeCount: issueTypes.length,

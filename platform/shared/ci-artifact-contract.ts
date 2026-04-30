@@ -10,6 +10,7 @@ import {
 } from './ci-artifact-types.ts';
 import { countPositiveValues, uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
+import { platformCommand } from './platform-command.ts';
 
 export {
   CI_ARTIFACT_KINDS,
@@ -169,5 +170,5 @@ export function emptyCiArtifactManifest(): CiArtifactManifest {
 }
 
 export function ciArtifactUploadCommand(kind: CiArtifactKind): string {
-  return `npm run platform -- artifacts --paths --json --compact --kind ${kind}`;
+  return platformCommand('artifacts', '--paths', '--json', '--compact', '--kind', kind);
 }

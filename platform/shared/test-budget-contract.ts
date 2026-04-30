@@ -1,4 +1,5 @@
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
+import { platformCommand } from './platform-command.ts';
 
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';
@@ -52,19 +53,19 @@ const testBudgetLanes: TestBudgetLane[] = [
     id: 'fast',
     nextBuild: false,
     playwright: false,
-    command: 'npm run platform -- verify'
+    command: platformCommand('verify')
   },
   {
     id: 'runtime',
     nextBuild: false,
     playwright: false,
-    command: 'npm run platform -- verify --lane runtime'
+    command: platformCommand('verify', '--lane', 'runtime')
   },
   {
     id: 'all',
     nextBuild: true,
     playwright: true,
-    command: 'npm run platform -- verify --lane all'
+    command: platformCommand('verify', '--lane', 'all')
   }
 ];
 
@@ -77,7 +78,7 @@ export function buildTestBudgetContract(): TestBudgetContract {
   const slowLaneIds = lanes.filter((lane) => lane.nextBuild || lane.playwright).map((lane) => lane.id);
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
-    command: 'npm run platform -- test budget --json',
+    command: platformCommand('test', 'budget', '--json'),
     runnerCommand: 'npm run test:budget',
     defaultLane: 'fast',
     laneCount: lanes.length,
