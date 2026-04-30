@@ -14,6 +14,10 @@ export async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
+export function isFileNotFoundError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT';
+}
+
 export async function readJson<T>(filePath: string): Promise<T> {
   const raw = await fs.readFile(filePath, 'utf8');
   return JSON.parse(raw) as T;

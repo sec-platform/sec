@@ -1,11 +1,22 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { ensureDir } from './fs.ts';
+import { ensureDir, isFileNotFoundError } from './fs.ts';
 
 export async function readYaml<T>(filePath: string): Promise<T> {
   const raw = await fs.readFile(filePath, 'utf8');
   return YAML.parse(raw) as T;
+}
+
+export async function readOptionalYaml<T>(filePath: string): Promise<T | null> {
+  try {
+    return await readYaml<T>(filePath);
+  } catch (error) {
+    if (isFileNotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export type YamlSchemaError = {

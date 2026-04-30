@@ -3,7 +3,7 @@ import { CompilerError } from '../../shared/errors.ts';
 import { pathExists } from '../../shared/fs.ts';
 import { getWorkspacePaths, isSafeRelativePath } from '../../shared/paths.ts';
 import { emptyOverrideManifest, type OverrideApplyPhase, type OverrideEntry, type OverrideManifest } from '../../shared/provenance-types.ts';
-import { readYaml } from '../../shared/yaml.ts';
+import { readOptionalYaml } from '../../shared/yaml.ts';
 
 const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
 const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/', 'control/', 'source/', '.pjc/'];
@@ -73,9 +73,6 @@ export async function resolveOverrideManifestPath(workspaceRoot: string): Promis
 
 export async function loadOverrideManifest(workspaceRoot: string): Promise<OverrideManifest> {
   const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
-  if (!(await pathExists(overrideManifestPath))) {
-    return emptyOverrideManifest();
-  }
-  const manifest = await readYaml<OverrideManifest>(overrideManifestPath);
+  const manifest = await readOptionalYaml<OverrideManifest>(overrideManifestPath);
   return validateOverrideManifest(manifest ?? emptyOverrideManifest());
 }

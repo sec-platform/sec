@@ -14,7 +14,7 @@ import { verifyProject } from '../compiler/verify/verify-project.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../shared/collections.ts';
 import { CompilerError } from '../shared/errors.ts';
-import { copyRecursive, ensureDir, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
+import { copyRecursive, ensureDir, isFileNotFoundError, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { addGeneratedPaths } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
@@ -1591,16 +1591,12 @@ function buildUpgradePlan(
 
 const VOLATILE_PROJECT_SNAPSHOT_ENTRIES = new Set(['node_modules', '.next', 'test-results', 'playwright-report', 'coverage']);
 
-function isMissingPathError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-}
-
 async function copyProjectSnapshot(source: string, target: string): Promise<void> {
   let stat: Awaited<ReturnType<typeof fs.stat>>;
   try {
     stat = await fs.stat(source);
   } catch (error) {
-    if (isMissingPathError(error)) {
+    if (isFileNotFoundError(error)) {
       return;
     }
     throw error;
@@ -1612,7 +1608,7 @@ async function copyProjectSnapshot(source: string, target: string): Promise<void
     try {
       entries = await fs.readdir(source);
     } catch (error) {
-      if (isMissingPathError(error)) {
+      if (isFileNotFoundError(error)) {
         return;
       }
       throw error;
@@ -1630,7 +1626,7 @@ async function copyProjectSnapshot(source: string, target: string): Promise<void
   try {
     await fs.copyFile(source, target);
   } catch (error) {
-    if (isMissingPathError(error)) {
+    if (isFileNotFoundError(error)) {
       return;
     }
     throw error;

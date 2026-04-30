@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
-import { writeJson } from '../../shared/fs.ts';
+import { isFileNotFoundError, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
@@ -36,7 +36,7 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
     const targetPath = resolveWorkspaceArtifactPath(workspaceRoot, task.target);
     const sourcePath = task.sourcePath ? resolveWorkspaceArtifactPath(workspaceRoot, task.sourcePath) : targetPath;
     const authoredSource = await fs.readFile(sourcePath, 'utf8').catch(async (error: unknown) => {
-      if (error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT') {
+      if (isFileNotFoundError(error)) {
         const synthesizedSource = synthesizeSlotSource(envelope);
         await fs.mkdir(path.dirname(sourcePath), { recursive: true });
         await fs.writeFile(sourcePath, synthesizedSource, 'utf8');
