@@ -59,7 +59,7 @@ import {
   parseTestOutputArgs,
   parseVerificationOutputArgs
 } from './args.ts';
-import { printRequiredJson, readRequiredJson } from './command-utils.ts';
+import { printRequiredJson, readRequiredJson, requireSubcommand } from './command-utils.ts';
 import { printJsonOrText } from './format-utils.ts';
 import {
   buildAcceptanceTargetInspect,
@@ -206,11 +206,7 @@ export async function runDepsCommand(args: string[], cwd = process.cwd()): Promi
 }
 
 export async function runReferenceCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'check') {
-    throw new Error(REFERENCE_USAGE);
-  }
-
-  const outputArgs = parseReferenceOutputArgs(args.slice(1));
+  const outputArgs = parseReferenceOutputArgs(requireSubcommand(args, 'check', REFERENCE_USAGE));
   const report = await buildReferenceCheckReport();
 
   printJsonOrText(report, outputArgs, formatReferenceCheck);
@@ -219,21 +215,13 @@ export async function runReferenceCommand(args: string[]): Promise<void> {
 }
 
 export async function runBenchmarkCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'suite') {
-    throw new Error(BENCHMARK_USAGE);
-  }
-
-  const outputArgs = parseBenchmarkOutputArgs(args.slice(1));
+  const outputArgs = parseBenchmarkOutputArgs(requireSubcommand(args, 'suite', BENCHMARK_USAGE));
   const contract = buildBenchmarkTaskSuiteContract();
   printJsonOrText(contract, outputArgs, formatBenchmarkTaskSuiteContract);
 }
 
 export async function runTestCommand(args: string[]): Promise<void> {
-  if (args[0] !== 'budget') {
-    throw new Error(TEST_USAGE);
-  }
-
-  const outputArgs = parseTestOutputArgs(args.slice(1));
+  const outputArgs = parseTestOutputArgs(requireSubcommand(args, 'budget', TEST_USAGE));
   const contract = buildTestBudgetContract();
   printJsonOrText(contract, outputArgs, formatTestBudgetContract);
 }
@@ -281,11 +269,7 @@ export async function runRuntimeCommand(args: string[], cwd = process.cwd()): Pr
 }
 
 export async function runInstallCommand(args: string[], cwd = process.cwd()): Promise<void> {
-  if (args[0] !== 'manifest') {
-    throw new Error(INSTALL_USAGE);
-  }
-
-  const outputArgs = parseInstallOutputArgs(args.slice(1));
+  const outputArgs = parseInstallOutputArgs(requireSubcommand(args, 'manifest', INSTALL_USAGE));
   const { installManifestPath } = getWorkspacePaths(cwd);
   await printRequiredJson<InstallManifestEntry[]>(
     installManifestPath,
@@ -296,11 +280,7 @@ export async function runInstallCommand(args: string[], cwd = process.cwd()): Pr
 }
 
 export async function runBlocksCommand(args: string[], cwd = process.cwd()): Promise<void> {
-  if (args[0] !== 'usage') {
-    throw new Error(BLOCKS_USAGE);
-  }
-
-  const outputArgs = parseBlocksOutputArgs(args.slice(1));
+  const outputArgs = parseBlocksOutputArgs(requireSubcommand(args, 'usage', BLOCKS_USAGE));
   const { blockUsageMapPath } = getWorkspacePaths(cwd);
   await printRequiredJson<BlockUsageMap>(
     blockUsageMapPath,
@@ -311,11 +291,7 @@ export async function runBlocksCommand(args: string[], cwd = process.cwd()): Pro
 }
 
 export async function runPostgresCommand(args: string[], cwd = process.cwd()): Promise<void> {
-  if (args[0] !== 'contract') {
-    throw new Error(POSTGRES_USAGE);
-  }
-
-  const outputArgs = parsePostgresOutputArgs(args.slice(1));
+  const outputArgs = parsePostgresOutputArgs(requireSubcommand(args, 'contract', POSTGRES_USAGE));
   const { postgresContractPath } = getWorkspacePaths(cwd);
   await printRequiredJson<PostgresContract>(
     postgresContractPath,
@@ -326,11 +302,7 @@ export async function runPostgresCommand(args: string[], cwd = process.cwd()): P
 }
 
 export async function runVerificationCommand(args: string[], cwd = process.cwd()): Promise<void> {
-  if (args[0] !== 'report') {
-    throw new Error(VERIFICATION_USAGE);
-  }
-
-  const outputArgs = parseVerificationOutputArgs(args.slice(1));
+  const outputArgs = parseVerificationOutputArgs(requireSubcommand(args, 'report', VERIFICATION_USAGE));
   const { verificationReportPath } = getWorkspacePaths(cwd);
   await printRequiredJson<VerificationReport>(
     verificationReportPath,
@@ -341,11 +313,7 @@ export async function runVerificationCommand(args: string[], cwd = process.cwd()
 }
 
 export async function runProvenanceCommand(args: string[], cwd = process.cwd()): Promise<void> {
-  if (args[0] !== 'registry') {
-    throw new Error(PROVENANCE_USAGE);
-  }
-
-  const outputArgs = parseProvenanceOutputArgs(args.slice(1));
+  const outputArgs = parseProvenanceOutputArgs(requireSubcommand(args, 'registry', PROVENANCE_USAGE));
   const readableProvenancePath = await resolveWorkspaceProvenancePath(cwd);
   await printRequiredJson<ProvenanceFile>(
     readableProvenancePath,
@@ -375,11 +343,7 @@ export async function runReviewCommand(args: string[], cwd = process.cwd()): Pro
 }
 
 export async function runDemoCommand(args: string[], cwd = process.cwd()): Promise<void> {
-  if (args[0] !== 'checklist') {
-    throw new Error(DEMO_USAGE);
-  }
-
-  const outputArgs = parseDemoOutputArgs(args.slice(1));
+  const outputArgs = parseDemoOutputArgs(requireSubcommand(args, 'checklist', DEMO_USAGE));
   const checklist = await buildDemoChecklist(cwd);
   printJsonOrText(checklist, outputArgs, formatDemoChecklist);
 }
