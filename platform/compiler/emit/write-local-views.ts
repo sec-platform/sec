@@ -48,9 +48,21 @@ function joinSections(sections: string[]): string {
   return sections.filter((section) => section.length > 0).join('\n');
 }
 
-function renderTableRows<T>(values: readonly T[], cells: (value: T) => readonly string[]): string {
+type TableRowFormat = 'compact' | 'multiline';
+
+function renderTableRows<T>(
+  values: readonly T[],
+  cells: (value: T) => readonly string[],
+  format: TableRowFormat = 'compact'
+): string {
   return values
-    .map((value) => `<tr>${cells(value).map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`)
+    .map((value) => {
+      const rowCells = cells(value);
+      if (format === 'multiline') {
+        return `<tr>\n${rowCells.map((cell) => `          <td>${escapeHtml(cell)}</td>`).join('\n')}\n        </tr>`;
+      }
+      return `<tr>${rowCells.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`;
+    })
     .join('');
 }
 
@@ -61,16 +73,12 @@ function renderMetricRows(rows: readonly MetricRow[]): string {
 }
 
 function renderE2eChainSummarySection(review: ReviewSummary): string {
-  const chainRows = buildE2eMatrix(review).rows
-    .map(
-      (stage) => `<tr>
-          <td>${escapeHtml(stage.stage)}</td>
-          <td>${escapeHtml(stage.status)}</td>
-          <td>${escapeHtml(stage.detail)}</td>
-          <td>${escapeHtml(stage.evidence.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
+  const chainRows = renderTableRows(buildE2eMatrix(review).rows, (stage) => [
+    stage.stage,
+    stage.status,
+    stage.detail,
+    stage.evidence.join(', ') || 'none'
+  ]);
 
   return `<h3>E2E Chain Summary</h3>
         <table>
@@ -116,15 +124,10 @@ function renderCiSummaryCard(review: ReviewSummary): string {
     ...artifactRows
   ]);
   const missingReasonRows = review.artifactSummary?.missingReasonCounts
-    ? Object.entries(review.artifactSummary.missingReasonCounts)
-        .filter(([, count]) => count > 0)
-        .map(
-          ([reason, count]) => `<tr>
-              <td>${escapeHtml(reason)}</td>
-              <td>${escapeHtml(String(count))}</td>
-            </tr>`
-        )
-        .join('')
+    ? renderTableRows(
+        Object.entries(review.artifactSummary.missingReasonCounts).filter(([, count]) => count > 0),
+        ([reason, count]) => [reason, String(count)]
+      )
     : '';
   const missingReasonTable = missingReasonRows
     ? `<h3>Missing Reason Summary</h3>
@@ -134,15 +137,11 @@ function renderCiSummaryCard(review: ReviewSummary): string {
         </table>`
     : '';
   const uploadGroupRows = review.artifactSummary?.uploadGroups?.length
-    ? review.artifactSummary.uploadGroups
-        .map(
-          (group) => `<tr>
-              <td>${escapeHtml(group.kind)}</td>
-              <td>${escapeHtml(String(group.count))}</td>
-              <td>${escapeHtml(group.paths.join(', '))}</td>
-            </tr>`
-        )
-        .join('')
+    ? renderTableRows(review.artifactSummary.uploadGroups, (group) => [
+        group.kind,
+        String(group.count),
+        group.paths.join(', ')
+      ])
     : '';
   const uploadGroupTable = uploadGroupRows
     ? `<h3>Artifact Upload Groups</h3>
@@ -152,15 +151,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
         </table>`
     : '';
   const missingRows = review.artifactSummary?.missing?.length
-    ? review.artifactSummary.missing
-        .map(
-          (entry) => `<tr>
-              <td>${escapeHtml(entry.path)}</td>
-              <td>${escapeHtml(entry.reason)}</td>
-              <td>${escapeHtml(entry.declaredBy)}</td>
-            </tr>`
-        )
-        .join('')
+    ? renderTableRows(review.artifactSummary.missing, (entry) => [entry.path, entry.reason, entry.declaredBy])
     : '';
   const missingTable = missingRows
     ? `<h3>Missing Artifact Diagnostics</h3>
@@ -189,17 +180,13 @@ function renderRuntimeEntriesTable(lock: LockFile): string {
     }
     entries.push({ path: generatedPath, kind });
   }
-  const rows = entries.length > 0
-    ? entries
-        .map((entry) => `<tr><td>${escapeHtml(entry.kind)}</td><td>${escapeHtml(entry.path)}</td></tr>`)
-        .join('')
-    : '<tr><td colspan="2">No generated runtime entries.</td></tr>';
+  const rows = renderTableRows(entries, (entry) => [entry.kind, entry.path]);
 
   return `<section class="card">
         <h2>Runtime Entry Points</h2>
         <table>
           <thead><tr><th>Kind</th><th>Path</th></tr></thead>
-          <tbody>${rows}</tbody>
+          <tbody>${rows || '<tr><td colspan="2">No generated runtime entries.</td></tr>'}</tbody>
         </table>
       </section>`;
 }
@@ -237,16 +224,19 @@ function renderVerticalSummaryCard(lock: LockFile, review: ReviewSummary): strin
     ...riskMap.keys()
   ]);
 
-  const rows = uniqueSorted([...sliceIds])
-    .map((vertical) => {
-      const summary = review.verticalSlices.find((slice) => slice.id === vertical);
-      const fallback = fallbackSlices.get(vertical);
-      const blocks = summary?.relatedBlocks ?? uniqueSorted([...(fallback?.relatedBlocks ?? [])]);
-      const runtimeEntries = summary?.runtimeEntries ?? uniqueSorted([...(fallback?.runtimeEntries ?? [])]);
-      const risks = riskMap.get(vertical) ?? [];
-      return `<tr><td>${escapeHtml(vertical)}</td><td>${escapeHtml(blocks.join(', ') || 'none')}</td><td>${escapeHtml(runtimeEntries.join(', ') || 'none')}</td><td>${escapeHtml(risks.join(' | ') || 'none')}</td></tr>`;
-    })
-    .join('');
+  const rows = renderTableRows(uniqueSorted([...sliceIds]), (vertical) => {
+    const summary = review.verticalSlices.find((slice) => slice.id === vertical);
+    const fallback = fallbackSlices.get(vertical);
+    const blocks = summary?.relatedBlocks ?? uniqueSorted([...(fallback?.relatedBlocks ?? [])]);
+    const runtimeEntries = summary?.runtimeEntries ?? uniqueSorted([...(fallback?.runtimeEntries ?? [])]);
+    const risks = riskMap.get(vertical) ?? [];
+    return [
+      vertical,
+      blocks.join(', ') || 'none',
+      runtimeEntries.join(', ') || 'none',
+      risks.join(' | ') || 'none'
+    ];
+  });
 
   return `<section class="card">
         <h2>Vertical Summary</h2>
@@ -259,24 +249,23 @@ function renderVerticalSummaryCard(lock: LockFile, review: ReviewSummary): strin
 
 function renderBlockCombinationCard(lock: LockFile, review: ReviewSummary): string {
   const impactByBlock = new Map(review.installImpacts.map((impact) => [impact.blockId, impact]));
-  const rows = lock.resolvedBlocks
-    .slice()
-    .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id))
-    .map((block) => {
+  const rows = renderTableRows(
+    lock.resolvedBlocks
+      .slice()
+      .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id)),
+    (block) => {
       const installs = countMatching(lock.installPlan, (step) => step.blockId === block.id);
       const impact = impactByBlock.get(block.id);
-      const verticals = impact?.verticals ?? [];
-      const runtimeEntries = impact?.runtimeEntries ?? [];
-      return `<tr>
-          <td>${escapeHtml(block.id)}</td>
-          <td>${escapeHtml(block.kind)}</td>
-          <td>${escapeHtml(String(block.installOrder))}</td>
-          <td>${escapeHtml(String(installs))}</td>
-          <td>${escapeHtml(verticals.join(', ') || 'none')}</td>
-          <td>${escapeHtml(runtimeEntries.join(', ') || 'none')}</td>
-        </tr>`;
-    })
-    .join('');
+      return [
+        block.id,
+        block.kind,
+        String(block.installOrder),
+        String(installs),
+        impact?.verticals.join(', ') || 'none',
+        impact?.runtimeEntries.join(', ') || 'none'
+      ];
+    }
+  );
 
   return `<section class="card">
         <h2>Block Combination Summary</h2>
@@ -305,27 +294,19 @@ function renderFailureFocusCard(review: ReviewSummary): string {
     group.artifacts.add(failure.artifactPath);
   }
 
-  const groupRows = [...failureGroups.values()]
-    .sort((left, right) => left.lane.localeCompare(right.lane) || left.kind.localeCompare(right.kind))
-    .map(
-      (group) => `<tr>
-          <td>${escapeHtml(group.lane)}</td>
-          <td>${escapeHtml(group.kind)}</td>
-          <td>${escapeHtml(String(group.count))}</td>
-          <td>${escapeHtml(formatList(group.artifacts, ''))}</td>
-        </tr>`
-    )
-    .join('');
-  const rows = review.failurePoints
-    .map(
-      (failure) => `<tr>
-          <td>${escapeHtml(failure.lane)}</td>
-          <td>${escapeHtml(failure.kind)}</td>
-          <td>${escapeHtml(failure.artifactPath)}</td>
-          <td>${escapeHtml(failure.message)}</td>
-        </tr>`
-    )
-    .join('');
+  const groupRows = renderTableRows(
+    [...failureGroups.values()].sort(
+      (left, right) => left.lane.localeCompare(right.lane) || left.kind.localeCompare(right.kind)
+    ),
+    (group) => [group.lane, group.kind, String(group.count), formatList(group.artifacts, '')],
+    'multiline'
+  );
+  const rows = renderTableRows(review.failurePoints, (failure) => [
+    failure.lane,
+    failure.kind,
+    failure.artifactPath,
+    failure.message
+  ]);
 
   return `<section class="card">
         <h2>Failure Focus</h2>
@@ -363,27 +344,19 @@ function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
     }
   }
 
-  const groupRows = [...runtimeGroups.values()]
-    .sort((left, right) => left.vertical.localeCompare(right.vertical) || left.kind.localeCompare(right.kind))
-    .map(
-      (group) => `<tr>
-          <td>${escapeHtml(group.vertical)}</td>
-          <td>${escapeHtml(group.kind)}</td>
-          <td>${escapeHtml(String(group.count))}</td>
-          <td>${escapeHtml(formatList(group.relatedBlocks))}</td>
-        </tr>`
-    )
-    .join('');
-  const rows = review.runtimeEntries
-    .map(
-      (entry) => `<tr>
-          <td>${escapeHtml(entry.kind)}</td>
-          <td>${escapeHtml(entry.vertical ?? 'none')}</td>
-          <td>${escapeHtml(entry.path)}</td>
-          <td>${escapeHtml(entry.relatedBlocks.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
+  const groupRows = renderTableRows(
+    [...runtimeGroups.values()].sort(
+      (left, right) => left.vertical.localeCompare(right.vertical) || left.kind.localeCompare(right.kind)
+    ),
+    (group) => [group.vertical, group.kind, String(group.count), formatList(group.relatedBlocks)],
+    'multiline'
+  );
+  const rows = renderTableRows(review.runtimeEntries, (entry) => [
+    entry.kind,
+    entry.vertical ?? 'none',
+    entry.path,
+    entry.relatedBlocks.join(', ') || 'none'
+  ]);
 
   return `<section class="card">
         <h2>Review Runtime Attribution</h2>
@@ -411,29 +384,25 @@ function renderInstallImpactCard(review: ReviewSummary): string {
     ['Runtime Entries', String(review.installImpactSummary.runtimeEntryCount)],
     ['Groups', String(review.installImpactSummary.groupCount)]
   ]);
-  const groupRows = review.installImpactSummary.groupSummaries
-    .map(
-      (group) => `<tr>
-          <td>${escapeHtml(group.vertical)}</td>
-          <td>${escapeHtml(String(group.blockCount))}</td>
-          <td>${escapeHtml(formatList(group.actionKinds))}</td>
-          <td>${escapeHtml(formatList(group.runtimeEntries))}</td>
-          <td>${escapeHtml(formatList(group.targetPaths))}</td>
-        </tr>`
-    )
-    .join('');
-  const rows = review.installImpacts
-    .map(
-      (impact) => `<tr>
-          <td>${escapeHtml(impact.blockId)}</td>
-          <td>${escapeHtml(impact.actionKinds.join(', ') || 'none')}</td>
-          <td>${escapeHtml(impact.sourceRoots.join(', ') || 'none')}</td>
-          <td>${escapeHtml(impact.verticals.join(', ') || 'none')}</td>
-          <td>${escapeHtml(impact.runtimeEntries.join(', ') || 'none')}</td>
-          <td>${escapeHtml(impact.targetPaths.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
+  const groupRows = renderTableRows(
+    review.installImpactSummary.groupSummaries,
+    (group) => [
+      group.vertical,
+      String(group.blockCount),
+      formatList(group.actionKinds),
+      formatList(group.runtimeEntries),
+      formatList(group.targetPaths)
+    ],
+    'multiline'
+  );
+  const rows = renderTableRows(review.installImpacts, (impact) => [
+    impact.blockId,
+    impact.actionKinds.join(', ') || 'none',
+    impact.sourceRoots.join(', ') || 'none',
+    impact.verticals.join(', ') || 'none',
+    impact.runtimeEntries.join(', ') || 'none',
+    impact.targetPaths.join(', ') || 'none'
+  ]);
 
   return `<section class="card">
         <h2>Install Impact Summary</h2>
@@ -471,9 +440,10 @@ async function readRequiredArtifact<T>(filePath: string, label: string): Promise
 }
 
 function renderPolicySourcesTable(policyReport: PolicyReport): string {
-  const rows = [...policyReport.official.sources, ...policyReport.project.sources]
-    .map((source) => `<tr><td>${escapeHtml(source.path)}</td><td>${escapeHtml(source.policyIds.join(', ') || 'none')}</td></tr>`)
-    .join('');
+  const rows = renderTableRows(
+    [...policyReport.official.sources, ...policyReport.project.sources],
+    (source) => [source.path, source.policyIds.join(', ') || 'none']
+  );
 
   return `<section class="card">
         <h2>Policy Sources</h2>
@@ -485,12 +455,11 @@ function renderPolicySourcesTable(policyReport: PolicyReport): string {
 }
 
 function renderMergedPoliciesTable(policyReport: PolicyReport): string {
-  const rows = policyReport.merged.policies
-    .map(
-      (policy) =>
-        `<tr><td>${escapeHtml(policy.id)}</td><td>${escapeHtml(policy.sourceScope)}</td><td>${escapeHtml(policy.sourcePath)}</td></tr>`
-    )
-    .join('');
+  const rows = renderTableRows(policyReport.merged.policies, (policy) => [
+    policy.id,
+    policy.sourceScope,
+    policy.sourcePath
+  ]);
 
   return `<section class="card">
         <h2>Merged Policies</h2>
@@ -502,12 +471,13 @@ function renderMergedPoliciesTable(policyReport: PolicyReport): string {
 }
 
 function renderPolicyViolationsTable(policyReport: PolicyReport): string {
-  const rows = policyReport.violations
-    .map(
-      (violation) =>
-        `<tr><td>${escapeHtml(violation.id)}</td><td>${escapeHtml(violation.severity)}</td><td>${escapeHtml(violation.sourceScope)}</td><td>${escapeHtml(violation.sourcePath)}</td><td>${escapeHtml(violation.message)}</td></tr>`
-    )
-    .join('');
+  const rows = renderTableRows(policyReport.violations, (violation) => [
+    violation.id,
+    violation.severity,
+    violation.sourceScope,
+    violation.sourcePath,
+    violation.message
+  ]);
 
   return `<section class="card">
         <h2>Policy Violations</h2>
@@ -533,44 +503,28 @@ function renderProvenanceSummaryCard(review: ReviewSummary): string {
     ['Generated Artifacts', String(provenance.generatedArtifactCount)],
     ['Generated Passes', String(provenance.generatedPassCount)]
   ]);
-  const originRows = provenance.originSummaries
-    .map(
-      (origin) => `<tr>
-          <td>${escapeHtml(origin.originType)}</td>
-          <td>${escapeHtml(String(origin.count))}</td>
-          <td>${escapeHtml(origin.paths.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
-  const overrideRows = provenance.overrideSummaries
-    .map(
-      (override) => `<tr>
-          <td>${escapeHtml(override.overrideStatus)}</td>
-          <td>${escapeHtml(String(override.count))}</td>
-          <td>${escapeHtml(override.paths.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
-  const registryRows = provenance.registrySummaries
-    .map(
-      (registry) => `<tr>
-          <td>${escapeHtml(registry.registrySourceId)}</td>
-          <td>${escapeHtml(registry.registryKind ?? 'unknown')}</td>
-          <td>${escapeHtml(registry.registryLocation ?? 'unknown')}</td>
-          <td>${escapeHtml(String(registry.count))}</td>
-          <td>${escapeHtml(registry.paths.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
-  const generatedPassRows = provenance.generatedPassSummaries
-    .map(
-      (summary) => `<tr>
-          <td>${escapeHtml(summary.pass)}</td>
-          <td>${escapeHtml(String(summary.count))}</td>
-          <td>${escapeHtml(summary.paths.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
+  const originRows = renderTableRows(provenance.originSummaries, (origin) => [
+    origin.originType,
+    String(origin.count),
+    origin.paths.join(', ') || 'none'
+  ]);
+  const overrideRows = renderTableRows(provenance.overrideSummaries, (override) => [
+    override.overrideStatus,
+    String(override.count),
+    override.paths.join(', ') || 'none'
+  ]);
+  const registryRows = renderTableRows(provenance.registrySummaries, (registry) => [
+    registry.registrySourceId,
+    registry.registryKind ?? 'unknown',
+    registry.registryLocation ?? 'unknown',
+    String(registry.count),
+    registry.paths.join(', ') || 'none'
+  ]);
+  const generatedPassRows = renderTableRows(provenance.generatedPassSummaries, (summary) => [
+    summary.pass,
+    String(summary.count),
+    summary.paths.join(', ') || 'none'
+  ]);
 
   return `<section class="card">
         <h2>Provenance Summary</h2>
@@ -617,26 +571,18 @@ function renderCoverageSummaryCard(review: ReviewSummary): string {
     ['Covered Slots', String(coverage.coveredSlotCount)],
     ['Uncovered Slots', String(coverage.uncoveredSlotCount)]
   ]);
-  const blockRows = coverage.blockSummaries
-    .map(
-      (block) => `<tr>
-          <td>${escapeHtml(block.id)}</td>
-          <td>${escapeHtml(String(block.declaredAcceptanceCount))}</td>
-          <td>${escapeHtml(String(block.coveredByCount))}</td>
-          <td>${escapeHtml(block.coveredBy.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
-  const slotRows = coverage.slotSummaries
-    .map(
-      (slot) => `<tr>
-          <td>${escapeHtml(slot.id)}</td>
-          <td>${escapeHtml(String(slot.declaredAcceptanceCount))}</td>
-          <td>${escapeHtml(String(slot.coveredByCount))}</td>
-          <td>${escapeHtml(slot.coveredBy.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
+  const blockRows = renderTableRows(coverage.blockSummaries, (block) => [
+    block.id,
+    String(block.declaredAcceptanceCount),
+    String(block.coveredByCount),
+    block.coveredBy.join(', ') || 'none'
+  ]);
+  const slotRows = renderTableRows(coverage.slotSummaries, (slot) => [
+    slot.id,
+    String(slot.declaredAcceptanceCount),
+    String(slot.coveredByCount),
+    slot.coveredBy.join(', ') || 'none'
+  ]);
 
   return `<section class="card">
         <h2>Acceptance Coverage Summary</h2>
@@ -671,40 +617,28 @@ function renderPolicySummaryCard(review: ReviewSummary): string {
     ['Policy Sources', String(policy.sourceCount)],
     ['Violations', String(policy.violationCount)]
   ]);
-  const severityRows = Object.entries(policy.severityCounts)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([severity, count]) => `<tr><td>${escapeHtml(severity)}</td><td>${escapeHtml(String(count))}</td></tr>`)
-    .join('');
-  const sourceRows = policy.sourceSummaries
-    .map(
-      (source) => `<tr>
-          <td>${escapeHtml(source.scope)}</td>
-          <td>${escapeHtml(source.path)}</td>
-          <td>${escapeHtml(source.policyIds.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
-  const mergedRows = policy.mergedSummaries
-    .map(
-      (merged) => `<tr>
-          <td>${escapeHtml(merged.id)}</td>
-          <td>${escapeHtml(merged.sourceScope)}</td>
-          <td>${escapeHtml(String(merged.targetCount))}</td>
-          <td>${escapeHtml(merged.targets.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
-  const violationRows = policy.violationSummaries
-    .map(
-      (violation) => `<tr>
-          <td>${escapeHtml(violation.id)}</td>
-          <td>${escapeHtml(violation.severity)}</td>
-          <td>${escapeHtml(String(violation.fileCount))}</td>
-          <td>${escapeHtml(violation.files.join(', ') || 'none')}</td>
-          <td>${escapeHtml(violation.message)}</td>
-        </tr>`
-    )
-    .join('');
+  const severityRows = renderTableRows(
+    Object.entries(policy.severityCounts).sort(([left], [right]) => left.localeCompare(right)),
+    ([severity, count]) => [severity, String(count)]
+  );
+  const sourceRows = renderTableRows(policy.sourceSummaries, (source) => [
+    source.scope,
+    source.path,
+    source.policyIds.join(', ') || 'none'
+  ]);
+  const mergedRows = renderTableRows(policy.mergedSummaries, (merged) => [
+    merged.id,
+    merged.sourceScope,
+    String(merged.targetCount),
+    merged.targets.join(', ') || 'none'
+  ]);
+  const violationRows = renderTableRows(policy.violationSummaries, (violation) => [
+    violation.id,
+    violation.severity,
+    String(violation.fileCount),
+    violation.files.join(', ') || 'none',
+    violation.message
+  ]);
 
   return `<section class="card">
         <h2>Policy Summary</h2>
@@ -903,40 +837,28 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
     ['Target Files', repair.targetFiles.join(', ') || 'none']
   ]);
   const categoryRows = renderTaxonomyRows(repair.taskCategorySummaries);
-  const targetRows = repair.targetSummaries
-    .map(
-      (target) => `<tr>
-          <td>${escapeHtml(target.targetType)}</td>
-          <td>${escapeHtml(target.id)}</td>
-          <td>${escapeHtml(String(target.count))}</td>
-        </tr>`
-    )
-    .join('');
-  const taskRows = repair.taskSummaries
-    .map(
-      (task) => `<tr>
-          <td>${escapeHtml(task.taskId)}</td>
-          <td>${escapeHtml(task.category)}</td>
-          <td>${escapeHtml(task.previewStatus)}</td>
-          <td>${escapeHtml(`${task.addedLines}/-${task.removedLines}`)}</td>
-          <td>${escapeHtml(String(task.failurePointCount))}</td>
-          <td>${escapeHtml(task.writeBounds.join(', ') || 'none')}</td>
-          <td>${escapeHtml(task.requiredSymbols.join(', ') || 'none')}</td>
-          <td>${escapeHtml(task.testsToPass.join(', ') || 'none')}</td>
-          <td>${escapeHtml(task.failureTargets.join(', ') || 'none')}</td>
-        </tr>`
-    )
-    .join('');
-  const blockerRows = repair.blockerSummaries
-    .map(
-      (blocker) => `<tr>
-          <td>${escapeHtml(blocker.blockerId)}</td>
-          <td>${escapeHtml(blocker.boundary)}</td>
-          <td>${escapeHtml(String(blocker.failurePointCount))}</td>
-          <td>${escapeHtml(blocker.reason)}</td>
-        </tr>`
-    )
-    .join('');
+  const targetRows = renderTableRows(repair.targetSummaries, (target) => [
+    target.targetType,
+    target.id,
+    String(target.count)
+  ]);
+  const taskRows = renderTableRows(repair.taskSummaries, (task) => [
+    task.taskId,
+    task.category,
+    task.previewStatus,
+    `${task.addedLines}/-${task.removedLines}`,
+    String(task.failurePointCount),
+    task.writeBounds.join(', ') || 'none',
+    task.requiredSymbols.join(', ') || 'none',
+    task.testsToPass.join(', ') || 'none',
+    task.failureTargets.join(', ') || 'none'
+  ]);
+  const blockerRows = renderTableRows(repair.blockerSummaries, (blocker) => [
+    blocker.blockerId,
+    blocker.boundary,
+    String(blocker.failurePointCount),
+    blocker.reason
+  ]);
   const laneRows = renderTaxonomyRows(repair.failureTaxonomy.laneSummaries);
   const kindRows = renderTaxonomyRows(repair.failureTaxonomy.kindSummaries);
   const issueRows = renderTaxonomyRows(repair.failureTaxonomy.issueTypeSummaries);
@@ -995,12 +917,12 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
     return '';
   }
 
-  const blockerRows = (repairPlan.blockers ?? [])
-    .map(
-      (blocker) =>
-        `<tr><td>${escapeHtml(blocker.blockerId)}</td><td>${escapeHtml(blocker.boundary)}</td><td>${escapeHtml(blocker.reason)}</td><td>${escapeHtml(blocker.decisionRequired)}</td></tr>`
-    )
-    .join('');
+  const blockerRows = renderTableRows(repairPlan.blockers ?? [], (blocker) => [
+    blocker.blockerId,
+    blocker.boundary,
+    blocker.reason,
+    blocker.decisionRequired
+  ]);
   const blockerTable = blockerRows
     ? `<h3>Blockers</h3>
         <table>
@@ -1008,27 +930,25 @@ function renderRepairPlanTable(repairPlan: RepairPlan | null): string {
           <tbody>${blockerRows}</tbody>
         </table>`
     : '';
-  const taskRows = repairPlan.tasks
-    .map((task) => {
-      const preview = task.preview
-        ? `${task.preview.changed ? 'changed' : 'unchanged'}; +${task.preview.addedLines}/-${task.preview.removedLines}; ${task.preview.beforeLines} -> ${task.preview.afterLines} lines`
-        : '';
-      const targets = task.failurePoints.flatMap((point) => point.targetIds ?? []).join(', ');
-      return `<tr>
-          <td>${escapeHtml(task.taskId)}</td>
-          <td>${escapeHtml(task.category ?? 'slot-rewrite')}</td>
-          <td>${escapeHtml(task.sourceSlotId)}</td>
-          <td>${escapeHtml(task.targetBlock)}</td>
-          <td>${escapeHtml(task.targetFile)}</td>
-          <td>${escapeHtml(task.allowedPaths.join(', '))}</td>
-          <td>${escapeHtml(task.requiredSymbols.join(', '))}</td>
-          <td>${escapeHtml(task.forbiddenOperations.join(', '))}</td>
-          <td>${escapeHtml(task.failureSummary)}</td>
-          <td>${escapeHtml(targets)}</td>
-          <td>${escapeHtml(preview)}</td>
-        </tr>`;
-    })
-    .join('');
+  const taskRows = renderTableRows(repairPlan.tasks, (task) => {
+    const preview = task.preview
+      ? `${task.preview.changed ? 'changed' : 'unchanged'}; +${task.preview.addedLines}/-${task.preview.removedLines}; ${task.preview.beforeLines} -> ${task.preview.afterLines} lines`
+      : '';
+    const targets = task.failurePoints.flatMap((point) => point.targetIds ?? []).join(', ');
+    return [
+      task.taskId,
+      task.category ?? 'slot-rewrite',
+      task.sourceSlotId,
+      task.targetBlock,
+      task.targetFile,
+      task.allowedPaths.join(', '),
+      task.requiredSymbols.join(', '),
+      task.forbiddenOperations.join(', '),
+      task.failureSummary,
+      targets,
+      preview
+    ];
+  });
 
   return `<section class="card">
         <h2>Repair Plan</h2>
@@ -1080,16 +1000,16 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
   const migrationKindRows = renderCountRecordRows(upgradePlan.migrationKindCounts);
   const operationRoleRows = renderUpgradeOperationRoleRows(upgradePlan.migrationOperations);
   const operationRows = renderUpgradeOperationRows(upgradePlan.migrationOperations);
-  const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
+  const impactRows = renderTableRows(upgradePlan.impacts, (impact) => [impact]);
   const preflightSummaryRows = renderUpgradePreflightSummaryRows(
     buildReviewUpgradePreflightSummaries(upgradePlan.preflightChecks)
   );
-  const preflightRows = upgradePlan.preflightChecks
-    .map(
-      (check) =>
-        `<tr><td>${escapeHtml(check.id)}</td><td>${escapeHtml(check.status)}</td><td>${escapeHtml(check.message)}</td><td>${escapeHtml(check.evidence.join(', ') || 'none')}</td></tr>`
-    )
-    .join('');
+  const preflightRows = renderTableRows(upgradePlan.preflightChecks, (check) => [
+    check.id,
+    check.status,
+    check.message,
+    check.evidence.join(', ') || 'none'
+  ]);
 
   return `<section class="card">
         <h2>Upgrade Plan</h2>
@@ -1171,7 +1091,7 @@ function renderReviewSummaryTables(review: ReviewSummary): string {
 }
 
 function renderDeveloperSourceLayerCard(lock: LockFile): string {
-  const sourceAreas = [
+  const sourceAreas: Array<readonly [string, string]> = [
     ['App Plan', 'source/app.yaml'],
     ['Model', 'source/model/**'],
     ['Slots', 'source/code/slots/**'],
@@ -1185,12 +1105,12 @@ function renderDeveloperSourceLayerCard(lock: LockFile): string {
     ['Env', 'source/env/**'],
     ['Private Blocks', 'source/blocks/private/**']
   ];
-  const areaRows = sourceAreas
-    .map(([label, sourcePath]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(sourcePath)}</td></tr>`)
-    .join('');
-  const slotRows = lock.slotTasks
-    .map((task) => `<tr><td>${escapeHtml(task.id)}</td><td>${escapeHtml(task.sourcePath ?? 'compatibility target only')}</td><td>${escapeHtml(task.target)}</td></tr>`)
-    .join('');
+  const areaRows = renderTableRows(sourceAreas, ([label, sourcePath]) => [label, sourcePath]);
+  const slotRows = renderTableRows(lock.slotTasks, (task) => [
+    task.id,
+    task.sourcePath ?? 'compatibility target only',
+    task.target
+  ]);
 
   return `<section class="card">
         <h2>Developer Source Layer</h2>
@@ -1268,10 +1188,10 @@ function renderSourceView(
         <table>
           <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
           <tbody>
-            ${provenance.artifacts.map((artifact) => {
+            ${renderTableRows(provenance.artifacts, (artifact) => {
               const registry = artifact.registrySourceId ? `${artifact.registrySourceId} (${artifact.registryKind ?? 'unknown'}, ${artifact.registryLocation ?? 'unknown'})` : '';
-              return `<tr><td>${escapeHtml(artifact.path)}</td><td>${escapeHtml(`${artifact.originType}:${artifact.originId}`)}</td><td>${escapeHtml(registry)}</td><td>${escapeHtml(artifact.overrideStatus)}</td></tr>`;
-            }).join('')}
+              return [artifact.path, `${artifact.originType}:${artifact.originId}`, registry, artifact.overrideStatus];
+            })}
           </tbody>
         </table>
       </section>
@@ -1314,10 +1234,17 @@ function renderSlotRuleView(
         <table>
           <thead><tr><th>Slot</th><th>Block</th><th>Source</th><th>Runtime Target</th><th>Status</th><th>Coverage</th></tr></thead>
           <tbody>
-            ${lock.slotTasks.map((task) => {
+            ${renderTableRows(lock.slotTasks, (task) => {
               const slotCoverage = coverage.slots.find((entry) => entry.id === task.id);
-              return `<tr><td>${escapeHtml(task.id)}</td><td>${escapeHtml(task.block)}</td><td>${escapeHtml(task.sourcePath ?? 'compatibility target only')}</td><td>${escapeHtml(task.target)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml((slotCoverage?.coveredBy ?? []).join(', ') || 'none')}</td></tr>`;
-            }).join('')}
+              return [
+                task.id,
+                task.block,
+                task.sourcePath ?? 'compatibility target only',
+                task.target,
+                task.status,
+                (slotCoverage?.coveredBy ?? []).join(', ') || 'none'
+              ];
+            })}
           </tbody>
         </table>
       </section>
