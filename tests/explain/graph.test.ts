@@ -507,7 +507,7 @@ test('writeExplainGraph does not require a policy report', async () => {
   await fs.rm(policyReportPath, { force: true });
 
   const graph = await writeExplainGraph(workspaceRoot, lock, provenance);
-  const writtenGraph = JSON.parse(await fs.readFile(explainGraphPath, 'utf8')) as typeof graph;
+  const writtenGraph = await readJson<typeof graph>(explainGraphPath);
   const writtenLock = await readJson<typeof lock>(lockPath);
   const writtenProvenance = await readJson<ProvenanceFile>(provenancePath);
 

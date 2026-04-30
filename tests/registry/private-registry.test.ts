@@ -11,6 +11,7 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace, installPrivateBannerBlock } from '../helpers/test-utils.ts';
 
@@ -37,16 +38,16 @@ test('workspace private registry blocks resolve, compose, and verify through the
   await explainWorkspace(workspaceRoot);
 
   const { provenancePath, reviewSummaryPath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
-  const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+  const provenance = await readJson<{
     artifacts: Array<{ path: string; registrySourceId?: string; registryKind?: string; registryLocation?: string }>;
-  };
+  }>(provenancePath);
   expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/private/banner.ts')).toMatchObject({
     registrySourceId: 'private',
     registryKind: 'private',
     registryLocation: 'workspace'
   });
 
-  const reviewSummary = JSON.parse(await fs.readFile(reviewSummaryPath, 'utf8')) as {
+  const reviewSummary = await readJson<{
     changeSources: Array<{
       path: string;
       registrySourceId?: string;
@@ -56,7 +57,7 @@ test('workspace private registry blocks resolve, compose, and verify through the
       vertical?: string;
       relatedBlocks?: string[];
     }>;
-  };
+  }>(reviewSummaryPath);
   expect(reviewSummary.changeSources.find((source) => source.path === 'src/installed/private/banner.ts')).toMatchObject({
     registrySourceId: 'private',
     registryKind: 'private',

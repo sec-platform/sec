@@ -11,7 +11,7 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
@@ -564,9 +564,9 @@ test('policy gate fails when tenant scoping is removed from customer queries', a
   await expect(verifyWorkspace(workspaceRoot)).rejects.toThrow();
 
   const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  const report = JSON.parse(
-    await fs.readFile(verificationReportPath, 'utf8')
-  ) as { policy: { status: string; violations: Array<{ id: string; sourceScope: string; sourcePath: string }> } };
+  const report = await readJson<{
+    policy: { status: string; violations: Array<{ id: string; sourceScope: string; sourcePath: string }> };
+  }>(verificationReportPath);
   expect(report.policy.status).toBe('failed');
   expect(report.policy.violations[0]?.id).toBe('tenant-scope-required');
   expect(report.policy.violations[0]?.sourceScope).toBe('official');
