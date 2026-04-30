@@ -3,11 +3,6 @@ version: 0.1.0
 kind: capability
 stackProfiles:
   - nextjs-ts-prisma-sqlite
-compatibility:
-  blockApi: '1'
-  compilerApi: '1'
-  stackProfiles:
-    - nextjs-ts-prisma-sqlite
 requires:
   - ticket/read
 provides:
