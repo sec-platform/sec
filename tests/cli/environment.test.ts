@@ -4,9 +4,9 @@ import {
   expectCliJson,
   expectCliSuccess,
   expectCliVariants,
-  runCliInProcess as runCli,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+  runCliInProcess as runCli
+} from '../helpers/cli-helpers.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes dependency environment maintenance entrypoints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

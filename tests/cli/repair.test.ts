@@ -11,9 +11,9 @@ import {
   expectCliSuccess,
   expectCliText,
   runCliInProcess as runCli,
-  runCliPipeline,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+  runCliPipeline
+} from '../helpers/cli-helpers.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 import {
   writeFailedFastUnitVerification,
   writePassingVerificationState

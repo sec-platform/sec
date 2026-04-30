@@ -6,9 +6,9 @@ import {
   expectCliSuccess,
   expectCliText,
   expectCliVariants,
-  runCliPipeline,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+  runCliPipeline
+} from '../helpers/cli-helpers.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes demo checklist as text and JSON readiness contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

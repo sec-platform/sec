@@ -3,7 +3,8 @@ import { expect, test } from 'vitest';
 import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../helpers/cli-helpers.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes policy report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

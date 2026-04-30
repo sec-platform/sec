@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
-import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../helpers/cli-helpers.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits explain JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

@@ -19,7 +19,8 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
-import { expectCliVariants, readCompilerFile, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliVariants } from '../helpers/cli-helpers.ts';
+import { readCompilerFile, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
