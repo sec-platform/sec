@@ -17,6 +17,7 @@ import { buildReviewUpgradePreflightSummaries } from '../../shared/review-upgrad
 import type {
   UpgradeDiagnostics,
   UpgradeMigrationOperation,
+  UpgradeMigrationSummary,
   UpgradePlan
 } from '../../shared/upgrade-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
@@ -47,6 +48,18 @@ function joinSections(sections: string[]): string {
   return sections.filter((section) => section.length > 0).join('\n');
 }
 
+function renderTableRows<T>(values: readonly T[], cells: (value: T) => readonly string[]): string {
+  return values
+    .map((value) => `<tr>${cells(value).map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`)
+    .join('');
+}
+
+type MetricRow = readonly [label: string, value: string];
+
+function renderMetricRows(rows: readonly MetricRow[]): string {
+  return renderTableRows(rows, ([label, value]) => [label, value]);
+}
+
 function renderE2eChainSummarySection(review: ReviewSummary): string {
   const chainRows = buildE2eMatrix(review).rows
     .map(
@@ -71,7 +84,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
     ? review.artifactSummary.missingReasonTypeCount
       ?? countPositiveValues(Object.values(review.artifactSummary.missingReasonCounts ?? {}))
     : 0;
-  const artifactRows = review.artifactSummary
+  const artifactRows: MetricRow[] = review.artifactSummary
     ? [
         ['Artifact Status', review.artifactSummary.artifactStatus ?? 'passed'],
         ['Artifacts', String(review.artifactSummary.artifactCount)],
@@ -88,7 +101,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
         ['Missing Reason Types', String(missingReasonTypeCount)]
       ]
     : [];
-  const rows = [
+  const rows = renderMetricRows([
     ['Status', review.ciSummary.status],
     ['Failures', String(review.ciSummary.failureCount)],
     ['Regression Risks', String(review.ciSummary.regressionRiskCount)],
@@ -101,9 +114,7 @@ function renderCiSummaryCard(review: ReviewSummary): string {
     ['Chain Attention Stages', String(review.chainSummary.attentionStageCount)],
     ['Chain Failed Stages', String(review.chainSummary.failedStageCount)],
     ...artifactRows
-  ]
-    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-    .join('');
+  ]);
   const missingReasonRows = review.artifactSummary?.missingReasonCounts
     ? Object.entries(review.artifactSummary.missingReasonCounts)
         .filter(([, count]) => count > 0)
@@ -390,7 +401,7 @@ function renderReviewRuntimeAttributionCard(review: ReviewSummary): string {
 }
 
 function renderInstallImpactCard(review: ReviewSummary): string {
-  const summaryRows = [
+  const summaryRows = renderMetricRows([
     ['Impacts', String(review.installImpactSummary.impactCount)],
     ['Blocks', String(review.installImpactSummary.blockCount)],
     ['Action Kinds', String(review.installImpactSummary.actionKindCount)],
@@ -399,9 +410,7 @@ function renderInstallImpactCard(review: ReviewSummary): string {
     ['Verticals', String(review.installImpactSummary.verticalCount)],
     ['Runtime Entries', String(review.installImpactSummary.runtimeEntryCount)],
     ['Groups', String(review.installImpactSummary.groupCount)]
-  ]
-    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-    .join('');
+  ]);
   const groupRows = review.installImpactSummary.groupSummaries
     .map(
       (group) => `<tr>
@@ -515,7 +524,7 @@ function renderProvenanceSummaryCard(review: ReviewSummary): string {
     return '';
   }
 
-  const rows = [
+  const rows = renderMetricRows([
     ['Artifacts', String(provenance.artifactCount)],
     ['Verified Artifacts', String(provenance.verifiedArtifactCount)],
     ['Unverified Artifacts', String(provenance.unverifiedArtifactCount)],
@@ -523,9 +532,7 @@ function renderProvenanceSummaryCard(review: ReviewSummary): string {
     ['Registry Artifacts', String(provenance.registryArtifactCount)],
     ['Generated Artifacts', String(provenance.generatedArtifactCount)],
     ['Generated Passes', String(provenance.generatedPassCount)]
-  ]
-    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-    .join('');
+  ]);
   const originRows = provenance.originSummaries
     .map(
       (origin) => `<tr>
@@ -600,7 +607,7 @@ function renderCoverageSummaryCard(review: ReviewSummary): string {
     return '';
   }
 
-  const rows = [
+  const rows = renderMetricRows([
     ['Status', coverage.status],
     ['Acceptance Passed', String(coverage.acceptancePassedCount)],
     ['Blocks', String(coverage.blockCount)],
@@ -609,9 +616,7 @@ function renderCoverageSummaryCard(review: ReviewSummary): string {
     ['Slots', String(coverage.slotCount)],
     ['Covered Slots', String(coverage.coveredSlotCount)],
     ['Uncovered Slots', String(coverage.uncoveredSlotCount)]
-  ]
-    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-    .join('');
+  ]);
   const blockRows = coverage.blockSummaries
     .map(
       (block) => `<tr>
@@ -658,16 +663,14 @@ function renderPolicySummaryCard(review: ReviewSummary): string {
     return '';
   }
 
-  const rows = [
+  const rows = renderMetricRows([
     ['Status', policy.status],
     ['Official Policies', String(policy.officialPolicyCount)],
     ['Project Policies', String(policy.projectPolicyCount)],
     ['Merged Policies', String(policy.mergedPolicyCount)],
     ['Policy Sources', String(policy.sourceCount)],
     ['Violations', String(policy.violationCount)]
-  ]
-    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-    .join('');
+  ]);
   const severityRows = Object.entries(policy.severityCounts)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([severity, count]) => `<tr><td>${escapeHtml(severity)}</td><td>${escapeHtml(String(count))}</td></tr>`)
@@ -738,7 +741,7 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
     return '';
   }
 
-  const rows = [
+  const rows = renderMetricRows([
     ['Status', upgrade.status],
     ['Block', upgrade.blockId],
     ['From Version', upgrade.fromVersion ?? 'unknown'],
@@ -752,37 +755,12 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
     ['Impacts', String(upgrade.impactCount)],
     ['Requires Verification', String(upgrade.requiresVerification)],
     ['Verification Migrations', String(upgrade.requiresVerificationCount)]
-  ]
-    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-    .join('');
-  const preflightRows = upgrade.preflightSummaries
-    .map(
-      (summary) => `<tr>
-          <td>${escapeHtml(summary.group)}</td>
-          <td>${escapeHtml(String(summary.checkCount))}</td>
-          <td>${escapeHtml(String(summary.evidenceCount))}</td>
-        </tr>`
-    )
-    .join('');
-  const kindRows = Object.entries(upgrade.migrationKindCounts)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
-    .join('');
+  ]);
+  const preflightRows = renderUpgradePreflightSummaryRows(upgrade.preflightSummaries);
+  const kindRows = renderCountRecordRows(upgrade.migrationKindCounts);
   const operationRoleRows = renderUpgradeOperationRoleRows(upgrade.migrationOperationSummaries);
   const verificationRows = renderTaxonomyRows(upgrade.verificationSummaries);
-  const migrationRows = upgrade.migrationSummaries
-    .map(
-      (migration) => `<tr>
-          <td>${escapeHtml(migration.id)}</td>
-          <td>${escapeHtml(migration.kind)}</td>
-          <td>${escapeHtml(migration.source ?? 'none')}</td>
-          <td>${escapeHtml(migration.target)}</td>
-          <td>${escapeHtml(migration.slotId ?? 'none')}</td>
-          <td>${escapeHtml(String(migration.requiresVerification))}</td>
-          <td>${escapeHtml(migration.reason)}</td>
-        </tr>`
-    )
-    .join('');
+  const migrationRows = renderUpgradeMigrationRows(upgrade.migrationSummaries);
   const operationRows = renderUpgradeOperationRows(upgrade.migrationOperationSummaries);
   const diagnosticsRows = upgrade.diagnostics
     ? `<tr>
@@ -841,45 +819,68 @@ function renderUpgradeSummaryCard(review: ReviewSummary): string {
 }
 
 function renderTaxonomyRows(entries: Array<{ id: string; count: number }>): string {
-  return entries
-    .map((entry) => `<tr><td>${escapeHtml(entry.id)}</td><td>${escapeHtml(String(entry.count))}</td></tr>`)
-    .join('');
+  return renderTableRows(entries, (entry) => [entry.id, String(entry.count)]);
+}
+
+function renderCountRecordRows(counts: Record<string, number>): string {
+  return renderTaxonomyRows(
+    Object.entries(counts)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, count]) => ({ id, count }))
+  );
+}
+
+function renderUpgradePreflightSummaryRows(summaries: ReturnType<typeof buildReviewUpgradePreflightSummaries>): string {
+  return renderTableRows(summaries, (summary) => [
+    summary.group,
+    String(summary.checkCount),
+    String(summary.evidenceCount)
+  ]);
+}
+
+function renderUpgradeMigrationRows(migrations: readonly UpgradeMigrationSummary[]): string {
+  return renderTableRows(migrations, (migration) => [
+    migration.id,
+    migration.kind,
+    migration.source ?? 'none',
+    migration.target,
+    migration.slotId ?? 'none',
+    String(migration.requiresVerification),
+    migration.reason
+  ]);
 }
 
 function renderUpgradeOperationRoleRows(operations: UpgradeMigrationOperation[]): string {
   return renderTaxonomyRows(summarizeCounts(operations.map((operation) => operation.role)));
 }
 
+function upgradeOperationDetails(operation: UpgradeMigrationOperation): string {
+  return [
+    operation.source ? `source=${operation.source}` : '',
+    operation.slotId ? `slot=${operation.slotId}` : '',
+    operation.inputType ? `input=${operation.inputType}` : '',
+    operation.outputType ? `output=${operation.outputType}` : '',
+    operation.writableZones ? `writable=${operation.writableZones.join(', ')}` : '',
+    operation.path ? `path=${operation.path.join('.')}` : '',
+    operation.updateCount === undefined ? '' : `updates=${operation.updateCount}`,
+    operation.itemCount === undefined ? '' : `items=${operation.itemCount}`,
+    operation.valueKeyCount === undefined ? '' : `valueKeys=${operation.valueKeyCount}`,
+    operation.contentLength === undefined ? '' : `contentLength=${operation.contentLength}`,
+    operation.searchLength === undefined ? '' : `searchLength=${operation.searchLength}`,
+    operation.replacementLength === undefined ? '' : `replacementLength=${operation.replacementLength}`,
+    operation.pattern ? `pattern=${operation.pattern}` : '',
+    operation.flags ? `flags=${operation.flags}` : ''
+  ].filter((detail) => detail.length > 0).join('; ') || 'none';
+}
+
 function renderUpgradeOperationRows(operations: UpgradeMigrationOperation[]): string {
-  return operations
-    .map((operation) => {
-      const details = [
-        operation.source ? `source=${operation.source}` : '',
-        operation.slotId ? `slot=${operation.slotId}` : '',
-        operation.inputType ? `input=${operation.inputType}` : '',
-        operation.outputType ? `output=${operation.outputType}` : '',
-        operation.writableZones ? `writable=${operation.writableZones.join(', ')}` : '',
-        operation.path ? `path=${operation.path.join('.')}` : '',
-        operation.updateCount === undefined ? '' : `updates=${operation.updateCount}`,
-        operation.itemCount === undefined ? '' : `items=${operation.itemCount}`,
-        operation.valueKeyCount === undefined ? '' : `valueKeys=${operation.valueKeyCount}`,
-        operation.contentLength === undefined ? '' : `contentLength=${operation.contentLength}`,
-        operation.searchLength === undefined ? '' : `searchLength=${operation.searchLength}`,
-        operation.replacementLength === undefined ? '' : `replacementLength=${operation.replacementLength}`,
-        operation.pattern ? `pattern=${operation.pattern}` : '',
-        operation.flags ? `flags=${operation.flags}` : ''
-      ]
-        .filter((detail) => detail.length > 0)
-        .join('; ') || 'none';
-      return `<tr>
-          <td>${escapeHtml(operation.id)}</td>
-          <td>${escapeHtml(operation.kind)}</td>
-          <td>${escapeHtml(operation.role)}</td>
-          <td>${escapeHtml(operation.target)}</td>
-          <td>${escapeHtml(details)}</td>
-        </tr>`;
-    })
-    .join('');
+  return renderTableRows(operations, (operation) => [
+    operation.id,
+    operation.kind,
+    operation.role,
+    operation.target,
+    upgradeOperationDetails(operation)
+  ]);
 }
 
 function renderRepairSummaryCard(review: ReviewSummary): string {
@@ -888,7 +889,7 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
     return '';
   }
 
-  const rows = [
+  const rows = renderMetricRows([
     ['Status', repair.status],
     ['Source Verification', repair.sourceVerificationStatus],
     ['Requires Verification', String(repair.requiresVerification)],
@@ -900,9 +901,7 @@ function renderRepairSummaryCard(review: ReviewSummary): string {
     ['Trace Pending Reason', repair.verificationTrace.pendingReason],
     ['Trace Next Action', repair.verificationTrace.nextAction],
     ['Target Files', repair.targetFiles.join(', ') || 'none']
-  ]
-    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-    .join('');
+  ]);
   const categoryRows = renderTaxonomyRows(repair.taskCategorySummaries);
   const targetRows = repair.targetSummaries
     .map(
@@ -1077,32 +1076,14 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
     return '';
   }
 
-  const migrationRows = upgradePlan.migrationSummaries
-    .map(
-      (migration) => `<tr>
-          <td>${escapeHtml(migration.id)}</td>
-          <td>${escapeHtml(migration.kind)}</td>
-          <td>${escapeHtml(migration.source ?? 'none')}</td>
-          <td>${escapeHtml(migration.target)}</td>
-          <td>${escapeHtml(migration.slotId ?? 'none')}</td>
-          <td>${escapeHtml(String(migration.requiresVerification))}</td>
-          <td>${escapeHtml(migration.reason)}</td>
-        </tr>`
-    )
-    .join('');
-  const migrationKindRows = Object.entries(upgradePlan.migrationKindCounts)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([kind, count]) => `<tr><td>${escapeHtml(kind)}</td><td>${escapeHtml(String(count))}</td></tr>`)
-    .join('');
+  const migrationRows = renderUpgradeMigrationRows(upgradePlan.migrationSummaries);
+  const migrationKindRows = renderCountRecordRows(upgradePlan.migrationKindCounts);
   const operationRoleRows = renderUpgradeOperationRoleRows(upgradePlan.migrationOperations);
   const operationRows = renderUpgradeOperationRows(upgradePlan.migrationOperations);
   const impactRows = upgradePlan.impacts.map((impact) => `<tr><td>${escapeHtml(impact)}</td></tr>`).join('');
-  const preflightSummaryRows = buildReviewUpgradePreflightSummaries(upgradePlan.preflightChecks)
-    .map(
-      (summary) =>
-        `<tr><td>${escapeHtml(summary.group)}</td><td>${escapeHtml(String(summary.checkCount))}</td><td>${escapeHtml(String(summary.evidenceCount))}</td></tr>`
-    )
-    .join('');
+  const preflightSummaryRows = renderUpgradePreflightSummaryRows(
+    buildReviewUpgradePreflightSummaries(upgradePlan.preflightChecks)
+  );
   const preflightRows = upgradePlan.preflightChecks
     .map(
       (check) =>
@@ -1152,24 +1133,19 @@ function renderUpgradePlanTable(upgradePlan: UpgradePlan | null): string {
 }
 
 function renderReviewSummaryTables(review: ReviewSummary): string {
-  const failureRows = review.failurePoints
-    .map(
-      (failure) =>
-        `<tr><td>${escapeHtml(failure.lane)}</td><td>${escapeHtml(failure.kind)}</td><td>${escapeHtml(failure.artifactPath)}</td><td>${escapeHtml(failure.message)}</td></tr>`
-    )
-    .join('');
-  const regressionRows = review.regressionRisks
-    .map(
-      (risk) =>
-        `<tr><td>${escapeHtml(risk.kind)}</td><td>${escapeHtml(risk.blockId ?? '')}</td><td>${escapeHtml(risk.slotId ?? '')}</td><td>${escapeHtml(risk.message)}</td></tr>`
-    )
-    .join('');
-  const conflictRows = review.conflictHints
-    .map(
-      (hint) =>
-        `<tr><td>${escapeHtml(hint.kind)}</td><td>${escapeHtml(hint.relatedId)}</td><td>${escapeHtml(hint.message)}</td></tr>`
-    )
-    .join('');
+  const failureRows = renderTableRows(review.failurePoints, (failure) => [
+    failure.lane,
+    failure.kind,
+    failure.artifactPath,
+    failure.message
+  ]);
+  const regressionRows = renderTableRows(review.regressionRisks, (risk) => [
+    risk.kind,
+    risk.blockId ?? '',
+    risk.slotId ?? '',
+    risk.message
+  ]);
+  const conflictRows = renderTableRows(review.conflictHints, (hint) => [hint.kind, hint.relatedId, hint.message]);
 
   return `<section class="card">
         <h2>Review Failure Points</h2>
