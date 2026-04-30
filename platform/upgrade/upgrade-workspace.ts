@@ -514,34 +514,6 @@ async function removeDirectoryMigrationTarget(targetPath: string, target: string
   await fs.rm(targetPath, { recursive: true });
 }
 
-async function renameFileMigrationTarget(
-  sourcePath: string,
-  targetPath: string,
-  source: string,
-  target: string
-): Promise<void> {
-  await statRenameMigrationSource(sourcePath, source);
-  if (await pathExists(targetPath)) {
-    throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${target}" already exists`);
-  }
-  await ensureDir(path.dirname(targetPath));
-  await fs.rename(sourcePath, targetPath);
-}
-
-async function renameDirectoryMigrationTarget(
-  sourcePath: string,
-  targetPath: string,
-  source: string,
-  target: string
-): Promise<void> {
-  await statRenameDirectoryMigrationSource(sourcePath, source);
-  if (await pathExists(targetPath)) {
-    throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${target}" already exists`);
-  }
-  await ensureDir(path.dirname(targetPath));
-  await fs.rename(sourcePath, targetPath);
-}
-
 function migrationErrorDetails(entry: UpgradeMigrationEntry): Record<string, unknown> {
   return {
     migrationId: entry.id,
@@ -609,7 +581,7 @@ type ProjectSourceMigrationEntry = Extract<UpgradeMigrationEntry, { kind: 'renam
 
 type ManifestSourceMigrationEntry = Extract<
   UpgradeMigrationEntry,
-  { kind: 'file-replace' | 'copy-file' | 'copy-directory' }
+  { kind: ManifestFileMigrationKind | 'copy-directory' }
 >;
 
 type BaseMigrationOperationContext = {
@@ -624,7 +596,7 @@ type MigrationApplyContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigr
   };
 
 type ManifestFileMigrationContext = BaseMigrationOperationContext & {
-  entry: Extract<UpgradeMigrationEntry, { kind: 'file-replace' | 'copy-file' }>;
+  entry: Extract<UpgradeMigrationEntry, { kind: ManifestFileMigrationKind }>;
 };
 
 type TextReplaceMigrationContext = BaseMigrationOperationContext & {
@@ -637,7 +609,7 @@ type FileOperationEvidenceContext<K extends UpgradeMigrationEntry['kind'] = Upgr
   };
 
 type ManifestFileOperationEvidenceContext = BaseMigrationOperationContext & {
-  entry: Extract<UpgradeMigrationEntry, { kind: 'file-replace' | 'copy-file' }>;
+  entry: Extract<UpgradeMigrationEntry, { kind: ManifestFileMigrationKind }>;
 };
 
 type UpgradeMigrationOperationRecord = UpgradePlan['migrationOperations'][number];
@@ -891,7 +863,7 @@ async function statRenameDirectoryMigrationSource(sourcePath: string, source: st
 async function statManifestFileMigrationSource(
   sourcePath: string,
   source: string,
-  kind: 'file-replace' | 'copy-file'
+  kind: ManifestFileMigrationKind
 ): Promise<void> {
   const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`));
   if (!stats.isFile()) {
@@ -944,32 +916,115 @@ function buildMigrationOperationRecord(
   };
 }
 
+type ManifestFileMigrationKind = 'file-replace' | 'copy-file';
+type JsonItemMigrationEntry = Extract<UpgradeMigrationEntry, { kind: 'json-array-append' | 'json-array-remove' }>;
+type JsonTargetMigrationEntry = Extract<UpgradeMigrationEntry, { kind: 'json-array-append' | 'json-array-remove' | 'json-object-merge' }>;
+
+function buildJsonItemMigrationOperation(entry: JsonItemMigrationEntry): UpgradeMigrationOperationRecord {
+  return buildMigrationOperationRecord(entry, 'json', {
+    path: [...entry.path],
+    itemCount: entry.items.length
+  });
+}
+
+function createManifestFileMigrationSpec<K extends ManifestFileMigrationKind>(): MigrationOperationSpec<K> {
+  return {
+    validate: validateSourceMigrationEntry,
+    apply: applyManifestFileMigration,
+    collectFileEvidence: collectManifestFileOperationEvidence,
+    buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: ManifestFileMigrationKind }>) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
+  };
+}
+
+function createDeleteMigrationSpec<K extends 'delete-file' | 'delete-directory'>(
+  role: 'file' | 'directory',
+  remove: (targetPath: string, target: string) => Promise<void>,
+  stat: (targetPath: string, target: string) => Promise<unknown>
+): MigrationOperationSpec<K> {
+  return {
+    apply: async ({ entry, targetPath }: MigrationApplyContext<'delete-file' | 'delete-directory'>) => {
+      await remove(targetPath, entry.target);
+    },
+    collectFileEvidence: async ({ entry, targetPath }: FileOperationEvidenceContext<'delete-file' | 'delete-directory'>) => {
+      await stat(targetPath, entry.target);
+      return [`${entry.id}:target:${role}`];
+    },
+    buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: 'delete-file' | 'delete-directory' }>) => buildMigrationOperationRecord(entry, role)
+  };
+}
+
+async function prepareRenameMigrationTarget(
+  entry: ProjectSourceMigrationEntry,
+  projectRoot: string,
+  targetPath: string,
+  label: 'Rename-file' | 'Rename-directory',
+  statSource: (sourcePath: string, source: string) => Promise<void>
+): Promise<string> {
+  const sourcePath = resolveProjectMigrationSource(projectRoot, entry);
+  await statSource(sourcePath, entry.source);
+  if (await pathExists(targetPath)) {
+    throw new CompilerError('UPGRADE-MIGRATION-020', `${label} target "${entry.target}" already exists`);
+  }
+  return sourcePath;
+}
+
+function createRenameMigrationSpec<K extends ProjectSourceMigrationEntry['kind']>(
+  role: 'file' | 'directory',
+  label: 'Rename-file' | 'Rename-directory',
+  statSource: (sourcePath: string, source: string) => Promise<void>
+): MigrationOperationSpec<K> {
+  return {
+    validate: validateSourceMigrationEntry,
+    collectImpacts: (entry: ProjectSourceMigrationEntry) => [entry.source, entry.target],
+    apply: async ({ entry, projectRoot, targetPath }: MigrationApplyContext<ProjectSourceMigrationEntry['kind']>) => {
+      const sourcePath = await prepareRenameMigrationTarget(entry, projectRoot, targetPath, label, statSource);
+      await ensureDir(path.dirname(targetPath));
+      await fs.rename(sourcePath, targetPath);
+    },
+    collectFileEvidence: async ({ entry, projectRoot, targetPath }: FileOperationEvidenceContext<ProjectSourceMigrationEntry['kind']>) => {
+      await prepareRenameMigrationTarget(entry, projectRoot, targetPath, label, statSource);
+      return [`${entry.id}:source:${role}`, `${entry.id}:target:available`];
+    },
+    buildOperation: (entry: ProjectSourceMigrationEntry) => buildMigrationOperationRecord(entry, role, { source: entry.source })
+  };
+}
+
+async function prepareCopyDirectoryMigration(context: MigrationApplyContext<'copy-directory'>): Promise<string> {
+  const { entry, targetManifestRoot, targetPath } = context;
+  const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
+  await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+  await statCopyDirectoryMigrationTarget(targetPath, entry.target);
+  return sourcePath;
+}
+
+async function applyJsonTargetMigration(
+  entry: JsonTargetMigrationEntry,
+  targetPath: string,
+  update: (config: unknown) => unknown,
+  createMissing: boolean
+): Promise<void> {
+  const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+  if (targetStatus === 'missing' && !createMissing) {
+    return;
+  }
+  const config = update(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {});
+  if (createMissing) {
+    await ensureDir(path.dirname(targetPath));
+  }
+  await writeJson(targetPath, config);
+}
+
 const migrationOperationSpecs = {
-  'file-replace': {
-    validate: validateSourceMigrationEntry,
-    apply: applyManifestFileMigration,
-    collectFileEvidence: collectManifestFileOperationEvidence,
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
-  },
-  'copy-file': {
-    validate: validateSourceMigrationEntry,
-    apply: applyManifestFileMigration,
-    collectFileEvidence: collectManifestFileOperationEvidence,
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
-  },
+  'file-replace': createManifestFileMigrationSpec<'file-replace'>(),
+  'copy-file': createManifestFileMigrationSpec<'copy-file'>(),
   'copy-directory': {
     validate: validateSourceMigrationEntry,
-    apply: async ({ entry, targetManifestRoot, targetPath }) => {
-      const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
-      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
-      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
-      await copyRecursive(sourcePath, targetPath);
+    apply: async (context) => {
+      await copyRecursive(await prepareCopyDirectoryMigration(context), context.targetPath);
     },
-    collectFileEvidence: async ({ entry, targetManifestRoot, targetPath }) => {
-      const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
-      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
-      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
-      return [`${entry.id}:manifest-source:directory`];
+    collectFileEvidence: async (context) => {
+      await prepareCopyDirectoryMigration(context);
+      return [`${context.entry.id}:manifest-source:directory`];
     },
     buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory', { source: entry.source })
   },
@@ -985,38 +1040,21 @@ const migrationOperationSpecs = {
   'json-array-append': {
     validate: validateJsonArrayMigrationEntry,
     apply: async ({ entry, targetPath }) => {
-      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      const config = applyJsonArrayAppend(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
-      await ensureDir(path.dirname(targetPath));
-      await writeJson(targetPath, config);
+      await applyJsonTargetMigration(entry, targetPath, (config) => applyJsonArrayAppend(config, entry), true);
     },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
-      path: [...entry.path],
-      itemCount: entry.items.length
-    })
+    buildOperation: buildJsonItemMigrationOperation
   },
   'json-array-remove': {
     validate: validateJsonArrayMigrationEntry,
     apply: async ({ entry, targetPath }) => {
-      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      if (targetStatus === 'missing') {
-        return;
-      }
-      const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
-      await writeJson(targetPath, config);
+      await applyJsonTargetMigration(entry, targetPath, (config) => applyJsonArrayRemove(config, entry), false);
     },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
-      path: [...entry.path],
-      itemCount: entry.items.length
-    })
+    buildOperation: buildJsonItemMigrationOperation
   },
   'json-object-merge': {
     validate: validateJsonObjectMergeMigrationEntry,
     apply: async ({ entry, targetPath }) => {
-      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      const config = applyJsonObjectMerge(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
-      await ensureDir(path.dirname(targetPath));
-      await writeJson(targetPath, config);
+      await applyJsonTargetMigration(entry, targetPath, (config) => applyJsonObjectMerge(config, entry), true);
     },
     buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
       path: [...entry.path],
@@ -1066,66 +1104,10 @@ const migrationOperationSpecs = {
     },
     buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory')
   },
-  'delete-file': {
-    apply: async ({ entry, targetPath }) => {
-      await removeFileMigrationTarget(targetPath, entry.target);
-    },
-    collectFileEvidence: async ({ entry, targetPath }) => {
-      await statFileMigrationTarget(targetPath, entry.target);
-      return [`${entry.id}:target:file`];
-    },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file')
-  },
-  'delete-directory': {
-    apply: async ({ entry, targetPath }) => {
-      await removeDirectoryMigrationTarget(targetPath, entry.target);
-    },
-    collectFileEvidence: async ({ entry, targetPath }) => {
-      await statDirectoryMigrationTarget(targetPath, entry.target);
-      return [`${entry.id}:target:directory`];
-    },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory')
-  },
-  'rename-file': {
-    validate: validateSourceMigrationEntry,
-    collectImpacts: (entry) => [entry.source, entry.target],
-    apply: async ({ entry, projectRoot, targetPath }) => {
-      await renameFileMigrationTarget(
-        resolveProjectMigrationSource(projectRoot, entry),
-        targetPath,
-        entry.source,
-        entry.target
-      );
-    },
-    collectFileEvidence: async ({ entry, projectRoot, targetPath }) => {
-      await statRenameMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
-      if (await pathExists(targetPath)) {
-        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
-      }
-      return [`${entry.id}:source:file`, `${entry.id}:target:available`];
-    },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
-  },
-  'rename-directory': {
-    validate: validateSourceMigrationEntry,
-    collectImpacts: (entry) => [entry.source, entry.target],
-    apply: async ({ entry, projectRoot, targetPath }) => {
-      await renameDirectoryMigrationTarget(
-        resolveProjectMigrationSource(projectRoot, entry),
-        targetPath,
-        entry.source,
-        entry.target
-      );
-    },
-    collectFileEvidence: async ({ entry, projectRoot, targetPath }) => {
-      await statRenameDirectoryMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
-      if (await pathExists(targetPath)) {
-        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${entry.target}" already exists`);
-      }
-      return [`${entry.id}:source:directory`, `${entry.id}:target:available`];
-    },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory', { source: entry.source })
-  },
+  'delete-file': createDeleteMigrationSpec<'delete-file'>('file', removeFileMigrationTarget, statFileMigrationTarget),
+  'delete-directory': createDeleteMigrationSpec<'delete-directory'>('directory', removeDirectoryMigrationTarget, statDirectoryMigrationTarget),
+  'rename-file': createRenameMigrationSpec<'rename-file'>('file', 'Rename-file', statRenameMigrationSource),
+  'rename-directory': createRenameMigrationSpec<'rename-directory'>('directory', 'Rename-directory', statRenameDirectoryMigrationSource),
   'slot-contract-update': {
     validate: validateSlotContractMigrationEntry,
     apply: async ({ entry, targetPath }) => {
