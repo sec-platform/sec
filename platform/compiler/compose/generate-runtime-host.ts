@@ -714,19 +714,13 @@ function renderCustomersRoute(options: {
   return `${imports}
 
 export async function GET(request: Request) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
+${renderSessionGuard()}
 
 ${filterCustomersLine}  return NextResponse.json({ customers });
 }
 
 export async function POST(request: Request) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
+${renderSessionGuard()}
 
   try {
     const database = getDatabase();
@@ -740,216 +734,220 @@ ${auditLine}${notifyLine}    return NextResponse.json({ customer }, { status: 20
 `;
 }
 
-function renderCustomerAttachmentsRoute(): string {
-  return `import { NextResponse } from 'next/server';
-import { addCustomerAttachment, listCustomerAttachments } from '../../../../../src/installed/file/customer-attachments.ts';
-import { getCurrentSession } from '../../../../../lib/session.ts';
-import { getDatabase } from '../../../../../lib/store.ts';
-
-interface AttachmentRouteContext {
-  params: Promise<{ customerId: string }>;
+function renderRouteLines(lines: string[]): string {
+  return `${lines.join('\n')}\n`;
 }
 
-export async function GET(_request: Request, context: AttachmentRouteContext) {
-  const session = await getCurrentSession();
+function renderSessionGuard(): string {
+  return `  const session = await getCurrentSession();
   if (!session) {
     return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
+  }`;
+}
+
+function renderReadTicketFilters(): string {
+  return `function readTicketFilters(request: Request): TicketFilters {
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const status = url.searchParams.get('status');
+  return {
+    ...(assigneeId ? { assigneeId } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
+  };
+}`;
+}
+
+type NestedResourceRouteOptions = {
+  imports: string[];
+  contextName: string;
+  paramName: string;
+  invalidRequestMessage: string;
+  getBody: string[];
+  postBody: string[];
+};
+
+function renderNestedResourceRoute(options: NestedResourceRouteOptions): string {
+  return `${options.imports.join('\n')}
+
+interface ${options.contextName} {
+  params: Promise<{ ${options.paramName}: string }>;
+}
+
+export async function GET(_request: Request, context: ${options.contextName}) {
+${renderSessionGuard()}
 
   try {
-    const params = await context.params;
-    const customerId = Number(params.customerId);
-    const attachments = listCustomerAttachments(getDatabase(), session, customerId);
-    return NextResponse.json({ attachments });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid attachment request' }, { status: 400 });
+${renderRouteLines(options.getBody)}  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '${options.invalidRequestMessage}' }, { status: 400 });
   }
 }
 
-export async function POST(request: Request, context: AttachmentRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
+export async function POST(request: Request, context: ${options.contextName}) {
+${renderSessionGuard()}
 
   try {
-    const params = await context.params;
-    const customerId = Number(params.customerId);
-    const formData = await request.formData();
-    const file = formData.get('file');
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'Missing file' }, { status: 400 });
-    }
-
-    const attachment = addCustomerAttachment(getDatabase(), session, {
-      customerId,
-      fileName: file.name,
-      contentType: file.type || 'application/octet-stream',
-      size: file.size,
-      contentText: await file.text()
-    });
-    return NextResponse.json({ attachment }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid attachment request' }, { status: 400 });
+${renderRouteLines(options.postBody)}  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '${options.invalidRequestMessage}' }, { status: 400 });
   }
 }
 `;
+}
+
+type TicketFilterGetRouteOptions = {
+  imports: string[];
+  body: string[];
+};
+
+function renderTicketFilterGetRoute(options: TicketFilterGetRouteOptions): string {
+  return `${options.imports.join('\n')}
+
+${renderReadTicketFilters()}
+
+export async function GET(request: Request) {
+${renderSessionGuard()}
+
+${renderRouteLines(options.body)}}
+`;
+}
+
+function renderCustomerAttachmentsRoute(): string {
+  return renderNestedResourceRoute({
+    imports: [
+      `import { NextResponse } from 'next/server';`,
+      `import { addCustomerAttachment, listCustomerAttachments } from '../../../../../src/installed/file/customer-attachments.ts';`,
+      `import { getCurrentSession } from '../../../../../lib/session.ts';`,
+      `import { getDatabase } from '../../../../../lib/store.ts';`
+    ],
+    contextName: 'AttachmentRouteContext',
+    paramName: 'customerId',
+    invalidRequestMessage: 'Invalid attachment request',
+    getBody: [
+      '    const params = await context.params;',
+      '    const customerId = Number(params.customerId);',
+      '    const attachments = listCustomerAttachments(getDatabase(), session, customerId);',
+      '    return NextResponse.json({ attachments });'
+    ],
+    postBody: [
+      '    const params = await context.params;',
+      '    const customerId = Number(params.customerId);',
+      '    const formData = await request.formData();',
+      "    const file = formData.get('file');",
+      '    if (!(file instanceof File)) {',
+      "      return NextResponse.json({ error: 'Missing file' }, { status: 400 });",
+      '    }',
+      '',
+      '    const attachment = addCustomerAttachment(getDatabase(), session, {',
+      '      customerId,',
+      '      fileName: file.name,',
+      "      contentType: file.type || 'application/octet-stream',",
+      '      size: file.size,',
+      '      contentText: await file.text()',
+      '    });',
+      '    return NextResponse.json({ attachment }, { status: 201 });'
+    ]
+  });
 }
 
 function renderTicketAttachmentsRoute(): string {
-  return `import { NextResponse } from 'next/server';
-import { addTicketAttachment, listTicketAttachments } from '../../../../../src/installed/ticket/ticket-service.ts';
-import { getCurrentSession } from '../../../../../lib/session.ts';
-import { getDatabase } from '../../../../../lib/store.ts';
-
-interface TicketAttachmentRouteContext {
-  params: Promise<{ ticketId: string }>;
-}
-
-export async function GET(_request: Request, context: TicketAttachmentRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  try {
-    const params = await context.params;
-    const ticketId = Number(params.ticketId);
-    const attachments = listTicketAttachments(getDatabase(), session, ticketId);
-    return NextResponse.json({ attachments });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid attachment request' }, { status: 400 });
-  }
-}
-
-export async function POST(request: Request, context: TicketAttachmentRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  try {
-    const params = await context.params;
-    const ticketId = Number(params.ticketId);
-    const formData = await request.formData();
-    const file = formData.get('file');
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'Missing file' }, { status: 400 });
-    }
-
-    const attachment = addTicketAttachment(getDatabase(), session, {
-      ticketId,
-      fileName: file.name,
-      contentType: file.type || 'application/octet-stream',
-      size: file.size,
-      contentText: await file.text()
-    });
-    return NextResponse.json({ attachment }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid attachment request' }, { status: 400 });
-  }
-}
-`;
+  return renderNestedResourceRoute({
+    imports: [
+      `import { NextResponse } from 'next/server';`,
+      `import { addTicketAttachment, listTicketAttachments } from '../../../../../src/installed/ticket/ticket-service.ts';`,
+      `import { getCurrentSession } from '../../../../../lib/session.ts';`,
+      `import { getDatabase } from '../../../../../lib/store.ts';`
+    ],
+    contextName: 'TicketAttachmentRouteContext',
+    paramName: 'ticketId',
+    invalidRequestMessage: 'Invalid attachment request',
+    getBody: [
+      '    const params = await context.params;',
+      '    const ticketId = Number(params.ticketId);',
+      '    const attachments = listTicketAttachments(getDatabase(), session, ticketId);',
+      '    return NextResponse.json({ attachments });'
+    ],
+    postBody: [
+      '    const params = await context.params;',
+      '    const ticketId = Number(params.ticketId);',
+      '    const formData = await request.formData();',
+      "    const file = formData.get('file');",
+      '    if (!(file instanceof File)) {',
+      "      return NextResponse.json({ error: 'Missing file' }, { status: 400 });",
+      '    }',
+      '',
+      '    const attachment = addTicketAttachment(getDatabase(), session, {',
+      '      ticketId,',
+      '      fileName: file.name,',
+      "      contentType: file.type || 'application/octet-stream',",
+      '      size: file.size,',
+      '      contentText: await file.text()',
+      '    });',
+      '    return NextResponse.json({ attachment }, { status: 201 });'
+    ]
+  });
 }
 
 function renderTicketCommentsRoute(): string {
-  return `import { NextResponse } from 'next/server';
-import { addTicketComment, listTicketComments } from '../../../../../src/installed/ticket/ticket-service.ts';
-import { getCurrentSession } from '../../../../../lib/session.ts';
-import { getDatabase } from '../../../../../lib/store.ts';
-
-interface TicketCommentRouteContext {
-  params: Promise<{ ticketId: string }>;
-}
-
-export async function GET(_request: Request, context: TicketCommentRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  try {
-    const params = await context.params;
-    const ticketId = Number(params.ticketId);
-    const comments = listTicketComments(getDatabase(), session, ticketId);
-    return NextResponse.json({ comments });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid comment request' }, { status: 400 });
-  }
-}
-
-export async function POST(request: Request, context: TicketCommentRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  try {
-    const params = await context.params;
-    const ticketId = Number(params.ticketId);
-    const payload = await request.json() as { body?: string };
-    const comment = addTicketComment(getDatabase(), session, {
-      ticketId,
-      body: payload.body ?? ''
-    });
-    return NextResponse.json({ comment }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid comment request' }, { status: 400 });
-  }
-}
-`;
+  return renderNestedResourceRoute({
+    imports: [
+      `import { NextResponse } from 'next/server';`,
+      `import { addTicketComment, listTicketComments } from '../../../../../src/installed/ticket/ticket-service.ts';`,
+      `import { getCurrentSession } from '../../../../../lib/session.ts';`,
+      `import { getDatabase } from '../../../../../lib/store.ts';`
+    ],
+    contextName: 'TicketCommentRouteContext',
+    paramName: 'ticketId',
+    invalidRequestMessage: 'Invalid comment request',
+    getBody: [
+      '    const params = await context.params;',
+      '    const ticketId = Number(params.ticketId);',
+      '    const comments = listTicketComments(getDatabase(), session, ticketId);',
+      '    return NextResponse.json({ comments });'
+    ],
+    postBody: [
+      '    const params = await context.params;',
+      '    const ticketId = Number(params.ticketId);',
+      '    const payload = await request.json() as { body?: string };',
+      '    const comment = addTicketComment(getDatabase(), session, {',
+      '      ticketId,',
+      "      body: payload.body ?? ''",
+      '    });',
+      '    return NextResponse.json({ comment }, { status: 201 });'
+    ]
+  });
 }
 
 function renderTicketWorklogsRoute(): string {
-  return `import { NextResponse } from 'next/server';
-import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../../../src/installed/worklog/worklog-service.ts';
-import { getCurrentSession } from '../../../../../lib/session.ts';
-import { getDatabase } from '../../../../../lib/store.ts';
-
-interface TicketWorklogRouteContext {
-  params: Promise<{ ticketId: string }>;
-}
-
-export async function GET(_request: Request, context: TicketWorklogRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  try {
-    const params = await context.params;
-    const ticketId = Number(params.ticketId);
-    const database = getDatabase();
-    return NextResponse.json({
-      worklogs: listWorklogs(database, session, ticketId),
-      totalMinutes: summarizeWorklogMinutes(database, session, ticketId)
-    });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid worklog request' }, { status: 400 });
-  }
-}
-
-export async function POST(request: Request, context: TicketWorklogRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  try {
-    const params = await context.params;
-    const ticketId = Number(params.ticketId);
-    const payload = await request.json() as { minutes?: number; note?: string };
-    const worklog = recordWorklog(getDatabase(), session, {
-      ticketId,
-      minutes: Number(payload.minutes ?? 0),
-      note: payload.note ?? ''
-    });
-    return NextResponse.json({ worklog }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid worklog request' }, { status: 400 });
-  }
-}
-`;
+  return renderNestedResourceRoute({
+    imports: [
+      `import { NextResponse } from 'next/server';`,
+      `import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../../../src/installed/worklog/worklog-service.ts';`,
+      `import { getCurrentSession } from '../../../../../lib/session.ts';`,
+      `import { getDatabase } from '../../../../../lib/store.ts';`
+    ],
+    contextName: 'TicketWorklogRouteContext',
+    paramName: 'ticketId',
+    invalidRequestMessage: 'Invalid worklog request',
+    getBody: [
+      '    const params = await context.params;',
+      '    const ticketId = Number(params.ticketId);',
+      '    const database = getDatabase();',
+      '    return NextResponse.json({',
+      '      worklogs: listWorklogs(database, session, ticketId),',
+      '      totalMinutes: summarizeWorklogMinutes(database, session, ticketId)',
+      '    });'
+    ],
+    postBody: [
+      '    const params = await context.params;',
+      '    const ticketId = Number(params.ticketId);',
+      '    const payload = await request.json() as { minutes?: number; note?: string };',
+      '    const worklog = recordWorklog(getDatabase(), session, {',
+      '      ticketId,',
+      '      minutes: Number(payload.minutes ?? 0),',
+      "      note: payload.note ?? ''",
+      '    });',
+      '    return NextResponse.json({ worklog }, { status: 201 });'
+    ]
+  });
 }
 
 function renderTicketsRoute(options: { auditEnabled: boolean; notifyEmailEnabled: boolean }): string {
@@ -976,31 +974,17 @@ import { createTicket, listTicketsWithFilters, type TicketFilters } from '../../
 import { getCurrentSession } from '../../../lib/session.ts';
 import { getDatabase } from '../../../lib/store.ts';
 
-function readTicketFilters(request: Request): TicketFilters {
-  const url = new URL(request.url);
-  const assigneeId = url.searchParams.get('assigneeId');
-  const status = url.searchParams.get('status');
-  return {
-    ...(assigneeId ? { assigneeId } : {}),
-    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
-  };
-}
+${renderReadTicketFilters()}
 
 export async function GET(request: Request) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
+${renderSessionGuard()}
 
   const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
   return NextResponse.json({ tickets });
 }
 
 export async function POST(request: Request) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
+${renderSessionGuard()}
 
   try {
     const database = getDatabase();
@@ -1015,105 +999,66 @@ ${auditLine}${notifyLine}    return NextResponse.json({ ticket }, { status: 201 
 }
 
 function renderTicketExportRoute(): string {
-  return `import { NextResponse } from 'next/server';
-import type { TicketStatus } from '../../../../src/runtime/database.ts';
-import { exportTicketsToCsv } from '../../../../src/installed/export/customer-csv.ts';
-import { listTicketsWithFilters, type TicketFilters } from '../../../../src/installed/ticket/ticket-service.ts';
-import { getCurrentSession } from '../../../../lib/session.ts';
-import { getDatabase } from '../../../../lib/store.ts';
-
-function readTicketFilters(request: Request): TicketFilters {
-  const url = new URL(request.url);
-  const assigneeId = url.searchParams.get('assigneeId');
-  const status = url.searchParams.get('status');
-  return {
-    ...(assigneeId ? { assigneeId } : {}),
-    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
-  };
-}
-
-export async function GET(request: Request) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  const csv = exportTicketsToCsv(listTicketsWithFilters(getDatabase(), session, readTicketFilters(request)));
-  return new NextResponse(csv, {
-    headers: {
-      'content-disposition': 'attachment; filename="tickets.csv"',
-      'content-type': 'text/csv; charset=utf-8'
-    }
+  return renderTicketFilterGetRoute({
+    imports: [
+      `import { NextResponse } from 'next/server';`,
+      `import type { TicketStatus } from '../../../../src/runtime/database.ts';`,
+      `import { exportTicketsToCsv } from '../../../../src/installed/export/customer-csv.ts';`,
+      `import { listTicketsWithFilters, type TicketFilters } from '../../../../src/installed/ticket/ticket-service.ts';`,
+      `import { getCurrentSession } from '../../../../lib/session.ts';`,
+      `import { getDatabase } from '../../../../lib/store.ts';`
+    ],
+    body: [
+      '  const csv = exportTicketsToCsv(listTicketsWithFilters(getDatabase(), session, readTicketFilters(request)));',
+      '  return new NextResponse(csv, {',
+      '    headers: {',
+      `      'content-disposition': 'attachment; filename="tickets.csv"',`,
+      `      'content-type': 'text/csv; charset=utf-8'`,
+      '    }',
+      '  });'
+    ]
   });
-}
-`;
 }
 
 function renderTicketSummaryRoute(): string {
-  return `import { NextResponse } from 'next/server';
-import type { TicketStatus } from '../../../../src/runtime/database.ts';
-import { summarizeTickets } from '../../../../src/installed/reporting/ticket-summary.ts';
-import { listTicketsWithFilters, type TicketFilters } from '../../../../src/installed/ticket/ticket-service.ts';
-import { getCurrentSession } from '../../../../lib/session.ts';
-import { getDatabase } from '../../../../lib/store.ts';
-
-function readTicketFilters(request: Request): TicketFilters {
-  const url = new URL(request.url);
-  const assigneeId = url.searchParams.get('assigneeId');
-  const status = url.searchParams.get('status');
-  return {
-    ...(assigneeId ? { assigneeId } : {}),
-    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
-  };
-}
-
-export async function GET(request: Request) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
-  return NextResponse.json({ summary: summarizeTickets(tickets) });
-}
-`;
+  return renderTicketFilterGetRoute({
+    imports: [
+      `import { NextResponse } from 'next/server';`,
+      `import type { TicketStatus } from '../../../../src/runtime/database.ts';`,
+      `import { summarizeTickets } from '../../../../src/installed/reporting/ticket-summary.ts';`,
+      `import { listTicketsWithFilters, type TicketFilters } from '../../../../src/installed/ticket/ticket-service.ts';`,
+      `import { getCurrentSession } from '../../../../lib/session.ts';`,
+      `import { getDatabase } from '../../../../lib/store.ts';`
+    ],
+    body: [
+      '  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));',
+      '  return NextResponse.json({ summary: summarizeTickets(tickets) });'
+    ]
+  });
 }
 
 function renderTicketSummaryExportRoute(): string {
-  return `import { NextResponse } from 'next/server';
-import type { TicketStatus } from '../../../../../src/runtime/database.ts';
-import { exportTicketSummaryToCsv } from '../../../../../src/installed/export/customer-csv.ts';
-import { summarizeTickets } from '../../../../../src/installed/reporting/ticket-summary.ts';
-import { listTicketsWithFilters, type TicketFilters } from '../../../../../src/installed/ticket/ticket-service.ts';
-import { getCurrentSession } from '../../../../../lib/session.ts';
-import { getDatabase } from '../../../../../lib/store.ts';
-
-function readTicketFilters(request: Request): TicketFilters {
-  const url = new URL(request.url);
-  const assigneeId = url.searchParams.get('assigneeId');
-  const status = url.searchParams.get('status');
-  return {
-    ...(assigneeId ? { assigneeId } : {}),
-    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
-  };
-}
-
-export async function GET(request: Request) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
-
-  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
-  const csv = exportTicketSummaryToCsv(summarizeTickets(tickets));
-  return new NextResponse(csv, {
-    headers: {
-      'content-disposition': 'attachment; filename="ticket-summary.csv"',
-      'content-type': 'text/csv; charset=utf-8'
-    }
+  return renderTicketFilterGetRoute({
+    imports: [
+      `import { NextResponse } from 'next/server';`,
+      `import type { TicketStatus } from '../../../../../src/runtime/database.ts';`,
+      `import { exportTicketSummaryToCsv } from '../../../../../src/installed/export/customer-csv.ts';`,
+      `import { summarizeTickets } from '../../../../../src/installed/reporting/ticket-summary.ts';`,
+      `import { listTicketsWithFilters, type TicketFilters } from '../../../../../src/installed/ticket/ticket-service.ts';`,
+      `import { getCurrentSession } from '../../../../../lib/session.ts';`,
+      `import { getDatabase } from '../../../../../lib/store.ts';`
+    ],
+    body: [
+      '  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));',
+      '  const csv = exportTicketSummaryToCsv(summarizeTickets(tickets));',
+      '  return new NextResponse(csv, {',
+      '    headers: {',
+      `      'content-disposition': 'attachment; filename="ticket-summary.csv"',`,
+      `      'content-type': 'text/csv; charset=utf-8'`,
+      '    }',
+      '  });'
+    ]
   });
-}
-`;
 }
 
 function renderTicketStatusRoute(options: { auditEnabled: boolean }): string {
@@ -1140,10 +1085,7 @@ interface TicketStatusRouteContext {
 }
 
 export async function POST(request: Request, context: TicketStatusRouteContext) {
-  const session = await getCurrentSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
-  }
+${renderSessionGuard()}
 
   try {
     const params = await context.params;
