@@ -10,6 +10,10 @@ export function formatCounts(values: string[]): string {
   );
 }
 
+export function formatFields(values: readonly string[]): string {
+  return values.join('; ');
+}
+
 export function formatJson(value: unknown, options: { compact: boolean }): string {
   return JSON.stringify(value, null, options.compact ? 0 : 2);
 }
