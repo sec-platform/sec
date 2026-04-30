@@ -1805,6 +1805,78 @@ async function restoreTextFile(filePath: string, snapshot: string | null): Promi
   await fs.writeFile(filePath, snapshot, 'utf8');
 }
 
+type UpgradeApplyContext = PlannedWorkspaceUpgrade & {
+  lockPath: string;
+  plan: PlanFile;
+  planPath: string;
+  projectRoot: string;
+  targetVersion: string;
+  upgradePlanPath: string;
+  workspaceRoot: string;
+};
+
+type UpgradeApplyStep = (context: UpgradeApplyContext, lock: LockFile) => Promise<void>;
+
+const upgradeApplySteps: UpgradeApplyStep[] = [
+  async ({ workspaceRoot }, lock) => {
+    await composeProject(workspaceRoot, lock);
+  },
+  async ({ plan, workspaceRoot }, lock) => {
+    await adaptProject(workspaceRoot, plan, lock);
+  },
+  async ({ workspaceRoot }, lock) => {
+    await verifyProject(workspaceRoot, lock);
+  },
+  async ({ workspaceRoot }, lock) => {
+    await lockProject(workspaceRoot, lock);
+  }
+];
+
+async function readWorkspaceLock(workspaceRoot: string): Promise<LockFile> {
+  return readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+}
+
+async function runUpgradeApplySteps(context: UpgradeApplyContext, lock: LockFile): Promise<LockFile> {
+  let currentLock = lock;
+  for (const step of upgradeApplySteps) {
+    await step(context, currentLock);
+    currentLock = await readWorkspaceLock(context.workspaceRoot);
+  }
+  return currentLock;
+}
+
+async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promise<LockFile> {
+  const {
+    impacts,
+    lockPath,
+    migrationEntries,
+    plan,
+    currentBlock,
+    planPath,
+    projectRoot,
+    targetManifestRoot,
+    targetVersion,
+    upgradePlan,
+    upgradePlanPath,
+    workspaceRoot
+  } = context;
+
+  currentBlock.version = targetVersion;
+  await writeYaml(planPath, plan);
+  await applyMigrationEntries(projectRoot, targetManifestRoot, impacts, migrationEntries);
+
+  let lock = await resolveGraph(workspaceRoot, plan);
+  await validateResolvedTemplates(workspaceRoot, lock);
+  await writeJson(lockPath, lock);
+
+  lock = await runUpgradeApplySteps(context, lock);
+  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
+
+  upgradePlan.status = 'applied';
+  await writeJson(upgradePlanPath, upgradePlan);
+  return lock;
+}
+
 export async function upgradeWorkspace(
   workspaceRoot: string,
   blockId: string,
@@ -1833,13 +1905,7 @@ export async function upgradeWorkspace(
     throw error;
   }
 
-  const {
-    currentBlock: plannedBlock,
-    impacts,
-    migrationEntries,
-    targetManifestRoot,
-    upgradePlan
-  } = plannedUpgrade;
+  const { upgradePlan } = plannedUpgrade;
 
   if (options.dryRun) {
     const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
@@ -1854,27 +1920,16 @@ export async function upgradeWorkspace(
   await writeJson(upgradePlanPath, upgradePlan);
 
   try {
-    plannedBlock.version = targetVersion;
-    await writeYaml(planPath, plan);
-    await applyMigrationEntries(projectRoot, targetManifestRoot, impacts, migrationEntries);
-
-    let lock = await resolveGraph(workspaceRoot, plan);
-    await validateResolvedTemplates(workspaceRoot, lock);
-    await writeJson(lockPath, lock);
-
-    await composeProject(workspaceRoot, lock);
-    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
-    await adaptProject(workspaceRoot, plan, lock);
-    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
-    await verifyProject(workspaceRoot, lock);
-    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
-    await lockProject(workspaceRoot, lock);
-    lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
-
-    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
-
-    upgradePlan.status = 'applied';
-    await writeJson(upgradePlanPath, upgradePlan);
+    const lock = await applyPlannedWorkspaceUpgrade({
+      ...plannedUpgrade,
+      lockPath,
+      plan,
+      planPath,
+      projectRoot,
+      targetVersion,
+      upgradePlanPath,
+      workspaceRoot
+    });
     return { plan, lock, upgradePlan };
   } catch (error) {
     await restoreProject(projectRoot, backupRoot);
