@@ -17,7 +17,7 @@ import type {
 } from '../../shared/review-types.ts';
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
 import type { UpgradeDiagnostics } from '../../shared/upgrade-types.ts';
-import type { VerificationReport, VerificationStepReport } from '../../shared/verification-types.ts';
+import type { VerificationReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
@@ -29,88 +29,72 @@ import {
   detectVerticalFromPath
 } from './runtime-attribution.ts';
 
-function compareFailurePoints(left: ReviewFailurePoint, right: ReviewFailurePoint): number {
-  return `${left.kind}:${left.lane}:${left.message}:${left.artifactPath}`.localeCompare(
-    `${right.kind}:${right.lane}:${right.message}:${right.artifactPath}`
-  );
+function failurePointKey(point: ReviewFailurePoint): string {
+  return `${point.kind}:${point.lane}:${point.message}:${point.artifactPath}`;
 }
 
-function compareRegressionRisks(left: ReviewRegressionRisk, right: ReviewRegressionRisk): number {
-  return `${left.kind}:${left.blockId ?? ''}:${left.slotId ?? ''}:${left.message}`.localeCompare(
-    `${right.kind}:${right.blockId ?? ''}:${right.slotId ?? ''}:${right.message}`
-  );
+function regressionRiskKey(risk: ReviewRegressionRisk): string {
+  return `${risk.kind}:${risk.blockId ?? ''}:${risk.slotId ?? ''}:${risk.message}`;
 }
 
-function compareConflictHints(left: ReviewConflictHint, right: ReviewConflictHint): number {
-  return `${left.kind}:${left.relatedId}:${left.message}`.localeCompare(
-    `${right.kind}:${right.relatedId}:${right.message}`
-  );
+function conflictHintKey(hint: ReviewConflictHint): string {
+  return `${hint.kind}:${hint.relatedId}:${hint.message}`;
 }
 
-function addFailurePoint(
-  points: ReviewFailurePoint[],
-  point: ReviewFailurePoint
-): void {
-  if (
-    !points.some(
-      (entry) =>
-        entry.lane === point.lane &&
-        entry.kind === point.kind &&
-        entry.message === point.message &&
-        entry.artifactPath === point.artifactPath
-    )
-  ) {
-    points.push(point);
+function compareByKey<T>(key: (value: T) => string): (left: T, right: T) => number {
+  return (left, right) => key(left).localeCompare(key(right));
+}
+
+const compareFailurePoints = compareByKey(failurePointKey);
+const compareRegressionRisks = compareByKey(regressionRiskKey);
+const compareConflictHints = compareByKey(conflictHintKey);
+
+function addUnique<T>(values: T[], value: T, key: (value: T) => string): void {
+  const valueKey = key(value);
+  if (!values.some((entry) => key(entry) === valueKey)) {
+    values.push(value);
   }
 }
 
-function addRegressionRisk(
-  risks: ReviewRegressionRisk[],
-  risk: ReviewRegressionRisk
-): void {
-  if (
-    !risks.some(
-      (entry) =>
-        entry.kind === risk.kind &&
-        entry.message === risk.message &&
-        entry.blockId === risk.blockId &&
-        entry.slotId === risk.slotId
-    )
-  ) {
-    risks.push(risk);
-  }
+function addFailurePoint(points: ReviewFailurePoint[], point: ReviewFailurePoint): void {
+  addUnique(points, point, failurePointKey);
 }
 
-function addConflictHint(
-  hints: ReviewConflictHint[],
-  hint: ReviewConflictHint
-): void {
-  if (
-    !hints.some(
-      (entry) =>
-        entry.kind === hint.kind &&
-        entry.relatedId === hint.relatedId &&
-        entry.message === hint.message
-    )
-  ) {
-    hints.push(hint);
-  }
+function addRegressionRisk(risks: ReviewRegressionRisk[], risk: ReviewRegressionRisk): void {
+  addUnique(risks, risk, regressionRiskKey);
 }
 
-function addFailedTargets(
-  points: ReviewFailurePoint[],
-  lane: ReviewFailurePoint['lane'],
-  kind: ReviewFailurePoint['kind'],
-  step: VerificationStepReport,
-  label: string,
-  artifactPath: string
-): void {
-  for (const target of step.failed) {
+function addConflictHint(hints: ReviewConflictHint[], hint: ReviewConflictHint): void {
+  addUnique(hints, hint, conflictHintKey);
+}
+
+type VerificationFailurePointSpec = {
+  lane: ReviewFailurePoint['lane'];
+  kind: ReviewFailurePoint['kind'];
+  status: 'passed' | 'failed' | 'skipped';
+  summaryMessage: string;
+  artifactPath: string;
+  failedTargets?: readonly string[];
+  targetMessage?: string;
+};
+
+function addVerificationFailurePoint(points: ReviewFailurePoint[], spec: VerificationFailurePointSpec): void {
+  if (spec.status !== 'failed') return;
+
+  addFailurePoint(points, {
+    lane: spec.lane,
+    kind: spec.kind,
+    message: spec.summaryMessage,
+    artifactPath: spec.artifactPath
+  });
+
+  if (!spec.targetMessage) return;
+  for (const target of spec.failedTargets ?? []) {
     addFailurePoint(points, {
-      lane,
-      kind,
-      message: `${label}: ${target}`,
-      artifactPath
+      lane: spec.lane,
+      kind: spec.kind,
+      message: `${spec.targetMessage}: ${target}`,
+      artifactPath: spec.artifactPath
     });
   }
 }
@@ -675,85 +659,59 @@ export async function buildReviewSummary(
     });
   }
 
-  if (report.fast.build.status === 'failed') {
-    addFailurePoint(failurePoints, {
+  for (const failure of [
+    {
       lane: 'fast',
       kind: 'build',
-      message: 'Fast-lane typecheck failed',
+      status: report.fast.build.status,
+      summaryMessage: 'Fast-lane typecheck failed',
       artifactPath: CI_ARTIFACT_FILES.verificationReport
-    });
-  }
-  if (report.fast.unit.status === 'failed') {
-    addFailurePoint(failurePoints, {
+    },
+    {
       lane: 'fast',
       kind: 'unit',
-      message: 'Fast-lane unit tests failed',
+      status: report.fast.unit.status,
+      summaryMessage: 'Fast-lane unit tests failed',
       artifactPath: CI_ARTIFACT_FILES.verificationReport
-    });
-  }
-  if (report.fast.acceptance.status === 'failed') {
-    addFailurePoint(failurePoints, {
+    },
+    {
       lane: 'fast',
       kind: 'acceptance',
-      message: 'Fast-lane acceptance tests failed',
-      artifactPath: CI_ARTIFACT_FILES.verificationReport
-    });
-    for (const target of report.fast.acceptance.failed) {
-      addFailurePoint(failurePoints, {
-        lane: 'fast',
-        kind: 'acceptance',
-        message: `Fast-lane acceptance test failed: ${target}`,
-        artifactPath: CI_ARTIFACT_FILES.verificationReport
-      });
+      status: report.fast.acceptance.status,
+      summaryMessage: 'Fast-lane acceptance tests failed',
+      artifactPath: CI_ARTIFACT_FILES.verificationReport,
+      failedTargets: report.fast.acceptance.failed,
+      targetMessage: 'Fast-lane acceptance test failed'
+    },
+    {
+      lane: 'runtime',
+      kind: 'build',
+      status: report.runtime.build.status,
+      summaryMessage: 'Runtime build failed',
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+      failedTargets: report.runtime.build.failed,
+      targetMessage: 'Runtime build failed'
+    },
+    {
+      lane: 'runtime',
+      kind: 'unit',
+      status: report.runtime.unit.status,
+      summaryMessage: 'Runtime unit tests failed',
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+      failedTargets: report.runtime.unit.failed,
+      targetMessage: 'Runtime unit test failed'
+    },
+    {
+      lane: 'runtime',
+      kind: 'acceptance',
+      status: report.runtime.acceptance.status,
+      summaryMessage: 'Runtime acceptance tests failed',
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+      failedTargets: report.runtime.acceptance.failed,
+      targetMessage: 'Runtime acceptance test failed'
     }
-  }
-  if (report.runtime.build.status === 'failed') {
-    addFailurePoint(failurePoints, {
-      lane: 'runtime',
-      kind: 'build',
-      message: 'Runtime build failed',
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport
-    });
-    addFailedTargets(
-      failurePoints,
-      'runtime',
-      'build',
-      report.runtime.build,
-      'Runtime build failed',
-      CI_ARTIFACT_FILES.runtimeReport
-    );
-  }
-  if (report.runtime.unit.status === 'failed') {
-    addFailurePoint(failurePoints, {
-      lane: 'runtime',
-      kind: 'unit',
-      message: 'Runtime unit tests failed',
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport
-    });
-    addFailedTargets(
-      failurePoints,
-      'runtime',
-      'unit',
-      report.runtime.unit,
-      'Runtime unit test failed',
-      CI_ARTIFACT_FILES.runtimeReport
-    );
-  }
-  if (report.runtime.acceptance.status === 'failed') {
-    addFailurePoint(failurePoints, {
-      lane: 'runtime',
-      kind: 'acceptance',
-      message: 'Runtime acceptance tests failed',
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport
-    });
-    addFailedTargets(
-      failurePoints,
-      'runtime',
-      'acceptance',
-      report.runtime.acceptance,
-      'Runtime acceptance test failed',
-      CI_ARTIFACT_FILES.runtimeReport
-    );
+  ] satisfies VerificationFailurePointSpec[]) {
+    addVerificationFailurePoint(failurePoints, failure);
   }
 
   for (const blockId of coverage.uncoveredBlocks) {
