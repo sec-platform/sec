@@ -1061,6 +1061,31 @@ function renderTicketSummaryExportRoute(): string {
   });
 }
 
+function renderClientMutationState(): string {
+  return `  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);`;
+}
+
+function renderFormSubmitStart(): string {
+  return `    event.preventDefault();
+    setPending(true);
+    setError(null);`;
+}
+
+function renderMutationStart(): string {
+  return `    setPending(true);
+    setError(null);`;
+}
+
+function renderMutationError(fallbackMessage: string): string {
+  return `    if (!response.ok) {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? '${fallbackMessage}');
+      setPending(false);
+      return;
+    }`;
+}
+
 function renderTicketStatusRoute(options: { auditEnabled: boolean }): string {
   const auditImport = options.auditEnabled
     ? `
@@ -1114,13 +1139,10 @@ export function LoginForm() {
   const router = useRouter();
   const [username, setUsername] = useState('tenant-a-admin');
   const [password, setPassword] = useState('password');
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
+${renderFormSubmitStart()}
 
     const response = await fetch('/api/session/login', {
       method: 'POST',
@@ -1130,12 +1152,7 @@ export function LoginForm() {
       body: JSON.stringify({ username, password })
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Login failed');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Login failed')}
 
     router.push('/workspace');
     router.refresh();
@@ -1196,13 +1213,10 @@ const INITIAL_STATE = {
 export function CustomerForm() {
   const router = useRouter();
   const [form, setForm] = useState(INITIAL_STATE);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
+${renderFormSubmitStart()}
 
     const response = await fetch('/api/customers', {
       method: 'POST',
@@ -1212,12 +1226,7 @@ export function CustomerForm() {
       body: JSON.stringify(form)
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Unable to create customer');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Unable to create customer')}
 
     setForm(INITIAL_STATE);
     setPending(false);
@@ -1268,25 +1277,17 @@ interface CustomerAttachmentFormProps {
 export function CustomerAttachmentForm({ customerId, customerName }: CustomerAttachmentFormProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
+${renderFormSubmitStart()}
 
     const response = await fetch(\`/api/customers/\${customerId}/attachments\`, {
       method: 'POST',
       body: new FormData(event.currentTarget)
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Unable to upload attachment');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Unable to upload attachment')}
 
     formRef.current?.reset();
     setPending(false);
@@ -1319,25 +1320,17 @@ interface TicketAttachmentFormProps {
 
 export function TicketAttachmentForm({ ticketId, ticketTitle }: TicketAttachmentFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
+${renderFormSubmitStart()}
 
     const response = await fetch(\`/api/tickets/\${ticketId}/attachments\`, {
       method: 'POST',
       body: new FormData(event.currentTarget)
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Unable to upload attachment');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Unable to upload attachment')}
 
     formRef.current?.reset();
     setPending(false);
@@ -1370,13 +1363,10 @@ interface TicketCommentFormProps {
 
 export function TicketCommentForm({ ticketId, ticketTitle }: TicketCommentFormProps) {
   const [body, setBody] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
+${renderFormSubmitStart()}
 
     const response = await fetch(\`/api/tickets/\${ticketId}/comments\`, {
       method: 'POST',
@@ -1386,12 +1376,7 @@ export function TicketCommentForm({ ticketId, ticketTitle }: TicketCommentFormPr
       body: JSON.stringify({ body })
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Unable to add comment');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Unable to add comment')}
 
     setBody('');
     setPending(false);
@@ -1435,13 +1420,10 @@ export function TicketWorklogForm({ ticketId, ticketTitle }: TicketWorklogFormPr
   const router = useRouter();
   const [minutes, setMinutes] = useState('');
   const [note, setNote] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
+${renderFormSubmitStart()}
 
     const response = await fetch(\`/api/tickets/\${ticketId}/worklogs\`, {
       method: 'POST',
@@ -1451,12 +1433,7 @@ export function TicketWorklogForm({ ticketId, ticketTitle }: TicketWorklogFormPr
       body: JSON.stringify({ minutes: Number(minutes), note })
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Unable to record worklog');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Unable to record worklog')}
 
     setMinutes('');
     setNote('');
@@ -1512,13 +1489,10 @@ const INITIAL_STATE = {
 export function TicketForm() {
   const router = useRouter();
   const [form, setForm] = useState(INITIAL_STATE);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
+${renderFormSubmitStart()}
 
     const response = await fetch('/api/tickets', {
       method: 'POST',
@@ -1528,12 +1502,7 @@ export function TicketForm() {
       body: JSON.stringify(form)
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Unable to create ticket');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Unable to create ticket')}
 
     setForm(INITIAL_STATE);
     setPending(false);
@@ -1593,13 +1562,11 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
 };
 
 export function TicketStatusForm({ ticketId, ticketTitle, currentStatus }: TicketStatusFormProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+${renderClientMutationState()}
   const nextStatus = NEXT_STATUS[currentStatus];
 
   async function transitionStatus() {
-    setPending(true);
-    setError(null);
+${renderMutationStart()}
 
     const response = await fetch(\`/api/tickets/\${ticketId}/status\`, {
       method: 'POST',
@@ -1609,12 +1576,7 @@ export function TicketStatusForm({ ticketId, ticketTitle, currentStatus }: Ticke
       body: JSON.stringify({ status: nextStatus })
     });
 
-    if (!response.ok) {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Unable to update ticket');
-      setPending(false);
-      return;
-    }
+${renderMutationError('Unable to update ticket')}
 
     setPending(false);
     window.location.reload();
