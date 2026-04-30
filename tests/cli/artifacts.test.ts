@@ -19,7 +19,14 @@ import type {
 } from '../../platform/shared/ci-artifact-types.ts';
 import { pathExists, readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  expectCliJson,
+  expectCliSuccess,
+  expectCliText,
+  expectContainsAll,
+  runCliInProcess as runCli,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 type ReviewArtifactSummary = CiArtifactSummary & {
   uploadGroups?: CiArtifactUploadGroup[];
@@ -76,6 +83,42 @@ function expectUploadGroup(
   count = paths.length
 ): void {
   expect(groups).toContainEqual(uploadGroup(kind, count, paths));
+}
+
+type ExpectedArtifactPathsPayload = {
+  artifactStatus?: CiArtifactSummary['artifactStatus'];
+  byKind: Record<string, number>;
+  exact?: boolean;
+  kind: string;
+  missing?: CiArtifactMissingEntry[];
+  missingReasonCounts?: Record<CiArtifactMissingReason, number>;
+  missingReasonTypeCount?: number;
+  paths: string[];
+  uploadGroups: CiArtifactUploadGroup[];
+};
+
+function expectArtifactPathsPayload(payload: ArtifactPathsPayload, expected: ExpectedArtifactPathsPayload): void {
+  const expectedPayload = {
+    formatVersion: '1',
+    root: 'workspace',
+    kind: expected.kind,
+    count: expected.paths.length,
+    paths: expected.paths,
+    byKind: expected.byKind,
+    uploadGroupCount: expected.uploadGroups.length,
+    uploadGroups: expected.uploadGroups,
+    ...(expected.artifactStatus === undefined ? {} : { artifactStatus: expected.artifactStatus }),
+    ...(expected.missing === undefined ? {} : { missingCount: expected.missing.length, missing: expected.missing }),
+    ...(expected.missingReasonTypeCount === undefined ? {} : { missingReasonTypeCount: expected.missingReasonTypeCount }),
+    ...(expected.missingReasonCounts === undefined ? {} : { missingReasonCounts: expected.missingReasonCounts })
+  };
+
+  if (expected.exact === true) {
+    expect(payload).toEqual(expectedPayload);
+    return;
+  }
+
+  expect(payload).toMatchObject(expectedPayload);
 }
 
 test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
@@ -389,15 +432,11 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       undefined,
       { compact: true }
     );
-    expect(contractPathsJson).toMatchObject({
+    expectArtifactPathsPayload(contractPathsJson, {
       kind: 'contract',
-      count: 1,
       paths: ['project/generated/postgres-contract.json'],
       byKind: { contract: 1 },
-      uploadGroupCount: 1,
-      uploadGroups: [
-        uploadGroup('contract', 1, ['project/generated/postgres-contract.json'])
-      ]
+      uploadGroups: [uploadGroup('contract', 1, ['project/generated/postgres-contract.json'])]
     });
     expect(contractPathsCompact).toEqual(contractPathsJson);
 
@@ -428,7 +467,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     await writeJson(lockPath, lockWithMissingArtifact);
 
     const manifestWithLockMissing = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
-    const lockMissingDiagnostics = [
+    const lockMissingDiagnostics: CiArtifactMissingEntry[] = [
       {
         path: 'generated/missing-diagnostic.json',
         reason: CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing,
@@ -482,19 +521,13 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       '--kind',
       'test'
     ]);
-    expect(testPathsJson).toEqual({
-      formatVersion: '1',
-      root: 'workspace',
+    expectArtifactPathsPayload(testPathsJson, {
       kind: 'test',
+      exact: true,
       artifactStatus: 'attention',
-      count: 1,
       paths: ['project/test-results/**'],
-      byKind: {
-        test: 1
-      },
-      uploadGroupCount: 1,
+      byKind: { test: 1 },
       uploadGroups: [uploadGroup('test', 1, ['project/test-results/**'])],
-      missingCount: 1,
       missingReasonTypeCount: 1,
       missingReasonCounts: artifactMissingReasonCounts({
         [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
@@ -520,16 +553,16 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     );
 
     const refreshedSourceView = await fs.readFile(sourceViewPath, 'utf8');
-    expect(refreshedSourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
-    expect(refreshedSourceView).toContain(`<td>Upload Groups</td><td>${testManifest.summary.uploadGroupCount}</td>`);
-    expect(refreshedSourceView).toContain(
-      `<td>Missing Reason Types</td><td>${testManifest.summary.missingReasonTypeCount}</td>`
-    );
-    expect(refreshedSourceView).toContain('<td>contract</td>');
-    expect(refreshedSourceView).toContain('generated/postgres-contract.json');
-    expect(refreshedSourceView).toContain('<td>Test Artifacts</td><td>1</td>');
-    expect(refreshedSourceView).toContain('<td>test</td>');
-    expect(refreshedSourceView).toContain(CI_ARTIFACT_FILES.testResults);
+    expectContainsAll(refreshedSourceView, [
+      '<td>Contract Artifacts</td><td>1</td>',
+      `<td>Upload Groups</td><td>${testManifest.summary.uploadGroupCount}</td>`,
+      `<td>Missing Reason Types</td><td>${testManifest.summary.missingReasonTypeCount}</td>`,
+      '<td>contract</td>',
+      'generated/postgres-contract.json',
+      '<td>Test Artifacts</td><td>1</td>',
+      '<td>test</td>',
+      CI_ARTIFACT_FILES.testResults
+    ]);
 
     await fs.rm(path.join(workspaceRoot, 'control', 'evidence', 'policy-report.json'));
     await fs.rm(sourceViewPath);
@@ -616,16 +649,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       '--kind',
       'view'
     ]);
-    expect(viewPathsJson.formatVersion).toBe('1');
-    expect(viewPathsJson.root).toBe('workspace');
-    expect(viewPathsJson.kind).toBe('view');
-    expect(viewPathsJson.paths).toEqual([CI_ARTIFACT_FILES.slotRuleView]);
-    expect(viewPathsJson.count).toBe(viewPathsJson.paths.length);
-    expect(viewPathsJson.byKind).toEqual({ view: 1 });
-    expect(viewPathsJson.uploadGroupCount).toBe(1);
-    expect(viewPathsJson.uploadGroups).toEqual([
-      uploadGroup('view', 1, [CI_ARTIFACT_FILES.slotRuleView])
-    ]);
+    expectArtifactPathsPayload(viewPathsJson, {
+      kind: 'view',
+      paths: [CI_ARTIFACT_FILES.slotRuleView],
+      byKind: { view: 1 },
+      uploadGroups: [uploadGroup('view', 1, [CI_ARTIFACT_FILES.slotRuleView])]
+    });
     expect(viewPathsJson.paths).not.toContain(CI_ARTIFACT_MANIFEST_PATH);
 
   });
