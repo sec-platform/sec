@@ -10,7 +10,8 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import {
-  buildOfficialResolvedBlock,
+  buildCustomerNormalizerLock,
+  buildCustomerNormalizerPlan,
   buildPassingReviewReport,
   buildRepairPlanArtifact,
   buildRepairTask,
@@ -20,77 +21,13 @@ import {
 } from '../helpers/test-utils.ts';
 
 function plan(): PlanFile {
-  return {
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs-ts-prisma-sqlite',
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
-    registry: {
-      sources: []
-    },
-    blocks: [{ id: 'entity/customer-basic', version: '0.1.0' }],
-    slots: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        kind: 'adapter',
-        target: 'custom/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        description: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
-      }
-    ],
-    acceptance: [{ id: 'user_can_create_customer' }]
-  };
+  return buildCustomerNormalizerPlan({
+    slotDescription: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
+  });
 }
 
 function lock(status: LockFile['slotTasks'][number]['status'] = 'failed'): LockFile {
-  return {
-    formatVersion: '1',
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs-ts-prisma-sqlite',
-      mode: 'single-tenant'
-    },
-    resolvedBlocks: [
-      buildOfficialResolvedBlock({
-        id: 'entity/customer-basic',
-        installOrder: 1,
-        manifestPath: 'block.manifest.yaml'
-      })
-    ],
-    resolvedCapabilities: ['customer/write'],
-    installPlan: [],
-    slotTasks: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        target: 'custom/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        kind: 'adapter',
-        status,
-        writableZones: ['custom/customer_normalizer.ts'],
-        provenanceHints: {
-          generator: 'mock-local-synthesizer',
-          verifiedBy: []
-        }
-      }
-    ],
-    generatedPaths: [],
-    acceptancePlan: ['user_can_create_customer'],
-    passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'failed',
-      repair: 'pending',
-      lock: 'pending',
-      emit: 'pending'
-    }
-  };
+  return buildCustomerNormalizerLock({ slotStatus: status });
 }
 
 function failedUnitReport(): VerificationReport {
