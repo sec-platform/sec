@@ -10,12 +10,20 @@ import {
   POSTGRES_USAGE,
   REPAIR_USAGE
 } from '../../platform/cli/usage.ts';
+import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
+import {
+  compilerRoot,
+  getWorkspacePaths,
+  officialRegistryRelativePath,
+  privateRegistryRelativePath
+} from '../../platform/shared/paths.ts';
 import type {
   AcceptanceCoverageReport,
   LockFile,
+  ManifestEntry,
+  PlanFile,
   ProvenanceFile,
   VerificationReport
 } from '../../platform/shared/types.ts';
@@ -76,6 +84,43 @@ export async function readCompilerPackageJson(): Promise<CompilerPackage> {
   if (cachedRootPackage) return cachedRootPackage;
   cachedRootPackage = await readJson<CompilerPackage>(path.join(compilerRoot, 'package.json'));
   return cachedRootPackage;
+}
+
+export function buildManifestValidationPlan(entry: ManifestEntry): PlanFile {
+  return {
+    app: {
+      name: `validate-${entry.manifest.id.replaceAll('/', '-')}`,
+      stack: SUPPORTED_STACK,
+      packageManager: 'pnpm',
+      mode: 'single-tenant'
+    },
+    registry: {
+      sources: [
+        {
+          id: 'official',
+          kind: 'official',
+          location: 'compiler',
+          path: officialRegistryRelativePath.replaceAll('\\', '/')
+        },
+        {
+          id: 'private',
+          kind: 'private',
+          location: 'workspace',
+          path: privateRegistryRelativePath.replaceAll('\\', '/')
+        }
+      ]
+    },
+    blocks: [{ id: entry.manifest.id, version: entry.manifest.version }],
+    slots: entry.manifest.slots.map((slot) => ({
+      id: slot.id,
+      block: entry.manifest.id,
+      kind: slot.kind,
+      target: slot.target,
+      symbol: slot.symbol,
+      description: `Template validation placeholder for ${slot.id}`
+    })),
+    acceptance: []
+  };
 }
 
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {
