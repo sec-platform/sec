@@ -56,9 +56,9 @@ registry:
 | 字段 | 说明 |
 | --- | --- |
 | `version` | semver |
-| `compatibility.blockApi` | 当前固定 `"1"` |
-| `compatibility.compilerApi` | 当前固定 `"1"` |
-| `compatibility.stackProfiles` | 当前 `["nextjs-ts-prisma-sqlite"]` |
+| `compatibility.blockApi` | 可省略；默认 `"1"` |
+| `compatibility.compilerApi` | 可省略；默认 `"1"` |
+| `compatibility.stackProfiles` | 可省略；默认继承 root `stackProfiles` |
 
 规则：同一项目中同 id block 不允许出现不兼容 major 版本。
 
