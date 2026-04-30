@@ -14,7 +14,7 @@ import {
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace, expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/test-utils.ts';
 
 test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
@@ -109,24 +109,21 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   });
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  expect(graph.nodes.some((node) => node.id === 'slot:customer_normalizer')).toBe(true);
-  expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
-  expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
-  expect(graph.edges).toContainEqual({
+  expectGraphNode(graph, { id: 'slot:customer_normalizer' });
+  expectGraphNode(graph, { type: 'pin' });
+  expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
+  expectGraphEdge(graph, {
     from: 'policy:tenant-scope-required',
     to: 'file:src/installed/entity/customer-service.ts',
     type: 'connects_to'
   });
-  expect(graph.edges.some((edge) => edge.type === 'writes_to' && edge.to === 'file:source/code/slots/customer_normalizer.ts')).toBe(true);
-  expect(
-    graph.edges.some(
-      (edge) =>
-        edge.type === 'connects_to' &&
-        edge.from === 'file:source/code/slots/customer_normalizer.ts' &&
-        edge.to === 'file:custom/customer_normalizer.ts'
-    )
-  ).toBe(true);
-  expect(graph.edges.some((edge) => edge.type === 'violates')).toBe(false);
+  expectGraphEdge(graph, { type: 'writes_to', to: 'file:source/code/slots/customer_normalizer.ts' });
+  expectGraphEdge(graph, {
+    type: 'connects_to',
+    from: 'file:source/code/slots/customer_normalizer.ts',
+    to: 'file:custom/customer_normalizer.ts'
+  });
+  expectNoGraphEdge(graph, { type: 'violates' });
   expect(graph.overlays.coverage.blocks.every((entry) => Array.isArray(entry.coveredBy))).toBe(true);
   expect(reviewSummary.formatVersion).toBe('2');
   expect(reviewSummary.ciSummary.status).toBe('passed');

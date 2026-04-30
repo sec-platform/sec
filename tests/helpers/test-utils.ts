@@ -37,13 +37,18 @@ import {
 } from '../../platform/shared/paths.ts';
 import type {
   AcceptanceCoverageReport,
+  ExplainGraph,
+  ExplainGraphEdge,
+  ExplainGraphNode,
   LockFile,
   ManifestEntry,
   PlanFile,
   PolicyReport,
   ProvenanceFile,
   RepairPlan,
+  ReviewConflictHint,
   ReviewProvenanceRegistrySummary,
+  ReviewRegressionRisk,
   ReviewSummary,
   UpgradeDiagnostics,
   UpgradePlan,
@@ -354,6 +359,36 @@ export function expectContainsAll(haystack: string, needles: readonly string[]):
 export function expectContainsNone(haystack: string, needles: readonly string[]): void {
   const found = needles.filter((n) => haystack.includes(n));
   expect(found, `Unexpectedly found ${found.length} marker(s): ${found.map((f) => JSON.stringify(f)).join(', ')}`).toEqual([]);
+}
+
+export function expectGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Partial<ExplainGraphNode>): void {
+  expect(graph.nodes).toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
+}
+
+export function expectNoGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Partial<ExplainGraphNode>): void {
+  expect(graph.nodes).not.toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
+}
+
+export function expectGraphEdge(graph: Pick<ExplainGraph, 'edges'>, expected: Partial<ExplainGraphEdge>): void {
+  expect(graph.edges).toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
+}
+
+export function expectNoGraphEdge(graph: Pick<ExplainGraph, 'edges'>, expected: Partial<ExplainGraphEdge>): void {
+  expect(graph.edges).not.toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
+}
+
+export function expectReviewConflictHint(
+  reviewSummary: Pick<ReviewSummary, 'conflictHints'>,
+  expected: ReviewConflictHint
+): void {
+  expect(reviewSummary.conflictHints).toEqual(expect.arrayContaining([expected]));
+}
+
+export function expectReviewRegressionRisk(
+  reviewSummary: Pick<ReviewSummary, 'regressionRisks'>,
+  expected: ReviewRegressionRisk
+): void {
+  expect(reviewSummary.regressionRisks).toEqual(expect.arrayContaining([expected]));
 }
 
 export async function expectFileUnchanged(filePath: string, beforeText: string): Promise<void> {
