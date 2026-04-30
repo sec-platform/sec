@@ -256,14 +256,14 @@ export function formatDemoChecklist(checklist: DemoChecklist): string {
   ].join('\n');
 }
 
+function formatE2eMatrixRow(row: E2eMatrix['rows'][number], prefix = ''): string {
+  return formatFields([`${prefix}${row.stage}: ${row.status}`, row.detail, `evidence=${row.evidence.join(', ') || 'none'}`]);
+}
+
 export function formatE2eMatrix(matrix: E2eMatrix): string {
   return [
     `E2E matrix ${matrix.status}; rows=${matrix.rowCount}`,
-    ...matrix.rows.map((row) => formatFields([
-      `${row.stage}: ${row.status}`,
-      row.detail,
-      `evidence=${row.evidence.join(', ') || 'none'}`
-    ]))
+    ...matrix.rows.map((row) => formatE2eMatrixRow(row))
   ].join('\n');
 }
 
@@ -976,11 +976,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
       `attention: ${chainSummary.attentionStageCount}`,
       `failed: ${chainSummary.failedStageCount}`
     ]),
-    ...e2eMatrix.rows.map((row) => formatFields([
-      `E2E ${row.stage}: ${row.status}`,
-      row.detail,
-      `evidence=${row.evidence.join(', ') || 'none'}`
-    ])),
+    ...e2eMatrix.rows.map((row) => formatE2eMatrixRow(row, 'E2E ')),
     [
       `Impacted: ${ciSummary.impactedBlockCount} blocks`,
       `${ciSummary.impactedSlotCount} slots`,

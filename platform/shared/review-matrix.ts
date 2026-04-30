@@ -1,5 +1,7 @@
+import { countMatching } from './collections.ts';
 import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from './review-artifact.ts';
-import type { ReviewSummary } from './review-types.ts';
+import type { ReviewChainStageId, ReviewSummary } from './review-types.ts';
+import type { VerificationReport } from './verification-types.ts';
 
 export type E2eMatrixRow = {
   stage: string;
@@ -15,30 +17,71 @@ export type E2eMatrix = {
   rows: E2eMatrixRow[];
 };
 
-export function e2eStageEvidence(reviewSummary: ReviewSummary, stageId: string): string[] {
-  const evidenceByStage: Record<string, string[]> = {
-    verification: [
-      `ci=${reviewSummary.ciSummary.status}`,
-      `failures=${reviewSummary.ciSummary.failureCount}`
-    ],
-    coverage: reviewSummary.coverageSummary
-      ? [
-          `blocks=${reviewSummary.coverageSummary.coveredBlockCount}/${reviewSummary.coverageSummary.blockCount}`,
-          `slots=${reviewSummary.coverageSummary.coveredSlotCount}/${reviewSummary.coverageSummary.slotCount}`
-        ]
-      : ['coverage=missing'],
-    artifacts: reviewSummary.artifactSummary
-      ? [
-          `total=${reviewSummary.artifactSummary.artifactCount}`,
-          `missing=${reviewSummary.artifactSummary.missingCount}`,
-          `uploadGroups=${reviewArtifactUploadGroupCount(reviewSummary.artifactSummary)}`,
-          `missingReasonTypes=${reviewArtifactMissingReasonTypeCount(reviewSummary.artifactSummary)}`
-        ]
-      : ['artifacts=missing'],
-    review: ['review-summary=generated']
-  };
+type ReviewChainStageContext = {
+  report: VerificationReport;
+  coverageSummary: NonNullable<ReviewSummary['coverageSummary']>;
+  artifactSummary: ReviewSummary['artifactSummary'];
+};
 
-  return evidenceByStage[stageId] ?? [];
+const REVIEW_SUMMARY_GENERATED = 'review-summary=generated';
+const REVIEW_CHAIN_STAGE_IDS = ['verification', 'coverage', 'artifacts', 'review'] satisfies readonly ReviewChainStageId[];
+
+function buildReviewChainStage(
+  id: ReviewChainStageId,
+  { report, coverageSummary, artifactSummary }: ReviewChainStageContext
+): ReviewSummary['chainSummary']['stageSummaries'][number] {
+  if (id === 'verification') {
+    return { id, status: report.summary.status, detail: `lane=${report.summary.requestedLane}; failed=${report.summary.failedLanes.join(',') || 'none'}` };
+  }
+  if (id === 'coverage') {
+    return { id, status: coverageSummary.status === 'passed' ? 'passed' : coverageSummary.status === 'skipped' ? 'attention' : 'failed', detail: `blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}; slots=${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}` };
+  }
+  if (id === 'artifacts') {
+    return { id, status: artifactSummary?.artifactStatus ?? 'attention', detail: `total=${artifactSummary?.artifactCount ?? 0}; missing=${artifactSummary?.missingCount ?? 0}` };
+  }
+  return { id, status: 'passed', detail: REVIEW_SUMMARY_GENERATED };
+}
+
+export function buildReviewChainSummary(
+  report: VerificationReport,
+  coverageSummary: NonNullable<ReviewSummary['coverageSummary']>,
+  artifactSummary: ReviewSummary['artifactSummary']
+): ReviewSummary['chainSummary'] {
+  const stageSummaries = REVIEW_CHAIN_STAGE_IDS.map((id) => buildReviewChainStage(id, { report, coverageSummary, artifactSummary }));
+  const failedStageCount = countMatching(stageSummaries, (stage) => stage.status === 'failed');
+  const attentionStageCount = countMatching(stageSummaries, (stage) => stage.status === 'attention');
+
+  return {
+    status: failedStageCount > 0 ? 'failed' : attentionStageCount > 0 ? 'attention' : 'passed',
+    stageCount: stageSummaries.length,
+    passedStageCount: countMatching(stageSummaries, (stage) => stage.status === 'passed'),
+    attentionStageCount,
+    failedStageCount,
+    stageSummaries
+  };
+}
+
+export function e2eStageEvidence(
+  { ciSummary, coverageSummary, artifactSummary }: ReviewSummary,
+  stageId: string
+): string[] {
+  if (stageId === 'verification') return [`ci=${ciSummary.status}`, `failures=${ciSummary.failureCount}`];
+  if (stageId === 'coverage') {
+    return coverageSummary
+      ? [`blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`, `slots=${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`]
+      : ['coverage=missing'];
+  }
+  if (stageId === 'artifacts') {
+    return artifactSummary
+      ? [
+          `total=${artifactSummary.artifactCount}`,
+          `missing=${artifactSummary.missingCount}`,
+          `uploadGroups=${reviewArtifactUploadGroupCount(artifactSummary)}`,
+          `missingReasonTypes=${reviewArtifactMissingReasonTypeCount(artifactSummary)}`
+        ]
+      : ['artifacts=missing'];
+  }
+  return stageId === 'review' ? [REVIEW_SUMMARY_GENERATED] : [];
 }
 
 export function buildE2eMatrix(reviewSummary: ReviewSummary): E2eMatrix {
