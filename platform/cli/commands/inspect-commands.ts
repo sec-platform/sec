@@ -38,6 +38,29 @@ import {
   VERIFICATION_USAGE
 } from '../usage.ts';
 
+type ArgsCommandRunner = (args: string[]) => Promise<void>;
+type WorkspaceCommandRunner = (args: string[], cwd: string) => Promise<void>;
+
+function createArgsCommand(name: string, usage: string, run: ArgsCommandRunner): CommandHandler {
+  return {
+    name,
+    usage,
+    async execute(args) {
+      await run(args);
+    }
+  };
+}
+
+function createWorkspaceCommand(name: string, usage: string, run: WorkspaceCommandRunner): CommandHandler {
+  return {
+    name,
+    usage,
+    async execute(args, ctx) {
+      await run(args, ctx.cwd);
+    }
+  };
+}
+
 export const doctorCommand: CommandHandler = {
   name: 'doctor',
   usage: DOCTOR_USAGE,
@@ -48,122 +71,18 @@ export const doctorCommand: CommandHandler = {
   }
 };
 
-export const depsCommand: CommandHandler = {
-  name: 'deps',
-  usage: DEPS_USAGE,
-  async execute(args, ctx) {
-    await runDepsCommand(args, ctx.cwd);
-  }
-};
-
-export const referenceCommand: CommandHandler = {
-  name: 'reference',
-  usage: REFERENCE_USAGE,
-  async execute(args) {
-    await runReferenceCommand(args);
-  }
-};
-
-export const benchmarkCommand: CommandHandler = {
-  name: 'benchmark',
-  usage: BENCHMARK_USAGE,
-  async execute(args) {
-    await runBenchmarkCommand(args);
-  }
-};
-
-export const testCommand: CommandHandler = {
-  name: 'test',
-  usage: TEST_USAGE,
-  async execute(args) {
-    await runTestCommand(args);
-  }
-};
-
-export const policyCommand: CommandHandler = {
-  name: 'policy',
-  usage: POLICY_USAGE,
-  async execute(args, ctx) {
-    await runPolicyCommand(args, ctx.cwd);
-  }
-};
-
-export const acceptanceCommand: CommandHandler = {
-  name: 'acceptance',
-  usage: ACCEPTANCE_USAGE,
-  async execute(args, ctx) {
-    await runAcceptanceCommand(args, ctx.cwd);
-  }
-};
-
-export const runtimeCommand: CommandHandler = {
-  name: 'runtime',
-  usage: RUNTIME_USAGE,
-  async execute(args, ctx) {
-    await runRuntimeCommand(args, ctx.cwd);
-  }
-};
-
-export const verificationCommand: CommandHandler = {
-  name: 'verification',
-  usage: VERIFICATION_USAGE,
-  async execute(args, ctx) {
-    await runVerificationCommand(args, ctx.cwd);
-  }
-};
-
-export const provenanceCommand: CommandHandler = {
-  name: 'provenance',
-  usage: PROVENANCE_USAGE,
-  async execute(args, ctx) {
-    await runProvenanceCommand(args, ctx.cwd);
-  }
-};
-
-export const reviewCommand: CommandHandler = {
-  name: 'review',
-  usage: REVIEW_USAGE,
-  async execute(args, ctx) {
-    await runReviewCommand(args, ctx.cwd);
-  }
-};
-
-export const demoCommand: CommandHandler = {
-  name: 'demo',
-  usage: DEMO_USAGE,
-  async execute(args, ctx) {
-    await runDemoCommand(args, ctx.cwd);
-  }
-};
-
-export const contractCommand: CommandHandler = {
-  name: 'contract',
-  usage: CONTRACT_USAGE,
-  async execute(args) {
-    await runContractCommand(args);
-  }
-};
-
-export const installCommand: CommandHandler = {
-  name: 'install',
-  usage: INSTALL_USAGE,
-  async execute(args, ctx) {
-    await runInstallCommand(args, ctx.cwd);
-  }
-};
-
-export const blocksCommand: CommandHandler = {
-  name: 'blocks',
-  usage: BLOCKS_USAGE,
-  async execute(args, ctx) {
-    await runBlocksCommand(args, ctx.cwd);
-  }
-};
-
-export const postgresCommand: CommandHandler = {
-  name: 'postgres',
-  usage: POSTGRES_USAGE,
-  async execute(args, ctx) {
-    await runPostgresCommand(args, ctx.cwd);
-  }
-};
+export const depsCommand = createWorkspaceCommand('deps', DEPS_USAGE, runDepsCommand);
+export const referenceCommand = createArgsCommand('reference', REFERENCE_USAGE, runReferenceCommand);
+export const benchmarkCommand = createArgsCommand('benchmark', BENCHMARK_USAGE, runBenchmarkCommand);
+export const testCommand = createArgsCommand('test', TEST_USAGE, runTestCommand);
+export const policyCommand = createWorkspaceCommand('policy', POLICY_USAGE, runPolicyCommand);
+export const acceptanceCommand = createWorkspaceCommand('acceptance', ACCEPTANCE_USAGE, runAcceptanceCommand);
+export const runtimeCommand = createWorkspaceCommand('runtime', RUNTIME_USAGE, runRuntimeCommand);
+export const verificationCommand = createWorkspaceCommand('verification', VERIFICATION_USAGE, runVerificationCommand);
+export const provenanceCommand = createWorkspaceCommand('provenance', PROVENANCE_USAGE, runProvenanceCommand);
+export const reviewCommand = createWorkspaceCommand('review', REVIEW_USAGE, runReviewCommand);
+export const demoCommand = createWorkspaceCommand('demo', DEMO_USAGE, runDemoCommand);
+export const contractCommand = createArgsCommand('contract', CONTRACT_USAGE, runContractCommand);
+export const installCommand = createWorkspaceCommand('install', INSTALL_USAGE, runInstallCommand);
+export const blocksCommand = createWorkspaceCommand('blocks', BLOCKS_USAGE, runBlocksCommand);
+export const postgresCommand = createWorkspaceCommand('postgres', POSTGRES_USAGE, runPostgresCommand);
