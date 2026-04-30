@@ -10,11 +10,12 @@
 - 这不是 IDE、低代码工具、模板市场，也不是自由生成式 AI 结对编程工具。
 - 系统的权威输入是工程规格、块接口、连接关系、slot 描述和验收要求；最终源码是可审查、可部署、可修改的编译产物。
 - 这套产品不是"让 AI 多写代码"，而是"把 AI 收束为编译链中的受限综合 pass"。
-- 终局四层架构：Authoring Layer（规格/图/slot/规则/验收）→ Compilation Layer（解析/对齐/求解/装配/综合/验证/修复/发射）→ Artifact Layer（源码/测试/lock/provenance）→ Platform Layer（registry/升级/治理/观测/托管）
+- 当前开发必须以最终形态为目标：v0.x 可以采用文件装载型 block 作为过渡，但所有实现都必须能演进到语义合约型 block、Engineering IR、可解释 Review Workbench。
+- 终局五层架构：Authoring Layer（规格/图/slot/规则/验收）→ Semantic Contract Layer（block 语义合约、capability、pin、policy、view/entity/operation IR）→ Compilation Layer（解析/对齐/求解/装配/综合/验证/修复/发射）→ Artifact Layer（源码/测试/lock/provenance）→ Review/Platform Layer（Workbench、registry、升级、治理、观测、托管）
 
 ### 核心问题
 
-- 隐性专家劳动 → 结构化规格 → 标准模块 → 管脚连接 → AI 填 slot → 验收验证 → 可持续维护
+- 隐性专家劳动 → 结构化规格 → 语义合约型标准模块 → 管脚连接 → Engineering IR → AI 填 slot/局部综合 → 验收验证 → 可解释 Review Workbench → 可持续维护
 
 ### 与相邻物种的边界
 
@@ -46,23 +47,34 @@
 
 ### v0.2（当前阶段）
 - provenance ✅、upgrade/migrate ✅、13 个官方块 ✅、policy gate ✅、repair ✅、override ✅、explain graph ✅、review summary ✅、架构内聚重构 ✅
+- 补齐 review workbench 与 graph visualization 的只读操作面，避免治理产物只停留在 JSON/CLI。
+
+### v0.3
+- 在保持 v0.2 文件装载能力的同时，引入语义合约型 block 的最小闭环：entity/operation/policy/view 合约先进入 Engineering IR，再降级生成文件、测试和验证产物。
+- 新增 generator 类安装策略必须按工程动作扩展，不允许按业务 block hardcode。
 
 ### v1.x
-- 私有 registry、策略/治理块体系化、acceptance graph、CI/CD 集成
+- 私有 registry、策略/治理块体系化、acceptance graph、CI/CD 集成、Workbench review dashboard、语义合约 registry。
 
 ### v2.x+
-- 多目标编译器、marketplace、托管验证/观测
+- 多目标编译器、marketplace、托管验证/观测、多栈代码生成、远程 registry、交互式 Workbench。
 
-## 三层世界
+## 五层世界
 
 ### Authoring Layer
 `source/app.yaml`、block graph、slot description、acceptance/policy/override spec
 
+### Semantic Contract Layer
+block 不只是文件包，而是语义合约入口。v0.x 允许 `installs` 作为低级 escape hatch；最终形态要求 block 能声明 entity、operation、policy、view、event、permission、pin、slot，并被降级为 Engineering IR。
+
 ### Compilation Layer
-`parse → align → resolve → compose → adapt → verify → repair → lock → emit`（详见 `07`）
+`parse → align → resolve → compose → adapt → verify → repair → lock → emit`（详见 `07`）。pass 操作的目标应逐步从文件清单升级为 Engineering IR，再生成项目文件。
 
 ### Artifact Layer
 源码、测试、lock files、provenance、explain graph、governance reports（详见 `08`）
+
+### Review/Workbench Layer
+以 `explain-graph.json`、`review-summary.json`、`provenance.json` 为数据源，提供 graph view、review view、Mermaid/DOT 导出和后续交互式操作面，详见 `11`。
 
 ## 模块分类
 
@@ -77,11 +89,11 @@
 
 ## Compile Contract
 
-1. 输入：`source/app.yaml`、block graph、slot descriptions、acceptance spec
-2. 可综合部分：adapter、policy rule、局部 UX、repair patch
-3. AI 权限：文件可写范围、符号保留、测试通过要求
-4. 输出：repo、tests、lockfiles、provenance、deployable artifact
-5. 编译成功：依赖解析 + 接口连通 + slot 填充 + acceptance 通过 + policy gate
+1. 输入：`source/app.yaml`、block graph、slot descriptions、acceptance spec；最终形态还包括 entity/operation/policy/view 等语义合约。
+2. 可综合部分：adapter、policy rule、局部 UX、repair patch；最终形态扩展到由 Engineering IR 派生的 service/API/DB/view/test 骨架。
+3. AI 权限：文件可写范围、符号保留、测试通过要求。
+4. 输出：repo、tests、lockfiles、provenance、deployable artifact、review workbench views。
+5. 编译成功：依赖解析 + 接口连通 + pin/slot 合同满足 + acceptance 通过 + policy gate + provenance/review 可解释。
 
 详见 `05` §2、`07`、`08`。
 
@@ -97,3 +109,4 @@
 | 验证与图谱 | [08](08-Verification、Provenance与Graph规范.md) |
 | AI Runtime | [09](09-AI Runtime、任务信封与治理规范.md) |
 | 升级 Override | [10](10-升级迁移与Override规范.md) |
+| Workbench 与可视化 | [11](11-Workbench与可视化规范.md) |

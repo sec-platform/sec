@@ -4,6 +4,8 @@
 
 ## 1. Registry 模型
 
+Registry 的最终形态不是文件模板市场，而是语义合约 registry。官方 block 可以随编译器分发，用户私有 block 应位于 workspace 或远程 registry；核心平台只理解 manifest、capability、pin、slot、contract、generator 等协议，不理解具体业务 block 的内部 hardcode。
+
 | 类型 | 说明 | 当前状态 |
 | --- | --- | --- |
 | `official` | 平台官方维护，随编译器分发 | 13 个官方块 |
@@ -25,13 +27,17 @@ registry:
 ```text
 <registry>/<block-id>/
   block.manifest.yaml
-  files/src/installed/    # 安装到 project/src/installed/
+  contracts/              # 语义合约，承载 entity/operation/policy/view/event/permission 等最终形态输入
+  generators/             # 可选生成器元数据或模板，按工程动作生成产物，不按业务 block hardcode
+  files/src/installed/    # v0.x 文件装载入口，安装到 project/src/installed/
   files/prisma/           # merge-prisma 源
   files/tests/            # 测试文件
   versions/<ver>/         # 版本化 overlay manifest 与版本专属文件
     migrations/           # 升级迁移
     block.manifest.yaml   # 可只声明 version + upgrade，其他字段继承 root manifest
 ```
+
+`files/**` 是低级 escape hatch；`contracts/**` 与 `generators/**` 是最终形态的主路径。新增 block 应优先考虑能否用语义合约表达，只有无法抽象或需要兼容时才直接复制具体文件。
 
 ## 2. Block 分类
 
@@ -86,9 +92,13 @@ registry:
 | `slots` | 否 | 暴露的 slot |
 | `acceptance` | 否 | 验收声明 |
 | `routes` | 否 | 路由声明 |
+| `contracts` | 否 | 语义合约入口，声明 entities / operations / policies / views / events / permissions 等 |
+| `generators` | 否 | 生成器声明，按工程动作从合约生成文件、测试、视图或治理产物 |
 | `upgrade` | 否 | 升级元数据 |
 
 ## 6. Slot 字段
+
+Pin/slot 是工程编译器的接口类型系统。约束必须稳定，但不能承载业务 hardcode：核心编译器只验证连接、类型、写入边界和可追踪性；具体业务逻辑由语义合约、slot 实现或 generator 处理。
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
@@ -104,6 +114,9 @@ registry:
 
 支持动作：`copy`（递归复制）、`merge-prisma`（智能合并去重）。
 
+最终形态还允许 generator 类动作，但必须按工程动作命名和注册，例如 `generate-entity-service`、`generate-api-route`、`generate-prisma-model`、`generate-view`、`generate-acceptance-test`。禁止按业务 block 命名策略，例如 `generate-customer`、`CustomerInstallStrategy`、`TicketInstallStrategy`。
+
 禁止规则：
 - block 不得安装到其他 block manifest、`control/**`、`platform/cli/`。
 - block 不得修改不属于自己 `writableZones` 的文件。
+- block 不得要求核心编译器理解具体业务名；业务语义必须通过 `contracts`、`pins`、`slots`、`acceptance`、`policy` 进入 Engineering IR。
