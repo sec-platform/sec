@@ -1,43 +1,12 @@
 import { expect, test } from 'vitest';
 
-import { expectCliJson, expectCliText, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI emits explain JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true });
 
-    await expectCliText(workspaceRoot, ['explain'], [
-      'Explain graph',
-      'Node types:',
-      'block=',
-      'policy=',
-      'Edge types:',
-      'depends_on=',
-      'Coverage: 3 blocks; 1 slots;',
-      'uncovered blocks=0',
-      'uncovered slots=0',
-      'Coverage detail: passed;',
-      'covered blocks: 3/3',
-      'covered slots: 1/1',
-      'Provenance origins:',
-      'block=',
-      'slot=',
-      'Provenance detail: artifacts:',
-      'registry:',
-      'unverified:',
-      'Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;',
-      'runtime entries: 0; targets: 6',
-      'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
-      'Chain: attention; stages: 3/4; attention: 1; failed: 0',
-      'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
-      'E2E coverage: passed; blocks=3/3; slots=1/1; evidence=blocks=3/3, slots=1/1',
-      'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
-      'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
-      'Impacted: 3 blocks, 1 slots,',
-      'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
-    ]);
-
-    const payload = await expectCliJson<{
+    const { json: payload } = await expectCliVariants<{
       graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
       e2eMatrix: {
         status: string;
@@ -118,11 +87,38 @@ test('CLI emits explain JSON for CI consumers', async () => {
         impactedBlocks: string[];
         failurePoints: unknown[];
       };
-    }>(workspaceRoot, ['explain', '--json']);
-    await expectCliJson(
-      workspaceRoot,
-      ['explain', '--json', '--compact'],
-      {
+    }>(workspaceRoot, ['explain'], {
+      text: [
+        'Explain graph',
+        'Node types:',
+        'block=',
+        'policy=',
+        'Edge types:',
+        'depends_on=',
+        'Coverage: 3 blocks; 1 slots;',
+        'uncovered blocks=0',
+        'uncovered slots=0',
+        'Coverage detail: passed;',
+        'covered blocks: 3/3',
+        'covered slots: 1/1',
+        'Provenance origins:',
+        'block=',
+        'slot=',
+        'Provenance detail: artifacts:',
+        'registry:',
+        'unverified:',
+        'Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;',
+        'runtime entries: 0; targets: 7',
+        'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
+        'Chain: attention; stages: 3/4; attention: 1; failed: 0',
+        'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
+        'E2E coverage: passed; blocks=3/3; slots=1/1; evidence=blocks=3/3, slots=1/1',
+        'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
+        'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
+        'Impacted: 3 blocks, 1 slots,',
+        'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
+      ],
+      compactJson: {
         e2eMatrix: {
           status: 'attention',
           rowCount: 4
@@ -131,9 +127,8 @@ test('CLI emits explain JSON for CI consumers', async () => {
           formatVersion: '2',
           chainSummary: { stageCount: 4 }
         }
-      },
-      { compact: true }
-    );
+      }
+    });
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
     expect(payload.graph.edges.length).toBeGreaterThan(0);
     expect(payload.e2eMatrix).toMatchObject({
@@ -262,7 +257,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
       blockCount: 3,
       actionKinds: ['copy', 'merge-prisma'],
       runtimeEntryCount: 0,
-      targetPathCount: 6,
+      targetPathCount: 7,
       groupSummaries: expect.arrayContaining([
         expect.objectContaining({
           vertical: 'customer',
@@ -283,7 +278,8 @@ test('CLI emits explain JSON for CI consumers', async () => {
           runtimeEntries: [],
           targetPaths: expect.arrayContaining([
             'src/installed/auth/session.ts',
-            'src/installed/tenant/context.ts'
+            'src/installed/tenant/context.ts',
+            'tests/shared/tenant-runtime-fixture.ts'
           ])
         })
       ])

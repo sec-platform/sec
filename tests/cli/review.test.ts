@@ -8,7 +8,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ReviewSummary
 } from '../../platform/shared/types.ts';
-import { expectCliJson, expectCliText, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliVariants, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes review summary as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -215,86 +215,76 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     };
     await writeJson(reviewSummaryPath, reviewSummary);
 
-    await expectCliText(workspaceRoot, ['review', 'summary'], [
-      'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
-      'CI attention; failures=1; risks=2; conflicts=1',
-      'Impact blocks=1; slots=1; runtime=1; changeSources=1; installImpacts=1',
-      'Coverage failed; blocks=1/2; slots=1/1',
-      'Provenance artifacts=5; registry=2; generated=2; unverified=3',
-      'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2',
-      'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
-      'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true',
-      'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['review', 'summary', '--json'], {
-      formatVersion: '2',
-      changeSourceCount: 1,
-      runtimeEntryCount: 1,
-      installImpactCount: 1,
-      chainSummary: { status: 'attention', stageCount: 4 },
-      coverageSummary: { status: 'failed', uncoveredBlocks: ['tenant/basic-workspace'] },
-      provenanceSummary: { artifactCount: 5, generatedArtifactCount: 2 },
-      upgradeSummary: {
-        status: 'blocked',
-        diagnostics: {
-          phase: 'apply',
-          details: {
-            migrationId: 'mig-auth-session-refresh'
+    await expectCliVariants(workspaceRoot, ['review', 'summary'], {
+      text: [
+        'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
+        'CI attention; failures=1; risks=2; conflicts=1',
+        'Impact blocks=1; slots=1; runtime=1; changeSources=1; installImpacts=1',
+        'Coverage failed; blocks=1/2; slots=1/1',
+        'Provenance artifacts=5; registry=2; generated=2; unverified=3',
+        'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2',
+        'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
+        'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true',
+        'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
+      ],
+      json: {
+        formatVersion: '2',
+        changeSourceCount: 1,
+        runtimeEntryCount: 1,
+        installImpactCount: 1,
+        chainSummary: { status: 'attention', stageCount: 4 },
+        coverageSummary: { status: 'failed', uncoveredBlocks: ['tenant/basic-workspace'] },
+        provenanceSummary: { artifactCount: 5, generatedArtifactCount: 2 },
+        upgradeSummary: {
+          status: 'blocked',
+          diagnostics: {
+            phase: 'apply',
+            details: {
+              migrationId: 'mig-auth-session-refresh'
+            }
           }
         }
+      },
+      compactJson: {
+        formatVersion: '2',
+        chainSummary: { status: 'attention' }
       }
     });
 
-    await expectCliText(workspaceRoot, ['review', 'diagnostics'], [
-      'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
-      `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
-      'Blocks: tenant/basic-workspace',
-      'Slots: customer_normalizer',
-      `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
-      'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; slot=none; Block tenant/basic-workspace has uncovered acceptance',
-      'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['review', 'diagnostics', '--json'], {
-      formatVersion: '1',
-      status: 'attention',
-      diagnosticCount: 4,
-      failureCount: 1,
-      regressionRiskCount: 2,
-      conflictHintCount: 1,
-      artifactPathCount: 1,
-      artifactPaths: [CI_ARTIFACT_FILES.policyReport],
-      blockCount: 1,
-      blocks: ['tenant/basic-workspace'],
-      slotCount: 1,
-      slots: ['customer_normalizer'],
-      diagnostics: expect.arrayContaining([
-        expect.objectContaining({ category: 'failure', kind: 'policy', lane: 'fast' }),
-        expect.objectContaining({ category: 'regression-risk', kind: 'coverage-gap', blockId: 'tenant/basic-workspace' }),
-        expect.objectContaining({ category: 'conflict', kind: 'upgrade-plan-present', relatedId: 'auth/basic-session' })
-      ])
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['review', 'diagnostics', '--json', '--compact'],
-      {
+    await expectCliVariants(workspaceRoot, ['review', 'diagnostics'], {
+      text: [
+        'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
+        `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
+        'Blocks: tenant/basic-workspace',
+        'Slots: customer_normalizer',
+        `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
+        'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; slot=none; Block tenant/basic-workspace has uncovered acceptance',
+        'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
+      ],
+      json: {
+        formatVersion: '1',
+        status: 'attention',
+        diagnosticCount: 4,
+        failureCount: 1,
+        regressionRiskCount: 2,
+        conflictHintCount: 1,
+        artifactPathCount: 1,
+        artifactPaths: [CI_ARTIFACT_FILES.policyReport],
+        blockCount: 1,
+        blocks: ['tenant/basic-workspace'],
+        slotCount: 1,
+        slots: ['customer_normalizer'],
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ category: 'failure', kind: 'policy', lane: 'fast' }),
+          expect.objectContaining({ category: 'regression-risk', kind: 'coverage-gap', blockId: 'tenant/basic-workspace' }),
+          expect.objectContaining({ category: 'conflict', kind: 'upgrade-plan-present', relatedId: 'auth/basic-session' })
+        ])
+      },
+      compactJson: {
         formatVersion: '1',
         diagnosticCount: 4,
         artifactPathCount: 1
-      },
-      { compact: true }
-    );
-
-    await expectCliJson(
-      workspaceRoot,
-      ['review', 'summary', '--json', '--compact'],
-      {
-        formatVersion: '2',
-        chainSummary: { status: 'attention' }
-      },
-      { compact: true }
-    );
+      }
+    });
   });
 });

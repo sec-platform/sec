@@ -3,22 +3,23 @@ import { expect, test } from 'vitest';
 import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { expectCliJson, expectCliText, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes policy report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
-    await expectCliText(workspaceRoot, ['policy', 'report'], [
-      'Policy report passed; official=1; project=0; merged=1; violations=0',
-      'Policy tenant-scope-required; scope=official; source=platform/policies/official/policy.spec.yaml; targets=src/installed/entity/customer-service.ts'
-    ]);
-
-    const policyReport = await expectCliJson<{
+    const { json: policyReport } = await expectCliVariants<{
       status: string;
       merged: { policies: Array<{ id: string; targets: string[] }> };
       violations: unknown[];
-    }>(workspaceRoot, ['policy', 'report', '--json']);
+    }>(workspaceRoot, ['policy', 'report'], {
+      text: [
+        'Policy report passed; official=1; project=0; merged=1; violations=0',
+        'Policy tenant-scope-required; scope=official; source=platform/policies/official/policy.spec.yaml; targets=src/installed/entity/customer-service.ts'
+      ],
+      compactJson: { status: 'passed' }
+    });
     expect(policyReport).toMatchObject({
       status: 'passed',
       violations: []
@@ -29,13 +30,6 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
         targets: ['src/installed/entity/customer-service.ts']
       })
     ]);
-
-    await expectCliJson(
-      workspaceRoot,
-      ['policy', 'report', '--json', '--compact'],
-      { status: 'passed' },
-      { compact: true }
-    );
 
     await expectCliText(workspaceRoot, ['policy', 'sources'], [
       'Policy sources passed',
@@ -77,21 +71,26 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
-    await expectCliText(workspaceRoot, ['acceptance', 'coverage'], [
-      'Acceptance coverage passed; acceptancePassed=',
-      'blocks=0/3; slots=0/1; uncoveredBlocks=3; uncoveredSlots=1',
-      'Uncovered blocks: auth/basic-session, tenant/basic-workspace, entity/customer-basic',
-      'Block entity/customer-basic; declared=3; coveredBy=none; uncovered=true',
-      'Slot customer_normalizer; declared=2; coveredBy=none; uncovered=true'
-    ]);
-
-    const coverageReport = await expectCliJson<{
+    const { json: coverageReport } = await expectCliVariants<{
       status: string;
       blocks: Array<{ id: string; coveredBy: string[]; uncovered: boolean }>;
       slots: Array<{ id: string; coveredBy: string[]; uncovered: boolean }>;
       uncoveredBlocks: string[];
       uncoveredSlots: string[];
-    }>(workspaceRoot, ['acceptance', 'coverage', '--json']);
+    }>(workspaceRoot, ['acceptance', 'coverage'], {
+      text: [
+        'Acceptance coverage passed; acceptancePassed=',
+        'blocks=0/3; slots=0/1; uncoveredBlocks=3; uncoveredSlots=1',
+        'Uncovered blocks: auth/basic-session, tenant/basic-workspace, entity/customer-basic',
+        'Block entity/customer-basic; declared=3; coveredBy=none; uncovered=true',
+        'Slot customer_normalizer; declared=2; coveredBy=none; uncovered=true'
+      ],
+      compactJson: {
+        status: 'passed',
+        uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'],
+        uncoveredSlots: ['customer_normalizer']
+      }
+    });
     expect(coverageReport).toMatchObject({
       status: 'passed',
       uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'],
@@ -111,17 +110,6 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
         uncovered: true
       })
     ]);
-
-    await expectCliJson(
-      workspaceRoot,
-      ['acceptance', 'coverage', '--json', '--compact'],
-      {
-        status: 'passed',
-        uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'],
-        uncoveredSlots: ['customer_normalizer']
-      },
-      { compact: true }
-    );
 
     await expectCliText(workspaceRoot, ['acceptance', 'blocks'], [
       'Acceptance coverage blocks passed',
@@ -172,37 +160,31 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
-    await expectCliText(workspaceRoot, ['runtime', 'report'], [
-      'Runtime report passed',
-      'Build: skipped; passed=0; failed=0; command=npm run build',
-      'Unit: passed; passed=',
-      'failed=0; command=npm run test:unit',
-      'Acceptance: skipped; passed=0; failed=0; command=npm run test:acceptance'
-    ]);
-
-    const runtimeReport = await expectCliJson<{
+    const { json: runtimeReport } = await expectCliVariants<{
       status: string;
       build: { status: string };
       unit: { status: string; failed: string[] };
       acceptance: { status: string };
-    }>(workspaceRoot, ['runtime', 'report', '--json']);
+    }>(workspaceRoot, ['runtime', 'report'], {
+      text: [
+        'Runtime report passed',
+        'Build: skipped; passed=0; failed=0; command=npm run build',
+        'Unit: passed; passed=',
+        'failed=0; command=npm run test:unit',
+        'Acceptance: skipped; passed=0; failed=0; command=npm run test:acceptance'
+      ],
+      compactJson: {
+        status: 'passed',
+        build: { status: 'skipped' },
+        acceptance: { status: 'skipped' }
+      }
+    });
     expect(runtimeReport).toMatchObject({
       status: 'passed',
       build: { status: 'skipped' },
       unit: { status: 'passed', failed: [] },
       acceptance: { status: 'skipped' }
     });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['runtime', 'report', '--json', '--compact'],
-      {
-        status: 'passed',
-        build: { status: 'skipped' },
-        acceptance: { status: 'skipped' }
-      },
-      { compact: true }
-    );
 
     await expectCliText(workspaceRoot, ['runtime', 'steps'], [
       'Runtime steps passed; steps=3; passed=1; failed=0; skipped=2',
@@ -272,17 +254,19 @@ test('CLI exposes verification report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
 
-    await expectCliText(workspaceRoot, ['verification', 'report'], [
-      'Verification report passed; requestedLane=fast; failedLanes=none',
-      'Fast: passed; build=passed; unit=passed; acceptance=passed; policy=passed',
-      'Runtime: passed; build=skipped; unit=passed; acceptance=skipped'
-    ]);
-
-    const verificationReport = await expectCliJson<VerificationReport>(workspaceRoot, [
-      'verification',
-      'report',
-      '--json'
-    ]);
+    const { json: verificationReport } = await expectCliVariants<VerificationReport>(workspaceRoot, ['verification', 'report'], {
+      text: [
+        'Verification report passed; requestedLane=fast; failedLanes=none',
+        'Fast: passed; build=passed; unit=passed; acceptance=passed; policy=passed',
+        'Runtime: passed; build=skipped; unit=passed; acceptance=skipped'
+      ],
+      compactJson: {
+        summary: {
+          status: 'passed',
+          requestedLane: 'fast'
+        }
+      }
+    });
     expect(verificationReport).toMatchObject({
       summary: {
         status: 'passed',
@@ -292,17 +276,5 @@ test('CLI exposes verification report as text and JSON contracts', async () => {
       fast: { status: 'passed', policy: { status: 'passed' } },
       runtime: { status: 'passed', acceptance: { status: 'skipped' } }
     });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['verification', 'report', '--json', '--compact'],
-      {
-        summary: {
-          status: 'passed',
-          requestedLane: 'fast'
-        }
-      },
-      { compact: true }
-    );
   });
 });

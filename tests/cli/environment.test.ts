@@ -1,31 +1,32 @@
 import { expect, test } from 'vitest';
 
-import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  expectCliJson,
+  expectCliSuccess,
+  expectCliVariants,
+  runCliInProcess as runCli,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('CLI exposes dependency environment maintenance entrypoints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['deps', 'status'], [
-      'Runtime dependency status',
-      'top-level entries',
-      'Recommended action:'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['deps', 'status', '--json'], {
-      mode: expect.any(String),
-      manifestHash: expect.any(String),
-      recommendedAction: expect.any(String),
-      sharedNodeModules: expect.objectContaining({ kind: expect.any(String) })
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['deps', 'status', '--json', '--compact'],
-      {
+    await expectCliVariants(workspaceRoot, ['deps', 'status'], {
+      text: [
+        'Runtime dependency status',
+        'top-level entries',
+        'Recommended action:'
+      ],
+      json: {
+        mode: expect.any(String),
+        manifestHash: expect.any(String),
+        recommendedAction: expect.any(String),
+        sharedNodeModules: expect.objectContaining({ kind: expect.any(String) })
+      },
+      compactJson: {
         mode: expect.any(String),
         recommendedAction: expect.any(String)
-      },
-      { compact: true }
-    );
+      }
+    });
 
     await expectCliJson(workspaceRoot, ['deps', 'warmup', '--json'], {
       mode: expect.any(String),

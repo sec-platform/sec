@@ -19,12 +19,13 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
-import { expectCliJson, expectCliText, readCompilerFile, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliVariants, readCompilerFile, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
-  expect(formatContractFreezeContract(contract)).toContain('Contract freeze active');
-  expect(formatContractFreezeContract(contract)).toContain('Target tests/cli/contracts.test.ts; command=bunx vitest run tests/cli/contracts.test.ts --testNamePattern');
+  const formatted = formatContractFreezeContract(contract);
+  expect(formatted).toContain('Contract freeze active');
+  expect(formatted).toContain('Target tests/cli/contracts.test.ts; command=bunx vitest run tests/cli/contracts.test.ts --testNamePattern');
   const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
   expect(runnerInvocations).toHaveLength(1);
   const runnerInvocation = runnerInvocations[0];
@@ -87,59 +88,55 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['contract', 'freeze'], [
-      'Contract freeze active',
-      'Command: npm run platform -- contract freeze --json',
-      'Runner command: npm run test:contract-freeze',
-      'Target files: 15',
-      'Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
-      'tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts',
-      'Target tests/pipeline/end-to-end.test.ts; command=bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['contract', 'freeze', '--json'], {
-      status: 'active',
-      command: 'npm run platform -- contract freeze --json',
-      runnerCommand: 'npm run test:contract-freeze',
-      targetFileCount: 15,
-      targetFiles: [
-        'tests/cli/artifacts.test.ts',
-        'tests/cli/benchmark-budget.test.ts',
-        'tests/cli/contracts.test.ts',
-        'tests/cli/demo-doctor.test.ts',
-        'tests/cli/environment.test.ts',
-        'tests/cli/explain.test.ts',
-        'tests/cli/provenance.test.ts',
-        'tests/cli/reference.test.ts',
-        'tests/cli/repair.test.ts',
-        'tests/cli/review.test.ts',
-        'tests/cli/upgrade.test.ts',
-        'tests/cli/usage.test.ts',
-        'tests/cli/verification.test.ts',
-        'tests/pipeline/end-to-end.test.ts',
-        'tests/runtime/project-runtime.test.ts'
+    await expectCliVariants(workspaceRoot, ['contract', 'freeze'], {
+      text: [
+        'Contract freeze active',
+        'Command: npm run platform -- contract freeze --json',
+        'Runner command: npm run test:contract-freeze',
+        'Target files: 15',
+        'Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
+        'tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts',
+        'Target tests/pipeline/end-to-end.test.ts; command=bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern'
       ],
-      targetCount: 15
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['contract', 'freeze', '--json', '--compact'],
-      {
+      json: {
+        status: 'active',
+        command: 'npm run platform -- contract freeze --json',
+        runnerCommand: 'npm run test:contract-freeze',
+        targetFileCount: 15,
+        targetFiles: [
+          'tests/cli/artifacts.test.ts',
+          'tests/cli/benchmark-budget.test.ts',
+          'tests/cli/contracts.test.ts',
+          'tests/cli/demo-doctor.test.ts',
+          'tests/cli/environment.test.ts',
+          'tests/cli/explain.test.ts',
+          'tests/cli/provenance.test.ts',
+          'tests/cli/reference.test.ts',
+          'tests/cli/repair.test.ts',
+          'tests/cli/review.test.ts',
+          'tests/cli/upgrade.test.ts',
+          'tests/cli/usage.test.ts',
+          'tests/cli/verification.test.ts',
+          'tests/pipeline/end-to-end.test.ts',
+          'tests/runtime/project-runtime.test.ts'
+        ],
+        targetCount: 15
+      },
+      compactJson: {
         status: 'active',
         runnerCommand: 'npm run test:contract-freeze',
         targetFileCount: 15,
         targetCount: 15
-      },
-      { compact: true }
-    );
+      }
+    });
   });
 });
 
 test('CLI exposes CI command contract as text and JSON contracts', async () => {
   const contract = buildCiContract();
-  expect(formatCiContract(contract)).toContain('CI contract active');
-  expect(formatCiContract(contract)).toContain('Step pr-fast-verify; phase=verify; command=npm run platform -- verify --json --compact; producesCount=1');
+  const formatted = formatCiContract(contract);
+  expect(formatted).toContain('CI contract active');
+  expect(formatted).toContain('Step pr-fast-verify; phase=verify; command=npm run platform -- verify --json --compact; producesCount=1');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
@@ -269,84 +266,80 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['contract', 'ci'], [
-      'CI contract active',
-      'Verify command count: 2',
-      'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact',
-      'Quality command count: 6',
-      'Quality commands: npm run typecheck, npm run imports:check, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact',
-      'Diagnostic command count: 5',
-      'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- review matrix --json --compact, npm run platform -- review diagnostics --json --compact, npm run platform -- explain --json --compact, npm run platform -- demo checklist --json --compact',
-      'Artifact upload command count: 4',
-      `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`,
-      'Artifact paths: 6',
-      `Artifact path list: ${[
-        CI_ARTIFACT_MANIFEST_PATH,
-        CI_ARTIFACT_FILES.acceptanceCoverage,
-        CI_ARTIFACT_FILES.reviewSummary,
-        CI_ARTIFACT_FILES.runtimeReport,
-        CI_ARTIFACT_FILES.verificationReport,
-        CI_ARTIFACT_FILES.explainGraph
-      ].join(', ')}`,
-      'Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3',
-      'Step typecheck; phase=quality; command=npm run typecheck; producesCount=0',
-      'Step organized-imports; phase=quality; command=npm run imports:check; producesCount=0',
-      'Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact',
-      'Step contract-freeze; phase=quality; command=npm run test:contract-freeze',
-      'Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact',
-      'Step reference-drift; phase=quality; command=npm run platform -- reference check --json --compact',
-      'Step diagnostic-review-matrix; phase=diagnostics; command=npm run platform -- review matrix --json --compact; producesCount=0',
-      'Step diagnostic-review-diagnostics; phase=diagnostics; command=npm run platform -- review diagnostics --json --compact; producesCount=0',
-      'Step diagnostic-demo-checklist; phase=diagnostics; command=npm run platform -- demo checklist --json --compact; producesCount=0',
-      'Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['contract', 'ci', '--json'], {
-      status: 'active',
-      defaultGate: 'pr-fast-verify',
-      verifyCommandCount: 2,
-      verifyCommands: [
-        'npm run platform -- verify --json --compact',
-        'npm run platform -- verify --lane all --json --compact'
+    await expectCliVariants(workspaceRoot, ['contract', 'ci'], {
+      text: [
+        'CI contract active',
+        'Verify command count: 2',
+        'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact',
+        'Quality command count: 6',
+        'Quality commands: npm run typecheck, npm run imports:check, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact',
+        'Diagnostic command count: 5',
+        'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- review matrix --json --compact, npm run platform -- review diagnostics --json --compact, npm run platform -- explain --json --compact, npm run platform -- demo checklist --json --compact',
+        'Artifact upload command count: 4',
+        `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`,
+        'Artifact paths: 6',
+        `Artifact path list: ${[
+          CI_ARTIFACT_MANIFEST_PATH,
+          CI_ARTIFACT_FILES.acceptanceCoverage,
+          CI_ARTIFACT_FILES.reviewSummary,
+          CI_ARTIFACT_FILES.runtimeReport,
+          CI_ARTIFACT_FILES.verificationReport,
+          CI_ARTIFACT_FILES.explainGraph
+        ].join(', ')}`,
+        'Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3',
+        'Step typecheck; phase=quality; command=npm run typecheck; producesCount=0',
+        'Step organized-imports; phase=quality; command=npm run imports:check; producesCount=0',
+        'Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact',
+        'Step contract-freeze; phase=quality; command=npm run test:contract-freeze',
+        'Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact',
+        'Step reference-drift; phase=quality; command=npm run platform -- reference check --json --compact',
+        'Step diagnostic-review-matrix; phase=diagnostics; command=npm run platform -- review matrix --json --compact; producesCount=0',
+        'Step diagnostic-review-diagnostics; phase=diagnostics; command=npm run platform -- review diagnostics --json --compact; producesCount=0',
+        'Step diagnostic-demo-checklist; phase=diagnostics; command=npm run platform -- demo checklist --json --compact; producesCount=0',
+        'Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract'
       ],
-      qualityCommandCount: 6,
-      qualityCommands: [
-        'npm run typecheck',
-        'npm run imports:check',
-        'npm run platform -- test budget --json --compact',
-        'npm run test:contract-freeze',
-        'npm run platform -- benchmark suite --json --compact',
-        'npm run platform -- reference check --json --compact'
-      ],
-      diagnosticCommandCount: 5,
-      diagnosticCommands: [
-        'npm run platform -- review summary --json --compact',
-        'npm run platform -- review matrix --json --compact',
-        'npm run platform -- review diagnostics --json --compact',
-        'npm run platform -- explain --json --compact',
-        'npm run platform -- demo checklist --json --compact'
-      ],
-      artifactUploadCommandCount: 4,
-      artifactPathCount: 6,
-      artifactPaths: expect.arrayContaining([
-        CI_ARTIFACT_MANIFEST_PATH,
-        CI_ARTIFACT_FILES.verificationReport
-      ]),
-      stepCount: 17,
-      steps: expect.arrayContaining([
-        expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
-        expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
-        expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
-        expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
-        expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
-        expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
-      ])
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['contract', 'ci', '--json', '--compact'],
-      {
+      json: {
+        status: 'active',
+        defaultGate: 'pr-fast-verify',
+        verifyCommandCount: 2,
+        verifyCommands: [
+          'npm run platform -- verify --json --compact',
+          'npm run platform -- verify --lane all --json --compact'
+        ],
+        qualityCommandCount: 6,
+        qualityCommands: [
+          'npm run typecheck',
+          'npm run imports:check',
+          'npm run platform -- test budget --json --compact',
+          'npm run test:contract-freeze',
+          'npm run platform -- benchmark suite --json --compact',
+          'npm run platform -- reference check --json --compact'
+        ],
+        diagnosticCommandCount: 5,
+        diagnosticCommands: [
+          'npm run platform -- review summary --json --compact',
+          'npm run platform -- review matrix --json --compact',
+          'npm run platform -- review diagnostics --json --compact',
+          'npm run platform -- explain --json --compact',
+          'npm run platform -- demo checklist --json --compact'
+        ],
+        artifactUploadCommandCount: 4,
+        artifactPathCount: 6,
+        artifactPaths: expect.arrayContaining([
+          CI_ARTIFACT_MANIFEST_PATH,
+          CI_ARTIFACT_FILES.verificationReport
+        ]),
+        stepCount: 17,
+        steps: expect.arrayContaining([
+          expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
+          expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
+          expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
+          expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
+          expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
+          expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
+        ])
+      },
+      compactJson: {
         status: 'active',
         fullRuntimeGate: 'full-runtime-verify',
         verifyCommandCount: 2,
@@ -381,9 +374,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
         ])
-      },
-      { compact: true }
-    );
+      }
+    });
   });
 });
 
@@ -407,8 +399,9 @@ test('GitHub compiler CI workflow covers CI command contract gates', async () =>
 
 test('CLI exposes error protocol as text and JSON contracts', async () => {
   const contract = buildErrorProtocolContract();
-  expect(formatErrorProtocolContract(contract)).toContain('Error protocol active');
-  expect(formatErrorProtocolContract(contract)).toContain('Example upgrade-conflict-error; code=UPGRADE-CONFLICT-001');
+  const formatted = formatErrorProtocolContract(contract);
+  expect(formatted).toContain('Error protocol active');
+  expect(formatted).toContain('Example upgrade-conflict-error; code=UPGRADE-CONFLICT-001');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
@@ -532,42 +525,37 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['contract', 'errors'], [
-      'Error protocol active',
-      'Issue type count: 5',
-      'Artifact paths: 7',
-      `Artifact path list: ${[
-        CI_ARTIFACT_FILES.reviewSummary,
-        CI_ARTIFACT_FILES.verificationReport,
-        CI_ARTIFACT_FILES.repairPlan,
-        CI_ARTIFACT_FILES.upgradeDiagnostics,
-        CI_ARTIFACT_FILES.upgradePlan,
-        CI_ARTIFACT_FILES.viewMutationReport,
-        'source/views/mutations'
-      ].join(', ')}`,
-      'Example repair-plan-error; code=REPAIR-BLOCKED-001',
-      'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
-      'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002'
-    ]);
-
-    await expectCliJson(workspaceRoot, ['contract', 'errors', '--json'], {
-      status: 'active',
-      exampleCount: 13,
-      issueTypeCount: 5,
-      suggestedActionCount: 20,
-      artifactPathCount: 7
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['contract', 'errors', '--json', '--compact'],
-      {
+    await expectCliVariants(workspaceRoot, ['contract', 'errors'], {
+      text: [
+        'Error protocol active',
+        'Issue type count: 5',
+        'Artifact paths: 7',
+        `Artifact path list: ${[
+          CI_ARTIFACT_FILES.reviewSummary,
+          CI_ARTIFACT_FILES.verificationReport,
+          CI_ARTIFACT_FILES.repairPlan,
+          CI_ARTIFACT_FILES.upgradeDiagnostics,
+          CI_ARTIFACT_FILES.upgradePlan,
+          CI_ARTIFACT_FILES.viewMutationReport,
+          'source/views/mutations'
+        ].join(', ')}`,
+        'Example repair-plan-error; code=REPAIR-BLOCKED-001',
+        'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
+        'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002'
+      ],
+      json: {
+        status: 'active',
+        exampleCount: 13,
+        issueTypeCount: 5,
+        suggestedActionCount: 20,
+        artifactPathCount: 7
+      },
+      compactJson: {
         status: 'active',
         exampleCount: 13,
         issueTypeCount: 5,
         artifactPathCount: 7
-      },
-      { compact: true }
-    );
+      }
+    });
   });
 });

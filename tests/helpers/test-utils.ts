@@ -722,6 +722,35 @@ export async function expectCliJson<T = unknown>(
   return payload;
 }
 
+type CliVariantExpectations = {
+  text: readonly string[];
+  json?: object;
+  compactJson?: object;
+  jsonStdoutMarkers?: readonly string[];
+  compactJsonStdoutMarkers?: readonly string[];
+};
+
+export async function expectCliVariants<TJson = unknown, TCompactJson = unknown>(
+  workspaceRoot: string,
+  args: string[],
+  expectations: CliVariantExpectations
+): Promise<{ text: CliResult; json: TJson; compactJson: TCompactJson }> {
+  const text = await expectCliText(workspaceRoot, args, expectations.text);
+  const json = await expectCliJson<TJson>(workspaceRoot, [...args, '--json'], expectations.json, {
+    stdoutMarkers: expectations.jsonStdoutMarkers
+  });
+  const compactJson = await expectCliJson<TCompactJson>(
+    workspaceRoot,
+    [...args, '--json', '--compact'],
+    expectations.compactJson ?? expectations.json,
+    {
+      compact: true,
+      stdoutMarkers: expectations.compactJsonStdoutMarkers
+    }
+  );
+  return { text, json, compactJson };
+}
+
 export async function runCliPipeline(
   workspaceRoot: string,
   options: { init?: boolean; verifyLane?: 'fast' | 'all'; lock?: boolean; explain?: boolean } = {}
