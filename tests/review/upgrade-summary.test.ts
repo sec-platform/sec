@@ -3,12 +3,11 @@ import { expect, test } from 'vitest';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
 import {
   buildOfficialResolvedBlock,
-  buildRepairPlanArtifact,
-  buildRepairTask,
   buildUpgradeDiagnostics,
   buildUpgradePlanArtifact,
   withTempWorkspace
