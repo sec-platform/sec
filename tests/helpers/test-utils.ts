@@ -11,7 +11,7 @@ import {
   REPAIR_USAGE
 } from '../../platform/cli/usage.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   AcceptanceCoverageReport,
@@ -74,8 +74,7 @@ let cachedRootPackage: CompilerPackage | null = null;
 
 export async function readCompilerPackageJson(): Promise<CompilerPackage> {
   if (cachedRootPackage) return cachedRootPackage;
-  const raw = await readCompilerFile('package.json');
-  cachedRootPackage = JSON.parse(raw) as CompilerPackage;
+  cachedRootPackage = await readJson<CompilerPackage>(path.join(compilerRoot, 'package.json'));
   return cachedRootPackage;
 }
 

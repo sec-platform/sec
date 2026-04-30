@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import { writeJson } from '../../platform/shared/fs.ts';
+import { formatJsonFile, writeJson } from '../../platform/shared/fs.ts';
 import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
@@ -368,7 +368,7 @@ test('json-object-merge migration creates missing JSON targets', async () => {
     ]);
 
     await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
-      `${JSON.stringify({ compiler: { upgrade: { enabled: true } } }, null, 2)}\n`
+      formatJsonFile({ compiler: { upgrade: { enabled: true } } })
     );
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
