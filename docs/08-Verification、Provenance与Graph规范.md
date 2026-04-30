@@ -78,11 +78,15 @@ Severity：`info` / `warn` / `error` / `blocker`。`error` 或 `blocker` 失败�
 
 输出：`control/graph/explain-graph.json`。Node 类型：`app`、`block`、`capability`、`pin`、`slot`、`file`、`acceptance`、`policy`、`issue`、`repair`、`upgrade`。
 
-Edge 类型：`connects_to`、`depends_on`、`originates_from`、`provides`、`verified_by`、`writes_to`。
+最终形态下，Explain Graph 必须能容纳 Engineering IR 节点：`entity`、`operation`、`view`、`event`、`permission`、`generator`。这些节点用于说明语义合约如何被降级为文件、测试、策略与验收，而不是只展示文件复制关系。
+
+Edge 类型：`connects_to`、`depends_on`、`originates_from`、`provides`、`verified_by`、`writes_to`。语义合约扩展边类型预留：`declares`、`lowers_to`、`generates`、`enforces`、`renders`。
 
 ## 6. Review Summary
 
 输出：`control/evidence/review-summary.json`。聚合 CI 摘要、链摘要、覆盖率、provenance、repair、upgrade、policy 的全部摘要信息。
+
+Review Summary 是 Review Workbench 的主数据源之一。它必须优先回答人类 review 问题：哪些 block/slot/entity/operation 发生变化、哪些文件由哪些合约或 generator 产生、哪些 acceptance/policy 失败、哪些路径需要人工决策。
 
 ## 7. 治理产物清单
 
@@ -97,9 +101,13 @@ Edge 类型：`connects_to`、`depends_on`、`originates_from`、`provides`、`v
 | Install manifest | `control/evidence/install-manifest.json` |
 | Block usage map | `control/evidence/block-usage-map.json` |
 | Explain graph | `control/graph/explain-graph.json` |
+| Explain graph Mermaid | `control/graph/explain-graph.mmd` |
+| Explain graph DOT | `control/graph/explain-graph.dot` |
 | Review summary | `control/evidence/review-summary.json` |
 | Repair plan | `control/workflow/repair-plan.json` |
 | Upgrade plan | `control/workflow/upgrade-plan.json` |
 | CI artifacts manifest | `control/ci/artifacts.json` |
 | Source view | `control/workbench/views/source-view.html` |
 | Slot rule view | `control/workbench/views/slot-rule-view.html` |
+| Graph view | `control/workbench/views/graph-view.html` |
+| Review view | `control/workbench/views/review-view.html` |
