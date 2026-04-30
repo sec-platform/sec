@@ -580,17 +580,22 @@ type SlotUpgradeDryRunFixtureContext = {
   versionRoot: string;
 };
 
-export async function prepareSlotUpgradeDryRunFixture(options: {
+type SlotUpgradeMigrationFixture = {
+  id: string;
+  kind: string;
+  entry: string;
+  requiresVerification: boolean;
+  body?: Record<string, unknown>;
+};
+
+type SlotUpgradeDryRunFixtureOptions = {
   prefix: string;
-  migration: {
-    id: string;
-    kind: string;
-    entry: string;
-    requiresVerification: boolean;
-    body: Record<string, unknown>;
-  };
   setup?: (context: SlotUpgradeDryRunFixtureContext) => Promise<void>;
-}): Promise<SlotUpgradeDryRunFixtureContext & { beforePlan: string }> {
+} & ({ migration: SlotUpgradeMigrationFixture } | { migrations: SlotUpgradeMigrationFixture[] });
+
+export async function prepareSlotUpgradeDryRunFixture(
+  options: SlotUpgradeDryRunFixtureOptions
+): Promise<SlotUpgradeDryRunFixtureContext & { beforePlan: string }> {
   const workspaceRoot = await createWorkspace(options.prefix);
   await writeSlotUpgradeFixture(workspaceRoot);
 
@@ -599,25 +604,29 @@ export async function prepareSlotUpgradeDryRunFixture(options: {
   const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
   const manifest = await readYaml<Record<string, unknown>>(manifestPath);
   const beforePlan = await fs.readFile(paths.planPath, 'utf8');
+  const migrations = 'migrations' in options ? options.migrations : [options.migration];
 
   await options.setup?.({ workspaceRoot, paths, versionRoot });
   await writeYaml(manifestPath, {
     ...manifest,
     upgrade: {
       from: ['0.1.x'],
-      migrations: [
-        {
-          id: options.migration.id,
-          kind: options.migration.kind,
-          entry: options.migration.entry,
-          fromVersion: '0.1.0',
-          toVersion: '0.2.0',
-          requiresVerification: options.migration.requiresVerification
-        }
-      ]
+      migrations: migrations.map((migration) => ({
+        id: migration.id,
+        kind: migration.kind,
+        entry: migration.entry,
+        fromVersion: '0.1.0',
+        toVersion: '0.2.0',
+        requiresVerification: migration.requiresVerification
+      }))
     }
   });
-  await writeJson(path.join(versionRoot, ...options.migration.entry.split('/')), options.migration.body);
+
+  for (const migration of migrations) {
+    if (migration.body !== undefined) {
+      await writeJson(path.join(versionRoot, ...migration.entry.split('/')), migration.body);
+    }
+  }
 
   return { workspaceRoot, paths, versionRoot, beforePlan };
 }
