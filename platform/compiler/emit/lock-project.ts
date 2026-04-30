@@ -1,6 +1,5 @@
-import fs from 'node:fs/promises';
 import { CompilerError } from '../../shared/errors.ts';
-import { readJson } from '../../shared/fs.ts';
+import { readJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
@@ -21,6 +20,6 @@ export async function lockProject(workspaceRoot: string, lock: LockFile): Promis
   lock.passStatus.lock = 'succeeded';
   await writeProvenance(workspaceRoot, lock);
   lock.passStatus.emit = 'succeeded';
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(lockPath, lock);
   return lock;
 }

@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import {
   buildCiArtifactUploadGroups,
   CI_ARTIFACT_MANIFEST_PATH,
@@ -21,7 +19,7 @@ import type {
   CiArtifactMissingEntry
 } from '../../shared/ci-artifact-types.ts';
 import { countMatching } from '../../shared/collections.ts';
-import { pathExists, readJson } from '../../shared/fs.ts';
+import { pathExists, readJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
@@ -127,15 +125,10 @@ export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
   addGeneratedPaths(lock, [CI_ARTIFACT_MANIFEST_PATH]);
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
-  await fs.mkdir(path.dirname(ciArtifactsPath), { recursive: true });
-  await fs.writeFile(
-    ciArtifactsPath,
-    `${JSON.stringify(emptyCiArtifactManifest(), null, 2)}\n`,
-    'utf8'
-  );
+  await writeJson(lockPath, lock);
+  await writeJson(ciArtifactsPath, emptyCiArtifactManifest());
   const manifest = await buildCiArtifactManifest(workspaceRoot);
-  await fs.writeFile(ciArtifactsPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeJson(ciArtifactsPath, manifest);
   await writeProvenance(workspaceRoot, lock);
   return manifest;
 }

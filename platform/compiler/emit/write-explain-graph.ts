@@ -1,10 +1,8 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
-import { pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
+import { pathExists, readJson, readOptionalJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -575,10 +573,8 @@ export async function writeExplainGraph(
     await readUpgradeDiagnostics(workspaceRoot)
   );
 
-  await fs.mkdir(path.dirname(explainGraphPath), { recursive: true });
-  await fs.mkdir(path.dirname(lockPath), { recursive: true });
-  await fs.writeFile(explainGraphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(explainGraphPath, graph);
+  await writeJson(lockPath, lock);
   await writeProvenance(workspaceRoot, lock);
   return graph;
 }
