@@ -7,6 +7,7 @@ import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { OverrideStatus, ProvenanceFile, ProvenanceOriginType } from '../../shared/provenance-types.ts';
 import type { RepairPlan, RepairTaskCategory } from '../../shared/repair-types.ts';
+import { buildReviewChainSummary } from '../../shared/review-matrix.ts';
 import { buildReviewPolicySummary } from '../../shared/review-policy.ts';
 import type {
   ReviewConflictHint,
@@ -151,50 +152,6 @@ function buildReviewCiSummary(
     impactedBlockCount: impactedBlocks.length,
     impactedSlotCount: impactedSlots.length,
     runtimeEntryCount: runtimeEntries.length
-  };
-}
-
-function buildReviewChainSummary(
-  report: VerificationReport,
-  coverageSummary: NonNullable<ReviewSummary['coverageSummary']>,
-  artifactSummary: ReviewSummary['artifactSummary']
-): ReviewSummary['chainSummary'] {
-  const stageSummaries: ReviewSummary['chainSummary']['stageSummaries'] = [
-    {
-      id: 'verification',
-      status: report.summary.status,
-      detail: `lane=${report.summary.requestedLane}; failed=${report.summary.failedLanes.join(',') || 'none'}`
-    },
-    {
-      id: 'coverage',
-      status: coverageSummary.status === 'passed'
-        ? 'passed'
-        : coverageSummary.status === 'skipped'
-          ? 'attention'
-          : 'failed',
-      detail: `blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}; slots=${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`
-    },
-    {
-      id: 'artifacts',
-      status: artifactSummary?.artifactStatus ?? 'attention',
-      detail: `total=${artifactSummary?.artifactCount ?? 0}; missing=${artifactSummary?.missingCount ?? 0}`
-    },
-    {
-      id: 'review',
-      status: 'passed',
-      detail: 'review-summary=generated'
-    }
-  ];
-  const failedStageCount = countMatching(stageSummaries, (stage) => stage.status === 'failed');
-  const attentionStageCount = countMatching(stageSummaries, (stage) => stage.status === 'attention');
-
-  return {
-    status: failedStageCount > 0 ? 'failed' : attentionStageCount > 0 ? 'attention' : 'passed',
-    stageCount: stageSummaries.length,
-    passedStageCount: countMatching(stageSummaries, (stage) => stage.status === 'passed'),
-    attentionStageCount,
-    failedStageCount,
-    stageSummaries
   };
 }
 
