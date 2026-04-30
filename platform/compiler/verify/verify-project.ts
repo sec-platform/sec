@@ -16,7 +16,7 @@ import type {
 } from '../../shared/verification-types.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
-import { runRuntimeVerification } from './run-runtime-verification.ts';
+import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import { formatCompilerFailure, typecheckProject } from './typecheck-project.ts';
 
 interface SuiteModule {
@@ -63,34 +63,6 @@ function createSkippedFastLane(): FastVerificationLaneReport {
       violations: []
     },
     policyReport: createSkippedPolicyReport(),
-    logs: {
-      stdout: '',
-      stderr: ''
-    }
-  };
-}
-
-function createSkippedRuntimeLane(): RuntimeVerificationLaneReport {
-  return {
-    status: 'skipped',
-    build: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run build'
-    },
-    unit: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:unit'
-    },
-    acceptance: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:acceptance'
-    },
     logs: {
       stdout: '',
       stderr: ''
