@@ -124,110 +124,153 @@ function ensureMigrationStringArray(value: unknown, field: string, entryPath: st
   return value;
 }
 
+type MigrationEntryValidationContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> = {
+  entry: Extract<UpgradeMigrationEntry, { kind: K }>;
+  entryPath: string;
+};
+
+type SourceMigrationEntryValidationContext = {
+  entry: Extract<UpgradeMigrationEntry, { source: string }>;
+  entryPath: string;
+};
+
+type JsonArrayMigrationEntryValidationContext = {
+  entry: Extract<UpgradeMigrationEntry, { kind: 'json-array-append' | 'json-array-remove' }>;
+  entryPath: string;
+};
+
+type MigrationEntryValidator<K extends UpgradeMigrationEntry['kind']> = (
+  context: MigrationEntryValidationContext<K>
+) => void;
+
+type MigrationEntryValidators = {
+  [K in UpgradeMigrationEntry['kind']]: MigrationEntryValidator<K>;
+};
+
+function validateSourceMigrationEntry({ entry, entryPath }: SourceMigrationEntryValidationContext): void {
+  ensureMigrationString(entry.source, 'source', entryPath);
+}
+
+function validateConfigRewriteMigrationEntry({
+  entry,
+  entryPath
+}: MigrationEntryValidationContext<'config-rewrite'>): void {
+  if (!Array.isArray(entry.updates)) {
+    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates`);
+  }
+  for (const update of entry.updates) {
+    if (typeof update !== 'object' || update === null || Array.isArray(update)) {
+      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[]`);
+    }
+    ensureMigrationStringArray(update.path, 'updates[].path', entryPath);
+    if (update.path.length === 0) {
+      throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
+    }
+    if (update.operation !== undefined && update.operation !== 'set' && update.operation !== 'delete') {
+      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].operation`);
+    }
+    if ((update.operation === undefined || update.operation === 'set') && !Object.prototype.hasOwnProperty.call(update, 'value')) {
+      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].value`);
+    }
+  }
+}
+
+function validateJsonArrayMigrationEntry({
+  entry,
+  entryPath
+}: JsonArrayMigrationEntryValidationContext): void {
+  ensureMigrationStringArray(entry.path, 'path', entryPath);
+  if (entry.path.length === 0) {
+    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
+  }
+  if (!Array.isArray(entry.items) || entry.items.length === 0) {
+    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires items`);
+  }
+}
+
+function validateJsonObjectMergeMigrationEntry({
+  entry,
+  entryPath
+}: MigrationEntryValidationContext<'json-object-merge'>): void {
+  ensureMigrationStringArray(entry.path, 'path', entryPath);
+  if (entry.path.length === 0) {
+    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
+  }
+  if (!isJsonObject(entry.value)) {
+    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires value`);
+  }
+}
+
+function validateTextReplaceRegexMigrationEntry({
+  entry,
+  entryPath
+}: MigrationEntryValidationContext<'text-replace-regex'>): void {
+  ensureMigrationString(entry.pattern, 'pattern', entryPath);
+  ensureMigrationString(entry.replacement, 'replacement', entryPath);
+  if (entry.flags !== undefined) {
+    ensureMigrationString(entry.flags, 'flags', entryPath);
+  }
+}
+
+function validateSlotContractMigrationEntry({
+  entry,
+  entryPath
+}: MigrationEntryValidationContext<'slot-contract-update'>): void {
+  ensureMigrationString(entry.slotId, 'slotId', entryPath);
+  if (entry.inputType !== undefined) {
+    ensureMigrationString(entry.inputType, 'inputType', entryPath);
+  }
+  if (entry.outputType !== undefined) {
+    ensureMigrationString(entry.outputType, 'outputType', entryPath);
+  }
+  if (entry.writableZones !== undefined) {
+    ensureMigrationStringArray(entry.writableZones, 'writableZones', entryPath);
+  }
+}
+
+const validateTargetOnlyMigrationEntry = (): void => {};
+
+const migrationEntryValidators = {
+  'file-replace': validateSourceMigrationEntry,
+  'copy-file': validateSourceMigrationEntry,
+  'copy-directory': validateSourceMigrationEntry,
+  'config-rewrite': validateConfigRewriteMigrationEntry,
+  'json-array-append': validateJsonArrayMigrationEntry,
+  'json-array-remove': validateJsonArrayMigrationEntry,
+  'json-object-merge': validateJsonObjectMergeMigrationEntry,
+  'text-append': ({ entry, entryPath }) => {
+    ensureMigrationString(entry.content, 'content', entryPath);
+  },
+  'text-replace': ({ entry, entryPath }) => {
+    ensureMigrationString(entry.search, 'search', entryPath);
+    ensureMigrationString(entry.replacement, 'replacement', entryPath);
+  },
+  'text-replace-regex': validateTextReplaceRegexMigrationEntry,
+  'create-directory': validateTargetOnlyMigrationEntry,
+  'delete-file': validateTargetOnlyMigrationEntry,
+  'delete-directory': validateTargetOnlyMigrationEntry,
+  'rename-file': validateSourceMigrationEntry,
+  'rename-directory': validateSourceMigrationEntry,
+  'slot-contract-update': validateSlotContractMigrationEntry
+} satisfies MigrationEntryValidators;
+
 function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string): void {
   ensureMigrationString(entry.id, 'id', entryPath);
   ensureMigrationString(entry.kind, 'kind', entryPath);
   ensureMigrationString(entry.reason, 'reason', entryPath);
   ensureMigrationString(entry.target, 'target', entryPath);
 
-  if (entry.kind === 'file-replace' || entry.kind === 'copy-file' || entry.kind === 'copy-directory') {
-    ensureMigrationString(entry.source, 'source', entryPath);
-    return;
+  const validator = (
+    migrationEntryValidators as Partial<Record<string, (context: {
+      entry: UpgradeMigrationEntry;
+      entryPath: string;
+    }) => void>>
+  )[entry.kind];
+  if (!validator) {
+    const unsupportedEntry = entry as { kind: string };
+    throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
   }
-
-  if (entry.kind === 'config-rewrite') {
-    if (!Array.isArray(entry.updates)) {
-      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates`);
-    }
-    for (const update of entry.updates) {
-      if (typeof update !== 'object' || update === null || Array.isArray(update)) {
-        throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[]`);
-      }
-      ensureMigrationStringArray(update.path, 'updates[].path', entryPath);
-      if (update.path.length === 0) {
-        throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
-      }
-      if (update.operation !== undefined && update.operation !== 'set' && update.operation !== 'delete') {
-        throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].operation`);
-      }
-      if ((update.operation === undefined || update.operation === 'set') && !Object.prototype.hasOwnProperty.call(update, 'value')) {
-        throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].value`);
-      }
-    }
-    return;
-  }
-
-  if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
-    ensureMigrationStringArray(entry.path, 'path', entryPath);
-    if (entry.path.length === 0) {
-      throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
-    }
-    if (!Array.isArray(entry.items) || entry.items.length === 0) {
-      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires items`);
-    }
-    return;
-  }
-
-  if (entry.kind === 'json-object-merge') {
-    ensureMigrationStringArray(entry.path, 'path', entryPath);
-    if (entry.path.length === 0) {
-      throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
-    }
-    if (!isJsonObject(entry.value)) {
-      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires value`);
-    }
-    return;
-  }
-
-  if (entry.kind === 'text-append') {
-    ensureMigrationString(entry.content, 'content', entryPath);
-    return;
-  }
-
-  if (entry.kind === 'text-replace') {
-    ensureMigrationString(entry.search, 'search', entryPath);
-    ensureMigrationString(entry.replacement, 'replacement', entryPath);
-    return;
-  }
-
-  if (entry.kind === 'text-replace-regex') {
-    ensureMigrationString(entry.pattern, 'pattern', entryPath);
-    ensureMigrationString(entry.replacement, 'replacement', entryPath);
-    if (entry.flags !== undefined) {
-      ensureMigrationString(entry.flags, 'flags', entryPath);
-    }
-    return;
-  }
-
-  if (
-    entry.kind === 'create-directory' ||
-    entry.kind === 'delete-file' ||
-    entry.kind === 'delete-directory'
-  ) {
-    return;
-  }
-
-  if (entry.kind === 'rename-file' || entry.kind === 'rename-directory') {
-    ensureMigrationString(entry.source, 'source', entryPath);
-    return;
-  }
-
-  if (entry.kind === 'slot-contract-update') {
-    ensureMigrationString(entry.slotId, 'slotId', entryPath);
-    if (entry.inputType !== undefined) {
-      ensureMigrationString(entry.inputType, 'inputType', entryPath);
-    }
-    if (entry.outputType !== undefined) {
-      ensureMigrationString(entry.outputType, 'outputType', entryPath);
-    }
-    if (entry.writableZones !== undefined) {
-      ensureMigrationStringArray(entry.writableZones, 'writableZones', entryPath);
-    }
-    return;
-  }
-
-  const unsupportedEntry = entry as { kind: string };
-  throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
+  validator({ entry, entryPath });
 }
 
 async function loadMigrationEntries(
