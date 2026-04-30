@@ -4,27 +4,20 @@ import { expect, test } from 'vitest';
 
 import {
   adaptWorkspace,
-  addBlock,
-  composeWorkspace,
   explainWorkspace,
-  initWorkspace,
   lockWorkspace,
-  resolveWorkspace,
   upgradeWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { prepareComposedWorkspace, prepareLockedWorkspace } from '../helpers/test-utils.ts';
 
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-');
+  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-upgrade-' });
   const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
 
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
   const beforeUpgrade = await fs.readFile(
     path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts'),
     'utf8'
@@ -167,15 +160,10 @@ test('upgrade advances an official block version and preserves a passing pipelin
 }, 180000);
 
 test('upgrade advances ticket block version and surfaces runtime upgrade impact', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-ticket-upgrade-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await addBlock(workspaceRoot, 'ticket/basic');
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
-  await verifyWorkspace(workspaceRoot);
-  await lockWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareLockedWorkspace({
+    prefix: 'engineering-compiler-ticket-upgrade-',
+    blockIds: ['ticket/basic']
+  });
 
   const ticketServicePath = path.join(workspaceRoot, 'project', 'src', 'installed', 'ticket', 'ticket-service.ts');
   const beforeUpgrade = await fs.readFile(ticketServicePath, 'utf8');

@@ -2,29 +2,19 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import {
-  adaptWorkspace,
-  composeWorkspace,
-  initWorkspace,
-  lockWorkspace,
-  resolveWorkspace,
-  upgradeWorkspace,
-  verifyWorkspace
-} from '../../platform/orchestrator.ts';
+import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace, expectFileUnchanged, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
+import {
+  createWorkspace,
+  expectFileUnchanged,
+  prepareLockedWorkspace,
+  writeSlotUpgradeFixture
+} from '../helpers/test-utils.ts';
 
 test('upgrade dry-run writes a planned upgrade without changing project files', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-dry-run-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
-  await verifyWorkspace(workspaceRoot);
-  await lockWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-dry-run-' });
 
   const { lockPath, planPath, provenancePath } = getWorkspacePaths(workspaceRoot);
   const sessionPath = path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts');

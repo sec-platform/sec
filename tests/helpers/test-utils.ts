@@ -11,6 +11,15 @@ import {
   REPAIR_USAGE
 } from '../../platform/cli/usage.ts';
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
+import {
+  adaptWorkspace,
+  addBlock,
+  composeWorkspace,
+  initWorkspace,
+  lockWorkspace,
+  resolveWorkspace,
+  verifyWorkspace
+} from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES, emptyCiArtifactMissingReasonCounts } from '../../platform/shared/ci-artifact-contract.ts';
 import type {
   CiArtifactKind,
@@ -71,6 +80,35 @@ export async function withTempWorkspace<T>(
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   }
+}
+
+type WorkspacePipelineFixtureOptions = {
+  prefix?: string;
+  blockIds?: string[];
+};
+
+export async function prepareComposedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
+  const workspaceRoot = await createWorkspace(options.prefix);
+  await initWorkspace(workspaceRoot, { reset: true });
+  for (const blockId of options.blockIds ?? []) {
+    await addBlock(workspaceRoot, blockId);
+  }
+  await resolveWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
+  return workspaceRoot;
+}
+
+export async function prepareAdaptedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
+  const workspaceRoot = await prepareComposedWorkspace(options);
+  await adaptWorkspace(workspaceRoot);
+  return workspaceRoot;
+}
+
+export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
+  const workspaceRoot = await prepareAdaptedWorkspace(options);
+  await verifyWorkspace(workspaceRoot);
+  await lockWorkspace(workspaceRoot);
+  return workspaceRoot;
 }
 
 const compilerFileCache = new Map<string, string>();

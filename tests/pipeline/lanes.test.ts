@@ -1,22 +1,10 @@
 import { expect, test } from 'vitest';
 
-import {
-  adaptWorkspace,
-  composeWorkspace,
-  initWorkspace,
-  lockWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
-} from '../../platform/orchestrator.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { lockWorkspace, verifyWorkspace } from '../../platform/orchestrator.ts';
+import { prepareAdaptedWorkspace } from '../helpers/test-utils.ts';
 
 test('fast lane alone does not unlock the workspace', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-fast-lane-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-fast-lane-' });
 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');
@@ -30,12 +18,7 @@ test('fast lane alone does not unlock the workspace', async () => {
 });
 
 test('runtime lane runs generated service tests without full browser acceptance', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-runtime-service-lane-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-runtime-service-lane-' });
 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'runtime' });
   expect(report.summary.status).toBe('passed');
