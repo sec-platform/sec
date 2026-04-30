@@ -16,12 +16,12 @@ import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import {
-  createWorkspace,
   expectGraphEdge,
   expectGraphNode,
   expectReviewConflictHint,
   expectReviewRegressionRisk
-} from '../helpers/test-utils.ts';
+} from '../helpers/graph-assertions.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('override-manifest can replace a generated file and surface override provenance', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-override-');

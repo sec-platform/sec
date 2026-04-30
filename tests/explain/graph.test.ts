@@ -15,13 +15,11 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
+import { expectGraphEdge, expectGraphNode, expectNoGraphNode } from '../helpers/graph-assertions.ts';
 import {
   buildOfficialResolvedBlock,
   createWorkspace,
-  emptyPolicyScopeReport,
-  expectGraphEdge,
-  expectGraphNode,
-  expectNoGraphNode
+  emptyPolicyScopeReport
 } from '../helpers/test-utils.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {

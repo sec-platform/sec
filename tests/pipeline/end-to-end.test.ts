@@ -14,7 +14,8 @@ import {
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace, expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/test-utils.ts';
+import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
