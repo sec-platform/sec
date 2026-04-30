@@ -3,10 +3,11 @@ import { expect, test } from 'vitest';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
-import { buildOfficialResolvedBlock, withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {

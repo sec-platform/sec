@@ -1,9 +1,86 @@
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import type { RepairPlan } from '../../platform/shared/types.ts';
+import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
+import type { LockFile, PlanFile, RepairPlan } from '../../platform/shared/types.ts';
+import { buildOfficialResolvedBlock, buildSingleTenantLockApp } from './lock-fixtures.ts';
+import { buildSingleTenantPlanApp } from './plan-fixtures.ts';
+
+type CustomerNormalizerPlanOptions = {
+  slotDescription?: string;
+};
+
+type CustomerNormalizerLockOptions = {
+  slotStatus?: LockFile['slotTasks'][number]['status'];
+  passStatus?: Partial<LockFile['passStatus']>;
+};
 
 type RepairFailurePoint = RepairPlan['tasks'][number]['failurePoints'][number];
 type RepairTask = RepairPlan['tasks'][number];
 type RepairBlocker = NonNullable<RepairPlan['blockers']>[number];
+
+export function buildCustomerNormalizerPlan(options: CustomerNormalizerPlanOptions = {}): PlanFile {
+  return {
+    app: buildSingleTenantPlanApp(),
+    registry: { sources: [] },
+    blocks: [{ id: 'entity/customer-basic', version: '0.1.0' }],
+    slots: [
+      {
+        id: 'customer_normalizer',
+        block: 'entity/customer-basic',
+        kind: 'adapter',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomerInput',
+        description: options.slotDescription ?? 'Normalize customer input.'
+      }
+    ],
+    acceptance: [{ id: 'user_can_create_customer' }]
+  };
+}
+
+export function buildCustomerNormalizerLock(options: CustomerNormalizerLockOptions = {}): LockFile {
+  return {
+    formatVersion: '1',
+    app: buildSingleTenantLockApp(),
+    resolvedBlocks: [
+      buildOfficialResolvedBlock({
+        id: 'entity/customer-basic',
+        installOrder: 1,
+        manifestPath: 'block.manifest.yaml'
+      })
+    ],
+    resolvedCapabilities: ['customer/write'],
+    installPlan: [],
+    slotTasks: [
+      {
+        id: 'customer_normalizer',
+        block: 'entity/customer-basic',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomerInput',
+        kind: 'adapter',
+        status: options.slotStatus ?? 'failed',
+        writableZones: ['custom/customer_normalizer.ts'],
+        provenanceHints: {
+          generator: 'mock-local-synthesizer',
+          verifiedBy: []
+        }
+      }
+    ],
+    generatedPaths: [],
+    acceptancePlan: ['user_can_create_customer'],
+    passStatus: {
+      ...PASS_STATUS_PENDING,
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'failed',
+      repair: 'pending',
+      lock: 'pending',
+      emit: 'pending',
+      ...options.passStatus
+    }
+  };
+}
 
 export function buildRepairFailurePoint(options: Partial<RepairFailurePoint> = {}): RepairFailurePoint {
   return {

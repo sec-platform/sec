@@ -5,8 +5,9 @@ import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
+import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
 import { buildPassingReviewReport, buildRuntimeVerificationReport } from '../helpers/review-fixtures.ts';
-import { buildOfficialCopyInstallStep, withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('buildProvenance sorts and deduplicates slot verification hints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

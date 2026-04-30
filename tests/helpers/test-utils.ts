@@ -25,12 +25,12 @@ import type {
   CiArtifactMissingReason,
   CiArtifactUploadGroup
 } from '../../platform/shared/ci-artifact-types.ts';
-import { PASS_STATUS_PENDING, SUPPORTED_STACK } from '../../platform/shared/constants.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile, PlanFile, PolicyReport } from '../../platform/shared/types.ts';
+import type { LockFile, PolicyReport } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+import { buildSingleTenantLockApp } from './lock-fixtures.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
@@ -117,129 +117,6 @@ export async function readCompilerPackageJson(): Promise<CompilerPackage> {
   if (cachedRootPackage) return cachedRootPackage;
   cachedRootPackage = await readJson<CompilerPackage>(path.join(compilerRoot, 'package.json'));
   return cachedRootPackage;
-}
-
-function buildSingleTenantLockApp(options: Partial<LockFile['app']> = {}): LockFile['app'] {
-  return {
-    name: options.name ?? 'customer-admin',
-    stack: options.stack ?? SUPPORTED_STACK,
-    mode: options.mode ?? 'single-tenant'
-  };
-}
-
-const officialRegistryMetadata = {
-  registrySourceId: 'official',
-  registryKind: 'official',
-  registryLocation: 'compiler',
-  registryPath: 'platform/registry/official'
-} as const;
-
-export function buildOfficialResolvedBlock(options: {
-  id: string;
-  installOrder: number;
-  version?: string;
-  kind?: LockFile['resolvedBlocks'][number]['kind'];
-  manifestPath?: string;
-}): LockFile['resolvedBlocks'][number] {
-  return {
-    version: '0.1.0',
-    kind: 'capability',
-    manifestPath: 'manifest.yaml',
-    ...officialRegistryMetadata,
-    ...options
-  };
-}
-
-type OfficialInstallStepOptions = Omit<
-  LockFile['installPlan'][number],
-  'registrySourceId' | 'registryKind' | 'registryLocation' | 'registryPath'
->;
-
-type OfficialCopyInstallStepOptions = Omit<OfficialInstallStepOptions, 'action'>;
-
-export function buildOfficialInstallStep(options: OfficialInstallStepOptions): LockFile['installPlan'][number] {
-  return {
-    ...officialRegistryMetadata,
-    ...options
-  };
-}
-
-export function buildOfficialCopyInstallStep(options: OfficialCopyInstallStepOptions): LockFile['installPlan'][number] {
-  return buildOfficialInstallStep({ action: 'copy', ...options });
-}
-
-type CustomerNormalizerPlanOptions = {
-  slotDescription?: string;
-};
-
-export function buildCustomerNormalizerPlan(options: CustomerNormalizerPlanOptions = {}): PlanFile {
-  return {
-    app: buildSingleTenantPlanApp(),
-    registry: { sources: [] },
-    blocks: [{ id: 'entity/customer-basic', version: '0.1.0' }],
-    slots: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        kind: 'adapter',
-        target: 'custom/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        description: options.slotDescription ?? 'Normalize customer input.'
-      }
-    ],
-    acceptance: [{ id: 'user_can_create_customer' }]
-  };
-}
-
-type CustomerNormalizerLockOptions = {
-  slotStatus?: LockFile['slotTasks'][number]['status'];
-  passStatus?: Partial<LockFile['passStatus']>;
-};
-
-export function buildCustomerNormalizerLock(options: CustomerNormalizerLockOptions = {}): LockFile {
-  return {
-    formatVersion: '1',
-    app: buildSingleTenantLockApp(),
-    resolvedBlocks: [
-      buildOfficialResolvedBlock({
-        id: 'entity/customer-basic',
-        installOrder: 1,
-        manifestPath: 'block.manifest.yaml'
-      })
-    ],
-    resolvedCapabilities: ['customer/write'],
-    installPlan: [],
-    slotTasks: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        target: 'custom/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        kind: 'adapter',
-        status: options.slotStatus ?? 'failed',
-        writableZones: ['custom/customer_normalizer.ts'],
-        provenanceHints: {
-          generator: 'mock-local-synthesizer',
-          verifiedBy: []
-        }
-      }
-    ],
-    generatedPaths: [],
-    acceptancePlan: ['user_can_create_customer'],
-    passStatus: {
-      ...PASS_STATUS_PENDING,
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'failed',
-      repair: 'pending',
-      lock: 'pending',
-      emit: 'pending',
-      ...options.passStatus
-    }
-  };
 }
 
 export function emptyPolicyScopeReport(): PolicyReport['project'] {
