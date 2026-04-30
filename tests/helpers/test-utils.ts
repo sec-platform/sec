@@ -10,7 +10,7 @@ import {
   POSTGRES_USAGE,
   REPAIR_USAGE
 } from '../../platform/cli/usage.ts';
-import { emptyCiArtifactMissingReasonCounts } from '../../platform/shared/ci-artifact-contract.ts';
+import { CI_ARTIFACT_FILES, emptyCiArtifactMissingReasonCounts } from '../../platform/shared/ci-artifact-contract.ts';
 import type {
   CiArtifactKind,
   CiArtifactMissingReason,
@@ -32,7 +32,10 @@ import type {
   PlanFile,
   PolicyReport,
   ProvenanceFile,
+  RepairPlan,
   ReviewProvenanceRegistrySummary,
+  UpgradeDiagnostics,
+  UpgradePlan,
   VerificationReport
 } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
@@ -385,6 +388,193 @@ export function buildReviewInputs(options: ReviewInputsOptions = {}): ReviewInpu
     report: buildPassingReviewReport(options.report),
     coverage: buildPassingReviewCoverage(options.coverage)
   };
+}
+
+type RepairFailurePoint = RepairPlan['tasks'][number]['failurePoints'][number];
+type RepairTask = RepairPlan['tasks'][number];
+type RepairBlocker = NonNullable<RepairPlan['blockers']>[number];
+
+export function buildRepairFailurePoint(options: Partial<RepairFailurePoint> = {}): RepairFailurePoint {
+  return {
+    lane: 'fast',
+    kind: 'unit',
+    issueType: 'slot',
+    repairable: true,
+    artifactPath: 'tests/unit',
+    message: 'Unit verification failed',
+    targetIds: ['zeta.test.ts'],
+    ...options
+  };
+}
+
+export function buildRepairTask(options: Partial<RepairTask> = {}): RepairTask {
+  const sourceSlotId = options.sourceSlotId ?? 'customer_normalizer';
+  const targetFile = options.targetFile ?? `custom/${sourceSlotId}.ts`;
+  return {
+    taskId: options.taskId ?? `repair_slot_${sourceSlotId}`,
+    taskKind: 'repair-slot',
+    phase: 'repair',
+    sourceSlotId,
+    targetBlock: 'entity/customer-basic',
+    targetFile,
+    allowedPaths: [targetFile],
+    requiredSymbols: ['normalizeCustomerInput'],
+    forbiddenOperations: [],
+    testsToPass: [],
+    failureSummary: 'build=passed; unit=failed; acceptance=passed; policy=passed; runtime=skipped',
+    failurePoints: [buildRepairFailurePoint()],
+    ...options
+  };
+}
+
+export function buildRepairBlocker(options: Partial<RepairBlocker> = {}): RepairBlocker {
+  return {
+    blockerId: 'repair_blocker_policy',
+    boundary: 'spec',
+    reason: 'policy failure is outside automatic slot repair: tenant scope missing',
+    decisionRequired: 'Decide whether to change policy/spec, installed source, or project plan before repair can proceed.',
+    failurePoints: [
+      buildRepairFailurePoint({
+        kind: 'policy',
+        issueType: 'spec',
+        repairable: false,
+        artifactPath: CI_ARTIFACT_FILES.policyReport,
+        message: 'tenant scope missing',
+        targetIds: ['tenant-scope-required']
+      })
+    ],
+    ...options
+  };
+}
+
+export function buildRepairPlanArtifact(options: Partial<RepairPlan> = {}): RepairPlan {
+  return {
+    formatVersion: '1',
+    status: 'pending',
+    sourceVerificationStatus: 'failed',
+    requiresVerification: false,
+    tasks: [],
+    ...options
+  };
+}
+
+export function buildUpgradeDiagnostics(options: Partial<UpgradeDiagnostics> = {}): UpgradeDiagnostics {
+  return {
+    formatVersion: '1',
+    status: 'blocked',
+    phase: 'planning',
+    blockId: 'private/slot-contract',
+    targetVersion: '0.2.0',
+    failedCheck: 'migration-targets',
+    errorCode: 'UPGRADE-MIGRATION-004',
+    message: 'Migration path "../outside-project.md" escapes project root',
+    ...options
+  };
+}
+
+export function buildUpgradePlanArtifact(options: Partial<UpgradePlan> = {}): UpgradePlan {
+  const base: UpgradePlan = {
+    formatVersion: '1',
+    blockId: 'auth/basic-session',
+    fromVersion: '0.1.0',
+    toVersion: '0.1.1',
+    status: 'planned',
+    preflightChecks: [
+      {
+        id: 'version-range',
+        status: 'passed',
+        message: 'Upgrade path 0.1.0 -> 0.1.1 is allowed',
+        evidence: ['0.1.x']
+      },
+      {
+        id: 'migration-entries',
+        status: 'passed',
+        message: '1 migration entries loaded and validated',
+        evidence: ['mig-auth-session-refresh:migrations/auth-session-refresh.json']
+      },
+      {
+        id: 'migration-targets',
+        status: 'passed',
+        message: '1 migration paths checked',
+        evidence: ['mig-auth-session-refresh:target:src/installed/auth/session.ts:exists']
+      },
+      {
+        id: 'migration-file-operations',
+        status: 'passed',
+        message: '1 file operations checked',
+        evidence: ['mig-auth-session-refresh:manifest-source:exists']
+      },
+      {
+        id: 'migration-json-shapes',
+        status: 'passed',
+        message: '0 JSON migration shapes checked',
+        evidence: []
+      },
+      {
+        id: 'migration-json-structure',
+        status: 'passed',
+        message: '0 JSON migration targets checked',
+        evidence: []
+      },
+      {
+        id: 'migration-text-patterns',
+        status: 'passed',
+        message: '0 text replacement patterns checked',
+        evidence: []
+      },
+      {
+        id: 'migration-slot-contracts',
+        status: 'passed',
+        message: '0 slot contract fields checked',
+        evidence: []
+      },
+      {
+        id: 'impact-scan',
+        status: 'passed',
+        message: '1 upgrade impacts calculated',
+        evidence: ['src/installed/auth/session.ts']
+      },
+      {
+        id: 'override-conflicts',
+        status: 'passed',
+        message: '0 overrides scanned with no conflicts',
+        evidence: []
+      }
+    ],
+    impacts: ['src/installed/auth/session.ts'],
+    migrations: [
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        entry: 'migrations/auth-session-refresh.json',
+        requiresVerification: true
+      }
+    ],
+    migrationKindCounts: {
+      'file-replace': 1
+    },
+    migrationSummaries: [
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
+        requiresVerification: true,
+        source: 'files/src/installed/auth/session.ts'
+      }
+    ],
+    migrationOperations: [
+      {
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        role: 'file',
+        source: 'files/src/installed/auth/session.ts'
+      }
+    ]
+  };
+
+  return { ...base, ...options };
 }
 
 export async function installRuntimeDeps(cwd: string): Promise<void> {

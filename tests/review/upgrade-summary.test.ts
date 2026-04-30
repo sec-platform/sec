@@ -4,12 +4,15 @@ import { buildReviewSummary } from '../../platform/compiler/emit/write-review-su
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type {
-  RepairPlan,
-  UpgradeDiagnostics,
-  UpgradePlan
-} from '../../platform/shared/types.ts';
-import { buildOfficialResolvedBlock, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  buildOfficialResolvedBlock,
+  buildRepairPlanArtifact,
+  buildRepairTask,
+  buildReviewInputs,
+  buildUpgradeDiagnostics,
+  buildUpgradePlanArtifact,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -30,110 +33,8 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         }
       }
     });
-    const upgradePlan: UpgradePlan = {
-      formatVersion: '1',
-      blockId: 'auth/basic-session',
-      fromVersion: '0.1.0',
-      toVersion: '0.1.1',
-      status: 'planned',
-      preflightChecks: [
-        {
-          id: 'version-range',
-          status: 'passed',
-          message: 'Upgrade path 0.1.0 -> 0.1.1 is allowed',
-          evidence: ['0.1.x']
-        },
-        {
-          id: 'migration-entries',
-          status: 'passed',
-          message: '1 migration entries loaded and validated',
-          evidence: ['mig-auth-session-refresh:migrations/auth-session-refresh.json']
-        },
-        {
-          id: 'migration-targets',
-          status: 'passed',
-          message: '1 migration paths checked',
-          evidence: ['mig-auth-session-refresh:target:src/installed/auth/session.ts:exists']
-        },
-        {
-          id: 'migration-file-operations',
-          status: 'passed',
-          message: '1 file operations checked',
-          evidence: ['mig-auth-session-refresh:manifest-source:exists']
-        },
-        {
-          id: 'migration-json-shapes',
-          status: 'passed',
-          message: '0 JSON migration shapes checked',
-          evidence: []
-        },
-        {
-          id: 'migration-json-structure',
-          status: 'passed',
-          message: '0 JSON migration targets checked',
-          evidence: []
-        },
-        {
-          id: 'migration-text-patterns',
-          status: 'passed',
-          message: '0 text replacement patterns checked',
-          evidence: []
-        },
-        {
-          id: 'migration-slot-contracts',
-          status: 'passed',
-          message: '0 slot contract fields checked',
-          evidence: []
-        },
-        {
-          id: 'impact-scan',
-          status: 'passed',
-          message: '1 upgrade impacts calculated',
-          evidence: ['src/installed/auth/session.ts']
-        },
-        {
-          id: 'override-conflicts',
-          status: 'passed',
-          message: '0 overrides scanned with no conflicts',
-          evidence: []
-        }
-      ],
-      impacts: ['src/installed/auth/session.ts'],
-      migrations: [
-        {
-          id: 'mig-auth-session-refresh',
-          kind: 'file-replace',
-          entry: 'migrations/auth-session-refresh.json',
-          requiresVerification: true
-        }
-      ],
-      migrationKindCounts: {
-        'file-replace': 1
-      },
-      migrationSummaries: [
-        {
-          id: 'mig-auth-session-refresh',
-          kind: 'file-replace',
-          target: 'src/installed/auth/session.ts',
-          reason: 'Refresh auth session implementation to 0.1.1 and expose version metadata.',
-          requiresVerification: true,
-          source: 'files/src/installed/auth/session.ts'
-        }
-      ],
-      migrationOperations: [
-        {
-          id: 'mig-auth-session-refresh',
-          kind: 'file-replace',
-          target: 'src/installed/auth/session.ts',
-          role: 'file',
-          source: 'files/src/installed/auth/session.ts'
-        }
-      ]
-    };
-    const upgradeDiagnostics: UpgradeDiagnostics = {
-      formatVersion: '1',
-      status: 'blocked',
-      phase: 'planning',
+    const upgradePlan = buildUpgradePlanArtifact();
+    const upgradeDiagnostics = buildUpgradeDiagnostics({
       blockId: 'auth/basic-session',
       targetVersion: '0.1.1',
       failedCheck: 'override-conflicts',
@@ -143,43 +44,27 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         failedCheck: 'override-conflicts',
         overrideId: 'manual-auth-session-hotfix'
       }
-    };
-    const repairPlan: RepairPlan = {
-      formatVersion: '1',
-      status: 'pending',
-      sourceVerificationStatus: 'failed',
-      requiresVerification: false,
+    });
+    const repairPlan = buildRepairPlanArtifact({
       tasks: [
-        {
+        buildRepairTask({
           taskId: 'repair_zeta',
-          taskKind: 'repair-slot',
-          phase: 'repair',
           sourceSlotId: 'zeta',
-          targetBlock: 'entity/customer-basic',
           targetFile: 'custom/zeta.ts',
-          allowedPaths: ['custom/zeta.ts'],
           requiredSymbols: [],
-          forbiddenOperations: [],
-          testsToPass: [],
           failureSummary: 'unit=failed',
           failurePoints: []
-        },
-        {
+        }),
+        buildRepairTask({
           taskId: 'repair_alpha',
-          taskKind: 'repair-slot',
-          phase: 'repair',
           sourceSlotId: 'alpha',
-          targetBlock: 'entity/customer-basic',
           targetFile: 'custom/alpha.ts',
-          allowedPaths: ['custom/alpha.ts'],
           requiredSymbols: [],
-          forbiddenOperations: [],
-          testsToPass: [],
           failureSummary: 'unit=failed',
           failurePoints: []
-        }
+        })
       ]
-    };
+    });
     await writeJson(upgradePlanPath, upgradePlan);
     await writeJson(upgradeDiagnosticsPath, upgradeDiagnostics);
     await writeJson(repairPlanPath, repairPlan);
@@ -330,12 +215,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
         }
       }
     });
-    const diagnostics: UpgradeDiagnostics = {
-      formatVersion: '1',
-      status: 'blocked',
-      phase: 'planning',
-      blockId: 'private/slot-contract',
-      targetVersion: '0.2.0',
+    const diagnostics = buildUpgradeDiagnostics({
       failedCheck: 'migration-targets',
       errorCode: 'UPGRADE-MIGRATION-004',
       message: 'Migration path "../outside-project.md" escapes project root',
@@ -346,7 +226,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
         role: 'target',
         root: 'project'
       }
-    };
+    });
 
     await writeJson(upgradeDiagnosticsPath, diagnostics);
 
@@ -383,12 +263,7 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
 test('review summary includes entry migration attribution in upgrade failure points', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const diagnostics: UpgradeDiagnostics = {
-      formatVersion: '1',
-      status: 'blocked',
-      phase: 'planning',
-      blockId: 'private/slot-contract',
-      targetVersion: '0.2.0',
+    const diagnostics = buildUpgradeDiagnostics({
       failedCheck: 'migration-entries',
       errorCode: 'UPGRADE-MIGRATION-003',
       message: 'Migration entry "migrations/mismatched-entry.json" does not match manifest metadata',
@@ -399,7 +274,7 @@ test('review summary includes entry migration attribution in upgrade failure poi
         entryId: 'mig-actual-entry',
         entryKind: 'text-replace'
       }
-    };
+    });
 
     await writeJson(upgradeDiagnosticsPath, diagnostics);
 
@@ -425,12 +300,8 @@ test('review summary includes entry migration attribution in upgrade failure poi
 test('review summary includes apply migration attribution in upgrade failure points', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const diagnostics: UpgradeDiagnostics = {
-      formatVersion: '1',
-      status: 'blocked',
+    const diagnostics = buildUpgradeDiagnostics({
       phase: 'apply',
-      blockId: 'private/slot-contract',
-      targetVersion: '0.2.0',
       failedCheck: 'migration-file-operations',
       errorCode: 'UPGRADE-MIGRATION-016',
       message: 'slot-contract-update target "custom/customer_normalizer.ts" is missing',
@@ -441,7 +312,7 @@ test('review summary includes apply migration attribution in upgrade failure poi
         target: 'custom/customer_normalizer.ts',
         rollbackStatus: 'restored'
       }
-    };
+    });
 
     await writeJson(upgradeDiagnosticsPath, diagnostics);
 

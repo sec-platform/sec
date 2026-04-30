@@ -12,6 +12,8 @@ import { writeYaml } from '../../platform/shared/yaml.ts';
 import {
   buildOfficialResolvedBlock,
   buildPassingReviewReport,
+  buildRepairPlanArtifact,
+  buildRepairTask,
   expectCliText,
   runCliInProcess as runCli,
   withTempWorkspace
@@ -252,24 +254,11 @@ test('repair blocks targets that escape the workspace root before writing source
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
     const fixtureLock = lock();
-    const repairPlan: RepairPlan = {
-      formatVersion: '1',
-      status: 'pending',
-      sourceVerificationStatus: 'failed',
-      requiresVerification: false,
+    const repairPlan = buildRepairPlanArtifact({
       tasks: [
-        {
-          taskId: 'repair_slot_customer_normalizer',
-          taskKind: 'repair-slot',
-          phase: 'repair',
-          sourceSlotId: 'customer_normalizer',
-          targetBlock: 'entity/customer-basic',
+        buildRepairTask({
           targetFile: '../../outside.ts',
           allowedPaths: ['../../outside.ts'],
-          requiredSymbols: ['normalizeCustomerInput'],
-          forbiddenOperations: [],
-          testsToPass: [],
-          failureSummary: 'build=passed; unit=failed; acceptance=passed; policy=passed; runtime=skipped',
           failurePoints: [
             {
               lane: 'fast',
@@ -280,9 +269,9 @@ test('repair blocks targets that escape the workspace root before writing source
               message: 'Unit verification failed'
             }
           ]
-        }
+        })
       ]
-    };
+    });
 
     await expect(applyRepairPlan(workspaceRoot, plan(), fixtureLock, repairPlan)).rejects.toThrow(
       'Repair target "../../outside.ts" escapes workspace root'

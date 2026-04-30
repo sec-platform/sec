@@ -4,8 +4,14 @@ import { buildReviewSummary } from '../../platform/compiler/emit/write-review-su
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { RepairPlan } from '../../platform/shared/types.ts';
-import { buildPassingReviewReport, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  buildPassingReviewReport,
+  buildRepairBlocker,
+  buildRepairPlanArtifact,
+  buildRepairTask,
+  buildReviewInputs,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -30,89 +36,31 @@ test('review summary surfaces pending repair tasks', async () => {
         failedLanes: ['fast']
       }
     });
-    const repairPlan: RepairPlan = {
-      formatVersion: '1',
-      status: 'pending',
-      sourceVerificationStatus: 'failed',
-      requiresVerification: false,
+    const repairPlan = buildRepairPlanArtifact({
       tasks: [
-        {
+        buildRepairTask({
           taskId: 'repair_slot_zeta',
-          taskKind: 'repair-slot',
           category: 'slot-rewrite',
-          phase: 'repair',
           sourceSlotId: 'zeta',
-          targetBlock: 'entity/customer-basic',
           targetFile: 'custom/zeta.ts',
-          allowedPaths: ['custom/zeta.ts'],
           requiredSymbols: ['zeta'],
-          forbiddenOperations: [],
-          testsToPass: [],
-          failureSummary: 'build=passed; unit=failed; acceptance=passed; policy=passed; runtime=skipped',
           preview: {
             beforeLines: 1,
             afterLines: 3,
             addedLines: 3,
             removedLines: 1,
             changed: true
-          },
-          failurePoints: [
-            {
-              lane: 'fast',
-              kind: 'unit',
-              issueType: 'slot',
-              repairable: true,
-              artifactPath: 'tests/unit',
-              message: 'Unit verification failed',
-              targetIds: ['zeta.test.ts']
-            }
-          ]
-        },
-        {
+          }
+        }),
+        buildRepairTask({
           taskId: 'repair_slot_alpha',
-          taskKind: 'repair-slot',
-          phase: 'repair',
           sourceSlotId: 'alpha',
-          targetBlock: 'entity/customer-basic',
           targetFile: 'custom/alpha.ts',
-          allowedPaths: ['custom/alpha.ts'],
-          requiredSymbols: ['alpha'],
-          forbiddenOperations: [],
-          testsToPass: [],
-          failureSummary: 'build=passed; unit=failed; acceptance=passed; policy=passed; runtime=skipped',
-          failurePoints: [
-            {
-              lane: 'fast',
-              kind: 'unit',
-              issueType: 'slot',
-              repairable: true,
-              artifactPath: 'tests/unit',
-              message: 'Unit verification failed',
-              targetIds: ['zeta.test.ts']
-            }
-          ]
-        }
+          requiredSymbols: ['alpha']
+        })
       ],
-      blockers: [
-        {
-          blockerId: 'repair_blocker_policy',
-          boundary: 'spec',
-          reason: 'policy failure is outside automatic slot repair: tenant scope missing',
-          decisionRequired: 'Decide whether to change policy/spec, installed source, or project plan before repair can proceed.',
-          failurePoints: [
-            {
-              lane: 'fast',
-              kind: 'policy',
-              issueType: 'spec',
-              repairable: false,
-              artifactPath: CI_ARTIFACT_FILES.policyReport,
-              message: 'tenant scope missing',
-              targetIds: ['tenant-scope-required']
-            }
-          ]
-        }
-      ]
-    };
+      blockers: [buildRepairBlocker()]
+    });
     await writeJson(repairPlanPath, repairPlan);
 
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
