@@ -27,6 +27,7 @@ import {
   buildReviewInputs,
   buildReviewLock,
   buildReviewProvenance,
+  buildRuntimeVerificationReport,
   createWorkspace
 } from '../helpers/test-utils.ts';
 
@@ -147,23 +148,19 @@ test('buildReviewSummary adds failed verification targets as structured failure 
       },
       logs: { stdout: '', stderr: 'fast failed' }
     },
-    runtime: {
+    runtime: buildRuntimeVerificationReport({
       status: 'failed',
-      build: { status: 'passed', passed: ['next build'], failed: [], command: 'npm run build' },
+      build: { passed: ['next build'] },
       unit: {
         status: 'failed',
-        passed: [],
-        failed: ['tests/runtime/unit/customer-runtime.test.ts', 'tests/runtime/unit/customer-runtime.test.ts'],
-        command: 'npm run test:unit'
+        failed: ['tests/runtime/unit/customer-runtime.test.ts', 'tests/runtime/unit/customer-runtime.test.ts']
       },
       acceptance: {
         status: 'failed',
-        passed: [],
-        failed: ['tests/runtime/acceptance/customer-flow.spec.ts'],
-        command: 'npm run test:acceptance'
+        failed: ['tests/runtime/acceptance/customer-flow.spec.ts']
       },
       logs: { stdout: '', stderr: 'runtime failed' }
-    },
+    }),
     summary: {
       status: 'failed',
       requestedLane: 'all',
@@ -295,12 +292,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       }
     ],
     report: {
-      runtime: {
-        status: 'passed',
-        build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
-        unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
-        acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' }
-      },
+      runtime: buildRuntimeVerificationReport(),
       summary: {
         requestedLane: 'all'
       }

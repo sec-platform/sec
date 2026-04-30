@@ -5,7 +5,12 @@ import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
-import { buildOfficialCopyInstallStep, buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  buildOfficialCopyInstallStep,
+  buildPassingReviewReport,
+  buildRuntimeVerificationReport,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 test('buildProvenance sorts and deduplicates slot verification hints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -78,12 +83,7 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       fast: {
         unit: { status: 'passed', passed: ['customer-runtime.test.ts'] }
       },
-      runtime: {
-        status: 'passed',
-        build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
-        unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
-        acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' }
-      },
+      runtime: buildRuntimeVerificationReport(),
       summary: {
         requestedLane: 'all'
       }
