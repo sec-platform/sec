@@ -24,15 +24,19 @@ function summarizeFailure(report: VerificationReport): string {
   return `build=${report.build.status}; unit=${report.unit.status}; acceptance=${report.acceptance.status}; policy=${report.policy.status}; runtime=${report.runtime.status}`;
 }
 
-function sortedUniqueMessages(messages: string[]): string[] {
-  return uniqueSorted(messages);
-}
-
 function countLines(value: string): number {
   if (value.length === 0) {
     return 0;
   }
   return value.endsWith('\n') ? value.split('\n').length - 1 : value.split('\n').length;
+}
+
+function addFailedRepairPoint(
+  points: RepairFailurePoint[],
+  status: 'passed' | 'failed' | 'skipped',
+  point: RepairFailurePoint
+): void {
+  if (status === 'failed') points.push(point);
 }
 
 function projectRelativeImport(fromFile: string, toFile: string): string {
@@ -123,80 +127,66 @@ function prepareRepairWriteTasks(
 function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
   const points: RepairFailurePoint[] = [];
 
-  if (report.build.status === 'failed') {
-    points.push({
-      lane: 'fast',
-      kind: 'build',
-      issueType: 'unknown',
-      repairable: false,
-      artifactPath: CI_ARTIFACT_FILES.verificationReport,
-      message: report.fast.logs.stderr || 'Typecheck failed'
-    });
-  }
-  if (report.unit.status === 'failed') {
-    points.push({
-      lane: 'fast',
-      kind: 'unit',
-      issueType: 'slot',
-      repairable: true,
-      artifactPath: 'tests/unit',
-      message: report.fast.logs.stderr || 'Unit verification failed'
-    });
-  }
-  if (report.acceptance.status === 'failed') {
-    points.push({
-      lane: 'fast',
-      kind: 'acceptance',
-      issueType: 'slot',
-      repairable: true,
-      artifactPath: 'tests/acceptance',
-      message: report.fast.logs.stderr || 'Acceptance verification failed',
-      targetIds: uniqueSorted(report.acceptance.failed)
-    });
-  }
-  if (report.policy.status === 'failed') {
-    points.push({
-      lane: 'fast',
-      kind: 'policy',
-      issueType: 'spec',
-      repairable: false,
-      artifactPath: CI_ARTIFACT_FILES.policyReport,
-      message: sortedUniqueMessages(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed',
-      targetIds: uniqueSorted(report.policy.violations.flatMap((violation) => [violation.id, ...violation.files]))
-    });
-  }
-  if (report.runtime.build.status === 'failed') {
-    points.push({
-      lane: 'runtime',
-      kind: 'runtime-build',
-      issueType: 'kernel',
-      repairable: false,
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-      message: report.runtime.logs.stderr || 'Runtime build failed'
-    });
-  }
-  if (report.runtime.unit.status === 'failed') {
-    points.push({
-      lane: 'runtime',
-      kind: 'runtime-unit',
-      issueType: 'slot',
-      repairable: true,
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-      message: report.runtime.logs.stderr || 'Runtime unit verification failed',
-      targetIds: uniqueSorted(report.runtime.unit.failed)
-    });
-  }
-  if (report.runtime.acceptance.status === 'failed') {
-    points.push({
-      lane: 'runtime',
-      kind: 'runtime-acceptance',
-      issueType: 'slot',
-      repairable: true,
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-      message: report.runtime.logs.stderr || 'Runtime acceptance verification failed',
-      targetIds: uniqueSorted(report.runtime.acceptance.failed)
-    });
-  }
+  addFailedRepairPoint(points, report.build.status, {
+    lane: 'fast',
+    kind: 'build',
+    issueType: 'unknown',
+    repairable: false,
+    artifactPath: CI_ARTIFACT_FILES.verificationReport,
+    message: report.fast.logs.stderr || 'Typecheck failed'
+  });
+  addFailedRepairPoint(points, report.unit.status, {
+    lane: 'fast',
+    kind: 'unit',
+    issueType: 'slot',
+    repairable: true,
+    artifactPath: 'tests/unit',
+    message: report.fast.logs.stderr || 'Unit verification failed'
+  });
+  addFailedRepairPoint(points, report.acceptance.status, {
+    lane: 'fast',
+    kind: 'acceptance',
+    issueType: 'slot',
+    repairable: true,
+    artifactPath: 'tests/acceptance',
+    message: report.fast.logs.stderr || 'Acceptance verification failed',
+    targetIds: uniqueSorted(report.acceptance.failed)
+  });
+  addFailedRepairPoint(points, report.policy.status, {
+    lane: 'fast',
+    kind: 'policy',
+    issueType: 'spec',
+    repairable: false,
+    artifactPath: CI_ARTIFACT_FILES.policyReport,
+    message: uniqueSorted(report.policy.violations.map((violation) => violation.message)).join('; ') || 'Policy verification failed',
+    targetIds: uniqueSorted(report.policy.violations.flatMap((violation) => [violation.id, ...violation.files]))
+  });
+  addFailedRepairPoint(points, report.runtime.build.status, {
+    lane: 'runtime',
+    kind: 'runtime-build',
+    issueType: 'kernel',
+    repairable: false,
+    artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+    message: report.runtime.logs.stderr || 'Runtime build failed'
+  });
+  addFailedRepairPoint(points, report.runtime.unit.status, {
+    lane: 'runtime',
+    kind: 'runtime-unit',
+    issueType: 'slot',
+    repairable: true,
+    artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+    message: report.runtime.logs.stderr || 'Runtime unit verification failed',
+    targetIds: uniqueSorted(report.runtime.unit.failed)
+  });
+  addFailedRepairPoint(points, report.runtime.acceptance.status, {
+    lane: 'runtime',
+    kind: 'runtime-acceptance',
+    issueType: 'slot',
+    repairable: true,
+    artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+    message: report.runtime.logs.stderr || 'Runtime acceptance verification failed',
+    targetIds: uniqueSorted(report.runtime.acceptance.failed)
+  });
 
   return points.length > 0
     ? points
