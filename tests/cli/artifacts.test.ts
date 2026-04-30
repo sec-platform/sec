@@ -116,10 +116,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');
 
     await expectCliText(workspaceRoot, ['install', 'manifest'], [
-      'Install manifest 6 steps',
+      'Install manifest 7 steps',
       'Blocks: auth/basic-session, entity/customer-basic, tenant/basic-workspace',
-      'Actions: copy=5, merge-prisma=1',
-      'Statuses: installed=6'
+      'Actions: copy=6, merge-prisma=1',
+      'Statuses: installed=7'
     ]);
 
     const installManifest = await expectCliJson<Array<{ blockId: string; status: string }>>(
@@ -128,7 +128,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       undefined,
       { compact: true }
     );
-    expect(installManifest).toHaveLength(6);
+    expect(installManifest).toHaveLength(7);
     expect(installManifest).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ blockId: 'auth/basic-session', status: 'installed' }),

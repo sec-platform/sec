@@ -20,7 +20,7 @@ import { upgradeDiagnosticsAttributionParts } from '../shared/review-upgrade.ts'
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
 import type { ArtifactPathKind } from './args.ts';
-import { formatCounts, formatList, formatMergedSummaryEntries, formatSummaryEntries } from './format-utils.ts';
+import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries } from './format-utils.ts';
 
 export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
@@ -99,11 +99,11 @@ export type DemoChecklist = {
 export function formatCiArtifactManifest(manifest: CiArtifactManifest): string {
   return [
     `Artifact manifest ${manifest.summary.artifactStatus}`,
-    [
+    formatFields([
       `artifacts=${manifest.summary.artifactCount}`,
       `missing=${manifest.summary.missingCount}`,
       `upload groups=${manifest.summary.uploadGroupCount}`
-    ].join('; '),
+    ]),
     `Kinds: governance=${manifest.summary.governanceCount}, view=${manifest.summary.viewCount}, test=${manifest.summary.testCount}, contract=${manifest.summary.contractCount}`,
     `Missing reasons: ${formatCounts(Object.entries(manifest.summary.missingReasonCounts).flatMap(([reason, count]) => Array(count).fill(reason)))}`,
     `Upload groups: ${formatList(manifest.uploadGroups.map((group) => `${group.kind}=${group.count}`))}`
@@ -197,11 +197,11 @@ export function formatPostgresContract(contract: PostgresContract): string {
   const tenantScopedCount = countMatching(contract.tables, (table) => table.tenantScoped);
   return [
     `Postgres contract ${contract.provider}`,
-    [
+    formatFields([
       `mode=${contract.persistenceMode}`,
       `tables=${contract.tables.length}`,
       `tenantScoped=${tenantScopedCount}`
-    ].join('; '),
+    ]),
     `Table list: ${formatList(contract.tables.map((table) => table.name))}`
   ].join('\n');
 }
@@ -209,14 +209,14 @@ export function formatPostgresContract(contract: PostgresContract): string {
 export function formatLockInspect(lock: LockFile): string {
   return [
     `Graph lock ${lock.app.name}`,
-    [
+    formatFields([
       `stack=${lock.app.stack}`,
       `mode=${lock.app.mode}`,
       `blocks=${lock.resolvedBlocks.length}`,
       `slots=${lock.slotTasks.length}`,
       `generated=${lock.generatedPaths.length}`,
       `acceptance=${lock.acceptancePlan.length}`
-    ].join('; '),
+    ]),
     `Block order: ${formatList(
       lock.resolvedBlocks
         .slice()
@@ -232,26 +232,26 @@ export function formatExplainGraphInspect(graph: ExplainGraph): string {
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
     `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
     `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
-    [
+    formatFields([
       `Coverage overlay: ${graph.overlays.coverage.blocks.length} blocks`,
       `${graph.overlays.coverage.slots.length} slots`
-    ].join('; '),
+    ]),
     `Provenance overlay: ${graph.overlays.provenance.length} artifacts`
   ].join('\n');
 }
 
 export function formatDemoChecklist(checklist: DemoChecklist): string {
   return [
-    [
+    formatFields([
       `Demo checklist ${checklist.status}`,
       `items=${checklist.itemCount}`,
       `missing=${checklist.missingCount}`
-    ].join('; '),
-    ...checklist.items.map((item) => [
+    ]),
+    ...checklist.items.map((item) => formatFields([
       `${item.id}: ${item.status}`,
       item.artifactPath,
       `command=${item.command}`
-    ].join('; ')),
+    ])),
     `Next command: ${checklist.nextCommand}`
   ].join('\n');
 }
@@ -259,11 +259,11 @@ export function formatDemoChecklist(checklist: DemoChecklist): string {
 export function formatE2eMatrix(matrix: E2eMatrix): string {
   return [
     `E2E matrix ${matrix.status}; rows=${matrix.rowCount}`,
-    ...matrix.rows.map((row) => [
+    ...matrix.rows.map((row) => formatFields([
       `${row.stage}: ${row.status}`,
       row.detail,
       `evidence=${row.evidence.join(', ') || 'none'}`
-    ].join('; '))
+    ]))
   ].join('\n');
 }
 
@@ -357,40 +357,40 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
 
 function formatReviewDiagnostic(entry: ReviewDiagnosticEntry): string {
   if (entry.category === 'failure') {
-    return [
+    return formatFields([
       `Diagnostic ${entry.id}`,
       `kind=${entry.kind}`,
       `lane=${entry.lane}`,
       `artifact=${entry.artifactPath}`,
       entry.message
-    ].join('; ');
+    ]);
   }
   if (entry.category === 'regression-risk') {
-    return [
+    return formatFields([
       `Diagnostic ${entry.id}`,
       `kind=${entry.kind}`,
       `block=${entry.blockId ?? 'none'}`,
       `slot=${entry.slotId ?? 'none'}`,
       entry.message
-    ].join('; ');
+    ]);
   }
-  return [
+  return formatFields([
     `Diagnostic ${entry.id}`,
     `kind=${entry.kind}`,
     `related=${entry.relatedId}`,
     entry.message
-  ].join('; ');
+  ]);
 }
 
 export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect): string {
   return [
-    [
+    formatFields([
       `Review diagnostics ${inspect.status}`,
       `diagnostics=${inspect.diagnosticCount}`,
       `failures=${inspect.failureCount}`,
       `risks=${inspect.regressionRiskCount}`,
       `conflicts=${inspect.conflictHintCount}`
-    ].join('; '),
+    ]),
     `Artifacts: ${formatList(inspect.artifactPaths)}`,
     `Blocks: ${formatList(inspect.blocks)}`,
     `Slots: ${formatList(inspect.slots)}`,
@@ -419,12 +419,12 @@ function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<Repair
 }
 
 function formatRepairFailurePoint(failure: RepairPlan['tasks'][number]['failurePoints'][number]): string {
-  return [
+  return formatFields([
     `Failure ${failure.lane}/${failure.kind}`,
     `issue=${failure.issueType}`,
     `repairable=${failure.repairable}`,
     failure.message
-  ].join('; ');
+  ]);
 }
 
 export function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
@@ -437,22 +437,22 @@ export function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): st
     const review = repairTaskReview(task);
     lines.push(`Task ${task.taskId}: ${task.targetBlock} -> ${task.targetFile}`);
     lines.push(
-      [
+      formatFields([
         `Review ${task.taskId}: writeBounds=${formatList(review.writeBounds)}`,
         `symbols=${formatList(review.requiredSymbols)}`,
         `tests=${formatList(review.testsToPass)}`,
         `forbidden=${formatList(review.forbiddenOperations)}`,
         `failureTargets=${formatList(review.failureTargets)}`
-      ].join('; ')
+      ])
     );
     if (task.preview) {
       lines.push(
-        [
+        formatFields([
           `Preview ${task.taskId}: changed=${task.preview.changed}`,
           `+${task.preview.addedLines}`,
           `-${task.preview.removedLines}`,
           `${task.preview.beforeLines}->${task.preview.afterLines} lines`
-        ].join('; ')
+        ])
       );
     }
     for (const failure of task.failurePoints.slice(0, 2)) {
@@ -538,15 +538,15 @@ export function buildPolicySummary(report: PolicyReport): NonNullable<ReviewSumm
 export function formatPolicySources(report: PolicySourceInspect): string {
   const lines = [
     `Policy sources ${report.status}`,
-    [`sources=${report.sourceCount}`, `policies=${report.policyCount}`].join('; ')
+    formatFields([`sources=${report.sourceCount}`, `policies=${report.policyCount}`])
   ];
   for (const source of report.sources.slice(0, 5)) {
     lines.push(
-      [
+      formatFields([
         `Source ${source.scope}`,
         `path=${source.path}`,
         `policies=${formatList(source.policyIds)}`
-      ].join('; ')
+      ])
     );
   }
   return lines.join('\n');
@@ -557,34 +557,34 @@ export function formatPolicyReport(report: NonNullable<ReviewSummary['policySumm
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([level, count]) => `${level}=${count}`);
   const lines = [
-    [
+    formatFields([
       `Policy report ${report.status}`,
       `official=${report.officialPolicyCount}`,
       `project=${report.projectPolicyCount}`,
       `merged=${report.mergedPolicyCount}`,
       `violations=${report.violationCount}`
-    ].join('; '),
+    ]),
     `Sources: ${report.sourceCount}`,
     `Severity: ${formatList(severity)}`
   ];
   for (const policy of report.mergedSummaries.slice(0, 3)) {
     lines.push(
-      [
+      formatFields([
         `Policy ${policy.id}`,
         `scope=${policy.sourceScope}`,
         `source=${policy.sourcePath}`,
         `targets=${formatList(policy.targets)}`
-      ].join('; ')
+      ])
     );
   }
   for (const violation of report.violationSummaries.slice(0, 3)) {
     lines.push(
-      [
+      formatFields([
         `Violation ${violation.id}`,
         `severity=${violation.severity}`,
         `files=${formatList(violation.files)}`,
         violation.message
-      ].join('; ')
+      ])
     );
   }
   return lines.join('\n');
@@ -627,21 +627,21 @@ export function formatAcceptanceTargets(report: AcceptanceTargetInspect): string
   const label = report.targetKind === 'blocks' ? 'Acceptance coverage blocks' : 'Acceptance coverage slots';
   const lines = [
     `${label} ${report.status}`,
-    [
+    formatFields([
       `targets=${report.targetCount}`,
       `covered=${report.coveredCount}`,
       `uncovered=${report.uncoveredCount}`
-    ].join('; '),
+    ]),
     `Uncovered: ${formatList(report.uncoveredIds)}`
   ];
   for (const target of report.targets.slice(0, 5)) {
     lines.push(
-      [
+      formatFields([
         `Target ${target.id}`,
         `declared=${target.declaredAcceptanceCount}`,
         `coveredBy=${formatList(target.coveredBy)}`,
         `uncovered=${target.uncovered}`
-      ].join('; ')
+      ])
     );
   }
   return lines.join('\n');
@@ -651,35 +651,35 @@ export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): stri
   const coveredBlockCount = countMatching(report.blocks, (block) => !block.uncovered);
   const coveredSlotCount = countMatching(report.slots, (slot) => !slot.uncovered);
   const lines = [
-    [
+    formatFields([
       `Acceptance coverage ${report.status}`,
       `acceptancePassed=${report.acceptancePassed.length}`,
       `blocks=${coveredBlockCount}/${report.blocks.length}`,
       `slots=${coveredSlotCount}/${report.slots.length}`,
       `uncoveredBlocks=${report.uncoveredBlocks.length}`,
       `uncoveredSlots=${report.uncoveredSlots.length}`
-    ].join('; '),
+    ]),
     `Uncovered blocks: ${formatList(report.uncoveredBlocks)}`,
     `Uncovered slots: ${formatList(report.uncoveredSlots)}`
   ];
   for (const block of report.blocks.slice(0, 3)) {
     lines.push(
-      [
+      formatFields([
         `Block ${block.id}`,
         `declared=${block.declaredAcceptance.length}`,
         `coveredBy=${formatList(block.coveredBy)}`,
         `uncovered=${block.uncovered}`
-      ].join('; ')
+      ])
     );
   }
   for (const slot of report.slots.slice(0, 3)) {
     lines.push(
-      [
+      formatFields([
         `Slot ${slot.id}`,
         `declared=${slot.declaredAcceptance.length}`,
         `coveredBy=${formatList(slot.coveredBy)}`,
         `uncovered=${slot.uncovered}`
-      ].join('; ')
+      ])
     );
   }
   return lines.join('\n');
@@ -718,23 +718,23 @@ export function buildRuntimeStepsInspect(report: RuntimeVerificationLaneReport):
 }
 
 function formatRuntimeStep(step: RuntimeStepInspect, label: string = step.id): string {
-  return [
+  return formatFields([
     `${label}: ${step.status}`,
     `passed=${step.passedCount}`,
     `failed=${step.failedCount}`,
     `command=${step.command ?? 'none'}`
-  ].join('; ');
+  ]);
 }
 
 export function formatRuntimeStepsInspect(inspect: RuntimeStepsInspect): string {
   return [
-    [
+    formatFields([
       `Runtime steps ${inspect.status}`,
       `steps=${inspect.stepCount}`,
       `passed=${inspect.passedCount}`,
       `failed=${inspect.failedCount}`,
       `skipped=${inspect.skippedCount}`
-    ].join('; '),
+    ]),
     ...inspect.steps.map((step) => formatRuntimeStep(step))
   ].join('\n');
 }
@@ -754,24 +754,24 @@ export function formatRuntimeReport(report: RuntimeVerificationLaneReport): stri
 
 export function formatVerificationReport(report: VerificationReport): string {
   return [
-    [
+    formatFields([
       `Verification report ${report.summary.status}`,
       `requestedLane=${report.summary.requestedLane}`,
       `failedLanes=${formatList(report.summary.failedLanes)}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Fast: ${report.fast.status}`,
       `build=${report.fast.build.status}`,
       `unit=${report.fast.unit.status}`,
       `acceptance=${report.fast.acceptance.status}`,
       `policy=${report.fast.policy.status}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Runtime: ${report.runtime.status}`,
       `build=${report.runtime.build.status}`,
       `unit=${report.runtime.unit.status}`,
       `acceptance=${report.runtime.acceptance.status}`
-    ].join('; ')
+    ])
   ].join('\n');
 }
 
@@ -783,13 +783,13 @@ export function formatProvenanceRegistry(provenance: ProvenanceFile): string {
     provenance.artifacts.map((artifact) => artifact.generatedByPass ?? '')
   );
   const lines = [
-    [
+    formatFields([
       'Provenance registry',
       `artifacts=${provenance.artifacts.length}`,
       `registry=${registryArtifacts.length}`,
       `overrides=${overrideArtifacts.length}`,
       `unverified=${unverifiedArtifacts.length}`
-    ].join('; '),
+    ]),
     `Origins: ${formatCounts(provenance.artifacts.map((artifact) => artifact.originType))}`,
     `Registry sources: ${formatCounts(registryArtifacts.map((artifact) => artifact.registrySourceId ?? 'unknown'))}`,
     `Generated passes: ${formatList(generatedPasses)}`
@@ -802,13 +802,13 @@ export function formatProvenanceRegistry(provenance: ProvenanceFile): string {
   ].slice(0, 5);
   for (const artifact of sampleArtifacts) {
     lines.push(
-      [
+      formatFields([
         `Artifact ${artifact.path}`,
         `origin=${artifact.originType}:${artifact.originId}`,
         `registry=${artifact.registrySourceId ?? 'none'}`,
         `verifiedBy=${formatList(artifact.verifiedBy)}`,
         `override=${artifact.overrideStatus}`
-      ].join('; ')
+      ])
     );
   }
   return lines.join('\n');
@@ -819,45 +819,45 @@ export function formatReviewSummaryContract(summary: ReviewSummary): string {
   const provenance = summary.provenanceSummary;
   const artifacts = summary.artifactSummary;
   const lines = [
-    [
+    formatFields([
       `Review summary ${summary.chainSummary.status}`,
       `format=${summary.formatVersion}`,
       `stages=${summary.chainSummary.passedStageCount}/${summary.chainSummary.stageCount}`,
       `attention=${summary.chainSummary.attentionStageCount}`,
       `failed=${summary.chainSummary.failedStageCount}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `CI ${summary.ciSummary.status}`,
       `failures=${summary.ciSummary.failureCount}`,
       `risks=${summary.ciSummary.regressionRiskCount}`,
       `conflicts=${summary.ciSummary.conflictHintCount}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Impact blocks=${summary.impactedBlocks.length}`,
       `slots=${summary.impactedSlots.length}`,
       `runtime=${summary.runtimeEntryCount}`,
       `changeSources=${summary.changeSourceCount}`,
       `installImpacts=${summary.installImpactCount}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Coverage ${coverage?.status ?? 'missing'}`,
       `blocks=${coverage ? `${coverage.coveredBlockCount}/${coverage.blockCount}` : 'missing'}`,
       `slots=${coverage ? `${coverage.coveredSlotCount}/${coverage.slotCount}` : 'missing'}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Provenance artifacts=${provenance?.artifactCount ?? 0}`,
       `registry=${provenance?.registryArtifactCount ?? 0}`,
       `generated=${provenance?.generatedArtifactCount ?? 0}`,
       `unverified=${provenance?.unverifiedArtifactCount ?? 0}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Artifacts ${artifacts?.artifactStatus ?? 'missing'}`,
       `total=${artifacts?.artifactCount ?? 0}`,
       `missing=${artifacts?.missingCount ?? 0}`,
       `missingReasonTypes=${reviewArtifactMissingReasonTypeCount(artifacts)}`,
       `contracts=${artifacts?.contractCount ?? 0}`,
       `uploadGroups=${reviewArtifactUploadGroupCount(artifacts)}`
-    ].join('; '),
+    ]),
     `Stages: ${summary.chainSummary.stageSummaries
       .map((stage) => `${stage.id}=${stage.status}`)
       .join(', ') || 'none'}`
@@ -866,23 +866,23 @@ export function formatReviewSummaryContract(summary: ReviewSummary): string {
   const upgrade = summary.upgradeSummary;
   if (upgrade) {
     lines.push(
-      [
+      formatFields([
         `Upgrade ${upgrade.status}`,
         `${upgrade.blockId} ${upgrade.fromVersion ? `${upgrade.fromVersion} -> ${upgrade.toVersion}` : `target ${upgrade.toVersion}`}`,
         `migrations=${upgrade.migrationCount}`,
         `impacts=${upgrade.impactCount}`,
         `requiresVerification=${upgrade.requiresVerification}`
-      ].join('; ')
+      ])
     );
     if (upgrade.diagnostics) {
       lines.push(
-        [
+        formatFields([
           `Upgrade diagnostics ${upgrade.diagnostics.phase}`,
           upgrade.diagnostics.failedCheck,
           upgrade.diagnostics.errorCode,
           upgrade.diagnostics.message,
           `attribution=${formatUpgradeDiagnosticsDetails(upgrade.diagnostics.details)}`
-        ].join('; ')
+        ])
       );
     }
   }
@@ -893,15 +893,15 @@ export function formatReviewSummaryContract(summary: ReviewSummary): string {
 export function formatUpgradeDiagnostics(diagnostics: UpgradeDiagnostics): string {
   return [
     `Upgrade diagnostics ${diagnostics.phase}`,
-    [
+    formatFields([
       `Block: ${diagnostics.blockId}`,
       `target: ${diagnostics.targetVersion}`,
       `status: ${diagnostics.status}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Failed check: ${diagnostics.failedCheck}`,
       `code: ${diagnostics.errorCode}`
-    ].join('; '),
+    ]),
     `Message: ${diagnostics.message}`,
     `Attribution: ${formatUpgradeDiagnosticsDetails(diagnostics.details)}`
   ].join('\n');
@@ -922,11 +922,11 @@ export function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean):
   );
   const lines = [
     `Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`,
-    [
+    formatFields([
       `Status: ${upgradePlan.status}`,
       `migrations: ${upgradePlan.migrations.length}`,
       `preflight checks: ${upgradePlan.preflightChecks.length}`
-    ].join('; '),
+    ]),
     `Migration kinds: ${formatList(migrationKinds)}`,
     `Operation roles: ${formatCounts(upgradePlan.migrationOperations.map((operation) => operation.role))}`,
     `Impacts: ${formatList(upgradePlan.impacts)}`,
@@ -935,14 +935,14 @@ export function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean):
   ];
   const operationsById = new Map(upgradePlan.migrationOperations.map((operation) => [operation.id, operation]));
   for (const migration of upgradePlan.migrationSummaries.slice(0, 3)) {
-    lines.push(formatUpgradeMigrationDetails(migration, operationsById.get(migration.id)).join('; '));
+    lines.push(formatFields(formatUpgradeMigrationDetails(migration, operationsById.get(migration.id))));
   }
   for (const check of upgradePlan.preflightChecks.slice(0, 3)) {
     lines.push(
-      [
+      formatFields([
         `Preflight ${check.id}: ${check.status}`,
         `evidence=${check.evidence.length}`
-      ].join('; ')
+      ])
     );
   }
   return lines.join('\n');
@@ -972,30 +972,32 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
     `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
     `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
-    [
+    formatFields([
       `Coverage: ${blockCount} blocks`,
       `${slotCount} slots`,
       `uncovered blocks=${uncoveredBlocks}`,
       `uncovered slots=${uncoveredSlots}`
-    ].join('; '),
+    ]),
     `Provenance origins: ${formatCounts(
       graph.overlays.provenance.map((artifact) => artifact.originType)
     )}`,
-    [
+    formatFields([
       `CI status: ${ciSummary.status}`,
       `failures: ${ciSummary.failureCount}`,
       `regression risks: ${ciSummary.regressionRiskCount}`,
       `conflict hints: ${ciSummary.conflictHintCount}`
-    ].join('; '),
-    [
+    ]),
+    formatFields([
       `Chain: ${chainSummary.status}`,
       `stages: ${chainSummary.passedStageCount}/${chainSummary.stageCount}`,
       `attention: ${chainSummary.attentionStageCount}`,
       `failed: ${chainSummary.failedStageCount}`
-    ].join('; '),
-    ...e2eMatrix.rows.map(
-      (row) => `E2E ${row.stage}: ${row.status}; ${row.detail}; evidence=${row.evidence.join(', ') || 'none'}`
-    ),
+    ]),
+    ...e2eMatrix.rows.map((row) => formatFields([
+      `E2E ${row.stage}: ${row.status}`,
+      row.detail,
+      `evidence=${row.evidence.join(', ') || 'none'}`
+    ])),
     [
       `Impacted: ${ciSummary.impactedBlockCount} blocks`,
       `${ciSummary.impactedSlotCount} slots`,
@@ -1005,33 +1007,33 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
 
   if (coverageSummary) {
     lines.push(
-      [
+      formatFields([
         `Coverage detail: ${coverageSummary.status}`,
         `acceptance passed: ${coverageSummary.acceptancePassedCount}`,
         `covered blocks: ${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`,
         `covered slots: ${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`
-      ].join('; ')
+      ])
     );
   }
 
   lines.push(
-    [
+    formatFields([
       `Install impact: ${installImpactSummary.impactCount} impacts`,
       `groups: ${installImpactSummary.groupCount}`,
       `actions: ${installImpactSummary.actionKinds.join(', ') || 'none'}`,
       `runtime entries: ${installImpactSummary.runtimeEntryCount}`,
       `targets: ${installImpactSummary.targetPathCount}`
-    ].join('; ')
+    ])
   );
 
   if (provenanceSummary) {
     lines.push(
-      [
+      formatFields([
         `Provenance detail: artifacts: ${provenanceSummary.artifactCount}`,
         `overrides: ${provenanceSummary.overrideArtifactCount}`,
         `registry: ${provenanceSummary.registryArtifactCount}`,
         `unverified: ${provenanceSummary.unverifiedArtifactCount}`
-      ].join('; ')
+      ])
     );
   }
 
@@ -1040,14 +1042,14 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
       (group) => `${group.kind}=${group.count}`
     ) ?? [];
     lines.push(
-      [
+      formatFields([
         `Artifacts: ${artifactSummary.artifactStatus ?? 'passed'}`,
         `total: ${artifactSummary.artifactCount}`,
         `missing: ${artifactSummary.missingCount}`,
         `missing reason types: ${reviewArtifactMissingReasonTypeCount(artifactSummary)}`,
         `contracts: ${artifactSummary.contractCount ?? 0}`,
         `upload groups: ${reviewArtifactUploadGroupCount(artifactSummary)}`
-      ].join('; '),
+      ]),
       `Upload groups: ${formatList(uploadGroups)}`
     );
   }
@@ -1055,20 +1057,20 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
   if (reviewSummary.policySummary) {
     const policy = reviewSummary.policySummary;
     lines.push(
-      [
+      formatFields([
         `Policy: ${policy.status}`,
         `official: ${policy.officialPolicyCount}`,
         `project: ${policy.projectPolicyCount}`,
         `merged: ${policy.mergedPolicyCount}`,
         `violations: ${policy.violationCount}`
-      ].join('; ')
+      ])
     );
   }
 
   if (reviewSummary.repairSummary) {
     const repair = reviewSummary.repairSummary;
     lines.push(
-      [
+      formatFields([
         `Repair: ${repair.status}`,
         `tasks: ${repair.taskCount}`,
         `blockers: ${repair.blockerCount}`,
@@ -1084,7 +1086,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
           }))
         )}`,
         `repairability: ${formatSummaryEntries(repair.failureTaxonomy.repairabilitySummaries)}`
-      ].join('; ')
+      ])
     );
   }
 
@@ -1094,7 +1096,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
       ? `${upgrade.fromVersion} -> ${upgrade.toVersion}`
       : `target ${upgrade.toVersion}`;
     lines.push(
-      [
+      formatFields([
         `Upgrade: ${upgrade.status}`,
         `${upgrade.blockId} ${versionRange}`,
         `migrations: ${upgrade.migrationCount}`,
@@ -1109,17 +1111,17 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
         `slots: ${upgrade.slotMigrationCount}`,
         `requires verification: ${upgrade.requiresVerification}`,
         `verification: ${formatSummaryEntries(upgrade.verificationSummaries)}`
-      ].join('; ')
+      ])
     );
     if (upgrade.diagnostics) {
       lines.push(
-        [
+        formatFields([
           `Upgrade diagnostics: ${upgrade.diagnostics.phase}`,
           upgrade.diagnostics.failedCheck,
           upgrade.diagnostics.errorCode,
           upgrade.diagnostics.message,
           `attribution: ${formatUpgradeDiagnosticsDetails(upgrade.diagnostics.details)}`
-        ].join('; ')
+        ])
       );
     }
   }
