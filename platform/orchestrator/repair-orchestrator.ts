@@ -1,8 +1,7 @@
-import fs from 'node:fs/promises';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from '../compiler/repair/build-repair-plan.ts';
 import { CompilerError } from '../shared/errors.ts';
-import { readJson } from '../shared/fs.ts';
+import { readJson, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import type { LockFile } from '../shared/types.ts';
@@ -51,7 +50,7 @@ export async function repairWorkspace(
     return { lock, repairPlan };
   } catch (error) {
     lock.passStatus.repair = 'failed';
-    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lock);
     throw error;
   }
 }

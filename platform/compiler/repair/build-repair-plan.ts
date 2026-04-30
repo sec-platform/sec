@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
@@ -382,9 +383,8 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
 
 export async function writeRepairPlan(workspaceRoot: string, plan: RepairPlan, lock: LockFile): Promise<void> {
   const { repairPlanPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(path.dirname(repairPlanPath), { recursive: true });
-  await fs.writeFile(repairPlanPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');
+  await writeJson(repairPlanPath, plan);
   addGeneratedPaths(lock, [CI_ARTIFACT_FILES.repairPlan]);
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(lockPath, lock);
   await writeProvenance(workspaceRoot, lock);
 }

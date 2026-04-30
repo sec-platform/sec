@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
+import { writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
@@ -52,6 +53,6 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
   await applyOverrides(workspaceRoot, 'adapt');
 
   lock.passStatus.adapt = 'succeeded';
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(lockPath, lock);
   return lock;
 }

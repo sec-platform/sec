@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
-import { copyRecursive, removeDir } from '../../shared/fs.ts';
+import { copyRecursive, removeDir, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
@@ -29,7 +29,7 @@ export async function validateResolvedTemplates(workspaceRoot: string, lock: Loc
       await copyRecursive(sourceRoot, path.join(validationRoot, registryPath));
     }
     const { lockPath, projectRoot } = getWorkspacePaths(validationRoot);
-    await fs.writeFile(lockPath, `${JSON.stringify(clonedLock, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, clonedLock);
     await composeProject(validationRoot, clonedLock);
     await typecheckProject(projectRoot);
   } catch (error) {

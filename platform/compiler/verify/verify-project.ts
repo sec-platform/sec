@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
@@ -310,7 +309,7 @@ export async function verifyProject(
     writeJson(runtimeReportPath, runtimeLane),
     writeJson(policyReportPath, policyReport),
     writeJson(acceptanceCoveragePath, coverage),
-    fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8')
+    writeJson(lockPath, lock)
   ]);
 
   if (summary.status === 'failed') {
