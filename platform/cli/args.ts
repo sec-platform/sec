@@ -58,6 +58,7 @@ function parseLaneValue(value: string): VerificationLane {
 }
 
 type JsonOutputArgs = { json: boolean; compact: boolean };
+type JsonModeArgs<TMode extends string> = TMode extends string ? { mode: TMode } & JsonOutputArgs : never;
 
 function applyJsonOutputFlag(output: JsonOutputArgs, flag: string): boolean {
   if (flag === '--json' && !output.json) {
@@ -105,19 +106,16 @@ export function parseVerifyArgs(args: string[]): { lane: VerificationLane; json:
 }
 
 export function parseRepairArgs(args: string[]): ParsedRepairArgs {
-  if (args[0] === 'plan') {
-    return { mode: 'plan', ...parseOptionalJsonOutputArgs(args.slice(1), REPAIR_USAGE) };
-  }
-
-  return { mode: 'run', ...parseDryRunJsonOutputArgs(args, REPAIR_USAGE) };
+  return parseJsonSubcommandArgs(args, REPAIR_USAGE, ['plan'] as const) ?? {
+    mode: 'run',
+    ...parseDryRunJsonOutputArgs(args, REPAIR_USAGE)
+  };
 }
 
 export function parseUpgradeArgs(args: string[]): ParsedUpgradeArgs {
-  if (args[0] === 'plan') {
-    return { mode: 'plan', ...parseOptionalJsonOutputArgs(args.slice(1), UPGRADE_USAGE) };
-  }
-  if (args[0] === 'diagnostics') {
-    return { mode: 'diagnostics', ...parseOptionalJsonOutputArgs(args.slice(1), UPGRADE_USAGE) };
+  const modeArgs = parseJsonSubcommandArgs(args, UPGRADE_USAGE, ['plan', 'diagnostics'] as const);
+  if (modeArgs) {
+    return modeArgs;
   }
   if (args.length < 2) {
     throw new Error(UPGRADE_USAGE);
@@ -138,11 +136,39 @@ function parseOptionalJsonOutputArgs(args: string[], usage: string): JsonOutputA
   return output;
 }
 
+function parseJsonSubcommandArgs<TMode extends string>(
+  args: string[],
+  usage: string,
+  modes: readonly TMode[]
+): JsonModeArgs<TMode> | undefined {
+  const mode = args[0];
+  if (!modes.includes(mode as TMode)) {
+    return undefined;
+  }
+  return {
+    mode: mode as TMode,
+    ...parseOptionalJsonOutputArgs(args.slice(1), usage)
+  } as JsonModeArgs<TMode>;
+}
+
+function parseRequiredJsonSubcommandArgs<TMode extends string>(
+  args: string[],
+  usage: string,
+  modes: readonly TMode[]
+): JsonModeArgs<TMode> {
+  const parsed = parseJsonSubcommandArgs(args, usage, modes);
+  if (!parsed) {
+    throw new Error(usage);
+  }
+  return parsed;
+}
+
 export function parseLockArgs(
   args: string[]
 ): { mode: 'run' } | { mode: 'inspect'; json: boolean; compact: boolean } {
-  if (args[0] === 'inspect') {
-    return { mode: 'inspect', ...parseOptionalJsonOutputArgs(args.slice(1), LOCK_USAGE) };
+  const inspectArgs = parseJsonSubcommandArgs(args, LOCK_USAGE, ['inspect'] as const);
+  if (inspectArgs) {
+    return inspectArgs;
   }
   if (args.length === 0) {
     return { mode: 'run' };
@@ -153,10 +179,10 @@ export function parseLockArgs(
 export function parseExplainArgs(
   args: string[]
 ): { mode: 'run'; json: boolean; compact: boolean } | { mode: 'graph'; json: boolean; compact: boolean } {
-  if (args[0] === 'graph') {
-    return { mode: 'graph', ...parseOptionalJsonOutputArgs(args.slice(1), EXPLAIN_USAGE) };
-  }
-  return { mode: 'run', ...parseOptionalJsonOutputArgs(args, EXPLAIN_USAGE) };
+  return parseJsonSubcommandArgs(args, EXPLAIN_USAGE, ['graph'] as const) ?? {
+    mode: 'run',
+    ...parseOptionalJsonOutputArgs(args, EXPLAIN_USAGE)
+  };
 }
 
 function parseArtifactPathKind(value: string): ArtifactPathKind {
@@ -172,8 +198,9 @@ export function parseArtifactsArgs(
   | { mode: 'json'; compact: boolean }
   | { mode: 'manifest'; json: boolean; compact: boolean }
   | { mode: 'paths'; json: boolean; compact: boolean; kind?: ArtifactPathKind } {
-  if (args[0] === 'manifest') {
-    return { mode: 'manifest', ...parseOptionalJsonOutputArgs(args.slice(1), ARTIFACTS_USAGE) };
+  const manifestArgs = parseJsonSubcommandArgs(args, ARTIFACTS_USAGE, ['manifest'] as const);
+  if (manifestArgs) {
+    return manifestArgs;
   }
   if (args[0] === '--paths') {
     const output: JsonOutputArgs = { json: false, compact: false };
@@ -222,13 +249,7 @@ export function parseContractOutputArgs(args: string[]): { json: boolean; compac
 export function parsePolicyArgs(
   args: string[]
 ): { mode: 'report'; json: boolean; compact: boolean } | { mode: 'sources'; json: boolean; compact: boolean } {
-  if (args[0] === 'report') {
-    return { mode: 'report', ...parseOptionalJsonOutputArgs(args.slice(1), POLICY_USAGE) };
-  }
-  if (args[0] === 'sources') {
-    return { mode: 'sources', ...parseOptionalJsonOutputArgs(args.slice(1), POLICY_USAGE) };
-  }
-  throw new Error(POLICY_USAGE);
+  return parseRequiredJsonSubcommandArgs(args, POLICY_USAGE, ['report', 'sources'] as const);
 }
 
 export function parseAcceptanceArgs(
@@ -237,28 +258,13 @@ export function parseAcceptanceArgs(
   | { mode: 'coverage'; json: boolean; compact: boolean }
   | { mode: 'blocks'; json: boolean; compact: boolean }
   | { mode: 'slots'; json: boolean; compact: boolean } {
-  if (args[0] === 'coverage') {
-    return { mode: 'coverage', ...parseOptionalJsonOutputArgs(args.slice(1), ACCEPTANCE_USAGE) };
-  }
-  if (args[0] === 'blocks') {
-    return { mode: 'blocks', ...parseOptionalJsonOutputArgs(args.slice(1), ACCEPTANCE_USAGE) };
-  }
-  if (args[0] === 'slots') {
-    return { mode: 'slots', ...parseOptionalJsonOutputArgs(args.slice(1), ACCEPTANCE_USAGE) };
-  }
-  throw new Error(ACCEPTANCE_USAGE);
+  return parseRequiredJsonSubcommandArgs(args, ACCEPTANCE_USAGE, ['coverage', 'blocks', 'slots'] as const);
 }
 
 export function parseRuntimeOutputArgs(
   args: string[]
 ): { mode: 'report'; json: boolean; compact: boolean } | { mode: 'steps'; json: boolean; compact: boolean } {
-  if (args[0] === 'report') {
-    return { mode: 'report', ...parseOptionalJsonOutputArgs(args.slice(1), RUNTIME_USAGE) };
-  }
-  if (args[0] === 'steps') {
-    return { mode: 'steps', ...parseOptionalJsonOutputArgs(args.slice(1), RUNTIME_USAGE) };
-  }
-  throw new Error(RUNTIME_USAGE);
+  return parseRequiredJsonSubcommandArgs(args, RUNTIME_USAGE, ['report', 'steps'] as const);
 }
 
 export function parseInstallOutputArgs(args: string[]): { json: boolean; compact: boolean } {
@@ -294,16 +300,7 @@ export function parseReviewArgs(
   | { mode: 'summary'; json: boolean; compact: boolean }
   | { mode: 'matrix'; json: boolean; compact: boolean }
   | { mode: 'diagnostics'; json: boolean; compact: boolean } {
-  if (args[0] === 'summary') {
-    return { mode: 'summary', ...parseOptionalJsonOutputArgs(args.slice(1), REVIEW_USAGE) };
-  }
-  if (args[0] === 'matrix') {
-    return { mode: 'matrix', ...parseOptionalJsonOutputArgs(args.slice(1), REVIEW_USAGE) };
-  }
-  if (args[0] === 'diagnostics') {
-    return { mode: 'diagnostics', ...parseOptionalJsonOutputArgs(args.slice(1), REVIEW_USAGE) };
-  }
-  throw new Error(REVIEW_USAGE);
+  return parseRequiredJsonSubcommandArgs(args, REVIEW_USAGE, ['summary', 'matrix', 'diagnostics'] as const);
 }
 
 export function parseDemoOutputArgs(args: string[]): { json: boolean; compact: boolean } {
