@@ -21,7 +21,7 @@ import {
   expectReviewConflictHint,
   expectReviewRegressionRisk
 } from '../helpers/graph-assertions.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('override-manifest can replace a generated file and surface override provenance', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-override-');

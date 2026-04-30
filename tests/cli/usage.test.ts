@@ -27,7 +27,7 @@ import {
   WORKBENCH_USAGE
 } from '../../platform/cli/usage.ts';
 import { expectCliText, expectCliUsageError } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 type UsageArgs = [command: string, ...args: string[]];
 

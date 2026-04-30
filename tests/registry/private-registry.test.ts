@@ -14,7 +14,7 @@ import {
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('workspace private registry blocks resolve, compose, and verify through the normal pipeline', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-private-registry-');

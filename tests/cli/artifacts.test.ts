@@ -26,7 +26,7 @@ import {
   expectCliText,
   runCliInProcess as runCli
 } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 type ReviewArtifactSummary = CiArtifactSummary & {
   uploadGroups?: CiArtifactUploadGroup[];

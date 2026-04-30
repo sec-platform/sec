@@ -13,11 +13,11 @@ import {
   runCliInProcess as runCli,
   runCliPipeline
 } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
 import {
   writeFailedFastUnitVerification,
   writePassingVerificationState
 } from '../helpers/verification-fixtures.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('CLI emits repair dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

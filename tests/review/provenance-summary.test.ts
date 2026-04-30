@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { buildOfficialRegistrySummary, buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('review summary surfaces provenance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

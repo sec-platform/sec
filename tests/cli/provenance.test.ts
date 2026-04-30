@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 
 import { expectCliVariants, runCliPipeline } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('CLI exposes provenance registry as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

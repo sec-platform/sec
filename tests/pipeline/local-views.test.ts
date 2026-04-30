@@ -13,7 +13,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { buildArtifactMissingReasonCounts, buildArtifactUploadGroup } from '../helpers/ci-artifact-fixtures.ts';
 import { buildOfficialRegistrySummary } from '../helpers/review-fixtures.ts';
-import { prepareLockedWorkspace } from '../helpers/test-utils.ts';
+import { prepareLockedWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('write-local-views consumes generated artifacts from disk', async () => {
   const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-local-views-' });

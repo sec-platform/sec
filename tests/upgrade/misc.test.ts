@@ -8,7 +8,7 @@ import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('upgrade apply writes diagnostics when migration execution fails after planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-apply-diagnostics-');
