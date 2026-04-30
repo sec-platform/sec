@@ -140,6 +140,13 @@ function createOptionalJsonOutputParser(usage: string): (args: string[]) => Json
   return (args) => parseOptionalJsonOutputArgs(args, usage);
 }
 
+function createRequiredJsonSubcommandParser<TMode extends string>(
+  usage: string,
+  modes: readonly TMode[]
+): (args: string[]) => JsonModeArgs<TMode> {
+  return (args) => parseRequiredJsonSubcommandArgs(args, usage, modes);
+}
+
 function parseJsonSubcommandArgs<TMode extends string>(
   args: string[],
   usage: string,
@@ -236,26 +243,9 @@ export const parseBenchmarkOutputArgs = createOptionalJsonOutputParser(BENCHMARK
 export const parseTestOutputArgs = createOptionalJsonOutputParser(TEST_USAGE);
 export const parseContractOutputArgs = createOptionalJsonOutputParser(CONTRACT_USAGE);
 
-export function parsePolicyArgs(
-  args: string[]
-): { mode: 'report'; json: boolean; compact: boolean } | { mode: 'sources'; json: boolean; compact: boolean } {
-  return parseRequiredJsonSubcommandArgs(args, POLICY_USAGE, ['report', 'sources'] as const);
-}
-
-export function parseAcceptanceArgs(
-  args: string[]
-):
-  | { mode: 'coverage'; json: boolean; compact: boolean }
-  | { mode: 'blocks'; json: boolean; compact: boolean }
-  | { mode: 'slots'; json: boolean; compact: boolean } {
-  return parseRequiredJsonSubcommandArgs(args, ACCEPTANCE_USAGE, ['coverage', 'blocks', 'slots'] as const);
-}
-
-export function parseRuntimeOutputArgs(
-  args: string[]
-): { mode: 'report'; json: boolean; compact: boolean } | { mode: 'steps'; json: boolean; compact: boolean } {
-  return parseRequiredJsonSubcommandArgs(args, RUNTIME_USAGE, ['report', 'steps'] as const);
-}
+export const parsePolicyArgs = createRequiredJsonSubcommandParser(POLICY_USAGE, ['report', 'sources'] as const);
+export const parseAcceptanceArgs = createRequiredJsonSubcommandParser(ACCEPTANCE_USAGE, ['coverage', 'blocks', 'slots'] as const);
+export const parseRuntimeOutputArgs = createRequiredJsonSubcommandParser(RUNTIME_USAGE, ['report', 'steps'] as const);
 
 export const parseInstallOutputArgs = createOptionalJsonOutputParser(INSTALL_USAGE);
 export const parseBlocksOutputArgs = createOptionalJsonOutputParser(BLOCKS_USAGE);
@@ -271,14 +261,7 @@ export function parseWorkbenchArgs(args: string[]): { json: boolean; compact: bo
 
 export const parseProvenanceOutputArgs = createOptionalJsonOutputParser(PROVENANCE_USAGE);
 
-export function parseReviewArgs(
-  args: string[]
-):
-  | { mode: 'summary'; json: boolean; compact: boolean }
-  | { mode: 'matrix'; json: boolean; compact: boolean }
-  | { mode: 'diagnostics'; json: boolean; compact: boolean } {
-  return parseRequiredJsonSubcommandArgs(args, REVIEW_USAGE, ['summary', 'matrix', 'diagnostics'] as const);
-}
+export const parseReviewArgs = createRequiredJsonSubcommandParser(REVIEW_USAGE, ['summary', 'matrix', 'diagnostics'] as const);
 
 export const parseDemoOutputArgs = createOptionalJsonOutputParser(DEMO_USAGE);
 export const parseDepsOutputArgs = createOptionalJsonOutputParser(DEPS_USAGE);
