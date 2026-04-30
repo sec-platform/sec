@@ -18,10 +18,10 @@ import {
   createWorkspace,
   expectContainsAll,
   expectContainsNone,
-  installRuntimeDeps,
   readCompilerFile,
   readCompilerPackageJson
 } from '../helpers/test-utils.ts';
+import { installRuntimeDeps } from './project-runtime-fixtures.ts';
 
 type RuntimePackageJson = {
   dependencies: Record<string, string>;
