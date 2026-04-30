@@ -9,10 +9,10 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
+import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import {
   buildCustomerNormalizerLock,
   buildCustomerNormalizerPlan,
-  buildPassingReviewReport,
   buildRepairPlanArtifact,
   buildRepairTask,
   expectCliText,

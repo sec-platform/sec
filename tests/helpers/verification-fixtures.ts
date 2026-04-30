@@ -2,6 +2,10 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, VerificationReport } from '../../platform/shared/types.ts';
 
+export function emptyVerificationLogs(): VerificationReport['logs'] {
+  return { stdout: '', stderr: '' };
+}
+
 export async function writeFailedFastUnitVerification(
   workspaceRoot: string,
   message: string,

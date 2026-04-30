@@ -5,7 +5,8 @@ import { expect, test } from 'vitest';
 import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-acceptance-coverage.ts';
 import type { BlockManifest, LockFile, RuntimeVerificationLaneReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { emptyVerificationLogs, withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { emptyVerificationLogs } from '../helpers/verification-fixtures.ts';
 
 function manifest(id: string, acceptance: BlockManifest['acceptance']): BlockManifest {
   return {

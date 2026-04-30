@@ -20,14 +20,16 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import {
-  buildOfficialCopyInstallStep,
-  buildOfficialResolvedBlock,
   buildPassingReviewCoverage,
   buildPassingReviewReport,
   buildReviewInputs,
   buildReviewLock,
   buildReviewProvenance,
-  buildRuntimeVerificationReport,
+  buildRuntimeVerificationReport
+} from '../helpers/review-fixtures.ts';
+import {
+  buildOfficialCopyInstallStep,
+  buildOfficialResolvedBlock,
   createWorkspace
 } from '../helpers/test-utils.ts';
 

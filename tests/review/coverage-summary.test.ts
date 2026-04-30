@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
-import { buildReviewSummaryFromInputs, buildRuntimeVerificationReport, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildReviewSummaryFromInputs, buildRuntimeVerificationReport } from '../helpers/review-fixtures.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces acceptance coverage summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
