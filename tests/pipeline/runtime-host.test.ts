@@ -7,6 +7,7 @@ import {
   initWorkspace,
   resolveWorkspace
 } from '../../platform/orchestrator.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
 test('compose refreshes runtime host scaffold for an existing workspace baseline', async () => {
@@ -34,9 +35,9 @@ test('compose refreshes runtime host scaffold for an existing workspace baseline
   await resolveWorkspace(workspaceRoot);
   await composeWorkspace(workspaceRoot);
 
-  const projectPackage = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')) as {
+  const projectPackage = await readJson<{
     scripts: Record<string, string>;
-  };
+  }>(path.join(projectRoot, 'package.json'));
   expect(projectPackage.scripts.build).toBe('next build --webpack');
   expect(projectPackage.scripts['verify:runtime:service']).toBe('npm run test:unit');
   expect(projectPackage.scripts['verify:runtime:full']).toBe(

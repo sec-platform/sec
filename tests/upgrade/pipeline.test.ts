@@ -14,6 +14,7 @@ import {
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
@@ -49,9 +50,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
   expect(afterUpgrade).toMatch(/SUPPORTED_USERNAMES/);
   await expect(fs.readFile(path.join(workspaceRoot, 'project', 'upgrade.metadata.json'), 'utf8')).resolves.toContain('"auth/basic-session@0.1.1"');
 
-  const persistedUpgradePlan = JSON.parse(
-    await fs.readFile(upgradePlanPath, 'utf8')
-  ) as {
+  const persistedUpgradePlan = await readJson<{
     toVersion: string;
     status: string;
     preflightChecks: Array<{ id: string; status: string; message: string; evidence: string[] }>;
@@ -74,7 +73,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
       path?: string[];
       itemCount?: number;
     }>;
-  };
+  }>(upgradePlanPath);
   expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
   expect(persistedUpgradePlan.status).toBe('applied');
   expect(persistedUpgradePlan.preflightChecks).toEqual(

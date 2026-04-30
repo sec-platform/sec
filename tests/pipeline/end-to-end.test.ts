@@ -12,6 +12,7 @@ import {
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
@@ -62,18 +63,21 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.policyReport);
   expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.acceptanceCoverage);
 
-  const provenance = JSON.parse(
-    await fs.readFile(provenancePath, 'utf8')
-  ) as { artifacts: Array<{ path: string; originType: string }> };
+  const provenance = await readJson<{
+    artifacts: Array<{ path: string; originType: string }>;
+  }>(provenancePath);
   expect(
     provenance.artifacts.some(
       (artifact) => artifact.path === 'custom/customer_normalizer.ts' && artifact.originType === 'slot'
     )
   ).toBe(true);
 
-  const runtimeReport = JSON.parse(
-    await fs.readFile(runtimeReportPath, 'utf8')
-  ) as { status: string; build: { status: string }; acceptance: { status: string }; logs: { stdout: string } };
+  const runtimeReport = await readJson<{
+    status: string;
+    build: { status: string };
+    acceptance: { status: string };
+    logs: { stdout: string };
+  }>(runtimeReportPath);
   expect(runtimeReport.status).toBe('passed');
   expect(runtimeReport.build.status).toBe('passed');
   expect(runtimeReport.acceptance.status).toBe('passed');
@@ -81,16 +85,20 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   expect(runtimeReport.logs.stdout).not.toContain('Duration');
   expect(runtimeReport.logs.stdout).not.toContain('Start at');
 
-  const coverage = JSON.parse(
-    await fs.readFile(acceptanceCoveragePath, 'utf8')
-  ) as { status: string; uncoveredBlocks: string[]; uncoveredSlots: string[] };
+  const coverage = await readJson<{
+    status: string;
+    uncoveredBlocks: string[];
+    uncoveredSlots: string[];
+  }>(acceptanceCoveragePath);
   expect(coverage.status).toBe('passed');
   expect(coverage.uncoveredBlocks).toEqual([]);
   expect(coverage.uncoveredSlots).toEqual([]);
 
-  const policyReport = JSON.parse(
-    await fs.readFile(policyReportPath, 'utf8')
-  ) as { status: string; merged: { policies: Array<{ id: string; sourceScope: string; sourcePath: string; targets: string[] }> }; violations: unknown[] };
+  const policyReport = await readJson<{
+    status: string;
+    merged: { policies: Array<{ id: string; sourceScope: string; sourcePath: string; targets: string[] }> };
+    violations: unknown[];
+  }>(policyReportPath);
   expect(policyReport.status).toBe('passed');
   expect(policyReport.violations).toEqual([]);
   expect(policyReport.merged.policies.find((policy) => policy.id === 'tenant-scope-required')).toEqual({
@@ -168,18 +176,16 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     .catch(() => false);
   expect(slotRuleViewExists).toBe(true);
 
-  const refreshedProvenance = JSON.parse(
-    await fs.readFile(provenancePath, 'utf8')
-  ) as { artifacts: Array<{ path: string; generatedByPass?: string }> };
+  const refreshedProvenance = await readJson<{
+    artifacts: Array<{ path: string; generatedByPass?: string }>;
+  }>(provenancePath);
   expect(
     refreshedProvenance.artifacts.some(
       (artifact) => artifact.path === CI_ARTIFACT_FILES.explainGraph && artifact.generatedByPass === 'explain'
     )
   ).toBe(true);
 
-  const explainedLock = JSON.parse(
-    await fs.readFile(lockPath, 'utf8')
-  ) as { generatedPaths: string[] };
+  const explainedLock = await readJson<{ generatedPaths: string[] }>(lockPath);
   expect(explainedLock.generatedPaths).toEqual(
     expect.arrayContaining([
       CI_ARTIFACT_FILES.verificationReport,

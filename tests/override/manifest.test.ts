@@ -12,6 +12,7 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
@@ -88,9 +89,9 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
     )
   ).toBe(true);
 
-  const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+  const provenance = await readJson<{
     artifacts: Array<{ path: string; originType: string; overrideStatus: string }>;
-  };
+  }>(provenancePath);
   expect(
     provenance.artifacts.some(
       (artifact) =>

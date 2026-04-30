@@ -10,6 +10,7 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { createWorkspace } from '../helpers/test-utils.ts';
 
@@ -41,9 +42,11 @@ test('expanded official block set composes and verifies as one project', async (
   expect(report.runtime.unit.status).toBe('passed');
   expect(report.runtime.acceptance.status).toBe('skipped');
 
-  const postgresContract = JSON.parse(
-    await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'), 'utf8')
-  ) as { provider: string; persistenceMode: string; tables: Array<{ name: string; columns: string[] }> };
+  const postgresContract = await readJson<{
+    provider: string;
+    persistenceMode: string;
+    tables: Array<{ name: string; columns: string[] }>;
+  }>(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'));
   expect(postgresContract.provider).toBe('postgres');
   expect(postgresContract.persistenceMode).toBe('contract-only');
   expect(postgresContract.tables.map((table) => table.name)).toEqual([
@@ -80,7 +83,7 @@ test('expanded official block set composes and verifies as one project', async (
   ]);
 
   const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = JSON.parse(await fs.readFile(lockPath, 'utf8')) as typeof resolvedLock;
+  const lock = await readJson<typeof resolvedLock>(lockPath);
   expect(lock.passStatus.verify).toBe('pending');
   expect(lock.resolvedBlocks.some((block) => block.id === 'rbac/basic')).toBe(true);
   expect(lock.resolvedBlocks.some((block) => block.id === 'audit/basic')).toBe(true);
@@ -134,9 +137,10 @@ test('expanded official block set composes and verifies as one project', async (
 
 test('reference project coverage has no uncovered blocks', async () => {
   const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
-  const coverage = JSON.parse(
-    await fs.readFile(acceptanceCoveragePath, 'utf8')
-  ) as { uncoveredBlocks: string[]; uncoveredSlots: string[] };
+  const coverage = await readJson<{
+    uncoveredBlocks: string[];
+    uncoveredSlots: string[];
+  }>(acceptanceCoveragePath);
 
   expect(coverage.uncoveredBlocks).toEqual([]);
   expect(coverage.uncoveredSlots).toEqual([]);
