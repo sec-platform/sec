@@ -136,6 +136,10 @@ function parseOptionalJsonOutputArgs(args: string[], usage: string): JsonOutputA
   return output;
 }
 
+function createOptionalJsonOutputParser(usage: string): (args: string[]) => JsonOutputArgs {
+  return (args) => parseOptionalJsonOutputArgs(args, usage);
+}
+
 function parseJsonSubcommandArgs<TMode extends string>(
   args: string[],
   usage: string,
@@ -226,25 +230,11 @@ export function parseArtifactsArgs(
   return { mode: 'json', compact: output.compact };
 }
 
-export function parseDoctorArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, DOCTOR_USAGE);
-}
-
-export function parseReferenceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, REFERENCE_USAGE);
-}
-
-export function parseBenchmarkOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, BENCHMARK_USAGE);
-}
-
-export function parseTestOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, TEST_USAGE);
-}
-
-export function parseContractOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, CONTRACT_USAGE);
-}
+export const parseDoctorArgs = createOptionalJsonOutputParser(DOCTOR_USAGE);
+export const parseReferenceOutputArgs = createOptionalJsonOutputParser(REFERENCE_USAGE);
+export const parseBenchmarkOutputArgs = createOptionalJsonOutputParser(BENCHMARK_USAGE);
+export const parseTestOutputArgs = createOptionalJsonOutputParser(TEST_USAGE);
+export const parseContractOutputArgs = createOptionalJsonOutputParser(CONTRACT_USAGE);
 
 export function parsePolicyArgs(
   args: string[]
@@ -267,21 +257,10 @@ export function parseRuntimeOutputArgs(
   return parseRequiredJsonSubcommandArgs(args, RUNTIME_USAGE, ['report', 'steps'] as const);
 }
 
-export function parseInstallOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, INSTALL_USAGE);
-}
-
-export function parseBlocksOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, BLOCKS_USAGE);
-}
-
-export function parsePostgresOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, POSTGRES_USAGE);
-}
-
-export function parseVerificationOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, VERIFICATION_USAGE);
-}
+export const parseInstallOutputArgs = createOptionalJsonOutputParser(INSTALL_USAGE);
+export const parseBlocksOutputArgs = createOptionalJsonOutputParser(BLOCKS_USAGE);
+export const parsePostgresOutputArgs = createOptionalJsonOutputParser(POSTGRES_USAGE);
+export const parseVerificationOutputArgs = createOptionalJsonOutputParser(VERIFICATION_USAGE);
 
 export function parseWorkbenchArgs(args: string[]): { json: boolean; compact: boolean } {
   if (args[0] !== 'mutations' || args[1] !== 'apply') {
@@ -290,9 +269,7 @@ export function parseWorkbenchArgs(args: string[]): { json: boolean; compact: bo
   return parseOptionalJsonOutputArgs(args.slice(2), WORKBENCH_USAGE);
 }
 
-export function parseProvenanceOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, PROVENANCE_USAGE);
-}
+export const parseProvenanceOutputArgs = createOptionalJsonOutputParser(PROVENANCE_USAGE);
 
 export function parseReviewArgs(
   args: string[]
@@ -303,13 +280,8 @@ export function parseReviewArgs(
   return parseRequiredJsonSubcommandArgs(args, REVIEW_USAGE, ['summary', 'matrix', 'diagnostics'] as const);
 }
 
-export function parseDemoOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, DEMO_USAGE);
-}
-
-export function parseDepsOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  return parseOptionalJsonOutputArgs(args, DEPS_USAGE);
-}
+export const parseDemoOutputArgs = createOptionalJsonOutputParser(DEMO_USAGE);
+export const parseDepsOutputArgs = createOptionalJsonOutputParser(DEPS_USAGE);
 
 export function parseDepsCleanArgs(args: string[]): DependencyCleanOptions {
   if (args.length === 0) {

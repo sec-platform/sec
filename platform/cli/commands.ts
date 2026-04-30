@@ -60,7 +60,7 @@ import {
   parseTestOutputArgs,
   parseVerificationOutputArgs
 } from './args.ts';
-import { printRequiredJson, readRequiredJson, requireSubcommand } from './command-utils.ts';
+import { printRequiredJson, printRequiredWorkspaceJson, readRequiredJson, requireSubcommand } from './command-utils.ts';
 import { printJsonOrText } from './format-utils.ts';
 import {
   buildAcceptanceTargetInspect,
@@ -271,9 +271,9 @@ export async function runRuntimeCommand(args: string[], cwd = process.cwd()): Pr
 
 export async function runInstallCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const outputArgs = parseInstallOutputArgs(requireSubcommand(args, 'manifest', INSTALL_USAGE));
-  const { installManifestPath } = getWorkspacePaths(cwd);
-  await printRequiredJson<InstallManifestEntry[]>(
-    installManifestPath,
+  await printRequiredWorkspaceJson<InstallManifestEntry[]>(
+    cwd,
+    (paths) => paths.installManifestPath,
     'Install manifest not found; run platform compose first',
     outputArgs,
     formatInstallManifest
@@ -282,9 +282,9 @@ export async function runInstallCommand(args: string[], cwd = process.cwd()): Pr
 
 export async function runBlocksCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const outputArgs = parseBlocksOutputArgs(requireSubcommand(args, 'usage', BLOCKS_USAGE));
-  const { blockUsageMapPath } = getWorkspacePaths(cwd);
-  await printRequiredJson<BlockUsageMap>(
-    blockUsageMapPath,
+  await printRequiredWorkspaceJson<BlockUsageMap>(
+    cwd,
+    (paths) => paths.blockUsageMapPath,
     'Block usage map not found; run platform compose first',
     outputArgs,
     formatBlockUsageMap
@@ -293,9 +293,9 @@ export async function runBlocksCommand(args: string[], cwd = process.cwd()): Pro
 
 export async function runPostgresCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const outputArgs = parsePostgresOutputArgs(requireSubcommand(args, 'contract', POSTGRES_USAGE));
-  const { postgresContractPath } = getWorkspacePaths(cwd);
-  await printRequiredJson<PostgresContract>(
-    postgresContractPath,
+  await printRequiredWorkspaceJson<PostgresContract>(
+    cwd,
+    (paths) => paths.postgresContractPath,
     'Postgres contract not found; run platform compose first',
     outputArgs,
     formatPostgresContract
@@ -304,9 +304,9 @@ export async function runPostgresCommand(args: string[], cwd = process.cwd()): P
 
 export async function runVerificationCommand(args: string[], cwd = process.cwd()): Promise<void> {
   const outputArgs = parseVerificationOutputArgs(requireSubcommand(args, 'report', VERIFICATION_USAGE));
-  const { verificationReportPath } = getWorkspacePaths(cwd);
-  await printRequiredJson<VerificationReport>(
-    verificationReportPath,
+  await printRequiredWorkspaceJson<VerificationReport>(
+    cwd,
+    (paths) => paths.verificationReportPath,
     'Verification report not found; run platform verify first',
     outputArgs,
     formatVerificationReport

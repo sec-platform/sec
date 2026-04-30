@@ -1,10 +1,9 @@
 import { buildCiArtifactManifest } from '../../compiler/emit/ci-artifacts.ts';
 import { writeWorkspaceArtifacts } from '../../orchestrator.ts';
 import type { CiArtifactManifest } from '../../shared/ci-artifact-types.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
 import { parseArtifactsArgs } from '../args.ts';
 import type { CommandHandler } from '../command-registry.ts';
-import { printRequiredJson } from '../command-utils.ts';
+import { printRequiredWorkspaceJson } from '../command-utils.ts';
 import { formatJson, printJsonOrText } from '../format-utils.ts';
 import { buildArtifactUploadPathContract, formatCiArtifactManifest } from '../formatters.ts';
 import { ARTIFACTS_USAGE } from '../usage.ts';
@@ -15,9 +14,9 @@ export const artifactsCommand: CommandHandler = {
   async execute(args, ctx) {
     const artifactsArgs = parseArtifactsArgs(args);
     if (artifactsArgs.mode === 'manifest') {
-      const { ciArtifactsPath } = getWorkspacePaths(ctx.cwd);
-      await printRequiredJson<CiArtifactManifest>(
-        ciArtifactsPath,
+      await printRequiredWorkspaceJson<CiArtifactManifest>(
+        ctx.cwd,
+        (paths) => paths.ciArtifactsPath,
         'Artifact manifest not found; run platform artifacts --json first',
         artifactsArgs,
         formatCiArtifactManifest
