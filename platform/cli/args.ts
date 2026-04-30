@@ -57,10 +57,38 @@ function parseLaneValue(value: string): VerificationLane {
   throw new Error(VERIFY_USAGE);
 }
 
+type JsonOutputArgs = { json: boolean; compact: boolean };
+
+function applyJsonOutputFlag(output: JsonOutputArgs, flag: string): boolean {
+  if (flag === '--json' && !output.json) {
+    output.json = true;
+    return true;
+  }
+  if (flag === '--compact' && output.json && !output.compact) {
+    output.compact = true;
+    return true;
+  }
+  return false;
+}
+
+function parseDryRunJsonOutputArgs(args: string[], usage: string): JsonOutputArgs & { dryRun: boolean } {
+  const output = { dryRun: false, json: false, compact: false };
+  for (const flag of args) {
+    if (flag === '--dry-run' && !output.dryRun) {
+      output.dryRun = true;
+      continue;
+    }
+    if (applyJsonOutputFlag(output, flag)) {
+      continue;
+    }
+    throw new Error(usage);
+  }
+  return output;
+}
+
 export function parseVerifyArgs(args: string[]): { lane: VerificationLane; json: boolean; compact: boolean } {
   let lane: VerificationLane = 'fast';
-  let json = false;
-  let compact = false;
+  const output: JsonOutputArgs = { json: false, compact: false };
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index];
     if (flag === '--lane' && index + 1 < args.length) {
@@ -68,127 +96,46 @@ export function parseVerifyArgs(args: string[]): { lane: VerificationLane; json:
       index += 1;
       continue;
     }
-    if (flag === '--json' && !json) {
-      json = true;
-      continue;
-    }
-    if (flag === '--compact' && json && !compact) {
-      compact = true;
+    if (applyJsonOutputFlag(output, flag)) {
       continue;
     }
     throw new Error(VERIFY_USAGE);
   }
-  return { lane, json, compact };
-}
-
-function parseRepairOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  let json = false;
-  let compact = false;
-  for (const flag of args) {
-    if (flag === '--json' && !json) {
-      json = true;
-      continue;
-    }
-    if (flag === '--compact' && json && !compact) {
-      compact = true;
-      continue;
-    }
-    throw new Error(REPAIR_USAGE);
-  }
-  return { json, compact };
+  return { lane, ...output };
 }
 
 export function parseRepairArgs(args: string[]): ParsedRepairArgs {
   if (args[0] === 'plan') {
-    return { mode: 'plan', ...parseRepairOutputArgs(args.slice(1)) };
+    return { mode: 'plan', ...parseOptionalJsonOutputArgs(args.slice(1), REPAIR_USAGE) };
   }
 
-  let dryRun = false;
-  let json = false;
-  let compact = false;
-  for (const flag of args) {
-    if (flag === '--dry-run' && !dryRun) {
-      dryRun = true;
-      continue;
-    }
-    if (flag === '--json' && !json) {
-      json = true;
-      continue;
-    }
-    if (flag === '--compact' && json && !compact) {
-      compact = true;
-      continue;
-    }
-    throw new Error(REPAIR_USAGE);
-  }
-  return { mode: 'run', dryRun, json, compact };
-}
-
-function parseUpgradeOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  let json = false;
-  let compact = false;
-  for (const flag of args) {
-    if (flag === '--json' && !json) {
-      json = true;
-      continue;
-    }
-    if (flag === '--compact' && json && !compact) {
-      compact = true;
-      continue;
-    }
-    throw new Error(UPGRADE_USAGE);
-  }
-  return { json, compact };
+  return { mode: 'run', ...parseDryRunJsonOutputArgs(args, REPAIR_USAGE) };
 }
 
 export function parseUpgradeArgs(args: string[]): ParsedUpgradeArgs {
   if (args[0] === 'plan') {
-    return { mode: 'plan', ...parseUpgradeOutputArgs(args.slice(1)) };
+    return { mode: 'plan', ...parseOptionalJsonOutputArgs(args.slice(1), UPGRADE_USAGE) };
   }
   if (args[0] === 'diagnostics') {
-    return { mode: 'diagnostics', ...parseUpgradeOutputArgs(args.slice(1)) };
+    return { mode: 'diagnostics', ...parseOptionalJsonOutputArgs(args.slice(1), UPGRADE_USAGE) };
   }
   if (args.length < 2) {
     throw new Error(UPGRADE_USAGE);
   }
 
   const [blockId, targetVersion, ...flags] = args;
-  let dryRun = false;
-  let json = false;
-  let compact = false;
-  for (const flag of flags) {
-    if (flag === '--dry-run' && !dryRun) {
-      dryRun = true;
-      continue;
-    }
-    if (flag === '--json' && !json) {
-      json = true;
-      continue;
-    }
-    if (flag === '--compact' && json && !compact) {
-      compact = true;
-      continue;
-    }
-    throw new Error(UPGRADE_USAGE);
-  }
-
-  return { mode: 'run', blockId, targetVersion, dryRun, json, compact };
+  return { mode: 'run', blockId, targetVersion, ...parseDryRunJsonOutputArgs(flags, UPGRADE_USAGE) };
 }
 
-function parseOptionalJsonOutputArgs(args: string[], usage: string): { json: boolean; compact: boolean } {
-  if (args.length === 0) {
-    return { json: false, compact: false };
-  }
-  if (args[0] !== '--json') {
+function parseOptionalJsonOutputArgs(args: string[], usage: string): JsonOutputArgs {
+  const output: JsonOutputArgs = { json: false, compact: false };
+  for (const flag of args) {
+    if (applyJsonOutputFlag(output, flag)) {
+      continue;
+    }
     throw new Error(usage);
   }
-  if (args.length === 1) {
-    return { json: true, compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { json: true, compact: true };
-  }
-  throw new Error(usage);
+  return output;
 }
 
 export function parseLockArgs(
@@ -219,23 +166,6 @@ function parseArtifactPathKind(value: string): ArtifactPathKind {
   throw new Error(ARTIFACTS_USAGE);
 }
 
-function parseArtifactOutputArgs(args: string[]): { json: boolean; compact: boolean } {
-  let json = false;
-  let compact = false;
-  for (const flag of args) {
-    if (flag === '--json' && !json) {
-      json = true;
-      continue;
-    }
-    if (flag === '--compact' && json && !compact) {
-      compact = true;
-      continue;
-    }
-    throw new Error(ARTIFACTS_USAGE);
-  }
-  return { json, compact };
-}
-
 export function parseArtifactsArgs(
   args: string[]
 ):
@@ -243,20 +173,14 @@ export function parseArtifactsArgs(
   | { mode: 'manifest'; json: boolean; compact: boolean }
   | { mode: 'paths'; json: boolean; compact: boolean; kind?: ArtifactPathKind } {
   if (args[0] === 'manifest') {
-    return { mode: 'manifest', ...parseArtifactOutputArgs(args.slice(1)) };
+    return { mode: 'manifest', ...parseOptionalJsonOutputArgs(args.slice(1), ARTIFACTS_USAGE) };
   }
   if (args[0] === '--paths') {
-    let json = false;
-    let compact = false;
+    const output: JsonOutputArgs = { json: false, compact: false };
     let kind: ArtifactPathKind | undefined;
     for (let index = 1; index < args.length; index += 1) {
       const flag = args[index];
-      if (flag === '--json' && !json) {
-        json = true;
-        continue;
-      }
-      if (flag === '--compact' && json && !compact) {
-        compact = true;
+      if (applyJsonOutputFlag(output, flag)) {
         continue;
       }
       if (flag === '--kind' && !kind && index + 1 < args.length) {
@@ -266,18 +190,13 @@ export function parseArtifactsArgs(
       }
       throw new Error(ARTIFACTS_USAGE);
     }
-    return { mode: 'paths', json, compact, ...(kind ? { kind } : {}) };
+    return { mode: 'paths', ...output, ...(kind ? { kind } : {}) };
   }
-  if (args[0] !== '--json') {
+  const output = parseOptionalJsonOutputArgs(args, ARTIFACTS_USAGE);
+  if (!output.json) {
     throw new Error(ARTIFACTS_USAGE);
   }
-  if (args.length === 1) {
-    return { mode: 'json', compact: false };
-  }
-  if (args.length === 2 && args[1] === '--compact') {
-    return { mode: 'json', compact: true };
-  }
-  throw new Error(ARTIFACTS_USAGE);
+  return { mode: 'json', compact: output.compact };
 }
 
 export function parseDoctorArgs(args: string[]): { json: boolean; compact: boolean } {
