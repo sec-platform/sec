@@ -10,6 +10,7 @@ import {
   POSTGRES_USAGE,
   REPAIR_USAGE
 } from '../../platform/cli/usage.ts';
+import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES, emptyCiArtifactMissingReasonCounts } from '../../platform/shared/ci-artifact-contract.ts';
 import type {
   CiArtifactKind,
@@ -34,6 +35,7 @@ import type {
   ProvenanceFile,
   RepairPlan,
   ReviewProvenanceRegistrySummary,
+  ReviewSummary,
   UpgradeDiagnostics,
   UpgradePlan,
   VerificationReport
@@ -416,7 +418,7 @@ export function buildRuntimeVerificationReport(
   };
 }
 
-type ReviewInputsOptions = {
+export type ReviewInputsOptions = {
   lock?: ReviewLockOptions;
   provenance?: ProvenanceFile['artifacts'];
   report?: ReviewReportOptions;
@@ -476,6 +478,14 @@ export function buildReviewInputs(options: ReviewInputsOptions = {}): ReviewInpu
     report: buildPassingReviewReport(options.report),
     coverage: buildPassingReviewCoverage(options.coverage)
   };
+}
+
+export async function buildReviewSummaryFromInputs(
+  workspaceRoot: string,
+  options: ReviewInputsOptions = {}
+): Promise<ReviewSummary> {
+  const { lock, provenance, report, coverage } = buildReviewInputs(options);
+  return buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 }
 
 type RepairFailurePoint = RepairPlan['tasks'][number]['failurePoints'][number];
