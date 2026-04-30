@@ -640,12 +640,14 @@ type ManifestFileOperationEvidenceContext = BaseMigrationOperationContext & {
   entry: Extract<UpgradeMigrationEntry, { kind: 'file-replace' | 'copy-file' }>;
 };
 
+type UpgradeMigrationOperationRecord = UpgradePlan['migrationOperations'][number];
+
 type MigrationOperationSpec<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> = {
   validate?: (context: MigrationEntryValidationContext<K>) => void;
   apply: (context: MigrationApplyContext<K>) => Promise<void>;
   collectFileEvidence?: (context: FileOperationEvidenceContext<K>) => Promise<string[]>;
   collectImpacts?: (entry: Extract<UpgradeMigrationEntry, { kind: K }>) => string[];
-  buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: K }>) => UpgradePlan['migrationOperations'][number];
+  buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: K }>) => UpgradeMigrationOperationRecord;
 };
 
 type MigrationOperationSpecs = {
@@ -657,7 +659,7 @@ type AnyMigrationOperationSpec = {
   apply: (context: MigrationApplyContext) => Promise<void>;
   collectFileEvidence?: (context: FileOperationEvidenceContext) => Promise<string[]>;
   collectImpacts?: (entry: UpgradeMigrationEntry) => string[];
-  buildOperation: (entry: UpgradeMigrationEntry) => UpgradePlan['migrationOperations'][number];
+  buildOperation: (entry: UpgradeMigrationEntry) => UpgradeMigrationOperationRecord;
 };
 
 function hasProjectSource(entry: UpgradeMigrationEntry): entry is ProjectSourceMigrationEntry {
@@ -940,8 +942,6 @@ async function collectManifestFileOperationEvidence(
       : `${entry.id}:manifest-source:file`
   ];
 }
-
-type UpgradeMigrationOperationRecord = UpgradePlan['migrationOperations'][number];
 
 function buildMigrationOperationRecord(
   entry: UpgradeMigrationEntry,
@@ -1694,7 +1694,21 @@ function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Re
   }, {});
 }
 
-function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradePlan['migrationOperations'][number] {
+function buildMigrationSummary(entry: UpgradeMigrationEntry, migrations: UpgradeMigration[]): UpgradePlan['migrationSummaries'][number] {
+  const migration = migrations.find((candidate) => candidate.id === entry.id);
+  const operation = buildMigrationOperation(entry);
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    target: entry.target,
+    reason: entry.reason,
+    requiresVerification: migration?.requiresVerification ?? true,
+    ...(operation.slotId ? { slotId: operation.slotId } : {}),
+    ...(operation.source ? { source: operation.source } : {})
+  };
+}
+
+function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradeMigrationOperationRecord {
   const spec = getMigrationOperationSpec(entry);
   if (!spec) {
     throw unsupportedMigrationKindError(entry as { kind: string });
@@ -1721,26 +1735,7 @@ function buildUpgradePlan(
     impacts,
     migrations,
     migrationKindCounts: buildMigrationKindCounts(migrationEntries),
-    migrationSummaries: migrationEntries.map((entry) => {
-      const migration = migrations.find((candidate) => candidate.id === entry.id);
-      return {
-        id: entry.id,
-        kind: entry.kind,
-        target: entry.target,
-        reason: entry.reason,
-        requiresVerification: migration?.requiresVerification ?? true,
-        ...(entry.kind === 'slot-contract-update' ? { slotId: entry.slotId } : {}),
-        ...(
-          entry.kind === 'file-replace' ||
-          entry.kind === 'rename-file' ||
-          entry.kind === 'copy-file' ||
-          entry.kind === 'copy-directory' ||
-          entry.kind === 'rename-directory'
-            ? { source: entry.source }
-            : {}
-        )
-      };
-    }),
+    migrationSummaries: migrationEntries.map((entry) => buildMigrationSummary(entry, migrations)),
     migrationOperations: migrationEntries.map(buildMigrationOperation)
   };
 }
