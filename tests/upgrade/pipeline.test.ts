@@ -15,10 +15,9 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
   expectGraphEdge,
   expectReviewConflictHint,
-  expectReviewRegressionRisk,
-  prepareComposedWorkspace,
-  prepareLockedWorkspace
-} from '../helpers/test-utils.ts';
+  expectReviewRegressionRisk
+} from '../helpers/graph-assertions.ts';
+import { prepareComposedWorkspace, prepareLockedWorkspace } from '../helpers/test-utils.ts';
 
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
   const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-upgrade-' });

@@ -12,10 +12,12 @@ import {
   expectCliText,
   runCliInProcess as runCli,
   runCliPipeline,
-  withTempWorkspace,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
+import {
   writeFailedFastUnitVerification,
   writePassingVerificationState
-} from '../helpers/test-utils.ts';
+} from '../helpers/verification-fixtures.ts';
 
 test('CLI emits repair dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

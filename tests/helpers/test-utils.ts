@@ -37,18 +37,13 @@ import {
 } from '../../platform/shared/paths.ts';
 import type {
   AcceptanceCoverageReport,
-  ExplainGraph,
-  ExplainGraphEdge,
-  ExplainGraphNode,
   LockFile,
   ManifestEntry,
   PlanFile,
   PolicyReport,
   ProvenanceFile,
   RepairPlan,
-  ReviewConflictHint,
   ReviewProvenanceRegistrySummary,
-  ReviewRegressionRisk,
   ReviewSummary,
   UpgradeDiagnostics,
   UpgradePlan,
@@ -334,52 +329,6 @@ export function emptyVerificationLogs(): VerificationReport['logs'] {
   return { stdout: '', stderr: '' };
 }
 
-export async function writeFailedFastUnitVerification(
-  workspaceRoot: string,
-  message: string,
-  options: { slotTasks?: LockFile['slotTasks'] } = {}
-): Promise<void> {
-  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
-  lock.passStatus.verify = 'failed';
-  if (options.slotTasks !== undefined) {
-    lock.slotTasks = options.slotTasks;
-  }
-  await writeJson(lockPath, lock);
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  report.unit.status = 'failed';
-  report.fast.status = 'failed';
-  report.fast.unit.status = 'failed';
-  report.fast.logs.stderr = message;
-  report.summary.status = 'failed';
-  report.summary.failedLanes = ['fast'];
-  report.logs.stderr = message;
-  await writeJson(verificationReportPath, report);
-}
-
-export async function writePassingVerificationState(workspaceRoot: string): Promise<void> {
-  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
-  lock.passStatus.verify = 'succeeded';
-  await writeJson(lockPath, lock);
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  report.unit.status = 'passed';
-  report.unit.passed = [];
-  report.acceptance.status = 'passed';
-  report.acceptance.passed = [];
-  report.acceptance.failed = [];
-  report.policy.status = 'passed';
-  report.policy.violations = [];
-  report.fast.status = 'passed';
-  report.fast.unit.status = 'passed';
-  report.summary.status = 'passed';
-  report.summary.requestedLane = 'all';
-  report.summary.failedLanes = [];
-  await writeJson(verificationReportPath, report);
-}
-
 export function buildArtifactMissingReasonCounts(
   overrides: Partial<Record<CiArtifactMissingReason, number>> = {}
 ): Record<CiArtifactMissingReason, number> {
@@ -405,36 +354,6 @@ export function expectContainsAll(haystack: string, needles: readonly string[]):
 export function expectContainsNone(haystack: string, needles: readonly string[]): void {
   const found = needles.filter((n) => haystack.includes(n));
   expect(found, `Unexpectedly found ${found.length} marker(s): ${found.map((f) => JSON.stringify(f)).join(', ')}`).toEqual([]);
-}
-
-export function expectGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Partial<ExplainGraphNode>): void {
-  expect(graph.nodes).toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
-}
-
-export function expectNoGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Partial<ExplainGraphNode>): void {
-  expect(graph.nodes).not.toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
-}
-
-export function expectGraphEdge(graph: Pick<ExplainGraph, 'edges'>, expected: Partial<ExplainGraphEdge>): void {
-  expect(graph.edges).toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
-}
-
-export function expectNoGraphEdge(graph: Pick<ExplainGraph, 'edges'>, expected: Partial<ExplainGraphEdge>): void {
-  expect(graph.edges).not.toEqual(expect.arrayContaining([expect.objectContaining(expected)]));
-}
-
-export function expectReviewConflictHint(
-  reviewSummary: Pick<ReviewSummary, 'conflictHints'>,
-  expected: ReviewConflictHint
-): void {
-  expect(reviewSummary.conflictHints).toEqual(expect.arrayContaining([expected]));
-}
-
-export function expectReviewRegressionRisk(
-  reviewSummary: Pick<ReviewSummary, 'regressionRisks'>,
-  expected: ReviewRegressionRisk
-): void {
-  expect(reviewSummary.regressionRisks).toEqual(expect.arrayContaining([expected]));
 }
 
 export async function expectFileUnchanged(filePath: string, beforeText: string): Promise<void> {
