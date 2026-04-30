@@ -21,6 +21,7 @@ import type {
 } from '../../platform/shared/types.ts';
 import {
   buildPassingReviewCoverage,
+  buildPassingReviewReport,
   buildReviewInputs,
   buildReviewLock,
   buildReviewProvenance,
@@ -146,21 +147,14 @@ test('buildReviewSummary adds failed verification targets as structured failure 
     status: 'failed',
     uncoveredBlocks: ['entity/customer-basic']
   });
-  const report: VerificationReport = {
-    build: { status: 'passed' },
-    unit: { status: 'passed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
+  const report = buildPassingReviewReport({
     fast: {
       status: 'failed',
-      build: { status: 'passed' },
-      unit: { status: 'passed', passed: [] },
       acceptance: {
         status: 'failed',
         passed: [],
         failed: ['tests/acceptance/customer-normalizer.test.ts', 'tests/acceptance/customer-normalizer.test.ts']
       },
-      policy: { status: 'passed', violations: [] },
       logs: { stdout: '', stderr: 'fast failed' }
     },
     runtime: {
@@ -186,7 +180,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
       failedLanes: ['fast', 'runtime']
     },
     logs: { stdout: '', stderr: 'runtime failed' }
-  };
+  });
 
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 

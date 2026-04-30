@@ -4,8 +4,8 @@ import { buildReviewSummary } from '../../platform/compiler/emit/write-review-su
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
-import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import type { RepairPlan } from '../../platform/shared/types.ts';
+import { buildPassingReviewReport, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -19,33 +19,17 @@ test('review summary surfaces pending repair tasks', async () => {
       },
       coverage: { status: 'failed' }
     });
-    const report: VerificationReport = {
-      build: { status: 'passed' },
+    const report = buildPassingReviewReport({
       unit: { status: 'failed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: { status: 'passed', violations: [] },
       fast: {
         status: 'failed',
-        build: { status: 'passed' },
-        unit: { status: 'failed', passed: [] },
-        acceptance: { status: 'passed', passed: [], failed: [] },
-        policy: { status: 'passed', violations: [] },
-        logs: { stdout: '', stderr: '' }
-      },
-      runtime: {
-        status: 'skipped',
-        build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-        unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-        acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-        logs: { stdout: '', stderr: '' }
+        unit: { status: 'failed', passed: [] }
       },
       summary: {
         status: 'failed',
-        requestedLane: 'fast',
         failedLanes: ['fast']
-      },
-      logs: { stdout: '', stderr: '' }
-    };
+      }
+    });
     const repairPlan: RepairPlan = {
       formatVersion: '1',
       status: 'pending',

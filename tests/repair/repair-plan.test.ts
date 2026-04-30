@@ -8,7 +8,7 @@ import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
 
 const plan: PlanFile = {
   app: {
@@ -84,112 +84,56 @@ const lock: LockFile = {
   }
 };
 
-const failedReport: VerificationReport = {
-  build: {
-    status: 'passed'
+const policyViolations: VerificationReport['policy']['violations'] = [
+  {
+    id: 'tenant-scope-required',
+    severity: 'error',
+    appliesTo: ['entity/customer-basic'],
+    rule: 'tenant_context_must_flow_to_query',
+    files: ['src/installed/entity/customer-service.ts'],
+    message: 'Z policy issue.',
+    sourceScope: 'official',
+    sourcePath: 'platform/policies/official/policy.spec.yaml'
   },
-  unit: {
-    status: 'failed',
-    passed: []
+  {
+    id: 'tenant-scope-required',
+    severity: 'error',
+    appliesTo: ['entity/customer-basic'],
+    rule: 'tenant_context_must_flow_to_query',
+    files: ['src/installed/entity/customer-service.ts'],
+    message: 'A policy issue.',
+    sourceScope: 'official',
+    sourcePath: 'platform/policies/official/policy.spec.yaml'
   },
-  acceptance: {
-    status: 'failed',
-    passed: [],
-    failed: ['customer-flow.test.ts']
-  },
-  policy: {
-    status: 'failed',
-    violations: [
-      {
-        id: 'tenant-scope-required',
-        severity: 'error',
-        appliesTo: ['entity/customer-basic'],
-        rule: 'tenant_context_must_flow_to_query',
-        files: ['src/installed/entity/customer-service.ts'],
-        message: 'Z policy issue.',
-        sourceScope: 'official',
-        sourcePath: 'platform/policies/official/policy.spec.yaml'
-      },
-      {
-        id: 'tenant-scope-required',
-        severity: 'error',
-        appliesTo: ['entity/customer-basic'],
-        rule: 'tenant_context_must_flow_to_query',
-        files: ['src/installed/entity/customer-service.ts'],
-        message: 'A policy issue.',
-        sourceScope: 'official',
-        sourcePath: 'platform/policies/official/policy.spec.yaml'
-      },
-      {
-        id: 'tenant-scope-required',
-        severity: 'error',
-        appliesTo: ['entity/customer-basic'],
-        rule: 'tenant_context_must_flow_to_query',
-        files: ['src/installed/entity/customer-service.ts'],
-        message: 'A policy issue.',
-        sourceScope: 'official',
-        sourcePath: 'platform/policies/official/policy.spec.yaml'
-      }
-    ]
-  },
+  {
+    id: 'tenant-scope-required',
+    severity: 'error',
+    appliesTo: ['entity/customer-basic'],
+    rule: 'tenant_context_must_flow_to_query',
+    files: ['src/installed/entity/customer-service.ts'],
+    message: 'A policy issue.',
+    sourceScope: 'official',
+    sourcePath: 'platform/policies/official/policy.spec.yaml'
+  }
+];
+
+const failedReport: VerificationReport = buildPassingReviewReport({
+  unit: { status: 'failed', passed: [] },
+  acceptance: { status: 'failed', passed: [], failed: ['customer-flow.test.ts'] },
+  policy: { status: 'failed', violations: policyViolations },
   fast: {
     status: 'failed',
-    build: {
-      status: 'passed'
-    },
-    unit: {
-      status: 'failed',
-      passed: []
-    },
-    acceptance: {
-      status: 'failed',
-      passed: [],
-      failed: ['customer-flow.test.ts']
-    },
-    policy: {
-      status: 'failed',
-      violations: []
-    },
-    logs: {
-      stdout: 'typecheck:passed',
-      stderr: 'unit assertion failed'
-    }
-  },
-  runtime: {
-    status: 'skipped',
-    build: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run build'
-    },
-    unit: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:unit'
-    },
-    acceptance: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:acceptance'
-    },
-    logs: {
-      stdout: '',
-      stderr: ''
-    }
+    unit: { status: 'failed', passed: [] },
+    acceptance: { status: 'failed', passed: [], failed: ['customer-flow.test.ts'] },
+    policy: { status: 'failed', violations: [] },
+    logs: { stdout: 'typecheck:passed', stderr: 'unit assertion failed' }
   },
   summary: {
     status: 'failed',
-    requestedLane: 'fast',
     failedLanes: ['fast']
   },
-  logs: {
-    stdout: 'typecheck:passed',
-    stderr: 'unit assertion failed'
-  }
-};
+  logs: { stdout: 'typecheck:passed', stderr: 'unit assertion failed' }
+});
 
 test('writeRepairPlan persists generated path in a missing generated directory', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -218,30 +162,11 @@ test('writeRepairPlan persists generated path in a missing generated directory',
 });
 
 test('repair plan skips when verification passed', () => {
-  const report: VerificationReport = {
-    ...failedReport,
-    build: { status: 'passed' },
-    unit: { status: 'passed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
-    fast: {
-      ...failedReport.fast,
-      status: 'passed',
-      unit: { status: 'passed', passed: [] },
-      policy: { status: 'passed', violations: [] },
-      logs: { stdout: '', stderr: '' }
-    },
-    runtime: {
-      ...failedReport.runtime,
-      status: 'skipped'
-    },
+  const report = buildPassingReviewReport({
     summary: {
-      status: 'passed',
-      requestedLane: 'all',
-      failedLanes: []
-    },
-    logs: { stdout: '', stderr: '' }
-  };
+      requestedLane: 'all'
+    }
+  });
 
   expect(buildRepairPlan(plan, lock, report)).toEqual({
     formatVersion: '1',
@@ -352,29 +277,13 @@ test('repair plan records blockers when no slot task is repairable', () => {
 });
 
 test('repair plan falls back when failed summary has no lane details', () => {
-  const report: VerificationReport = {
-    ...failedReport,
-    build: { status: 'passed' },
-    unit: { status: 'passed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
-    fast: {
-      ...failedReport.fast,
-      status: 'passed',
-      unit: { status: 'passed', passed: [] },
-      policy: { status: 'passed', violations: [] },
-      logs: { stdout: '', stderr: '' }
-    },
-    runtime: {
-      ...failedReport.runtime,
-      status: 'skipped'
-    },
+  const report = buildPassingReviewReport({
     summary: {
       status: 'failed',
       requestedLane: 'all',
       failedLanes: []
     }
-  };
+  });
 
   const repairPlan = buildRepairPlan(plan, lock, report);
 

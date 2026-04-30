@@ -3,11 +3,8 @@ import { expect, test } from 'vitest';
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type {
-  PolicyReport,
-  VerificationReport
-} from '../../platform/shared/types.ts';
-import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import type { PolicyReport } from '../../platform/shared/types.ts';
+import { buildPassingReviewReport, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces policy governance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -19,61 +16,27 @@ test('review summary surfaces policy governance summary', async () => {
         }
       }
     });
-    const report: VerificationReport = {
-      build: { status: 'passed' },
-      unit: { status: 'passed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: {
-        status: 'failed',
-        violations: [
-          {
-            id: 'tenant-scope-required',
-            severity: 'error',
-            appliesTo: ['entity/customer-basic'],
-            rule: 'tenant_context_must_flow_to_query',
-            files: ['src/installed/entity/customer-service.ts'],
-            message: 'Entity customer queries must derive tenant context.',
-            sourceScope: 'official',
-            sourcePath: 'platform/policies/official/policy.spec.yaml'
-          }
-        ]
-      },
+    const violation: PolicyReport['violations'][number] = {
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['entity/customer-basic'],
+      rule: 'tenant_context_must_flow_to_query',
+      files: ['src/installed/entity/customer-service.ts'],
+      message: 'Entity customer queries must derive tenant context.',
+      sourceScope: 'official',
+      sourcePath: 'platform/policies/official/policy.spec.yaml'
+    };
+    const report = buildPassingReviewReport({
+      policy: { status: 'failed', violations: [violation] },
       fast: {
         status: 'failed',
-        build: { status: 'passed' },
-        unit: { status: 'passed', passed: [] },
-        acceptance: { status: 'passed', passed: [], failed: [] },
-        policy: {
-          status: 'failed',
-          violations: [
-            {
-              id: 'tenant-scope-required',
-              severity: 'error',
-              appliesTo: ['entity/customer-basic'],
-              rule: 'tenant_context_must_flow_to_query',
-              files: ['src/installed/entity/customer-service.ts'],
-              message: 'Entity customer queries must derive tenant context.',
-              sourceScope: 'official',
-              sourcePath: 'platform/policies/official/policy.spec.yaml'
-            }
-          ]
-        },
-        logs: { stdout: '', stderr: '' }
-      },
-      runtime: {
-        status: 'skipped',
-        build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-        unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-        acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-        logs: { stdout: '', stderr: '' }
+        policy: { status: 'failed', violations: [violation] }
       },
       summary: {
         status: 'failed',
-        requestedLane: 'fast',
         failedLanes: ['fast']
-      },
-      logs: { stdout: '', stderr: '' }
-    };
+      }
+    });
     const policyReport: PolicyReport = {
       status: 'failed',
       official: {
@@ -112,18 +75,7 @@ test('review summary surfaces policy governance summary', async () => {
           }
         ]
       },
-      violations: [
-        {
-          id: 'tenant-scope-required',
-          severity: 'error',
-          appliesTo: ['entity/customer-basic'],
-          rule: 'tenant_context_must_flow_to_query',
-          files: ['src/installed/entity/customer-service.ts'],
-          message: 'Entity customer queries must derive tenant context.',
-          sourceScope: 'official',
-          sourcePath: 'platform/policies/official/policy.spec.yaml'
-        }
-      ]
+      violations: [violation]
     };
     await writeJson(policyReportPath, policyReport);
 

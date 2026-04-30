@@ -9,7 +9,7 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildPassingReviewReport, expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
 
 function plan(): PlanFile {
   return {
@@ -92,36 +92,20 @@ function lock(status: LockFile['slotTasks'][number]['status'] = 'failed'): LockF
 }
 
 function failedUnitReport(): VerificationReport {
-  return {
-    build: { status: 'passed' },
+  return buildPassingReviewReport({
     unit: { status: 'failed', passed: [] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
-    policy: { status: 'passed', violations: [] },
     fast: {
       status: 'failed',
-      build: { status: 'passed' },
       unit: { status: 'failed', passed: [] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: { status: 'passed', violations: [] },
       logs: { stdout: '', stderr: 'unit assertion failed' }
-    },
-    runtime: {
-      status: 'skipped',
-      build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-      unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-      acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-      logs: { stdout: '', stderr: '' }
     },
     summary: {
       status: 'failed',
-      requestedLane: 'fast',
       failedLanes: ['fast']
     },
     logs: { stdout: '', stderr: 'unit assertion failed' }
-  };
+  });
 }
-
-
 
 async function writeRepairFixture(workspaceRoot: string, fixtureLock: LockFile = lock()): Promise<void> {
   const { planPath, lockPath, verificationReportPath, projectRoot } = getWorkspacePaths(workspaceRoot);

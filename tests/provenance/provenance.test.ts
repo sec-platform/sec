@@ -4,8 +4,8 @@ import { buildProvenance } from '../../platform/compiler/emit/write-provenance.t
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile, VerificationReport } from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import type { LockFile } from '../../platform/shared/types.ts';
+import { buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('buildProvenance sorts and deduplicates slot verification hints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -83,33 +83,21 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
     };
 
     const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
-    const report: VerificationReport = {
-      build: { status: 'passed' },
+    const report = buildPassingReviewReport({
       unit: { status: 'passed', passed: ['customer-runtime.test.ts'] },
-      acceptance: { status: 'passed', passed: [], failed: [] },
-      policy: { status: 'passed', violations: [] },
       fast: {
-        status: 'passed',
-        build: { status: 'passed' },
-        unit: { status: 'passed', passed: ['customer-runtime.test.ts'] },
-        acceptance: { status: 'passed', passed: [], failed: [] },
-        policy: { status: 'passed', violations: [] },
-        logs: { stdout: '', stderr: '' }
+        unit: { status: 'passed', passed: ['customer-runtime.test.ts'] }
       },
       runtime: {
         status: 'passed',
         build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
         unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
-        acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' },
-        logs: { stdout: '', stderr: '' }
+        acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' }
       },
       summary: {
-        status: 'passed',
-        requestedLane: 'all',
-        failedLanes: []
-      },
-      logs: { stdout: '', stderr: '' }
-    };
+        requestedLane: 'all'
+      }
+    });
     await writeJson(verificationReportPath, report);
 
     const provenance = await buildProvenance(workspaceRoot, lock);
