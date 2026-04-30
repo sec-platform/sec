@@ -88,6 +88,10 @@ export function expectContainsNone(haystack: string, needles: readonly string[])
   expect(found, `Unexpectedly found ${found.length} marker(s): ${found.map((f) => JSON.stringify(f)).join(', ')}`).toEqual([]);
 }
 
+export async function expectFileUnchanged(filePath: string, beforeText: string): Promise<void> {
+  await expect(fs.readFile(filePath, 'utf8')).resolves.toBe(beforeText);
+}
+
 type ReviewLockOptions = Partial<Omit<LockFile, 'app' | 'passStatus'>> & {
   app?: Partial<LockFile['app']>;
   passStatus?: Partial<LockFile['passStatus']>;

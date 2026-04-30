@@ -6,7 +6,7 @@ import {
 } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
+import { createWorkspace, expectFileUnchanged, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
 
 test('upgrade apply writes diagnostics when migration execution fails after planning', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-apply-diagnostics-');
@@ -19,7 +19,7 @@ test('upgrade apply writes diagnostics when migration execution fails after plan
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0')).rejects.toMatchObject({
     code: 'UPGRADE-MIGRATION-016'
   });
-  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(planPath, beforePlan);
 
   const diagnostics = await readJson<{
     phase: string;

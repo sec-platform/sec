@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
+import { expectFileUnchanged, prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
 
 test('upgrade dry-run records create directory migration impacts', async () => {
   const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
@@ -42,7 +42,7 @@ test('upgrade dry-run records create directory migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run rejects create directory migrations when target is a file', async () => {
@@ -123,7 +123,7 @@ test('upgrade dry-run records delete directory migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records copy directory migration impacts', async () => {
@@ -178,7 +178,7 @@ test('upgrade dry-run records copy directory migration impacts', async () => {
       source: 'files/generated/reports/templates'
     }
   ]);
-  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run rejects copy directory migrations when target is a file', async () => {
