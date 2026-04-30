@@ -1,8 +1,7 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
+import { writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -948,9 +947,7 @@ export async function writeReviewSummary(
   const { reviewSummaryPath, lockPath } = getWorkspacePaths(workspaceRoot);
   addGeneratedPaths(lock, [CI_ARTIFACT_FILES.reviewSummary]);
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
-  await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
-  await fs.mkdir(path.dirname(lockPath), { recursive: true });
-  await fs.writeFile(reviewSummaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(reviewSummaryPath, summary);
+  await writeJson(lockPath, lock);
   return summary;
 }

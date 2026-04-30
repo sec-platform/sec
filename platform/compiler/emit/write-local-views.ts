@@ -4,7 +4,7 @@ import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, countPositiveValues, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
-import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
+import { ensureDir, pathExists, readJson, readOptionalJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -1376,7 +1376,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
   await ensureDir(generatedViewsDir);
   addGeneratedPaths(lock, CI_ARTIFACT_PATHS.view);
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(lockPath, lock);
 
   const [provenance, report, coverage, policyReport, review, graph, repairPlan, upgradeDiagnostics, upgradePlan] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),

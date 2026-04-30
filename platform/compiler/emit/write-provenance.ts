@@ -1,12 +1,10 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
   CI_ARTIFACT_PATHS
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
-import { readOptionalJson } from '../../shared/fs.ts';
+import { readOptionalJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -192,9 +190,7 @@ export async function writeProvenance(workspaceRoot: string, lock: LockFile): Pr
   addGeneratedPaths(lock, [CI_ARTIFACT_FILES.provenance]);
 
   const provenance = await buildProvenance(workspaceRoot, lock);
-  await fs.mkdir(path.dirname(provenancePath), { recursive: true });
-  await fs.mkdir(path.dirname(lockPath), { recursive: true });
-  await fs.writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, 'utf8');
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(provenancePath, provenance);
+  await writeJson(lockPath, lock);
   return provenance;
 }
