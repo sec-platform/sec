@@ -24,6 +24,7 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PolicyReport } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+import { expectContainsAll } from './assertion-helpers.ts';
 import { buildSingleTenantLockApp } from './lock-fixtures.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
 
@@ -119,20 +120,6 @@ export function emptyPolicyScopeReport(): PolicyReport['project'] {
     sources: [],
     violations: []
   };
-}
-
-export function expectContainsAll(haystack: string, needles: readonly string[]): void {
-  const missing = needles.filter((n) => !haystack.includes(n));
-  expect(missing, `Missing ${missing.length} marker(s): ${missing.map((m) => JSON.stringify(m)).join(', ')}`).toEqual([]);
-}
-
-export function expectContainsNone(haystack: string, needles: readonly string[]): void {
-  const found = needles.filter((n) => haystack.includes(n));
-  expect(found, `Unexpectedly found ${found.length} marker(s): ${found.map((f) => JSON.stringify(f)).join(', ')}`).toEqual([]);
-}
-
-export async function expectFileUnchanged(filePath: string, beforeText: string): Promise<void> {
-  await expect(fs.readFile(filePath, 'utf8')).resolves.toBe(beforeText);
 }
 
 export type CliResult = { code: number; stdout: string; stderr: string };

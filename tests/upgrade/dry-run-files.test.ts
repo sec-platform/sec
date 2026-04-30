@@ -3,7 +3,8 @@ import { expect, test } from 'vitest';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { expectFileUnchanged, prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
+import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
+import { prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
 
 test('upgrade dry-run records delete file migration impacts', async () => {
   const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({

@@ -14,10 +14,9 @@ import {
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
+import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import {
   createWorkspace,
-  expectContainsAll,
-  expectContainsNone,
   readCompilerFile,
   readCompilerPackageJson
 } from '../helpers/test-utils.ts';

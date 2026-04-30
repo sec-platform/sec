@@ -18,12 +18,12 @@ import type {
 } from '../../platform/shared/ci-artifact-types.ts';
 import { pathExists, readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { buildArtifactMissingReasonCounts, buildArtifactUploadGroup } from '../helpers/ci-artifact-fixtures.ts';
 import {
   expectCliJson,
   expectCliSuccess,
   expectCliText,
-  expectContainsAll,
   runCliInProcess as runCli,
   withTempWorkspace
 } from '../helpers/test-utils.ts';
