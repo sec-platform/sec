@@ -605,22 +605,22 @@ type ManifestSourceMigrationEntry = Extract<
   { kind: 'file-replace' | 'copy-file' | 'copy-directory' }
 >;
 
-type BaseMigrationApplyContext = {
+type BaseMigrationOperationContext = {
   projectRoot: string;
   targetManifestRoot: string;
   targetPath: string;
 };
 
 type MigrationApplyContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
-  BaseMigrationApplyContext & {
+  BaseMigrationOperationContext & {
     entry: Extract<UpgradeMigrationEntry, { kind: K }>;
   };
 
-type ManifestFileMigrationContext = BaseMigrationApplyContext & {
+type ManifestFileMigrationContext = BaseMigrationOperationContext & {
   entry: Extract<UpgradeMigrationEntry, { kind: 'file-replace' | 'copy-file' }>;
 };
 
-type TextReplaceMigrationContext = BaseMigrationApplyContext & {
+type TextReplaceMigrationContext = BaseMigrationOperationContext & {
   entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace' | 'text-replace-regex' }>;
 };
 
@@ -632,8 +632,32 @@ type MigrationApplyHandlers = {
   [K in UpgradeMigrationEntry['kind']]: MigrationApplyHandler<K>;
 };
 
+type FileOperationEvidenceContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
+  BaseMigrationOperationContext & {
+    entry: Extract<UpgradeMigrationEntry, { kind: K }>;
+  };
+
+type ManifestFileOperationEvidenceContext = BaseMigrationOperationContext & {
+  entry: Extract<UpgradeMigrationEntry, { kind: 'file-replace' | 'copy-file' }>;
+};
+
+type FileOperationEvidenceHandler<K extends UpgradeMigrationEntry['kind']> = (
+  context: FileOperationEvidenceContext<K>
+) => Promise<string[]>;
+
+type FileOperationEvidenceHandlers = Partial<{
+  [K in UpgradeMigrationEntry['kind']]: FileOperationEvidenceHandler<K>;
+}>;
+
 function hasProjectSource(entry: UpgradeMigrationEntry): entry is ProjectSourceMigrationEntry {
   return entry.kind === 'rename-file' || entry.kind === 'rename-directory';
+}
+
+function resolveProjectMigrationTarget(projectRoot: string, entry: UpgradeMigrationEntry): string {
+  return resolveProjectPath(projectRoot, entry.target, {
+    migrationId: entry.id,
+    role: 'target'
+  });
 }
 
 function resolveManifestMigrationSource(targetManifestRoot: string, entry: ManifestSourceMigrationEntry): string {
@@ -775,10 +799,7 @@ async function applyMigrationEntry(
   entry: UpgradeMigrationEntry
 ): Promise<void> {
   ensureMigrationImpacts(impacts, entry);
-  const targetPath = resolveProjectPath(projectRoot, entry.target, {
-    migrationId: entry.id,
-    role: 'target'
-  });
+  const targetPath = resolveProjectMigrationTarget(projectRoot, entry);
   const handler = migrationApplyHandlers[entry.kind] as (context: MigrationApplyContext) => Promise<void>;
   await handler({ entry, projectRoot, targetManifestRoot, targetPath });
 }
@@ -958,6 +979,60 @@ async function statCopyDirectoryMigrationTarget(targetPath: string, target: stri
   }
 }
 
+async function collectManifestFileOperationEvidence(
+  context: ManifestFileOperationEvidenceContext
+): Promise<string[]> {
+  const { entry, targetManifestRoot, targetPath } = context;
+  const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
+  await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
+  await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+  return [
+    entry.kind === 'file-replace'
+      ? `${entry.id}:manifest-source:exists`
+      : `${entry.id}:manifest-source:file`
+  ];
+}
+
+const fileOperationEvidenceHandlers: FileOperationEvidenceHandlers = {
+  'file-replace': collectManifestFileOperationEvidence,
+  'copy-file': collectManifestFileOperationEvidence,
+  'copy-directory': async ({ entry, targetManifestRoot, targetPath }) => {
+    const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
+    await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+    await statCopyDirectoryMigrationTarget(targetPath, entry.target);
+    return [`${entry.id}:manifest-source:directory`];
+  },
+  'create-directory': async ({ entry, targetPath }) => {
+    await statCreateDirectoryMigrationTarget(targetPath, entry.target);
+    return [];
+  },
+  'delete-file': async ({ entry, targetPath }) => {
+    await statFileMigrationTarget(targetPath, entry.target);
+    return [`${entry.id}:target:file`];
+  },
+  'delete-directory': async ({ entry, targetPath }) => {
+    await statDirectoryMigrationTarget(targetPath, entry.target);
+    return [`${entry.id}:target:directory`];
+  },
+  'rename-file': async ({ entry, projectRoot, targetPath }) => {
+    await statRenameMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
+    if (await pathExists(targetPath)) {
+      throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
+    }
+    return [`${entry.id}:source:file`, `${entry.id}:target:available`];
+  },
+  'rename-directory': async ({ entry, projectRoot, targetPath }) => {
+    await statRenameDirectoryMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
+    if (await pathExists(targetPath)) {
+      throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${entry.target}" already exists`);
+    }
+    return [`${entry.id}:source:directory`, `${entry.id}:target:available`];
+  },
+  'text-append': async ({ entry, targetPath }) => [
+    `${entry.id}:target:${await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true })}`
+  ]
+};
+
 async function collectFileOperationEvidence(
   projectRoot: string,
   targetManifestRoot: string,
@@ -965,108 +1040,18 @@ async function collectFileOperationEvidence(
 ): Promise<string[]> {
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
-    if (entry.kind === 'file-replace' || entry.kind === 'copy-file') {
-      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
-        migrationId: entry.id,
-        role: 'manifest-source'
-      });
-      const targetPath = resolveProjectPath(projectRoot, entry.target, {
-        migrationId: entry.id,
-        role: 'target'
-      });
-      await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
-      await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-      evidence.push(
-        entry.kind === 'file-replace'
-          ? `${entry.id}:manifest-source:exists`
-          : `${entry.id}:manifest-source:file`
-      );
+    const handler = fileOperationEvidenceHandlers[entry.kind] as
+      | ((context: FileOperationEvidenceContext) => Promise<string[]>)
+      | undefined;
+    if (!handler) {
+      continue;
     }
-    if (entry.kind === 'copy-directory') {
-      const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
-        migrationId: entry.id,
-        role: 'manifest-source'
-      });
-      const targetPath = resolveProjectPath(projectRoot, entry.target, {
-        migrationId: entry.id,
-        role: 'target'
-      });
-      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
-      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
-      evidence.push(`${entry.id}:manifest-source:directory`);
-    }
-    if (entry.kind === 'create-directory') {
-      await statCreateDirectoryMigrationTarget(
-        resolveProjectPath(projectRoot, entry.target, {
-          migrationId: entry.id,
-          role: 'target'
-        }),
-        entry.target
-      );
-    }
-    if (entry.kind === 'delete-file') {
-      await statFileMigrationTarget(
-        resolveProjectPath(projectRoot, entry.target, {
-          migrationId: entry.id,
-          role: 'target'
-        }),
-        entry.target
-      );
-      evidence.push(`${entry.id}:target:file`);
-    }
-    if (entry.kind === 'delete-directory') {
-      await statDirectoryMigrationTarget(
-        resolveProjectPath(projectRoot, entry.target, {
-          migrationId: entry.id,
-          role: 'target'
-        }),
-        entry.target
-      );
-      evidence.push(`${entry.id}:target:directory`);
-    }
-    if (entry.kind === 'rename-file') {
-      const sourcePath = resolveProjectPath(projectRoot, entry.source, {
-        migrationId: entry.id,
-        role: 'source'
-      });
-      const targetPath = resolveProjectPath(projectRoot, entry.target, {
-        migrationId: entry.id,
-        role: 'target'
-      });
-      await statRenameMigrationSource(sourcePath, entry.source);
-      if (await pathExists(targetPath)) {
-        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
-      }
-      evidence.push(`${entry.id}:source:file`);
-      evidence.push(`${entry.id}:target:available`);
-    }
-    if (entry.kind === 'rename-directory') {
-      const sourcePath = resolveProjectPath(projectRoot, entry.source, {
-        migrationId: entry.id,
-        role: 'source'
-      });
-      const targetPath = resolveProjectPath(projectRoot, entry.target, {
-        migrationId: entry.id,
-        role: 'target'
-      });
-      await statRenameDirectoryMigrationSource(sourcePath, entry.source);
-      if (await pathExists(targetPath)) {
-        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${entry.target}" already exists`);
-      }
-      evidence.push(`${entry.id}:source:directory`);
-      evidence.push(`${entry.id}:target:available`);
-    }
-    if (entry.kind === 'text-append') {
-      evidence.push(`${entry.id}:target:${await statFileMigrationTarget(
-        resolveProjectPath(projectRoot, entry.target, {
-          migrationId: entry.id,
-          role: 'target'
-        }),
-        entry.target,
-        entry.kind,
-        { allowMissing: true }
-      )}`);
-    }
+    evidence.push(...await handler({
+      entry,
+      projectRoot,
+      targetManifestRoot,
+      targetPath: resolveProjectMigrationTarget(projectRoot, entry)
+    }));
   }
   return uniqueSorted(evidence);
 }
