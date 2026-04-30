@@ -4,79 +4,21 @@ import { expect, test } from 'vitest';
 
 import { buildRepairPlan, writeRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
-import { buildOfficialResolvedBlock, buildPassingReviewReport, withTempWorkspace } from '../helpers/test-utils.ts';
+import type { LockFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+import {
+  buildCustomerNormalizerLock,
+  buildCustomerNormalizerPlan,
+  buildPassingReviewReport,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
-const plan: PlanFile = {
-  app: {
-    name: 'customer-admin',
-    stack: 'nextjs-ts-prisma-sqlite',
-    packageManager: 'pnpm',
-    mode: 'single-tenant'
-  },
-  registry: {
-    sources: []
-  },
-  blocks: [{ id: 'entity/customer-basic', version: '0.1.0' }],
-  slots: [
-    {
-      id: 'customer_normalizer',
-      block: 'entity/customer-basic',
-      kind: 'adapter',
-      target: 'custom/customer_normalizer.ts',
-      symbol: 'normalizeCustomerInput',
-      description: 'Normalize customer input.'
-    }
-  ],
-  acceptance: [{ id: 'user_can_create_customer' }]
-};
-
-const lock: LockFile = {
-  formatVersion: '1',
-  app: {
-    name: 'customer-admin',
-    stack: 'nextjs-ts-prisma-sqlite',
-    mode: 'single-tenant'
-  },
-  resolvedBlocks: [
-    buildOfficialResolvedBlock({
-      id: 'entity/customer-basic',
-      installOrder: 1,
-      manifestPath: 'block.manifest.yaml'
-    })
-  ],
-  resolvedCapabilities: ['customer/write'],
-  installPlan: [],
-  slotTasks: [
-    {
-      id: 'customer_normalizer',
-      block: 'entity/customer-basic',
-      target: 'custom/customer_normalizer.ts',
-      symbol: 'normalizeCustomerInput',
-      kind: 'adapter',
-      status: 'filled',
-      writableZones: ['custom/customer_normalizer.ts'],
-      provenanceHints: {
-        generator: 'mock-local-synthesizer',
-        verifiedBy: []
-      }
-    }
-  ],
-  generatedPaths: [],
-  acceptancePlan: ['user_can_create_customer'],
-  passStatus: {
-    ...PASS_STATUS_PENDING,
-    parse: 'succeeded',
-    align: 'succeeded',
-    resolve: 'succeeded',
-    compose: 'succeeded',
-    adapt: 'succeeded',
-    verify: 'failed'
-  }
-};
+const plan = buildCustomerNormalizerPlan();
+const lock = buildCustomerNormalizerLock({
+  slotStatus: 'filled',
+  passStatus: { repair: 'skipped' }
+});
 
 const policyViolations: VerificationReport['policy']['violations'] = [
   {

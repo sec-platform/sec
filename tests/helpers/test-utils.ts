@@ -16,7 +16,7 @@ import type {
   CiArtifactMissingReason,
   CiArtifactUploadGroup
 } from '../../platform/shared/ci-artifact-types.ts';
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
+import { PASS_STATUS_PENDING, SUPPORTED_STACK } from '../../platform/shared/constants.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import {
@@ -97,29 +97,47 @@ export async function readCompilerPackageJson(): Promise<CompilerPackage> {
   return cachedRootPackage;
 }
 
+function buildSingleTenantPlanApp(options: Partial<PlanFile['app']> = {}): PlanFile['app'] {
+  return {
+    name: 'customer-admin',
+    stack: SUPPORTED_STACK,
+    packageManager: 'pnpm',
+    mode: 'single-tenant',
+    ...options
+  };
+}
+
+function buildSingleTenantLockApp(options: Partial<LockFile['app']> = {}): LockFile['app'] {
+  return {
+    name: options.name ?? 'customer-admin',
+    stack: options.stack ?? SUPPORTED_STACK,
+    mode: options.mode ?? 'single-tenant'
+  };
+}
+
+function buildOfficialPlanRegistrySource(): PlanFile['registry']['sources'][number] {
+  return {
+    id: 'official',
+    kind: 'official',
+    location: 'compiler',
+    path: officialRegistryRelativePath.replaceAll('\\', '/')
+  };
+}
+
+function buildPrivatePlanRegistrySource(): PlanFile['registry']['sources'][number] {
+  return {
+    id: 'private',
+    kind: 'private',
+    location: 'workspace',
+    path: privateRegistryRelativePath.replaceAll('\\', '/')
+  };
+}
+
 export function buildManifestValidationPlan(entry: ManifestEntry): PlanFile {
   return {
-    app: {
-      name: `validate-${entry.manifest.id.replaceAll('/', '-')}`,
-      stack: SUPPORTED_STACK,
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
+    app: buildSingleTenantPlanApp({ name: `validate-${entry.manifest.id.replaceAll('/', '-')}` }),
     registry: {
-      sources: [
-        {
-          id: 'official',
-          kind: 'official',
-          location: 'compiler',
-          path: officialRegistryRelativePath.replaceAll('\\', '/')
-        },
-        {
-          id: 'private',
-          kind: 'private',
-          location: 'workspace',
-          path: privateRegistryRelativePath.replaceAll('\\', '/')
-        }
-      ]
+      sources: [buildOfficialPlanRegistrySource(), buildPrivatePlanRegistrySource()]
     },
     blocks: [{ id: entry.manifest.id, version: entry.manifest.version }],
     slots: entry.manifest.slots.map((slot) => ({
@@ -173,6 +191,80 @@ export function buildOfficialInstallStep(options: OfficialInstallStepOptions): L
 
 export function buildOfficialCopyInstallStep(options: OfficialCopyInstallStepOptions): LockFile['installPlan'][number] {
   return buildOfficialInstallStep({ action: 'copy', ...options });
+}
+
+type CustomerNormalizerPlanOptions = {
+  slotDescription?: string;
+};
+
+export function buildCustomerNormalizerPlan(options: CustomerNormalizerPlanOptions = {}): PlanFile {
+  return {
+    app: buildSingleTenantPlanApp(),
+    registry: { sources: [] },
+    blocks: [{ id: 'entity/customer-basic', version: '0.1.0' }],
+    slots: [
+      {
+        id: 'customer_normalizer',
+        block: 'entity/customer-basic',
+        kind: 'adapter',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomerInput',
+        description: options.slotDescription ?? 'Normalize customer input.'
+      }
+    ],
+    acceptance: [{ id: 'user_can_create_customer' }]
+  };
+}
+
+type CustomerNormalizerLockOptions = {
+  slotStatus?: LockFile['slotTasks'][number]['status'];
+  passStatus?: Partial<LockFile['passStatus']>;
+};
+
+export function buildCustomerNormalizerLock(options: CustomerNormalizerLockOptions = {}): LockFile {
+  return {
+    formatVersion: '1',
+    app: buildSingleTenantLockApp(),
+    resolvedBlocks: [
+      buildOfficialResolvedBlock({
+        id: 'entity/customer-basic',
+        installOrder: 1,
+        manifestPath: 'block.manifest.yaml'
+      })
+    ],
+    resolvedCapabilities: ['customer/write'],
+    installPlan: [],
+    slotTasks: [
+      {
+        id: 'customer_normalizer',
+        block: 'entity/customer-basic',
+        target: 'custom/customer_normalizer.ts',
+        symbol: 'normalizeCustomerInput',
+        kind: 'adapter',
+        status: options.slotStatus ?? 'failed',
+        writableZones: ['custom/customer_normalizer.ts'],
+        provenanceHints: {
+          generator: 'mock-local-synthesizer',
+          verifiedBy: []
+        }
+      }
+    ],
+    generatedPaths: [],
+    acceptancePlan: ['user_can_create_customer'],
+    passStatus: {
+      ...PASS_STATUS_PENDING,
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'failed',
+      repair: 'pending',
+      lock: 'pending',
+      emit: 'pending',
+      ...options.passStatus
+    }
+  };
 }
 
 export function buildOfficialRegistrySummary(paths: string[]): ReviewProvenanceRegistrySummary {
@@ -236,11 +328,7 @@ type ReviewLockOptions = Partial<Omit<LockFile, 'app' | 'passStatus'>> & {
 export function buildReviewLock(options: ReviewLockOptions = {}): LockFile {
   const base: LockFile = {
     formatVersion: '1',
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs-ts-prisma-sqlite',
-      mode: 'single-tenant'
-    },
+    app: buildSingleTenantLockApp(),
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [],
@@ -860,21 +948,9 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
   };
 
   await writeYaml(planPath, {
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs-ts-prisma-sqlite',
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
+    app: buildSingleTenantPlanApp(),
     registry: {
-      sources: [
-        {
-          id: 'private',
-          kind: 'private',
-          location: 'workspace',
-          path: 'platform/registry/private'
-        }
-      ]
+      sources: [buildPrivatePlanRegistrySource()]
     },
     blocks: [{ id: 'private/slot-contract', version: '0.1.0' }],
     slots: [],
@@ -922,11 +998,7 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
 
   const lock: LockFile = {
     formatVersion: '1',
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs-ts-prisma-sqlite',
-      mode: 'single-tenant'
-    },
+    app: buildSingleTenantLockApp(),
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [],
