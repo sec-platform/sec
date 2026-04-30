@@ -5,6 +5,10 @@ import { emptyOverrideManifest } from './provenance-types.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 import { writeYaml } from './yaml.ts';
 
+function childDirectories(root: string, relativePaths: readonly string[]): string[] {
+  return relativePaths.map((relativePath) => path.join(root, relativePath));
+}
+
 export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   const {
     projectRoot,
@@ -41,118 +45,97 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     legacyOverrideManifestPath,
     policySpecPath
   } = getWorkspacePaths(workspaceRoot);
-  await ensureDir(projectRoot);
-  await ensureDir(path.join(projectRoot, 'app'));
-  await ensureDir(path.join(projectRoot, 'app', 'api'));
-  await ensureDir(path.join(projectRoot, 'components'));
-  await ensureDir(path.join(projectRoot, 'lib'));
-  await ensureDir(path.join(projectRoot, 'src', 'runtime'));
-  await ensureDir(path.join(projectRoot, 'src', 'installed'));
-  await ensureDir(path.join(projectRoot, 'tests', 'unit'));
-  await ensureDir(path.join(projectRoot, 'tests', 'acceptance'));
-  await ensureDir(path.join(projectRoot, 'tests', 'runtime', 'unit'));
-  await ensureDir(path.join(projectRoot, 'tests', 'runtime', 'acceptance'));
-  await ensureDir(path.join(projectRoot, 'custom'));
-  await ensureDir(path.join(projectRoot, 'overrides'));
-  await ensureDir(path.join(projectRoot, 'overrides', 'rules'));
-  await ensureDir(path.join(projectRoot, 'overrides', 'patches'));
-  await ensureDir(path.join(projectRoot, 'overrides', 'manifests'));
-  await ensureDir(path.join(projectRoot, 'policies'));
-  await ensureDir(developerSourceRoot);
-  await ensureDir(sourceCodeRoot);
-  await ensureDir(sourceModelRoot);
-  await ensureDir(sourceBlocksRoot);
-  await ensureDir(sourcePatchesRoot);
-  await ensureDir(sourceSlotsRoot);
-  await ensureDir(path.join(sourceCodeRoot, 'app'));
-  await ensureDir(path.join(sourceCodeRoot, 'server'));
-  await ensureDir(path.join(sourceCodeRoot, 'ui'));
-  await ensureDir(path.join(sourceCodeRoot, 'shared'));
-  await ensureDir(path.join(sourceCodeRoot, 'integrations'));
-  await ensureDir(path.join(sourceCodeRoot, 'opaque'));
-  await ensureDir(path.join(sourceCodeRoot, 'lab'));
-  await ensureDir(sourceOverridesRoot);
-  await ensureDir(path.join(sourceOverridesRoot, 'rules'));
-  await ensureDir(path.join(sourceOverridesRoot, 'patches'));
-  await ensureDir(path.join(sourceOverridesRoot, 'manifests'));
-  await ensureDir(sourcePoliciesRoot);
-  await ensureDir(sourceAcceptanceRoot);
-  await ensureDir(path.join(sourceModelRoot, 'capabilities'));
-  await ensureDir(path.join(sourceModelRoot, 'entities'));
-  await ensureDir(path.join(sourceModelRoot, 'flows'));
-  await ensureDir(path.join(sourceModelRoot, 'permissions'));
-  await ensureDir(sourceAssetsRoot);
-  await ensureDir(path.join(sourceAssetsRoot, 'copy'));
-  await ensureDir(path.join(sourceAssetsRoot, 'design'));
-  await ensureDir(path.join(sourceAssetsRoot, 'fixtures'));
-  await ensureDir(path.join(sourceAssetsRoot, 'seeds'));
-  await ensureDir(sourcePrivateRegistryRoot);
-  await ensureDir(sourceViewsRoot);
-  await ensureDir(path.join(sourceViewsRoot, 'workspace'));
-  await ensureDir(path.join(sourceViewsRoot, 'graphs'));
-  await ensureDir(path.join(sourceViewsRoot, 'screens'));
-  await ensureDir(path.join(sourceViewsRoot, 'forms'));
-  await ensureDir(path.join(sourceViewsRoot, 'tables'));
-  await ensureDir(path.join(sourceViewsRoot, 'dashboards'));
-  await ensureDir(path.join(sourceViewsRoot, 'editors'));
-  await ensureDir(sourceViewMutationsRoot);
-  await ensureDir(sourceEnvRoot);
-  await ensureDir(path.join(sourceEnvRoot, 'templates'));
-  await ensureDir(path.join(sourceEnvRoot, 'bindings'));
-  await ensureDir(controlRoot);
-  await ensureDir(controlStateRoot);
-  await ensureDir(controlEvidenceRoot);
-  await ensureDir(controlProvenanceRoot);
-  await ensureDir(controlGraphRoot);
-  await ensureDir(controlWorkflowRoot);
-  await ensureDir(controlWorkbenchRoot);
-  await ensureDir(generatedViewsDir);
-  await ensureDir(controlAuditRoot);
-  await ensureDir(controlCiRoot);
-  await ensureDir(localStateRoot);
-  await ensureDir(path.join(localStateRoot, 'cache'));
-  await ensureDir(path.join(localStateRoot, 'tmp'));
-  await ensureDir(path.join(localStateRoot, 'indexes'));
-  await ensureDir(path.join(localStateRoot, 'test-workspaces'));
-  await ensureDir(path.join(localStateRoot, 'generated-preview'));
-  await ensureDir(path.join(localStateRoot, 'ai-sessions'));
-  await ensureDir(generatedDir);
-  await ensureDir(path.join(projectRoot, 'prisma'));
-  await ensureDir(privateRegistryRoot);
+  const projectOverrideDirs = childDirectories(path.join(projectRoot, 'overrides'), ['rules', 'patches', 'manifests']);
+  const sourceOverrideDirs = childDirectories(sourceOverridesRoot, ['rules', 'patches', 'manifests']);
+  const sourceCodeDirs = childDirectories(sourceCodeRoot, ['app', 'server', 'ui', 'shared', 'integrations', 'opaque', 'lab']);
+  const sourceModelDirs = childDirectories(sourceModelRoot, ['capabilities', 'entities', 'flows', 'permissions']);
+  const sourceAssetDirs = childDirectories(sourceAssetsRoot, ['copy', 'design', 'fixtures', 'seeds']);
+  const sourceViewDirs = childDirectories(sourceViewsRoot, ['workspace', 'graphs', 'screens', 'forms', 'tables', 'dashboards', 'editors']);
+  const sourceEnvDirs = childDirectories(sourceEnvRoot, ['templates', 'bindings']);
+  const localStateDirs = childDirectories(localStateRoot, ['cache', 'tmp', 'indexes', 'test-workspaces', 'generated-preview', 'ai-sessions']);
 
-  for (const sourceDir of [
+  const projectDirs = [
+    projectRoot,
+    ...childDirectories(projectRoot, [
+      'app',
+      path.join('app', 'api'),
+      'components',
+      'lib',
+      path.join('src', 'runtime'),
+      path.join('src', 'installed'),
+      path.join('tests', 'unit'),
+      path.join('tests', 'acceptance'),
+      path.join('tests', 'runtime', 'unit'),
+      path.join('tests', 'runtime', 'acceptance'),
+      'custom',
+      'overrides',
+      'policies',
+      'prisma'
+    ]),
+    ...projectOverrideDirs
+  ];
+  const sourceLayerDirs = [
+    developerSourceRoot,
+    sourceCodeRoot,
+    sourceModelRoot,
+    sourceBlocksRoot,
+    sourcePatchesRoot,
     sourceSlotsRoot,
-    path.join(sourceCodeRoot, 'app'),
-    path.join(sourceCodeRoot, 'server'),
-    path.join(sourceCodeRoot, 'ui'),
-    path.join(sourceCodeRoot, 'shared'),
-    path.join(sourceCodeRoot, 'integrations'),
-    path.join(sourceCodeRoot, 'opaque'),
-    path.join(sourceCodeRoot, 'lab'),
+    ...sourceCodeDirs,
+    sourceOverridesRoot,
+    ...sourceOverrideDirs,
     sourcePoliciesRoot,
     sourceAcceptanceRoot,
-    path.join(sourceModelRoot, 'capabilities'),
-    path.join(sourceModelRoot, 'entities'),
-    path.join(sourceModelRoot, 'flows'),
-    path.join(sourceModelRoot, 'permissions'),
+    ...sourceModelDirs,
     sourceAssetsRoot,
-    path.join(sourceAssetsRoot, 'copy'),
-    path.join(sourceAssetsRoot, 'design'),
-    path.join(sourceAssetsRoot, 'fixtures'),
-    path.join(sourceAssetsRoot, 'seeds'),
+    ...sourceAssetDirs,
     sourcePrivateRegistryRoot,
     sourceViewsRoot,
-    path.join(sourceViewsRoot, 'workspace'),
-    path.join(sourceViewsRoot, 'graphs'),
-    path.join(sourceViewsRoot, 'screens'),
-    path.join(sourceViewsRoot, 'forms'),
-    path.join(sourceViewsRoot, 'tables'),
-    path.join(sourceViewsRoot, 'dashboards'),
-    path.join(sourceViewsRoot, 'editors'),
+    ...sourceViewDirs,
     sourceViewMutationsRoot,
     sourceEnvRoot,
-    path.join(sourceEnvRoot, 'templates'),
-    path.join(sourceEnvRoot, 'bindings'),
+    ...sourceEnvDirs
+  ];
+  const controlDirs = [
+    controlRoot,
+    controlStateRoot,
+    controlEvidenceRoot,
+    controlProvenanceRoot,
+    controlGraphRoot,
+    controlWorkflowRoot,
+    controlWorkbenchRoot,
+    generatedViewsDir,
+    controlAuditRoot,
+    controlCiRoot
+  ];
+
+  for (const directory of [
+    ...projectDirs,
+    ...sourceLayerDirs,
+    ...controlDirs,
+    localStateRoot,
+    ...localStateDirs,
+    generatedDir,
+    privateRegistryRoot
+  ]) {
+    await ensureDir(directory);
+  }
+
+  for (const directory of [
+    sourceSlotsRoot,
+    ...sourceCodeDirs,
+    ...sourceOverrideDirs,
+    sourcePoliciesRoot,
+    sourceAcceptanceRoot,
+    ...sourceModelDirs,
+    sourceAssetsRoot,
+    ...sourceAssetDirs,
+    sourcePrivateRegistryRoot,
+    sourceViewsRoot,
+    ...sourceViewDirs,
+    sourceViewMutationsRoot,
+    sourceEnvRoot,
+    ...sourceEnvDirs,
     controlStateRoot,
     controlEvidenceRoot,
     controlProvenanceRoot,
@@ -160,17 +143,10 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     controlWorkflowRoot,
     generatedViewsDir,
     controlAuditRoot,
-    controlCiRoot
+    controlCiRoot,
+    ...projectOverrideDirs
   ]) {
-    await writeText(path.join(sourceDir, '.gitkeep'), '\n');
-  }
-
-  for (const overrideDir of ['rules', 'patches', 'manifests']) {
-    await writeText(path.join(sourceOverridesRoot, overrideDir, '.gitkeep'), '\n');
-  }
-
-  for (const overrideDir of ['rules', 'patches', 'manifests']) {
-    await writeText(path.join(projectRoot, 'overrides', overrideDir, '.gitkeep'), '\n');
+    await writeText(path.join(directory, '.gitkeep'), '\n');
   }
 
   const runtimeDependencySpec = await loadRuntimeDependencySpec();
