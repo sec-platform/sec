@@ -6,9 +6,9 @@ import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import {
   createWorkspace,
-  expectFileUnchanged,
   prepareLockedWorkspace,
   writeSlotUpgradeFixture
 } from '../helpers/test-utils.ts';
