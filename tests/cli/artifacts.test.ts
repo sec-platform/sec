@@ -6,8 +6,7 @@ import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
   CI_ARTIFACT_MISSING_REASON,
-  ciArtifactUploadName,
-  emptyCiArtifactMissingReasonCounts
+  ciArtifactUploadName
 } from '../../platform/shared/ci-artifact-contract.ts';
 import type {
   CiArtifactKind,
@@ -20,6 +19,8 @@ import type {
 import { pathExists, readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
+  buildArtifactMissingReasonCounts,
+  buildArtifactUploadGroup,
   expectCliJson,
   expectCliSuccess,
   expectCliText,
@@ -49,23 +50,10 @@ type ArtifactPathsPayload = {
   missing?: CiArtifactMissingEntry[];
 };
 
-function artifactMissingReasonCounts(
-  overrides: Partial<Record<CiArtifactMissingReason, number>> = {}
-): Record<CiArtifactMissingReason, number> {
-  return {
-    ...emptyCiArtifactMissingReasonCounts(),
-    ...overrides
-  };
-}
-
 function artifactPathsByKind(manifest: CiArtifactManifest, kind: CiArtifactKind): string[] {
   return manifest.artifacts
     .filter((artifact) => artifact.kind === kind)
     .map((artifact) => artifact.path);
-}
-
-function uploadGroup(kind: CiArtifactKind, count: number, paths: string[]): CiArtifactUploadGroup {
-  return { kind, count, paths };
 }
 
 function optionalUploadGroup(
@@ -73,7 +61,7 @@ function optionalUploadGroup(
   count: number,
   paths: string[]
 ): CiArtifactUploadGroup[] {
-  return paths.length > 0 ? [uploadGroup(kind, count, paths)] : [];
+  return paths.length > 0 ? [buildArtifactUploadGroup(kind, count, paths)] : [];
 }
 
 function expectUploadGroup(
@@ -82,7 +70,7 @@ function expectUploadGroup(
   paths: string[],
   count = paths.length
 ): void {
-  expect(groups).toContainEqual(uploadGroup(kind, count, paths));
+  expect(groups).toContainEqual(buildArtifactUploadGroup(kind, count, paths));
 }
 
 type ExpectedArtifactPathsPayload = {
@@ -289,8 +277,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     const testPaths = artifactPathsByKind(manifest, 'test');
     const contractPaths = artifactPathsByKind(manifest, 'contract');
     const expectedUploadGroups = [
-      uploadGroup('governance', manifest.summary.governanceCount, governancePaths),
-      uploadGroup('view', manifest.summary.viewCount, viewPaths),
+      buildArtifactUploadGroup('governance', manifest.summary.governanceCount, governancePaths),
+      buildArtifactUploadGroup('view', manifest.summary.viewCount, viewPaths),
       ...optionalUploadGroup('test', manifest.summary.testCount, testPaths),
       ...optionalUploadGroup('contract', manifest.summary.contractCount, contractPaths)
     ];
@@ -305,7 +293,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       uploadGroupCount: expectedUploadGroups.length,
       missingCount: 0,
       missingReasonTypeCount: 0,
-      missingReasonCounts: emptyCiArtifactMissingReasonCounts()
+      missingReasonCounts: buildArtifactMissingReasonCounts()
     });
     expect(manifest.uploadGroups).toEqual(expectedUploadGroups);
 
@@ -436,7 +424,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       kind: 'contract',
       paths: ['project/generated/postgres-contract.json'],
       byKind: { contract: 1 },
-      uploadGroups: [uploadGroup('contract', 1, ['project/generated/postgres-contract.json'])]
+      uploadGroups: [buildArtifactUploadGroup('contract', 1, ['project/generated/postgres-contract.json'])]
     });
     expect(contractPathsCompact).toEqual(contractPathsJson);
 
@@ -478,7 +466,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(manifestWithLockMissing.summary.uploadGroupCount).toBe(manifestWithLockMissing.uploadGroups.length);
     expect(manifestWithLockMissing.summary.missingCount).toBe(1);
     expect(manifestWithLockMissing.summary.missingReasonTypeCount).toBe(1);
-    expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual(artifactMissingReasonCounts({
+    expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual(buildArtifactMissingReasonCounts({
       [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
     }));
     expect(manifestWithLockMissing.missing).toEqual(lockMissingDiagnostics);
@@ -527,9 +515,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       artifactStatus: 'attention',
       paths: ['project/test-results/**'],
       byKind: { test: 1 },
-      uploadGroups: [uploadGroup('test', 1, ['project/test-results/**'])],
+      uploadGroups: [buildArtifactUploadGroup('test', 1, ['project/test-results/**'])],
       missingReasonTypeCount: 1,
-      missingReasonCounts: artifactMissingReasonCounts({
+      missingReasonCounts: buildArtifactMissingReasonCounts({
         [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
       }),
       missing: lockMissingDiagnostics
@@ -584,7 +572,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(manifestWithMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithMissing.summary.missingCount).toBe(3);
     expect(manifestWithMissing.summary.missingReasonTypeCount).toBe(3);
-    expect(manifestWithMissing.summary.missingReasonCounts).toEqual(artifactMissingReasonCounts({
+    expect(manifestWithMissing.summary.missingReasonCounts).toEqual(buildArtifactMissingReasonCounts({
       [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
       [CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing]: 1,
       [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
@@ -629,7 +617,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     );
     expect(pathsJson.missingCount).toBe(fixedMissingDiagnostics.length);
     expect(pathsJson.missingReasonTypeCount).toBe(3);
-    expect(pathsJson.missingReasonCounts).toEqual(artifactMissingReasonCounts({
+    expect(pathsJson.missingReasonCounts).toEqual(buildArtifactMissingReasonCounts({
       [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
       [CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing]: 1,
       [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
@@ -653,7 +641,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       kind: 'view',
       paths: [CI_ARTIFACT_FILES.slotRuleView],
       byKind: { view: 1 },
-      uploadGroups: [uploadGroup('view', 1, [CI_ARTIFACT_FILES.slotRuleView])]
+      uploadGroups: [buildArtifactUploadGroup('view', 1, [CI_ARTIFACT_FILES.slotRuleView])]
     });
     expect(viewPathsJson.paths).not.toContain(CI_ARTIFACT_MANIFEST_PATH);
 

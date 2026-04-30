@@ -10,6 +10,12 @@ import {
   POSTGRES_USAGE,
   REPAIR_USAGE
 } from '../../platform/cli/usage.ts';
+import { emptyCiArtifactMissingReasonCounts } from '../../platform/shared/ci-artifact-contract.ts';
+import type {
+  CiArtifactKind,
+  CiArtifactMissingReason,
+  CiArtifactUploadGroup
+} from '../../platform/shared/ci-artifact-types.ts';
 import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
@@ -186,6 +192,23 @@ export function emptyPolicyScopeReport(): PolicyReport['project'] {
 
 export function emptyVerificationLogs(): VerificationReport['logs'] {
   return { stdout: '', stderr: '' };
+}
+
+export function buildArtifactMissingReasonCounts(
+  overrides: Partial<Record<CiArtifactMissingReason, number>> = {}
+): Record<CiArtifactMissingReason, number> {
+  return {
+    ...emptyCiArtifactMissingReasonCounts(),
+    ...overrides
+  };
+}
+
+export function buildArtifactUploadGroup(
+  kind: CiArtifactKind,
+  count: number,
+  paths: string[]
+): CiArtifactUploadGroup {
+  return { kind, count, paths };
 }
 
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {
