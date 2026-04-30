@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialRegistrySummary, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces provenance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -102,13 +102,7 @@ test('review summary surfaces provenance summary', async () => {
       }
     ]);
     expect(summary.provenanceSummary?.registrySummaries).toEqual([
-      {
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        count: 1,
-        paths: ['src/installed/auth/session.ts']
-      }
+      buildOfficialRegistrySummary(['src/installed/auth/session.ts'])
     ]);
     expect(summary.provenanceSummary?.generatedPassSummaries).toEqual([
       {
