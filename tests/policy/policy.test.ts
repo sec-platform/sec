@@ -15,7 +15,12 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { buildOfficialCopyInstallStep, buildOfficialInstallStep, createWorkspace } from '../helpers/test-utils.ts';
+import {
+  buildOfficialCopyInstallStep,
+  buildOfficialInstallStep,
+  createWorkspace,
+  emptyPolicyScopeReport
+} from '../helpers/test-utils.ts';
 
 const activeOfficialPolicyDirs = new Set<string>();
 const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');
@@ -67,11 +72,7 @@ test('policy gate handles a missing project policies directory', async () => {
   const report = await runPolicyGate(workspaceRoot);
 
   expect(report.status).toBe('passed');
-  expect(report.project).toEqual({
-    policies: [],
-    sources: [],
-    violations: []
-  });
+  expect(report.project).toEqual(emptyPolicyScopeReport());
   expect(report.official.policies).toContain('tenant-scope-required');
 });
 
@@ -84,11 +85,7 @@ test('policy gate handles an empty project policies directory', async () => {
   const report = await runPolicyGate(workspaceRoot);
 
   expect(report.status).toBe('passed');
-  expect(report.project).toEqual({
-    policies: [],
-    sources: [],
-    violations: []
-  });
+  expect(report.project).toEqual(emptyPolicyScopeReport());
   expect(report.official.policies).toContain('tenant-scope-required');
 });
 

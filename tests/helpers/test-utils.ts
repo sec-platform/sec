@@ -24,6 +24,7 @@ import type {
   LockFile,
   ManifestEntry,
   PlanFile,
+  PolicyReport,
   ProvenanceFile,
   ReviewProvenanceRegistrySummary,
   VerificationReport
@@ -172,6 +173,14 @@ export function buildOfficialRegistrySummary(paths: string[]): ReviewProvenanceR
     registryLocation: 'compiler',
     count: paths.length,
     paths
+  };
+}
+
+export function emptyPolicyScopeReport(): PolicyReport['project'] {
+  return {
+    policies: [],
+    sources: [],
+    violations: []
   };
 }
 

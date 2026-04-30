@@ -15,7 +15,7 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
-import { buildOfficialResolvedBlock, createWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialResolvedBlock, createWorkspace, emptyPolicyScopeReport } from '../helpers/test-utils.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {
@@ -64,11 +64,7 @@ test('explain graph includes pins, policies, and policy violation edges without 
       ],
       violations: []
     },
-    project: {
-      policies: [],
-      sources: [],
-      violations: []
-    },
+    project: emptyPolicyScopeReport(),
     merged: {
       policies: [
         {
