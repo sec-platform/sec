@@ -1,6 +1,32 @@
+import path from 'node:path';
+
 import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
+import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 type ConfigRewriteUpdate = { path: string[]; value?: unknown; operation?: 'set' | 'delete' };
+
+type MigrationApply = (impactedPaths: string[], entries: UpgradeMigrationEntry[]) => Promise<void>;
+
+export type MigrationTestWorkspace = {
+  workspaceRoot: string;
+  projectRoot: string;
+  manifestRoot: string;
+  apply: MigrationApply;
+};
+
+export async function withMigrationWorkspace<T>(callback: (workspace: MigrationTestWorkspace) => Promise<T>): Promise<T> {
+  return withTempWorkspace(async (workspaceRoot) => {
+    const projectRoot = path.join(workspaceRoot, 'project');
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
+    return callback({
+      workspaceRoot,
+      projectRoot,
+      manifestRoot,
+      apply: (impactedPaths, entries) => applyMigrationEntries(projectRoot, manifestRoot, impactedPaths, entries)
+    });
+  });
+}
 
 export function fileReplace(target: string, source = 'files/source.ts'): UpgradeMigrationEntry {
   return {
