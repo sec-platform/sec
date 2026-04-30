@@ -12,7 +12,13 @@ import {
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { prepareComposedWorkspace, prepareLockedWorkspace } from '../helpers/test-utils.ts';
+import {
+  expectGraphEdge,
+  expectReviewConflictHint,
+  expectReviewRegressionRisk,
+  prepareComposedWorkspace,
+  prepareLockedWorkspace
+} from '../helpers/test-utils.ts';
 
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
   const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-upgrade-' });
@@ -148,15 +154,11 @@ test('upgrade advances an official block version and preserves a passing pipelin
   ]);
 
   const { reviewSummary } = await explainWorkspace(workspaceRoot);
-  expect(reviewSummary.conflictHints).toEqual(
-    expect.arrayContaining([
-      {
-        kind: 'upgrade-plan-present',
-        relatedId: 'auth/basic-session',
-        message: 'Upgrade plan applied, verify pending: auth/basic-session 0.1.0 -> 0.1.1'
-      }
-    ])
-  );
+  expectReviewConflictHint(reviewSummary, {
+    kind: 'upgrade-plan-present',
+    relatedId: 'auth/basic-session',
+    message: 'Upgrade plan applied, verify pending: auth/basic-session 0.1.0 -> 0.1.1'
+  });
 }, 180000);
 
 test('upgrade advances ticket block version and surfaces runtime upgrade impact', async () => {
@@ -197,30 +199,19 @@ test('upgrade advances ticket block version and surfaces runtime upgrade impact'
   expect(upgradeMetadata).toContain('"ticket/basic@0.1.1"');
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  expect(reviewSummary.conflictHints).toEqual(
-    expect.arrayContaining([
-      {
-        kind: 'upgrade-plan-present',
-        relatedId: 'ticket/basic',
-        message: 'Upgrade plan applied, verify pending: ticket/basic 0.1.0 -> 0.1.1'
-      }
-    ])
-  );
-  expect(reviewSummary.regressionRisks).toEqual(
-    expect.arrayContaining([
-      {
-        kind: 'upgrade-impact',
-        blockId: 'ticket/basic',
-        message: 'Upgrade ticket/basic impacts src/installed/ticket/ticket-service.ts'
-      }
-    ])
-  );
-  expect(
-    graph.edges.some(
-      (edge) =>
-        edge.from === 'block:ticket/basic' &&
-        edge.to === 'file:app/tickets/page.tsx' &&
-        edge.type === 'writes_to'
-    )
-  ).toBe(true);
+  expectReviewConflictHint(reviewSummary, {
+    kind: 'upgrade-plan-present',
+    relatedId: 'ticket/basic',
+    message: 'Upgrade plan applied, verify pending: ticket/basic 0.1.0 -> 0.1.1'
+  });
+  expectReviewRegressionRisk(reviewSummary, {
+    kind: 'upgrade-impact',
+    blockId: 'ticket/basic',
+    message: 'Upgrade ticket/basic impacts src/installed/ticket/ticket-service.ts'
+  });
+  expectGraphEdge(graph, {
+    from: 'block:ticket/basic',
+    to: 'file:app/tickets/page.tsx',
+    type: 'writes_to'
+  });
 }, 180000);

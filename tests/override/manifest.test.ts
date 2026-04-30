@@ -15,7 +15,13 @@ import {
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import {
+  createWorkspace,
+  expectGraphEdge,
+  expectGraphNode,
+  expectReviewConflictHint,
+  expectReviewRegressionRisk
+} from '../helpers/test-utils.ts';
 
 test('override-manifest can replace a generated file and surface override provenance', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-override-');
@@ -72,22 +78,19 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
 
   await lockWorkspace(workspaceRoot);
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  expect(graph.nodes.some((node) => node.id === 'override:customer-normalizer-manual')).toBe(true);
-  expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
-  expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
-  expect(graph.edges).toContainEqual({
+  expectGraphNode(graph, { id: 'override:customer-normalizer-manual' });
+  expectGraphNode(graph, { type: 'pin' });
+  expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
+  expectGraphEdge(graph, {
     from: 'policy:tenant-scope-required',
     to: 'file:src/installed/entity/customer-service.ts',
     type: 'connects_to'
   });
-  expect(
-    graph.edges.some(
-      (edge) =>
-        edge.from === 'file:custom/customer_normalizer.ts' &&
-        edge.to === 'override:customer-normalizer-manual' &&
-        edge.type === 'originates_from'
-    )
-  ).toBe(true);
+  expectGraphEdge(graph, {
+    from: 'file:custom/customer_normalizer.ts',
+    to: 'override:customer-normalizer-manual',
+    type: 'originates_from'
+  });
 
   const provenance = await readJson<{
     artifacts: Array<{ path: string; originType: string; overrideStatus: string }>;
@@ -100,25 +103,17 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
         artifact.overrideStatus === 'manual'
     )
   ).toBe(true);
-  expect(reviewSummary.regressionRisks).toEqual(
-    expect.arrayContaining([
-      {
-        kind: 'override-active',
-        blockId: 'entity/customer-basic',
-        slotId: 'customer_normalizer',
-        message: 'Override active: customer-normalizer-manual -> custom/customer_normalizer.ts'
-      }
-    ])
-  );
-  expect(reviewSummary.conflictHints).toEqual(
-    expect.arrayContaining([
-      {
-        kind: 'override-conflict',
-        relatedId: 'entity/customer-basic@>=0.2.0',
-        message: 'Override customer-normalizer-manual conflicts with entity/customer-basic@>=0.2.0'
-      }
-    ])
-  );
+  expectReviewRegressionRisk(reviewSummary, {
+    kind: 'override-active',
+    blockId: 'entity/customer-basic',
+    slotId: 'customer_normalizer',
+    message: 'Override active: customer-normalizer-manual -> custom/customer_normalizer.ts'
+  });
+  expectReviewConflictHint(reviewSummary, {
+    kind: 'override-conflict',
+    relatedId: 'entity/customer-basic@>=0.2.0',
+    message: 'Override customer-normalizer-manual conflicts with entity/customer-basic@>=0.2.0'
+  });
 }, 120000);
 
 test('override-manifest loads developer source layer overrides before legacy overrides', async () => {
@@ -230,30 +225,19 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
     vertical: 'ticket',
     relatedBlocks: ['reporting/ticket-summary', 'ticket/basic', 'worklog/basic']
   });
-  expect(reviewSummary.regressionRisks).toEqual(
-    expect.arrayContaining([
-      {
-        kind: 'override-active',
-        blockId: 'ticket/basic',
-        message: 'Override active: ticket-page-runtime-manual -> app/tickets/page.tsx'
-      }
-    ])
-  );
-  expect(reviewSummary.conflictHints).toEqual(
-    expect.arrayContaining([
-      {
-        kind: 'override-conflict',
-        relatedId: 'worklog/basic@>=0.2.0',
-        message: 'Override ticket-page-runtime-manual conflicts with worklog/basic@>=0.2.0'
-      }
-    ])
-  );
-  expect(
-    graph.edges.some(
-      (edge) =>
-        edge.from === 'file:app/tickets/page.tsx' &&
-        edge.to === 'override:ticket-page-runtime-manual' &&
-        edge.type === 'originates_from'
-    )
-  ).toBe(true);
+  expectReviewRegressionRisk(reviewSummary, {
+    kind: 'override-active',
+    blockId: 'ticket/basic',
+    message: 'Override active: ticket-page-runtime-manual -> app/tickets/page.tsx'
+  });
+  expectReviewConflictHint(reviewSummary, {
+    kind: 'override-conflict',
+    relatedId: 'worklog/basic@>=0.2.0',
+    message: 'Override ticket-page-runtime-manual conflicts with worklog/basic@>=0.2.0'
+  });
+  expectGraphEdge(graph, {
+    from: 'file:app/tickets/page.tsx',
+    to: 'override:ticket-page-runtime-manual',
+    type: 'originates_from'
+  });
 }, 120000);

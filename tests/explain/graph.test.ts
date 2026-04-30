@@ -15,7 +15,14 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
-import { buildOfficialResolvedBlock, createWorkspace, emptyPolicyScopeReport } from '../helpers/test-utils.ts';
+import {
+  buildOfficialResolvedBlock,
+  createWorkspace,
+  emptyPolicyScopeReport,
+  expectGraphEdge,
+  expectGraphNode,
+  expectNoGraphNode
+} from '../helpers/test-utils.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {
@@ -101,9 +108,9 @@ test('explain graph includes pins, policies, and policy violation edges without 
 
   const graph = await buildExplainGraph(workspaceRoot, lock, provenance, coverage, policyReport);
 
-  expect(graph.nodes.some((node) => node.id === 'pin:entity/customer-basic:input:tenant_context')).toBe(true);
-  expect(graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
-  expect(graph.edges).toContainEqual({
+  expectGraphNode(graph, { id: 'pin:entity/customer-basic:input:tenant_context' });
+  expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
+  expectGraphEdge(graph, {
     from: 'policy:tenant-scope-required',
     to: 'file:src/installed/entity/customer-service.ts',
     type: 'connects_to'
@@ -477,8 +484,8 @@ test('writeExplainGraph does not require a policy report', async () => {
   const writtenLock = await readJson<typeof lock>(lockPath);
   const writtenProvenance = await readJson<ProvenanceFile>(provenancePath);
 
-  expect(graph.nodes.some((node) => node.type === 'pin')).toBe(true);
-  expect(graph.nodes.some((node) => node.type === 'policy')).toBe(false);
+  expectGraphNode(graph, { type: 'pin' });
+  expectNoGraphNode(graph, { type: 'policy' });
   expect(writtenGraph.nodes).toEqual(graph.nodes);
   expect(writtenLock.generatedPaths).toEqual(
     expect.arrayContaining([CI_ARTIFACT_FILES.explainGraph, CI_ARTIFACT_FILES.provenance])
