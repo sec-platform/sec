@@ -22,6 +22,29 @@ type WorkspaceLockSnapshot = {
   resolvedBlocks: Array<{ id: string; registrySourceId: string; registryKind: string; registryLocation: string }>;
 };
 
+type WorkspacePathsSnapshot = ReturnType<typeof getWorkspacePaths>;
+
+function developerSourceLayerDirectories(paths: WorkspacePathsSnapshot): string[] {
+  return [
+    paths.developerSourceRoot,
+    paths.sourceSlotsRoot,
+    paths.sourceOverridesRoot,
+    paths.sourcePoliciesRoot,
+    paths.sourceAcceptanceRoot,
+    paths.sourceAssetsRoot,
+    paths.sourcePrivateRegistryRoot,
+    paths.sourceViewsRoot,
+    paths.sourceViewMutationsRoot,
+    paths.sourceEnvRoot
+  ];
+}
+
+async function expectDirectoriesExist(directories: readonly string[]): Promise<void> {
+  for (const directory of directories) {
+    await expect(fs.stat(directory)).resolves.toMatchObject({});
+  }
+}
+
 test('CLI accepts init commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
@@ -34,16 +57,7 @@ test('CLI init creates the developer source layer', async () => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
 
     const paths = getWorkspacePaths(workspaceRoot);
-    await expect(fs.stat(paths.developerSourceRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourceSlotsRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourceOverridesRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourcePoliciesRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourceAcceptanceRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourceAssetsRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourcePrivateRegistryRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourceViewsRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourceViewMutationsRoot)).resolves.toMatchObject({});
-    await expect(fs.stat(paths.sourceEnvRoot)).resolves.toMatchObject({});
+    await expectDirectoriesExist(developerSourceLayerDirectories(paths));
   });
 });
 
