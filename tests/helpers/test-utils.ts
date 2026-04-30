@@ -158,12 +158,6 @@ export async function expectFileUnchanged(filePath: string, beforeText: string):
   await expect(fs.readFile(filePath, 'utf8')).resolves.toBe(beforeText);
 }
 
-export async function installRuntimeDeps(cwd: string): Promise<void> {
-  const nextPackagePath = path.join(cwd, 'node_modules', 'next', 'package.json');
-  await fs.mkdir(path.dirname(nextPackagePath), { recursive: true });
-  await fs.writeFile(nextPackagePath, '{\n  "name": "next"\n}\n', 'utf8');
-}
-
 export type CliResult = { code: number; stdout: string; stderr: string };
 
 export async function expectCliSuccess(
