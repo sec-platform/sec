@@ -1,21 +1,12 @@
 import path from 'node:path';
-import { expect, test } from 'vitest';
+import { test } from 'vitest';
 
-import {
-  upgradeWorkspace
-} from '../../platform/orchestrator.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
-
-type UpgradeDiagnosticsSnapshot = {
-  failedCheck: string;
-  errorCode: string;
-  details?: unknown;
-};
-
-async function readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath: string): Promise<UpgradeDiagnosticsSnapshot> {
-  return readJson<UpgradeDiagnosticsSnapshot>(upgradeDiagnosticsPath);
-}
+import {
+  expectUpgradeDryRunFailure,
+  expectUpgradeDryRunFailureWithDiagnostics
+} from './upgrade-diagnostics-fixtures.ts';
 
 test('upgrade records missing migration entry diagnostics before planning', async () => {
   const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
@@ -28,7 +19,7 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-002',
     details: {
       failedCheck: 'migration-entries',
@@ -36,10 +27,7 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
       migrationKind: 'text-append',
       entry: 'migrations/missing-entry-file.json'
     }
-  });
-
-  const diagnostics = await readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath);
-  expect(diagnostics).toMatchObject({
+  }, {
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-002',
     details: {
@@ -61,7 +49,7 @@ test('upgrade rejects migration entry paths that escape the manifest root', asyn
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailure(workspaceRoot, {
     code: 'UPGRADE-MIGRATION-005',
     details: {
       failedCheck: 'migration-file-operations',
@@ -90,7 +78,7 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-003',
     details: {
       failedCheck: 'migration-entries',
@@ -100,10 +88,7 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
       entryId: 'mig-actual-entry',
       entryKind: 'text-replace'
     }
-  });
-
-  const diagnostics = await readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath);
-  expect(diagnostics).toMatchObject({
+  }, {
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-003',
     details: {
@@ -149,17 +134,14 @@ test('upgrade rejects duplicate migration ids before planning', async () => {
     ]
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-029',
     details: {
       failedCheck: 'migration-entries',
       migrationId: 'mig-duplicate-report',
       entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
     }
-  });
-
-  const diagnostics = await readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath);
-  expect(diagnostics).toMatchObject({
+  }, {
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-029',
     details: {
@@ -187,7 +169,7 @@ test('upgrade records migration target path escape diagnostics before planning',
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-004',
     details: {
       failedCheck: 'migration-targets',
@@ -196,10 +178,7 @@ test('upgrade records migration target path escape diagnostics before planning',
       role: 'target',
       root: 'project'
     }
-  });
-
-  const diagnostics = await readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath);
-  expect(diagnostics).toMatchObject({
+  }, {
     failedCheck: 'migration-targets',
     errorCode: 'UPGRADE-MIGRATION-004',
     details: {
@@ -230,7 +209,7 @@ test('upgrade records migration manifest source escape diagnostics before planni
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-005',
     details: {
       failedCheck: 'migration-file-operations',
@@ -239,10 +218,7 @@ test('upgrade records migration manifest source escape diagnostics before planni
       role: 'manifest-source',
       root: 'manifest'
     }
-  });
-
-  const diagnostics = await readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath);
-  expect(diagnostics).toMatchObject({
+  }, {
     failedCheck: 'migration-file-operations',
     errorCode: 'UPGRADE-MIGRATION-005',
     details: {
@@ -278,7 +254,7 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-010',
     details: {
       failedCheck: 'migration-entries',
@@ -286,10 +262,7 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
       migrationKind: 'config-rewrite',
       entry: 'migrations/empty-config-path.json'
     }
-  });
-
-  const diagnostics = await readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath);
-  expect(diagnostics).toMatchObject({
+  }, {
     failedCheck: 'migration-entries',
     errorCode: 'UPGRADE-MIGRATION-010',
     details: {
@@ -324,10 +297,9 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-012'
-  });
-  await expect(readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath)).resolves.toMatchObject({
+  }, {
     failedCheck: 'migration-json-structure'
   });
 });
@@ -356,10 +328,9 @@ test('upgrade rejects JSON array parent structure mismatches before planning', a
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-012'
-  });
-  await expect(readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath)).resolves.toMatchObject({
+  }, {
     failedCheck: 'migration-json-structure'
   });
 });
@@ -385,10 +356,9 @@ test('upgrade rejects slot contract mismatches before planning', async () => {
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-021'
-  });
-  await expect(readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath)).resolves.toMatchObject({
+  }, {
     failedCheck: 'migration-slot-contracts'
   });
 });
@@ -410,10 +380,9 @@ test('upgrade rejects malformed migration entries before planning', async () => 
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
     code: 'UPGRADE-MIGRATION-011'
-  });
-  await expect(readUpgradeDiagnosticsSnapshot(paths.upgradeDiagnosticsPath)).resolves.toMatchObject({
+  }, {
     failedCheck: 'migration-entries'
   });
 });
