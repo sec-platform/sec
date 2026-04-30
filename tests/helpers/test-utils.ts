@@ -19,12 +19,6 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { emptyCiArtifactMissingReasonCounts } from '../../platform/shared/ci-artifact-contract.ts';
-import type {
-  CiArtifactKind,
-  CiArtifactMissingReason,
-  CiArtifactUploadGroup
-} from '../../platform/shared/ci-artifact-types.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -125,23 +119,6 @@ export function emptyPolicyScopeReport(): PolicyReport['project'] {
     sources: [],
     violations: []
   };
-}
-
-export function buildArtifactMissingReasonCounts(
-  overrides: Partial<Record<CiArtifactMissingReason, number>> = {}
-): Record<CiArtifactMissingReason, number> {
-  return {
-    ...emptyCiArtifactMissingReasonCounts(),
-    ...overrides
-  };
-}
-
-export function buildArtifactUploadGroup(
-  kind: CiArtifactKind,
-  count: number,
-  paths: string[]
-): CiArtifactUploadGroup {
-  return { kind, count, paths };
 }
 
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {

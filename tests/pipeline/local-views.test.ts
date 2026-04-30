@@ -10,14 +10,9 @@ import {
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { buildArtifactMissingReasonCounts, buildArtifactUploadGroup } from '../helpers/ci-artifact-fixtures.ts';
 import { buildOfficialRegistrySummary } from '../helpers/review-fixtures.ts';
-import {
-  buildArtifactMissingReasonCounts,
-  buildArtifactUploadGroup,
-  expectContainsAll,
-  expectContainsNone,
-  prepareLockedWorkspace
-} from '../helpers/test-utils.ts';
+import { expectContainsAll, expectContainsNone, prepareLockedWorkspace } from '../helpers/test-utils.ts';
 
 test('write-local-views consumes generated artifacts from disk', async () => {
   const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-local-views-' });
