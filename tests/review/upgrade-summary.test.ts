@@ -10,6 +10,41 @@ import { buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
 import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
+type ReviewSummary = Awaited<ReturnType<typeof buildReviewSummaryFromInputs>>;
+type UpgradeDiagnosticsOptions = NonNullable<Parameters<typeof buildUpgradeDiagnostics>[0]>;
+type UpgradeFailureAttributionCase = {
+  name: string;
+  diagnostics: UpgradeDiagnosticsOptions;
+  failureMessage: string;
+};
+
+async function buildReviewSummaryWithUpgradeDiagnostics(
+  diagnosticsOptions: UpgradeDiagnosticsOptions
+): Promise<ReviewSummary> {
+  return withTempWorkspace(async (workspaceRoot) => {
+    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+    await writeJson(upgradeDiagnosticsPath, buildUpgradeDiagnostics(diagnosticsOptions));
+
+    return buildReviewSummaryFromInputs(workspaceRoot, {
+      lock: {
+        passStatus: {
+          lock: 'succeeded',
+          emit: 'succeeded'
+        }
+      }
+    });
+  });
+}
+
+function expectUpgradeFailurePoint(summary: ReviewSummary, message: string): void {
+  expect(summary.failurePoints).toContainEqual({
+    lane: 'all',
+    kind: 'upgrade',
+    artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
+    message
+  });
+}
+
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
@@ -155,12 +190,10 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         message: 'Upgrade preflight passed: version-range, migration-entries, migration-targets, migration-file-operations, migration-json-shapes, migration-json-structure, migration-text-patterns, migration-slot-contracts, impact-scan, override-conflicts'
       }
     ]);
-    expect(summary.failurePoints).toContainEqual({
-      lane: 'all',
-      kind: 'upgrade',
-      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
-      message: 'Upgrade blocked at override-conflicts: UPGRADE-CONFLICT-001 Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
-    });
+    expectUpgradeFailurePoint(
+      summary,
+      'Upgrade blocked at override-conflicts: UPGRADE-CONFLICT-001 Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'
+    );
     expect(summary.regressionRisks).toContainEqual({
       kind: 'upgrade-impact',
       blockId: 'auth/basic-session',
@@ -201,64 +234,48 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
 });
 
 test('review summary preserves upgrade diagnostics details without an upgrade plan', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const diagnostics = buildUpgradeDiagnostics({
+  const summary = await buildReviewSummaryWithUpgradeDiagnostics({
+    failedCheck: 'migration-targets',
+    errorCode: 'UPGRADE-MIGRATION-004',
+    message: 'Migration path "../outside-project.md" escapes project root',
+    details: {
+      failedCheck: 'migration-targets',
+      migrationId: 'mig-target-escape',
+      path: '../outside-project.md',
+      role: 'target',
+      root: 'project'
+    }
+  });
+
+  expect(summary.upgradeSummary).toMatchObject({
+    status: 'blocked',
+    blockId: 'private/slot-contract',
+    toVersion: '0.2.0',
+    sourceMigrationCount: 0,
+    slotMigrationCount: 0,
+    migrationOperationCount: 0,
+    diagnostics: {
+      phase: 'planning',
       failedCheck: 'migration-targets',
       errorCode: 'UPGRADE-MIGRATION-004',
-      message: 'Migration path "../outside-project.md" escapes project root',
       details: {
-        failedCheck: 'migration-targets',
         migrationId: 'mig-target-escape',
         path: '../outside-project.md',
         role: 'target',
         root: 'project'
       }
-    });
-
-    await writeJson(upgradeDiagnosticsPath, diagnostics);
-
-    const summary = await buildReviewSummaryFromInputs(workspaceRoot, {
-      lock: {
-        passStatus: {
-          lock: 'succeeded',
-          emit: 'succeeded'
-        }
-      }
-    });
-
-    expect(summary.upgradeSummary).toMatchObject({
-      status: 'blocked',
-      blockId: 'private/slot-contract',
-      toVersion: '0.2.0',
-      sourceMigrationCount: 0,
-      slotMigrationCount: 0,
-      migrationOperationCount: 0,
-      diagnostics: {
-        phase: 'planning',
-        failedCheck: 'migration-targets',
-        errorCode: 'UPGRADE-MIGRATION-004',
-        details: {
-          migrationId: 'mig-target-escape',
-          path: '../outside-project.md',
-          role: 'target',
-          root: 'project'
-        }
-      }
-    });
-    expect(summary.failurePoints).toContainEqual({
-      lane: 'all',
-      kind: 'upgrade',
-      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
-      message: 'Upgrade blocked at migration-targets: UPGRADE-MIGRATION-004 Migration path "../outside-project.md" escapes project root; migration=mig-target-escape; target=../outside-project.md'
-    });
+    }
   });
+  expectUpgradeFailurePoint(
+    summary,
+    'Upgrade blocked at migration-targets: UPGRADE-MIGRATION-004 Migration path "../outside-project.md" escapes project root; migration=mig-target-escape; target=../outside-project.md'
+  );
 });
 
-test('review summary includes entry migration attribution in upgrade failure points', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const diagnostics = buildUpgradeDiagnostics({
+test.each<UpgradeFailureAttributionCase>([
+  {
+    name: 'entry',
+    diagnostics: {
       failedCheck: 'migration-entries',
       errorCode: 'UPGRADE-MIGRATION-003',
       message: 'Migration entry "migrations/mismatched-entry.json" does not match manifest metadata',
@@ -269,32 +286,13 @@ test('review summary includes entry migration attribution in upgrade failure poi
         entryId: 'mig-actual-entry',
         entryKind: 'text-replace'
       }
-    });
-
-    await writeJson(upgradeDiagnosticsPath, diagnostics);
-
-    const summary = await buildReviewSummaryFromInputs(workspaceRoot, {
-      lock: {
-        passStatus: {
-          lock: 'succeeded',
-          emit: 'succeeded'
-        }
-      }
-    });
-
-    expect(summary.failurePoints).toContainEqual({
-      lane: 'all',
-      kind: 'upgrade',
-      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
-      message: 'Upgrade blocked at migration-entries: UPGRADE-MIGRATION-003 Migration entry "migrations/mismatched-entry.json" does not match manifest metadata; migration=mig-expected-entry; kind=text-append; entry=migrations/mismatched-entry.json; entryId=mig-actual-entry; entryKind=text-replace'
-    });
-  });
-});
-
-test('review summary includes apply migration attribution in upgrade failure points', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const diagnostics = buildUpgradeDiagnostics({
+    },
+    failureMessage:
+      'Upgrade blocked at migration-entries: UPGRADE-MIGRATION-003 Migration entry "migrations/mismatched-entry.json" does not match manifest metadata; migration=mig-expected-entry; kind=text-append; entry=migrations/mismatched-entry.json; entryId=mig-actual-entry; entryKind=text-replace'
+  },
+  {
+    name: 'apply',
+    diagnostics: {
       phase: 'apply',
       failedCheck: 'migration-file-operations',
       errorCode: 'UPGRADE-MIGRATION-016',
@@ -306,24 +304,12 @@ test('review summary includes apply migration attribution in upgrade failure poi
         target: 'custom/customer_normalizer.ts',
         rollbackStatus: 'restored'
       }
-    });
+    },
+    failureMessage:
+      'Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "custom/customer_normalizer.ts" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=custom/customer_normalizer.ts; slot=customer_normalizer; rollback=restored'
+  }
+])('review summary includes $name migration attribution in upgrade failure points', async ({ diagnostics, failureMessage }) => {
+  const summary = await buildReviewSummaryWithUpgradeDiagnostics(diagnostics);
 
-    await writeJson(upgradeDiagnosticsPath, diagnostics);
-
-    const summary = await buildReviewSummaryFromInputs(workspaceRoot, {
-      lock: {
-        passStatus: {
-          lock: 'succeeded',
-          emit: 'succeeded'
-        }
-      }
-    });
-
-    expect(summary.failurePoints).toContainEqual({
-      lane: 'all',
-      kind: 'upgrade',
-      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics,
-      message: 'Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "custom/customer_normalizer.ts" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=custom/customer_normalizer.ts; slot=customer_normalizer; rollback=restored'
-    });
-  });
+  expectUpgradeFailurePoint(summary, failureMessage);
 });
