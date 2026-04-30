@@ -32,3 +32,4 @@ project/.runtime-deps.stamp.json
 .claude/settings.local.json
 .VSCodeCounter/
 CLAUDE.md
+.trae/
