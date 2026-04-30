@@ -4,7 +4,7 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import { parseExplainArgs } from '../args.ts';
 import type { CommandHandler } from '../command-registry.ts';
-import { readRequiredJson } from '../command-utils.ts';
+import { printRequiredJson } from '../command-utils.ts';
 import { printJsonOrText } from '../format-utils.ts';
 import { formatExplainGraphInspect, formatExplainSummary } from '../formatters.ts';
 import { EXPLAIN_USAGE } from '../usage.ts';
@@ -16,8 +16,12 @@ export const explainCommand: CommandHandler = {
     const explainArgs = parseExplainArgs(args);
     if (explainArgs.mode === 'graph') {
       const { explainGraphPath } = getWorkspacePaths(ctx.cwd);
-      const graph = await readRequiredJson<ExplainGraph>(explainGraphPath, 'Explain graph not found; run platform explain first');
-      printJsonOrText(graph, explainArgs, formatExplainGraphInspect);
+      await printRequiredJson<ExplainGraph>(
+        explainGraphPath,
+        'Explain graph not found; run platform explain first',
+        explainArgs,
+        formatExplainGraphInspect
+      );
       return;
     }
     const { graph, reviewSummary } = await explainWorkspace(ctx.cwd);
