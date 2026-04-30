@@ -15,9 +15,9 @@ import {
   expectCliSuccess,
   expectCliText,
   runCliInProcess as runCli,
-  runCliPipeline,
-  withTempWorkspace
-} from '../helpers/test-utils.ts';
+  runCliPipeline
+} from '../helpers/cli-helpers.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 import { writePassingVerificationState } from '../helpers/verification-fixtures.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
