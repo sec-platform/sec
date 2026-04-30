@@ -2,6 +2,7 @@ import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from '../compiler/repair/build-repair-plan.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { readJson, writeJson } from '../shared/fs.ts';
+import { assertPassStatus } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import type { LockFile } from '../shared/types.ts';
@@ -15,9 +16,7 @@ export async function repairWorkspace(
   const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
   const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
 
-  if (lock.passStatus.verify === 'pending') {
-    throw new CompilerError('REPAIR-BLOCKED-002', 'verify must run before repair');
-  }
+  assertPassStatus(lock, 'verify', 'pending', new CompilerError('REPAIR-BLOCKED-002', 'verify must run before repair'), 'differs');
 
   const report = await readJson<VerificationReport>(verificationReportPath);
 
