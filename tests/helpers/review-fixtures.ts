@@ -9,6 +9,7 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import { emptyVerificationLogs } from './verification-fixtures.ts';
+import { withTempWorkspace } from './workspace-fixtures.ts';
 
 export function buildOfficialRegistrySummary(paths: string[]): ReviewProvenanceRegistrySummary {
   return {
@@ -184,4 +185,14 @@ export async function buildReviewSummaryFromInputs(
 ): Promise<ReviewSummary> {
   const { lock, provenance, report, coverage } = buildReviewInputs(options);
   return buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+}
+
+export async function buildReviewSummaryInTempWorkspace(
+  options: ReviewInputsOptions = {},
+  setup?: (workspaceRoot: string) => Promise<void>
+): Promise<ReviewSummary> {
+  return withTempWorkspace(async (workspaceRoot) => {
+    await setup?.(workspaceRoot);
+    return buildReviewSummaryFromInputs(workspaceRoot, options);
+  });
 }
