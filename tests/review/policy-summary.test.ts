@@ -1,21 +1,13 @@
 import { expect, test } from 'vitest';
 
-import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { PolicyReport } from '../../platform/shared/types.ts';
-import { buildPassingReviewReport, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildPassingReviewReport, buildReviewSummaryFromInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces policy governance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { policyReportPath } = getWorkspacePaths(workspaceRoot);
-    const { lock, provenance, coverage } = buildReviewInputs({
-      lock: {
-        passStatus: {
-          verify: 'failed'
-        }
-      }
-    });
     const violation: PolicyReport['violations'][number] = {
       id: 'tenant-scope-required',
       severity: 'error',
@@ -79,7 +71,14 @@ test('review summary surfaces policy governance summary', async () => {
     };
     await writeJson(policyReportPath, policyReport);
 
-    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+    const summary = await buildReviewSummaryFromInputs(workspaceRoot, {
+      lock: {
+        passStatus: {
+          verify: 'failed'
+        }
+      },
+      report
+    });
 
     expect(summary.policySummary).toMatchObject({
       status: 'failed',

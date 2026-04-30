@@ -1,12 +1,10 @@
 import { expect, test } from 'vitest';
 
-import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
-import type { AcceptanceCoverageReport } from '../../platform/shared/types.ts';
-import { buildReviewInputs, buildRuntimeVerificationReport, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildReviewSummaryFromInputs, buildRuntimeVerificationReport, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces acceptance coverage summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { lock, provenance, report } = buildReviewInputs({
+    const summary = await buildReviewSummaryFromInputs(workspaceRoot, {
       lock: {
         passStatus: {
           verify: 'failed'
@@ -30,45 +28,43 @@ test('review summary surfaces acceptance coverage summary', async () => {
           requestedLane: 'all',
           failedLanes: ['runtime']
         }
+      },
+      coverage: {
+        formatVersion: '1',
+        status: 'failed',
+        acceptancePassed: ['customer_crud'],
+        blocks: [
+          {
+            id: 'entity/customer-basic',
+            declaredAcceptance: ['customer_crud', 'tenant_scope'],
+            coveredBy: ['customer_crud'],
+            uncovered: false
+          },
+          {
+            id: 'tenant/basic-workspace',
+            declaredAcceptance: ['tenant_scope'],
+            coveredBy: [],
+            uncovered: true
+          }
+        ],
+        slots: [
+          {
+            id: 'customer_normalizer',
+            declaredAcceptance: ['customer_crud'],
+            coveredBy: ['customer_crud'],
+            uncovered: false
+          },
+          {
+            id: 'tenant_context_provider',
+            declaredAcceptance: ['tenant_scope'],
+            coveredBy: [],
+            uncovered: true
+          }
+        ],
+        uncoveredBlocks: ['tenant/basic-workspace'],
+        uncoveredSlots: ['tenant_context_provider']
       }
     });
-    const coverage: AcceptanceCoverageReport = {
-      formatVersion: '1',
-      status: 'failed',
-      acceptancePassed: ['customer_crud'],
-      blocks: [
-        {
-          id: 'entity/customer-basic',
-          declaredAcceptance: ['customer_crud', 'tenant_scope'],
-          coveredBy: ['customer_crud'],
-          uncovered: false
-        },
-        {
-          id: 'tenant/basic-workspace',
-          declaredAcceptance: ['tenant_scope'],
-          coveredBy: [],
-          uncovered: true
-        }
-      ],
-      slots: [
-        {
-          id: 'customer_normalizer',
-          declaredAcceptance: ['customer_crud'],
-          coveredBy: ['customer_crud'],
-          uncovered: false
-        },
-        {
-          id: 'tenant_context_provider',
-          declaredAcceptance: ['tenant_scope'],
-          coveredBy: [],
-          uncovered: true
-        }
-      ],
-      uncoveredBlocks: ['tenant/basic-workspace'],
-      uncoveredSlots: ['tenant_context_provider']
-    };
-
-    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
     expect(summary.coverageSummary).toMatchObject({
       status: 'failed',

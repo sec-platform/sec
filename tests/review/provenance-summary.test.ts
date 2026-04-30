@@ -1,12 +1,11 @@
 import { expect, test } from 'vitest';
 
-import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { buildOfficialRegistrySummary, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialRegistrySummary, buildReviewSummaryFromInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces provenance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { lock, provenance, report, coverage } = buildReviewInputs({
+    const summary = await buildReviewSummaryFromInputs(workspaceRoot, {
       provenance: [
         {
           path: 'src/installed/auth/session.ts',
@@ -47,8 +46,6 @@ test('review summary surfaces provenance summary', async () => {
         }
       ]
     });
-
-    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
     expect(summary.provenanceSummary).toMatchObject({
       artifactCount: 4,

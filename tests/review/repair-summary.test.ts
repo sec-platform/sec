@@ -1,30 +1,21 @@
 import { expect, test } from 'vitest';
 
-import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import type { ReviewInputsOptions } from '../helpers/test-utils.ts';
 import {
   buildPassingReviewReport,
   buildRepairBlocker,
   buildRepairPlanArtifact,
   buildRepairTask,
-  buildReviewInputs,
+  buildReviewSummaryFromInputs,
   withTempWorkspace
 } from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
-    const { lock, provenance, coverage } = buildReviewInputs({
-      lock: {
-        passStatus: {
-          verify: 'failed',
-          repair: 'succeeded'
-        }
-      },
-      coverage: { status: 'failed' }
-    });
     const report = buildPassingReviewReport({
       unit: { status: 'failed', passed: [] },
       fast: {
@@ -36,6 +27,16 @@ test('review summary surfaces pending repair tasks', async () => {
         failedLanes: ['fast']
       }
     });
+    const reviewOptions: ReviewInputsOptions = {
+      lock: {
+        passStatus: {
+          verify: 'failed',
+          repair: 'succeeded'
+        }
+      },
+      coverage: { status: 'failed' },
+      report
+    };
     const repairPlan = buildRepairPlanArtifact({
       tasks: [
         buildRepairTask({
@@ -63,7 +64,7 @@ test('review summary surfaces pending repair tasks', async () => {
     });
     await writeJson(repairPlanPath, repairPlan);
 
-    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+    const summary = await buildReviewSummaryFromInputs(workspaceRoot, reviewOptions);
 
     expect(summary.repairSummary).toMatchObject({
       status: 'pending',
@@ -185,7 +186,7 @@ test('review summary surfaces pending repair tasks', async () => {
     repairPlan.requiresVerification = true;
     await writeJson(repairPlanPath, repairPlan);
 
-    const appliedSummary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+    const appliedSummary = await buildReviewSummaryFromInputs(workspaceRoot, reviewOptions);
 
     expect(appliedSummary.repairSummary).toMatchObject({
       status: 'applied',
