@@ -1,13 +1,11 @@
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records delete file migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-delete-file-plan-',
     migration: {
       id: 'mig-delete-obsolete-report',
@@ -28,9 +26,6 @@ test('upgrade dry-run records delete file migration impacts', async () => {
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
     'generated/reports/obsolete.json',
     'src/installed/private/slot-contract.ts'
@@ -56,11 +51,10 @@ test('upgrade dry-run records delete file migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records copy file migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-copy-file-plan-',
     migration: {
       id: 'mig-copy-report-schema',
@@ -82,9 +76,6 @@ test('upgrade dry-run records copy file migration impacts', async () => {
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
     'generated/reports/schema.json',
     'src/installed/private/slot-contract.ts'
@@ -111,11 +102,10 @@ test('upgrade dry-run records copy file migration impacts', async () => {
       source: 'files/generated/reports/schema.json'
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records rename file migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-rename-file-plan-',
     migration: {
       id: 'mig-rename-report',
@@ -137,9 +127,6 @@ test('upgrade dry-run records rename file migration impacts', async () => {
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
     'generated/reports/archive/current.json',
     'generated/reports/current.json',
@@ -170,5 +157,4 @@ test('upgrade dry-run records rename file migration impacts', async () => {
       source: 'generated/reports/current.json'
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });

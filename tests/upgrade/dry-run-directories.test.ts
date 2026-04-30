@@ -1,14 +1,13 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
-import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
+import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records create directory migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-create-directory-plan-',
     migration: {
       id: 'mig-create-snapshots-dir',
@@ -24,9 +23,6 @@ test('upgrade dry-run records create directory migration impacts', async () => {
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
     'generated/reports/snapshots',
     'src/installed/private/slot-contract.ts'
@@ -43,7 +39,6 @@ test('upgrade dry-run records create directory migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run rejects create directory migrations when target is a file', async () => {
@@ -68,14 +63,16 @@ test('upgrade dry-run rejects create directory migrations when target is a file'
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
-    code: 'UPGRADE-MIGRATION-028'
-  });
-  await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    paths.upgradeDiagnosticsPath,
+    { code: 'UPGRADE-MIGRATION-028' },
+    { failedCheck: 'migration-file-operations' }
+  );
 });
 
 test('upgrade dry-run records delete directory migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-delete-directory-plan-',
     migration: {
       id: 'mig-delete-obsolete-report-dir',
@@ -96,9 +93,6 @@ test('upgrade dry-run records delete directory migration impacts', async () => {
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
     'generated/reports/obsolete',
     'src/installed/private/slot-contract.ts'
@@ -124,11 +118,10 @@ test('upgrade dry-run records delete directory migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records copy directory migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-copy-directory-plan-',
     migration: {
       id: 'mig-copy-report-templates',
@@ -150,9 +143,6 @@ test('upgrade dry-run records copy directory migration impacts', async () => {
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual([
     'generated/reports/templates',
     'src/installed/private/slot-contract.ts'
@@ -179,7 +169,6 @@ test('upgrade dry-run records copy directory migration impacts', async () => {
       source: 'files/generated/reports/templates'
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run rejects copy directory migrations when target is a file', async () => {
@@ -208,8 +197,10 @@ test('upgrade dry-run rejects copy directory migrations when target is a file', 
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
-    code: 'UPGRADE-MIGRATION-027'
-  });
-  await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    paths.upgradeDiagnosticsPath,
+    { code: 'UPGRADE-MIGRATION-027' },
+    { failedCheck: 'migration-file-operations' }
+  );
 });
