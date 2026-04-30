@@ -2,7 +2,7 @@ import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts'
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
-import { pathExists, readJson, readOptionalJson, writeJson } from '../../shared/fs.ts';
+import { pathExists, readJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -11,6 +11,7 @@ import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
+import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import { buildRuntimeAttribution } from './runtime-attribution.ts';
 import { buildProvenance, writeProvenance } from './write-provenance.ts';
 
@@ -24,26 +25,6 @@ function pushEdge(edges: ExplainGraphEdge[], edge: ExplainGraphEdge): void {
   if (!edges.some((candidate) => candidate.from === edge.from && candidate.to === edge.to && candidate.type === edge.type)) {
     edges.push(edge);
   }
-}
-
-async function readPolicyReport(workspaceRoot: string): Promise<PolicyReport | null> {
-  const { policyReportPath } = getWorkspacePaths(workspaceRoot);
-  return readOptionalJson<PolicyReport>(policyReportPath);
-}
-
-async function readUpgradePlan(workspaceRoot: string): Promise<UpgradePlan | null> {
-  const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-  return readOptionalJson<UpgradePlan>(upgradePlanPath);
-}
-
-async function readUpgradeDiagnostics(workspaceRoot: string): Promise<UpgradeDiagnostics | null> {
-  const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-  return readOptionalJson<UpgradeDiagnostics>(upgradeDiagnosticsPath);
-}
-
-async function readRepairPlan(workspaceRoot: string): Promise<RepairPlan | null> {
-  const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
-  return readOptionalJson<RepairPlan>(repairPlanPath);
 }
 
 function readUpgradeDiagnosticsString(diagnostics: UpgradeDiagnostics, key: string): string | null {
@@ -563,6 +544,7 @@ export async function writeExplainGraph(
       }
 
       const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
+      const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = await readReviewGovernanceReports(workspaceRoot);
       const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === CI_ARTIFACT_FILES.explainGraph)
         ? provenance
         : await buildProvenance(workspaceRoot, lock);
@@ -571,10 +553,10 @@ export async function writeExplainGraph(
         lock,
         nextProvenance,
         coverage,
-        await readPolicyReport(workspaceRoot),
-        await readUpgradePlan(workspaceRoot),
-        await readRepairPlan(workspaceRoot),
-        await readUpgradeDiagnostics(workspaceRoot)
+        policyReport,
+        upgradePlan,
+        repairPlan,
+        upgradeDiagnostics
       );
 
       await writeJson(explainGraphPath, nextGraph);
