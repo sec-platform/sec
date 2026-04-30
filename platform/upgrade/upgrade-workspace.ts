@@ -598,153 +598,189 @@ function withRollbackDiagnostics(error: CompilerError): CompilerError {
   });
 }
 
-async function applyMigrationEntry(
-  projectRoot: string,
-  targetManifestRoot: string,
-  impacts: string[],
-  entry: UpgradeMigrationEntry
-): Promise<void> {
-  if (!impacts.includes(entry.target)) {
-    throw new CompilerError(
-      'UPGRADE-MIGRATION-007',
-      `Migration target "${entry.target}" is outside upgrade impacts`,
-      migrationPathDetails('migration-targets', entry.target, 'project', {
-        migrationId: entry.id,
-        role: 'target'
-      })
-    );
-  }
-  if ((entry.kind === 'rename-file' || entry.kind === 'rename-directory') && !impacts.includes(entry.source)) {
-    throw new CompilerError(
-      'UPGRADE-MIGRATION-007',
-      `Migration source "${entry.source}" is outside upgrade impacts`,
-      migrationPathDetails('migration-targets', entry.source, 'project', {
-        migrationId: entry.id,
-        role: 'source'
-      })
-    );
-  }
-  const targetPath = resolveProjectPath(projectRoot, entry.target, {
-    migrationId: entry.id,
-    role: 'target'
-  });
+type ProjectSourceMigrationEntry = Extract<UpgradeMigrationEntry, { kind: 'rename-file' | 'rename-directory' }>;
 
-  if (entry.kind === 'file-replace' || entry.kind === 'copy-file') {
-    const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
-      migrationId: entry.id,
-      role: 'manifest-source'
-    });
-    await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
-    await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-    await ensureDir(path.dirname(targetPath));
-    await fs.copyFile(sourcePath, targetPath);
+type ManifestSourceMigrationEntry = Extract<
+  UpgradeMigrationEntry,
+  { kind: 'file-replace' | 'copy-file' | 'copy-directory' }
+>;
+
+type BaseMigrationApplyContext = {
+  projectRoot: string;
+  targetManifestRoot: string;
+  targetPath: string;
+};
+
+type MigrationApplyContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
+  BaseMigrationApplyContext & {
+    entry: Extract<UpgradeMigrationEntry, { kind: K }>;
+  };
+
+type ManifestFileMigrationContext = BaseMigrationApplyContext & {
+  entry: Extract<UpgradeMigrationEntry, { kind: 'file-replace' | 'copy-file' }>;
+};
+
+type TextReplaceMigrationContext = BaseMigrationApplyContext & {
+  entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace' | 'text-replace-regex' }>;
+};
+
+type MigrationApplyHandler<K extends UpgradeMigrationEntry['kind']> = (
+  context: MigrationApplyContext<K>
+) => Promise<void>;
+
+type MigrationApplyHandlers = {
+  [K in UpgradeMigrationEntry['kind']]: MigrationApplyHandler<K>;
+};
+
+function hasProjectSource(entry: UpgradeMigrationEntry): entry is ProjectSourceMigrationEntry {
+  return entry.kind === 'rename-file' || entry.kind === 'rename-directory';
+}
+
+function resolveManifestMigrationSource(targetManifestRoot: string, entry: ManifestSourceMigrationEntry): string {
+  return resolveManifestPath(targetManifestRoot, entry.source, {
+    migrationId: entry.id,
+    role: 'manifest-source'
+  });
+}
+
+function resolveProjectMigrationSource(projectRoot: string, entry: ProjectSourceMigrationEntry): string {
+  return resolveProjectPath(projectRoot, entry.source, {
+    migrationId: entry.id,
+    role: 'source'
+  });
+}
+
+function ensureMigrationPathImpacted(
+  impacts: string[],
+  entry: UpgradeMigrationEntry,
+  role: 'source' | 'target',
+  relativePath: string
+): void {
+  if (impacts.includes(relativePath)) {
     return;
   }
-
-  if (entry.kind === 'copy-directory') {
-    const sourcePath = resolveManifestPath(targetManifestRoot, entry.source, {
+  throw new CompilerError(
+    'UPGRADE-MIGRATION-007',
+    `Migration ${role} "${relativePath}" is outside upgrade impacts`,
+    migrationPathDetails('migration-targets', relativePath, 'project', {
       migrationId: entry.id,
-      role: 'manifest-source'
-    });
+      role
+    })
+  );
+}
+
+function ensureMigrationImpacts(impacts: string[], entry: UpgradeMigrationEntry): void {
+  ensureMigrationPathImpacted(impacts, entry, 'target', entry.target);
+  if (hasProjectSource(entry)) {
+    ensureMigrationPathImpacted(impacts, entry, 'source', entry.source);
+  }
+}
+
+async function applyManifestFileMigration(context: ManifestFileMigrationContext): Promise<void> {
+  const { entry, targetManifestRoot, targetPath } = context;
+  const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
+  await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
+  await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+  await ensureDir(path.dirname(targetPath));
+  await fs.copyFile(sourcePath, targetPath);
+}
+
+async function applyTextReplaceMigration(context: TextReplaceMigrationContext): Promise<void> {
+  const { entry, targetPath } = context;
+  await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+  const source = await fs.readFile(targetPath, 'utf8');
+  await fs.writeFile(
+    targetPath,
+    entry.kind === 'text-replace'
+      ? applyTextReplace(source, entry)
+      : applyTextReplaceRegex(source, entry),
+    'utf8'
+  );
+}
+
+const migrationApplyHandlers = {
+  'file-replace': applyManifestFileMigration,
+  'copy-file': applyManifestFileMigration,
+  'copy-directory': async ({ entry, targetManifestRoot, targetPath }) => {
+    const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
     await statCopyDirectoryMigrationSource(sourcePath, entry.source);
     await statCopyDirectoryMigrationTarget(targetPath, entry.target);
     await copyRecursive(sourcePath, targetPath);
-    return;
-  }
-
-  if (entry.kind === 'config-rewrite') {
+  },
+  'config-rewrite': async ({ entry, targetPath }) => {
     await statFileMigrationTarget(targetPath, entry.target, entry.kind);
     const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
     await writeJson(targetPath, config);
-    return;
-  }
-
-  if (entry.kind === 'json-array-append') {
+  },
+  'json-array-append': async ({ entry, targetPath }) => {
     const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
     const config = applyJsonArrayAppend(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
     await ensureDir(path.dirname(targetPath));
     await writeJson(targetPath, config);
-    return;
-  }
-
-  if (entry.kind === 'json-array-remove') {
+  },
+  'json-array-remove': async ({ entry, targetPath }) => {
     const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
     if (targetStatus === 'missing') {
       return;
     }
     const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
     await writeJson(targetPath, config);
-    return;
-  }
-
-  if (entry.kind === 'json-object-merge') {
+  },
+  'json-object-merge': async ({ entry, targetPath }) => {
     const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
     const config = applyJsonObjectMerge(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
     await ensureDir(path.dirname(targetPath));
     await writeJson(targetPath, config);
-    return;
-  }
-
-  if (entry.kind === 'text-append') {
+  },
+  'text-append': async ({ entry, targetPath }) => {
     await appendTextMigrationTarget(targetPath, entry.target, entry.content);
-    return;
-  }
-
-  if (entry.kind === 'text-replace') {
-    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-    const source = await fs.readFile(targetPath, 'utf8');
-    await fs.writeFile(targetPath, applyTextReplace(source, entry), 'utf8');
-    return;
-  }
-
-  if (entry.kind === 'text-replace-regex') {
-    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-    const source = await fs.readFile(targetPath, 'utf8');
-    await fs.writeFile(targetPath, applyTextReplaceRegex(source, entry), 'utf8');
-    return;
-  }
-
-  if (entry.kind === 'create-directory') {
+  },
+  'text-replace': applyTextReplaceMigration,
+  'text-replace-regex': applyTextReplaceMigration,
+  'create-directory': async ({ entry, targetPath }) => {
     await statCreateDirectoryMigrationTarget(targetPath, entry.target);
     await ensureDir(targetPath);
-    return;
-  }
-
-  if (entry.kind === 'delete-file') {
+  },
+  'delete-file': async ({ entry, targetPath }) => {
     await removeFileMigrationTarget(targetPath, entry.target);
-    return;
-  }
-
-  if (entry.kind === 'delete-directory') {
+  },
+  'delete-directory': async ({ entry, targetPath }) => {
     await removeDirectoryMigrationTarget(targetPath, entry.target);
-    return;
-  }
-
-  if (entry.kind === 'rename-file') {
-    const sourcePath = resolveProjectPath(projectRoot, entry.source, {
-      migrationId: entry.id,
-      role: 'source'
-    });
-    await renameFileMigrationTarget(sourcePath, targetPath, entry.source, entry.target);
-    return;
-  }
-
-  if (entry.kind === 'rename-directory') {
-    const sourcePath = resolveProjectPath(projectRoot, entry.source, {
-      migrationId: entry.id,
-      role: 'source'
-    });
-    await renameDirectoryMigrationTarget(sourcePath, targetPath, entry.source, entry.target);
-    return;
-  }
-
-  if (entry.kind === 'slot-contract-update') {
+  },
+  'rename-file': async ({ entry, projectRoot, targetPath }) => {
+    await renameFileMigrationTarget(
+      resolveProjectMigrationSource(projectRoot, entry),
+      targetPath,
+      entry.source,
+      entry.target
+    );
+  },
+  'rename-directory': async ({ entry, projectRoot, targetPath }) => {
+    await renameDirectoryMigrationTarget(
+      resolveProjectMigrationSource(projectRoot, entry),
+      targetPath,
+      entry.source,
+      entry.target
+    );
+  },
+  'slot-contract-update': async ({ entry, targetPath }) => {
     await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-    return;
   }
+} satisfies MigrationApplyHandlers;
 
-  const unsupportedEntry = entry as { kind: string };
-  throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
+async function applyMigrationEntry(
+  projectRoot: string,
+  targetManifestRoot: string,
+  impacts: string[],
+  entry: UpgradeMigrationEntry
+): Promise<void> {
+  ensureMigrationImpacts(impacts, entry);
+  const targetPath = resolveProjectPath(projectRoot, entry.target, {
+    migrationId: entry.id,
+    role: 'target'
+  });
+  const handler = migrationApplyHandlers[entry.kind] as (context: MigrationApplyContext) => Promise<void>;
+  await handler({ entry, projectRoot, targetManifestRoot, targetPath });
 }
 
 export async function applyMigrationEntries(
