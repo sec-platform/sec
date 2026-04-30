@@ -184,6 +184,10 @@ export function emptyPolicyScopeReport(): PolicyReport['project'] {
   };
 }
 
+export function emptyVerificationLogs(): VerificationReport['logs'] {
+  return { stdout: '', stderr: '' };
+}
+
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {
   const missing = needles.filter((n) => !haystack.includes(n));
   expect(missing, `Missing ${missing.length} marker(s): ${missing.map((m) => JSON.stringify(m)).join(', ')}`).toEqual([]);
@@ -294,21 +298,21 @@ export function buildPassingReviewReport(options: ReviewReportOptions = {}): Ver
       unit: { status: 'passed', passed: [] },
       acceptance: { status: 'passed', passed: [], failed: [] },
       policy: { status: 'passed', violations: [] },
-      logs: { stdout: '', stderr: '' }
+      logs: emptyVerificationLogs()
     },
     runtime: {
       status: 'skipped',
       build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
       unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
       acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
-      logs: { stdout: '', stderr: '' }
+      logs: emptyVerificationLogs()
     },
     summary: {
       status: 'passed',
       requestedLane: 'fast',
       failedLanes: []
     },
-    logs: { stdout: '', stderr: '' }
+    logs: emptyVerificationLogs()
   };
 
   return {
