@@ -20,6 +20,8 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import {
+  buildOfficialCopyInstallStep,
+  buildOfficialResolvedBlock,
   buildPassingReviewCoverage,
   buildPassingReviewReport,
   buildReviewInputs,
@@ -235,89 +237,39 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
     lock: {
       app: { stack: 'nextjs' },
       resolvedBlocks: [
-        {
-          id: 'ticket/basic',
-          version: '0.1.0',
-          kind: 'capability',
-          installOrder: 1,
-          manifestPath: 'manifest.yaml',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official'
-        },
-        {
-          id: 'export/csv-basic',
-          version: '0.1.0',
-          kind: 'capability',
-          installOrder: 2,
-          manifestPath: 'manifest.yaml',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official'
-        },
-        {
-          id: 'reporting/ticket-summary',
-          version: '0.1.0',
-          kind: 'capability',
-          installOrder: 3,
-          manifestPath: 'manifest.yaml',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official'
-        }
+        buildOfficialResolvedBlock({ id: 'ticket/basic', installOrder: 1 }),
+        buildOfficialResolvedBlock({ id: 'export/csv-basic', installOrder: 2 }),
+        buildOfficialResolvedBlock({ id: 'reporting/ticket-summary', installOrder: 3 })
       ],
       installPlan: [
-        {
+        buildOfficialCopyInstallStep({
           stepId: 'ticket/basic:1',
           blockId: 'ticket/basic',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official',
           sourceRoot: 'ticket.basic',
-          action: 'copy',
           from: 'files/app/tickets/page.tsx',
           to: 'app/tickets/page.tsx'
-        },
-        {
+        }),
+        buildOfficialCopyInstallStep({
           stepId: 'export/csv-basic:2',
           blockId: 'export/csv-basic',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official',
           sourceRoot: 'export.csv-basic',
-          action: 'copy',
           from: 'files/app/api/tickets/export/route.ts',
           to: 'app/api/tickets/export/route.ts'
-        },
-        {
+        }),
+        buildOfficialCopyInstallStep({
           stepId: 'reporting/ticket-summary:3',
           blockId: 'reporting/ticket-summary',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official',
           sourceRoot: 'reporting.ticket-summary',
-          action: 'copy',
           from: 'files/app/api/tickets/summary/route.ts',
           to: 'app/api/tickets/summary/route.ts'
-        },
-        {
+        }),
+        buildOfficialCopyInstallStep({
           stepId: 'reporting/ticket-summary:4',
           blockId: 'reporting/ticket-summary',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official',
           sourceRoot: 'reporting.ticket-summary',
-          action: 'copy',
           from: 'files/src/installed/reporting/ticket-summary.ts',
           to: 'src/installed/reporting/ticket-summary.ts'
-        }
+        })
       ],
       generatedPaths: [
         'app/tickets/page.tsx',

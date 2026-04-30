@@ -123,6 +123,43 @@ export function buildManifestValidationPlan(entry: ManifestEntry): PlanFile {
   };
 }
 
+const officialRegistryMetadata = {
+  registrySourceId: 'official',
+  registryKind: 'official',
+  registryLocation: 'compiler',
+  registryPath: 'platform/registry/official'
+} as const;
+
+export function buildOfficialResolvedBlock(options: {
+  id: string;
+  installOrder: number;
+  version?: string;
+  kind?: LockFile['resolvedBlocks'][number]['kind'];
+  manifestPath?: string;
+}): LockFile['resolvedBlocks'][number] {
+  return {
+    version: '0.1.0',
+    kind: 'capability',
+    manifestPath: 'manifest.yaml',
+    ...officialRegistryMetadata,
+    ...options
+  };
+}
+
+export function buildOfficialCopyInstallStep(options: {
+  stepId: string;
+  blockId: string;
+  sourceRoot: string;
+  from: string;
+  to: string;
+}): LockFile['installPlan'][number] {
+  return {
+    ...officialRegistryMetadata,
+    action: 'copy',
+    ...options
+  };
+}
+
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {
   const missing = needles.filter((n) => !haystack.includes(n));
   expect(missing, `Missing ${missing.length} marker(s): ${missing.map((m) => JSON.stringify(m)).join(', ')}`).toEqual([]);

@@ -15,7 +15,7 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialResolvedBlock, createWorkspace } from '../helpers/test-utils.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {
@@ -405,39 +405,9 @@ test('explain graph links generated ticket runtime routes back to related blocks
       mode: 'single-tenant'
     },
     resolvedBlocks: [
-      {
-        id: 'ticket/basic',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 1,
-        manifestPath: 'manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
-      },
-      {
-        id: 'export/csv-basic',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 2,
-        manifestPath: 'manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
-      },
-      {
-        id: 'reporting/ticket-summary',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 3,
-        manifestPath: 'manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
-      }
+      buildOfficialResolvedBlock({ id: 'ticket/basic', installOrder: 1 }),
+      buildOfficialResolvedBlock({ id: 'export/csv-basic', installOrder: 2 }),
+      buildOfficialResolvedBlock({ id: 'reporting/ticket-summary', installOrder: 3 })
     ],
     resolvedCapabilities: [],
     installPlan: [],
