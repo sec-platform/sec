@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
-import { createDatabase } from '../../src/runtime/database.ts';
-import { login } from '../../src/installed/auth/session.ts';
 import { createCustomer } from '../../src/installed/entity/customer-service.ts';
 import { listEmailNotifications, recordCustomerCreatedEmail, recordTicketCreatedEmail } from '../../src/installed/notify/email-outbox.ts';
+import { createTenantRuntimeFixture } from '../shared/tenant-runtime-fixture.ts';
 
 export async function runSuite() {
-  const db = createDatabase();
-  const tenantA = login('tenant-a-admin', 'password');
-  const tenantB = login('tenant-b-admin', 'password');
+  const { db, tenantA, tenantB } = createTenantRuntimeFixture();
   const customer = createCustomer(db, tenantA, {
     name: 'Acme',
     email: 'sales@acme.test',
