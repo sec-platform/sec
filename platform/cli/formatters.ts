@@ -623,66 +623,49 @@ export function buildAcceptanceTargetInspect(
   };
 }
 
+function formatAcceptanceTarget(
+  label: 'Target' | 'Block' | 'Slot',
+  target: AcceptanceTargetInspect['targets'][number]
+): string {
+  return formatFields([
+    `${label} ${target.id}`,
+    `declared=${target.declaredAcceptanceCount}`,
+    `coveredBy=${formatList(target.coveredBy)}`,
+    `uncovered=${target.uncovered}`
+  ]);
+}
+
 export function formatAcceptanceTargets(report: AcceptanceTargetInspect): string {
   const label = report.targetKind === 'blocks' ? 'Acceptance coverage blocks' : 'Acceptance coverage slots';
-  const lines = [
+  return [
     `${label} ${report.status}`,
     formatFields([
       `targets=${report.targetCount}`,
       `covered=${report.coveredCount}`,
       `uncovered=${report.uncoveredCount}`
     ]),
-    `Uncovered: ${formatList(report.uncoveredIds)}`
-  ];
-  for (const target of report.targets.slice(0, 5)) {
-    lines.push(
-      formatFields([
-        `Target ${target.id}`,
-        `declared=${target.declaredAcceptanceCount}`,
-        `coveredBy=${formatList(target.coveredBy)}`,
-        `uncovered=${target.uncovered}`
-      ])
-    );
-  }
-  return lines.join('\n');
+    `Uncovered: ${formatList(report.uncoveredIds)}`,
+    ...report.targets.slice(0, 5).map((target) => formatAcceptanceTarget('Target', target))
+  ].join('\n');
 }
 
 export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): string {
-  const coveredBlockCount = countMatching(report.blocks, (block) => !block.uncovered);
-  const coveredSlotCount = countMatching(report.slots, (slot) => !slot.uncovered);
-  const lines = [
+  const blockTargets = buildAcceptanceTargetInspect(report, 'blocks');
+  const slotTargets = buildAcceptanceTargetInspect(report, 'slots');
+  return [
     formatFields([
       `Acceptance coverage ${report.status}`,
       `acceptancePassed=${report.acceptancePassed.length}`,
-      `blocks=${coveredBlockCount}/${report.blocks.length}`,
-      `slots=${coveredSlotCount}/${report.slots.length}`,
-      `uncoveredBlocks=${report.uncoveredBlocks.length}`,
-      `uncoveredSlots=${report.uncoveredSlots.length}`
+      `blocks=${blockTargets.coveredCount}/${blockTargets.targetCount}`,
+      `slots=${slotTargets.coveredCount}/${slotTargets.targetCount}`,
+      `uncoveredBlocks=${blockTargets.uncoveredCount}`,
+      `uncoveredSlots=${slotTargets.uncoveredCount}`
     ]),
-    `Uncovered blocks: ${formatList(report.uncoveredBlocks)}`,
-    `Uncovered slots: ${formatList(report.uncoveredSlots)}`
-  ];
-  for (const block of report.blocks.slice(0, 3)) {
-    lines.push(
-      formatFields([
-        `Block ${block.id}`,
-        `declared=${block.declaredAcceptance.length}`,
-        `coveredBy=${formatList(block.coveredBy)}`,
-        `uncovered=${block.uncovered}`
-      ])
-    );
-  }
-  for (const slot of report.slots.slice(0, 3)) {
-    lines.push(
-      formatFields([
-        `Slot ${slot.id}`,
-        `declared=${slot.declaredAcceptance.length}`,
-        `coveredBy=${formatList(slot.coveredBy)}`,
-        `uncovered=${slot.uncovered}`
-      ])
-    );
-  }
-  return lines.join('\n');
+    `Uncovered blocks: ${formatList(blockTargets.uncoveredIds)}`,
+    `Uncovered slots: ${formatList(slotTargets.uncoveredIds)}`,
+    ...blockTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Block', target)),
+    ...slotTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Slot', target))
+  ].join('\n');
 }
 
 function buildRuntimeStepInspect(
