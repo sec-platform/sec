@@ -9,24 +9,7 @@ import { artifactsCommand } from './commands/artifacts-command.ts';
 import { adaptCommand, composeCommand } from './commands/compose-adapt-command.ts';
 import { explainCommand } from './commands/explain-command.ts';
 import { initCommand } from './commands/init-command.ts';
-import {
-  acceptanceCommand,
-  benchmarkCommand,
-  blocksCommand,
-  contractCommand,
-  demoCommand,
-  depsCommand,
-  doctorCommand,
-  installCommand,
-  policyCommand,
-  postgresCommand,
-  provenanceCommand,
-  referenceCommand,
-  reviewCommand,
-  runtimeCommand,
-  testCommand,
-  verificationCommand
-} from './commands/inspect-commands.ts';
+import { inspectCommands } from './commands/inspect-commands.ts';
 import { lockCommand } from './commands/lock-command.ts';
 import { repairCommand } from './commands/repair-command.ts';
 import { resolveCommand } from './commands/resolve-command.ts';
@@ -47,22 +30,7 @@ const ALL_COMMANDS = [
   explainCommand,
   artifactsCommand,
   workbenchCommand,
-  doctorCommand,
-  depsCommand,
-  referenceCommand,
-  benchmarkCommand,
-  testCommand,
-  policyCommand,
-  acceptanceCommand,
-  runtimeCommand,
-  verificationCommand,
-  provenanceCommand,
-  reviewCommand,
-  demoCommand,
-  contractCommand,
-  installCommand,
-  blocksCommand,
-  postgresCommand
+  ...inspectCommands
 ];
 
 export function createDefaultRegistry(): CommandRegistry {
