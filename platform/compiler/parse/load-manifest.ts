@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
+import { isFileNotFoundError } from '../../shared/fs.ts';
 import type { ResolvedBlock } from '../../shared/lock-types.ts';
 import {
   blockDirName,
@@ -15,7 +16,7 @@ import type {
   PlanRegistrySource
 } from '../../shared/plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
-import { readYaml } from '../../shared/yaml.ts';
+import { readOptionalYaml, readYaml } from '../../shared/yaml.ts';
 
 export interface ResolvedRegistrySource {
   id: string;
@@ -44,14 +45,7 @@ function rootManifestPath(registryRoot: string, blockId: string): string {
 }
 
 async function tryReadManifest(manifestPath: string): Promise<BlockManifest | null> {
-  try {
-    return await readYaml<BlockManifest>(manifestPath);
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT') {
-      return null;
-    }
-    throw error;
-  }
+  return readOptionalYaml<BlockManifest>(manifestPath);
 }
 
 function mergeVersionedManifest(rootManifest: BlockManifest | null, versionedManifest: BlockManifest): BlockManifest {
@@ -215,7 +209,7 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
     try {
       entries = await fs.readdir(registrySource.root, { withFileTypes: true });
     } catch (error) {
-      if (error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT') {
+      if (isFileNotFoundError(error)) {
         continue;
       }
       throw error;
