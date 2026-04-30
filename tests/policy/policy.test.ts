@@ -16,7 +16,8 @@ import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../platfo
 import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { buildOfficialCopyInstallStep, buildOfficialInstallStep } from '../helpers/lock-fixtures.ts';
-import { createWorkspace, emptyPolicyScopeReport } from '../helpers/test-utils.ts';
+import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
 
 const activeOfficialPolicyDirs = new Set<string>();
 const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');

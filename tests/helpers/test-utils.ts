@@ -10,9 +10,6 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { readJson } from '../../platform/shared/fs.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
-import type { PolicyReport } from '../../platform/shared/types.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const deferredCleanupDirs = new Set<string>();
@@ -72,38 +69,4 @@ export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOp
   await verifyWorkspace(workspaceRoot);
   await lockWorkspace(workspaceRoot);
   return workspaceRoot;
-}
-
-const compilerFileCache = new Map<string, string>();
-
-export async function readCompilerFile(relativePath: string): Promise<string> {
-  const cached = compilerFileCache.get(relativePath);
-  if (cached !== undefined) return cached;
-
-  const absolutePath = path.join(compilerRoot, relativePath);
-  const content = await fs.readFile(absolutePath, 'utf8');
-  compilerFileCache.set(relativePath, content);
-  return content;
-}
-
-interface CompilerPackage {
-  scripts: Record<string, string>;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-}
-
-let cachedRootPackage: CompilerPackage | null = null;
-
-export async function readCompilerPackageJson(): Promise<CompilerPackage> {
-  if (cachedRootPackage) return cachedRootPackage;
-  cachedRootPackage = await readJson<CompilerPackage>(path.join(compilerRoot, 'package.json'));
-  return cachedRootPackage;
-}
-
-export function emptyPolicyScopeReport(): PolicyReport['project'] {
-  return {
-    policies: [],
-    sources: [],
-    violations: []
-  };
 }

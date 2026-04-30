@@ -15,11 +15,8 @@ import {
 } from '../../platform/shared/project-runtime.ts';
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
-import {
-  createWorkspace,
-  readCompilerFile,
-  readCompilerPackageJson
-} from '../helpers/test-utils.ts';
+import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
 import { installRuntimeDeps } from './project-runtime-fixtures.ts';
 
 type RuntimePackageJson = {
