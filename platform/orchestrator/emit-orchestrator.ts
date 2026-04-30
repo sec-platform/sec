@@ -8,6 +8,7 @@ import { CompilerError } from '../shared/errors.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
+import { assertPassStatus } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
@@ -34,9 +35,7 @@ export async function explainWorkspace(
   } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
 
-  if (lock.passStatus.lock !== 'succeeded') {
-    throw new CompilerError('EXPLAIN-BLOCKED-001', 'lock must succeed before explain');
-  }
+  assertPassStatus(lock, 'lock', 'succeeded', new CompilerError('EXPLAIN-BLOCKED-001', 'lock must succeed before explain'));
 
   const provenance = await readJson<ProvenanceFile>(await resolveWorkspaceProvenancePath(workspaceRoot));
   const report = await readJson<VerificationReport>(verificationReportPath);

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
 import { isFileNotFoundError, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import { assertPassStatus } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import { applyOverrides } from '../compose/apply-overrides.ts';
@@ -24,9 +25,7 @@ function rebaseRelativeImports(source: string, fromFile: string, toFile: string)
 export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: LockFile): Promise<LockFile> {
   const { lockPath } = getWorkspacePaths(workspaceRoot);
 
-  if (lock.passStatus.compose !== 'succeeded') {
-    throw new CompilerError('SLOT-WRITE-003', 'compose must succeed before adapt');
-  }
+  assertPassStatus(lock, 'compose', 'succeeded', new CompilerError('SLOT-WRITE-003', 'compose must succeed before adapt'));
 
   for (const task of lock.slotTasks) {
     if (task.status !== 'generated' && task.status !== 'pending') {

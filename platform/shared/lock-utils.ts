@@ -1,9 +1,13 @@
 import { uniqueSorted } from './collections.ts';
 import { writeJson } from './fs.ts';
-import type { LockFile } from './lock-types.ts';
+import type { LockFile, PassState, PassStatus } from './lock-types.ts';
 
 export function addGeneratedPaths(lock: Pick<LockFile, 'generatedPaths'>, paths: readonly string[]): void {
   lock.generatedPaths = uniqueSorted([...lock.generatedPaths, ...paths]);
+}
+
+export function assertPassStatus(lock: LockFile, pass: keyof PassStatus, state: PassState, error: Error, mode: 'equals' | 'differs' = 'equals'): void {
+  if ((lock.passStatus[pass] === state) !== (mode === 'equals')) throw error;
 }
 
 export async function writeLockWithGeneratedPaths(

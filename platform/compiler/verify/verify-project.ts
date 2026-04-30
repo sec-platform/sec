@@ -5,7 +5,7 @@ import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { addGeneratedPaths, assertPassStatus } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type {
@@ -248,9 +248,7 @@ export async function verifyProject(
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
 
-  if (lock.passStatus.adapt !== 'succeeded') {
-    throw new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify');
-  }
+  assertPassStatus(lock, 'adapt', 'succeeded', new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify'));
 
   const fastResult =
     lane === 'runtime' ? { lane: createSkippedFastLane(), failure: null } : await runFastVerification(workspaceRoot, projectRoot);
