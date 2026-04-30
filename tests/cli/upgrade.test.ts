@@ -2,16 +2,23 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ExplainGraph,
   UpgradeDiagnostics,
-  UpgradePlan,
-  VerificationReport
+  UpgradePlan
 } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, runCliPipeline, withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  expectCliJson,
+  expectCliSuccess,
+  expectCliText,
+  runCliInProcess as runCli,
+  runCliPipeline,
+  withTempWorkspace,
+  writePassingVerificationState
+} from '../helpers/test-utils.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -223,26 +230,8 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
 
     await runCliPipeline(workspaceRoot, { init: false, verifyLane: 'fast' });
 
-    const { lockPath, upgradeDiagnosticsPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-    const lock = await readJson<{
-      passStatus: { verify: string };
-    }>(lockPath);
-    lock.passStatus.verify = 'succeeded';
-    await writeJson(lockPath, lock);
-
-    const report = await readJson<VerificationReport>(verificationReportPath);
-    report.unit.status = 'passed';
-    report.unit.passed = [];
-    report.acceptance.status = 'passed';
-    report.acceptance.passed = [];
-    report.acceptance.failed = [];
-    report.policy.status = 'passed';
-    report.policy.violations = [];
-    report.fast.status = 'passed';
-    report.summary.status = 'passed';
-    report.summary.requestedLane = 'all';
-    report.summary.failedLanes = [];
-    await writeJson(verificationReportPath, report);
+    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+    await writePassingVerificationState(workspaceRoot);
 
     await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
 
