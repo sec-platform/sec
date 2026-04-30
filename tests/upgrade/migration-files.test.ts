@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 
 import { formatJsonFile, writeJson } from '../../platform/shared/fs.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 import {
   configRewrite,
   copyDirectory,

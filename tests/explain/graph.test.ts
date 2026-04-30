@@ -18,7 +18,7 @@ import type {
 import { expectGraphEdge, expectGraphNode, expectNoGraphNode } from '../helpers/graph-assertions.ts';
 import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {

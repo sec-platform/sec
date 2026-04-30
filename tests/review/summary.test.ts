@@ -31,7 +31,7 @@ import {
   buildReviewProvenance,
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;

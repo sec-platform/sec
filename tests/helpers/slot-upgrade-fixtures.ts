@@ -7,7 +7,7 @@ import type { LockFile } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import { buildSingleTenantLockApp } from './lock-fixtures.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
-import { createWorkspace } from './test-utils.ts';
+import { createWorkspace } from './workspace-fixtures.ts';
 
 type SlotUpgradeDryRunFixtureContext = {
   workspaceRoot: string;

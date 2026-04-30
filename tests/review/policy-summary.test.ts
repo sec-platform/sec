@@ -4,7 +4,7 @@ import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { PolicyReport } from '../../platform/shared/types.ts';
 import { buildPassingReviewReport, buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('review summary surfaces policy governance summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

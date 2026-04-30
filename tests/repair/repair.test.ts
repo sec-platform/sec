@@ -17,7 +17,7 @@ import {
   buildRepairTask
 } from '../helpers/repair-fixtures.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 function plan(): PlanFile {
   return buildCustomerNormalizerPlan({

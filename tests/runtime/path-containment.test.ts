@@ -6,7 +6,7 @@ import type { InstallPlanStep } from '../../platform/shared/lock-types.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { BlockManifest } from '../../platform/shared/plan-manifest-types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('plan validation rejects registry paths that traverse outside their base root', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-path-plan-registry-');

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { expect, test } from 'vitest';
 
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 import { slotContractUpdate } from './migration-fixtures.ts';
 
 test('slot-contract-update migration rejects missing custom slot targets', async () => {

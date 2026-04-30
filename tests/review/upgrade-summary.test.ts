@@ -7,8 +7,8 @@ import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
 import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

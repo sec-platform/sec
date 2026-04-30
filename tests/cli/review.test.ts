@@ -9,7 +9,7 @@ import type {
   ReviewSummary
 } from '../../platform/shared/types.ts';
 import { expectCliVariants } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('CLI exposes review summary as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

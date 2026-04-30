@@ -17,7 +17,7 @@ import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { buildOfficialCopyInstallStep, buildOfficialInstallStep } from '../helpers/lock-fixtures.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 const activeOfficialPolicyDirs = new Set<string>();
 const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');

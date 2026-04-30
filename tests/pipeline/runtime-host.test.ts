@@ -8,7 +8,7 @@ import {
   resolveWorkspace
 } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('compose refreshes runtime host scaffold for an existing workspace baseline', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-compose-refresh-');
