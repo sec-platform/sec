@@ -4,7 +4,7 @@ import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, countPositiveValues, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
-import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
+import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -21,6 +21,7 @@ import type {
   UpgradePlan
 } from '../../shared/upgrade-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 
 function escapeHtml(value: string): string {
@@ -1267,12 +1268,9 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     lockPath,
     policyReportPath,
     provenancePath,
-    repairPlanPath,
     reviewSummaryPath,
     sourceViewPath,
     slotRuleViewPath,
-    upgradeDiagnosticsPath,
-    upgradePlanPath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
 
@@ -1280,17 +1278,16 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   await ensureDir(generatedViewsDir);
   await writeLockWithGeneratedPaths(lockPath, lock, CI_ARTIFACT_PATHS.view);
 
-  const [provenance, report, coverage, policyReport, review, graph, repairPlan, upgradeDiagnostics, upgradePlan] = await Promise.all([
+  const [provenance, report, coverage, policyReport, review, graph, governanceReports] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
     readRequiredArtifact<VerificationReport>(verificationReportPath, 'verification-report.json'),
     readRequiredArtifact<AcceptanceCoverageReport>(acceptanceCoveragePath, 'acceptance-coverage.json'),
     readRequiredArtifact<PolicyReport>(policyReportPath, 'policy-report.json'),
     readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
     readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json'),
-    readOptionalJson<RepairPlan>(repairPlanPath),
-    readOptionalJson<UpgradeDiagnostics>(upgradeDiagnosticsPath),
-    readOptionalJson<UpgradePlan>(upgradePlanPath)
+    readReviewGovernanceReports(workspaceRoot)
   ]);
+  const { repairPlan, upgradeDiagnostics, upgradePlan } = governanceReports;
 
   await fs.writeFile(sourceViewPath, renderSourceView(lock, provenance, review, graph, policyReport, repairPlan, upgradeDiagnostics, upgradePlan), 'utf8');
   await fs.writeFile(slotRuleViewPath, renderSlotRuleView(lock, report, coverage, policyReport, review), 'utf8');
