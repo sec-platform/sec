@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from './errors.ts';
-import { ensureDir, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
+import { ensureDir, formatJsonFile, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
 import { compilerRoot } from './paths.ts';
 import { pathEnvKey, resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
@@ -53,7 +53,7 @@ async function hasInstalledRuntimeDeps(nodeModulesPath: string): Promise<boolean
 }
 
 async function writeManifestIfChanged(filePath: string, value: unknown): Promise<void> {
-  const nextText = `${JSON.stringify(value, null, 2)}\n`;
+  const nextText = formatJsonFile(value);
   if ((await pathExists(filePath)) && (await readText(filePath)) === nextText) {
     return;
   }
@@ -105,10 +105,8 @@ async function withInstallLock<T>(
 
     try {
       handle = await fs.open(lockPath, 'wx');
-      await handle.writeFile(
-        `${JSON.stringify({ pid: process.pid, createdAt: (options.now ?? (() => new Date().toISOString()))() }, null, 2)}\n`,
-        'utf8'
-      );
+      const createdAt = (options.now ?? (() => new Date().toISOString()))();
+      await handle.writeFile(formatJsonFile({ pid: process.pid, createdAt }), 'utf8');
       break;
     } catch (error) {
       const failure = error as NodeJS.ErrnoException;

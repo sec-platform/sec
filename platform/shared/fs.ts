@@ -23,9 +23,13 @@ export async function readOptionalJson<T>(filePath: string): Promise<T | null> {
   return (await pathExists(filePath)) ? readJson<T>(filePath) : null;
 }
 
+export function formatJsonFile(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
 export async function writeJson(filePath: string, value: unknown): Promise<void> {
   await ensureDir(path.dirname(filePath));
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  await fs.writeFile(filePath, formatJsonFile(value), 'utf8');
 }
 
 export async function removeDir(targetPath: string): Promise<void> {
