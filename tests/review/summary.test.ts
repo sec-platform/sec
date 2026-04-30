@@ -126,19 +126,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
   const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-targets-');
   const lock = buildReviewLock({
     app: { stack: 'nextjs' },
-    resolvedBlocks: [
-      {
-        id: 'entity/customer-basic',
-        version: '0.1.0',
-        kind: 'capability',
-        installOrder: 1,
-        manifestPath: 'manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
-      }
-    ],
+    resolvedBlocks: [buildOfficialResolvedBlock({ id: 'entity/customer-basic', installOrder: 1 })],
     passStatus: {
       verify: 'failed',
       repair: 'pending'

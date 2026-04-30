@@ -9,24 +9,20 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
-import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialResolvedBlock, buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
     const { lock, provenance, report, coverage } = buildReviewInputs({
       lock: {
-        resolvedBlocks: [{
-          id: 'auth/basic-session',
-          version: '0.1.0',
-          kind: 'capability',
-          installOrder: 1,
-          manifestPath: 'block.manifest.yaml',
-          registrySourceId: 'official',
-          registryKind: 'official',
-          registryLocation: 'compiler',
-          registryPath: 'platform/registry/official'
-        }],
+        resolvedBlocks: [
+          buildOfficialResolvedBlock({
+            id: 'auth/basic-session',
+            installOrder: 1,
+            manifestPath: 'block.manifest.yaml'
+          })
+        ],
         resolvedCapabilities: ['auth/session'],
         passStatus: {
           lock: 'succeeded',

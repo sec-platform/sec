@@ -9,7 +9,13 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { buildPassingReviewReport, expectCliText, runCliInProcess as runCli, withTempWorkspace } from '../helpers/test-utils.ts';
+import {
+  buildOfficialResolvedBlock,
+  buildPassingReviewReport,
+  expectCliText,
+  runCliInProcess as runCli,
+  withTempWorkspace
+} from '../helpers/test-utils.ts';
 
 function plan(): PlanFile {
   return {
@@ -46,17 +52,11 @@ function lock(status: LockFile['slotTasks'][number]['status'] = 'failed'): LockF
       mode: 'single-tenant'
     },
     resolvedBlocks: [
-      {
+      buildOfficialResolvedBlock({
         id: 'entity/customer-basic',
-        version: '0.1.0',
-        kind: 'capability',
         installOrder: 1,
-        manifestPath: 'block.manifest.yaml',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
-      }
+        manifestPath: 'block.manifest.yaml'
+      })
     ],
     resolvedCapabilities: ['customer/write'],
     installPlan: [],

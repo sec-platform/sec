@@ -15,7 +15,7 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { buildOfficialCopyInstallStep, buildOfficialInstallStep, createWorkspace } from '../helpers/test-utils.ts';
 
 const activeOfficialPolicyDirs = new Set<string>();
 const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');
@@ -380,18 +380,13 @@ test('policy gate records missing install plan targets without violations', asyn
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [
-      {
+      buildOfficialCopyInstallStep({
         stepId: 'copy_missing_tenant_query',
         blockId: 'entity/customer-basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/entity.customer-basic/files',
-        action: 'copy',
         from: 'files/src/installed/alt/missing-query.ts',
         to: 'src/installed/alt/missing-query.ts'
-      }
+      })
     ],
     slotTasks: [],
     generatedPaths: [],
@@ -449,78 +444,49 @@ test('policy gate uses lock install plan to locate applied block files', async (
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [
-      {
+      buildOfficialCopyInstallStep({
         stepId: 'copy_zeta_tenant_query',
         blockId: 'entity/customer-basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/entity.customer-basic/files',
-        action: 'copy',
         from: 'files/src/installed/alt/zeta-query.ts',
         to: 'src/installed/alt/zeta-query.ts'
-      },
-      {
+      }),
+      buildOfficialCopyInstallStep({
         stepId: 'copy_alpha_tenant_query',
         blockId: 'entity/customer-basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/entity.customer-basic/files',
-        action: 'copy',
         from: 'files/src/installed/alt/alpha-query.ts',
         to: 'src/installed/alt/alpha-query.ts'
-      },
-      {
+      }),
+      buildOfficialCopyInstallStep({
         stepId: 'copy_customer_normalizer_test',
         blockId: 'entity/customer-basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/entity.customer-basic/files',
-        action: 'copy',
         from: 'files/tests/unit/customer-normalizer.test.ts',
         to: 'tests/unit/customer-normalizer.test.ts'
-      },
-      {
+      }),
+      buildOfficialCopyInstallStep({
         stepId: 'copy_non_typescript_tenant_query',
         blockId: 'entity/customer-basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/entity.customer-basic/files',
-        action: 'copy',
         from: 'files/src/installed/alt/tenant-query.md',
         to: 'src/installed/alt/tenant-query.md'
-      },
-      {
+      }),
+      buildOfficialInstallStep({
         stepId: 'template_tenant_query',
         blockId: 'entity/customer-basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/entity.customer-basic/files',
         action: 'template',
         from: 'files/src/installed/alt/template-query.ts',
         to: 'src/installed/alt/template-query.ts'
-      },
-      {
+      }),
+      buildOfficialCopyInstallStep({
         stepId: 'copy_other_query',
         blockId: 'audit/basic',
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        registryPath: 'platform/registry/official',
         sourceRoot: 'platform/registry/official/audit.basic/files',
-        action: 'copy',
         from: 'files/src/installed/audit/audit-log.ts',
         to: 'src/installed/audit/audit-log.ts'
-      }
+      })
     ],
     slotTasks: [],
     generatedPaths: [],

@@ -146,18 +146,22 @@ export function buildOfficialResolvedBlock(options: {
   };
 }
 
-export function buildOfficialCopyInstallStep(options: {
-  stepId: string;
-  blockId: string;
-  sourceRoot: string;
-  from: string;
-  to: string;
-}): LockFile['installPlan'][number] {
+type OfficialInstallStepOptions = Omit<
+  LockFile['installPlan'][number],
+  'registrySourceId' | 'registryKind' | 'registryLocation' | 'registryPath'
+>;
+
+type OfficialCopyInstallStepOptions = Omit<OfficialInstallStepOptions, 'action'>;
+
+export function buildOfficialInstallStep(options: OfficialInstallStepOptions): LockFile['installPlan'][number] {
   return {
     ...officialRegistryMetadata,
-    action: 'copy',
     ...options
   };
+}
+
+export function buildOfficialCopyInstallStep(options: OfficialCopyInstallStepOptions): LockFile['installPlan'][number] {
+  return buildOfficialInstallStep({ action: 'copy', ...options });
 }
 
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {
