@@ -12,6 +12,9 @@ installs:
   - kind: copy
     from: files/src/installed/tenant/context.ts
     to: src/installed/tenant/context.ts
+  - kind: copy
+    from: files/tests/shared/tenant-runtime-fixture.ts
+    to: tests/shared/tenant-runtime-fixture.ts
 pins:
   inputs:
     - id: actor_identity

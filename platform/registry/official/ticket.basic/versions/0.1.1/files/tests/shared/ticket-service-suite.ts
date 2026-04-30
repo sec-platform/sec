@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { createDatabase } from '../../src/runtime/database.ts';
-import { login } from '../../src/installed/auth/session.ts';
+import { createTenantRuntimeFixture } from './tenant-runtime-fixture.ts';
 import {
   addTicketAttachment,
   addTicketComment,
@@ -13,17 +12,8 @@ import {
   transitionTicketStatus
 } from '../../src/installed/ticket/ticket-service.ts';
 
-function createTicketTenantFixture() {
-  const db = createDatabase();
-  return {
-    db,
-    tenantA: login('tenant-a-admin', 'password'),
-    tenantB: login('tenant-b-admin', 'password')
-  };
-}
-
 export async function runTicketServiceSuite() {
-  const { db, tenantA, tenantB } = createTicketTenantFixture();
+  const { db, tenantA, tenantB } = createTenantRuntimeFixture();
 
   const ticket = createTicket(db, tenantA, {
     title: '  Investigate invoice sync  ',
@@ -72,7 +62,7 @@ export async function runTicketServiceSuite() {
 }
 
 export async function runTicketFlowSuite() {
-  const { db, tenantA, tenantB } = createTicketTenantFixture();
+  const { db, tenantA, tenantB } = createTenantRuntimeFixture();
 
   const firstTicket = createTicket(db, tenantA, {
     title: 'Escalate onboarding issue',

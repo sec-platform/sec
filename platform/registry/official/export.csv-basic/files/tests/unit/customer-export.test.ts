@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
-import { createDatabase, type TicketRecord } from '../../src/runtime/database.ts';
-import { login } from '../../src/installed/auth/session.ts';
+import type { TicketRecord } from '../../src/runtime/database.ts';
 import { createCustomer, listCustomers } from '../../src/installed/entity/customer-service.ts';
 import { exportCustomersToCsv, exportTicketSummaryToCsv, exportTicketsToCsv } from '../../src/installed/export/customer-csv.ts';
+import { createTenantRuntimeFixture } from '../shared/tenant-runtime-fixture.ts';
 
 export async function runSuite() {
-  const db = createDatabase();
-  const tenantA = login('tenant-a-admin', 'password');
+  const { db, tenantA } = createTenantRuntimeFixture();
   createCustomer(db, tenantA, {
     name: ' Acme ',
     email: 'Sales@Acme.test ',

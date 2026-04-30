@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
-import { createDatabase } from '../../src/runtime/database.ts';
-import { login } from '../../src/installed/auth/session.ts';
-import { createTicket, listTickets, transitionTicketStatus } from '../../src/installed/ticket/ticket-service.ts';
 import { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';
+import { createTicket, listTickets, transitionTicketStatus } from '../../src/installed/ticket/ticket-service.ts';
+import { createTenantRuntimeFixture } from '../shared/tenant-runtime-fixture.ts';
 
 export async function runSuite() {
-  const db = createDatabase();
-  const tenantA = login('tenant-a-admin', 'password');
-  const tenantB = login('tenant-b-admin', 'password');
+  const { db, tenantA, tenantB } = createTenantRuntimeFixture();
 
   const first = createTicket(db, tenantA, {
     title: 'Escalate onboarding issue',
