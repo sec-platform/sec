@@ -3,7 +3,7 @@ import path from 'node:path';
 import { expect, test } from 'vitest';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
+import { expectFileUnchanged, prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
 
 test('upgrade dry-run records text append migration impacts', async () => {
   const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
@@ -39,7 +39,7 @@ test('upgrade dry-run records text append migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records literal text replace migration impacts', async () => {
@@ -90,7 +90,7 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
       requiresVerification: true
     }
   ]);
-  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records text replace regex migration impacts', async () => {
@@ -141,5 +141,5 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
       requiresVerification: true
     }
   ]);
-  await expect(fs.readFile(paths.planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(paths.planPath, beforePlan);
 });

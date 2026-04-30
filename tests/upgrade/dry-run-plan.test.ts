@@ -14,7 +14,7 @@ import {
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
+import { createWorkspace, expectFileUnchanged, writeSlotUpgradeFixture } from '../helpers/test-utils.ts';
 
 test('upgrade dry-run writes a planned upgrade without changing project files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-dry-run-');
@@ -103,8 +103,8 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       itemCount: 1
     }
   ]);
-  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
-  await expect(fs.readFile(sessionPath, 'utf8')).resolves.toBe(beforeSession);
+  await expectFileUnchanged(planPath, beforePlan);
+  await expectFileUnchanged(sessionPath, beforeSession);
 
   const lock = await readJson<{ generatedPaths: string[] }>(lockPath);
   expect(lock.generatedPaths).toContain(CI_ARTIFACT_FILES.upgradePlan);
@@ -173,6 +173,6 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
       writableZones: ['custom/customer_normalizer.ts']
     }
   ]);
-  await expect(fs.readFile(planPath, 'utf8')).resolves.toBe(beforePlan);
+  await expectFileUnchanged(planPath, beforePlan);
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 });
