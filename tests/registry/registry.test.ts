@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import { loadAllManifests, loadManifestById } from '../../platform/compiler/parse/load-manifest.ts';
 import { resolveGraph } from '../../platform/compiler/resolve/resolve-graph.ts';
 import { validateResolvedTemplates } from '../../platform/compiler/verify/validate-resolved-templates.ts';
-import { buildManifestValidationPlan } from '../helpers/test-utils.ts';
+import { buildManifestValidationPlan } from '../helpers/plan-fixtures.ts';
 
 test('versioned official registry manifests inherit root manifest fields', async () => {
   const entry = await loadManifestById('ticket/basic', { version: '0.1.1' });
