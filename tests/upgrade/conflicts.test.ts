@@ -2,30 +2,15 @@ import { expect, test } from 'vitest';
 
 import { readJson } from '../../platform/shared/fs.ts';
 
-import {
-  adaptWorkspace,
-  composeWorkspace,
-  initWorkspace,
-  lockWorkspace,
-  resolveWorkspace,
-  upgradeWorkspace,
-  verifyWorkspace
-} from '../../platform/orchestrator.ts';
+import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { prepareLockedWorkspace } from '../helpers/test-utils.ts';
 
 test('upgrade is blocked when a manual override conflicts with impacted files', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-conflict-');
+  const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-conflict-' });
   const { lockPath, overrideManifestPath, provenancePath, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
-  await verifyWorkspace(workspaceRoot);
-  await lockWorkspace(workspaceRoot);
 
   await writeYaml(overrideManifestPath, {
     overrides: [

@@ -2,15 +2,7 @@ import fs from 'node:fs/promises';
 import { test } from 'vitest';
 
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
-import {
-  adaptWorkspace,
-  composeWorkspace,
-  explainWorkspace,
-  initWorkspace,
-  lockWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
-} from '../../platform/orchestrator.ts';
+import { explainWorkspace } from '../../platform/orchestrator.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
@@ -22,13 +14,13 @@ import {
   buildArtifactMissingReasonCounts,
   buildArtifactUploadGroup,
   buildOfficialRegistrySummary,
-  createWorkspace,
   expectContainsAll,
-  expectContainsNone
+  expectContainsNone,
+  prepareLockedWorkspace
 } from '../helpers/test-utils.ts';
 
 test('write-local-views consumes generated artifacts from disk', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-local-views-');
+  const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-local-views-' });
   const {
     acceptanceCoveragePath,
     repairPlanPath,
@@ -39,12 +31,6 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     upgradePlanPath
   } = getWorkspacePaths(workspaceRoot);
 
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
-  await verifyWorkspace(workspaceRoot);
-  await lockWorkspace(workspaceRoot);
   await explainWorkspace(workspaceRoot);
 
   const reviewSummary = await readJson<{
@@ -822,7 +808,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     'entity/customer-basic',
     'Install Impact Summary',
     '<td>Impacts</td><td>3</td>',
-    '<td>Target Paths</td><td>6</td>',
+    '<td>Target Paths</td><td>7</td>',
     'Impact Groups',
     'Impact Details',
     'Workbench Mutations',
