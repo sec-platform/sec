@@ -20,6 +20,10 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import {
+  buildOfficialCopyInstallStep,
+  buildOfficialResolvedBlock
+} from '../helpers/lock-fixtures.ts';
+import {
   buildPassingReviewCoverage,
   buildPassingReviewReport,
   buildReviewInputs,
@@ -27,11 +31,7 @@ import {
   buildReviewProvenance,
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
-import {
-  buildOfficialCopyInstallStep,
-  buildOfficialResolvedBlock,
-  createWorkspace
-} from '../helpers/test-utils.ts';
+import { createWorkspace } from '../helpers/test-utils.ts';
 
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;

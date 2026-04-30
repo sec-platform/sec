@@ -7,8 +7,9 @@ import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+import { buildCustomerNormalizerLock, buildCustomerNormalizerPlan } from '../helpers/repair-fixtures.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
-import { buildCustomerNormalizerLock, buildCustomerNormalizerPlan, withTempWorkspace } from '../helpers/test-utils.ts';
+import { withTempWorkspace } from '../helpers/test-utils.ts';
 
 const plan = buildCustomerNormalizerPlan();
 const lock = buildCustomerNormalizerLock({

@@ -15,12 +15,8 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import {
-  buildOfficialCopyInstallStep,
-  buildOfficialInstallStep,
-  createWorkspace,
-  emptyPolicyScopeReport
-} from '../helpers/test-utils.ts';
+import { buildOfficialCopyInstallStep, buildOfficialInstallStep } from '../helpers/lock-fixtures.ts';
+import { createWorkspace, emptyPolicyScopeReport } from '../helpers/test-utils.ts';
 
 const activeOfficialPolicyDirs = new Set<string>();
 const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');

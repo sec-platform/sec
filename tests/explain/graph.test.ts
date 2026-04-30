@@ -16,11 +16,8 @@ import type {
   UpgradePlan
 } from '../../platform/shared/types.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphNode } from '../helpers/graph-assertions.ts';
-import {
-  buildOfficialResolvedBlock,
-  createWorkspace,
-  emptyPolicyScopeReport
-} from '../helpers/test-utils.ts';
+import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
+import { createWorkspace, emptyPolicyScopeReport } from '../helpers/test-utils.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {
