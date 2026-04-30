@@ -67,8 +67,18 @@ export default function HomePage() {
 `;
 }
 
-function renderOptional(enabled: boolean, source: string): string {
+type OptionalSnippet = readonly [enabled: boolean | undefined, source: string];
+
+function renderOptional(enabled: boolean | undefined, source: string): string {
   return enabled ? source : '';
+}
+
+function renderOptionalSnippets(snippets: OptionalSnippet[]): string {
+  return snippets.map(([enabled, source]) => renderOptional(enabled, source)).join('');
+}
+
+function renderImportBlock(imports: string[]): string {
+  return imports.filter(Boolean).join('\n');
 }
 
 function renderLoginPage(): string {
@@ -157,7 +167,7 @@ function renderCustomersPage(options: {
   notifyEmailEnabled: boolean;
   tableFilterEnabled: boolean;
 }): string {
-  const imports = [
+  const imports = renderImportBlock([
     `import Link from 'next/link';`,
     `import { redirect } from 'next/navigation';`,
     `import { CustomerForm } from '../../components/customer-form.tsx';`,
@@ -169,7 +179,7 @@ function renderCustomersPage(options: {
     renderOptional(options.fileUploadEnabled, `import { listCustomerAttachments } from '../../src/installed/file/customer-attachments.ts';`),
     renderOptional(options.notifyEmailEnabled, `import { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';`),
     renderOptional(options.tableFilterEnabled, `import { filterCustomers, listCustomerCompanies } from '../../src/installed/table/customer-filter.ts';`)
-  ].filter(Boolean).join('\n');
+  ]);
 
   const searchSetup = options.tableFilterEnabled
     ? `  const params = await searchParams;
@@ -643,16 +653,16 @@ function renderCustomersRoute(options: {
   notifyEmailEnabled: boolean;
   tableFilterEnabled: boolean;
 }): string {
-  const imports = [
+  const imports = renderImportBlock([
     `import { NextResponse } from 'next/server';`,
     `import type { CustomerInput } from '../../../src/runtime/database.ts';`,
     `import { createCustomer, listCustomers } from '../../../src/installed/entity/customer-service.ts';`,
-    options.auditEnabled ? `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';` : '',
-    options.notifyEmailEnabled ? `import { recordCustomerCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';` : '',
-    options.tableFilterEnabled ? `import { filterCustomers } from '../../../src/installed/table/customer-filter.ts';` : '',
+    renderOptional(options.auditEnabled, `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`),
+    renderOptional(options.notifyEmailEnabled, `import { recordCustomerCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`),
+    renderOptional(options.tableFilterEnabled, `import { filterCustomers } from '../../../src/installed/table/customer-filter.ts';`),
     `import { getCurrentSession } from '../../../lib/session.ts';`,
     `import { getDatabase } from '../../../lib/store.ts';`
-  ].filter(Boolean).join('\n');
+  ]);
   const filterCustomersLine = options.tableFilterEnabled
     ? `  const database = getDatabase();
   const url = new URL(request.url);
@@ -664,14 +674,12 @@ function renderCustomersRoute(options: {
     : `  const database = getDatabase();
   const customers = listCustomers(database, session);
 `;
-  const auditLine = options.auditEnabled
-    ? `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'customer.created', 'customer', String(customer.id)));
-`
-    : '';
-  const notifyLine = options.notifyEmailEnabled
-    ? `    recordCustomerCreatedEmail(database, session, customer);
-`
-    : '';
+  const mutationLines = renderOptionalSnippets([
+    [options.auditEnabled, `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'customer.created', 'customer', String(customer.id)));
+`],
+    [options.notifyEmailEnabled, `    recordCustomerCreatedEmail(database, session, customer);
+`]
+  ]);
 
   return `${imports}
 
@@ -688,7 +696,7 @@ ${renderSessionGuard()}
     const database = getDatabase();
     const payload = await request.json() as CustomerInput;
     const customer = createCustomer(database, session, payload);
-${auditLine}${notifyLine}    return NextResponse.json({ customer }, { status: 201 });
+${mutationLines}    return NextResponse.json({ customer }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });
   }
@@ -913,26 +921,22 @@ function renderTicketWorklogsRoute(): string {
 }
 
 function renderTicketsRoute(options: { auditEnabled: boolean; notifyEmailEnabled: boolean }): string {
-  const auditImport = options.auditEnabled
-    ? `
-import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`
-    : '';
-  const auditLine = options.auditEnabled
-    ? `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'ticket.created', 'ticket', String(ticket.id)));
-`
-    : '';
-  const notifyImport = options.notifyEmailEnabled
-    ? `
-import { recordTicketCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`
-    : '';
-  const notifyLine = options.notifyEmailEnabled
-    ? `    recordTicketCreatedEmail(database, session, ticket);
-`
-    : '';
+  const imports = renderOptionalSnippets([
+    [options.auditEnabled, `
+import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`],
+    [options.notifyEmailEnabled, `
+import { recordTicketCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`]
+  ]);
+  const mutationLines = renderOptionalSnippets([
+    [options.auditEnabled, `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'ticket.created', 'ticket', String(ticket.id)));
+`],
+    [options.notifyEmailEnabled, `    recordTicketCreatedEmail(database, session, ticket);
+`]
+  ]);
 
   return `import { NextResponse } from 'next/server';
 import type { TicketInput, TicketStatus } from '../../../src/runtime/database.ts';
-import { createTicket, listTicketsWithFilters, type TicketFilters } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}
+import { createTicket, listTicketsWithFilters, type TicketFilters } from '../../../src/installed/ticket/ticket-service.ts';${imports}
 import { getCurrentSession } from '../../../lib/session.ts';
 import { getDatabase } from '../../../lib/store.ts';
 
@@ -952,7 +956,7 @@ ${renderSessionGuard()}
     const database = getDatabase();
     const payload = await request.json() as TicketInput;
     const ticket = createTicket(database, session, payload);
-${auditLine}${notifyLine}    return NextResponse.json({ ticket }, { status: 201 });
+${mutationLines}    return NextResponse.json({ ticket }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });
   }
@@ -1049,15 +1053,11 @@ function renderMutationError(fallbackMessage: string): string {
 }
 
 function renderTicketStatusRoute(options: { auditEnabled: boolean }): string {
-  const auditImport = options.auditEnabled
-    ? `
-import { appendAuditEntry, createAuditEntry } from '../../../../../src/installed/audit/logger.ts';`
-    : '';
-  const auditLine = options.auditEnabled
-    ? `    const auditAction = ticket.status === 'closed' ? 'ticket.closed' : 'ticket.status_transitioned';
+  const auditImport = renderOptional(options.auditEnabled, `
+import { appendAuditEntry, createAuditEntry } from '../../../../../src/installed/audit/logger.ts';`);
+  const auditLine = renderOptional(options.auditEnabled, `    const auditAction = ticket.status === 'closed' ? 'ticket.closed' : 'ticket.status_transitioned';
     database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, auditAction, 'ticket', String(ticket.id)));
-`
-    : '';
+`);
 
   return `import { NextResponse } from 'next/server';
 import type { TicketStatus } from '../../../../../src/runtime/database.ts';
@@ -1229,8 +1229,8 @@ type FileUploadFormOptions = { componentName: string; idProp: string; titleProp:
 
 function renderFileUploadForm(options: FileUploadFormOptions): string {
   const propsName = `${options.componentName}Props`;
-  const routerImport = options.useRouter ? `import { useRouter } from 'next/navigation';\n` : '';
-  const routerSetup = options.useRouter ? `  const router = useRouter();\n` : '';
+  const routerImport = renderOptional(options.useRouter, `import { useRouter } from 'next/navigation';\n`);
+  const routerSetup = renderOptional(options.useRouter, `  const router = useRouter();\n`);
 
   return `'use client';
 
@@ -1550,28 +1550,35 @@ function renderRuntimeUnitTest(options: {
   ticketEnabled: boolean;
   worklogEnabled: boolean;
 }): string {
-  const imports = [
+  const imports = renderImportBlock([
     `import { beforeEach, describe, expect, it } from 'vitest';`,
     `import { login } from '../../../src/installed/auth/session.ts';`,
     `import { createCustomer, listCustomers } from '../../../src/installed/entity/customer-service.ts';`,
-    options.auditEnabled ? `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';` : '',
-    options.fileUploadEnabled ? `import { addCustomerAttachment, listCustomerAttachments } from '../../../src/installed/file/customer-attachments.ts';` : '',
-    options.notifyEmailEnabled ? `import { listEmailNotifications, recordCustomerCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';` : '',
-    options.postgresEnabled ? `import { POSTGRES_CONTRACT } from '../../../src/installed/infra/postgres-contract.ts';` : '',
-    options.rbacEnabled ? `import { canAccessWorkspace } from '../../../src/installed/auth/authorize.ts';` : '',
-    options.tableFilterEnabled ? `import { filterCustomers } from '../../../src/installed/table/customer-filter.ts';` : '',
+    renderOptional(options.auditEnabled, `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`),
+    renderOptional(options.fileUploadEnabled, `import { addCustomerAttachment, listCustomerAttachments } from '../../../src/installed/file/customer-attachments.ts';`),
+    renderOptional(options.notifyEmailEnabled, `import { listEmailNotifications, recordCustomerCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`),
+    renderOptional(options.postgresEnabled, `import { POSTGRES_CONTRACT } from '../../../src/installed/infra/postgres-contract.ts';`),
+    renderOptional(options.rbacEnabled, `import { canAccessWorkspace } from '../../../src/installed/auth/authorize.ts';`),
+    renderOptional(options.tableFilterEnabled, `import { filterCustomers } from '../../../src/installed/table/customer-filter.ts';`),
     options.postgresEnabled ? `import { getDatabase, getRuntimeStore, resetDatabase } from '../../../lib/store.ts';` : `import { getDatabase, resetDatabase } from '../../../lib/store.ts';`
-  ].filter(Boolean).join('\n');
-  const auditAssertions = options.auditEnabled
-    ? `
+  ]);
+  const postgresTables = [
+    'customers',
+    'customer_attachments',
+    'email_notifications',
+    'audit_entries',
+    ...(options.ticketEnabled ? ['tickets', 'ticket_attachments', 'ticket_comments'] : []),
+    ...(options.ticketEnabled && options.worklogEnabled ? ['worklogs'] : [])
+  ];
+  const postgresTableList = postgresTables.map((table) => `      '${table}'`).join(',\n');
+  const featureAssertions = renderOptionalSnippets([
+    [options.auditEnabled, `
     const auditEntry = createAuditEntry(tenantA, 'customer.created', 'customer', String(created.id));
     database.auditEntries = appendAuditEntry(database.auditEntries, auditEntry);
     expect(database.auditEntries).toEqual([auditEntry]);
     expect(auditEntry.occurredAt).toBe('1970-01-01T00:00:00.000Z');
-`
-    : '';
-  const fileAssertions = options.fileUploadEnabled
-    ? `
+`],
+    [options.fileUploadEnabled, `
     const attachment = addCustomerAttachment(database, tenantA, {
       customerId: created.id,
       fileName: 'contract.txt',
@@ -1582,47 +1589,30 @@ function renderRuntimeUnitTest(options: {
     expect(attachment.tenantId).toBe('tenant-a');
     expect(listCustomerAttachments(database, tenantA, created.id)).toHaveLength(1);
     expect(() => listCustomerAttachments(database, tenantB, created.id)).toThrow(/Customer is not available/);
-`
-    : '';
-  const notifyAssertions = options.notifyEmailEnabled
-    ? `
+`],
+    [options.notifyEmailEnabled, `
     const notification = recordCustomerCreatedEmail(database, tenantA, created);
     expect(notification.eventType).toBe('customer.created');
     expect(listEmailNotifications(database, tenantA)).toHaveLength(1);
     expect(listEmailNotifications(database, tenantB)).toHaveLength(0);
-`
-    : '';
-  const filterAssertions = options.tableFilterEnabled
-    ? `
+`],
+    [options.tableFilterEnabled, `
     expect(filterCustomers(listCustomers(database, tenantA), { search: 'ACME' })).toHaveLength(1);
     expect(filterCustomers(listCustomers(database, tenantA), { company: 'Unknown' })).toHaveLength(1);
-`
-    : '';
-  const postgresTables = [
-    'customers',
-    'customer_attachments',
-    'email_notifications',
-    'audit_entries',
-    ...(options.ticketEnabled ? ['tickets', 'ticket_attachments', 'ticket_comments'] : []),
-    ...(options.ticketEnabled && options.worklogEnabled ? ['worklogs'] : [])
-  ];
-  const postgresTableList = postgresTables.map((table) => `      '${table}'`).join(',\n');
-  const postgresAssertions = options.postgresEnabled
-    ? `
+`],
+    [options.postgresEnabled, `
     expect(getRuntimeStore().persistence).toBe('postgres-contract');
     expect(POSTGRES_CONTRACT.tables.map((table) => table.name)).toEqual(
       expect.arrayContaining([
 ${postgresTableList}
       ])
     );
-`
-    : '';
-  const rbacAssertions = options.rbacEnabled
-    ? `
+`],
+    [options.rbacEnabled, `
     expect(canAccessWorkspace(tenantA, tenantA.tenantId)).toEqual({ allowed: true, reason: 'allowed' });
     expect(canAccessWorkspace(tenantA, tenantB.tenantId)).toEqual({ allowed: false, reason: 'tenant-mismatch' });
-`
-    : '';
+`]
+  ]);
 
   return `${imports}
 
@@ -1645,7 +1635,7 @@ describe('runtime customer service', () => {
 
     expect(created.company).toBe('Unknown');
     expect(listCustomers(database, tenantA)).toHaveLength(1);
-    expect(listCustomers(database, tenantB)).toHaveLength(0);${auditAssertions}${fileAssertions}${notifyAssertions}${filterAssertions}${postgresAssertions}${rbacAssertions}  });
+    expect(listCustomers(database, tenantB)).toHaveLength(0);${featureAssertions}  });
 });
 `;
 }
@@ -1657,55 +1647,41 @@ function renderTicketRuntimeUnitTest(options: {
   ticketReportingEnabled: boolean;
   worklogEnabled: boolean;
 }): string {
-  const auditImport = options.auditEnabled
-    ? `
-import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`
-    : '';
-  const auditAssertions = options.auditEnabled
-    ? `
+  const featureImports = renderOptionalSnippets([
+    [options.auditEnabled, `
+import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`],
+    [options.notifyEmailEnabled, `
+import { listEmailNotifications, recordTicketCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`],
+    [options.exportCsvEnabled, `
+import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.ts';`],
+    [options.ticketReportingEnabled, `
+import { summarizeTickets } from '../../../src/installed/reporting/ticket-summary.ts';
+import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-service.ts';`],
+    [options.worklogEnabled, `
+import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../src/installed/worklog/worklog-service.ts';`]
+  ]);
+  const featureAssertions = renderOptionalSnippets([
+    [options.auditEnabled, `
     const createdAuditEntry = createAuditEntry(tenantA, 'ticket.created', 'ticket', String(ticket.id));
     database.auditEntries = appendAuditEntry(database.auditEntries, createdAuditEntry);
     const transitionedAuditEntry = createAuditEntry(tenantA, 'ticket.status_transitioned', 'ticket', String(ticket.id));
     database.auditEntries = appendAuditEntry(database.auditEntries, transitionedAuditEntry);
     expect(database.auditEntries.map((entry) => entry.action)).toEqual(['ticket.created', 'ticket.status_transitioned']);
-`
-    : '';
-  const notifyImport = options.notifyEmailEnabled
-    ? `
-import { listEmailNotifications, recordTicketCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`
-    : '';
-  const exportCsvImport = options.exportCsvEnabled
-    ? `
-import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.ts';`
-    : '';
-  const reportingImport = options.ticketReportingEnabled
-    ? `
-import { summarizeTickets } from '../../../src/installed/reporting/ticket-summary.ts';
-import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-service.ts';`
-    : '';
-  const worklogImport = options.worklogEnabled
-    ? `
-import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../src/installed/worklog/worklog-service.ts';`
-    : '';
-  const notifyAssertions = options.notifyEmailEnabled
-    ? `
+`],
+    [options.notifyEmailEnabled, `
     const notification = recordTicketCreatedEmail(database, tenantA, ticket);
     expect(notification.entity).toBe('ticket');
     expect(notification.entityId).toBe(String(ticket.id));
     expect(notification.eventType).toBe('ticket.created');
     expect(listEmailNotifications(database, tenantA)).toHaveLength(1);
     expect(listEmailNotifications(database, tenantB)).toHaveLength(0);
-`
-    : '';
-  const exportCsvAssertions = options.exportCsvEnabled
-    ? `
+`],
+    [options.exportCsvEnabled, `
     const csv = exportTicketsToCsv(listTickets(database, tenantA));
     expect(csv).toContain('id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt');
     expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,in_progress,support-owner,2026-04-20');
-`
-    : '';
-  const reportingAssertions = options.ticketReportingEnabled
-    ? `
+`],
+    [options.ticketReportingEnabled, `
     const summary = summarizeTickets(listTickets(database, tenantA));
     expect(summary.total).toBe(2);
     expect(summary.byStatus.in_progress).toBe(1);
@@ -1719,10 +1695,8 @@ import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../s
     expect(filteredSummary.byStatus.in_progress).toBe(1);
     expect(filteredSummary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
     expect(filteredSummary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
-`
-    : '';
-  const worklogAssertions = options.worklogEnabled
-    ? `
+`],
+    [options.worklogEnabled, `
     const worklog = recordWorklog(database, tenantA, {
       ticketId: ticket.id,
       minutes: 45,
@@ -1732,12 +1706,12 @@ import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../s
     expect(listWorklogs(database, tenantA, ticket.id)).toHaveLength(1);
     expect(summarizeWorklogMinutes(database, tenantA, ticket.id)).toBe(45);
     expect(() => listWorklogs(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
-`
-    : '';
+`]
+  ]);
 
   return `import { beforeEach, describe, expect, it } from 'vitest';
 import { login } from '../../../src/installed/auth/session.ts';
-import { addTicketAttachment, addTicketComment, createTicket, listTicketAttachments, listTicketComments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${auditImport}${notifyImport}${exportCsvImport}${reportingImport}${worklogImport}
+import { addTicketAttachment, addTicketComment, createTicket, listTicketAttachments, listTicketComments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${featureImports}
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';
 
 describe('runtime ticket service', () => {
@@ -1780,7 +1754,7 @@ describe('runtime ticket service', () => {
     expect(listTicketComments(database, tenantA, ticket.id)).toHaveLength(1);
     expect(() => listTicketComments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
     expect(() => addTicketComment(database, tenantA, { ticketId: ticket.id, body: '   ' })).toThrow(/Ticket comment is required/);
-    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${auditAssertions}${notifyAssertions}${exportCsvAssertions}${reportingAssertions}${worklogAssertions}
+    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');${featureAssertions}
     expect(() => transitionTicketStatus(database, tenantB, ticket.id, 'closed')).toThrow(/Ticket is not available/);
   });
 });
@@ -1794,8 +1768,12 @@ function renderRuntimeAcceptanceTest(options: {
   rbacEnabled: boolean;
   tableFilterEnabled: boolean;
 }): string {
-  const uploadSteps = options.fileUploadEnabled
-    ? `
+  const workspaceAssertions = renderOptional(options.rbacEnabled, `
+  await expect(page.getByText('Authorization: allowed')).toBeVisible();
+  await expect(page.getByText('Cross-tenant check: tenant-mismatch')).toBeVisible();
+`);
+  const customerSteps = renderOptionalSnippets([
+    [options.fileUploadEnabled, `
   await page.getByLabel('Attachment for Acme').setInputFiles({
     name: 'contract.txt',
     mimeType: 'text/plain',
@@ -1803,36 +1781,22 @@ function renderRuntimeAcceptanceTest(options: {
   });
   await page.getByRole('button', { name: 'Upload attachment for Acme' }).click();
   await expect(createdCustomer).toContainText('contract.txt');
-`
-    : '';
-  const filterSteps = options.tableFilterEnabled
-    ? `
+`],
+    [options.tableFilterEnabled, `
   await page.getByLabel('Search customers').fill('acme');
   await page.getByLabel('Company filter').selectOption('Unknown');
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(1);
-`
-    : '';
-  const notificationSteps = options.notifyEmailEnabled
-    ? `
+`],
+    [options.notifyEmailEnabled, `
   await expect(page.getByText('Customer created: Acme')).toBeVisible();
-`
-    : '';
-  const auditSteps = options.auditEnabled
-    ? `
+`],
+    [options.auditEnabled, `
   await expect(page.getByRole('list', { name: 'Audit entries' }).getByText('customer.created')).toBeVisible();
-`
-    : '';
-  const rbacSteps = options.rbacEnabled
-    ? `
-  await expect(page.getByText('Authorization: allowed')).toBeVisible();
-  await expect(page.getByText('Cross-tenant check: tenant-mismatch')).toBeVisible();
-`
-    : '';
-  const tenantBAttachmentAssertion = options.fileUploadEnabled
-    ? `
-  await expect(page.getByText('contract.txt')).toHaveCount(0);`
-    : '';
+`]
+  ]);
+  const tenantBAssertions = renderOptional(options.fileUploadEnabled, `
+  await expect(page.getByText('contract.txt')).toHaveCount(0);`);
 
   return `import { expect, test, type Page } from '@playwright/test';
 
@@ -1848,7 +1812,7 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
 
   await signIn(page, 'tenant-a-admin');
   await page.goto('/workspace');
-  await expect(page).toHaveURL(/\\/workspace$/);${rbacSteps}
+  await expect(page).toHaveURL(/\\/workspace$/);${workspaceAssertions}
 
   await page.getByRole('link', { name: '/customers' }).click();
   await expect(page).toHaveURL(/\\/customers$/);
@@ -1859,14 +1823,14 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await page.getByLabel('Company', { exact: true }).fill('');
   await page.getByRole('button', { name: 'Create Customer' }).click();
   const createdCustomer = customerList.getByRole('listitem').filter({ hasText: 'Acme' });
-  await expect(createdCustomer).toHaveCount(1);${uploadSteps}${filterSteps}${notificationSteps}${auditSteps}
+  await expect(createdCustomer).toHaveCount(1);${customerSteps}
   await page.request.post('/api/session/logout');
   await signIn(page, 'tenant-b-admin');
   await page.goto('/workspace');
   await expect(page).toHaveURL(/\\/workspace$/);
   await page.getByRole('link', { name: '/customers' }).click();
   await expect(page).toHaveURL(/\\/customers$/);
-  await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);${tenantBAttachmentAssertion}
+  await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);${tenantBAssertions}
 });
 `;
 }
@@ -1878,21 +1842,16 @@ function renderTicketRuntimeAcceptanceTest(options: {
   ticketReportingEnabled: boolean;
   worklogEnabled: boolean;
 }): string {
-  const auditAssertions = options.auditEnabled
-    ? `
+  const auditAssertions = renderOptional(options.auditEnabled, `
   const ticketAuditList = page.getByRole('list', { name: 'Ticket audit entries' });
   await expect(ticketAuditList.getByRole('listitem').filter({ hasText: 'ticket.created ticket 1' })).toHaveCount(1);
   await expect(ticketAuditList.getByRole('listitem').filter({ hasText: 'ticket.status_transitioned ticket 1' })).toHaveCount(1);
-`
-    : '';
-  const notificationAssertions = options.notifyEmailEnabled
-    ? `
+`);
+  const notificationAssertions = renderOptional(options.notifyEmailEnabled, `
   const ticketNotificationList = page.getByRole('list', { name: 'Ticket notifications' });
   await expect(ticketNotificationList.getByRole('listitem').filter({ hasText: 'Ticket created: Escalate onboarding issue' })).toHaveCount(1);
-`
-    : '';
-  const exportCsvAssertions = options.exportCsvEnabled
-    ? `
+`);
+  const exportCsvAssertions = renderOptional(options.exportCsvEnabled, `
   await expect(page.getByRole('link', { name: 'Export tickets CSV' })).toBeVisible();
   const exportResponse = await page.request.get('/api/tickets/export');
   expect(exportResponse.ok()).toBe(true);
@@ -1900,8 +1859,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   const csv = await exportResponse.text();
   expect(csv).toContain('id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt');
   expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,open,support-owner,2026-04-20');
-`
-    : '';
+`);
   const attachmentAssertions = `
   await createdTicket.getByLabel('Attachment for Escalate onboarding issue').setInputFiles({
     name: 'incident.txt',
@@ -1924,8 +1882,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   const commentResponse = await page.request.get('/api/tickets/1/comments');
   expect(commentResponse.ok()).toBe(true);
 `;
-  const worklogAssertions = options.worklogEnabled
-    ? `
+  const worklogAssertions = renderOptional(options.worklogEnabled, `
   const expectedWorklogResponse = page.waitForResponse((response) => response.url().includes('/api/tickets/1/worklogs') && response.request().method() === 'POST');
   await createdTicket.getByLabel('Worklog minutes for Escalate onboarding issue').fill('45');
   await createdTicket.getByLabel('Worklog note for Escalate onboarding issue').fill('Investigated customer setup logs');
@@ -1944,30 +1901,22 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(worklogPayload.worklogs).toEqual([
     expect.objectContaining({ ticketId: 1, minutes: 45, note: 'Investigated customer setup logs' })
   ]);
-`
-    : '';
-  const tenantBWorklogAssertion = options.worklogEnabled
-    ? `
+`);
+  const tenantBWorklogAssertion = renderOptional(options.worklogEnabled, `
   const tenantBWorklogResponse = await page.request.get('/api/tickets/1/worklogs');
-  expect(tenantBWorklogResponse.status()).toBe(400);`
-    : '';
-  const summaryExportAssertions = options.ticketReportingEnabled && options.exportCsvEnabled
-    ? `
+  expect(tenantBWorklogResponse.status()).toBe(400);`);
+  const summaryExportAssertions = renderOptional(options.ticketReportingEnabled && options.exportCsvEnabled, `
   const summaryCsvLink = page.getByRole('link', { name: 'Export ticket summary CSV' });
-  await expect(summaryCsvLink).toBeVisible();`
-    : '';
-  const filteredSummaryExportAssertions = options.ticketReportingEnabled && options.exportCsvEnabled
-    ? `
+  await expect(summaryCsvLink).toBeVisible();`);
+  const filteredSummaryExportAssertions = renderOptional(options.ticketReportingEnabled && options.exportCsvEnabled, `
   await expect(page.getByRole('link', { name: 'Export ticket summary CSV' })).toHaveAttribute('href', /status=in_progress/);
   const filteredSummaryExportResponse = await page.request.get('/api/tickets/summary/export?assigneeId=support-owner&status=in_progress');
   expect(filteredSummaryExportResponse.ok()).toBe(true);
   const filteredSummaryCsv = await filteredSummaryExportResponse.text();
   expect(filteredSummaryCsv).toContain('status,in_progress,1');
   expect(filteredSummaryCsv).toContain('sla,overdue,1');
-  expect(filteredSummaryCsv).toContain('assignee,support-owner,1');`
-    : '';
-  const filteredReportingAssertions = options.ticketReportingEnabled
-    ? `
+  expect(filteredSummaryCsv).toContain('assignee,support-owner,1');`);
+  const filteredReportingAssertions = renderOptional(options.ticketReportingEnabled, `
   await expect(page.getByText('Total tickets: 1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('In progress: 1')).toBeVisible();
   await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);${filteredSummaryExportAssertions}
@@ -1984,10 +1933,18 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(filteredSummaryPayload.summary.total).toBe(1);
   expect(filteredSummaryPayload.summary.byStatus.in_progress).toBe(1);
   expect(filteredSummaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
-  expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);`
-    : '';
-  const reportingAssertions = options.ticketReportingEnabled
-    ? `
+  expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);`);
+  const summaryExportRequestAssertions = renderOptional(options.exportCsvEnabled, `
+  const summaryExportResponse = await page.request.get('/api/tickets/summary/export');
+  expect(summaryExportResponse.ok()).toBe(true);
+  expect(summaryExportResponse.headers()['content-type']).toContain('text/csv');
+  const summaryCsv = await summaryExportResponse.text();
+  expect(summaryCsv).toContain('section,key,value');
+  expect(summaryCsv).toContain('total,tickets,1');
+  expect(summaryCsv).toContain('status,open,1');
+  expect(summaryCsv).toContain('sla,overdue,1');
+  expect(summaryCsv).toContain('assignee,support-owner,1');`);
+  const reportingAssertions = renderOptional(options.ticketReportingEnabled, `
   await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
   const summaryJsonLink = page.getByRole('link', { name: 'View ticket summary JSON' });
   await expect(summaryJsonLink).toBeVisible();${summaryExportAssertions}
@@ -2008,18 +1965,8 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(summaryPayload.summary.total).toBe(1);
   expect(summaryPayload.summary.byStatus.open).toBe(1);
   expect(summaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
-  expect(summaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);${options.exportCsvEnabled ? `
-  const summaryExportResponse = await page.request.get('/api/tickets/summary/export');
-  expect(summaryExportResponse.ok()).toBe(true);
-  expect(summaryExportResponse.headers()['content-type']).toContain('text/csv');
-  const summaryCsv = await summaryExportResponse.text();
-  expect(summaryCsv).toContain('section,key,value');
-  expect(summaryCsv).toContain('total,tickets,1');
-  expect(summaryCsv).toContain('status,open,1');
-  expect(summaryCsv).toContain('sla,overdue,1');
-  expect(summaryCsv).toContain('assignee,support-owner,1');` : ''}
-`
-    : '';
+  expect(summaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);${summaryExportRequestAssertions}
+`);
 
   return `import { expect, test, type Page } from '@playwright/test';
 
