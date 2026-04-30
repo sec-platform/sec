@@ -26,11 +26,35 @@ function normalizeTicketTitle(title: string): string {
   return normalized;
 }
 
-function assertTicketTenant(ticket: TicketRecord | undefined, tenantId: string): TicketRecord {
+type IdentifiedRecord = { id: number };
+
+type TicketScopedRecord = IdentifiedRecord & {
+  tenantId: string;
+  ticketId: number;
+};
+
+function sortById<TRecord extends IdentifiedRecord>(records: TRecord[]): TRecord[] {
+  return records.sort((left, right) => left.id - right.id);
+}
+
+export function assertTenantTicket(db: Database, ticketId: number, tenantId: string): TicketRecord {
+  const ticket = db.tickets.find((entry) => entry.id === ticketId);
   if (!ticket || ticket.tenantId !== tenantId) {
     throw new Error('Ticket is not available for this tenant');
   }
   return ticket;
+}
+
+export function listTenantTickets(db: Database, tenantId: string): TicketRecord[] {
+  return sortById(db.tickets.filter((ticket) => ticket.tenantId === tenantId));
+}
+
+export function listTicketScopedRecords<TRecord extends TicketScopedRecord>(
+  records: TRecord[],
+  tenantId: string,
+  ticketId: number
+): TRecord[] {
+  return sortById(records.filter((record) => record.tenantId === tenantId && record.ticketId === ticketId));
 }
 
 export function createTicket(db: Database, session: Session, input: TicketInput): TicketRecord {
@@ -58,7 +82,7 @@ export function transitionTicketStatus(
   status: TicketStatus
 ): TicketRecord {
   const tenantId = currentTenant(session);
-  const ticket = assertTicketTenant(db.tickets.find((entry) => entry.id === ticketId), tenantId);
+  const ticket = assertTenantTicket(db, ticketId, tenantId);
   ticket.status = status;
   ticket.updatedAt = new Date(0).toISOString();
   return ticket;
@@ -66,7 +90,7 @@ export function transitionTicketStatus(
 
 export function listTickets(db: Database, session: Session): TicketRecord[] {
   const tenantId = currentTenant(session);
-  return db.tickets.filter((ticket) => ticket.tenantId === tenantId).sort((left, right) => left.id - right.id);
+  return listTenantTickets(db, tenantId);
 }
 
 export function listTicketsWithFilters(db: Database, session: Session, filters: TicketFilters): TicketRecord[] {
@@ -87,7 +111,7 @@ export function addTicketAttachment(
   input: TicketAttachmentInput
 ): TicketAttachmentRecord {
   const tenantId = currentTenant(session);
-  assertTicketTenant(db.tickets.find((entry) => entry.id === input.ticketId), tenantId);
+  assertTenantTicket(db, input.ticketId, tenantId);
 
   const attachment: TicketAttachmentRecord = {
     id: db.nextTicketAttachmentId++,
@@ -110,15 +134,13 @@ export function listTicketAttachments(
   ticketId: number
 ): TicketAttachmentRecord[] {
   const tenantId = currentTenant(session);
-  assertTicketTenant(db.tickets.find((entry) => entry.id === ticketId), tenantId);
-  return db.ticketAttachments
-    .filter((attachment) => attachment.tenantId === tenantId && attachment.ticketId === ticketId)
-    .sort((left, right) => left.id - right.id);
+  assertTenantTicket(db, ticketId, tenantId);
+  return listTicketScopedRecords(db.ticketAttachments, tenantId, ticketId);
 }
 
 export function addTicketComment(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {
   const tenantId = currentTenant(session);
-  assertTicketTenant(db.tickets.find((entry) => entry.id === input.ticketId), tenantId);
+  assertTenantTicket(db, input.ticketId, tenantId);
   const body = input.body.trim();
   if (!body) {
     throw new Error('Ticket comment is required');
@@ -139,10 +161,8 @@ export function addTicketComment(db: Database, session: Session, input: TicketCo
 
 export function listTicketComments(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {
   const tenantId = currentTenant(session);
-  assertTicketTenant(db.tickets.find((entry) => entry.id === ticketId), tenantId);
-  return db.ticketComments
-    .filter((comment) => comment.tenantId === tenantId && comment.ticketId === ticketId)
-    .sort((left, right) => left.id - right.id);
+  assertTenantTicket(db, ticketId, tenantId);
+  return listTicketScopedRecords(db.ticketComments, tenantId, ticketId);
 }
 
 export function listTicketsByAssignee(db: Database, session: Session, assigneeId: string): TicketRecord[] {
