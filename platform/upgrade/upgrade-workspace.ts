@@ -1244,21 +1244,37 @@ async function collectJsonStructureEvidence(
   return uniqueSorted(evidence);
 }
 
-function buildUpgradePreflightChecks(
-  currentVersion: string,
-  targetVersion: string,
-  acceptedRanges: string[],
-  migrations: UpgradeMigration[],
-  migrationEntries: UpgradeMigrationEntry[],
-  migrationTargetEvidence: string[],
-  fileOperationEvidence: string[],
-  jsonShapeEvidence: string[],
-  jsonStructureEvidence: string[],
-  textPatternEvidence: string[],
-  slotContractEvidence: string[],
-  impacts: string[],
-  scannedOverrides: string[]
-): UpgradePreflightCheck[] {
+type UpgradePreflightEvidence = {
+  fileOperationEvidence: string[];
+  jsonShapeEvidence: string[];
+  jsonStructureEvidence: string[];
+  migrationTargetEvidence: string[];
+  scannedOverrides: string[];
+  slotContractEvidence: string[];
+  textPatternEvidence: string[];
+};
+
+type UpgradePreflightCheckInput = {
+  acceptedRanges: string[];
+  currentVersion: string;
+  impacts: string[];
+  migrationEntries: UpgradeMigrationEntry[];
+  migrations: UpgradeMigration[];
+  targetVersion: string;
+  evidence: UpgradePreflightEvidence;
+};
+
+function buildUpgradePreflightChecks(input: UpgradePreflightCheckInput): UpgradePreflightCheck[] {
+  const {
+    acceptedRanges,
+    currentVersion,
+    evidence,
+    impacts,
+    migrationEntries,
+    migrations,
+    targetVersion
+  } = input;
+
   return [
     {
       id: 'version-range',
@@ -1275,38 +1291,38 @@ function buildUpgradePreflightChecks(
     {
       id: 'migration-targets',
       status: 'passed',
-      message: `${migrationTargetEvidence.length} migration paths checked`,
-      evidence: migrationTargetEvidence
+      message: `${evidence.migrationTargetEvidence.length} migration paths checked`,
+      evidence: evidence.migrationTargetEvidence
     },
     {
       id: 'migration-file-operations',
       status: 'passed',
-      message: `${fileOperationEvidence.length} file operations checked`,
-      evidence: fileOperationEvidence
+      message: `${evidence.fileOperationEvidence.length} file operations checked`,
+      evidence: evidence.fileOperationEvidence
     },
     {
       id: 'migration-json-shapes',
       status: 'passed',
-      message: `${jsonShapeEvidence.length} JSON migration shapes checked`,
-      evidence: jsonShapeEvidence
+      message: `${evidence.jsonShapeEvidence.length} JSON migration shapes checked`,
+      evidence: evidence.jsonShapeEvidence
     },
     {
       id: 'migration-json-structure',
       status: 'passed',
-      message: `${jsonStructureEvidence.length} JSON migration targets checked`,
-      evidence: jsonStructureEvidence
+      message: `${evidence.jsonStructureEvidence.length} JSON migration targets checked`,
+      evidence: evidence.jsonStructureEvidence
     },
     {
       id: 'migration-text-patterns',
       status: 'passed',
-      message: `${textPatternEvidence.length} text replacement patterns checked`,
-      evidence: textPatternEvidence
+      message: `${evidence.textPatternEvidence.length} text replacement patterns checked`,
+      evidence: evidence.textPatternEvidence
     },
     {
       id: 'migration-slot-contracts',
       status: 'passed',
-      message: `${slotContractEvidence.length} slot contract fields checked`,
-      evidence: slotContractEvidence
+      message: `${evidence.slotContractEvidence.length} slot contract fields checked`,
+      evidence: evidence.slotContractEvidence
     },
     {
       id: 'impact-scan',
@@ -1317,10 +1333,127 @@ function buildUpgradePreflightChecks(
     {
       id: 'override-conflicts',
       status: 'passed',
-      message: `${scannedOverrides.length} overrides scanned with no conflicts`,
-      evidence: scannedOverrides
+      message: `${evidence.scannedOverrides.length} overrides scanned with no conflicts`,
+      evidence: evidence.scannedOverrides
     }
   ];
+}
+
+function collectMigrationImpacts(migrationEntries: UpgradeMigrationEntry[]): string[] {
+  return migrationEntries.flatMap((entry) =>
+    entry.kind === 'rename-file' || entry.kind === 'rename-directory'
+      ? [entry.source, entry.target]
+      : [entry.target]
+  );
+}
+
+type UpgradePreflightEvidenceOptions = {
+  blockId: string;
+  impacts: string[];
+  migrationEntries: UpgradeMigrationEntry[];
+  projectRoot: string;
+  targetManifestRoot: string;
+  targetSlots: ManifestSlot[];
+  workspaceRoot: string;
+};
+
+async function collectUpgradePreflightEvidence(
+  options: UpgradePreflightEvidenceOptions
+): Promise<UpgradePreflightEvidence> {
+  const {
+    blockId,
+    impacts,
+    migrationEntries,
+    projectRoot,
+    targetManifestRoot,
+    targetSlots,
+    workspaceRoot
+  } = options;
+
+  return {
+    migrationTargetEvidence: await collectMigrationTargetEvidence(projectRoot, migrationEntries),
+    fileOperationEvidence: await collectFileOperationEvidence(projectRoot, targetManifestRoot, migrationEntries),
+    jsonShapeEvidence: collectJsonShapeEvidence(migrationEntries),
+    jsonStructureEvidence: await collectJsonStructureEvidence(projectRoot, migrationEntries),
+    textPatternEvidence: await collectTextPatternEvidence(projectRoot, migrationEntries),
+    slotContractEvidence: collectSlotContractEvidence(targetSlots, migrationEntries),
+    scannedOverrides: await detectOverrideConflicts(workspaceRoot, blockId, impacts)
+  };
+}
+
+type UpgradePlanningOptions = {
+  blockId: string;
+  currentBlock: PlanFile['blocks'][number] | undefined;
+  plan: PlanFile;
+  projectRoot: string;
+  targetVersion: string;
+  workspaceRoot: string;
+};
+
+type PlannedWorkspaceUpgrade = {
+  currentBlock: PlanFile['blocks'][number];
+  impacts: string[];
+  migrationEntries: UpgradeMigrationEntry[];
+  targetManifestRoot: string;
+  upgradePlan: UpgradePlan;
+};
+
+async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<PlannedWorkspaceUpgrade> {
+  const { blockId, currentBlock, plan, projectRoot, targetVersion, workspaceRoot } = options;
+  if (!currentBlock?.version) {
+    throw new CompilerError('UPGRADE-BLOCKED-003', `Block "${blockId}" is not declared in app.plan.yaml`);
+  }
+
+  const currentVersion = currentBlock.version;
+  const targetEntry = await loadManifestById(blockId, {
+    workspaceRoot,
+    version: targetVersion,
+    registrySources: plan.registry.sources
+  });
+  const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
+  const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
+  ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
+
+  const targetManifestRoot = path.dirname(targetEntry.manifestPath);
+  const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
+  const impacts = uniqueSorted([
+    ...targetEntry.manifest.installs.map((install) => install.to),
+    ...collectMigrationImpacts(migrationEntries)
+  ]);
+  const evidence = await collectUpgradePreflightEvidence({
+    blockId,
+    impacts,
+    migrationEntries,
+    projectRoot,
+    targetManifestRoot,
+    targetSlots: targetEntry.manifest.slots,
+    workspaceRoot
+  });
+  const preflightChecks = buildUpgradePreflightChecks({
+    acceptedRanges,
+    currentVersion,
+    evidence,
+    impacts,
+    migrationEntries,
+    migrations,
+    targetVersion
+  });
+
+  return {
+    currentBlock,
+    impacts,
+    migrationEntries,
+    targetManifestRoot,
+    upgradePlan: buildUpgradePlan(
+      blockId,
+      currentVersion,
+      targetVersion,
+      preflightChecks,
+      impacts,
+      migrations,
+      migrationEntries
+    )
+  };
 }
 
 function isEmptyDiagnosticsDetails(details: unknown): boolean {
@@ -1683,70 +1816,31 @@ export async function upgradeWorkspace(
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   const existingLock = (await pathExists(readableLockPath)) ? await readJson<LockFile>(readableLockPath) : null;
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
-  let targetManifestRoot = '';
-  let migrationEntries: UpgradeMigrationEntry[] = [];
-  let impacts: string[] = [];
-  let upgradePlan: UpgradePlan;
+  let plannedUpgrade: PlannedWorkspaceUpgrade;
   try {
-    if (!currentBlock?.version) {
-      throw new CompilerError('UPGRADE-BLOCKED-003', `Block "${blockId}" is not declared in app.plan.yaml`);
-    }
-
-    const currentVersion = currentBlock.version;
-    const targetEntry = await loadManifestById(blockId, {
-      workspaceRoot,
-      version: targetVersion,
-      registrySources: plan.registry.sources
-    });
-    const migrationImpacts = (entries: UpgradeMigrationEntry[]): string[] =>
-      entries.flatMap((entry) =>
-        entry.kind === 'rename-file' || entry.kind === 'rename-directory'
-          ? [entry.source, entry.target]
-          : [entry.target]
-      );
-    const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
-    const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
-    ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
-    targetManifestRoot = path.dirname(targetEntry.manifestPath);
-    migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
-    impacts = uniqueSorted([
-      ...targetEntry.manifest.installs.map((install) => install.to),
-      ...migrationImpacts(migrationEntries)
-    ]);
-    const migrationTargetEvidence = await collectMigrationTargetEvidence(projectRoot, migrationEntries);
-    const fileOperationEvidence = await collectFileOperationEvidence(
+    plannedUpgrade = await planWorkspaceUpgrade({
+      blockId,
+      currentBlock,
+      plan,
       projectRoot,
-      targetManifestRoot,
-      migrationEntries
-    );
-    const jsonShapeEvidence = collectJsonShapeEvidence(migrationEntries);
-    const jsonStructureEvidence = await collectJsonStructureEvidence(projectRoot, migrationEntries);
-    const textPatternEvidence = await collectTextPatternEvidence(projectRoot, migrationEntries);
-    const slotContractEvidence = collectSlotContractEvidence(targetEntry.manifest.slots, migrationEntries);
-    const scannedOverrides = await detectOverrideConflicts(workspaceRoot, blockId, impacts);
-    const preflightChecks = buildUpgradePreflightChecks(
-      currentVersion,
       targetVersion,
-      acceptedRanges,
-      migrations,
-      migrationEntries,
-      migrationTargetEvidence,
-      fileOperationEvidence,
-      jsonShapeEvidence,
-      jsonStructureEvidence,
-      textPatternEvidence,
-      slotContractEvidence,
-      impacts,
-      scannedOverrides
-    );
-
-    upgradePlan = buildUpgradePlan(blockId, currentVersion, targetVersion, preflightChecks, impacts, migrations, migrationEntries);
+      workspaceRoot
+    });
   } catch (error) {
     if (error instanceof CompilerError) {
       await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'planning', error, existingLock);
     }
     throw error;
   }
+
+  const {
+    currentBlock: plannedBlock,
+    impacts,
+    migrationEntries,
+    targetManifestRoot,
+    upgradePlan
+  } = plannedUpgrade;
+
   if (options.dryRun) {
     const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
     await writeJson(upgradePlanPath, upgradePlan);
@@ -1760,7 +1854,7 @@ export async function upgradeWorkspace(
   await writeJson(upgradePlanPath, upgradePlan);
 
   try {
-    currentBlock.version = targetVersion;
+    plannedBlock.version = targetVersion;
     await writeYaml(planPath, plan);
     await applyMigrationEntries(projectRoot, targetManifestRoot, impacts, migrationEntries);
 
