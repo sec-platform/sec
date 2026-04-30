@@ -2,12 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import { upgradeWorkspace } from '../../platform/orchestrator.ts';
-import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records text append migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-text-append-plan-',
     migration: {
       id: 'mig-upgrade-notes',
@@ -24,9 +22,6 @@ test('upgrade dry-run records text append migration impacts', async () => {
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual(['docs/upgrade-notes.md', 'src/installed/private/slot-contract.ts']);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-append': 1
@@ -40,11 +35,10 @@ test('upgrade dry-run records text append migration impacts', async () => {
       requiresVerification: false
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records literal text replace migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-text-replace-plan-',
     migration: {
       id: 'mig-upgrade-notes-literal',
@@ -66,9 +60,6 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual(['docs/upgrade-notes.md', 'src/installed/private/slot-contract.ts']);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace': 1
@@ -91,11 +82,10 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
       requiresVerification: true
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
 
 test('upgrade dry-run records text replace regex migration impacts', async () => {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const upgradePlan = await runPlannedSlotUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-text-regex-plan-',
     migration: {
       id: 'mig-upgrade-notes-regex',
@@ -117,9 +107,6 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
     }
   });
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
-
-  expect(upgradePlan.status).toBe('planned');
   expect(upgradePlan.impacts).toEqual(['docs/upgrade-notes.md', 'src/installed/private/slot-contract.ts']);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace-regex': 1
@@ -142,5 +129,4 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
       requiresVerification: true
     }
   ]);
-  await expectFileUnchanged(paths.planPath, beforePlan);
 });
