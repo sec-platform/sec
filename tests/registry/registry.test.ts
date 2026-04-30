@@ -1,9 +1,29 @@
 import { expect, test } from 'vitest';
 
-import { loadAllManifests } from '../../platform/compiler/parse/load-manifest.ts';
+import { loadAllManifests, loadManifestById } from '../../platform/compiler/parse/load-manifest.ts';
 import { resolveGraph } from '../../platform/compiler/resolve/resolve-graph.ts';
 import { validateResolvedTemplates } from '../../platform/compiler/verify/validate-resolved-templates.ts';
 import { buildManifestValidationPlan } from '../helpers/test-utils.ts';
+
+test('versioned official registry manifests inherit root manifest fields', async () => {
+  const entry = await loadManifestById('ticket/basic', { version: '0.1.1' });
+
+  expect(entry.manifest.version).toBe('0.1.1');
+  expect(entry.manifest.requires).toEqual(['auth/session', 'tenant/context']);
+  expect(entry.manifest.installs.map((install) => install.to)).toEqual([
+    'src/installed/ticket/ticket-service.ts',
+    'prisma/schema.prisma',
+    'tests/shared/ticket-service-suite.ts',
+    'tests/unit/ticket-service.test.ts',
+    'tests/acceptance/ticket-flow.test.ts'
+  ]);
+  expect(entry.manifest.upgrade?.migrations.map((migration) => migration.id)).toEqual([
+    'mig-ticket-service-refresh',
+    'mig-ticket-upgrade-metadata'
+  ]);
+  expect(entry.manifestPath.replaceAll('\\', '/')).toContain('/versions/0.1.1/block.manifest.yaml');
+  expect(entry.manifestRoot.replaceAll('\\', '/')).toContain('/versions/0.1.1');
+});
 
 test('official registry blocks typecheck in their minimal resolved closure', async () => {
   const manifests = await loadAllManifests();

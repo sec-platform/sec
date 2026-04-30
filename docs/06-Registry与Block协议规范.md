@@ -28,9 +28,9 @@ registry:
   files/src/installed/    # 安装到 project/src/installed/
   files/prisma/           # merge-prisma 源
   files/tests/            # 测试文件
-  versions/<ver>/         # 版本化 manifest
+  versions/<ver>/         # 版本化 overlay manifest 与版本专属文件
     migrations/           # 升级迁移
-    block.manifest.yaml
+    block.manifest.yaml   # 可只声明 version + upgrade，其他字段继承 root manifest
 ```
 
 ## 2. Block 分类
@@ -61,6 +61,11 @@ registry:
 | `compatibility.stackProfiles` | 当前 `["nextjs-ts-prisma-sqlite"]` |
 
 规则：同一项目中同 id block 不允许出现不兼容 major 版本。
+
+版本化 manifest 是 root manifest 的 overlay：
+- `versions/<ver>/block.manifest.yaml` 至少声明 `version`，通常只额外声明 `upgrade`。
+- 未声明的 `kind`、`requires`、`provides`、`installs`、`pins`、`slots`、`acceptance`、`routes` 等字段由 root `block.manifest.yaml` 继承。
+- 若某版本需要改变这些字段，必须在 versioned manifest 中显式覆盖整个字段值。
 
 ## 5. Manifest 字段速查
 

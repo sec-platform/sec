@@ -54,6 +54,10 @@ async function tryReadManifest(manifestPath: string): Promise<BlockManifest | nu
   }
 }
 
+function mergeVersionedManifest(rootManifest: BlockManifest | null, versionedManifest: BlockManifest): BlockManifest {
+  return rootManifest ? { ...rootManifest, ...versionedManifest } : versionedManifest;
+}
+
 export function resolveRegistrySources(
   workspaceRoot = process.cwd(),
   sources: PlanRegistrySource[]
@@ -153,21 +157,29 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
   const registrySources = resolveRegistrySources(options.workspaceRoot, options.registrySources ?? []);
 
   for (const registrySource of registrySources) {
-    const candidatePaths = version
-      ? [versionedManifestPath(registrySource.root, blockId, version), rootManifestPath(registrySource.root, blockId)]
-      : [rootManifestPath(registrySource.root, blockId)];
+    const rootPath = rootManifestPath(registrySource.root, blockId);
 
-    for (const manifestPath of candidatePaths) {
-      const manifest = await tryReadManifest(manifestPath);
-      if (!manifest) {
-        continue;
+    if (version) {
+      const manifestPath = versionedManifestPath(registrySource.root, blockId, version);
+      const versionedManifest = await tryReadManifest(manifestPath);
+      if (versionedManifest) {
+        const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);
+        validateManifest(manifest);
+        if (manifest.version === version) {
+          return manifestEntryFromPath(registrySource, manifest, manifestPath);
+        }
       }
-      validateManifest(manifest);
-      if (version && manifest.version !== version) {
-        continue;
-      }
-      return manifestEntryFromPath(registrySource, manifest, manifestPath);
     }
+
+    const manifest = await tryReadManifest(rootPath);
+    if (!manifest) {
+      continue;
+    }
+    validateManifest(manifest);
+    if (version && manifest.version !== version) {
+      continue;
+    }
+    return manifestEntryFromPath(registrySource, manifest, rootPath);
   }
 
   throw new CompilerError(
