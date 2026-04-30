@@ -662,12 +662,14 @@ type AnyMigrationOperationSpec = {
   buildOperation: (entry: UpgradeMigrationEntry) => UpgradeMigrationOperationRecord;
 };
 
-function hasProjectSource(entry: UpgradeMigrationEntry): entry is ProjectSourceMigrationEntry {
-  return entry.kind === 'rename-file' || entry.kind === 'rename-directory';
-}
-
 function getMigrationOperationSpec(entry: { kind: string }): AnyMigrationOperationSpec | undefined {
   return (migrationOperationSpecs as Partial<Record<string, AnyMigrationOperationSpec>>)[entry.kind];
+}
+
+function collectMigrationProjectPaths(entry: UpgradeMigrationEntry): Array<readonly ['source' | 'target', string]> {
+  const spec = getMigrationOperationSpec(entry);
+  if (!spec) throw unsupportedMigrationKindError(entry as { kind: string });
+  return (spec.collectImpacts?.(entry) ?? [entry.target]).map((relativePath) => [relativePath === entry.target ? 'target' : 'source', relativePath]);
 }
 
 function resolveProjectMigrationTarget(projectRoot: string, entry: UpgradeMigrationEntry): string {
@@ -711,9 +713,8 @@ function ensureMigrationPathImpacted(
 }
 
 function ensureMigrationImpacts(impacts: string[], entry: UpgradeMigrationEntry): void {
-  ensureMigrationPathImpacted(impacts, entry, 'target', entry.target);
-  if (hasProjectSource(entry)) {
-    ensureMigrationPathImpacted(impacts, entry, 'source', entry.source);
+  for (const [role, relativePath] of collectMigrationProjectPaths(entry)) {
+    ensureMigrationPathImpacted(impacts, entry, role, relativePath);
   }
 }
 
@@ -788,10 +789,9 @@ async function collectMigrationTargetEvidence(
 ): Promise<string[]> {
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
-    if (entry.kind === 'rename-file' || entry.kind === 'rename-directory') {
-      evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, 'source', entry.source));
+    for (const [role, relativePath] of collectMigrationProjectPaths(entry)) {
+      evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, role, relativePath));
     }
-    evidence.push(await describeMigrationPathStatus(projectRoot, entry.id, 'target', entry.target));
   }
   return uniqueSorted(evidence);
 }
@@ -1175,19 +1175,15 @@ async function collectFileOperationEvidence(
 }
 
 function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
-  const evidence: string[] = [];
-  for (const entry of migrationEntries) {
-    if (entry.kind === 'config-rewrite') {
-      evidence.push(`${entry.id}:updates:${entry.updates.length}`);
-    }
-    if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
-      evidence.push(`${entry.id}:path:${entry.path.join('.')}:array:${entry.items.length}`);
-    }
-    if (entry.kind === 'json-object-merge') {
-      evidence.push(`${entry.id}:path:${entry.path.join('.')}:object:${Object.keys(entry.value).length}`);
-    }
-  }
-  return uniqueSorted(evidence);
+  return uniqueSorted(migrationEntries.flatMap((entry) => {
+    const operation = buildMigrationOperation(entry);
+    const path = operation.path?.join('.');
+    return operation.role !== 'json' ? []
+      : operation.updateCount !== undefined ? [`${entry.id}:updates:${operation.updateCount}`]
+      : operation.itemCount !== undefined && path ? [`${entry.id}:path:${path}:array:${operation.itemCount}`]
+      : operation.valueKeyCount !== undefined && path ? [`${entry.id}:path:${path}:object:${operation.valueKeyCount}`]
+      : [];
+  }));
 }
 
 function ensureSlotContractValue(
