@@ -1,5 +1,6 @@
 import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
+import { platformCommand } from './platform-command.ts';
 
 export type ContractFreezeTarget = {
   file: string;
@@ -187,7 +188,7 @@ export function buildContractFreezeContract(): ContractFreezeContract {
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: CONTRACT_STATUS_ACTIVE,
-    command: 'npm run platform -- contract freeze --json',
+    command: platformCommand('contract', 'freeze', '--json'),
     runnerCommand: 'npm run test:contract-freeze',
     targetFileCount: targetFiles.length,
     targetFiles,

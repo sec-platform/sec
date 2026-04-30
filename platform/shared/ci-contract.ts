@@ -7,6 +7,7 @@ import {
 import type { CiArtifactKind } from './ci-artifact-types.ts';
 import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
+import { platformCommand } from './platform-command.ts';
 
 export type CiContractStep = {
   id: string;
@@ -70,14 +71,14 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'pr-fast-verify',
     phase: 'verify',
-    command: 'npm run platform -- verify --json --compact',
+    command: platformCommand('verify', '--json', '--compact'),
     purpose: 'Run the default fast verification lane for pull requests.',
     produces: [CI_ARTIFACT_FILES.verificationReport]
   },
   {
     id: 'full-runtime-verify',
     phase: 'verify',
-    command: 'npm run platform -- verify --lane all --json --compact',
+    command: platformCommand('verify', '--lane', 'all', '--json', '--compact'),
     purpose: 'Run the full runtime gate for release, demo, or scheduled CI.',
     produces: [
       CI_ARTIFACT_FILES.verificationReport,
@@ -88,7 +89,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'slow-test-budget',
     phase: 'quality',
-    command: 'npm run platform -- test budget --json --compact',
+    command: platformCommand('test', 'budget', '--json', '--compact'),
     purpose: 'Expose the fast/runtime/all slow-test lane budget before selecting CI gates.',
     produces: []
   },
@@ -102,42 +103,42 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'benchmark-task-suite',
     phase: 'quality',
-    command: 'npm run platform -- benchmark suite --json --compact',
+    command: platformCommand('benchmark', 'suite', '--json', '--compact'),
     purpose: 'Expose the benchmark task-suite contract and scoring dimensions for scheduled quality jobs.',
     produces: []
   },
   {
     id: 'reference-drift',
     phase: 'quality',
-    command: 'npm run platform -- reference check --json --compact',
+    command: platformCommand('reference', 'check', '--json', '--compact'),
     purpose: 'Refresh the checked-in reference workspace and fail on drift.',
     produces: []
   },
   {
     id: 'diagnostic-review',
     phase: 'diagnostics',
-    command: 'npm run platform -- review summary --json --compact',
+    command: platformCommand('review', 'summary', '--json', '--compact'),
     purpose: 'Expose policy, provenance, repair, upgrade, and artifact review evidence.',
     produces: [CI_ARTIFACT_FILES.reviewSummary]
   },
   {
     id: 'diagnostic-review-matrix',
     phase: 'diagnostics',
-    command: 'npm run platform -- review matrix --json --compact',
+    command: platformCommand('review', 'matrix', '--json', '--compact'),
     purpose: 'Expose the E2E matrix derived from the latest review summary.',
     produces: []
   },
   {
     id: 'diagnostic-review-diagnostics',
     phase: 'diagnostics',
-    command: 'npm run platform -- review diagnostics --json --compact',
+    command: platformCommand('review', 'diagnostics', '--json', '--compact'),
     purpose: 'Expose failure, regression risk, and conflict diagnostics from the latest review summary.',
     produces: []
   },
   {
     id: 'diagnostic-explain',
     phase: 'diagnostics',
-    command: 'npm run platform -- explain --json --compact',
+    command: platformCommand('explain', '--json', '--compact'),
     purpose: 'Expose the explain graph and review summary for failed CI triage.',
     produces: [
       CI_ARTIFACT_FILES.explainGraph,
@@ -147,7 +148,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'diagnostic-demo-checklist',
     phase: 'diagnostics',
-    command: 'npm run platform -- demo checklist --json --compact',
+    command: platformCommand('demo', 'checklist', '--json', '--compact'),
     purpose: 'Expose whether existing governance artifacts satisfy local demo readiness.',
     produces: []
   },
@@ -172,7 +173,7 @@ export function buildCiContract(): CiContract {
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: CONTRACT_STATUS_ACTIVE,
-    command: 'npm run platform -- contract ci --json',
+    command: platformCommand('contract', 'ci', '--json'),
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
     verifyCommandCount: verifyCommands.length,

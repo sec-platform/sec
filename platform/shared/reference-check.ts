@@ -2,6 +2,7 @@ import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
 import { compilerRoot } from './paths.ts';
+import { platformCommand } from './platform-command.ts';
 import { resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
 
 export type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'diff-failed';
@@ -61,7 +62,7 @@ export async function buildReferenceCheckReport(options: {
     status,
     failedStage,
     root,
-    command: 'npm run platform -- reference check --json',
+    command: platformCommand('reference', 'check', '--json'),
     runnerCommand: 'npm run reference:check',
     refreshCommand: 'npm run reference:refresh',
     refreshExitCode: refreshResult.code,

@@ -1,6 +1,7 @@
 import { CI_ARTIFACT_FILES } from './ci-artifact-contract.ts';
 import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
+import { platformCommand } from './platform-command.ts';
 
 export type BenchmarkTask = {
   id: string;
@@ -45,7 +46,7 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     id: 'repair-slot',
     goal: 'repair one slot issue within task-envelope write bounds',
     gate: 'repair verify',
-    command: 'npm run platform -- repair --dry-run --json --compact',
+    command: platformCommand('repair', '--dry-run', '--json', '--compact'),
     artifactPaths: [
       CI_ARTIFACT_FILES.repairPlan,
       CI_ARTIFACT_FILES.verificationReport,
@@ -57,7 +58,7 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     id: 'policy-violation',
     goal: 'detect and explain one project policy violation',
     gate: 'verify explain',
-    command: 'npm run platform -- policy report --json --compact',
+    command: platformCommand('policy', 'report', '--json', '--compact'),
     artifactPaths: [
       CI_ARTIFACT_FILES.policyReport,
       CI_ARTIFACT_FILES.acceptanceCoverage,
@@ -69,7 +70,14 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     id: 'upgrade-dry-run',
     goal: 'preview one governed block upgrade and impact summary',
     gate: 'upgrade --dry-run explain',
-    command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+    command: platformCommand(
+      'upgrade',
+      '<block-id>',
+      '<target-version>',
+      '--dry-run',
+      '--json',
+      '--compact'
+    ),
     artifactPaths: [
       CI_ARTIFACT_FILES.upgradePlan,
       CI_ARTIFACT_FILES.upgradeDiagnostics,
@@ -81,7 +89,14 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     id: 'override-conflict',
     goal: 'surface one override conflict during upgrade planning',
     gate: 'upgrade --dry-run',
-    command: 'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+    command: platformCommand(
+      'upgrade',
+      '<block-id>',
+      '<target-version>',
+      '--dry-run',
+      '--json',
+      '--compact'
+    ),
     artifactPaths: [
       'source/patches/override-manifest.yaml',
       CI_ARTIFACT_FILES.upgradeDiagnostics,
@@ -109,7 +124,7 @@ export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
     formatVersion: CONTRACT_FORMAT_VERSION,
     suiteId: 'engineering-compiler-core',
     status: CONTRACT_STATUS_ACTIVE,
-    command: 'npm run platform -- benchmark suite --json',
+    command: platformCommand('benchmark', 'suite', '--json'),
     runnerCommand: 'npm run test:benchmark-contract',
     taskCount: benchmarkTasks.length,
     tasks: benchmarkTasks.map((task) => ({

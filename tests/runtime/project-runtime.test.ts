@@ -133,7 +133,7 @@ describe('test budget and benchmark contracts', () => {
     const source = await readCompilerFile('platform/shared/test-budget-contract.ts');
 
     expectContainsAll(source, [
-      "command: 'npm run platform -- test budget --json'",
+      "command: platformCommand('test', 'budget', '--json')",
       "runnerCommand: 'npm run test:budget'",
       'laneCount',
       'slowLaneCount',
@@ -154,7 +154,7 @@ describe('test budget and benchmark contracts', () => {
 
     expectContainsAll(source, [
       "suiteId: 'engineering-compiler-core'",
-      "command: 'npm run platform -- benchmark suite --json'",
+      "command: platformCommand('benchmark', 'suite', '--json')",
       "runnerCommand: 'npm run test:benchmark-contract'",
       'scoreDimensionCount',
       'artifactPathCount',
@@ -174,7 +174,7 @@ describe('test budget and benchmark contracts', () => {
     const source = await readCompilerFile('platform/shared/reference-check.ts');
 
     expectContainsAll(source, [
-      "command: 'npm run platform -- reference check --json'",
+      "command: platformCommand('reference', 'check', '--json')",
       "runnerCommand: 'npm run reference:check'",
       "['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']",
       "['run', 'reference:refresh']",
@@ -290,7 +290,7 @@ describe('error protocol and developer contracts', () => {
     const source = await readCompilerFile('platform/shared/contract-freeze-contract.ts');
 
     expectContainsAll(source, [
-      "command: 'npm run platform -- contract freeze --json'",
+      "command: platformCommand('contract', 'freeze', '--json')",
       "runnerCommand: 'npm run test:contract-freeze'",
       'buildContractFreezeRunnerInvocations'
     ]);
@@ -317,7 +317,7 @@ describe('error protocol and developer contracts', () => {
     const source = await readCompilerFile('platform/shared/error-protocol-contract.ts');
 
     expectContainsAll(source, [
-      "command: 'npm run platform -- contract errors --json'",
+      "command: platformCommand('contract', 'errors', '--json')",
       'issueTypeCount',
       'artifactPathCount',
       'artifactPaths',
