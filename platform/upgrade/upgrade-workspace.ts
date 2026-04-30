@@ -1770,7 +1770,7 @@ export async function upgradeWorkspace(
 
     let lock = await resolveGraph(workspaceRoot, plan);
     await validateResolvedTemplates(workspaceRoot, lock);
-    await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    await writeJson(lockPath, lock);
 
     await composeProject(workspaceRoot, lock);
     lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));

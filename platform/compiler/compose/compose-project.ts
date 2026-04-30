@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
@@ -91,6 +90,6 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
 
   await writeJson(installManifestPath, installManifest);
   lock.passStatus.compose = 'succeeded';
-  await fs.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+  await writeJson(lockPath, lock);
   return lock;
 }
