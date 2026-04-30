@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
+import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
 
 test('upgrade dry-run records text append migration impacts', async () => {
   const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({

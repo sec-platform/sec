@@ -2,7 +2,7 @@ import path from 'node:path';
 import { test } from 'vitest';
 
 import { writeJson } from '../../platform/shared/fs.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/test-utils.ts';
+import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import {
   expectUpgradeDryRunFailure,
   expectUpgradeDryRunFailureWithDiagnostics

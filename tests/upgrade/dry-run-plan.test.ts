@@ -7,11 +7,8 @@ import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
-import {
-  createWorkspace,
-  prepareLockedWorkspace,
-  writeSlotUpgradeFixture
-} from '../helpers/test-utils.ts';
+import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { createWorkspace, prepareLockedWorkspace } from '../helpers/test-utils.ts';
 
 test('upgrade dry-run writes a planned upgrade without changing project files', async () => {
   const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-dry-run-' });
