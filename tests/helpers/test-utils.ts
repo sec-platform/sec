@@ -25,6 +25,7 @@ import type {
   ManifestEntry,
   PlanFile,
   ProvenanceFile,
+  ReviewProvenanceRegistrySummary,
   VerificationReport
 } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
@@ -162,6 +163,16 @@ export function buildOfficialInstallStep(options: OfficialInstallStepOptions): L
 
 export function buildOfficialCopyInstallStep(options: OfficialCopyInstallStepOptions): LockFile['installPlan'][number] {
   return buildOfficialInstallStep({ action: 'copy', ...options });
+}
+
+export function buildOfficialRegistrySummary(paths: string[]): ReviewProvenanceRegistrySummary {
+  return {
+    registrySourceId: 'official',
+    registryKind: 'official',
+    registryLocation: 'compiler',
+    count: paths.length,
+    paths
+  };
 }
 
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {

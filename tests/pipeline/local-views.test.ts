@@ -19,7 +19,12 @@ import {
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace, expectContainsAll, expectContainsNone } from '../helpers/test-utils.ts';
+import {
+  buildOfficialRegistrySummary,
+  createWorkspace,
+  expectContainsAll,
+  expectContainsNone
+} from '../helpers/test-utils.ts';
 
 test('write-local-views consumes generated artifacts from disk', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-local-views-');
@@ -343,15 +348,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
       }
     ],
     registrySummaryCount: 1,
-    registrySummaries: [
-      {
-        registrySourceId: 'official',
-        registryKind: 'official',
-        registryLocation: 'compiler',
-        count: 1,
-        paths: ['src/installed/auth/session.ts']
-      }
-    ],
+    registrySummaries: [buildOfficialRegistrySummary(['src/installed/auth/session.ts'])],
     generatedPassSummaries: [
       {
         pass: 'compose',
