@@ -3,8 +3,7 @@ import type { LockFile } from '../../shared/lock-types.ts';
 import { resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import { parseLockArgs } from '../args.ts';
 import type { CommandHandler } from '../command-registry.ts';
-import { readRequiredJson } from '../command-utils.ts';
-import { printJsonOrText } from '../format-utils.ts';
+import { printRequiredJson } from '../command-utils.ts';
 import { formatLockInspect } from '../formatters.ts';
 import { LOCK_USAGE } from '../usage.ts';
 
@@ -15,8 +14,12 @@ export const lockCommand: CommandHandler = {
     const lockArgs = parseLockArgs(args);
     if (lockArgs.mode === 'inspect') {
       const readableLockPath = await resolveWorkspaceLockPath(ctx.cwd);
-      const lock = await readRequiredJson<LockFile>(readableLockPath, 'Graph lock not found; run platform lock first');
-      printJsonOrText(lock, lockArgs, formatLockInspect);
+      await printRequiredJson<LockFile>(
+        readableLockPath,
+        'Graph lock not found; run platform lock first',
+        lockArgs,
+        formatLockInspect
+      );
       return;
     }
     await lockWorkspace(ctx.cwd);

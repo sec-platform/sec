@@ -3,7 +3,7 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
 import { parseUpgradeArgs } from '../args.ts';
 import type { CommandHandler } from '../command-registry.ts';
-import { readRequiredJson } from '../command-utils.ts';
+import { printRequiredJson } from '../command-utils.ts';
 import { printJsonOrText } from '../format-utils.ts';
 import { formatUpgradeDiagnostics, formatUpgradeSummary } from '../formatters.ts';
 import { UPGRADE_USAGE } from '../usage.ts';
@@ -15,20 +15,22 @@ export const upgradeCommand: CommandHandler = {
     const upgradeArgs = parseUpgradeArgs(args);
     if (upgradeArgs.mode === 'plan') {
       const { upgradePlanPath } = getWorkspacePaths(ctx.cwd);
-      const upgradePlan = await readRequiredJson<UpgradePlan>(
+      await printRequiredJson<UpgradePlan>(
         upgradePlanPath,
-        'Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first'
+        'Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first',
+        upgradeArgs,
+        (plan) => formatUpgradeSummary(plan, plan.status === 'planned')
       );
-      printJsonOrText(upgradePlan, upgradeArgs, (plan) => formatUpgradeSummary(plan, plan.status === 'planned'));
       return;
     }
     if (upgradeArgs.mode === 'diagnostics') {
       const { upgradeDiagnosticsPath } = getWorkspacePaths(ctx.cwd);
-      const diagnostics = await readRequiredJson<UpgradeDiagnostics>(
+      await printRequiredJson<UpgradeDiagnostics>(
         upgradeDiagnosticsPath,
-        'Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first'
+        'Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first',
+        upgradeArgs,
+        formatUpgradeDiagnostics
       );
-      printJsonOrText(diagnostics, upgradeArgs, formatUpgradeDiagnostics);
       return;
     }
     const { upgradePlan } = await upgradeWorkspace(ctx.cwd, upgradeArgs.blockId, upgradeArgs.targetVersion, {

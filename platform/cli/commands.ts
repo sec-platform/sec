@@ -59,7 +59,7 @@ import {
   parseTestOutputArgs,
   parseVerificationOutputArgs
 } from './args.ts';
-import { readRequiredJson } from './command-utils.ts';
+import { printRequiredJson, readRequiredJson } from './command-utils.ts';
 import { printJsonOrText } from './format-utils.ts';
 import {
   buildAcceptanceTargetInspect,
@@ -287,8 +287,12 @@ export async function runInstallCommand(args: string[], cwd = process.cwd()): Pr
 
   const outputArgs = parseInstallOutputArgs(args.slice(1));
   const { installManifestPath } = getWorkspacePaths(cwd);
-  const manifest = await readRequiredJson<InstallManifestEntry[]>(installManifestPath, 'Install manifest not found; run platform compose first');
-  printJsonOrText(manifest, outputArgs, formatInstallManifest);
+  await printRequiredJson<InstallManifestEntry[]>(
+    installManifestPath,
+    'Install manifest not found; run platform compose first',
+    outputArgs,
+    formatInstallManifest
+  );
 }
 
 export async function runBlocksCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -298,8 +302,12 @@ export async function runBlocksCommand(args: string[], cwd = process.cwd()): Pro
 
   const outputArgs = parseBlocksOutputArgs(args.slice(1));
   const { blockUsageMapPath } = getWorkspacePaths(cwd);
-  const usageMap = await readRequiredJson<BlockUsageMap>(blockUsageMapPath, 'Block usage map not found; run platform compose first');
-  printJsonOrText(usageMap, outputArgs, formatBlockUsageMap);
+  await printRequiredJson<BlockUsageMap>(
+    blockUsageMapPath,
+    'Block usage map not found; run platform compose first',
+    outputArgs,
+    formatBlockUsageMap
+  );
 }
 
 export async function runPostgresCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -309,8 +317,12 @@ export async function runPostgresCommand(args: string[], cwd = process.cwd()): P
 
   const outputArgs = parsePostgresOutputArgs(args.slice(1));
   const { postgresContractPath } = getWorkspacePaths(cwd);
-  const contract = await readRequiredJson<PostgresContract>(postgresContractPath, 'Postgres contract not found; run platform compose first');
-  printJsonOrText(contract, outputArgs, formatPostgresContract);
+  await printRequiredJson<PostgresContract>(
+    postgresContractPath,
+    'Postgres contract not found; run platform compose first',
+    outputArgs,
+    formatPostgresContract
+  );
 }
 
 export async function runVerificationCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -320,8 +332,12 @@ export async function runVerificationCommand(args: string[], cwd = process.cwd()
 
   const outputArgs = parseVerificationOutputArgs(args.slice(1));
   const { verificationReportPath } = getWorkspacePaths(cwd);
-  const report = await readRequiredJson<VerificationReport>(verificationReportPath, 'Verification report not found; run platform verify first');
-  printJsonOrText(report, outputArgs, formatVerificationReport);
+  await printRequiredJson<VerificationReport>(
+    verificationReportPath,
+    'Verification report not found; run platform verify first',
+    outputArgs,
+    formatVerificationReport
+  );
 }
 
 export async function runProvenanceCommand(args: string[], cwd = process.cwd()): Promise<void> {
@@ -331,11 +347,12 @@ export async function runProvenanceCommand(args: string[], cwd = process.cwd()):
 
   const outputArgs = parseProvenanceOutputArgs(args.slice(1));
   const readableProvenancePath = await resolveWorkspaceProvenancePath(cwd);
-  const provenance = await readRequiredJson<ProvenanceFile>(
+  await printRequiredJson<ProvenanceFile>(
     readableProvenancePath,
-    'Provenance registry not found; run platform adapt or lock first'
+    'Provenance registry not found; run platform adapt or lock first',
+    outputArgs,
+    formatProvenanceRegistry
   );
-  printJsonOrText(provenance, outputArgs, formatProvenanceRegistry);
 }
 
 export async function runReviewCommand(args: string[], cwd = process.cwd()): Promise<void> {
