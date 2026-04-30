@@ -3,13 +3,51 @@ import { listFilesRecursive } from '../../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { pathEnvKey, resolveNpmInvocation, runCommand } from '../../shared/process.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
-import type { RuntimeVerificationLaneReport, VerificationStatus } from '../../shared/verification-types.ts';
+import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
 
 type RuntimeVerificationOptions = {
   emitTiming?: boolean;
 };
+
+type RuntimeVerificationStep = 'build' | 'unit' | 'acceptance';
+
+const RUNTIME_VERIFICATION_COMMANDS = {
+  build: 'npm run build',
+  unit: 'npm run test:unit',
+  acceptance: 'npm run test:acceptance'
+} satisfies Record<RuntimeVerificationStep, string>;
+
+function createRuntimeStepReport(
+  status: VerificationStatus,
+  passed: string[],
+  failed: string[],
+  command: string
+): VerificationStepReport {
+  return { status, passed, failed, command };
+}
+
+function createSkippedRuntimeStep(command: string): VerificationStepReport {
+  return createRuntimeStepReport('skipped', [], [], command);
+}
+
+function createRuntimeCommandStep(command: string, code: number, files: string[]): VerificationStepReport {
+  return createRuntimeStepReport(normalizeStatus(code), code === 0 ? files : [], code === 0 ? [] : files, command);
+}
+
+export function createSkippedRuntimeLane(): RuntimeVerificationLaneReport {
+  return {
+    status: 'skipped',
+    build: createSkippedRuntimeStep(RUNTIME_VERIFICATION_COMMANDS.build),
+    unit: createSkippedRuntimeStep(RUNTIME_VERIFICATION_COMMANDS.unit),
+    acceptance: createSkippedRuntimeStep(RUNTIME_VERIFICATION_COMMANDS.acceptance),
+    logs: {
+      stdout: '',
+      stderr: ''
+    }
+  };
+}
 
 function generatePort(projectRoot: string): number {
   const basePort = 3000;
@@ -93,31 +131,7 @@ export async function runRuntimeVerification(
     ...process.env,
     [envPathKey]: `${path.join(compilerRoot, 'node_modules', '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`
   };
-  const lane: RuntimeVerificationLaneReport = {
-    status: 'skipped',
-    build: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run build'
-    },
-    unit: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:unit'
-    },
-    acceptance: {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:acceptance'
-    },
-    logs: {
-      stdout: '',
-      stderr: ''
-    }
-  };
+  const lane = createSkippedRuntimeLane();
 
   if (mode === 'full') {
     const buildInvocation = resolveNpmInvocation(['run', 'build']);
@@ -128,12 +142,7 @@ export async function runRuntimeVerification(
       })
     );
     lane.status = normalizeStatus(buildResult.code);
-    lane.build = {
-      status: normalizeStatus(buildResult.code),
-      passed: buildResult.code === 0 ? ['next build'] : [],
-      failed: buildResult.code === 0 ? [] : ['next build'],
-      command: 'npm run build'
-    };
+    lane.build = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.build, buildResult.code, ['next build']);
     appendCommandOutput(lane.logs, buildResult, 'runtime-build:passed');
 
     if (buildResult.code !== 0) {
@@ -141,14 +150,7 @@ export async function runRuntimeVerification(
     }
   }
 
-  if (runtimeUnitFiles.length === 0) {
-    lane.unit = {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:unit'
-    };
-  } else {
+  if (runtimeUnitFiles.length > 0) {
     const unitInvocation = resolveNpmInvocation(['run', 'test:unit']);
     const unitResult = await timed('vitest unit', emitTiming, () =>
       runCommand(unitInvocation.command, unitInvocation.args, {
@@ -156,12 +158,7 @@ export async function runRuntimeVerification(
         env: baseEnv
       })
     );
-    lane.unit = {
-      status: normalizeStatus(unitResult.code),
-      passed: unitResult.code === 0 ? runtimeUnitFiles : [],
-      failed: unitResult.code === 0 ? [] : runtimeUnitFiles,
-      command: 'npm run test:unit'
-    };
+    lane.unit = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.unit, unitResult.code, runtimeUnitFiles);
     appendCommandOutput(lane.logs, unitResult, `runtime-unit:passed ${runtimeUnitFiles.join(',')}`);
     lane.status = normalizeStatus(unitResult.code);
 
@@ -176,12 +173,6 @@ export async function runRuntimeVerification(
   }
 
   if (runtimeAcceptanceFiles.length === 0) {
-    lane.acceptance = {
-      status: 'skipped',
-      passed: [],
-      failed: [],
-      command: 'npm run test:acceptance'
-    };
     lane.status = 'passed';
     return lane;
   }
@@ -189,12 +180,7 @@ export async function runRuntimeVerification(
   const browserInstallResult = await timed('playwright install', emitTiming, () => ensurePlaywrightBrowser(projectRoot, baseEnv));
   appendCommandOutput(lane.logs, browserInstallResult, 'playwright-install:passed');
   if (browserInstallResult.code !== 0) {
-    lane.acceptance = {
-      status: 'failed',
-      passed: [],
-      failed: runtimeAcceptanceFiles,
-      command: 'npm run test:acceptance'
-    };
+    lane.acceptance = createRuntimeStepReport('failed', [], runtimeAcceptanceFiles, RUNTIME_VERIFICATION_COMMANDS.acceptance);
     lane.status = 'failed';
     return lane;
   }
@@ -211,12 +197,7 @@ export async function runRuntimeVerification(
       }
     })
   );
-  lane.acceptance = {
-    status: normalizeStatus(acceptanceResult.code),
-    passed: acceptanceResult.code === 0 ? runtimeAcceptanceFiles : [],
-    failed: acceptanceResult.code === 0 ? [] : runtimeAcceptanceFiles,
-    command: 'npm run test:acceptance'
-  };
+  lane.acceptance = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.acceptance, acceptanceResult.code, runtimeAcceptanceFiles);
   appendCommandOutput(lane.logs, acceptanceResult, `runtime-acceptance:passed ${runtimeAcceptanceFiles.join(',')}`);
   lane.status = normalizeStatus(acceptanceResult.code);
 
