@@ -193,6 +193,7 @@ test('upgrade advances ticket block version and surfaces runtime upgrade impact'
     'prisma/schema.prisma',
     'src/installed/ticket/ticket-service.ts',
     'tests/acceptance/ticket-flow.test.ts',
+    'tests/shared/ticket-service-suite.ts',
     'tests/unit/ticket-service.test.ts',
     'upgrade.metadata.json'
   ]);
