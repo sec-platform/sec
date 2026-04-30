@@ -1263,92 +1263,76 @@ ${renderMutationError('Unable to create customer')}
 `;
 }
 
-function renderCustomerAttachmentForm(): string {
+type FileUploadFormOptions = { componentName: string; idProp: string; titleProp: string; fetchPath: string; afterSuccess: string; useRouter?: boolean };
+
+function renderFileUploadForm(options: FileUploadFormOptions): string {
+  const propsName = `${options.componentName}Props`;
+  const routerImport = options.useRouter ? `import { useRouter } from 'next/navigation';\n` : '';
+  const routerSetup = options.useRouter ? `  const router = useRouter();\n` : '';
+
   return `'use client';
 
-import { useRouter } from 'next/navigation';
-import { type FormEvent, useRef, useState } from 'react';
+${routerImport}import { type FormEvent, useRef, useState } from 'react';
 
-interface CustomerAttachmentFormProps {
-  customerId: number;
-  customerName: string;
+interface ${propsName} {
+  ${options.idProp}: number;
+  ${options.titleProp}: string;
 }
 
-export function CustomerAttachmentForm({ customerId, customerName }: CustomerAttachmentFormProps) {
-  const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
+export function ${options.componentName}({ ${options.idProp}, ${options.titleProp} }: ${propsName}) {
+${routerSetup}  const formRef = useRef<HTMLFormElement>(null);
 ${renderClientMutationState()}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 ${renderFormSubmitStart()}
 
-    const response = await fetch(\`/api/customers/\${customerId}/attachments\`, {
+    const response = await fetch(${options.fetchPath}, {
       method: 'POST',
       body: new FormData(event.currentTarget)
     });
 
 ${renderMutationError('Unable to upload attachment')}
 
-    formRef.current?.reset();
-    setPending(false);
-    router.refresh();
-  }
-
-  return (
-    <form ref={formRef} className=\"row\" onSubmit={handleSubmit}>
-      <label style={{ flex: 1 }}>
-        Attachment
-        <input aria-label={\`Attachment for \${customerName}\`} name=\"file\" type=\"file\" />
-      </label>
-      <button type=\"submit\" disabled={pending}>{pending ? 'Uploading...' : \`Upload attachment for \${customerName}\`}</button>
-      {error ? <p role=\"alert\">{error}</p> : null}
-    </form>
-  );
-}
-`;
-}
-
-function renderTicketAttachmentForm(): string {
-  return `'use client';
-
-import { type FormEvent, useRef, useState } from 'react';
-
-interface TicketAttachmentFormProps {
-  ticketId: number;
-  ticketTitle: string;
-}
-
-export function TicketAttachmentForm({ ticketId, ticketTitle }: TicketAttachmentFormProps) {
-  const formRef = useRef<HTMLFormElement>(null);
-${renderClientMutationState()}
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-${renderFormSubmitStart()}
-
-    const response = await fetch(\`/api/tickets/\${ticketId}/attachments\`, {
-      method: 'POST',
-      body: new FormData(event.currentTarget)
-    });
-
-${renderMutationError('Unable to upload attachment')}
-
-    formRef.current?.reset();
-    setPending(false);
-    window.location.reload();
+${options.afterSuccess}
   }
 
   return (
     <form ref={formRef} className="row" onSubmit={handleSubmit}>
       <label style={{ flex: 1 }}>
         Attachment
-        <input aria-label={\`Attachment for \${ticketTitle}\`} name="file" type="file" />
+        <input aria-label={\`Attachment for \${${options.titleProp}}\`} name="file" type="file" />
       </label>
-      <button type="submit" disabled={pending}>{pending ? 'Uploading...' : \`Upload attachment for \${ticketTitle}\`}</button>
+      <button type="submit" disabled={pending}>{pending ? 'Uploading...' : \`Upload attachment for \${${options.titleProp}}\`}</button>
       {error ? <p role="alert">{error}</p> : null}
     </form>
   );
 }
 `;
+}
+
+function renderCustomerAttachmentForm(): string {
+  return renderFileUploadForm({
+    componentName: 'CustomerAttachmentForm',
+    idProp: 'customerId',
+    titleProp: 'customerName',
+    fetchPath: '`/api/customers/${customerId}/attachments`',
+    useRouter: true,
+    afterSuccess: `    formRef.current?.reset();
+    setPending(false);
+    router.refresh();`
+  });
+}
+
+function renderTicketAttachmentForm(): string {
+  return renderFileUploadForm({
+    componentName: 'TicketAttachmentForm',
+    idProp: 'ticketId',
+    titleProp: 'ticketTitle',
+    fetchPath: '`/api/tickets/${ticketId}/attachments`',
+    afterSuccess: `    formRef.current?.reset();
+    setPending(false);
+    window.location.reload();`
+  });
 }
 
 function renderTicketCommentForm(): string {
