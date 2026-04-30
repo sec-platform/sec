@@ -1368,79 +1368,72 @@ type UpgradePreflightCheckInput = {
   evidence: UpgradePreflightEvidence;
 };
 
-function buildUpgradePreflightChecks(input: UpgradePreflightCheckInput): UpgradePreflightCheck[] {
-  const {
-    acceptedRanges,
-    currentVersion,
-    evidence,
-    impacts,
-    migrationEntries,
-    migrations,
-    targetVersion
-  } = input;
+type UpgradePreflightCheckSpec = {
+  id: UpgradePreflightCheck['id'];
+  message: (input: UpgradePreflightCheckInput) => string;
+  evidence: (input: UpgradePreflightCheckInput) => string[];
+};
 
-  return [
-    {
-      id: 'version-range',
-      status: 'passed',
-      message: `Upgrade path ${currentVersion} -> ${targetVersion} is allowed`,
-      evidence: acceptedRanges
-    },
-    {
-      id: 'migration-entries',
-      status: 'passed',
-      message: `${migrationEntries.length} migration entries loaded and validated`,
-      evidence: migrations.map((migration) => `${migration.id}:${migration.entry}`)
-    },
-    {
-      id: 'migration-targets',
-      status: 'passed',
-      message: `${evidence.migrationTargetEvidence.length} migration paths checked`,
-      evidence: evidence.migrationTargetEvidence
-    },
-    {
-      id: 'migration-file-operations',
-      status: 'passed',
-      message: `${evidence.fileOperationEvidence.length} file operations checked`,
-      evidence: evidence.fileOperationEvidence
-    },
-    {
-      id: 'migration-json-shapes',
-      status: 'passed',
-      message: `${evidence.jsonShapeEvidence.length} JSON migration shapes checked`,
-      evidence: evidence.jsonShapeEvidence
-    },
-    {
-      id: 'migration-json-structure',
-      status: 'passed',
-      message: `${evidence.jsonStructureEvidence.length} JSON migration targets checked`,
-      evidence: evidence.jsonStructureEvidence
-    },
-    {
-      id: 'migration-text-patterns',
-      status: 'passed',
-      message: `${evidence.textPatternEvidence.length} text replacement patterns checked`,
-      evidence: evidence.textPatternEvidence
-    },
-    {
-      id: 'migration-slot-contracts',
-      status: 'passed',
-      message: `${evidence.slotContractEvidence.length} slot contract fields checked`,
-      evidence: evidence.slotContractEvidence
-    },
-    {
-      id: 'impact-scan',
-      status: 'passed',
-      message: `${impacts.length} upgrade impacts calculated`,
-      evidence: impacts
-    },
-    {
-      id: 'override-conflicts',
-      status: 'passed',
-      message: `${evidence.scannedOverrides.length} overrides scanned with no conflicts`,
-      evidence: evidence.scannedOverrides
-    }
-  ];
+const UPGRADE_PREFLIGHT_CHECK_SPECS = [
+  {
+    id: 'version-range',
+    message: ({ currentVersion, targetVersion }) => `Upgrade path ${currentVersion} -> ${targetVersion} is allowed`,
+    evidence: ({ acceptedRanges }) => acceptedRanges
+  },
+  {
+    id: 'migration-entries',
+    message: ({ migrationEntries }) => `${migrationEntries.length} migration entries loaded and validated`,
+    evidence: ({ migrations }) => migrations.map((migration) => `${migration.id}:${migration.entry}`)
+  },
+  {
+    id: 'migration-targets',
+    message: ({ evidence }) => `${evidence.migrationTargetEvidence.length} migration paths checked`,
+    evidence: ({ evidence }) => evidence.migrationTargetEvidence
+  },
+  {
+    id: 'migration-file-operations',
+    message: ({ evidence }) => `${evidence.fileOperationEvidence.length} file operations checked`,
+    evidence: ({ evidence }) => evidence.fileOperationEvidence
+  },
+  {
+    id: 'migration-json-shapes',
+    message: ({ evidence }) => `${evidence.jsonShapeEvidence.length} JSON migration shapes checked`,
+    evidence: ({ evidence }) => evidence.jsonShapeEvidence
+  },
+  {
+    id: 'migration-json-structure',
+    message: ({ evidence }) => `${evidence.jsonStructureEvidence.length} JSON migration targets checked`,
+    evidence: ({ evidence }) => evidence.jsonStructureEvidence
+  },
+  {
+    id: 'migration-text-patterns',
+    message: ({ evidence }) => `${evidence.textPatternEvidence.length} text replacement patterns checked`,
+    evidence: ({ evidence }) => evidence.textPatternEvidence
+  },
+  {
+    id: 'migration-slot-contracts',
+    message: ({ evidence }) => `${evidence.slotContractEvidence.length} slot contract fields checked`,
+    evidence: ({ evidence }) => evidence.slotContractEvidence
+  },
+  {
+    id: 'impact-scan',
+    message: ({ impacts }) => `${impacts.length} upgrade impacts calculated`,
+    evidence: ({ impacts }) => impacts
+  },
+  {
+    id: 'override-conflicts',
+    message: ({ evidence }) => `${evidence.scannedOverrides.length} overrides scanned with no conflicts`,
+    evidence: ({ evidence }) => evidence.scannedOverrides
+  }
+] satisfies readonly UpgradePreflightCheckSpec[];
+
+function buildUpgradePreflightChecks(input: UpgradePreflightCheckInput): UpgradePreflightCheck[] {
+  return UPGRADE_PREFLIGHT_CHECK_SPECS.map((spec) => ({
+    id: spec.id,
+    status: 'passed',
+    message: spec.message(input),
+    evidence: spec.evidence(input)
+  }));
 }
 
 function collectMigrationImpacts(migrationEntries: UpgradeMigrationEntry[]): string[] {
@@ -1577,52 +1570,48 @@ async function recordUpgradeGeneratedArtifact(workspaceRoot: string, lock: LockF
   await writeProvenance(workspaceRoot, lock);
 }
 
+const PREFLIGHT_FAILURE_BY_ERROR_CODE = new Map<string, UpgradeDiagnostics['failedCheck']>([
+  ['UPGRADE-BLOCKED-003', 'plan-block'],
+  ['MANIFEST-SCHEMA-004', 'target-manifest'],
+  ['UPGRADE-NOOP-001', 'version-range'],
+  ['UPGRADE-BLOCKED-001', 'version-range'],
+  ['UPGRADE-BLOCKED-002', 'version-range'],
+  ['UPGRADE-MIGRATION-004', 'migration-targets'],
+  ['UPGRADE-MIGRATION-007', 'migration-targets'],
+  ['UPGRADE-MIGRATION-012', 'migration-json-structure'],
+  ['UPGRADE-MIGRATION-013', 'migration-json-structure'],
+  ['UPGRADE-MIGRATION-014', 'migration-text-patterns'],
+  ['UPGRADE-MIGRATION-015', 'migration-text-patterns'],
+  ['UPGRADE-MIGRATION-021', 'migration-slot-contracts'],
+  ['UPGRADE-MIGRATION-022', 'migration-slot-contracts'],
+  ['UPGRADE-CONFLICT-001', 'override-conflicts']
+]);
+
+const MIGRATION_FILE_OPERATION_FAILURE_CODES = new Set([
+  'UPGRADE-MIGRATION-005',
+  'UPGRADE-MIGRATION-008',
+  'UPGRADE-MIGRATION-016',
+  'UPGRADE-MIGRATION-017',
+  'UPGRADE-MIGRATION-018',
+  'UPGRADE-MIGRATION-019',
+  'UPGRADE-MIGRATION-020',
+  'UPGRADE-MIGRATION-023',
+  'UPGRADE-MIGRATION-024',
+  'UPGRADE-MIGRATION-025',
+  'UPGRADE-MIGRATION-026',
+  'UPGRADE-MIGRATION-027',
+  'UPGRADE-MIGRATION-028'
+]);
+
 function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck'] {
-  if (code === 'UPGRADE-BLOCKED-003') {
-    return 'plan-block';
+  const failedCheck = PREFLIGHT_FAILURE_BY_ERROR_CODE.get(code);
+  if (failedCheck) {
+    return failedCheck;
   }
-  if (code === 'MANIFEST-SCHEMA-004') {
-    return 'target-manifest';
-  }
-  if (code === 'UPGRADE-NOOP-001' || code === 'UPGRADE-BLOCKED-001' || code === 'UPGRADE-BLOCKED-002') {
-    return 'version-range';
-  }
-  if (code === 'UPGRADE-MIGRATION-004' || code === 'UPGRADE-MIGRATION-007') {
-    return 'migration-targets';
-  }
-  if (code === 'UPGRADE-MIGRATION-012' || code === 'UPGRADE-MIGRATION-013') {
-    return 'migration-json-structure';
-  }
-  if (code === 'UPGRADE-MIGRATION-014' || code === 'UPGRADE-MIGRATION-015') {
-    return 'migration-text-patterns';
-  }
-  if (code === 'UPGRADE-MIGRATION-021' || code === 'UPGRADE-MIGRATION-022') {
-    return 'migration-slot-contracts';
-  }
-  if (
-    code === 'UPGRADE-MIGRATION-005' ||
-    code === 'UPGRADE-MIGRATION-008' ||
-    code === 'UPGRADE-MIGRATION-016' ||
-    code === 'UPGRADE-MIGRATION-017' ||
-    code === 'UPGRADE-MIGRATION-018' ||
-    code === 'UPGRADE-MIGRATION-019' ||
-    code === 'UPGRADE-MIGRATION-020' ||
-    code === 'UPGRADE-MIGRATION-023' ||
-    code === 'UPGRADE-MIGRATION-024' ||
-    code === 'UPGRADE-MIGRATION-025' ||
-    code === 'UPGRADE-MIGRATION-026' ||
-    code === 'UPGRADE-MIGRATION-027' ||
-    code === 'UPGRADE-MIGRATION-028'
-  ) {
+  if (MIGRATION_FILE_OPERATION_FAILURE_CODES.has(code)) {
     return 'migration-file-operations';
   }
-  if (code.startsWith('UPGRADE-MIGRATION-')) {
-    return 'migration-entries';
-  }
-  if (code === 'UPGRADE-CONFLICT-001') {
-    return 'override-conflicts';
-  }
-  return 'impact-scan';
+  return code.startsWith('UPGRADE-MIGRATION-') ? 'migration-entries' : 'impact-scan';
 }
 
 async function writeUpgradeDiagnostics(
