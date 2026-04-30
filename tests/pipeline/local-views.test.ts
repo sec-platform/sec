@@ -10,10 +10,10 @@ import {
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { buildOfficialRegistrySummary } from '../helpers/review-fixtures.ts';
 import {
   buildArtifactMissingReasonCounts,
   buildArtifactUploadGroup,
-  buildOfficialRegistrySummary,
   expectContainsAll,
   expectContainsNone,
   prepareLockedWorkspace
