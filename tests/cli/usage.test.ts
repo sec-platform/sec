@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { test } from 'vitest';
 
 import {
   ACCEPTANCE_USAGE,
@@ -26,32 +26,22 @@ import {
   VERIFY_USAGE,
   WORKBENCH_USAGE
 } from '../../platform/cli/usage.ts';
-import { expectCliText, runCliInProcess as runCli, usageErrorStderr, withTempWorkspace } from '../helpers/test-utils.ts';
+import { expectCliText, expectCliUsageError, withTempWorkspace } from '../helpers/test-utils.ts';
+
+type UsageArgs = [command: string, ...args: string[]];
 
 type UsageErrorCase = {
-  args: string[];
+  args: UsageArgs;
   usage: string;
 };
 
-function usageCases(usage: string, argsList: string[][]): UsageErrorCase[] {
+function usageCases(usage: string, argsList: UsageArgs[]): UsageErrorCase[] {
   return argsList.map((args) => ({ args, usage }));
 }
 
-async function expectUsageError(
-  workspaceRoot: string,
-  args: string[],
-  usage: string
-): Promise<void> {
-  await expect(runCli(workspaceRoot, args)).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(usage)
-  });
-}
-
 async function expectUsageErrors(workspaceRoot: string, cases: UsageErrorCase[]): Promise<void> {
-  for (const entry of cases) {
-    await expectUsageError(workspaceRoot, entry.args, entry.usage);
+  for (const { args: [command, ...args], usage } of cases) {
+    await expectCliUsageError(workspaceRoot, command, args, usage);
   }
 }
 
