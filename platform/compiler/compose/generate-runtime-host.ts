@@ -2137,90 +2137,163 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
 `;
 }
 
-function scaffoldEntries(lock: LockFile): Array<{ relativePath: string; source: string }> {
-  const authEnabled = hasBlock(lock, 'auth/basic-session');
-  const customerEnabled = hasBlock(lock, 'entity/customer-basic');
-  const ticketEnabled = hasBlock(lock, 'ticket/basic');
-  const customerFeatureOptions = {
+type RuntimeHostFeatures = {
+  authEnabled: boolean;
+  auditEnabled: boolean;
+  customerEnabled: boolean;
+  exportCsvEnabled: boolean;
+  fileUploadEnabled: boolean;
+  notifyEmailEnabled: boolean;
+  postgresEnabled: boolean;
+  rbacEnabled: boolean;
+  tableFilterEnabled: boolean;
+  ticketEnabled: boolean;
+  ticketReportingEnabled: boolean;
+  worklogEnabled: boolean;
+};
+
+type RuntimeHostScaffoldEntry = {
+  relativePath: string;
+  source: string;
+};
+
+type RuntimeHostScaffoldPredicate = (features: RuntimeHostFeatures) => boolean;
+
+type RuntimeHostScaffoldDefinition = {
+  relativePath: string;
+  enabled?: RuntimeHostScaffoldPredicate;
+  render: (features: RuntimeHostFeatures) => string;
+};
+
+function defineRuntimeHostScaffold(
+  relativePath: string,
+  render: (features: RuntimeHostFeatures) => string,
+  enabled?: RuntimeHostScaffoldPredicate
+): RuntimeHostScaffoldDefinition {
+  return { relativePath, render, ...(enabled ? { enabled } : {}) };
+}
+
+const isAuthEnabled: RuntimeHostScaffoldPredicate = (features) => features.authEnabled;
+const isCustomerEnabled: RuntimeHostScaffoldPredicate = (features) => features.customerEnabled;
+const isCustomerFileUploadEnabled: RuntimeHostScaffoldPredicate = (features) => (
+  features.customerEnabled && features.fileUploadEnabled
+);
+const isTicketEnabled: RuntimeHostScaffoldPredicate = (features) => features.ticketEnabled;
+const isTicketExportEnabled: RuntimeHostScaffoldPredicate = (features) => (
+  features.ticketEnabled && features.exportCsvEnabled
+);
+const isTicketReportingEnabled: RuntimeHostScaffoldPredicate = (features) => (
+  features.ticketEnabled && features.ticketReportingEnabled
+);
+const isTicketSummaryExportEnabled: RuntimeHostScaffoldPredicate = (features) => (
+  features.ticketEnabled && features.ticketReportingEnabled && features.exportCsvEnabled
+);
+const isTicketWorklogEnabled: RuntimeHostScaffoldPredicate = (features) => (
+  features.ticketEnabled && features.worklogEnabled
+);
+
+const runtimeHostScaffoldDefinitions: RuntimeHostScaffoldDefinition[] = [
+  defineRuntimeHostScaffold('app/layout.tsx', renderLayout),
+  defineRuntimeHostScaffold('app/page.tsx', (features) => renderIndexPage(features.authEnabled)),
+  defineRuntimeHostScaffold('lib/store.ts', renderStoreLibrary),
+  defineRuntimeHostScaffold('app/login/page.tsx', renderLoginPage, isAuthEnabled),
+  defineRuntimeHostScaffold('app/workspace/page.tsx', renderWorkspacePage, isAuthEnabled),
+  defineRuntimeHostScaffold('app/api/session/login/route.ts', renderLoginRoute, isAuthEnabled),
+  defineRuntimeHostScaffold('app/api/session/logout/route.ts', renderLogoutRoute, isAuthEnabled),
+  defineRuntimeHostScaffold('app/api/session/current/route.ts', renderCurrentSessionRoute, isAuthEnabled),
+  defineRuntimeHostScaffold('components/login-form.tsx', renderLoginForm, isAuthEnabled),
+  defineRuntimeHostScaffold('components/logout-button.tsx', renderLogoutButton, isAuthEnabled),
+  defineRuntimeHostScaffold('lib/session.ts', renderSessionLibrary, isAuthEnabled),
+  defineRuntimeHostScaffold('app/customers/page.tsx', renderCustomersPage, isCustomerEnabled),
+  defineRuntimeHostScaffold('app/api/customers/route.ts', renderCustomersRoute, isCustomerEnabled),
+  defineRuntimeHostScaffold('components/customer-form.tsx', renderCustomerForm, isCustomerEnabled),
+  defineRuntimeHostScaffold('tests/runtime/unit/customer-runtime.test.ts', renderRuntimeUnitTest, isCustomerEnabled),
+  defineRuntimeHostScaffold(
+    'tests/runtime/acceptance/customer-flow.spec.ts',
+    renderRuntimeAcceptanceTest,
+    isCustomerEnabled
+  ),
+  defineRuntimeHostScaffold(
+    'app/api/customers/[customerId]/attachments/route.ts',
+    renderCustomerAttachmentsRoute,
+    isCustomerFileUploadEnabled
+  ),
+  defineRuntimeHostScaffold(
+    'components/customer-attachment-form.tsx',
+    renderCustomerAttachmentForm,
+    isCustomerFileUploadEnabled
+  ),
+  defineRuntimeHostScaffold('app/tickets/page.tsx', renderTicketsPage, isTicketEnabled),
+  defineRuntimeHostScaffold('app/api/tickets/route.ts', renderTicketsRoute, isTicketEnabled),
+  defineRuntimeHostScaffold(
+    'app/api/tickets/summary/route.ts',
+    renderTicketSummaryRoute,
+    isTicketReportingEnabled
+  ),
+  defineRuntimeHostScaffold(
+    'app/api/tickets/summary/export/route.ts',
+    renderTicketSummaryExportRoute,
+    isTicketSummaryExportEnabled
+  ),
+  defineRuntimeHostScaffold('app/api/tickets/export/route.ts', renderTicketExportRoute, isTicketExportEnabled),
+  defineRuntimeHostScaffold(
+    'app/api/tickets/[ticketId]/attachments/route.ts',
+    renderTicketAttachmentsRoute,
+    isTicketEnabled
+  ),
+  defineRuntimeHostScaffold(
+    'app/api/tickets/[ticketId]/comments/route.ts',
+    renderTicketCommentsRoute,
+    isTicketEnabled
+  ),
+  defineRuntimeHostScaffold(
+    'app/api/tickets/[ticketId]/worklogs/route.ts',
+    renderTicketWorklogsRoute,
+    isTicketWorklogEnabled
+  ),
+  defineRuntimeHostScaffold(
+    'app/api/tickets/[ticketId]/status/route.ts',
+    renderTicketStatusRoute,
+    isTicketEnabled
+  ),
+  defineRuntimeHostScaffold('components/ticket-attachment-form.tsx', renderTicketAttachmentForm, isTicketEnabled),
+  defineRuntimeHostScaffold('components/ticket-comment-form.tsx', renderTicketCommentForm, isTicketEnabled),
+  defineRuntimeHostScaffold('components/ticket-worklog-form.tsx', renderTicketWorklogForm, isTicketWorklogEnabled),
+  defineRuntimeHostScaffold('components/ticket-form.tsx', renderTicketForm, isTicketEnabled),
+  defineRuntimeHostScaffold('components/ticket-status-form.tsx', renderTicketStatusForm, isTicketEnabled),
+  defineRuntimeHostScaffold('tests/runtime/unit/ticket-runtime.test.ts', renderTicketRuntimeUnitTest, isTicketEnabled),
+  defineRuntimeHostScaffold(
+    'tests/runtime/acceptance/ticket-flow.spec.ts',
+    renderTicketRuntimeAcceptanceTest,
+    isTicketEnabled
+  )
+];
+
+function buildRuntimeHostFeatures(lock: LockFile): RuntimeHostFeatures {
+  return {
+    authEnabled: hasBlock(lock, 'auth/basic-session'),
     auditEnabled: hasBlock(lock, 'audit/basic'),
-    fileUploadEnabled: hasBlock(lock, 'file/upload'),
+    customerEnabled: hasBlock(lock, 'entity/customer-basic'),
     exportCsvEnabled: hasBlock(lock, 'export/csv-basic'),
+    fileUploadEnabled: hasBlock(lock, 'file/upload'),
     notifyEmailEnabled: hasBlock(lock, 'notify/email-basic'),
     postgresEnabled: hasBlock(lock, 'infra/postgres'),
     rbacEnabled: hasBlock(lock, 'rbac/basic'),
     tableFilterEnabled: hasBlock(lock, 'table/filter-search'),
-    ticketEnabled,
+    ticketEnabled: hasBlock(lock, 'ticket/basic'),
     ticketReportingEnabled: hasBlock(lock, 'reporting/ticket-summary'),
     worklogEnabled: hasBlock(lock, 'worklog/basic')
   };
-  const entries: Array<{ relativePath: string; source: string }> = [
-    { relativePath: 'app/layout.tsx', source: renderLayout() },
-    { relativePath: 'app/page.tsx', source: renderIndexPage(authEnabled) },
-    { relativePath: 'lib/store.ts', source: renderStoreLibrary(customerFeatureOptions) }
-  ];
+}
 
-  if (authEnabled) {
-    entries.push(
-      { relativePath: 'app/login/page.tsx', source: renderLoginPage() },
-      { relativePath: 'app/workspace/page.tsx', source: renderWorkspacePage(customerFeatureOptions) },
-      { relativePath: 'app/api/session/login/route.ts', source: renderLoginRoute() },
-      { relativePath: 'app/api/session/logout/route.ts', source: renderLogoutRoute() },
-      { relativePath: 'app/api/session/current/route.ts', source: renderCurrentSessionRoute() },
-      { relativePath: 'components/login-form.tsx', source: renderLoginForm() },
-      { relativePath: 'components/logout-button.tsx', source: renderLogoutButton() },
-      { relativePath: 'lib/session.ts', source: renderSessionLibrary() }
-    );
-  }
-
-  if (customerEnabled) {
-    entries.push(
-      { relativePath: 'app/customers/page.tsx', source: renderCustomersPage(customerFeatureOptions) },
-      { relativePath: 'app/api/customers/route.ts', source: renderCustomersRoute(customerFeatureOptions) },
-      { relativePath: 'components/customer-form.tsx', source: renderCustomerForm() },
-      { relativePath: 'tests/runtime/unit/customer-runtime.test.ts', source: renderRuntimeUnitTest(customerFeatureOptions) },
-      { relativePath: 'tests/runtime/acceptance/customer-flow.spec.ts', source: renderRuntimeAcceptanceTest(customerFeatureOptions) }
-    );
-
-    if (customerFeatureOptions.fileUploadEnabled) {
-      entries.push(
-        { relativePath: 'app/api/customers/[customerId]/attachments/route.ts', source: renderCustomerAttachmentsRoute() },
-        { relativePath: 'components/customer-attachment-form.tsx', source: renderCustomerAttachmentForm() }
-      );
-    }
-  }
-
-  if (ticketEnabled) {
-    entries.push(
-      { relativePath: 'app/tickets/page.tsx', source: renderTicketsPage(customerFeatureOptions) },
-      { relativePath: 'app/api/tickets/route.ts', source: renderTicketsRoute(customerFeatureOptions) },
-      ...(customerFeatureOptions.ticketReportingEnabled
-        ? [{ relativePath: 'app/api/tickets/summary/route.ts', source: renderTicketSummaryRoute() }]
-        : []),
-      ...(customerFeatureOptions.ticketReportingEnabled && customerFeatureOptions.exportCsvEnabled
-        ? [{ relativePath: 'app/api/tickets/summary/export/route.ts', source: renderTicketSummaryExportRoute() }]
-        : []),
-      ...(customerFeatureOptions.exportCsvEnabled
-        ? [{ relativePath: 'app/api/tickets/export/route.ts', source: renderTicketExportRoute() }]
-        : []),
-      { relativePath: 'app/api/tickets/[ticketId]/attachments/route.ts', source: renderTicketAttachmentsRoute() },
-      { relativePath: 'app/api/tickets/[ticketId]/comments/route.ts', source: renderTicketCommentsRoute() },
-      ...(customerFeatureOptions.worklogEnabled
-        ? [{ relativePath: 'app/api/tickets/[ticketId]/worklogs/route.ts', source: renderTicketWorklogsRoute() }]
-        : []),
-      { relativePath: 'app/api/tickets/[ticketId]/status/route.ts', source: renderTicketStatusRoute(customerFeatureOptions) },
-      { relativePath: 'components/ticket-attachment-form.tsx', source: renderTicketAttachmentForm() },
-      { relativePath: 'components/ticket-comment-form.tsx', source: renderTicketCommentForm() },
-      ...(customerFeatureOptions.worklogEnabled
-        ? [{ relativePath: 'components/ticket-worklog-form.tsx', source: renderTicketWorklogForm() }]
-        : []),
-      { relativePath: 'components/ticket-form.tsx', source: renderTicketForm() },
-      { relativePath: 'components/ticket-status-form.tsx', source: renderTicketStatusForm() },
-      { relativePath: 'tests/runtime/unit/ticket-runtime.test.ts', source: renderTicketRuntimeUnitTest(customerFeatureOptions) },
-      { relativePath: 'tests/runtime/acceptance/ticket-flow.spec.ts', source: renderTicketRuntimeAcceptanceTest(customerFeatureOptions) }
-    );
-  }
-
-  return entries;
+function scaffoldEntries(lock: LockFile): RuntimeHostScaffoldEntry[] {
+  const features = buildRuntimeHostFeatures(lock);
+  return runtimeHostScaffoldDefinitions
+    .filter((definition) => definition.enabled?.(features) ?? true)
+    .map((definition) => ({
+      relativePath: definition.relativePath,
+      source: definition.render(features)
+    }));
 }
 
 function generatedPathsForScaffold(lock: LockFile): string[] {
