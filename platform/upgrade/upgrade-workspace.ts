@@ -139,14 +139,6 @@ type JsonArrayMigrationEntryValidationContext = {
   entryPath: string;
 };
 
-type MigrationEntryValidator<K extends UpgradeMigrationEntry['kind']> = (
-  context: MigrationEntryValidationContext<K>
-) => void;
-
-type MigrationEntryValidators = {
-  [K in UpgradeMigrationEntry['kind']]: MigrationEntryValidator<K>;
-};
-
 function validateSourceMigrationEntry({ entry, entryPath }: SourceMigrationEntryValidationContext): void {
   ensureMigrationString(entry.source, 'source', entryPath);
 }
@@ -228,31 +220,9 @@ function validateSlotContractMigrationEntry({
   }
 }
 
-const validateTargetOnlyMigrationEntry = (): void => {};
-
-const migrationEntryValidators = {
-  'file-replace': validateSourceMigrationEntry,
-  'copy-file': validateSourceMigrationEntry,
-  'copy-directory': validateSourceMigrationEntry,
-  'config-rewrite': validateConfigRewriteMigrationEntry,
-  'json-array-append': validateJsonArrayMigrationEntry,
-  'json-array-remove': validateJsonArrayMigrationEntry,
-  'json-object-merge': validateJsonObjectMergeMigrationEntry,
-  'text-append': ({ entry, entryPath }) => {
-    ensureMigrationString(entry.content, 'content', entryPath);
-  },
-  'text-replace': ({ entry, entryPath }) => {
-    ensureMigrationString(entry.search, 'search', entryPath);
-    ensureMigrationString(entry.replacement, 'replacement', entryPath);
-  },
-  'text-replace-regex': validateTextReplaceRegexMigrationEntry,
-  'create-directory': validateTargetOnlyMigrationEntry,
-  'delete-file': validateTargetOnlyMigrationEntry,
-  'delete-directory': validateTargetOnlyMigrationEntry,
-  'rename-file': validateSourceMigrationEntry,
-  'rename-directory': validateSourceMigrationEntry,
-  'slot-contract-update': validateSlotContractMigrationEntry
-} satisfies MigrationEntryValidators;
+function unsupportedMigrationKindError(entry: { kind: string }): CompilerError {
+  return new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${entry.kind}"`);
+}
 
 function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string): void {
   ensureMigrationString(entry.id, 'id', entryPath);
@@ -260,17 +230,11 @@ function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string)
   ensureMigrationString(entry.reason, 'reason', entryPath);
   ensureMigrationString(entry.target, 'target', entryPath);
 
-  const validator = (
-    migrationEntryValidators as Partial<Record<string, (context: {
-      entry: UpgradeMigrationEntry;
-      entryPath: string;
-    }) => void>>
-  )[entry.kind];
-  if (!validator) {
-    const unsupportedEntry = entry as { kind: string };
-    throw new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${unsupportedEntry.kind}"`);
+  const spec = getMigrationOperationSpec(entry);
+  if (!spec) {
+    throw unsupportedMigrationKindError(entry as { kind: string });
   }
-  validator({ entry, entryPath });
+  spec.validate?.({ entry, entryPath });
 }
 
 async function loadMigrationEntries(
@@ -667,14 +631,6 @@ type TextReplaceMigrationContext = BaseMigrationOperationContext & {
   entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace' | 'text-replace-regex' }>;
 };
 
-type MigrationApplyHandler<K extends UpgradeMigrationEntry['kind']> = (
-  context: MigrationApplyContext<K>
-) => Promise<void>;
-
-type MigrationApplyHandlers = {
-  [K in UpgradeMigrationEntry['kind']]: MigrationApplyHandler<K>;
-};
-
 type FileOperationEvidenceContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
   BaseMigrationOperationContext & {
     entry: Extract<UpgradeMigrationEntry, { kind: K }>;
@@ -684,16 +640,32 @@ type ManifestFileOperationEvidenceContext = BaseMigrationOperationContext & {
   entry: Extract<UpgradeMigrationEntry, { kind: 'file-replace' | 'copy-file' }>;
 };
 
-type FileOperationEvidenceHandler<K extends UpgradeMigrationEntry['kind']> = (
-  context: FileOperationEvidenceContext<K>
-) => Promise<string[]>;
+type MigrationOperationSpec<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> = {
+  validate?: (context: MigrationEntryValidationContext<K>) => void;
+  apply: (context: MigrationApplyContext<K>) => Promise<void>;
+  collectFileEvidence?: (context: FileOperationEvidenceContext<K>) => Promise<string[]>;
+  collectImpacts?: (entry: Extract<UpgradeMigrationEntry, { kind: K }>) => string[];
+  buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: K }>) => UpgradePlan['migrationOperations'][number];
+};
 
-type FileOperationEvidenceHandlers = Partial<{
-  [K in UpgradeMigrationEntry['kind']]: FileOperationEvidenceHandler<K>;
-}>;
+type MigrationOperationSpecs = {
+  [K in UpgradeMigrationEntry['kind']]: MigrationOperationSpec<K>;
+};
+
+type AnyMigrationOperationSpec = {
+  validate?: (context: MigrationEntryValidationContext) => void;
+  apply: (context: MigrationApplyContext) => Promise<void>;
+  collectFileEvidence?: (context: FileOperationEvidenceContext) => Promise<string[]>;
+  collectImpacts?: (entry: UpgradeMigrationEntry) => string[];
+  buildOperation: (entry: UpgradeMigrationEntry) => UpgradePlan['migrationOperations'][number];
+};
 
 function hasProjectSource(entry: UpgradeMigrationEntry): entry is ProjectSourceMigrationEntry {
   return entry.kind === 'rename-file' || entry.kind === 'rename-directory';
+}
+
+function getMigrationOperationSpec(entry: { kind: string }): AnyMigrationOperationSpec | undefined {
+  return (migrationOperationSpecs as Partial<Record<string, AnyMigrationOperationSpec>>)[entry.kind];
 }
 
 function resolveProjectMigrationTarget(projectRoot: string, entry: UpgradeMigrationEntry): string {
@@ -765,76 +737,6 @@ async function applyTextReplaceMigration(context: TextReplaceMigrationContext): 
   );
 }
 
-const migrationApplyHandlers = {
-  'file-replace': applyManifestFileMigration,
-  'copy-file': applyManifestFileMigration,
-  'copy-directory': async ({ entry, targetManifestRoot, targetPath }) => {
-    const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
-    await statCopyDirectoryMigrationSource(sourcePath, entry.source);
-    await statCopyDirectoryMigrationTarget(targetPath, entry.target);
-    await copyRecursive(sourcePath, targetPath);
-  },
-  'config-rewrite': async ({ entry, targetPath }) => {
-    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-    const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
-    await writeJson(targetPath, config);
-  },
-  'json-array-append': async ({ entry, targetPath }) => {
-    const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-    const config = applyJsonArrayAppend(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
-    await ensureDir(path.dirname(targetPath));
-    await writeJson(targetPath, config);
-  },
-  'json-array-remove': async ({ entry, targetPath }) => {
-    const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-    if (targetStatus === 'missing') {
-      return;
-    }
-    const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
-    await writeJson(targetPath, config);
-  },
-  'json-object-merge': async ({ entry, targetPath }) => {
-    const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-    const config = applyJsonObjectMerge(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
-    await ensureDir(path.dirname(targetPath));
-    await writeJson(targetPath, config);
-  },
-  'text-append': async ({ entry, targetPath }) => {
-    await appendTextMigrationTarget(targetPath, entry.target, entry.content);
-  },
-  'text-replace': applyTextReplaceMigration,
-  'text-replace-regex': applyTextReplaceMigration,
-  'create-directory': async ({ entry, targetPath }) => {
-    await statCreateDirectoryMigrationTarget(targetPath, entry.target);
-    await ensureDir(targetPath);
-  },
-  'delete-file': async ({ entry, targetPath }) => {
-    await removeFileMigrationTarget(targetPath, entry.target);
-  },
-  'delete-directory': async ({ entry, targetPath }) => {
-    await removeDirectoryMigrationTarget(targetPath, entry.target);
-  },
-  'rename-file': async ({ entry, projectRoot, targetPath }) => {
-    await renameFileMigrationTarget(
-      resolveProjectMigrationSource(projectRoot, entry),
-      targetPath,
-      entry.source,
-      entry.target
-    );
-  },
-  'rename-directory': async ({ entry, projectRoot, targetPath }) => {
-    await renameDirectoryMigrationTarget(
-      resolveProjectMigrationSource(projectRoot, entry),
-      targetPath,
-      entry.source,
-      entry.target
-    );
-  },
-  'slot-contract-update': async ({ entry, targetPath }) => {
-    await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-  }
-} satisfies MigrationApplyHandlers;
-
 async function applyMigrationEntry(
   projectRoot: string,
   targetManifestRoot: string,
@@ -843,8 +745,11 @@ async function applyMigrationEntry(
 ): Promise<void> {
   ensureMigrationImpacts(impacts, entry);
   const targetPath = resolveProjectMigrationTarget(projectRoot, entry);
-  const handler = migrationApplyHandlers[entry.kind] as (context: MigrationApplyContext) => Promise<void>;
-  await handler({ entry, projectRoot, targetManifestRoot, targetPath });
+  const spec = getMigrationOperationSpec(entry);
+  if (!spec) {
+    throw unsupportedMigrationKindError(entry as { kind: string });
+  }
+  await spec.apply({ entry, projectRoot, targetManifestRoot, targetPath });
 }
 
 export async function applyMigrationEntries(
@@ -1036,45 +941,217 @@ async function collectManifestFileOperationEvidence(
   ];
 }
 
-const fileOperationEvidenceHandlers: FileOperationEvidenceHandlers = {
-  'file-replace': collectManifestFileOperationEvidence,
-  'copy-file': collectManifestFileOperationEvidence,
-  'copy-directory': async ({ entry, targetManifestRoot, targetPath }) => {
-    const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
-    await statCopyDirectoryMigrationSource(sourcePath, entry.source);
-    await statCopyDirectoryMigrationTarget(targetPath, entry.target);
-    return [`${entry.id}:manifest-source:directory`];
+type UpgradeMigrationOperationRecord = UpgradePlan['migrationOperations'][number];
+
+function buildMigrationOperationRecord(
+  entry: UpgradeMigrationEntry,
+  role: UpgradeMigrationOperationRecord['role'],
+  details: Omit<Partial<UpgradeMigrationOperationRecord>, 'id' | 'kind' | 'target' | 'role'> = {}
+): UpgradeMigrationOperationRecord {
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    target: entry.target,
+    role,
+    ...details
+  };
+}
+
+const migrationOperationSpecs = {
+  'file-replace': {
+    validate: validateSourceMigrationEntry,
+    apply: applyManifestFileMigration,
+    collectFileEvidence: collectManifestFileOperationEvidence,
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
   },
-  'create-directory': async ({ entry, targetPath }) => {
-    await statCreateDirectoryMigrationTarget(targetPath, entry.target);
-    return [];
+  'copy-file': {
+    validate: validateSourceMigrationEntry,
+    apply: applyManifestFileMigration,
+    collectFileEvidence: collectManifestFileOperationEvidence,
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
   },
-  'delete-file': async ({ entry, targetPath }) => {
-    await statFileMigrationTarget(targetPath, entry.target);
-    return [`${entry.id}:target:file`];
+  'copy-directory': {
+    validate: validateSourceMigrationEntry,
+    apply: async ({ entry, targetManifestRoot, targetPath }) => {
+      const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
+      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
+      await copyRecursive(sourcePath, targetPath);
+    },
+    collectFileEvidence: async ({ entry, targetManifestRoot, targetPath }) => {
+      const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
+      await statCopyDirectoryMigrationSource(sourcePath, entry.source);
+      await statCopyDirectoryMigrationTarget(targetPath, entry.target);
+      return [`${entry.id}:manifest-source:directory`];
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory', { source: entry.source })
   },
-  'delete-directory': async ({ entry, targetPath }) => {
-    await statDirectoryMigrationTarget(targetPath, entry.target);
-    return [`${entry.id}:target:directory`];
+  'config-rewrite': {
+    validate: validateConfigRewriteMigrationEntry,
+    apply: async ({ entry, targetPath }) => {
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+      const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
+      await writeJson(targetPath, config);
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', { updateCount: entry.updates.length })
   },
-  'rename-file': async ({ entry, projectRoot, targetPath }) => {
-    await statRenameMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
-    if (await pathExists(targetPath)) {
-      throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
-    }
-    return [`${entry.id}:source:file`, `${entry.id}:target:available`];
+  'json-array-append': {
+    validate: validateJsonArrayMigrationEntry,
+    apply: async ({ entry, targetPath }) => {
+      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+      const config = applyJsonArrayAppend(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
+      await ensureDir(path.dirname(targetPath));
+      await writeJson(targetPath, config);
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
+      path: [...entry.path],
+      itemCount: entry.items.length
+    })
   },
-  'rename-directory': async ({ entry, projectRoot, targetPath }) => {
-    await statRenameDirectoryMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
-    if (await pathExists(targetPath)) {
-      throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${entry.target}" already exists`);
-    }
-    return [`${entry.id}:source:directory`, `${entry.id}:target:available`];
+  'json-array-remove': {
+    validate: validateJsonArrayMigrationEntry,
+    apply: async ({ entry, targetPath }) => {
+      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+      if (targetStatus === 'missing') {
+        return;
+      }
+      const config = applyJsonArrayRemove(await readJson<unknown>(targetPath), entry);
+      await writeJson(targetPath, config);
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
+      path: [...entry.path],
+      itemCount: entry.items.length
+    })
   },
-  'text-append': async ({ entry, targetPath }) => [
-    `${entry.id}:target:${await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true })}`
-  ]
-};
+  'json-object-merge': {
+    validate: validateJsonObjectMergeMigrationEntry,
+    apply: async ({ entry, targetPath }) => {
+      const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
+      const config = applyJsonObjectMerge(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {}, entry);
+      await ensureDir(path.dirname(targetPath));
+      await writeJson(targetPath, config);
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
+      path: [...entry.path],
+      valueKeyCount: Object.keys(entry.value).length
+    })
+  },
+  'text-append': {
+    validate: ({ entry, entryPath }) => {
+      ensureMigrationString(entry.content, 'content', entryPath);
+    },
+    apply: async ({ entry, targetPath }) => {
+      await appendTextMigrationTarget(targetPath, entry.target, entry.content);
+    },
+    collectFileEvidence: async ({ entry, targetPath }) => [
+      `${entry.id}:target:${await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true })}`
+    ],
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'text', { contentLength: entry.content.length })
+  },
+  'text-replace': {
+    validate: ({ entry, entryPath }) => {
+      ensureMigrationString(entry.search, 'search', entryPath);
+      ensureMigrationString(entry.replacement, 'replacement', entryPath);
+    },
+    apply: applyTextReplaceMigration,
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'text', {
+      searchLength: entry.search.length,
+      replacementLength: entry.replacement.length
+    })
+  },
+  'text-replace-regex': {
+    validate: validateTextReplaceRegexMigrationEntry,
+    apply: applyTextReplaceMigration,
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'text', {
+      pattern: entry.pattern,
+      replacementLength: entry.replacement.length,
+      ...(entry.flags ? { flags: entry.flags } : {})
+    })
+  },
+  'create-directory': {
+    apply: async ({ entry, targetPath }) => {
+      await statCreateDirectoryMigrationTarget(targetPath, entry.target);
+      await ensureDir(targetPath);
+    },
+    collectFileEvidence: async ({ entry, targetPath }) => {
+      await statCreateDirectoryMigrationTarget(targetPath, entry.target);
+      return [];
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory')
+  },
+  'delete-file': {
+    apply: async ({ entry, targetPath }) => {
+      await removeFileMigrationTarget(targetPath, entry.target);
+    },
+    collectFileEvidence: async ({ entry, targetPath }) => {
+      await statFileMigrationTarget(targetPath, entry.target);
+      return [`${entry.id}:target:file`];
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file')
+  },
+  'delete-directory': {
+    apply: async ({ entry, targetPath }) => {
+      await removeDirectoryMigrationTarget(targetPath, entry.target);
+    },
+    collectFileEvidence: async ({ entry, targetPath }) => {
+      await statDirectoryMigrationTarget(targetPath, entry.target);
+      return [`${entry.id}:target:directory`];
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory')
+  },
+  'rename-file': {
+    validate: validateSourceMigrationEntry,
+    collectImpacts: (entry) => [entry.source, entry.target],
+    apply: async ({ entry, projectRoot, targetPath }) => {
+      await renameFileMigrationTarget(
+        resolveProjectMigrationSource(projectRoot, entry),
+        targetPath,
+        entry.source,
+        entry.target
+      );
+    },
+    collectFileEvidence: async ({ entry, projectRoot, targetPath }) => {
+      await statRenameMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
+      if (await pathExists(targetPath)) {
+        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-file target "${entry.target}" already exists`);
+      }
+      return [`${entry.id}:source:file`, `${entry.id}:target:available`];
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
+  },
+  'rename-directory': {
+    validate: validateSourceMigrationEntry,
+    collectImpacts: (entry) => [entry.source, entry.target],
+    apply: async ({ entry, projectRoot, targetPath }) => {
+      await renameDirectoryMigrationTarget(
+        resolveProjectMigrationSource(projectRoot, entry),
+        targetPath,
+        entry.source,
+        entry.target
+      );
+    },
+    collectFileEvidence: async ({ entry, projectRoot, targetPath }) => {
+      await statRenameDirectoryMigrationSource(resolveProjectMigrationSource(projectRoot, entry), entry.source);
+      if (await pathExists(targetPath)) {
+        throw new CompilerError('UPGRADE-MIGRATION-020', `Rename-directory target "${entry.target}" already exists`);
+      }
+      return [`${entry.id}:source:directory`, `${entry.id}:target:available`];
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory', { source: entry.source })
+  },
+  'slot-contract-update': {
+    validate: validateSlotContractMigrationEntry,
+    apply: async ({ entry, targetPath }) => {
+      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+    },
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'slot', {
+      slotId: entry.slotId,
+      ...(entry.inputType ? { inputType: entry.inputType } : {}),
+      ...(entry.outputType ? { outputType: entry.outputType } : {}),
+      ...(entry.writableZones ? { writableZones: [...entry.writableZones] } : {})
+    })
+  }
+} satisfies MigrationOperationSpecs;
 
 async function collectFileOperationEvidence(
   projectRoot: string,
@@ -1083,13 +1160,11 @@ async function collectFileOperationEvidence(
 ): Promise<string[]> {
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
-    const handler = fileOperationEvidenceHandlers[entry.kind] as
-      | ((context: FileOperationEvidenceContext) => Promise<string[]>)
-      | undefined;
-    if (!handler) {
+    const spec = getMigrationOperationSpec(entry);
+    if (!spec?.collectFileEvidence) {
       continue;
     }
-    evidence.push(...await handler({
+    evidence.push(...await spec.collectFileEvidence({
       entry,
       projectRoot,
       targetManifestRoot,
@@ -1404,11 +1479,13 @@ function buildUpgradePreflightChecks(input: UpgradePreflightCheckInput): Upgrade
 }
 
 function collectMigrationImpacts(migrationEntries: UpgradeMigrationEntry[]): string[] {
-  return migrationEntries.flatMap((entry) =>
-    entry.kind === 'rename-file' || entry.kind === 'rename-directory'
-      ? [entry.source, entry.target]
-      : [entry.target]
-  );
+  return migrationEntries.flatMap((entry) => {
+    const spec = getMigrationOperationSpec(entry);
+    if (!spec) {
+      throw unsupportedMigrationKindError(entry as { kind: string });
+    }
+    return spec.collectImpacts?.(entry) ?? [entry.target];
+  });
 }
 
 type UpgradePreflightEvidenceOptions = {
@@ -1618,129 +1695,11 @@ function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Re
 }
 
 function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradePlan['migrationOperations'][number] {
-  if (entry.kind === 'file-replace' || entry.kind === 'copy-file') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'file',
-      source: entry.source
-    };
+  const spec = getMigrationOperationSpec(entry);
+  if (!spec) {
+    throw unsupportedMigrationKindError(entry as { kind: string });
   }
-
-  if (entry.kind === 'copy-directory' || entry.kind === 'rename-directory') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'directory',
-      source: entry.source
-    };
-  }
-
-  if (entry.kind === 'create-directory' || entry.kind === 'delete-directory') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'directory'
-    };
-  }
-
-  if (entry.kind === 'delete-file') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'file'
-    };
-  }
-
-  if (entry.kind === 'rename-file') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'file',
-      source: entry.source
-    };
-  }
-
-  if (entry.kind === 'config-rewrite') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'json',
-      updateCount: entry.updates.length
-    };
-  }
-
-  if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'json',
-      path: [...entry.path],
-      itemCount: entry.items.length
-    };
-  }
-
-  if (entry.kind === 'json-object-merge') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'json',
-      path: [...entry.path],
-      valueKeyCount: Object.keys(entry.value).length
-    };
-  }
-
-  if (entry.kind === 'text-append') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'text',
-      contentLength: entry.content.length
-    };
-  }
-
-  if (entry.kind === 'text-replace') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'text',
-      searchLength: entry.search.length,
-      replacementLength: entry.replacement.length
-    };
-  }
-
-  if (entry.kind === 'text-replace-regex') {
-    return {
-      id: entry.id,
-      kind: entry.kind,
-      target: entry.target,
-      role: 'text',
-      pattern: entry.pattern,
-      replacementLength: entry.replacement.length,
-      ...(entry.flags ? { flags: entry.flags } : {})
-    };
-  }
-
-  return {
-    id: entry.id,
-    kind: entry.kind,
-    target: entry.target,
-    role: 'slot',
-    slotId: entry.slotId,
-    ...(entry.inputType ? { inputType: entry.inputType } : {}),
-    ...(entry.outputType ? { outputType: entry.outputType } : {}),
-    ...(entry.writableZones ? { writableZones: [...entry.writableZones] } : {})
-  };
+  return spec.buildOperation(entry);
 }
 
 function buildUpgradePlan(
