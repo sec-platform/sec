@@ -796,6 +796,24 @@ async function collectMigrationTargetEvidence(
   return uniqueSorted(evidence);
 }
 
+type MigrationPathStats = Awaited<ReturnType<typeof fs.stat>>;
+
+async function statOptionalMigrationPath(targetPath: string): Promise<MigrationPathStats | null> {
+  try {
+    return await fs.stat(targetPath);
+  } catch {
+    return null;
+  }
+}
+
+async function statExistingMigrationPath(targetPath: string, missingError: CompilerError): Promise<MigrationPathStats> {
+  const stats = await statOptionalMigrationPath(targetPath);
+  if (!stats) {
+    throw missingError;
+  }
+  return stats;
+}
+
 async function statFileMigrationTarget(
   targetPath: string,
   target: string,
@@ -813,10 +831,8 @@ async function statFileMigrationTarget(
     | 'slot-contract-update' = 'delete-file',
   options: { allowMissing?: boolean } = {}
 ): Promise<'file' | 'missing'> {
-  let stats;
-  try {
-    stats = await fs.stat(targetPath);
-  } catch {
+  const stats = await statOptionalMigrationPath(targetPath);
+  if (!stats) {
     if (options.allowMissing) {
       return 'missing';
     }
@@ -842,22 +858,15 @@ async function appendTextMigrationTarget(targetPath: string, target: string, con
 }
 
 async function statDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(targetPath);
-  } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-025', `Delete-directory target "${target}" is missing`);
-  }
+  const stats = await statExistingMigrationPath(targetPath, new CompilerError('UPGRADE-MIGRATION-025', `Delete-directory target "${target}" is missing`));
   if (!stats.isDirectory()) {
     throw new CompilerError('UPGRADE-MIGRATION-026', `Delete-directory target "${target}" must be a directory`);
   }
 }
 
 async function statCreateDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(targetPath);
-  } catch {
+  const stats = await statOptionalMigrationPath(targetPath);
+  if (!stats) {
     return;
   }
   if (!stats.isDirectory()) {
@@ -866,24 +875,14 @@ async function statCreateDirectoryMigrationTarget(targetPath: string, target: st
 }
 
 async function statRenameMigrationSource(sourcePath: string, source: string): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(sourcePath);
-  } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-018', `Rename-file source "${source}" is missing`);
-  }
+  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-018', `Rename-file source "${source}" is missing`));
   if (!stats.isFile()) {
     throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-file source "${source}" must be a file`);
   }
 }
 
 async function statRenameDirectoryMigrationSource(sourcePath: string, source: string): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(sourcePath);
-  } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-018', `Rename-directory source "${source}" is missing`);
-  }
+  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-018', `Rename-directory source "${source}" is missing`));
   if (!stats.isDirectory()) {
     throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-directory source "${source}" must be a directory`);
   }
@@ -894,34 +893,22 @@ async function statManifestFileMigrationSource(
   source: string,
   kind: 'file-replace' | 'copy-file'
 ): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(sourcePath);
-  } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`);
-  }
+  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`));
   if (!stats.isFile()) {
     throw new CompilerError('UPGRADE-MIGRATION-024', `${kind} source "${source}" must be a file`);
   }
 }
 
 async function statCopyDirectoryMigrationSource(sourcePath: string, source: string): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(sourcePath);
-  } catch {
-    throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`);
-  }
+  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`));
   if (!stats.isDirectory()) {
     throw new CompilerError('UPGRADE-MIGRATION-023', `Copy-directory source "${source}" must be a directory`);
   }
 }
 
 async function statCopyDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
-  let stats;
-  try {
-    stats = await fs.stat(targetPath);
-  } catch {
+  const stats = await statOptionalMigrationPath(targetPath);
+  if (!stats) {
     return;
   }
   if (!stats.isDirectory()) {
