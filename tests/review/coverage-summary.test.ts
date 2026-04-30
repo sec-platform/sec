@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 
 import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import type { AcceptanceCoverageReport } from '../../platform/shared/types.ts';
-import { buildReviewInputs, withTempWorkspace } from '../helpers/test-utils.ts';
+import { buildReviewInputs, buildRuntimeVerificationReport, withTempWorkspace } from '../helpers/test-utils.ts';
 
 test('review summary surfaces acceptance coverage summary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -17,17 +17,14 @@ test('review summary surfaces acceptance coverage summary', async () => {
         fast: {
           acceptance: { status: 'passed', passed: ['customer_crud'], failed: [] }
         },
-        runtime: {
+        runtime: buildRuntimeVerificationReport({
           status: 'failed',
-          build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
-          unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
           acceptance: {
             status: 'failed',
             passed: ['customer_crud'],
-            failed: ['tenant_scope'],
-            command: 'npm run test:acceptance'
+            failed: ['tenant_scope']
           }
-        },
+        }),
         summary: {
           status: 'failed',
           requestedLane: 'all',

@@ -266,11 +266,41 @@ export function buildPassingReviewCoverage(
   };
 }
 
+type RuntimeVerificationReportOptions = Partial<
+  Omit<VerificationReport['runtime'], 'build' | 'unit' | 'acceptance' | 'logs'>
+> & {
+  build?: Partial<VerificationReport['runtime']['build']>;
+  unit?: Partial<VerificationReport['runtime']['unit']>;
+  acceptance?: Partial<VerificationReport['runtime']['acceptance']>;
+  logs?: VerificationReport['runtime']['logs'];
+};
+
 type ReviewReportOptions = Partial<Omit<VerificationReport, 'fast' | 'runtime' | 'summary'>> & {
   fast?: Partial<VerificationReport['fast']>;
   runtime?: Partial<VerificationReport['runtime']>;
   summary?: Partial<VerificationReport['summary']>;
 };
+
+export function buildRuntimeVerificationReport(
+  options: RuntimeVerificationReportOptions = {}
+): VerificationReport['runtime'] {
+  const base: VerificationReport['runtime'] = {
+    status: 'passed',
+    build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
+    unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
+    acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' },
+    logs: emptyVerificationLogs()
+  };
+
+  return {
+    ...base,
+    ...options,
+    build: { ...base.build, ...options.build },
+    unit: { ...base.unit, ...options.unit },
+    acceptance: { ...base.acceptance, ...options.acceptance },
+    logs: options.logs ?? base.logs
+  };
+}
 
 type ReviewInputsOptions = {
   lock?: ReviewLockOptions;
