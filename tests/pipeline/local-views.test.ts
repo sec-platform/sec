@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { expect, test } from 'vitest';
+import { test } from 'vitest';
 
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
 import {
@@ -19,7 +19,7 @@ import {
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace } from '../helpers/test-utils.ts';
+import { createWorkspace, expectContainsAll, expectContainsNone } from '../helpers/test-utils.ts';
 
 test('write-local-views consumes generated artifacts from disk', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-local-views-');
@@ -769,193 +769,189 @@ test('write-local-views consumes generated artifacts from disk', async () => {
 
   const sourceView = await fs.readFile(sourceViewPath, 'utf8');
   const slotRuleView = await fs.readFile(slotRuleViewPath, 'utf8');
-  expect(sourceView).toContain('href="slot-rule-view.html"');
-  expect(sourceView).toContain('href="source-view.html" aria-current="page"');
-  expect(slotRuleView).toContain('href="source-view.html"');
-  expect(slotRuleView).toContain('href="slot-rule-view.html" aria-current="page"');
-  expect(sourceView).toContain('CI Summary');
-  expect(sourceView).toContain('<td>Status</td><td>failed</td>');
-  expect(sourceView).toContain('<td>Chain Status</td><td>failed</td>');
-  expect(sourceView).toContain('<td>Chain Stages</td><td>2/4</td>');
-  expect(sourceView).toContain('E2E Chain Summary');
-  expect(sourceView).toContain('<th>Evidence</th>');
-  expect(sourceView).toContain('<td>verification</td>');
-  expect(sourceView).toContain('<td>lane=fast; failed=fast</td>');
-  expect(sourceView).toContain('<td>ci=failed, failures=1</td>');
-  expect(sourceView).toContain('<td>blocks=1/2, slots=1/1</td>');
-  expect(sourceView).toContain('<td>total=7, missing=1, uploadGroups=2, missingReasonTypes=1</td>');
-  expect(sourceView).toContain('<td>review-summary=generated</td>');
-  expect(sourceView).toContain('<td>Artifact Status</td><td>attention</td>');
-  expect(sourceView).toContain('<td>Artifacts</td><td>7</td>');
-  expect(sourceView).toContain('<td>Upload Groups</td><td>2</td>');
-  expect(sourceView).toContain('<td>Missing Artifacts</td><td>1</td>');
-  expect(sourceView).toContain('<td>Missing Reason Types</td><td>1</td>');
-  expect(sourceView).toContain('Provenance Summary');
-  expect(sourceView).toContain('<td>Artifacts</td><td>4</td>');
-  expect(sourceView).toContain('<td>Override Artifacts</td><td>1</td>');
-  expect(sourceView).toContain('<td>Generated Artifacts</td><td>3</td>');
-  expect(sourceView).toContain('Provenance Origin Summary');
-  expect(sourceView).toContain('Provenance Override Summary');
-  expect(sourceView).toContain('Provenance Registry Summary');
-  expect(sourceView).toContain('app/tickets/page.tsx');
-  expect(sourceView).toContain('Acceptance Coverage Summary');
-  expect(sourceView).toContain('<td>Acceptance Passed</td><td>2</td>');
-  expect(sourceView).toContain('<td>Covered Blocks</td><td>1</td>');
-  expect(sourceView).toContain('<td>Uncovered Blocks</td><td>1</td>');
-  expect(sourceView).toContain('Block Coverage Summary');
-  expect(sourceView).toContain('Slot Coverage Summary');
-  expect(sourceView).toContain('slot &lt;coverage&gt; &amp; smoke');
-  expect(sourceView).toContain('Missing Reason Summary');
-  expect(sourceView).toContain(CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing);
-  expect(sourceView).toContain('<td>Contract Artifacts</td><td>1</td>');
-  expect(sourceView).toContain('<td>Contract Paths</td><td>generated/postgres-contract.json</td>');
-  expect(sourceView).toContain('Artifact Upload Groups');
-  expect(sourceView).toContain(`${CI_ARTIFACT_FILES.reviewSummary}, ${CI_ARTIFACT_MANIFEST_PATH}`);
-  expect(sourceView).toContain(`${CI_ARTIFACT_FILES.sourceView}, ${CI_ARTIFACT_FILES.slotRuleView}`);
-  expect(sourceView).toContain('Missing Artifact Diagnostics');
-  expect(sourceView).toContain('generated/missing-&lt;artifact&gt;.json');
-  expect(sourceView).toContain(CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing);
-  expect(sourceView).toContain('graph.lock.json');
-  expect(sourceView).toContain('Vertical Summary');
-  expect(sourceView).toContain('Block Combination Summary');
-  expect(sourceView).toContain('<th>Verticals</th><th>Runtime Entries</th>');
-  expect(sourceView).toContain('<td>entity/customer-basic</td>');
-  expect(sourceView).toContain('<td>customer</td>');
-  expect(sourceView).toContain('<td>app/customers/page.tsx</td>');
-  expect(sourceView).toContain('Failure Focus');
-  expect(sourceView).toContain('Failure Groups');
-  expect(sourceView).toContain('Failure Details');
-  expect(sourceView).toContain('<th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th>');
-  expect(sourceView).toContain(`<td>fast</td>\n          <td>policy</td>\n          <td>1</td>\n          <td>${CI_ARTIFACT_FILES.policyReport}</td>`);
-  expect(sourceView).toContain('Review Runtime Attribution');
-  expect(sourceView).toContain('Runtime Groups');
-  expect(sourceView).toContain('Runtime Entries');
-  expect(sourceView).toContain('<th>Vertical</th><th>Kind</th><th>Count</th><th>Related Blocks</th>');
-  expect(sourceView).toContain('<td>customer</td>\n          <td>api</td>');
-  expect(sourceView).toContain('entity/customer-basic');
-  expect(sourceView).toContain('Install Impact Summary');
-  expect(sourceView).toContain('<td>Impacts</td><td>3</td>');
-  expect(sourceView).toContain('<td>Target Paths</td><td>6</td>');
-  expect(sourceView).toContain('Impact Groups');
-  expect(sourceView).toContain('Impact Details');
-  expect(sourceView).toContain('Workbench Mutations');
-  expect(sourceView).toContain('source/views/mutations/*.json -&gt; source/app.yaml');
-  expect(sourceView).toContain('Policy Summary');
-  expect(sourceView).toContain('<td>Official Policies</td><td>1</td>');
-  expect(sourceView).toContain('<td>Project Policies</td><td>1</td>');
-  expect(sourceView).toContain('<td>Merged Policies</td><td>2</td>');
-  expect(sourceView).toContain('<td>Violations</td><td>1</td>');
-  expect(sourceView).toContain('Policy Severity Summary');
-  expect(sourceView).toContain('<td>error</td><td>1</td>');
-  expect(sourceView).toContain('Policy Source Summary');
-  expect(sourceView).toContain('project/policies/custom.spec.yaml');
-  expect(sourceView).toContain('Policy Merge Summary');
-  expect(sourceView).toContain('custom/customer_normalizer.ts');
-  expect(sourceView).toContain('Policy Violation Summary');
-  expect(sourceView).toContain('disk-only &lt;policy&gt; &amp; violation');
-  expect(sourceView).toContain('<th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th>');
-  expect(sourceView).toContain('<td>customer</td>\n          <td>1</td>');
-  expect(sourceView).toContain('app/customers/page.tsx');
-  expect(sourceView).toContain('src/installed/entity/customer-service.ts');
-  expect(sourceView).toContain('customer');
-  expect(sourceView).toContain('customers');
-  expect(sourceView).toContain('disk-only &lt;failure&gt; &amp; &quot;point&quot;');
-  expect(sourceView).toContain('Upgrade Summary');
-  expect(sourceView).toContain('<td>Status</td><td>blocked</td>');
-  expect(sourceView).toContain('<td>Preflight Checks</td><td>5</td>');
-  expect(sourceView).toContain('<td>Preflight Evidence</td><td>3</td>');
-  expect(sourceView).toContain('<td>Verification Migrations</td><td>1</td>');
-  expect(sourceView).toContain('<td>Source Migrations</td><td>1</td>');
-  expect(sourceView).toContain('<td>Slot Migrations</td><td>0</td>');
-  expect(sourceView).toContain('<td>Operations</td><td>1</td>');
-  expect(sourceView).toContain('Upgrade Preflight Summary');
-  expect(sourceView).toContain('<td>override</td>');
-  expect(sourceView).toContain('Upgrade Migration Kind Summary');
-  expect(sourceView).toContain('Upgrade Operation Role Summary');
-  expect(sourceView).toContain('<th>Role</th><th>Count</th>');
-  expect(sourceView).toContain('<td>file</td><td>1</td>');
-  expect(sourceView).toContain('Upgrade Verification Summary');
-  expect(sourceView).toContain('<th>Verification</th><th>Count</th>');
-  expect(sourceView).toContain('<td>required</td><td>1</td>');
-  expect(sourceView).toContain('<td>skipped</td><td>0</td>');
-  expect(sourceView).toContain('Upgrade Migration Summary');
-  expect(sourceView).toContain(
-    '<th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th>'
-  );
-  expect(sourceView).toContain('files/src/installed/auth/session.ts');
-  expect(sourceView).toContain('Upgrade Migration Operation Summary');
-  expect(sourceView).toContain('<th>ID</th><th>Kind</th><th>Role</th><th>Target</th><th>Details</th>');
-  expect(sourceView).toContain('source=files/src/installed/auth/session.ts; contentLength=128');
-  expect(sourceView).toContain('Upgrade Blocker Summary');
-  expect(sourceView).toContain('<th>Phase</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th>');
-  expect(sourceView).toContain('<td>planning</td>');
-  expect(sourceView).toContain('Upgrade Plan');
-  expect(sourceView).toContain('Preflight Summary');
-  expect(sourceView).toContain('<td>migration</td><td>2</td><td>1</td>');
-  expect(sourceView).toContain('Migration Kind Summary');
-  expect(sourceView).toContain('<td>file-replace</td><td>1</td>');
-  expect(sourceView).toContain('Operation Role Summary');
-  expect(sourceView).toContain('Migration Operations');
-  expect(sourceView).toContain('Preflight Checks');
-  expect(sourceView).toContain('version-range');
-  expect(sourceView).toContain('impact-scan');
-  expect(sourceView).toContain('auth/basic-session 0.1.0 -&gt; 0.1.1 (planned)');
-  expect(sourceView).toContain('Refresh &lt;session&gt; &amp; expose version metadata.');
-  expect(sourceView).toContain('Upgrade Diagnostics');
-  expect(sourceView).toContain('<th>Status</th><th>Phase</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th>');
-  expect(sourceView).toContain('UPGRADE-CONFLICT-001');
-  expect(sourceView).toContain('Override &lt;hotfix&gt; &amp; blocks upgrade');
-  expect(sourceView).toContain('manual-auth-session-hotfix');
-  expect(sourceView).toContain('&quot;failedCheck&quot;: &quot;override-conflicts&quot;');
-  expect(sourceView).toContain('Repair Summary');
-  expect(sourceView).toContain('<td>Status</td><td>pending</td>');
-  expect(sourceView).toContain('<td>Changed Previews</td><td>1</td>');
-  expect(sourceView).toContain('<td>Failure Points</td><td>2</td>');
-  expect(sourceView).toContain('<td>Trace Pending Reason</td><td>repair-not-applied</td>');
-  expect(sourceView).toContain('<td>Trace Next Action</td><td>apply-repair</td>');
-  expect(sourceView).toContain('Repair Failure Taxonomy');
-  expect(sourceView).toContain('<th>Issue Type</th><th>Count</th>');
-  expect(sourceView).toContain('<td>spec</td><td>1</td>');
-  expect(sourceView).toContain('<td>repairable</td><td>1</td>');
-  expect(sourceView).toContain('Repair Task Category Summary');
-  expect(sourceView).toContain('<th>Category</th><th>Count</th>');
-  expect(sourceView).toContain('<td>slot-rewrite</td><td>1</td>');
-  expect(sourceView).toContain('Repair Target Attribution Summary');
-  expect(sourceView).toContain('<th>Type</th><th>Target</th><th>Count</th>');
-  expect(sourceView).toContain('<td>slot-target</td>');
-  expect(sourceView).toContain('<td>customer-normalizer.test.ts</td>');
-  expect(sourceView).toContain('Repair Task Summary');
-  expect(sourceView).toContain('<th>Write Bounds</th>');
-  expect(sourceView).toContain('<th>Symbols</th>');
-  expect(sourceView).toContain('<th>Tests</th>');
-  expect(sourceView).toContain('Repair Blocker Summary');
-  expect(sourceView).toContain('Repair Plan');
-  expect(sourceView).toContain('requires verification: false');
-  expect(sourceView).toContain('Blockers');
-  expect(sourceView).toContain('repair_blocker_policy');
-  expect(sourceView).toContain('policy &lt;boundary&gt; &amp; manual decision');
-  expect(sourceView).toContain('Decide whether policy/spec or project code changes first');
-  expect(sourceView).toContain('Allowed Paths');
-  expect(sourceView).toContain('Required Symbols');
-  expect(sourceView).toContain('Forbidden Operations');
-  expect(sourceView).toContain('custom/customer_normalizer.ts');
-  expect(sourceView).toContain('normalizeCustomerInput');
-  expect(sourceView).toContain('write outside custom/customer_normalizer.ts');
-  expect(sourceView).toContain('Failure Targets');
-  expect(sourceView).toContain('Category');
-  expect(sourceView).toContain('customer-normalizer.test.ts');
-  expect(sourceView).toContain('changed; +4/-1; 1 -&gt; 4 lines');
-  expect(sourceView).toContain('repair_customer_normalizer');
-  expect(sourceView).toContain('unit &lt;failed&gt; &amp; needs repair');
-  expect(sourceView).not.toContain('disk-only <failure>');
-  expect(sourceView).not.toContain('Refresh <session>');
-  expect(sourceView).not.toContain('unit <failed>');
-  expect(slotRuleView).toContain('E2E Chain Summary');
-  expect(slotRuleView).toContain('<th>Evidence</th>');
-  expect(slotRuleView).toContain('<td>verification</td>');
-  expect(slotRuleView).toContain('<td>ci=failed, failures=1</td>');
-  expect(slotRuleView).toContain('<td>blocks=1/2, slots=1/1</td>');
-  expect(slotRuleView).toContain('<td>total=7, missing=1, uploadGroups=2, missingReasonTypes=1</td>');
-  expect(slotRuleView).toContain('<td>review-summary=generated</td>');
-  expect(slotRuleView).toContain('disk-driven-acceptance');
+  expectContainsAll(sourceView, [
+    'href="slot-rule-view.html"',
+    'href="source-view.html" aria-current="page"',
+    'CI Summary',
+    '<td>Status</td><td>failed</td>',
+    '<td>Chain Status</td><td>failed</td>',
+    '<td>Chain Stages</td><td>2/4</td>',
+    'E2E Chain Summary',
+    '<th>Evidence</th>',
+    '<td>verification</td>',
+    '<td>lane=fast; failed=fast</td>',
+    '<td>ci=failed, failures=1</td>',
+    '<td>blocks=1/2, slots=1/1</td>',
+    '<td>total=7, missing=1, uploadGroups=2, missingReasonTypes=1</td>',
+    '<td>review-summary=generated</td>',
+    '<td>Artifact Status</td><td>attention</td>',
+    '<td>Artifacts</td><td>7</td>',
+    '<td>Upload Groups</td><td>2</td>',
+    '<td>Missing Artifacts</td><td>1</td>',
+    '<td>Missing Reason Types</td><td>1</td>',
+    'Provenance Summary',
+    '<td>Artifacts</td><td>4</td>',
+    '<td>Override Artifacts</td><td>1</td>',
+    '<td>Generated Artifacts</td><td>3</td>',
+    'Provenance Origin Summary',
+    'Provenance Override Summary',
+    'Provenance Registry Summary',
+    'app/tickets/page.tsx',
+    'Acceptance Coverage Summary',
+    '<td>Acceptance Passed</td><td>2</td>',
+    '<td>Covered Blocks</td><td>1</td>',
+    '<td>Uncovered Blocks</td><td>1</td>',
+    'Block Coverage Summary',
+    'Slot Coverage Summary',
+    'slot &lt;coverage&gt; &amp; smoke',
+    'Missing Reason Summary',
+    CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing,
+    '<td>Contract Artifacts</td><td>1</td>',
+    '<td>Contract Paths</td><td>generated/postgres-contract.json</td>',
+    'Artifact Upload Groups',
+    `${CI_ARTIFACT_FILES.reviewSummary}, ${CI_ARTIFACT_MANIFEST_PATH}`,
+    `${CI_ARTIFACT_FILES.sourceView}, ${CI_ARTIFACT_FILES.slotRuleView}`,
+    'Missing Artifact Diagnostics',
+    'generated/missing-&lt;artifact&gt;.json',
+    'graph.lock.json',
+    'Vertical Summary',
+    'Block Combination Summary',
+    '<th>Verticals</th><th>Runtime Entries</th>',
+    '<td>entity/customer-basic</td>',
+    '<td>customer</td>',
+    '<td>app/customers/page.tsx</td>',
+    'Failure Focus',
+    'Failure Groups',
+    'Failure Details',
+    '<th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th>',
+    `<td>fast</td>\n          <td>policy</td>\n          <td>1</td>\n          <td>${CI_ARTIFACT_FILES.policyReport}</td>`,
+    'Review Runtime Attribution',
+    'Runtime Groups',
+    'Runtime Entries',
+    '<th>Vertical</th><th>Kind</th><th>Count</th><th>Related Blocks</th>',
+    '<td>customer</td>\n          <td>api</td>',
+    'entity/customer-basic',
+    'Install Impact Summary',
+    '<td>Impacts</td><td>3</td>',
+    '<td>Target Paths</td><td>6</td>',
+    'Impact Groups',
+    'Impact Details',
+    'Workbench Mutations',
+    'source/views/mutations/*.json -&gt; source/app.yaml',
+    'Policy Summary',
+    '<td>Official Policies</td><td>1</td>',
+    '<td>Project Policies</td><td>1</td>',
+    '<td>Merged Policies</td><td>2</td>',
+    '<td>Violations</td><td>1</td>',
+    'Policy Severity Summary',
+    '<td>error</td><td>1</td>',
+    'Policy Source Summary',
+    'project/policies/custom.spec.yaml',
+    'Policy Merge Summary',
+    'custom/customer_normalizer.ts',
+    'Policy Violation Summary',
+    'disk-only &lt;policy&gt; &amp; violation',
+    '<th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th>',
+    '<td>customer</td>\n          <td>1</td>',
+    'src/installed/entity/customer-service.ts',
+    'customers',
+    'disk-only &lt;failure&gt; &amp; &quot;point&quot;',
+    'Upgrade Summary',
+    '<td>Status</td><td>blocked</td>',
+    '<td>Preflight Checks</td><td>5</td>',
+    '<td>Preflight Evidence</td><td>3</td>',
+    '<td>Verification Migrations</td><td>1</td>',
+    '<td>Source Migrations</td><td>1</td>',
+    '<td>Slot Migrations</td><td>0</td>',
+    '<td>Operations</td><td>1</td>',
+    'Upgrade Preflight Summary',
+    '<td>override</td>',
+    'Upgrade Migration Kind Summary',
+    'Upgrade Operation Role Summary',
+    '<th>Role</th><th>Count</th>',
+    '<td>file</td><td>1</td>',
+    'Upgrade Verification Summary',
+    '<th>Verification</th><th>Count</th>',
+    '<td>required</td><td>1</td>',
+    '<td>skipped</td><td>0</td>',
+    'Upgrade Migration Summary',
+    '<th>ID</th><th>Kind</th><th>Source</th><th>Target</th><th>Slot</th><th>Requires Verification</th><th>Reason</th>',
+    'files/src/installed/auth/session.ts',
+    'Upgrade Migration Operation Summary',
+    '<th>ID</th><th>Kind</th><th>Role</th><th>Target</th><th>Details</th>',
+    'source=files/src/installed/auth/session.ts; contentLength=128',
+    'Upgrade Blocker Summary',
+    '<th>Phase</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th>',
+    '<td>planning</td>',
+    'Upgrade Plan',
+    'Preflight Summary',
+    '<td>migration</td><td>2</td><td>1</td>',
+    'Migration Kind Summary',
+    '<td>file-replace</td><td>1</td>',
+    'Operation Role Summary',
+    'Migration Operations',
+    'Preflight Checks',
+    'version-range',
+    'impact-scan',
+    'auth/basic-session 0.1.0 -&gt; 0.1.1 (planned)',
+    'Refresh &lt;session&gt; &amp; expose version metadata.',
+    'Upgrade Diagnostics',
+    '<th>Status</th><th>Phase</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th>',
+    'UPGRADE-CONFLICT-001',
+    'Override &lt;hotfix&gt; &amp; blocks upgrade',
+    'manual-auth-session-hotfix',
+    '&quot;failedCheck&quot;: &quot;override-conflicts&quot;',
+    'Repair Summary',
+    '<td>Status</td><td>pending</td>',
+    '<td>Changed Previews</td><td>1</td>',
+    '<td>Failure Points</td><td>2</td>',
+    '<td>Trace Pending Reason</td><td>repair-not-applied</td>',
+    '<td>Trace Next Action</td><td>apply-repair</td>',
+    'Repair Failure Taxonomy',
+    '<th>Issue Type</th><th>Count</th>',
+    '<td>spec</td><td>1</td>',
+    '<td>repairable</td><td>1</td>',
+    'Repair Task Category Summary',
+    '<th>Category</th><th>Count</th>',
+    '<td>slot-rewrite</td><td>1</td>',
+    'Repair Target Attribution Summary',
+    '<th>Type</th><th>Target</th><th>Count</th>',
+    '<td>slot-target</td>',
+    '<td>customer-normalizer.test.ts</td>',
+    'Repair Task Summary',
+    '<th>Write Bounds</th>',
+    '<th>Symbols</th>',
+    '<th>Tests</th>',
+    'Repair Blocker Summary',
+    'Repair Plan',
+    'requires verification: false',
+    'Blockers',
+    'repair_blocker_policy',
+    'policy &lt;boundary&gt; &amp; manual decision',
+    'Decide whether policy/spec or project code changes first',
+    'Allowed Paths',
+    'Required Symbols',
+    'Forbidden Operations',
+    'custom/customer_normalizer.ts',
+    'normalizeCustomerInput',
+    'write outside custom/customer_normalizer.ts',
+    'Failure Targets',
+    'Category',
+    'changed; +4/-1; 1 -&gt; 4 lines',
+    'repair_customer_normalizer',
+    'unit &lt;failed&gt; &amp; needs repair'
+  ]);
+  expectContainsNone(sourceView, ['disk-only <failure>', 'Refresh <session>', 'unit <failed>']);
+  expectContainsAll(slotRuleView, [
+    'href="source-view.html"',
+    'href="slot-rule-view.html" aria-current="page"',
+    'E2E Chain Summary',
+    '<th>Evidence</th>',
+    '<td>verification</td>',
+    '<td>ci=failed, failures=1</td>',
+    '<td>blocks=1/2, slots=1/1</td>',
+    '<td>total=7, missing=1, uploadGroups=2, missingReasonTypes=1</td>',
+    '<td>review-summary=generated</td>',
+    'disk-driven-acceptance'
+  ]);
 }, 120000);
