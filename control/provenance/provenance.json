@@ -194,6 +194,14 @@
       "overrideStatus": "none"
     },
     {
+      "path": "control/workbench/views/graph-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/graph-view.html",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
       "path": "control/workbench/views/slot-rule-view.html",
       "originType": "generated",
       "originId": "control/workbench/views/slot-rule-view.html",

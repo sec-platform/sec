@@ -1,0 +1,71 @@
+<%
+  function countRows(values) {
+    const counts = new Map();
+    for (const value of values) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return [...counts.keys()].sort().map(function(key) { return [key, String(counts.get(key))]; });
+  }
+
+  const outgoingCounts = new Map();
+  const incomingCounts = new Map();
+  for (const edge of graph.edges) {
+    outgoingCounts.set(edge.from, (outgoingCounts.get(edge.from) ?? 0) + 1);
+    incomingCounts.set(edge.to, (incomingCounts.get(edge.to) ?? 0) + 1);
+  }
+
+  const nodeTypeRows = countRows(graph.nodes.map(function(node) { return node.type; }));
+  const edgeTypeRows = countRows(graph.edges.map(function(edge) { return edge.type; }));
+  const graphSummaryRows = [
+    ['Nodes', String(graph.nodes.length)],
+    ['Edges', String(graph.edges.length)],
+    ['Node Types', String(nodeTypeRows.length)],
+    ['Edge Types', String(edgeTypeRows.length)]
+  ];
+  const nodeRows = graph.nodes.map(function(node) {
+    return [
+      node.id,
+      node.type,
+      node.label,
+      String(outgoingCounts.get(node.id) ?? 0),
+      String(incomingCounts.get(node.id) ?? 0)
+    ];
+  });
+  const edgeRows = graph.edges.map(function(edge) {
+    return [edge.from, edge.type, edge.to];
+  });
+  const policyViolationSource = review.policySummary?.violationSummaries ?? policyReport.violations;
+  const policyViolationRows = policyViolationSource.map(function(violation) {
+    return [
+      violation.id,
+      violation.severity,
+      violation.rule,
+      formatList(violation.files),
+      formatList(violation.appliesTo),
+      violation.message
+    ];
+  });
+%>
+<section class="card">
+  <h1>Graph View</h1>
+  <p>Read-only projection of <code>control/graph/explain-graph.json</code>.</p>
+  <%- metricTable(graphSummaryRows) %>
+</section>
+<section class="card">
+  <h2>Node Type Summary</h2>
+  <%- dataTable(['Type','Count'], nodeTypeRows, 2, 'No graph nodes.') %>
+  <h2>Edge Type Summary</h2>
+  <%- dataTable(['Type','Count'], edgeTypeRows, 2, 'No graph edges.') %>
+</section>
+<section class="card">
+  <h2>Graph Nodes</h2>
+  <%- dataTable(['ID','Type','Label','Outgoing','Incoming'], nodeRows, 5, 'No graph nodes.') %>
+</section>
+<section class="card">
+  <h2>Graph Edges</h2>
+  <%- dataTable(['From','Type','To'], edgeRows, 3, 'No graph edges.') %>
+</section>
+<section class="card">
+  <h2>Policy Violations</h2>
+  <%- dataTable(['Policy','Severity','Rule','Files','Applies To','Message'], policyViolationRows, 6, 'No policy violations.') %>
+</section>

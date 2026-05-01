@@ -11,7 +11,10 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_PATHS
+} from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';
@@ -26,7 +29,8 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     provenancePath,
     runtimeReportPath,
     sourceViewPath,
-    slotRuleViewPath
+    slotRuleViewPath,
+    graphViewPath
   } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -174,6 +178,12 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     .catch(() => false);
   expect(slotRuleViewExists).toBe(true);
 
+  const graphViewExists = await fs
+    .access(graphViewPath)
+    .then(() => true)
+    .catch(() => false);
+  expect(graphViewExists).toBe(true);
+
   const refreshedProvenance = await readJson<{
     artifacts: Array<{ path: string; generatedByPass?: string }>;
   }>(provenancePath);
@@ -192,8 +202,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
       CI_ARTIFACT_FILES.acceptanceCoverage,
       CI_ARTIFACT_FILES.explainGraph,
       CI_ARTIFACT_FILES.reviewSummary,
-      CI_ARTIFACT_FILES.sourceView,
-      CI_ARTIFACT_FILES.slotRuleView
+      ...CI_ARTIFACT_PATHS.view
     ])
   );
 }, 180000);

@@ -146,11 +146,6 @@
       "label": "control/evidence/policy-report.json"
     },
     {
-      "id": "file:control/evidence/review-summary.json",
-      "type": "file",
-      "label": "control/evidence/review-summary.json"
-    },
-    {
       "id": "file:control/evidence/runtime-report.json",
       "type": "file",
       "label": "control/evidence/runtime-report.json"
@@ -161,24 +156,24 @@
       "label": "control/evidence/verification-report.json"
     },
     {
+      "id": "file:control/graph/explain-graph.dot",
+      "type": "file",
+      "label": "control/graph/explain-graph.dot"
+    },
+    {
       "id": "file:control/graph/explain-graph.json",
       "type": "file",
       "label": "control/graph/explain-graph.json"
     },
     {
+      "id": "file:control/graph/explain-graph.mmd",
+      "type": "file",
+      "label": "control/graph/explain-graph.mmd"
+    },
+    {
       "id": "file:control/provenance/provenance.json",
       "type": "file",
       "label": "control/provenance/provenance.json"
-    },
-    {
-      "id": "file:control/workbench/views/slot-rule-view.html",
-      "type": "file",
-      "label": "control/workbench/views/slot-rule-view.html"
-    },
-    {
-      "id": "file:control/workbench/views/source-view.html",
-      "type": "file",
-      "label": "control/workbench/views/source-view.html"
     },
     {
       "id": "file:custom/customer_normalizer.ts",
@@ -518,11 +513,6 @@
       "type": "originates_from"
     },
     {
-      "from": "file:control/evidence/review-summary.json",
-      "to": "app:customer-admin",
-      "type": "originates_from"
-    },
-    {
       "from": "file:control/evidence/runtime-report.json",
       "to": "app:customer-admin",
       "type": "originates_from"
@@ -533,22 +523,22 @@
       "type": "originates_from"
     },
     {
+      "from": "file:control/graph/explain-graph.dot",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:control/graph/explain-graph.json",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
     {
+      "from": "file:control/graph/explain-graph.mmd",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:control/provenance/provenance.json",
-      "to": "app:customer-admin",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:control/workbench/views/slot-rule-view.html",
-      "to": "app:customer-admin",
-      "type": "originates_from"
-    },
-    {
-      "from": "file:control/workbench/views/source-view.html",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -807,14 +797,6 @@
         "overrideStatus": "none"
       },
       {
-        "path": "control/evidence/review-summary.json",
-        "originType": "generated",
-        "originId": "control/evidence/review-summary.json",
-        "generatedByPass": "verify",
-        "verifiedBy": [],
-        "overrideStatus": "none"
-      },
-      {
         "path": "control/evidence/runtime-report.json",
         "originType": "generated",
         "originId": "control/evidence/runtime-report.json",
@@ -831,9 +813,25 @@
         "overrideStatus": "none"
       },
       {
+        "path": "control/graph/explain-graph.dot",
+        "originType": "generated",
+        "originId": "control/graph/explain-graph.dot",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
         "path": "control/graph/explain-graph.json",
         "originType": "generated",
         "originId": "control/graph/explain-graph.json",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "control/graph/explain-graph.mmd",
+        "originType": "generated",
+        "originId": "control/graph/explain-graph.mmd",
         "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none"
@@ -843,22 +841,6 @@
         "originType": "generated",
         "originId": "control/provenance/provenance.json",
         "generatedByPass": "lock",
-        "verifiedBy": [],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "control/workbench/views/slot-rule-view.html",
-        "originType": "generated",
-        "originId": "control/workbench/views/slot-rule-view.html",
-        "generatedByPass": "explain",
-        "verifiedBy": [],
-        "overrideStatus": "none"
-      },
-      {
-        "path": "control/workbench/views/source-view.html",
-        "originType": "generated",
-        "originId": "control/workbench/views/source-view.html",
-        "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none"
       },

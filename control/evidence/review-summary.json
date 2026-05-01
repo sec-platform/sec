@@ -111,12 +111,12 @@
     ]
   },
   "provenanceSummary": {
-    "artifactCount": 44,
+    "artifactCount": 45,
     "verifiedArtifactCount": 6,
-    "unverifiedArtifactCount": 38,
+    "unverifiedArtifactCount": 39,
     "overrideArtifactCount": 0,
     "registryArtifactCount": 7,
-    "generatedArtifactCount": 44,
+    "generatedArtifactCount": 45,
     "generatedPassCount": 5,
     "originSummaryCount": 3,
     "originSummaries": [
@@ -135,7 +135,7 @@
       },
       {
         "originType": "generated",
-        "count": 35,
+        "count": 36,
         "paths": [
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
@@ -161,6 +161,7 @@
           "control/graph/explain-graph.json",
           "control/graph/explain-graph.mmd",
           "control/provenance/provenance.json",
+          "control/workbench/views/graph-view.html",
           "control/workbench/views/slot-rule-view.html",
           "control/workbench/views/source-view.html",
           "generated/routes.ts",
@@ -187,7 +188,7 @@
     "overrideSummaries": [
       {
         "overrideStatus": "none",
-        "count": 44,
+        "count": 45,
         "paths": [
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
@@ -213,6 +214,7 @@
           "control/graph/explain-graph.json",
           "control/graph/explain-graph.mmd",
           "control/provenance/provenance.json",
+          "control/workbench/views/graph-view.html",
           "control/workbench/views/slot-rule-view.html",
           "control/workbench/views/source-view.html",
           "custom/customer_normalizer.ts",
@@ -302,11 +304,12 @@
       },
       {
         "pass": "explain",
-        "count": 5,
+        "count": 6,
         "paths": [
           "control/graph/explain-graph.dot",
           "control/graph/explain-graph.json",
           "control/graph/explain-graph.mmd",
+          "control/workbench/views/graph-view.html",
           "control/workbench/views/slot-rule-view.html",
           "control/workbench/views/source-view.html"
         ]
@@ -355,6 +358,7 @@
       "control/graph/explain-graph.json",
       "control/graph/explain-graph.mmd",
       "control/provenance/provenance.json",
+      "control/workbench/views/graph-view.html",
       "control/workbench/views/slot-rule-view.html",
       "control/workbench/views/source-view.html",
       "generated/routes.ts",
@@ -406,7 +410,7 @@
     ],
     "violationSummaries": []
   },
-  "changeSourceCount": 44,
+  "changeSourceCount": 45,
   "runtimeEntryCount": 8,
   "installImpactCount": 3,
   "changeSources": [
@@ -551,6 +555,11 @@
       "path": "control/provenance/provenance.json",
       "originType": "generated",
       "originId": "control/provenance/provenance.json"
+    },
+    {
+      "path": "control/workbench/views/graph-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/graph-view.html"
     },
     {
       "path": "control/workbench/views/slot-rule-view.html",

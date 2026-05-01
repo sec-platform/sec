@@ -82,7 +82,7 @@ async function renderTemplate(name: string, data: Record<string, unknown>): Prom
   return ejs.renderFile(filePath, { viewHelpers: templateHelpers, ...templateHelpers, ...data }, { async: true });
 }
 
-async function renderLayout(title: string, currentNav: 'source' | 'slot-rule', body: string): Promise<string> {
+async function renderLayout(title: string, currentNav: 'source' | 'slot-rule' | 'graph', body: string): Promise<string> {
   return renderTemplate('layout.ejs', { title, currentNav, body });
 }
 
@@ -91,6 +91,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     acceptanceCoveragePath,
     explainGraphPath,
     generatedViewsDir,
+    graphViewPath,
     lockPath,
     policyReportPath,
     provenancePath,
@@ -129,4 +130,8 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   const slotRuleBody = await renderTemplate('slot-rule-view.ejs', { ...sharedData, report, coverage });
   const slotRuleHtml = await renderLayout('Slot / Rule View', 'slot-rule', slotRuleBody);
   await fs.writeFile(slotRuleViewPath, slotRuleHtml, 'utf8');
+
+  const graphBody = await renderTemplate('graph-view.ejs', sharedData);
+  const graphHtml = await renderLayout('Graph View', 'graph', graphBody);
+  await fs.writeFile(graphViewPath, graphHtml, 'utf8');
 }

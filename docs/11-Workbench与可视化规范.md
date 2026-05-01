@@ -316,7 +316,7 @@ policies: [tenant_scope_required]
 | 顺序 | 切口 | 主要实现点 | 预期产物 | 验证 |
 | --- | --- | --- | --- | --- |
 | 1 | 原生图导出 | 从 `ExplainGraph` 纯函数生成 Mermaid/DOT；注册 paths、artifact contract、lock generated paths | `control/graph/explain-graph.mmd`、`control/graph/explain-graph.dot` | 定向单测 + `platform explain --json --compact` + contract freeze |
-| 2 | 只读 Graph View | 在 `write-local-views` 增加 graph template；展示 app/block/capability/pin/slot/file/acceptance/policy/issue/repair/upgrade | `control/workbench/views/graph-view.html` | local view 快照/内容断言 + reference refresh |
+| 2 | 只读 Graph View | 在 `write-local-views` 增加 graph template；从 `ExplainGraph` 展示节点/边/类型汇总，并叠加 review policy violation 文案 | `control/workbench/views/graph-view.html` | local view 内容断言 + reference refresh |
 | 3 | 只读 Review View | 聚合 review summary、verification、coverage、policy、provenance、repair、upgrade、artifact 缺失 | `control/workbench/views/review-view.html` | review summary fixture + view 内容断言 |
 | 4 | 工具 evidence contract 草案 | 定义 code-quality / architecture-boundary / semantic-pattern report 类型，但不加入 stable artifact | shared types + inspect/build 纯函数 | 类型检查 + schema/contract 单测 |
 | 5 | L1/L2 evidence 接入 | 将 jscpd/discover/depcruise 输出归一为 evidence；保留工具原始报告路径 | `control/evidence/*-report.json`（实现后再稳定） | fixture 转换测试 + preflight 文档化 |

@@ -56,6 +56,7 @@ export interface WorkspacePaths {
   ciArtifactsPath: string;
   sourceViewPath: string;
   slotRuleViewPath: string;
+  graphViewPath: string;
   repairPlanPath: string;
   upgradePlanPath: string;
   upgradeDiagnosticsPath: string;
