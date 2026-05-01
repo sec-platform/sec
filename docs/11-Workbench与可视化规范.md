@@ -274,7 +274,7 @@ control/graph/architecture-overlay.json
 control/graph/semantic-pattern-overlay.json
 ```
 
-这些路径在实现前不得加入 stable artifact 清单。实现时必须同步 `08` 的治理产物说明、`05` 的 CLI/工具入口和 contract freeze 范围。
+这些路径在实现前不得加入 stable artifact 清单；当前只在 `platform/shared/tool-evidence-contract.ts` 中以 `stableArtifact: false` 的 draft report contract 固定 kind、summary 与 inspect 输出。升级为 stable artifact 时必须同步 `08` 的治理产物说明、`05` 的 CLI/工具入口和 contract freeze 范围。
 
 ### 10.4 图上操作与双向同步
 
