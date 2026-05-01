@@ -89,35 +89,32 @@ test('converts jscpd duplicates into code-quality evidence', () => {
 });
 
 test('converts dependency-cruiser violations into architecture-boundary evidence', () => {
-  const raw: DependencyCruiserReport = {
-    summary: {
-      violations: [
-        ...depCruiseViolations,
-        {
-          rule: { name: '客户 输入', severity: 'warn' },
-          from: 'platform/shared/paths.ts',
-          to: 'platform/shared/fs.ts'
-        }
-      ]
+  const violations = [
+    ...depCruiseViolations,
+    {
+      rule: { name: '客户 输入', severity: 'warn' },
+      from: 'platform/shared/paths.ts',
+      to: 'platform/shared/fs.ts'
     }
-  };
+  ] satisfies NonNullable<NonNullable<DependencyCruiserReport['summary']>['violations']>;
+  const raw: DependencyCruiserReport = { summary: { violations } };
   const report = buildDependencyCruiserEvidenceReport(raw, {
     rawReportPath: 'report/depcruise.json'
   });
 
-  const expectedFiles = uniqueFiles(raw.summary!.violations!.flatMap((violation) => [
+  const expectedFiles = uniqueFiles(violations.flatMap((violation) => [
     violation.from,
     violation.to,
-    ...(violation.cycle ?? [])
+    ...('cycle' in violation && violation.cycle ? violation.cycle : [])
   ]));
 
   expect(report.kind).toBe('architecture-boundary');
   expect(report.toolId).toBe('dependency-cruiser');
   expect(report.summary).toMatchObject({
     status: 'failed',
-    diagnosticCount: raw.summary!.violations!.length,
-    errorCount: depCruiseViolations.filter((violation) => violation.rule.severity === 'error').length,
-    warningCount: raw.summary!.violations!.filter((violation) => violation.rule.severity === 'warn').length,
+    diagnosticCount: violations.length,
+    errorCount: violations.filter((violation) => violation.rule.severity === 'error').length,
+    warningCount: violations.filter((violation) => violation.rule.severity === 'warn').length,
     affectedFiles: expectedFiles
   });
   expect(report.diagnostics.map((diagnostic) => diagnostic.id)).toEqual([

@@ -4,7 +4,7 @@ import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
-import { getSlowTestFiles, isFastTestFile } from '../shared/test-budget-contract.ts';
+import { getSlowTestFiles, isFastTestFile, isSlowTestFile } from '../shared/test-budget-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { commandPath, pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 
@@ -42,6 +42,7 @@ async function gitChangedFiles(): Promise<string[] | null> {
 
 interface ChangedTestSelection {
   tests: string[];
+  slowTests: string[];
   sourceChanged: boolean;
 }
 
@@ -50,6 +51,7 @@ async function changedTestSelection(): Promise<ChangedTestSelection | null> {
   if (!files) return null;
   return {
     tests: files.filter(isFastTestFile),
+    slowTests: files.filter(isSlowTestFile),
     sourceChanged: files.some((file) => /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file))
   };
 }
@@ -65,6 +67,10 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
   }
   if (selection.tests.length > 0) {
     return runFastTests(selection.tests);
+  }
+  if (selection.slowTests.length > 0) {
+    console.error(`Changed slow test files require explicit verification: ${selection.slowTests.join(', ')}`);
+    return 1;
   }
   if (selection.sourceChanged) {
     console.log('No changed fast test files detected; running the fast test suite for source changes.');

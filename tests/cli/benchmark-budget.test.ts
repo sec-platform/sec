@@ -6,7 +6,10 @@ import {
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
   buildTestBudgetContract,
-  formatTestBudgetContract
+  formatTestBudgetContract,
+  isFastTestFile,
+  isSlowTestFile,
+  isTestFile
 } from '../../platform/shared/test-budget-contract.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../helpers/cli-helpers.ts';
@@ -140,6 +143,12 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
 test('CLI exposes test budget as text and JSON contracts', async () => {
   const contract = buildTestBudgetContract();
   const formatted = formatTestBudgetContract(contract);
+
+  expect(isTestFile('tests/repair/repair.test.ts')).toBe(true);
+  expect(isFastTestFile('tests/repair/repair.test.ts')).toBe(true);
+  expect(isSlowTestFile('tests/upgrade/dry-run-plan.test.ts')).toBe(true);
+  expect(isFastTestFile('tests/upgrade/dry-run-plan.test.ts')).toBe(false);
+  expect(isTestFile('platform/dev-runner/test-runner.ts')).toBe(false);
 
   expectContainsAll(formatted, [
     'Test budget default lane: fast',

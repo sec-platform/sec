@@ -77,8 +77,12 @@ export function isTestFile(file: string): boolean {
   return /^tests\/.+\.(test|spec)\.tsx?$/.test(file);
 }
 
+export function isSlowTestFile(file: string): boolean {
+  return slowTestFiles.includes(file);
+}
+
 export function isFastTestFile(file: string): boolean {
-  return isTestFile(file) && !slowTestFiles.includes(file);
+  return isTestFile(file) && !isSlowTestFile(file);
 }
 
 export function buildTestBudgetContract(): TestBudgetContract {
