@@ -1,7 +1,10 @@
 import path from 'node:path';
+import { uniqueSorted } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-contract.ts';
+import { compilerRoot, posixPath } from '../shared/paths.ts';
+import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
-import { getSlowTestFiles } from '../shared/test-budget-contract.ts';
+import { getSlowTestFiles, isFastTestFile } from '../shared/test-budget-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { commandPath, pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 
@@ -21,6 +24,54 @@ function fullTestInvocations(): string[][] {
     fastTestArgs([]),
     ...getSlowTestFiles().map((file) => ['run', file])
   ];
+}
+
+async function gitChangedFiles(): Promise<string[] | null> {
+  const [tracked, untracked] = await Promise.all([
+    runCommand('git', ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'], { cwd: compilerRoot }),
+    runCommand('git', ['ls-files', '--others', '--exclude-standard'], { cwd: compilerRoot })
+  ]);
+  if (tracked.code !== 0 || untracked.code !== 0) {
+    return null;
+  }
+  return uniqueSorted(
+    [...tracked.stdout.split(/\r?\n/), ...untracked.stdout.split(/\r?\n/)]
+      .map((file) => posixPath(file.trim()))
+  );
+}
+
+interface ChangedTestSelection {
+  tests: string[];
+  sourceChanged: boolean;
+}
+
+async function changedTestSelection(): Promise<ChangedTestSelection | null> {
+  const files = await gitChangedFiles();
+  if (!files) return null;
+  return {
+    tests: files.filter(isFastTestFile),
+    sourceChanged: files.some((file) => /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file))
+  };
+}
+
+export async function runChangedTests(args: string[] = []): Promise<number> {
+  if (args.length > 0) {
+    return runTests(args);
+  }
+  const selection = await changedTestSelection();
+  if (!selection) {
+    console.error('Failed to detect changed test files.');
+    return 1;
+  }
+  if (selection.tests.length > 0) {
+    return runFastTests(selection.tests);
+  }
+  if (selection.sourceChanged) {
+    console.log('No changed fast test files detected; running the fast test suite for source changes.');
+    return runFastTests();
+  }
+  console.log('No changed fast test files detected.');
+  return 0;
 }
 
 export async function runTests(args: string[] = []): Promise<number> {

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
+import { countLineDiff } from '../../shared/diff-utils.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
@@ -59,25 +60,11 @@ function resolveRepairTargetPath(workspaceRoot: string, root: string, targetFile
 }
 
 function countChangedLines(before: string, after: string): Pick<RepairTaskPreview, 'addedLines' | 'removedLines'> {
-  const beforeLines = before.split('\n');
-  const afterLines = after.split('\n');
-  let addedLines = 0;
-  let removedLines = 0;
-  const length = Math.max(beforeLines.length, afterLines.length);
-
-  for (let index = 0; index < length; index += 1) {
-    if (beforeLines[index] === afterLines[index]) {
-      continue;
-    }
-    if (afterLines[index] !== undefined) {
-      addedLines += 1;
-    }
-    if (beforeLines[index] !== undefined) {
-      removedLines += 1;
-    }
+  if (before === after) {
+    return { addedLines: 0, removedLines: 0 };
   }
-
-  return { addedLines, removedLines };
+  const diff = countLineDiff(before, after);
+  return { addedLines: diff.added, removedLines: diff.removed };
 }
 
 type PreparedRepairWriteTask = {

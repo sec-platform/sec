@@ -6,6 +6,7 @@ import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { createWorkspace, prepareLockedWorkspace } from '../helpers/workspace-fixtures.ts';
@@ -104,6 +105,24 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
     ])
   );
 }, 120000);
+
+test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-range-contract-');
+  await writeSlotUpgradeFixture(workspaceRoot);
+
+  const manifestPath = path.join(getWorkspacePaths(workspaceRoot).privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0', 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      ...(manifest.upgrade as Record<string, unknown>),
+      from: ['0.1']
+    }
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true }))
+    .rejects.toThrow('UPGRADE-BLOCKED-002');
+});
 
 test('upgrade dry-run records slot contract migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-slot-contract-plan-');

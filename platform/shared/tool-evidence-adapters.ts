@@ -1,3 +1,4 @@
+import { kebabCase } from 'change-case';
 import {
   buildToolEvidenceReport,
   type ArchitectureBoundaryEvidenceReport,
@@ -78,7 +79,7 @@ export interface DiscoverStructureReport {
 }
 
 function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'unknown';
+  return kebabCase(value).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'unknown';
 }
 
 function fileLocationPath(location?: JscpdFileLocation): string {

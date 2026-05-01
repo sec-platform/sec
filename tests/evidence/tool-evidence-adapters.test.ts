@@ -89,12 +89,23 @@ test('converts jscpd duplicates into code-quality evidence', () => {
 });
 
 test('converts dependency-cruiser violations into architecture-boundary evidence', () => {
-  const raw: DependencyCruiserReport = { summary: { violations: depCruiseViolations } };
+  const raw: DependencyCruiserReport = {
+    summary: {
+      violations: [
+        ...depCruiseViolations,
+        {
+          rule: { name: '客户 输入', severity: 'warn' },
+          from: 'platform/shared/paths.ts',
+          to: 'platform/shared/fs.ts'
+        }
+      ]
+    }
+  };
   const report = buildDependencyCruiserEvidenceReport(raw, {
     rawReportPath: 'report/depcruise.json'
   });
 
-  const expectedFiles = uniqueFiles(depCruiseViolations.flatMap((violation) => [
+  const expectedFiles = uniqueFiles(raw.summary!.violations!.flatMap((violation) => [
     violation.from,
     violation.to,
     ...(violation.cycle ?? [])
@@ -104,14 +115,15 @@ test('converts dependency-cruiser violations into architecture-boundary evidence
   expect(report.toolId).toBe('dependency-cruiser');
   expect(report.summary).toMatchObject({
     status: 'failed',
-    diagnosticCount: depCruiseViolations.length,
+    diagnosticCount: raw.summary!.violations!.length,
     errorCount: depCruiseViolations.filter((violation) => violation.rule.severity === 'error').length,
-    warningCount: depCruiseViolations.filter((violation) => violation.rule.severity === 'warn').length,
+    warningCount: raw.summary!.violations!.filter((violation) => violation.rule.severity === 'warn').length,
     affectedFiles: expectedFiles
   });
   expect(report.diagnostics.map((diagnostic) => diagnostic.id)).toEqual([
     'depcruise-shared-no-reverse-deps-1',
-    'depcruise-no-circular-2'
+    'depcruise-no-circular-2',
+    'depcruise-unknown-3'
   ]);
 });
 
