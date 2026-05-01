@@ -328,6 +328,8 @@ Graph View 的通用抽取不能降低信息覆盖：页面必须包含 coverage
 
 Review View 不能成为第二套 review schema：它只从 `review-summary.json` 及现有 verification、coverage、policy、provenance、repair、upgrade、artifact evidence 派生人类 review 优先级，必须展示 dashboard、verification chain、coverage、policy violation、priority files、repair/upgrade readiness 和 missing artifact diagnostics。
 
+L3 Engineering Pattern Graph 当前只输出 `stableArtifact: false` 的低置信 suggestion 和 file overlay edge；`autoRefactor` 必须保持 `false`，直到 CLI、Workbench、contract freeze 与回滚协议全部稳定后才能进入自动 mutation。
+
 实现纪律：新增产物先保持 optional；只有 CLI inspect、contract freeze、artifact manifest、reference refresh、Workbench view、测试全部对齐后，才能升级为 stable artifact。Graph-It-Live/MCP、CodeQL/CPG、SonarQube/Fallow 等外部能力只能先接入 evidence/overlay，不得绕过平台 graph builder 或 mutation apply。
 
 ## 11. 阶段路线
