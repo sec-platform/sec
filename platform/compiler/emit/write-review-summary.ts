@@ -1,3 +1,4 @@
+import { groupBy } from 'lodash-es';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
@@ -20,7 +21,6 @@ import type {
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
 import type { UpgradeDiagnostics } from '../../shared/upgrade-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
-import { groupBy, uniqBy } from 'lodash-es';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
