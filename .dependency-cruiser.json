@@ -1,0 +1,31 @@
+{
+  "forbidden": [
+    {
+      "name": "shared-no-reverse-deps",
+      "comment": "shared/ 不得反向依赖 compiler/, cli/, orchestrator/, dev-runner/, upgrade/",
+      "severity": "error",
+      "from": { "path": "^platform/shared/" },
+      "to": { "path": "^platform/(compiler|cli|orchestrator|dev-runner|upgrade)/" }
+    },
+    {
+      "name": "no-circular",
+      "comment": "禁止循环依赖",
+      "severity": "error",
+      "from": { "path": "^platform/" },
+      "to": { "circular": true }
+    },
+    {
+      "name": "no-registry-to-compiler",
+      "comment": "registry/ 是纯数据，不得依赖 compiler/",
+      "severity": "error",
+      "from": { "path": "^platform/registry/" },
+      "to": { "path": "^platform/compiler/" }
+    }
+  ],
+  "options": {
+    "doNotFollow": "node_modules",
+    "exclude": ["\\.d\\.ts$"],
+    "tsPreCompilationDeps": true,
+    "tsConfig": { "fileName": "./tsconfig.json" }
+  }
+}
