@@ -14,6 +14,11 @@
     incomingCounts.set(edge.to, (incomingCounts.get(edge.to) ?? 0) + 1);
   }
 
+  const nodeTypeCounts = new Map();
+  for (const node of graph.nodes) {
+    nodeTypeCounts.set(node.type, (nodeTypeCounts.get(node.type) ?? 0) + 1);
+  }
+
   const nodeTypeRows = countRows(graph.nodes.map(function(node) { return node.type; }));
   const edgeTypeRows = countRows(graph.edges.map(function(edge) { return edge.type; }));
   const graphSummaryRows = [
@@ -22,6 +27,21 @@
     ['Node Types', String(nodeTypeRows.length)],
     ['Edge Types', String(edgeTypeRows.length)]
   ];
+  const coverageRows = explainNodeTypes.map(function(type) {
+    return [type, 'ExplainGraph node', 'node table + type detail', String(nodeTypeCounts.get(type) ?? 0)];
+  }).concat([
+    [
+      'issue',
+      'Review overlays',
+      'policy violations + failure points + repair blockers + upgrade diagnostics',
+      String(
+        (review.policySummary?.violationSummaries.length ?? policyReport.violations.length) +
+        review.failurePoints.length +
+        (review.repairSummary?.blockerSummaries.length ?? 0) +
+        (review.upgradeSummary?.diagnostics ? 1 : 0)
+      )
+    ]
+  ]);
   const nodeRows = graph.nodes.map(function(node) {
     return [
       node.id,
@@ -29,6 +49,12 @@
       node.label,
       String(outgoingCounts.get(node.id) ?? 0),
       String(incomingCounts.get(node.id) ?? 0)
+    ];
+  });
+  const nodeTypeDetailRows = explainNodeTypes.map(function(type) {
+    return [
+      type,
+      formatList(graph.nodes.filter(function(node) { return node.type === type; }).map(function(node) { return node.id; }))
     ];
   });
   const edgeRows = graph.edges.map(function(edge) {
@@ -45,11 +71,28 @@
       violation.message
     ];
   });
+  const issueRows = policyViolationRows.map(function(row) {
+    return ['policy violation', row[0], row[2], row[5]];
+  });
+  for (const failurePoint of review.failurePoints) {
+    issueRows.push(['failure point', failurePoint.lane + ':' + failurePoint.kind, failurePoint.artifactPath, failurePoint.message]);
+  }
+  for (const blocker of review.repairSummary?.blockerSummaries ?? []) {
+    issueRows.push(['repair blocker', blocker.blockerId, blocker.boundary, blocker.reason + '; ' + blocker.decisionRequired]);
+  }
+  if (review.upgradeSummary?.diagnostics) {
+    const diagnostics = review.upgradeSummary.diagnostics;
+    issueRows.push(['upgrade diagnostic', diagnostics.errorCode, diagnostics.failedCheck, diagnostics.message]);
+  }
 %>
 <section class="card">
   <h1>Graph View</h1>
   <p>Read-only projection of <code>control/graph/explain-graph.json</code>.</p>
   <%- metricTable(graphSummaryRows) %>
+</section>
+<section class="card">
+  <h2>Graph Coverage Matrix</h2>
+  <%- dataTable(['Information','Source','Coverage','Count'], coverageRows, 4, 'No graph coverage.') %>
 </section>
 <section class="card">
   <h2>Node Type Summary</h2>
@@ -60,6 +103,8 @@
 <section class="card">
   <h2>Graph Nodes</h2>
   <%- dataTable(['ID','Type','Label','Outgoing','Incoming'], nodeRows, 5, 'No graph nodes.') %>
+  <h2>Node Type Detail</h2>
+  <%- dataTable(['Type','Node IDs'], nodeTypeDetailRows, 2, 'No node type details.') %>
 </section>
 <section class="card">
   <h2>Graph Edges</h2>
@@ -68,4 +113,6 @@
 <section class="card">
   <h2>Policy Violations</h2>
   <%- dataTable(['Policy','Severity','Rule','Files','Applies To','Message'], policyViolationRows, 6, 'No policy violations.') %>
+  <h2>Issue Overlay</h2>
+  <%- dataTable(['Kind','ID','Source','Message'], issueRows, 4, 'No issue overlays.') %>
 </section>

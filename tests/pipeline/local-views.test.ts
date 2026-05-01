@@ -600,13 +600,30 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   await writeJson(reviewSummaryPath, reviewSummary);
 
   const graph = await readJson<{
+    nodes: Array<{ id: string; type: string; label: string }>;
     edges: Array<{ from: string; to: string; type: string }>;
   }>(explainGraphPath);
-  graph.edges.push({
-    from: 'file:src/installed/entity/customer-service.ts',
-    to: 'policy:tenant-scope-required',
-    type: 'violates'
-  });
+  graph.nodes.push(
+    { id: 'repair:repair_customer_normalizer', type: 'repair', label: 'repair_customer_normalizer' },
+    { id: 'upgrade:auth/basic-session:0.1.1', type: 'upgrade', label: 'auth/basic-session 0.1.0 -> 0.1.1' }
+  );
+  graph.edges.push(
+    {
+      from: 'file:src/installed/entity/customer-service.ts',
+      to: 'policy:tenant-scope-required',
+      type: 'violates'
+    },
+    {
+      from: 'repair:repair_customer_normalizer',
+      to: 'file:custom/customer_normalizer.ts',
+      type: 'writes_to'
+    },
+    {
+      from: 'upgrade:auth/basic-session:0.1.1',
+      to: 'file:src/installed/auth/session.ts',
+      type: 'writes_to'
+    }
+  );
   await writeJson(explainGraphPath, graph);
 
   const coverage = await readJson<{
@@ -942,11 +959,33 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     '<th>From</th><th>Type</th><th>To</th>',
     '<td>app:customer-admin</td><td>depends_on</td><td>block:entity/customer-basic</td>',
     '<td>file:src/installed/entity/customer-service.ts</td><td>violates</td><td>policy:tenant-scope-required</td>',
+    '<td>repair:repair_customer_normalizer</td><td>writes_to</td><td>file:custom/customer_normalizer.ts</td>',
+    '<td>upgrade:auth/basic-session:0.1.1</td><td>writes_to</td><td>file:src/installed/auth/session.ts</td>',
     'Node Type Summary',
     '<td>block</td>',
+    '<td>repair</td>',
+    '<td>upgrade</td>',
     'Edge Type Summary',
     '<td>depends_on</td>',
-    'disk-only &lt;policy&gt; &amp; violation'
+    'Graph Coverage Matrix',
+    '<th>Information</th><th>Source</th><th>Coverage</th><th>Count</th>',
+    '<td>app</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>block</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>capability</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>pin</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>slot</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>file</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>acceptance</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>policy</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>repair</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>upgrade</td><td>ExplainGraph node</td><td>node table + type detail</td>',
+    '<td>issue</td><td>Review overlays</td><td>policy violations + failure points + repair blockers + upgrade diagnostics</td>',
+    'Issue Overlay',
+    'disk-only &lt;policy&gt; &amp; violation',
+    'disk-only &lt;failure&gt; &amp; &quot;point&quot;',
+    'repair_blocker_policy',
+    'UPGRADE-CONFLICT-001',
+    'Override &lt;hotfix&gt; &amp; blocks upgrade'
   ]);
   expectContainsNone(graphView, ['disk-only <policy>']);
   expectContainsAll(slotRuleView, [
