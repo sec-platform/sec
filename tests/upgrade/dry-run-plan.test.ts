@@ -121,7 +121,7 @@ test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => 
   });
 
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true }))
-    .rejects.toThrow('UPGRADE-BLOCKED-002');
+    .rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-002' });
 });
 
 test('upgrade dry-run records slot contract migration impacts', async () => {
