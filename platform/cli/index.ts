@@ -1,60 +1,22 @@
 #!/usr/bin/env node
+import { Command } from 'commander';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
-import { createLogger } from '../shared/logger.ts';
-import { CommandRegistry } from './command-registry.ts';
 import { formatJson } from './format-utils.ts';
+import { registerCommands } from './register-commands.ts';
 
-import { addCommand } from './commands/add-command.ts';
-import { artifactsCommand } from './commands/artifacts-command.ts';
-import { adaptCommand, composeCommand } from './commands/compose-adapt-command.ts';
-import { explainCommand } from './commands/explain-command.ts';
-import { initCommand } from './commands/init-command.ts';
-import { inspectCommands } from './commands/inspect-commands.ts';
-import { lockCommand } from './commands/lock-command.ts';
-import { repairCommand } from './commands/repair-command.ts';
-import { resolveCommand } from './commands/resolve-command.ts';
-import { upgradeCommand } from './commands/upgrade-command.ts';
-import { verifyCommand } from './commands/verify-command.ts';
-import { workbenchCommand } from './commands/workbench-command.ts';
+const program = new Command();
+program
+  .name('platform')
+  .description('Engineering compiler CLI')
+  .version('0.1.0');
 
-const ALL_COMMANDS = [
-  initCommand,
-  addCommand,
-  resolveCommand,
-  composeCommand,
-  adaptCommand,
-  verifyCommand,
-  repairCommand,
-  upgradeCommand,
-  lockCommand,
-  explainCommand,
-  artifactsCommand,
-  workbenchCommand,
-  ...inspectCommands
-];
+registerCommands(program);
 
-export function createDefaultRegistry(): CommandRegistry {
-  const registry = new CommandRegistry(createLogger({ level: 'info' }));
-  registry.registerAll(ALL_COMMANDS);
-  return registry;
-}
+program.action(() => {
+  program.help();
+});
 
-const registry = createDefaultRegistry();
-
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  if (args.length === 0) {
-    console.log(registry.buildUsage());
-    return;
-  }
-
-  await registry.dispatch(args, {
-    cwd: process.cwd(),
-    logger: registry.logger
-  });
-}
-
-main().catch((error: unknown) => {
+program.parseAsync().catch((error: unknown) => {
   const failure = error as { code?: string; message?: string; details?: unknown };
   const protocol = buildErrorProtocol(failure);
   console.error(protocol.code, protocol.message);

@@ -1,4 +1,4 @@
-import path from 'node:path';
+﻿import path from 'node:path';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { ensureDir, writeText } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
@@ -653,55 +653,19 @@ function renderCustomersRoute(options: {
   notifyEmailEnabled: boolean;
   tableFilterEnabled: boolean;
 }): string {
-  const imports = renderImportBlock([
-    `import { NextResponse } from 'next/server';`,
-    `import type { CustomerInput } from '../../../src/runtime/database.ts';`,
-    `import { createCustomer, listCustomers } from '../../../src/installed/entity/customer-service.ts';`,
-    renderOptional(options.auditEnabled, `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`),
-    renderOptional(options.notifyEmailEnabled, `import { recordCustomerCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`),
-    renderOptional(options.tableFilterEnabled, `import { filterCustomers } from '../../../src/installed/table/customer-filter.ts';`),
-    `import { getCurrentSession } from '../../../lib/session.ts';`,
-    `import { getDatabase } from '../../../lib/store.ts';`
-  ]);
-  const filterCustomersLine = options.tableFilterEnabled
-    ? `  const database = getDatabase();
-  const url = new URL(request.url);
-  const customers = filterCustomers(listCustomers(database, session), {
-    search: url.searchParams.get('search'),
-    company: url.searchParams.get('company')
+  return renderEntityApiRoute({
+    entityName: 'customer',
+    entityType: 'Customer',
+    entityPath: 'entity/customer-service.ts',
+    listFunction: 'listCustomers',
+    createFunction: 'createCustomer',
+    inputType: 'CustomerInput',
+    auditEnabled: options.auditEnabled,
+    notifyEmailEnabled: options.notifyEmailEnabled,
+    notifyFunction: 'recordCustomerCreatedEmail',
+    tableFilterEnabled: options.tableFilterEnabled,
+    filterFunction: 'filterCustomers'
   });
-`
-    : `  const database = getDatabase();
-  const customers = listCustomers(database, session);
-`;
-  const mutationLines = renderOptionalSnippets([
-    [options.auditEnabled, `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'customer.created', 'customer', String(customer.id)));
-`],
-    [options.notifyEmailEnabled, `    recordCustomerCreatedEmail(database, session, customer);
-`]
-  ]);
-
-  return `${imports}
-
-export async function GET(request: Request) {
-${renderSessionGuard()}
-
-${filterCustomersLine}  return NextResponse.json({ customers });
-}
-
-export async function POST(request: Request) {
-${renderSessionGuard()}
-
-  try {
-    const database = getDatabase();
-    const payload = await request.json() as CustomerInput;
-    const customer = createCustomer(database, session, payload);
-${mutationLines}    return NextResponse.json({ customer }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });
-  }
-}
-`;
 }
 
 function renderRouteLines(lines: string[]): string {
@@ -921,47 +885,21 @@ function renderTicketWorklogsRoute(): string {
 }
 
 function renderTicketsRoute(options: { auditEnabled: boolean; notifyEmailEnabled: boolean }): string {
-  const imports = renderOptionalSnippets([
-    [options.auditEnabled, `
-import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`],
-    [options.notifyEmailEnabled, `
-import { recordTicketCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';`]
-  ]);
-  const mutationLines = renderOptionalSnippets([
-    [options.auditEnabled, `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'ticket.created', 'ticket', String(ticket.id)));
-`],
-    [options.notifyEmailEnabled, `    recordTicketCreatedEmail(database, session, ticket);
-`]
-  ]);
-
-  return `import { NextResponse } from 'next/server';
-import type { TicketInput, TicketStatus } from '../../../src/runtime/database.ts';
-import { createTicket, listTicketsWithFilters, type TicketFilters } from '../../../src/installed/ticket/ticket-service.ts';${imports}
-import { getCurrentSession } from '../../../lib/session.ts';
-import { getDatabase } from '../../../lib/store.ts';
-
-${renderReadTicketFilters()}
-
-export async function GET(request: Request) {
-${renderSessionGuard()}
-
-  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
-  return NextResponse.json({ tickets });
-}
-
-export async function POST(request: Request) {
-${renderSessionGuard()}
-
-  try {
-    const database = getDatabase();
-    const payload = await request.json() as TicketInput;
-    const ticket = createTicket(database, session, payload);
-${mutationLines}    return NextResponse.json({ ticket }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });
-  }
-}
-`;
+  return renderEntityApiRoute({
+    entityName: 'ticket',
+    entityType: 'Ticket',
+    entityPath: 'ticket/ticket-service.ts',
+    listFunction: 'listTicketsWithFilters',
+    createFunction: 'createTicket',
+    inputType: 'TicketInput',
+    auditEnabled: options.auditEnabled,
+    notifyEmailEnabled: options.notifyEmailEnabled,
+    notifyFunction: 'recordTicketCreatedEmail',
+    tableFilterEnabled: false,
+    extraImports: [`import type { TicketStatus } from '../../../src/runtime/database.ts';`],
+    customGetBlock: `  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));`,
+    extraTopLevelCode: renderReadTicketFilters()
+  });
 }
 
 function renderTicketExportRoute(): string {
@@ -1091,6 +1029,76 @@ ${auditLine}    return NextResponse.json({ ticket });
 `;
 }
 
+
+type EntityApiRouteOptions = {
+  entityName: string;
+  entityType: string;
+  entityPath: string;
+  listFunction: string;
+  createFunction: string;
+  inputType: string;
+  auditEnabled: boolean;
+  notifyEmailEnabled: boolean;
+  notifyFunction?: string;
+  tableFilterEnabled: boolean;
+  filterFunction?: string;
+  extraImports?: string[];
+  customGetBlock?: string;
+  extraTopLevelCode?: string;
+};
+
+function renderEntityApiRoute(options: EntityApiRouteOptions): string {
+  const imports = renderImportBlock([
+    `import { NextResponse } from 'next/server';`,
+    `import type { ${options.inputType} } from '../../../src/runtime/database.ts';`,
+    `import { ${options.createFunction}, ${options.listFunction} } from '../../../src/installed/${options.entityPath}';`,
+    renderOptional(options.auditEnabled, `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`),
+    renderOptional(options.notifyEmailEnabled && !!options.notifyFunction, `import { ${options.notifyFunction} } from '../../../src/installed/notify/email-outbox.ts';`),
+    renderOptional(options.tableFilterEnabled && !!options.filterFunction, `import { ${options.filterFunction} } from '../../../src/installed/table/customer-filter.ts';`),
+    `import { getCurrentSession } from '../../../lib/session.ts';`,
+    `import { getDatabase } from '../../../lib/store.ts';`,
+    ...(options.extraImports ?? [])
+  ]);
+  const getBlock = options.customGetBlock ?? (options.tableFilterEnabled
+    ? `  const database = getDatabase();
+  const url = new URL(request.url);
+  const ${options.entityName}s = ${options.filterFunction}(${options.listFunction}(database, session), {
+    search: url.searchParams.get('search'),
+    company: url.searchParams.get('company')
+  });
+`
+    : `  const database = getDatabase();
+  const ${options.entityName}s = ${options.listFunction}(database, session);
+`);
+  const mutationLines = renderOptionalSnippets([
+    [options.auditEnabled, `    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, '${options.entityName}.created', '${options.entityName}', String(${options.entityName}.id)));
+`],
+    [options.notifyEmailEnabled && !!options.notifyFunction, `    ${options.notifyFunction}(database, session, ${options.entityName});
+`]
+  ]);
+
+  return `${imports}
+${options.extraTopLevelCode ?? ''}
+export async function GET(request: Request) {
+${renderSessionGuard()}
+
+${getBlock}  return NextResponse.json({ ${options.entityName}s });
+}
+
+export async function POST(request: Request) {
+${renderSessionGuard()}
+
+  try {
+    const database = getDatabase();
+    const payload = await request.json() as ${options.inputType};
+    const ${options.entityName} = ${options.createFunction}(database, session, payload);
+${mutationLines}    return NextResponse.json({ ${options.entityName} }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });
+  }
+}
+`;
+}
 function renderLoginForm(): string {
   return `'use client';
 

@@ -30,57 +30,25 @@ function buildSlotArtifact(task: LockFile['slotTasks'][number], artifactPath: st
   };
 }
 
+type PassRule = { test: (path: string) => boolean; pass: string };
+
+const PASS_RULES: PassRule[] = [
+  { test: (p) => p === CI_ARTIFACT_FILES.provenance || p === 'provenance.json', pass: 'lock' },
+  { test: (p) => p === CI_ARTIFACT_FILES.blockUsageMap || p === CI_ARTIFACT_FILES.installManifest, pass: 'compose' },
+  { test: (p) => p.startsWith('control/evidence/'), pass: 'verify' },
+  { test: (p) => p === CI_ARTIFACT_FILES.explainGraph, pass: 'explain' },
+  { test: (p) => p === CI_ARTIFACT_MANIFEST_PATH, pass: 'artifacts' },
+  { test: (p) => (CI_ARTIFACT_PATHS.view as readonly string[]).includes(p), pass: 'explain' },
+  { test: (p) => p === CI_ARTIFACT_FILES.repairPlan, pass: 'repair' },
+  { test: (p) => p === CI_ARTIFACT_FILES.upgradePlan || p === CI_ARTIFACT_FILES.upgradeDiagnostics, pass: 'upgrade' },
+  { test: (p) => p.startsWith('generated/') && (p.includes('verification-report') || p.includes('runtime-report') || p.includes('policy-report') || p.includes('acceptance-coverage')), pass: 'verify' },
+  { test: (p) => p.startsWith('generated/') && (p.includes('explain-graph') || p.includes('review-summary') || p.startsWith('generated/views/')), pass: 'explain' },
+  { test: (p) => p.startsWith('generated/') && p.includes('repair-plan'), pass: 'repair' },
+  { test: (p) => p.startsWith('generated/') && (p.includes('upgrade-plan') || p.includes('upgrade-diagnostics')), pass: 'upgrade' }
+];
+
 function inferGeneratedByPass(targetPath: string): string {
-  if (targetPath === CI_ARTIFACT_FILES.provenance) {
-    return 'lock';
-  }
-  if (targetPath.startsWith('control/evidence/')) {
-    return targetPath === CI_ARTIFACT_FILES.blockUsageMap || targetPath === CI_ARTIFACT_FILES.installManifest
-      ? 'compose'
-      : 'verify';
-  }
-  if (targetPath === CI_ARTIFACT_FILES.explainGraph) {
-    return 'explain';
-  }
-  if (targetPath === CI_ARTIFACT_MANIFEST_PATH) {
-    return 'artifacts';
-  }
-  if ((CI_ARTIFACT_PATHS.view as readonly string[]).includes(targetPath)) {
-    return 'explain';
-  }
-  if (targetPath === CI_ARTIFACT_FILES.repairPlan) {
-    return 'repair';
-  }
-  if (targetPath === CI_ARTIFACT_FILES.upgradePlan || targetPath === CI_ARTIFACT_FILES.upgradeDiagnostics) {
-    return 'upgrade';
-  }
-  if (targetPath === 'provenance.json') {
-    return 'lock';
-  }
-  if (targetPath.startsWith('generated/')) {
-    if (
-      targetPath.includes('verification-report') ||
-      targetPath.includes('runtime-report') ||
-      targetPath.includes('policy-report') ||
-      targetPath.includes('acceptance-coverage')
-    ) {
-      return 'verify';
-    }
-    if (
-      targetPath.includes('explain-graph') ||
-      targetPath.includes('review-summary') ||
-      targetPath.startsWith('generated/views/')
-    ) {
-      return 'explain';
-    }
-    if (targetPath.includes('repair-plan')) {
-      return 'repair';
-    }
-    if (targetPath.includes('upgrade-plan') || targetPath.includes('upgrade-diagnostics')) {
-      return 'upgrade';
-    }
-  }
-  return 'compose';
+  return PASS_RULES.find((rule) => rule.test(targetPath))?.pass ?? 'compose';
 }
 
 function passedVerificationPaths(report: VerificationReport | null): string[] {
