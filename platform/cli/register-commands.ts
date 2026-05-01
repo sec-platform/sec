@@ -52,6 +52,7 @@ import type { RepairPlan } from '../shared/repair-types.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import { buildReviewPolicySummary } from '../shared/review-policy.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
+import { withSpinner } from '../shared/spinner.ts';
 import {
   buildTestBudgetContract,
   formatTestBudgetContract
@@ -147,6 +148,10 @@ function addJsonFlags(cmd: Command): Command {
 
 function modeCommand(cmd: Command): Command {
   return cmd.allowExcessArguments(true);
+}
+
+function runWithOptionalSpinner<T>(text: string, output: JsonOpts, fn: () => Promise<T>): Promise<T> {
+  return output.json ? fn() : withSpinner(text, fn);
 }
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
@@ -251,21 +256,21 @@ export function registerCommands(program: Command): void {
   program.command('resolve')
     .description('Resolve block dependencies')
     .action(async () => {
-      const { lock } = await resolveWorkspace(process.cwd());
+      const { lock } = await withSpinner('Resolving block dependencies', () => resolveWorkspace(process.cwd()));
       console.log(`Resolved ${lock.resolvedBlocks.length} blocks`);
     });
 
   program.command('compose')
     .description('Compose project')
     .action(async () => {
-      await composeWorkspace(process.cwd());
+      await withSpinner('Composing project', () => composeWorkspace(process.cwd()));
       console.log('Composed project');
     });
 
   program.command('adapt')
     .description('Adapt slots')
     .action(async () => {
-      await adaptWorkspace(process.cwd());
+      await withSpinner('Adapting slots', () => adaptWorkspace(process.cwd()));
       console.log('Adapted slots');
     });
 
@@ -278,7 +283,7 @@ export function registerCommands(program: Command): void {
         throw new Error('Lane must be fast, runtime, or all');
       }
       const output = jsonOpts(opts);
-      const { report } = await verifyWorkspace(process.cwd(), { lane, emitTiming: !output.json });
+      const { report } = await runWithOptionalSpinner('Running verification', output, () => verifyWorkspace(process.cwd(), { lane, emitTiming: !output.json }));
       printJsonOrText(report, output, (v) => `Verification ${v.summary.status} (${v.summary.requestedLane})`);
     });
 
@@ -294,7 +299,11 @@ export function registerCommands(program: Command): void {
         return;
       }
       try {
-        const { repairPlan } = await repairWorkspace(process.cwd(), { dryRun: !!opts.dryRun });
+        const { repairPlan } = await runWithOptionalSpinner(
+          opts.dryRun ? 'Previewing repair' : 'Running repair',
+          output,
+          () => repairWorkspace(process.cwd(), { dryRun: !!opts.dryRun })
+        );
         printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, !!opts.dryRun));
       } catch (error) {
         const { repairPlanPath } = getWorkspacePaths(process.cwd());
@@ -324,7 +333,11 @@ export function registerCommands(program: Command): void {
       }
       if (args.length < 2) throw new Error('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]');
       const [blockId, targetVersion] = args;
-      const { upgradePlan } = await upgradeWorkspace(process.cwd(), blockId, targetVersion, { dryRun: !!opts.dryRun });
+      const { upgradePlan } = await runWithOptionalSpinner(
+        opts.dryRun ? 'Previewing upgrade' : 'Running upgrade',
+        output,
+        () => upgradeWorkspace(process.cwd(), blockId, targetVersion, { dryRun: !!opts.dryRun })
+      );
       printJsonOrText(upgradePlan, output, (p) => formatUpgradeSummary(p, !!opts.dryRun));
     });
 
@@ -337,7 +350,7 @@ export function registerCommands(program: Command): void {
         await printRequiredJson<LockFile>(lockPath, 'Graph lock not found; run platform lock first', output, formatLockInspect);
         return;
       }
-      await lockWorkspace(process.cwd());
+      await runWithOptionalSpinner('Locking project', output, () => lockWorkspace(process.cwd()));
       console.log('Locked project');
     });
 
@@ -351,7 +364,7 @@ export function registerCommands(program: Command): void {
         );
         return;
       }
-      const { graph, reviewSummary } = await explainWorkspace(process.cwd());
+      const { graph, reviewSummary } = await runWithOptionalSpinner('Explaining project', output, () => explainWorkspace(process.cwd()));
       printJsonOrText({ graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) }, output, (s) => formatExplainSummary(s.graph, s.reviewSummary));
     });
 

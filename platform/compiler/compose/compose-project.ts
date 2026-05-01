@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
+import { defaultLimit } from '../../shared/concurrency.ts';
 import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
@@ -66,7 +67,7 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
   ]);
 
   await Promise.all(
-    lock.slotTasks.map(async (task) => {
+    lock.slotTasks.map((task) => defaultLimit(async () => {
       const targetPath = resolvePathInside(projectRoot, task.target);
       if (!targetPath) {
         throw new Error(`Slot target "${task.target}" escapes project root`);
@@ -75,7 +76,7 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
         await writeText(targetPath, renderSlotSkeleton(task));
       }
       task.status = 'generated';
-    })
+    }))
   );
 
   const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
