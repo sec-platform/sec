@@ -7,6 +7,7 @@ import { buildTaskEnvelope } from '../../platform/compiler/synthesize/build-task
 import { synthesizeSlotSource } from '../../platform/compiler/synthesize/mock-slot-synthesizer.ts';
 import { lockWorkspace, repairWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { countLineDiff } from '../../platform/shared/diff-utils.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
@@ -130,6 +131,13 @@ test('repair dry-run writes a pending plan without touching source or verificati
     expect(persistedLock.slotTasks[0].status).toBe('failed');
     expect(persistedLock.generatedPaths).toContain(CI_ARTIFACT_FILES.repairPlan);
     expect(persistedRepairPlan).toEqual(repairPlan);
+  });
+});
+
+test('line diff counts appended lines without treating missing EOF newline as a rewrite', () => {
+  expect(countLineDiff('const a = 1', 'const a = 1\nconst b = 2')).toEqual({
+    added: 1,
+    removed: 0
   });
 });
 
