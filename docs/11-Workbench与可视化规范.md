@@ -317,7 +317,7 @@ policies: [tenant_scope_required]
 | --- | --- | --- | --- | --- |
 | 1 | 原生图导出 | 从 `ExplainGraph` 纯函数生成 Mermaid/DOT；注册 paths、artifact contract、lock generated paths | `control/graph/explain-graph.mmd`、`control/graph/explain-graph.dot` | 定向单测 + `platform explain --json --compact` + contract freeze |
 | 2 | 只读 Graph View | 在 `write-local-views` 增加 graph template；通用抽取 `ExplainGraph` 节点/边/类型明细，并用覆盖矩阵显式覆盖 app/block/capability/pin/slot/file/acceptance/policy/repair/upgrade；`issue` 作为 review overlay 展示 policy violation、failure point、repair blocker、upgrade diagnostic | `control/workbench/views/graph-view.html` | local view 内容断言 + coverage matrix + issue overlay + reference refresh |
-| 3 | 只读 Review View | 聚合 review summary、verification、coverage、policy、provenance、repair、upgrade、artifact 缺失 | `control/workbench/views/review-view.html` | review summary fixture + view 内容断言 |
+| 3 | 只读 Review View | 聚合 review summary、verification chain、acceptance coverage、policy violation、provenance priority files、repair readiness、upgrade readiness、artifact missing diagnostics | `control/workbench/views/review-view.html` | review summary fixture + view 内容断言 + artifact/view contract + reference refresh |
 | 4 | 工具 evidence contract 草案 | 定义 code-quality / architecture-boundary / semantic-pattern report 类型，但不加入 stable artifact | shared types + inspect/build 纯函数 | 类型检查 + schema/contract 单测 |
 | 5 | L1/L2 evidence 接入 | 将 jscpd/discover/depcruise 输出归一为 evidence；保留工具原始报告路径 | `control/evidence/*-report.json`（实现后再稳定） | fixture 转换测试 + preflight 文档化 |
 | 6 | L3 Engineering Pattern Graph | 识别 read/validate/build/write、query/guard/map/return、build/write artifact 等 PJC 工程模式 | `semantic-pattern-report.json` + overlay | 低置信 suggestion 测试，不自动重构 |
@@ -325,6 +325,8 @@ policies: [tenant_scope_required]
 | 8 | Typed semantic port | 扩展 pin/flow 的 kind、scope、producer/consumer、verifiedBy、policy 语义 | manifest/contract schema 更新 | resolve/graph/acceptance coverage 测试 |
 
 Graph View 的通用抽取不能降低信息覆盖：页面必须包含 coverage matrix，逐项列出所有 canonical `ExplainGraph` node type（app/block/capability/pin/slot/file/acceptance/policy/override/repair/upgrade）的来源、展示位置和计数；原计划里的 `issue` 不作为伪造 node type，而作为 review overlay 汇总 policy violation、failure point、repair blocker 和 upgrade diagnostic。任何后续删减都必须先更新本 coverage contract 和对应测试。
+
+Review View 不能成为第二套 review schema：它只从 `review-summary.json` 及现有 verification、coverage、policy、provenance、repair、upgrade、artifact evidence 派生人类 review 优先级，必须展示 dashboard、verification chain、coverage、policy violation、priority files、repair/upgrade readiness 和 missing artifact diagnostics。
 
 实现纪律：新增产物先保持 optional；只有 CLI inspect、contract freeze、artifact manifest、reference refresh、Workbench view、测试全部对齐后，才能升级为 stable artifact。Graph-It-Live/MCP、CodeQL/CPG、SonarQube/Fallow 等外部能力只能先接入 evidence/overlay，不得绕过平台 graph builder 或 mutation apply。
 

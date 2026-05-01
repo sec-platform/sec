@@ -57,6 +57,7 @@ export interface WorkspacePaths {
   sourceViewPath: string;
   slotRuleViewPath: string;
   graphViewPath: string;
+  reviewViewPath: string;
   repairPlanPath: string;
   upgradePlanPath: string;
   upgradeDiagnosticsPath: string;

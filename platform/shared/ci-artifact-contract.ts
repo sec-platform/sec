@@ -39,6 +39,7 @@ export const CI_ARTIFACT_FILES = {
   sourceView: 'control/workbench/views/source-view.html',
   slotRuleView: 'control/workbench/views/slot-rule-view.html',
   graphView: 'control/workbench/views/graph-view.html',
+  reviewView: 'control/workbench/views/review-view.html',
   testResults: 'test-results/**'
 } as const;
 
@@ -74,7 +75,8 @@ export const CI_ARTIFACT_PATHS = {
   view: [
     CI_ARTIFACT_FILES.sourceView,
     CI_ARTIFACT_FILES.slotRuleView,
-    CI_ARTIFACT_FILES.graphView
+    CI_ARTIFACT_FILES.graphView,
+    CI_ARTIFACT_FILES.reviewView
   ],
   test: [
     CI_ARTIFACT_FILES.testResults

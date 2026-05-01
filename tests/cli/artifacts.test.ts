@@ -349,6 +349,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
           kind: 'view',
           uploadName: 'control__workbench__views__graph-view.html',
           exists: true
+        },
+        {
+          path: CI_ARTIFACT_FILES.reviewView,
+          kind: 'view',
+          uploadName: 'control__workbench__views__review-view.html',
+          exists: true
         }
       ])
     );
