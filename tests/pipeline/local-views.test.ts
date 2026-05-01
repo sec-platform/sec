@@ -6,7 +6,8 @@ import { explainWorkspace } from '../../platform/orchestrator.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
-  CI_ARTIFACT_MISSING_REASON
+  CI_ARTIFACT_MISSING_REASON,
+  CI_ARTIFACT_PATHS
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -19,6 +20,8 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-local-views-' });
   const {
     acceptanceCoveragePath,
+    explainGraphPath,
+    graphViewPath,
     repairPlanPath,
     reviewSummaryPath,
     sourceViewPath,
@@ -26,6 +29,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     upgradeDiagnosticsPath,
     upgradePlanPath
   } = getWorkspacePaths(workspaceRoot);
+  const expectedViewArtifactPaths = [...CI_ARTIFACT_PATHS.view];
 
   await explainWorkspace(workspaceRoot);
 
@@ -388,7 +392,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     artifactStatus: 'attention',
     artifactCount: 7,
     governanceCount: 5,
-    viewCount: 2,
+    viewCount: expectedViewArtifactPaths.length,
     contractCount: 1,
     contractPaths: ['generated/postgres-contract.json'],
     missingCount: 1,
@@ -397,7 +401,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     }),
     uploadGroups: [
       buildArtifactUploadGroup('governance', 5, [CI_ARTIFACT_FILES.reviewSummary, CI_ARTIFACT_MANIFEST_PATH]),
-      buildArtifactUploadGroup('view', 2, [CI_ARTIFACT_FILES.sourceView, CI_ARTIFACT_FILES.slotRuleView])
+      buildArtifactUploadGroup('view', expectedViewArtifactPaths.length, expectedViewArtifactPaths)
     ],
     missing: [
       {
@@ -595,6 +599,16 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   };
   await writeJson(reviewSummaryPath, reviewSummary);
 
+  const graph = await readJson<{
+    edges: Array<{ from: string; to: string; type: string }>;
+  }>(explainGraphPath);
+  graph.edges.push({
+    from: 'file:src/installed/entity/customer-service.ts',
+    to: 'policy:tenant-scope-required',
+    type: 'violates'
+  });
+  await writeJson(explainGraphPath, graph);
+
   const coverage = await readJson<{
     blocks: Array<{ id: string; coveredBy: string[] }>;
     slots: Array<{ id: string; coveredBy: string[] }>;
@@ -740,6 +754,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
 
   const sourceView = await fs.readFile(sourceViewPath, 'utf8');
   const slotRuleView = await fs.readFile(slotRuleViewPath, 'utf8');
+  const graphView = await fs.readFile(graphViewPath, 'utf8');
   expectContainsAll(sourceView, [
     'href="slot-rule-view.html"',
     'href="source-view.html" aria-current="page"',
@@ -781,7 +796,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     '<td>Contract Paths</td><td>generated/postgres-contract.json</td>',
     'Artifact Upload Groups',
     `${CI_ARTIFACT_FILES.reviewSummary}, ${CI_ARTIFACT_MANIFEST_PATH}`,
-    `${CI_ARTIFACT_FILES.sourceView}, ${CI_ARTIFACT_FILES.slotRuleView}`,
+    expectedViewArtifactPaths.join(', '),
     'Missing Artifact Diagnostics',
     'generated/missing-&lt;artifact&gt;.json',
     'graph.lock.json',
@@ -913,6 +928,27 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     'unit &lt;failed&gt; &amp; needs repair'
   ]);
   expectContainsNone(sourceView, ['disk-only <failure>', 'Refresh <session>', 'unit <failed>']);
+  expectContainsAll(graphView, [
+    'href="graph-view.html" aria-current="page"',
+    'Graph View',
+    '<td>Nodes</td><td>',
+    '<td>Edges</td><td>',
+    'Graph Nodes',
+    '<th>ID</th><th>Type</th><th>Label</th><th>Outgoing</th><th>Incoming</th>',
+    'app:customer-admin',
+    'block:entity/customer-basic',
+    'policy:tenant-scope-required',
+    'Graph Edges',
+    '<th>From</th><th>Type</th><th>To</th>',
+    '<td>app:customer-admin</td><td>depends_on</td><td>block:entity/customer-basic</td>',
+    '<td>file:src/installed/entity/customer-service.ts</td><td>violates</td><td>policy:tenant-scope-required</td>',
+    'Node Type Summary',
+    '<td>block</td>',
+    'Edge Type Summary',
+    '<td>depends_on</td>',
+    'disk-only &lt;policy&gt; &amp; violation'
+  ]);
+  expectContainsNone(graphView, ['disk-only <policy>']);
   expectContainsAll(slotRuleView, [
     'href="source-view.html"',
     'href="slot-rule-view.html" aria-current="page"',

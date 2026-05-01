@@ -5,15 +5,13 @@
   <p>Blocks: <%= lock.resolvedBlocks.length %> | Slots: <%= lock.slotTasks.length %> | Files: <%= provenance.artifacts.length %></p>
   <table>
     <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
-    <tbody>
-      <% provenance.artifacts.forEach(function(a) { %>
+    <tbody><% provenance.artifacts.forEach(function(a) { %>
       <tr>
         <td><%- esc(a.path) %></td>
         <td><%- esc(a.originType + ':' + a.originId) %></td>
         <td><%= a.registrySourceId ? esc(a.registrySourceId + ' (' + (a.registryKind ?? 'unknown') + ', ' + (a.registryLocation ?? 'unknown') + ')') : '' %></td>
         <td><%- esc(a.overrideStatus) %></td>
-      </tr>
-      <% }); %>
+      </tr><% }); %>
     </tbody>
   </table>
 </section>

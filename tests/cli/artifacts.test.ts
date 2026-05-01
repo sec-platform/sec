@@ -6,6 +6,7 @@ import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
   CI_ARTIFACT_MISSING_REASON,
+  CI_ARTIFACT_PATHS,
   ciArtifactUploadName
 } from '../../platform/shared/ci-artifact-contract.ts';
 import type {
@@ -342,6 +343,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
           kind: 'view',
           uploadName: 'control__workbench__views__source-view.html',
           exists: true
+        },
+        {
+          path: CI_ARTIFACT_FILES.graphView,
+          kind: 'view',
+          uploadName: 'control__workbench__views__graph-view.html',
+          exists: true
         }
       ])
     );
@@ -636,11 +643,14 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       '--kind',
       'view'
     ]);
+    const expectedAvailableViewPaths = CI_ARTIFACT_PATHS.view
+      .filter((viewPath) => viewPath !== CI_ARTIFACT_FILES.sourceView)
+      .sort();
     expectArtifactPathsPayload(viewPathsJson, {
       kind: 'view',
-      paths: [CI_ARTIFACT_FILES.slotRuleView],
-      byKind: { view: 1 },
-      uploadGroups: [buildArtifactUploadGroup('view', 1, [CI_ARTIFACT_FILES.slotRuleView])]
+      paths: expectedAvailableViewPaths,
+      byKind: { view: expectedAvailableViewPaths.length },
+      uploadGroups: [buildArtifactUploadGroup('view', expectedAvailableViewPaths.length, expectedAvailableViewPaths)]
     });
     expect(viewPathsJson.paths).not.toContain(CI_ARTIFACT_MANIFEST_PATH);
 

@@ -183,6 +183,7 @@
     "control/graph/explain-graph.json",
     "control/graph/explain-graph.mmd",
     "control/provenance/provenance.json",
+    "control/workbench/views/graph-view.html",
     "control/workbench/views/slot-rule-view.html",
     "control/workbench/views/source-view.html",
     "generated/routes.ts",
