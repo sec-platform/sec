@@ -136,6 +136,8 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     policyReportPath: path.join(controlEvidenceRoot, 'policy-report.json'),
     runtimeReportPath: path.join(controlEvidenceRoot, 'runtime-report.json'),
     explainGraphPath: path.join(controlGraphRoot, 'explain-graph.json'),
+    explainGraphMermaidPath: path.join(controlGraphRoot, 'explain-graph.mmd'),
+    explainGraphDotPath: path.join(controlGraphRoot, 'explain-graph.dot'),
     reviewSummaryPath: path.join(controlEvidenceRoot, 'review-summary.json'),
     ciArtifactsPath: path.join(controlCiRoot, 'artifacts.json'),
     sourceViewPath: path.join(controlWorkbenchRoot, 'views', 'source-view.html'),

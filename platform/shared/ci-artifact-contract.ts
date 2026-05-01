@@ -29,6 +29,8 @@ export const CI_ARTIFACT_FILES = {
   policyReport: 'control/evidence/policy-report.json',
   acceptanceCoverage: 'control/evidence/acceptance-coverage.json',
   explainGraph: 'control/graph/explain-graph.json',
+  explainGraphMermaid: 'control/graph/explain-graph.mmd',
+  explainGraphDot: 'control/graph/explain-graph.dot',
   reviewSummary: 'control/evidence/review-summary.json',
   repairPlan: 'control/workflow/repair-plan.json',
   upgradePlan: 'control/workflow/upgrade-plan.json',
@@ -41,6 +43,15 @@ export const CI_ARTIFACT_FILES = {
 
 export const CI_ARTIFACT_MANIFEST_PATH = CI_ARTIFACT_FILES.artifactManifest;
 
+export const CI_EXPLAIN_GRAPH_ARTIFACTS = [
+  { id: 'explain-graph', path: CI_ARTIFACT_FILES.explainGraph },
+  { id: 'explain-graph-mermaid', path: CI_ARTIFACT_FILES.explainGraphMermaid },
+  { id: 'explain-graph-dot', path: CI_ARTIFACT_FILES.explainGraphDot }
+] as const;
+
+export const CI_EXPLAIN_GRAPH_ARTIFACT_PATHS: readonly string[] =
+  CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => artifact.path);
+
 export const CI_ARTIFACT_PATHS = {
   requiredGovernance: [
     CI_ARTIFACT_FILES.graphLock,
@@ -50,7 +61,7 @@ export const CI_ARTIFACT_PATHS = {
     CI_ARTIFACT_FILES.runtimeReport,
     CI_ARTIFACT_FILES.policyReport,
     CI_ARTIFACT_FILES.acceptanceCoverage,
-    CI_ARTIFACT_FILES.explainGraph,
+    ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
     CI_ARTIFACT_FILES.reviewSummary
   ],
   optionalGovernance: [

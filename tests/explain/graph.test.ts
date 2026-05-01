@@ -3,7 +3,10 @@ import { expect, test } from 'vitest';
 
 import { buildExplainGraph, writeExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
 import { initWorkspace, resolveWorkspace } from '../../platform/orchestrator.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
+} from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
@@ -464,8 +467,15 @@ test('explain graph links generated ticket runtime routes back to related blocks
 
 test('writeExplainGraph does not require a policy report', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-no-policy-');
-  const { acceptanceCoveragePath, explainGraphPath, lockPath, policyReportPath, provenancePath } = getWorkspacePaths(workspaceRoot);
-
+  const {
+    acceptanceCoveragePath,
+    explainGraphDotPath,
+    explainGraphMermaidPath,
+    explainGraphPath,
+    lockPath,
+    policyReportPath,
+    provenancePath
+  } = getWorkspacePaths(workspaceRoot);
   await initWorkspace(workspaceRoot, { reset: true });
   const { lock } = await resolveWorkspace(workspaceRoot);
   const provenance: ProvenanceFile = {
@@ -479,14 +489,23 @@ test('writeExplainGraph does not require a policy report', async () => {
   const writtenGraph = await readJson<typeof graph>(explainGraphPath);
   const writtenLock = await readJson<typeof lock>(lockPath);
   const writtenProvenance = await readJson<ProvenanceFile>(provenancePath);
+  const mermaid = await fs.readFile(explainGraphMermaidPath, 'utf8');
+  const dot = await fs.readFile(explainGraphDotPath, 'utf8');
 
   expectGraphNode(graph, { type: 'pin' });
   expectNoGraphNode(graph, { type: 'policy' });
   expect(writtenGraph.nodes).toEqual(graph.nodes);
-  expect(writtenLock.generatedPaths).toEqual(
-    expect.arrayContaining([CI_ARTIFACT_FILES.explainGraph, CI_ARTIFACT_FILES.provenance])
-  );
-  expect(writtenProvenance.artifacts.map((artifact) => artifact.path)).toEqual(
-    expect.arrayContaining([CI_ARTIFACT_FILES.explainGraph, CI_ARTIFACT_FILES.provenance])
-  );
+  expect(mermaid).toContain('flowchart TD');
+  expect(mermaid).toContain('app_customer_admin["customer-admin (app)"]');
+  expect(mermaid).toContain('block_entity_customer_basic["entity/customer-basic (block)"]');
+  expect(mermaid).toContain('app_customer_admin -- depends_on --> block_entity_customer_basic');
+  expect(dot).toContain('digraph ExplainGraph {');
+  expect(dot).toContain('"app:customer-admin" [label="customer-admin (app)"];');
+  expect(dot).toContain('"app:customer-admin" -> "block:entity/customer-basic" [label="depends_on"];');
+  const explainArtifacts = [
+    ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
+    CI_ARTIFACT_FILES.provenance
+  ];
+  expect(writtenLock.generatedPaths).toEqual(expect.arrayContaining(explainArtifacts));
+  expect(writtenProvenance.artifacts.map((artifact) => artifact.path)).toEqual(expect.arrayContaining(explainArtifacts));
 });

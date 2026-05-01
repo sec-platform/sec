@@ -2,6 +2,7 @@ import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_KINDS,
   CI_ARTIFACT_MANIFEST_PATH,
+  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
   ciArtifactUploadCommand
 } from './ci-artifact-contract.ts';
 import type { CiArtifactKind } from './ci-artifact-types.ts';
@@ -141,7 +142,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     command: platformCommand('explain', '--json', '--compact'),
     purpose: 'Expose the explain graph and review summary for failed CI triage.',
     produces: [
-      CI_ARTIFACT_FILES.explainGraph,
+      ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
       CI_ARTIFACT_FILES.reviewSummary
     ]
   },

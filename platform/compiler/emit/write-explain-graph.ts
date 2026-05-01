@@ -1,8 +1,11 @@
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
-import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
+} from '../../shared/ci-artifact-contract.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainEdgeType, ExplainGraph, ExplainGraphEdge, ExplainGraphNode, ExplainNodeType } from '../../shared/explain-types.ts';
-import { pathExists, readJson, writeJson } from '../../shared/fs.ts';
+import { pathExists, readJson, writeJson, writeText } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -238,16 +241,72 @@ export async function buildExplainGraph(
   });
 }
 
+function escapeProjectionLabel(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+}
+
+function buildMermaidNodeIds(graph: ExplainGraph): Map<string, string> {
+  const ids = new Map<string, string>();
+  const used = new Set<string>();
+  for (const node of graph.nodes) {
+    const base = node.id.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'node';
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate)) {
+      candidate = `${base}_${suffix}`;
+      suffix += 1;
+    }
+    ids.set(node.id, candidate);
+    used.add(candidate);
+  }
+  return ids;
+}
+
+function renderExplainGraphMermaid(graph: ExplainGraph): string {
+  const nodeIds = buildMermaidNodeIds(graph);
+  const lines = ['flowchart TD'];
+  for (const node of graph.nodes) {
+    const label = escapeProjectionLabel(`${node.label} (${node.type})`);
+    lines.push(`  ${nodeIds.get(node.id)}["${label}"]`);
+  }
+  for (const edge of graph.edges) {
+    lines.push(`  ${nodeIds.get(edge.from)} -- ${edge.type} --> ${nodeIds.get(edge.to)}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function renderExplainGraphDot(graph: ExplainGraph): string {
+  const lines = ['digraph ExplainGraph {'];
+  for (const node of graph.nodes) {
+    const id = escapeProjectionLabel(node.id);
+    const label = escapeProjectionLabel(`${node.label} (${node.type})`);
+    lines.push(`  "${id}" [label="${label}"];`);
+  }
+  for (const edge of graph.edges) {
+    const from = escapeProjectionLabel(edge.from);
+    const to = escapeProjectionLabel(edge.to);
+    lines.push(`  "${from}" -> "${to}" [label="${edge.type}"];`);
+  }
+  lines.push('}');
+  return `${lines.join('\n')}\n`;
+}
+
 export async function writeExplainGraph(
   workspaceRoot: string,
   lock: LockFile,
   provenance: ProvenanceFile
 ): Promise<ExplainGraph> {
-  const { acceptanceCoveragePath, explainGraphPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const {
+    acceptanceCoveragePath,
+    explainGraphDotPath,
+    explainGraphMermaidPath,
+    explainGraphPath,
+    lockPath
+  } = getWorkspacePaths(workspaceRoot);
   const graph = await writeGeneratedArtifactWithLock(
     lockPath,
     lock,
-    [CI_ARTIFACT_FILES.explainGraph],
+    CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
     async () => {
       if (!(await pathExists(acceptanceCoveragePath))) {
         throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
@@ -261,6 +320,8 @@ export async function writeExplainGraph(
         workspaceRoot, lock, nextProvenance, coverage, policyReport, upgradePlan, repairPlan, upgradeDiagnostics
       );
       await writeJson(explainGraphPath, nextGraph);
+      await writeText(explainGraphMermaidPath, renderExplainGraphMermaid(nextGraph));
+      await writeText(explainGraphDotPath, renderExplainGraphDot(nextGraph));
       return nextGraph;
     }
   );
