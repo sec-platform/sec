@@ -96,7 +96,7 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
     expect(scripts.check).toBe('bun run typecheck && bun run test');
     expect(scripts['check:full']).toBe('bun run typecheck && bun run test:all');
-    expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
+    expect(scripts['imports:check']).toBe('bun run imports:organize && bun ./platform/dev-runner.ts imports:check');
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['test:budget']).toBe('bun run platform -- test budget --json');
     expect(scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
