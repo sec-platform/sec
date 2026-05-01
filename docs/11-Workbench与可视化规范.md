@@ -291,6 +291,8 @@ graph operation
 
 禁止图层直接写 `source/app.yaml`、`project/**` 或 `control/**`。第一批低风险 mutation 应限制在：add block、set block version、add/update slot description、add acceptance、connect capability/pin、create private block draft、promote lab/override 到受治理输入。每个 mutation 应声明 precondition、expected graph delta、risk level、需要重跑的 pass 和回滚/拒绝原因。
 
+当前 Graph mutation dry-run 只输出内存中的 `source/views/mutations/*.json` 预览和 `control/workflow/graph-mutation-dry-run-report.json` 草案结构，`stableArtifact: false`，不得由 graph 层直接落盘；真正写入必须仍由受控 mutation 文件和 `platform workbench mutations apply` 完成。
+
 ### 10.5 对全业务 block 与流程架构的指导
 
 图层不应只展示文件关系，还应反向指导 block、pin、flow 的设计。全业务 block 的管脚应逐步从简单 input/output 升级为 typed semantic port：
