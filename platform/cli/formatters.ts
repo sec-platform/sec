@@ -3,7 +3,7 @@ import type {
   AcceptanceCoverageReport
 } from '../shared/acceptance-types.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../shared/ci-artifact-contract.ts';
-import type { CiArtifactManifest, CiArtifactUploadGroup } from '../shared/ci-artifact-types.ts';
+import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../shared/ci-artifact-types.ts';
 import { countMatching, uniqueSorted } from '../shared/collections.ts';
 import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
@@ -19,10 +19,11 @@ import type { ReviewSummary } from '../shared/review-types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../shared/review-upgrade.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../shared/verification-types.ts';
-import type { ArtifactPathKind } from './args.ts';
-import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries } from './format-utils.ts';
+import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from './format-utils.ts';
 
 export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
+
+export type ArtifactPathKind = CiArtifactKind;
 
 export type ArtifactUploadPathContract = {
   formatVersion: CiArtifactManifest['formatVersion'];
@@ -356,30 +357,12 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
 }
 
 function formatReviewDiagnostic(entry: ReviewDiagnosticEntry): string {
-  if (entry.category === 'failure') {
-    return formatFields([
-      `Diagnostic ${entry.id}`,
-      `kind=${entry.kind}`,
-      `lane=${entry.lane}`,
-      `artifact=${entry.artifactPath}`,
-      entry.message
-    ]);
-  }
-  if (entry.category === 'regression-risk') {
-    return formatFields([
-      `Diagnostic ${entry.id}`,
-      `kind=${entry.kind}`,
-      `block=${entry.blockId ?? 'none'}`,
-      `slot=${entry.slotId ?? 'none'}`,
-      entry.message
-    ]);
-  }
-  return formatFields([
-    `Diagnostic ${entry.id}`,
-    `kind=${entry.kind}`,
-    `related=${entry.relatedId}`,
-    entry.message
-  ]);
+  const fields: string[] = [`Diagnostic ${entry.id}`, `kind=${entry.kind}`];
+  if (entry.category === 'failure') fields.push(`lane=${entry.lane}`, `artifact=${entry.artifactPath}`);
+  else if (entry.category === 'regression-risk') fields.push(`block=${entry.blockId ?? 'none'}`, `slot=${entry.slotId ?? 'none'}`);
+  else fields.push(`related=${entry.relatedId}`);
+  fields.push(entry.message);
+  return formatFields(fields);
 }
 
 export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect): string {
@@ -475,21 +458,23 @@ function formatUpgradeMigrationDetails(
   return [
     `Migration ${migration.id}: ${migration.kind}`,
     `target=${migration.target}`,
-    ...(migration.source ? [`source=${migration.source}`] : []),
-    ...(migration.slotId ? [`slot=${migration.slotId}`] : []),
-    ...(operation ? [`role=${operation.role}`] : []),
-    ...(operation?.inputType ? [`input=${operation.inputType}`] : []),
-    ...(operation?.outputType ? [`output=${operation.outputType}`] : []),
-    ...(operation?.writableZones ? [`writableZones=${operation.writableZones.join(',')}`] : []),
-    ...(operation?.path ? [`path=${operation.path.join('.')}`] : []),
-    ...(operation?.updateCount !== undefined ? [`updates=${operation.updateCount}`] : []),
-    ...(operation?.itemCount !== undefined ? [`items=${operation.itemCount}`] : []),
-    ...(operation?.valueKeyCount !== undefined ? [`valueKeys=${operation.valueKeyCount}`] : []),
-    ...(operation?.contentLength !== undefined ? [`contentLength=${operation.contentLength}`] : []),
-    ...(operation?.searchLength !== undefined ? [`searchLength=${operation.searchLength}`] : []),
-    ...(operation?.replacementLength !== undefined ? [`replacementLength=${operation.replacementLength}`] : []),
-    ...(operation?.pattern ? [`pattern=${operation.pattern}`] : []),
-    ...(operation?.flags ? [`flags=${operation.flags}`] : []),
+    ...optionalFields([
+      [migration.source, `source=${migration.source}`],
+      [migration.slotId, `slot=${migration.slotId}`],
+      [operation?.role, `role=${operation?.role}`],
+      [operation?.inputType, `input=${operation?.inputType}`],
+      [operation?.outputType, `output=${operation?.outputType}`],
+      [operation?.writableZones, `writableZones=${operation?.writableZones?.join(',')}`],
+      [operation?.path, `path=${operation?.path?.join('.')}`],
+      [operation?.updateCount, `updates=${operation?.updateCount}`],
+      [operation?.itemCount, `items=${operation?.itemCount}`],
+      [operation?.valueKeyCount, `valueKeys=${operation?.valueKeyCount}`],
+      [operation?.contentLength, `contentLength=${operation?.contentLength}`],
+      [operation?.searchLength, `searchLength=${operation?.searchLength}`],
+      [operation?.replacementLength, `replacementLength=${operation?.replacementLength}`],
+      [operation?.pattern, `pattern=${operation?.pattern}`],
+      [operation?.flags, `flags=${operation?.flags}`]
+    ]),
     `requiresVerification=${migration.requiresVerification}`
   ];
 }

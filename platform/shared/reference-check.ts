@@ -94,22 +94,17 @@ export function formatReferenceCheck(report: ReferenceCheckReport): string {
   ].join('\n');
 }
 
+const REFERENCE_DRIFT_CODES: Record<Exclude<ReferenceCheckStatus, 'clean'>, { code: string; message: string }> = {
+  drifted: { code: 'VERIFY-REFERENCE-DRIFT-001', message: 'reference workspace drift detected' },
+  'refresh-failed': { code: 'VERIFY-REFERENCE-DRIFT-002', message: 'reference refresh failed' },
+  'diff-failed': { code: 'VERIFY-REFERENCE-DRIFT-003', message: 'reference diff command failed' }
+};
+
 export function assertReferenceCheckClean(report: ReferenceCheckReport): void {
   if (report.status === 'clean') {
     return;
   }
 
-  throw new CompilerError(
-    report.status === 'drifted'
-      ? 'VERIFY-REFERENCE-DRIFT-001'
-      : report.status === 'refresh-failed'
-        ? 'VERIFY-REFERENCE-DRIFT-002'
-        : 'VERIFY-REFERENCE-DRIFT-003',
-    report.status === 'drifted'
-      ? 'reference workspace drift detected'
-      : report.status === 'refresh-failed'
-        ? 'reference refresh failed'
-        : 'reference diff command failed',
-    report
-  );
+  const { code, message } = REFERENCE_DRIFT_CODES[report.status];
+  throw new CompilerError(code, message, report);
 }

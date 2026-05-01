@@ -10,6 +10,10 @@ export function formatCounts(values: string[]): string {
   );
 }
 
+export function optionalFields(entries: Array<[unknown, string]>): string[] {
+  return entries.filter(([value]) => value !== undefined && value !== null).map(([, text]) => text);
+}
+
 export function formatFields(values: readonly string[]): string {
   return values.join('; ');
 }

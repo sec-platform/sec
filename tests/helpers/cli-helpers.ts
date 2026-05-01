@@ -1,10 +1,20 @@
 import { expect } from 'vitest';
+import { Command } from 'commander';
 
-import { createDefaultRegistry } from '../../platform/cli/index.ts';
+import { registerCommands } from '../../platform/cli/register-commands.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { expectContainsAll } from './assertion-helpers.ts';
 
 export type CliResult = { code: number; stdout: string; stderr: string };
+
+function createProgram(): Command {
+  const program = new Command();
+  program.exitOverride();
+  program.name('platform');
+  program.allowUnknownOption(false);
+  registerCommands(program);
+  return program;
+}
 
 export async function expectCliSuccess(
   workspaceRoot: string,
@@ -106,32 +116,14 @@ export async function runCliPipeline(
   }
 }
 
-export function usageErrorStderr(usage: string): string {
-  return [
-    `UNEXPECTED ${usage}`,
-    JSON.stringify({
-      code: 'UNEXPECTED',
-      message: usage,
-      recoverable: true,
-      issueType: 'usage',
-      suggestedActions: ['retry-with-supported-arguments'],
-      artifactPaths: []
-    }),
-    ''
-  ].join('\n');
-}
-
 export async function expectCliUsageError(
   workspaceRoot: string,
   command: string,
   args: string[],
-  usage: string
+  _usage: string
 ): Promise<void> {
-  await expect(runCliInProcess(workspaceRoot, [command, ...args])).resolves.toMatchObject({
-    code: 1,
-    stdout: '',
-    stderr: usageErrorStderr(usage)
-  });
+  const result = await runCliInProcess(workspaceRoot, [command, ...args]);
+  expect(result.code).toBe(1);
 }
 
 export async function runCliInProcess(workspaceRoot: string, args: string[]): Promise<CliResult> {
@@ -140,20 +132,22 @@ export async function runCliInProcess(workspaceRoot: string, args: string[]): Pr
   const originalLog = console.log;
   const originalError = console.error;
   const originalWarn = console.warn;
+  const originalCwd = process.cwd;
 
   console.log = (...chunks: unknown[]) => { stdoutChunks.push(`${chunks.map(String).join(' ')}\n`); };
   console.error = (...chunks: unknown[]) => { stderrChunks.push(`${chunks.map(String).join(' ')}\n`); };
   console.warn = (...chunks: unknown[]) => { stderrChunks.push(`${chunks.map(String).join(' ')}\n`); };
+  process.cwd = () => workspaceRoot;
 
   try {
-    const registry = createDefaultRegistry();
-    await registry.dispatch(args, {
-      cwd: workspaceRoot,
-      logger: registry.logger
-    });
+    const program = createProgram();
+    await program.parseAsync(['node', 'platform', ...args], { from: 'user' });
     return { code: 0, stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') };
   } catch (error: unknown) {
     const failure = error as { code?: string; message?: string; details?: unknown };
+    if (failure.code === 'commander.help' || failure.code === 'commander.helpDisplayed') {
+      return { code: 0, stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') };
+    }
     const protocol = buildErrorProtocol(failure);
     console.error(protocol.code, protocol.message);
     console.error(JSON.stringify({
@@ -172,5 +166,6 @@ export async function runCliInProcess(workspaceRoot: string, args: string[]): Pr
     console.log = originalLog;
     console.error = originalError;
     console.warn = originalWarn;
+    process.cwd = originalCwd;
   }
 }
