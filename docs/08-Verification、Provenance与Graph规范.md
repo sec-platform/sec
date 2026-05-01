@@ -111,3 +111,20 @@ Review Summary 是 Review Workbench 的主数据源之一。它必须优先回�
 | Slot rule view | `control/workbench/views/slot-rule-view.html` |
 | Graph view | `control/workbench/views/graph-view.html` |
 | Review view | `control/workbench/views/review-view.html` |
+
+## 8. 质量、架构与语义模式 evidence 预留
+
+`jscpd`、`dependency-cruiser`、`scripts/discover-all.ts`、Graph-It-Live/MCP、未来 trace 或 IDE graph 工具可以作为 evidence provider 接入治理面，但不能替代 `source/app.yaml`、block manifest、contracts、graph lock、provenance、review summary 等事实源。
+
+预留 evidence / overlay 类型：
+
+| 类型 | 预留路径 | 说明 | 稳定性 |
+| --- | --- | --- | --- |
+| Code quality report | `control/evidence/code-quality-report.json` | 聚合 L1/L2 重复、复杂度、死代码、候选重构 | 未实现，不属于当前 stable artifact |
+| Architecture boundary report | `control/evidence/architecture-boundary-report.json` | 聚合 dependency-cruiser、cycle、module boundary、layer drift | 未实现，不属于当前 stable artifact |
+| Semantic pattern report | `control/evidence/semantic-pattern-report.json` | L3 工程模式/意图重复候选，如 read-validate-build-write | 未实现，不属于当前 stable artifact |
+| Quality overlay | `control/graph/code-quality-overlay.json` | 将质量 finding 映射到 file/function/block/slot 节点 | 未实现，不属于当前 stable artifact |
+| Architecture overlay | `control/graph/architecture-overlay.json` | 将依赖边界和循环风险映射到 graph view | 未实现，不属于当前 stable artifact |
+| Semantic pattern overlay | `control/graph/semantic-pattern-overlay.json` | 将 L3 pattern 映射为 review suggestion 或 generator/block 候选 | 未实现，不属于当前 stable artifact |
+
+实现这些路径时必须同步 contract freeze、artifact manifest、CLI compact contract 和 Workbench view；实现前不得把它们加入当前治理产物必需清单。
