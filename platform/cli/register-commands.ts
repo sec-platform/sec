@@ -42,6 +42,11 @@ import type { LockFile } from '../shared/lock-types.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import { platformCommand } from '../shared/platform-command.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
+import type { ProjectOverview } from '../shared/project-overview.ts';
+import {
+  buildProjectOverviewFromWorkspace,
+  formatProjectOverview
+} from '../shared/project-overview.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import {
   assertReferenceCheckClean,
@@ -538,6 +543,18 @@ export function registerCommands(program: Command): void {
     const checklist = await buildDemoChecklist(process.cwd());
     printJsonOrText(checklist, output, formatDemoChecklist);
   });
+
+  addJsonFlags(program.command('overview'))
+    .description('Project overview')
+    .action(async (opts: Record<string, unknown>) => {
+      const output = jsonOpts(opts);
+      const overview = await runWithOptionalSpinner(
+        'Building project overview',
+        output,
+        () => buildProjectOverviewFromWorkspace(process.cwd())
+      );
+      printJsonOrText<ProjectOverview>(overview, output, formatProjectOverview);
+    });
 
   addJsonFlags(modeCommand(program.command('contract')))
     .description('Contract inspection')
