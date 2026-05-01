@@ -120,9 +120,9 @@ Review Summary 是 Review Workbench 的主数据源之一。它必须优先回�
 
 | 类型 | 预留路径 | 说明 | 稳定性 |
 | --- | --- | --- | --- |
-| Code quality report | `control/evidence/code-quality-report.json` | 聚合 L1/L2 重复、复杂度、死代码、候选重构 | 未实现，不属于当前 stable artifact |
-| Architecture boundary report | `control/evidence/architecture-boundary-report.json` | 聚合 dependency-cruiser、cycle、module boundary、layer drift | 未实现，不属于当前 stable artifact |
-| Semantic pattern report | `control/evidence/semantic-pattern-report.json` | L3 工程模式/意图重复候选，如 read-validate-build-write | 未实现，不属于当前 stable artifact |
+| Code quality report | `control/evidence/code-quality-report.json` | 聚合 L1/L2 重复、复杂度、死代码、候选重构 | 已定义 draft adapter，不属于当前 stable artifact |
+| Architecture boundary report | `control/evidence/architecture-boundary-report.json` | 聚合 dependency-cruiser、cycle、module boundary、layer drift | 已定义 draft adapter，不属于当前 stable artifact |
+| Semantic pattern report | `control/evidence/semantic-pattern-report.json` | L3 工程模式/意图重复候选，如 read-validate-build-write | 已定义 draft adapter，不属于当前 stable artifact |
 | Quality overlay | `control/graph/code-quality-overlay.json` | 将质量 finding 映射到 file/function/block/slot 节点 | 未实现，不属于当前 stable artifact |
 | Architecture overlay | `control/graph/architecture-overlay.json` | 将依赖边界和循环风险映射到 graph view | 未实现，不属于当前 stable artifact |
 | Semantic pattern overlay | `control/graph/semantic-pattern-overlay.json` | 将 L3 pattern 映射为 review suggestion 或 generator/block 候选 | 未实现，不属于当前 stable artifact |
