@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { uniqueSorted } from '../shared/collections.ts';
+import { uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-contract.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
@@ -34,10 +34,8 @@ async function gitChangedFiles(): Promise<string[] | null> {
   if (tracked.code !== 0 || untracked.code !== 0) {
     return null;
   }
-  return uniqueSorted(
-    [...tracked.stdout.split(/\r?\n/), ...untracked.stdout.split(/\r?\n/)]
-      .map((file) => posixPath(file.trim()))
-  );
+  return uniqueSortedLines(`${tracked.stdout}\n${untracked.stdout}`)
+    .map(posixPath);
 }
 
 interface ChangedTestSelection {

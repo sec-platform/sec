@@ -31,6 +31,10 @@ export function uniqueSorted<T extends string>(values: readonly T[]): T[] {
   return sortBy(uniq(filter([...values], (v) => v.length > 0)));
 }
 
+export function uniqueSortedLines(value: string): string[] {
+  return uniqueSorted(value.split(/\r?\n/u).map((line) => line.trim()));
+}
+
 export function normalizeNewlines(value: string): string {
   return value.replace(/\r\n/g, '\n');
 }
