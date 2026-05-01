@@ -1,4 +1,4 @@
-import { uniqueSorted } from './collections.ts';
+import { uniqueSortedLines } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
 import { compilerRoot } from './paths.ts';
@@ -40,9 +40,7 @@ export async function buildReferenceCheckReport(options: {
   const diffResult: CommandResult = refreshResult.code === 0
     ? await commandRunner('git', diffArgs, { cwd: root })
     : { code: -1, stdout: '', stderr: '' };
-  const changedPaths = uniqueSorted(diffResult.stdout
-    .split(/\r?\n/u)
-    .map((line) => line.trim()));
+  const changedPaths = uniqueSortedLines(diffResult.stdout);
   const status: ReferenceCheckStatus = refreshResult.code !== 0
     ? 'refresh-failed'
     : diffResult.code === 0
