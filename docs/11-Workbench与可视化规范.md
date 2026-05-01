@@ -234,7 +234,99 @@ generate-ticket
 
 判断标准：如果新增一个 `Order`、`Invoice`、`Worklog` 需要改核心编译器分支，说明抽象错误；如果只需要新增 contract 或 block manifest，说明方向正确。
 
-## 10. 阶段路线
+## 10. 工具证据层、L3 与双向操作层
+
+### 10.1 工具分层
+
+当前可视化与代码质量工具应按四层接入，不能混成单一事实源：
+
+| 层 | 角色 | 当前候选 | 规则 |
+| --- | --- | --- | --- |
+| Evidence collection | 采集源码、依赖、重复、IDE 实时图证据 | `jscpd`、`dependency-cruiser`、`scripts/discover-all.ts`、Graph-It-Live/MCP | 只产出 evidence，不直接决定平台 contract |
+| Canonical graph | 归一为工程语义图 | Engineering IR、Explain Graph、Review Summary、Provenance | 平台主事实归一层 |
+| Projection | 面向人和 AI 的投影视图 | Mermaid、DOT、HTML Workbench、IDE/VSCode adapter | 只能由 canonical graph 或 evidence overlay 派生 |
+| Operation | 可审计操作层 | Workbench mutation、AI task envelope | 只通过结构化 mutation 回写 `source/**` |
+
+Graph-It-Live 这类 VSCode/MCP 工具适合作为 IDE 实时探索和 AI 上下文工具，但不能成为平台事实源。它的 file graph、symbol view、call graph、MCP 工具结果只能作为可选 evidence/overlay 接入；CI、contract freeze、Workbench 主图仍以平台治理产物为准。
+
+### 10.2 L1/L2/L3 质量图层
+
+代码质量和工程可视化应区分三层：
+
+| 层 | 当前覆盖 | 目标 |
+| --- | --- | --- |
+| L1 文本/token 重复 | `jscpd` | 发现复制粘贴、版本 overlay、模板重复 |
+| L2 结构重复 | `scripts/discover-all.ts` 基于 AST 归一化哈希 | 发现变量名不同但函数结构相同的重复 |
+| L3 语义/意图重复 | 预留 Engineering Pattern Graph | 识别“读取→校验→转换→输出”、“查询→判空→映射→返回”、“build→write artifact”等工程模式 |
+
+L3 不应只做“语义 clone 分数”。它应输出可审查的工程模式候选：是否应该抽成 helper、formatter、contract builder、generator strategy、block primitive 或 acceptance/policy 规则。早期 L3 finding 只能作为 review suggestion，不得自动重构。
+
+### 10.3 Evidence 与 overlay 路径原则
+
+外部工具报告可以进入 `control/evidence/**` 或 `control/graph/*-overlay.json`，但必须标记来源、时间、工具版本和置信度。推荐预留类型：
+
+```text
+control/evidence/code-quality-report.json
+control/evidence/architecture-boundary-report.json
+control/evidence/semantic-pattern-report.json
+control/graph/code-quality-overlay.json
+control/graph/architecture-overlay.json
+control/graph/semantic-pattern-overlay.json
+```
+
+这些路径在实现前不得加入 stable artifact 清单。实现时必须同步 `08` 的治理产物说明、`05` 的 CLI/工具入口和 contract freeze 范围。
+
+### 10.4 图上操作与双向同步
+
+Workbench 图可以成为操作层，但所有写入必须经过结构化 mutation：
+
+```text
+graph operation
+  -> source/views/mutations/*.json
+  -> platform workbench mutations apply
+  -> source/app.yaml / source/model/** / source/views/**
+  -> resolve / compose / adapt / verify / explain
+  -> regenerated graph/workbench views
+```
+
+禁止图层直接写 `source/app.yaml`、`project/**` 或 `control/**`。第一批低风险 mutation 应限制在：add block、set block version、add/update slot description、add acceptance、connect capability/pin、create private block draft、promote lab/override 到受治理输入。每个 mutation 应声明 precondition、expected graph delta、risk level、需要重跑的 pass 和回滚/拒绝原因。
+
+### 10.5 对全业务 block 与流程架构的指导
+
+图层不应只展示文件关系，还应反向指导 block、pin、flow 的设计。全业务 block 的管脚应逐步从简单 input/output 升级为 typed semantic port：
+
+```yaml
+id: ticket_created
+direction: output
+kind: event # event | data | command | query | policy | view | lifecycle
+type: TicketRecord
+scope: tenant
+producer: ticket/basic
+consumers: [worklog/basic, reporting/ticket-summary, notify/email-basic]
+verifiedBy: [ticket_can_be_created]
+policies: [tenant_scope_required]
+```
+
+流程架构应优先表达 entity、operation、event、state machine、policy、permission、view、acceptance 与 generator 的关系，再降级到文件和测试。判断标准：新增 `Order`、`Invoice`、`Ticket`、`Worklog` 时，应主要新增 contract/block manifest，而不是修改核心编译器分支。
+
+### 10.6 实施计划与详细切口
+
+当前详细实现计划以本文为权威，`03` 只维护阶段顺序。每个切口必须形成可验证闭环并独立提交。
+
+| 顺序 | 切口 | 主要实现点 | 预期产物 | 验证 |
+| --- | --- | --- | --- | --- |
+| 1 | 原生图导出 | 从 `ExplainGraph` 纯函数生成 Mermaid/DOT；注册 paths、artifact contract、lock generated paths | `control/graph/explain-graph.mmd`、`control/graph/explain-graph.dot` | 定向单测 + `platform explain --json --compact` + contract freeze |
+| 2 | 只读 Graph View | 在 `write-local-views` 增加 graph template；展示 app/block/capability/pin/slot/file/acceptance/policy/issue/repair/upgrade | `control/workbench/views/graph-view.html` | local view 快照/内容断言 + reference refresh |
+| 3 | 只读 Review View | 聚合 review summary、verification、coverage、policy、provenance、repair、upgrade、artifact 缺失 | `control/workbench/views/review-view.html` | review summary fixture + view 内容断言 |
+| 4 | 工具 evidence contract 草案 | 定义 code-quality / architecture-boundary / semantic-pattern report 类型，但不加入 stable artifact | shared types + inspect/build 纯函数 | 类型检查 + schema/contract 单测 |
+| 5 | L1/L2 evidence 接入 | 将 jscpd/discover/depcruise 输出归一为 evidence；保留工具原始报告路径 | `control/evidence/*-report.json`（实现后再稳定） | fixture 转换测试 + preflight 文档化 |
+| 6 | L3 Engineering Pattern Graph | 识别 read/validate/build/write、query/guard/map/return、build/write artifact 等 PJC 工程模式 | `semantic-pattern-report.json` + overlay | 低置信 suggestion 测试，不自动重构 |
+| 7 | Graph mutation dry-run | 图操作先生成 mutation 和 expected graph delta，不直接写 source | `source/views/mutations/*.json` + dry-run report | apply 前后 graph delta 测试 |
+| 8 | Typed semantic port | 扩展 pin/flow 的 kind、scope、producer/consumer、verifiedBy、policy 语义 | manifest/contract schema 更新 | resolve/graph/acceptance coverage 测试 |
+
+实现纪律：新增产物先保持 optional；只有 CLI inspect、contract freeze、artifact manifest、reference refresh、Workbench view、测试全部对齐后，才能升级为 stable artifact。Graph-It-Live/MCP、CodeQL/CPG、SonarQube/Fallow 等外部能力只能先接入 evidence/overlay，不得绕过平台 graph builder 或 mutation apply。
+
+## 11. 阶段路线
 
 ### v0.2
 
@@ -242,6 +334,7 @@ generate-ticket
 - 输出 `explain-graph.json`、`review-summary.json`、`provenance.json`。
 - 增加 Mermaid/DOT 导出。
 - 增加只读 `graph-view.html` 与 `review-view.html`。
+- 将 `jscpd`、`dependency-cruiser`、`discover-all.ts`、Graph-It-Live/MCP 等工具定位为 evidence provider，先文档化边界，不直接扩展 stable artifact。
 
 ### v0.3
 
@@ -262,7 +355,7 @@ generate-ticket
 - 托管验证与观测。
 - 交互式 Workbench 和受控 mutation。
 
-## 11. 与参考文档关系
+## 12. 与参考文档关系
 
 `代码库可视化流程图工具与编译原理综合指南.md` 是调研和方法论参考，不是实现级权威。本文负责把其中与本项目相关的结论落为项目规范：
 
