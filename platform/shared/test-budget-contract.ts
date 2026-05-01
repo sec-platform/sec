@@ -73,6 +73,14 @@ export function getSlowTestFiles(): string[] {
   return [...slowTestFiles];
 }
 
+export function isTestFile(file: string): boolean {
+  return /^tests\/.+\.(test|spec)\.tsx?$/.test(file);
+}
+
+export function isFastTestFile(file: string): boolean {
+  return isTestFile(file) && !slowTestFiles.includes(file);
+}
+
 export function buildTestBudgetContract(): TestBudgetContract {
   const lanes = testBudgetLanes.map((lane) => ({ ...lane }));
   const slowLaneIds = lanes.filter((lane) => lane.nextBuild || lane.playwright).map((lane) => lane.id);
@@ -87,7 +95,7 @@ export function buildTestBudgetContract(): TestBudgetContract {
     slowTestFileCount: slowTestFiles.length,
     slowTestFiles: getSlowTestFiles(),
     lanes,
-    localDefault: 'bun run test / bun run check stay on fast tests; use test:all or check:full for slow runtime gates',
+    localDefault: 'bun run check:changed runs changed fast tests and falls back to the fast suite for source changes; use test:all or check:full for slow runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
 }

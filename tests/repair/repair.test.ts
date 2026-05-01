@@ -3,6 +3,8 @@ import path from 'node:path';
 import { expect, test } from 'vitest';
 
 import { applyRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
+import { buildTaskEnvelope } from '../../platform/compiler/synthesize/build-task-envelope.ts';
+import { synthesizeSlotSource } from '../../platform/compiler/synthesize/mock-slot-synthesizer.ts';
 import { lockWorkspace, repairWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
@@ -45,18 +47,26 @@ function failedUnitReport(): VerificationReport {
   });
 }
 
-async function writeRepairFixture(workspaceRoot: string, fixtureLock: LockFile = lock()): Promise<void> {
+function generatedRepairSource(fixturePlan: PlanFile, fixtureLock: LockFile): string {
+  const slotTask = fixtureLock.slotTasks[0];
+  if (!slotTask) {
+    throw new Error('expected repair slot task');
+  }
+  return synthesizeSlotSource(buildTaskEnvelope(fixturePlan, fixtureLock, slotTask));
+}
+
+async function writeRepairFixture(
+  workspaceRoot: string,
+  fixtureLock: LockFile = lock(),
+  source = 'export function normalizeCustomerInput(input: unknown): unknown { return input; }\n'
+): Promise<void> {
   const { planPath, lockPath, verificationReportPath, projectRoot } = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(path.join(projectRoot, 'custom'), { recursive: true });
   await fs.mkdir(path.dirname(verificationReportPath), { recursive: true });
   await writeYaml(planPath, plan());
   await writeJson(lockPath, fixtureLock);
   await writeJson(verificationReportPath, failedUnitReport());
-  await fs.writeFile(
-    path.join(projectRoot, 'custom', 'customer_normalizer.ts'),
-    'export function normalizeCustomerInput(input: unknown): unknown { return input; }\n',
-    'utf8'
-  );
+  await fs.writeFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), source, 'utf8');
 }
 
 test('repair writes only slot-scoped source and requires verification rerun', async () => {
@@ -120,6 +130,27 @@ test('repair dry-run writes a pending plan without touching source or verificati
     expect(persistedLock.slotTasks[0].status).toBe('failed');
     expect(persistedLock.generatedPaths).toContain(CI_ARTIFACT_FILES.repairPlan);
     expect(persistedRepairPlan).toEqual(repairPlan);
+  });
+});
+
+test('repair dry-run counts inserted lines without treating the shifted file as rewritten', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const fixturePlan = plan();
+    const fixtureLock = lock();
+    const generatedSource = generatedRepairSource(fixturePlan, fixtureLock);
+    const importLine = "import type { CustomerInput, NormalizedCustomerInput } from '../src/runtime/database.ts';\n";
+    expect(generatedSource).toContain(importLine);
+    const sourceWithMissingImport = generatedSource.replace(importLine, '');
+
+    await writeRepairFixture(workspaceRoot, fixtureLock, sourceWithMissingImport);
+
+    const { repairPlan } = await repairWorkspace(workspaceRoot, { dryRun: true });
+
+    expect(repairPlan.tasks[0].preview).toMatchObject({
+      changed: true,
+      addedLines: 1,
+      removedLines: 0
+    });
   });
 });
 

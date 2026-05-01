@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import semver from 'semver';
 import { composeProject } from '../compiler/compose/compose-project.ts';
 import { lockProject } from '../compiler/emit/lock-project.ts';
 import { writeProvenance } from '../compiler/emit/write-provenance.ts';
@@ -32,14 +33,8 @@ import type {
 import { writeYaml } from '../shared/yaml.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
-  if (range === version) {
-    return true;
-  }
-  if (/^\d+\.\d+\.x$/.test(range)) {
-    const prefix = range.slice(0, -1);
-    return version.startsWith(prefix);
-  }
-  return false;
+  const supportedRange = semver.valid(range) === range || /^\d+\.\d+\.x$/.test(range);
+  return supportedRange && semver.satisfies(version, range);
 }
 
 function migrationManifestDetails(migration: UpgradeMigration): Record<string, unknown> {
