@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Review View</title>
+    <style>
+      body { font-family: Segoe UI, sans-serif; margin: 0; background: #f4f4ef; color: #17211f; }
+      main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 20px; }
+      .card { background: white; border: 1px solid #d7ddd5; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px rgba(23, 33, 31, 0.06); }
+      .view-nav { display: flex; gap: 12px; }
+      .view-nav a { color: #184c3d; font-weight: 600; text-decoration: none; }
+      .view-nav a[aria-current="page"] { text-decoration: underline; }
+      pre { overflow: auto; background: #0f1d19; color: #e6fff8; padding: 16px; border-radius: 12px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4e8e2; vertical-align: top; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav class="view-nav">
+        <a href="source-view.html">Source View</a>
+        <a href="slot-rule-view.html">Slot / Rule View</a>
+        <a href="graph-view.html">Graph View</a>
+        <a href="review-view.html" aria-current="page">Review View</a>
+      </nav>
+
+<section class="card">
+  <h1>Review View</h1>
+  <p>Human review dashboard derived from governance evidence.</p>
+</section>
+<section class="card">
+  <h2>Review Dashboard</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>CI Status</td><td>passed</td></tr><tr><td>Failure Count</td><td>0</td></tr><tr><td>Regression Risks</td><td>0</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Artifact Status</td><td>passed</td></tr><tr><td>Missing Artifacts</td><td>0</td></tr><tr><td>Policy Status</td><td>passed</td></tr><tr><td>Coverage Status</td><td>passed</td></tr><tr><td>Repair Status</td><td>none</td></tr><tr><td>Upgrade Status</td><td>none</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Verification Chain</h2>
+  <table><thead><tr><th>Stage</th><th>Status</th><th>Detail</th></tr></thead><tbody><tr><td>verification</td><td>passed</td><td>lane=all; failed=none</td></tr><tr><td>coverage</td><td>passed</td><td>blocks=3/3; slots=1/1</td></tr><tr><td>artifacts</td><td>attention</td><td>total=0; missing=0</td></tr><tr><td>review</td><td>passed</td><td>review-summary=generated</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Acceptance Coverage</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Acceptance Passed</td><td>4</td></tr><tr><td>Covered Blocks</td><td>3/3</td></tr><tr><td>Covered Slots</td><td>1/1</td></tr><tr><td>Uncovered Blocks</td><td>none</td></tr><tr><td>Uncovered Slots</td><td>none</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Policy Summary</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Official Policies</td><td>1</td></tr><tr><td>Project Policies</td><td>0</td></tr><tr><td>Merged Policies</td><td>1</td></tr><tr><td>Violations</td><td>0</td></tr></tbody></table>
+  <h3>Policy Violations</h3><table><thead><tr><th>Policy</th><th>Severity</th><th>Rule</th><th>Files</th><th>Applies To</th><th>Message</th></tr></thead><tbody><tr><td colspan="6">No policy violations.</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Provenance Summary</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Artifacts</td><td>46</td></tr><tr><td>Verified Artifacts</td><td>6</td></tr><tr><td>Unverified Artifacts</td><td>40</td></tr><tr><td>Override Artifacts</td><td>0</td></tr><tr><td>Registry Artifacts</td><td>7</td></tr><tr><td>Generated Artifacts</td><td>46</td></tr></tbody></table>
+  <h3>Review File Priorities</h3><table><thead><tr><th>Path</th><th>Reason</th></tr></thead><tbody><tr><td>app/api/customers/route.ts</td><td>unverified provenance</td></tr><tr><td>app/api/session/current/route.ts</td><td>unverified provenance</td></tr><tr><td>app/api/session/login/route.ts</td><td>unverified provenance</td></tr><tr><td>app/api/session/logout/route.ts</td><td>unverified provenance</td></tr><tr><td>app/customers/page.tsx</td><td>unverified provenance</td></tr><tr><td>app/globals.css</td><td>unverified provenance</td></tr><tr><td>app/layout.tsx</td><td>unverified provenance</td></tr><tr><td>app/login/page.tsx</td><td>unverified provenance</td></tr><tr><td>app/page.tsx</td><td>unverified provenance</td></tr><tr><td>app/workspace/page.tsx</td><td>unverified provenance</td></tr><tr><td>components/customer-form.tsx</td><td>unverified provenance</td></tr><tr><td>components/login-form.tsx</td><td>unverified provenance</td></tr><tr><td>components/logout-button.tsx</td><td>unverified provenance</td></tr><tr><td>control/evidence/acceptance-coverage.json</td><td>unverified provenance</td></tr><tr><td>control/evidence/block-usage-map.json</td><td>unverified provenance</td></tr><tr><td>control/evidence/install-manifest.json</td><td>unverified provenance</td></tr><tr><td>control/evidence/policy-report.json</td><td>unverified provenance</td></tr><tr><td>control/evidence/review-summary.json</td><td>unverified provenance</td></tr><tr><td>control/evidence/runtime-report.json</td><td>unverified provenance</td></tr><tr><td>control/evidence/verification-report.json</td><td>unverified provenance</td></tr><tr><td>control/graph/explain-graph.dot</td><td>unverified provenance</td></tr><tr><td>control/graph/explain-graph.json</td><td>unverified provenance</td></tr><tr><td>control/graph/explain-graph.mmd</td><td>unverified provenance</td></tr><tr><td>control/provenance/provenance.json</td><td>unverified provenance</td></tr><tr><td>control/workbench/views/graph-view.html</td><td>unverified provenance</td></tr><tr><td>control/workbench/views/review-view.html</td><td>unverified provenance</td></tr><tr><td>control/workbench/views/slot-rule-view.html</td><td>unverified provenance</td></tr><tr><td>control/workbench/views/source-view.html</td><td>unverified provenance</td></tr><tr><td>generated/routes.ts</td><td>unverified provenance</td></tr><tr><td>lib/session.ts</td><td>unverified provenance</td></tr><tr><td>lib/store.ts</td><td>unverified provenance</td></tr><tr><td>next-env.d.ts</td><td>unverified provenance</td></tr><tr><td>next.config.mjs</td><td>unverified provenance</td></tr><tr><td>package.json</td><td>unverified provenance</td></tr><tr><td>src/installed/auth/session.ts</td><td>unverified provenance</td></tr><tr><td>src/installed/tenant/context.ts</td><td>unverified provenance</td></tr><tr><td>tests/runtime/acceptance/customer-flow.spec.ts</td><td>unverified provenance</td></tr><tr><td>tests/runtime/unit/customer-runtime.test.ts</td><td>unverified provenance</td></tr><tr><td>tests/shared/tenant-runtime-fixture.ts</td><td>unverified provenance</td></tr><tr><td>tsconfig.json</td><td>unverified provenance</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Repair Readiness</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td colspan="2">No metrics.</td></tr></tbody></table>
+  <h3>Repair Blockers</h3><table><thead><tr><th>Blocker</th><th>Boundary</th><th>Reason</th><th>Decision Required</th></tr></thead><tbody><tr><td colspan="4">No repair blockers.</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Upgrade Readiness</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td colspan="2">No metrics.</td></tr></tbody></table>
+  <h3>Upgrade Diagnostics</h3><table><thead><tr><th>Phase</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead><tbody><tr><td colspan="5">No upgrade diagnostics.</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Artifact Readiness</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td colspan="2">No metrics.</td></tr></tbody></table>
+  <h3>Missing Artifacts</h3><table><thead><tr><th>Path</th><th>Reason</th><th>Declared By</th></tr></thead><tbody><tr><td colspan="3">No missing artifacts.</td></tr></tbody></table>
+</section>
+
+    </main>
+  </body>
+</html>

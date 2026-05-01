@@ -143,6 +143,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     sourceViewPath: path.join(controlWorkbenchRoot, 'views', 'source-view.html'),
     slotRuleViewPath: path.join(controlWorkbenchRoot, 'views', 'slot-rule-view.html'),
     graphViewPath: path.join(controlWorkbenchRoot, 'views', 'graph-view.html'),
+    reviewViewPath: path.join(controlWorkbenchRoot, 'views', 'review-view.html'),
     repairPlanPath: path.join(controlWorkflowRoot, 'repair-plan.json'),
     upgradePlanPath: path.join(controlWorkflowRoot, 'upgrade-plan.json'),
     upgradeDiagnosticsPath: path.join(controlWorkflowRoot, 'upgrade-diagnostics.json'),

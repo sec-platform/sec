@@ -24,6 +24,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     graphViewPath,
     repairPlanPath,
     reviewSummaryPath,
+    reviewViewPath,
     sourceViewPath,
     slotRuleViewPath,
     upgradeDiagnosticsPath,
@@ -772,6 +773,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   const sourceView = await fs.readFile(sourceViewPath, 'utf8');
   const slotRuleView = await fs.readFile(slotRuleViewPath, 'utf8');
   const graphView = await fs.readFile(graphViewPath, 'utf8');
+  const reviewView = await fs.readFile(reviewViewPath, 'utf8');
   expectContainsAll(sourceView, [
     'href="slot-rule-view.html"',
     'href="source-view.html" aria-current="page"',
@@ -988,6 +990,36 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     'Override &lt;hotfix&gt; &amp; blocks upgrade'
   ]);
   expectContainsNone(graphView, ['disk-only <policy>']);
+  expectContainsAll(reviewView, [
+    'href="review-view.html" aria-current="page"',
+    'Review View',
+    'Review Dashboard',
+    '<td>CI Status</td><td>failed</td>',
+    '<td>Chain Status</td><td>failed</td>',
+    '<td>Artifact Status</td><td>attention</td>',
+    'Verification Chain',
+    '<td>verification</td><td>failed</td><td>lane=fast; failed=fast</td>',
+    'Acceptance Coverage',
+    '<td>Covered Blocks</td><td>1/2</td>',
+    '<td>Covered Slots</td><td>1/1</td>',
+    'Policy Summary',
+    'tenant_context_must_flow_to_query',
+    'disk-only &lt;policy&gt; &amp; violation',
+    'Provenance Summary',
+    '<td>Generated Artifacts</td><td>3</td>',
+    'Review File Priorities',
+    'app/tickets/page.tsx',
+    CI_ARTIFACT_FILES.reviewSummary,
+    'Repair Readiness',
+    'repair_blocker_policy',
+    'policy &lt;boundary&gt; &amp; manual decision',
+    'Upgrade Readiness',
+    'UPGRADE-CONFLICT-001',
+    'Override &lt;hotfix&gt; &amp; blocks upgrade',
+    'Artifact Readiness',
+    'generated/missing-&lt;artifact&gt;.json'
+  ]);
+  expectContainsNone(reviewView, ['disk-only <policy>', 'Override <hotfix>']);
   expectContainsAll(slotRuleView, [
     'href="source-view.html"',
     'href="slot-rule-view.html" aria-current="page"',

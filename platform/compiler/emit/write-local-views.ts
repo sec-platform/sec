@@ -82,7 +82,7 @@ async function renderTemplate(name: string, data: Record<string, unknown>): Prom
   return ejs.renderFile(filePath, { viewHelpers: templateHelpers, ...templateHelpers, ...data }, { async: true });
 }
 
-async function renderLayout(title: string, currentNav: 'source' | 'slot-rule' | 'graph', body: string): Promise<string> {
+async function renderLayout(title: string, currentNav: 'source' | 'slot-rule' | 'graph' | 'review', body: string): Promise<string> {
   return renderTemplate('layout.ejs', { title, currentNav, body });
 }
 
@@ -92,6 +92,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     explainGraphPath,
     generatedViewsDir,
     graphViewPath,
+    reviewViewPath,
     lockPath,
     policyReportPath,
     provenancePath,
@@ -135,4 +136,8 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   const graphBody = await renderTemplate('graph-view.ejs', sharedData);
   const graphHtml = await renderLayout('Graph View', 'graph', graphBody);
   await fs.writeFile(graphViewPath, graphHtml, 'utf8');
+
+  const reviewBody = await renderTemplate('review-view.ejs', sharedData);
+  const reviewHtml = await renderLayout('Review View', 'review', reviewBody);
+  await fs.writeFile(reviewViewPath, reviewHtml, 'utf8');
 }

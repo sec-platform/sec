@@ -30,7 +30,8 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     runtimeReportPath,
     sourceViewPath,
     slotRuleViewPath,
-    graphViewPath
+    graphViewPath,
+    reviewViewPath
   } = getWorkspacePaths(workspaceRoot);
 
   await initWorkspace(workspaceRoot, { reset: true });
@@ -183,6 +184,12 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     .then(() => true)
     .catch(() => false);
   expect(graphViewExists).toBe(true);
+
+  const reviewViewExists = await fs
+    .access(reviewViewPath)
+    .then(() => true)
+    .catch(() => false);
+  expect(reviewViewExists).toBe(true);
 
   const refreshedProvenance = await readJson<{
     artifacts: Array<{ path: string; generatedByPass?: string }>;
