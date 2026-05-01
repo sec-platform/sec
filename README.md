@@ -4,14 +4,14 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 
 ## Start Here
 
-- Install dependencies with `npm install`.
-- Run the fast local verification pass with `npm run check`.
-- Run the full test regression explicitly with `npm run check:full`.
-- Use the compiler CLI with `npm run platform -- <command>`.
-- Run the quickstart demo with `npm run demo:quickstart`.
-- Run the full product closed loop with `npm run demo:closed-loop`.
-- Dogfood the reference workspace with `npm run dogfood:reference`.
-- Refresh the reference workspace and governance artifacts with `npm run reference:refresh`.
+- Install dependencies with `bun install`.
+- Run the fast local verification pass with `bun run check`.
+- Run the full test regression explicitly with `bun run check:full`.
+- Use the compiler CLI with `bun run platform -- <command>`.
+- Run the quickstart demo with `bun run demo:quickstart`.
+- Run the full product closed loop with `bun run demo:closed-loop`.
+- Dogfood the reference workspace with `bun run dogfood:reference`.
+- Refresh the reference workspace and governance artifacts with `bun run reference:refresh`.
 
 ## Developer Entry Model
 
@@ -51,75 +51,75 @@ If a product change appears to require editing internal platform source, first e
 
 Use these entry commands for normal development:
 
-- `npm run platform -- doctor`: inspect local developer environment, four-root workspace readiness, and dependency health, including readiness check count
-- `npm run platform -- deps status`: inspect dependency cache/link status
-- `npm run platform -- deps status --json --compact`: emit a machine-readable dependency environment contract
-- `npm run platform -- deps warmup`: prepare shared runtime dependencies
-- `npm run platform -- deps relink project`: make `project/node_modules` point back to shared dependencies
-- `npm run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts with upload group counts
-- `npm run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
-- `npm run platform -- workbench mutations apply`: apply structured Workbench edits from `source/views/mutations/*.json` back to `source/app.yaml`
-- `npm run platform -- workbench mutations apply --json --compact`: emit the compact Workbench mutation report contract
-- `npm run platform -- demo checklist`: inspect the local demo readiness checklist from existing governance artifacts
-- `npm run platform -- demo checklist --json --compact`: emit the compact demo readiness checklist contract
-- `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
-- `npm run platform -- contract errors`: inspect the error protocol contract
-- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
-- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, review diagnostics, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
-- `npm run platform -- test budget`: inspect the fast/runtime/all slow-test budget
-- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
-- `npm run platform -- policy report`: inspect the latest policy governance report
-- `npm run platform -- policy report --json --compact`: emit the compact policy governance report
-- `npm run platform -- policy sources`: inspect the latest policy source map without running verify
-- `npm run platform -- policy sources --json --compact`: emit the compact policy source contract
-- `npm run platform -- acceptance coverage`: inspect the latest acceptance coverage report
-- `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
-- `npm run platform -- acceptance blocks --json --compact`: emit the compact acceptance block coverage contract
-- `npm run platform -- acceptance slots --json --compact`: emit the compact acceptance slot coverage contract
-- `npm run platform -- install manifest`: inspect the latest install manifest without running compose
-- `npm run platform -- install manifest --json --compact`: emit the compact install manifest contract
-- `npm run platform -- blocks usage`: inspect the latest block usage map without running compose
-- `npm run platform -- blocks usage --json --compact`: emit the compact block usage map contract
-- `npm run platform -- postgres contract`: inspect the latest Postgres contract without running compose
-- `npm run platform -- postgres contract --json --compact`: emit the compact Postgres contract
-- `npm run platform -- lock inspect`: inspect the latest graph lock without running lock
-- `npm run platform -- lock inspect --json --compact`: emit the compact graph lock contract without regenerating it
-- `npm run platform -- runtime report`: inspect the latest runtime verification report
-- `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
-- `npm run platform -- verification report`: inspect the latest verification report
-- `npm run platform -- verification report --json --compact`: emit the compact verification report
-- `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
-- `npm run platform -- provenance registry`: inspect the latest provenance registry
-- `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
-- `npm run platform -- review summary`: inspect the latest review summary, including top-level activity counts, provenance generated artifact count and summary counts, artifact upload group, and missing reason type counts
-- `npm run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
-- `npm run platform -- review matrix`: inspect the latest E2E matrix without regenerating explain outputs
-- `npm run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
-- `npm run platform -- review diagnostics`: inspect failure, regression risk, and conflict diagnostics from the latest review summary
-- `npm run platform -- review diagnostics --json --compact`: emit the compact review diagnostics contract
-- `npm run platform -- explain graph`: inspect the latest explain graph without regenerating it
-- `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
-- `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
-- `npm run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
-- `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
-- `npm run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
-- `npm run platform -- upgrade diagnostics --json --compact`: inspect the latest compact upgrade diagnostics contract without rerunning upgrade
-- `npm run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
-- `npm run platform -- reference check --json --compact`: emit a machine-readable reference drift contract with inspect command, runner command, refresh command, and diff command
-- `npm run platform -- benchmark suite`: inspect the benchmark/task-suite contract
-- `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, per-task artifact path count, score focus count, score dimension count, and score dimensions
-- `npm run platform -- deps clean --project|--shared|--npm-cache`: clean one dependency layer through a controlled tool entry
-- `npm run platform -- deps clean --all --force`: remove project, shared, and npm-cache dependency state; this intentionally causes the next runtime verification to warm dependencies again
-- `npm run platform -- add <block-id>`: add official or private blocks
-- `npm run platform -- resolve && npm run platform -- compose && npm run platform -- adapt`: refresh compiled project artifacts
-- `npm run platform -- verify`: run the default fast lane with generated runtime service tests
-- `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
-- `npm run platform -- verify --lane fast|runtime|all`: choose a specific verification lane; full Playwright runtime acceptance only runs in all
-- `npm run platform -- repair`: create or apply bounded repairs from verification failures
-- `npm run platform -- upgrade <block-id> <target-version> --dry-run`: review upgrade impact before applying it
-- `npm run platform -- upgrade plan`: inspect the latest upgrade plan without rerunning upgrade
-- `npm run platform -- upgrade diagnostics`: inspect the latest upgrade diagnostics without rerunning upgrade
-- `npm run platform -- lock && npm run platform -- explain`: freeze and inspect governance outputs
+- `bun run platform -- doctor`: inspect local developer environment, four-root workspace readiness, and dependency health, including readiness check count
+- `bun run platform -- deps status`: inspect dependency cache/link status
+- `bun run platform -- deps status --json --compact`: emit a machine-readable dependency environment contract
+- `bun run platform -- deps warmup`: prepare shared runtime dependencies
+- `bun run platform -- deps relink`: make `project/node_modules` point back to shared dependencies
+- `bun run platform -- artifacts --paths --json --compact --kind governance`: emit compact upload-path contracts with upload group counts
+- `bun run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
+- `bun run platform -- workbench mutations apply`: apply structured Workbench edits from `source/views/mutations/*.json` back to `source/app.yaml`
+- `bun run platform -- workbench mutations apply --json --compact`: emit the compact Workbench mutation report contract
+- `bun run platform -- demo checklist`: inspect the local demo readiness checklist from existing governance artifacts
+- `bun run platform -- demo checklist --json --compact`: emit the compact demo readiness checklist contract
+- `bun run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
+- `bun run platform -- contract errors`: inspect the error protocol contract
+- `bun run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
+- `bun run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, review diagnostics, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
+- `bun run platform -- test budget`: inspect the fast/runtime/all slow-test budget
+- `bun run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
+- `bun run platform -- policy report`: inspect the latest policy governance report
+- `bun run platform -- policy report --json --compact`: emit the compact policy governance report
+- `bun run platform -- policy sources`: inspect the latest policy source map without running verify
+- `bun run platform -- policy sources --json --compact`: emit the compact policy source contract
+- `bun run platform -- acceptance coverage`: inspect the latest acceptance coverage report
+- `bun run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
+- `bun run platform -- acceptance blocks --json --compact`: emit the compact acceptance block coverage contract
+- `bun run platform -- acceptance slots --json --compact`: emit the compact acceptance slot coverage contract
+- `bun run platform -- install manifest`: inspect the latest install manifest without running compose
+- `bun run platform -- install manifest --json --compact`: emit the compact install manifest contract
+- `bun run platform -- blocks usage`: inspect the latest block usage map without running compose
+- `bun run platform -- blocks usage --json --compact`: emit the compact block usage map contract
+- `bun run platform -- postgres contract`: inspect the latest Postgres contract without running compose
+- `bun run platform -- postgres contract --json --compact`: emit the compact Postgres contract
+- `bun run platform -- lock inspect`: inspect the latest graph lock without running lock
+- `bun run platform -- lock inspect --json --compact`: emit the compact graph lock contract without regenerating it
+- `bun run platform -- runtime report`: inspect the latest runtime verification report
+- `bun run platform -- runtime report --json --compact`: emit the compact runtime verification report
+- `bun run platform -- verification report`: inspect the latest verification report
+- `bun run platform -- verification report --json --compact`: emit the compact verification report
+- `bun run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
+- `bun run platform -- provenance registry`: inspect the latest provenance registry
+- `bun run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
+- `bun run platform -- review summary`: inspect the latest review summary, including top-level activity counts, provenance generated artifact count and summary counts, artifact upload group, and missing reason type counts
+- `bun run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
+- `bun run platform -- review matrix`: inspect the latest E2E matrix without regenerating explain outputs
+- `bun run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
+- `bun run platform -- review diagnostics`: inspect failure, regression risk, and conflict diagnostics from the latest review summary
+- `bun run platform -- review diagnostics --json --compact`: emit the compact review diagnostics contract
+- `bun run platform -- explain graph`: inspect the latest explain graph without regenerating it
+- `bun run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
+- `bun run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
+- `bun run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
+- `bun run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
+- `bun run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
+- `bun run platform -- upgrade diagnostics --json --compact`: inspect the latest compact upgrade diagnostics contract without rerunning upgrade
+- `bun run platform -- reference check`: refresh the checked-in reference workspace and fail on drift
+- `bun run platform -- reference check --json --compact`: emit a machine-readable reference drift contract with inspect command, runner command, refresh command, and diff command
+- `bun run platform -- benchmark suite`: inspect the benchmark/task-suite contract
+- `bun run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, per-task artifact path count, score focus count, score dimension count, and score dimensions
+- `bun run platform -- deps clean --project|--shared|--bun-cache`: clean one dependency layer through a controlled tool entry
+- `bun run platform -- deps clean --all --force`: remove project, shared, and Bun cache dependency state; this intentionally causes the next runtime verification to warm dependencies again
+- `bun run platform -- add <block-id>`: add official or private blocks
+- `bun run platform -- resolve && bun run platform -- compose && bun run platform -- adapt`: refresh compiled project artifacts
+- `bun run platform -- verify`: run the default fast lane with generated runtime service tests
+- `bun run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
+- `bun run platform -- verify --lane fast|runtime|all`: choose a specific verification lane; full Playwright runtime acceptance only runs in all
+- `bun run platform -- repair`: create or apply bounded repairs from verification failures
+- `bun run platform -- upgrade <block-id> <target-version> --dry-run`: review upgrade impact before applying it
+- `bun run platform -- upgrade plan`: inspect the latest upgrade plan without rerunning upgrade
+- `bun run platform -- upgrade diagnostics`: inspect the latest upgrade diagnostics without rerunning upgrade
+- `bun run platform -- lock && bun run platform -- explain`: freeze and inspect governance outputs
 
 For the final product shape, the expected external developer environment is a CLI plus optional Workbench or IDE plugin over the same contract. The Workbench may provide forms, graph views, slot editors, policy editors, and verification dashboards, but it must call the same platform commands and write the same external workspace inputs rather than requiring developers to edit platform source.
 
@@ -143,65 +143,65 @@ Workbench and IDE integrations must preserve this boundary:
 
 ## Command Entry Taxonomy
 
-- `npm run platform -- <command>`: raw compiler CLI entry for targeted operations.
-- `npm run reference:*`: refresh the checked-in `source/` -> `project/` -> `control/` workspace without resetting it.
-- `npm run demo:*`: reset or package a user-facing demo path from the reference workspace.
-- `npm run dogfood:*`: exercise the checked-in reference workspace as the product dogfood surface.
-- `npm run test:*`: run development verification or print verification budget contracts.
+- `bun run platform -- <command>`: raw compiler CLI entry for targeted operations.
+- `bun run reference:*`: refresh the checked-in `source/` -> `project/` -> `control/` workspace without resetting it.
+- `bun run demo:*`: reset or package a user-facing demo path from the reference workspace.
+- `bun run dogfood:*`: exercise the checked-in reference workspace as the product dogfood surface.
+- `bun run test:*`: run development verification or print verification budget contracts.
 
 ## Common Commands
 
-- `npm run check`: TypeScript typecheck plus the fast local test suite
-- `npm run check:full`: TypeScript typecheck plus the full Vitest regression
-- `npm test`: run the fast local Vitest suite directly
-- `npm run test:all`: run the full Vitest regression, including slow integration/runtime/E2E contract files
-- `npm run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`, including runner command, lane count, slow lane count, and slow lane IDs
-- `npm run test:contract-freeze`: run the CLI/script/governance contract freeze suite through the runner command declared by `platform contract freeze`
-- `npm run test:benchmark-contract`: print the formal benchmark/task-suite JSON contract through `platform benchmark suite`
-- `npm run demo:quickstart`: reset the reference project, then run the full governance refresh
-- `npm run demo:governance`: run quickstart and print governance artifact upload paths
-- `npm run demo:closed-loop`: run the primary product closed loop of quickstart, full verification, governance artifact paths, and compact explain JSON
-- `npm run platform -- demo checklist`: inspect whether existing governance artifacts satisfy local demo readiness
-- `npm run dogfood:reference`: refresh the checked-in reference workspace without resetting it
-- `npm run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
-- `npm run reference:refresh`: refresh `source/` into `project/` and `control/` through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
-- `npm run reference:check`: run the formal reference drift gate through the runner command exposed by `platform reference check`
-- `npm run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
-- `npm run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
-- `npm run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, review diagnostics, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
-- `npm run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
-- `npm run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
-- `npm run platform -- policy report --json --compact`: emit the compact policy governance report
-- `npm run platform -- policy sources --json --compact`: emit the compact policy source contract
-- `npm run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
-- `npm run platform -- acceptance blocks --json --compact`: emit the compact acceptance block coverage contract
-- `npm run platform -- acceptance slots --json --compact`: emit the compact acceptance slot coverage contract
-- `npm run platform -- install manifest --json --compact`: emit the compact install manifest contract
-- `npm run platform -- blocks usage --json --compact`: emit the compact block usage map contract
-- `npm run platform -- postgres contract --json --compact`: emit the compact Postgres contract
-- `npm run platform -- lock inspect --json --compact`: emit the compact graph lock contract without regenerating it
-- `npm run platform -- runtime report --json --compact`: emit the compact runtime verification report
-- `npm run platform -- verification report --json --compact`: emit the compact verification report
-- `npm run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
-- `npm run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
-- `npm run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
-- `npm run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
-- `npm run platform -- review diagnostics --json --compact`: emit the compact review diagnostics contract
-- `npm run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
-- `npm run platform -- workbench mutations apply --json --compact`: emit the compact Workbench mutation report after applying `source/views/mutations/*.json` to `source/app.yaml`
-- `npm run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
-- `npm run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
-- `npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
-- `npm run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
-- `npm run platform -- upgrade diagnostics --json --compact`: inspect the latest compact upgrade diagnostics contract without rerunning upgrade
-- `npm run platform -- reference check --json --compact`: emit the compact reference drift contract, including inspect command, runner command, refresh command, and diff command
-- `npm run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, per-task artifact path count, score focus count, score dimension count, and score dimensions
-- `npm run platform -- resolve`
-- `npm run platform -- compose`
-- `npm run platform -- adapt`
-- `npm run platform -- verify`
-- `npm run platform -- verify --lane all`
-- `npm run platform -- explain`
+- `bun run check`: TypeScript typecheck plus the fast local test suite
+- `bun run check:full`: TypeScript typecheck plus the full Vitest regression
+- `bun run test`: run the fast local Vitest suite directly
+- `bun run test:all`: run the full Vitest regression, including slow integration/runtime/E2E contract files
+- `bun run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`, including runner command, lane count, slow lane count, and slow lane IDs
+- `bun run test:contract-freeze`: run the CLI/script/governance contract freeze suite through the runner command declared by `platform contract freeze`
+- `bun run test:benchmark-contract`: print the formal benchmark/task-suite JSON contract through `platform benchmark suite`
+- `bun run demo:quickstart`: reset the reference project, then run the full governance refresh
+- `bun run demo:governance`: run quickstart and print governance artifact upload paths
+- `bun run demo:closed-loop`: run the primary product closed loop of quickstart, full verification, governance artifact paths, and compact explain JSON
+- `bun run platform -- demo checklist`: inspect whether existing governance artifacts satisfy local demo readiness
+- `bun run dogfood:reference`: refresh the checked-in reference workspace without resetting it
+- `bun run dogfood:governance`: refresh dogfood outputs and print the structured artifact path contract
+- `bun run reference:refresh`: refresh `source/` into `project/` and `control/` through `resolve -> compose -> adapt -> verify --lane all -> lock -> explain`
+- `bun run reference:check`: run the formal reference drift gate through the runner command exposed by `platform reference check`
+- `bun run platform -- contract freeze --json --compact`: emit the compact contract-freeze target list, including inspect command, runner command, and target commands
+- `bun run platform -- contract errors --json --compact`: emit the compact error protocol contract, including issue type count and diagnostic artifact paths
+- `bun run platform -- contract ci --json --compact`: emit the compact team CI command contract, including top-level verify, typecheck, quality, contract freeze, reference drift, review matrix, review diagnostics, demo checklist, diagnostic, artifact upload commands, command counts, per-step produced artifact counts, and produced artifact paths
+- `bun run platform -- artifacts manifest --json --compact`: inspect the latest compact artifact manifest without regenerating it
+- `bun run platform -- test budget --json --compact`: emit the compact slow-test budget contract, including inspect command, runner command, lane count, slow lane count, and slow lane IDs
+- `bun run platform -- policy report --json --compact`: emit the compact policy governance report
+- `bun run platform -- policy sources --json --compact`: emit the compact policy source contract
+- `bun run platform -- acceptance coverage --json --compact`: emit the compact acceptance coverage report
+- `bun run platform -- acceptance blocks --json --compact`: emit the compact acceptance block coverage contract
+- `bun run platform -- acceptance slots --json --compact`: emit the compact acceptance slot coverage contract
+- `bun run platform -- install manifest --json --compact`: emit the compact install manifest contract
+- `bun run platform -- blocks usage --json --compact`: emit the compact block usage map contract
+- `bun run platform -- postgres contract --json --compact`: emit the compact Postgres contract
+- `bun run platform -- lock inspect --json --compact`: emit the compact graph lock contract without regenerating it
+- `bun run platform -- runtime report --json --compact`: emit the compact runtime verification report
+- `bun run platform -- verification report --json --compact`: emit the compact verification report
+- `bun run platform -- verify --json --compact`: run the default fast lane and emit the compact verification report
+- `bun run platform -- provenance registry --json --compact`: emit the compact provenance registry contract
+- `bun run platform -- review summary --json --compact`: emit the compact review summary contract, including top-level activity counts
+- `bun run platform -- review matrix --json --compact`: emit the compact E2E matrix contract
+- `bun run platform -- review diagnostics --json --compact`: emit the compact review diagnostics contract
+- `bun run platform -- explain graph --json --compact`: emit the compact explain graph contract without regenerating it
+- `bun run platform -- workbench mutations apply --json --compact`: emit the compact Workbench mutation report after applying `source/views/mutations/*.json` to `source/app.yaml`
+- `bun run platform -- repair --dry-run --json --compact`: emit the compact repair plan contract, including repair target file count
+- `bun run platform -- repair plan --json --compact`: inspect the latest compact repair plan contract without rerunning repair
+- `bun run platform -- upgrade <block-id> <target-version> --dry-run --json --compact`: emit the compact upgrade plan contract, including source migration count, slot migration count, and migration operation count
+- `bun run platform -- upgrade plan --json --compact`: inspect the latest compact upgrade plan contract without rerunning upgrade
+- `bun run platform -- upgrade diagnostics --json --compact`: inspect the latest compact upgrade diagnostics contract without rerunning upgrade
+- `bun run platform -- reference check --json --compact`: emit the compact reference drift contract, including inspect command, runner command, refresh command, and diff command
+- `bun run platform -- benchmark suite --json --compact`: emit the compact benchmark/task-suite contract, including inspect command, runner command, aggregated artifact paths, per-task artifact path count, score focus count, score dimension count, and score dimensions
+- `bun run platform -- resolve`
+- `bun run platform -- compose`
+- `bun run platform -- adapt`
+- `bun run platform -- verify`
+- `bun run platform -- verify --lane all`
+- `bun run platform -- explain`
 
 ## Governance Artifacts
 

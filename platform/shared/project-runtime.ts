@@ -3,17 +3,17 @@ import path from 'node:path';
 import { CompilerError } from './errors.ts';
 import { ensureDir, formatJsonFile, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
 import { compilerRoot } from './paths.ts';
-import { pathEnvKey, resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
+import { pathEnvKey, runCommand, type CommandResult } from './process.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
   manifestHash: string;
-  packageManager: 'bun' | 'npm';
+  packageManager: 'bun';
   installedAt: string;
 }
 
 export interface SharedDepsReadyState {
-  packageManager: 'bun' | 'npm';
+  packageManager: 'bun';
   root: string;
   nodeModulesPath: string;
   manifestHash: string;
@@ -49,7 +49,17 @@ function sleepMs(delayMs: number): Promise<void> {
 }
 
 async function hasInstalledRuntimeDeps(nodeModulesPath: string): Promise<boolean> {
-  return pathExists(path.join(nodeModulesPath, 'next', 'package.json'));
+  const nextPackagePath = path.join(nodeModulesPath, 'next', 'package.json');
+  if (!(await pathExists(nextPackagePath))) {
+    return false;
+  }
+
+  try {
+    const manifest = await readJson<{ name?: string; version?: string }>(nextPackagePath);
+    return manifest.name === 'next' && typeof manifest.version === 'string';
+  } catch {
+    return false;
+  }
 }
 
 async function writeManifestIfChanged(filePath: string, value: unknown): Promise<void> {
@@ -133,13 +143,12 @@ async function withInstallLock<T>(
   }
 }
 
-async function runInstallWithFallback(
+async function runBunInstall(
   workingDirectory: string,
   options: RuntimeDependencyInstallOptions,
   bunArgs: string[],
-  npmArgs: string[],
   cacheDir?: string
-): Promise<{ packageManager: 'bun' | 'npm'; result: CommandResult }> {
+): Promise<{ packageManager: 'bun'; result: CommandResult }> {
   const commandRunner = options.commandRunner ?? runCommand;
   const bunResult = await commandRunner('bun', bunArgs, {
     cwd: workingDirectory,
@@ -150,19 +159,8 @@ async function runInstallWithFallback(
     return { packageManager: 'bun', result: bunResult };
   }
 
-  const npmInvocation = resolveNpmInvocation(npmArgs);
-  const npmResult = await commandRunner(npmInvocation.command, npmInvocation.args, {
-    cwd: workingDirectory,
-    env: buildEnv()
-  });
-
-  if (npmResult.code === 0) {
-    return { packageManager: 'npm', result: npmResult };
-  }
-
   throw new CompilerError('RUNTIME-DEPS-001', `Failed to install runtime dependencies in ${workingDirectory}`, {
-    bunResult,
-    npmResult
+    bunResult
   });
 }
 
@@ -235,12 +233,8 @@ export async function ensureSharedDepsReady(
       };
     }
 
-    const { packageManager } = await runInstallWithFallback(
-      sharedDepsRoot,
-      options,
-      ['install'],
-      ['install', '--prefer-offline', '--no-audit', '--no-fund', '--no-package-lock']
-    );
+    const sharedCacheDir = path.join(sharedDepsRoot, '.bun-cache');
+    const { packageManager } = await runBunInstall(sharedDepsRoot, options, ['install'], sharedCacheDir);
 
     await writeRuntimeDepsStamp(sharedStampPath, {
       manifestHash: runtimeSpec.manifestHash,
@@ -296,12 +290,11 @@ export async function ensureProjectDependencies(
     }
   }
 
-  const { packageManager } = await runInstallWithFallback(
+  const { packageManager } = await runBunInstall(
     projectRoot,
     options,
     ['install', '--no-save', '--frozen-lockfile=false'],
-    ['install', '--prefer-offline', '--no-audit', '--no-fund', '--no-package-lock'],
-    sharedDepsRoot
+    path.join(sharedDepsRoot, '.bun-cache')
   );
 
   await writeRuntimeDepsStamp(stampPath, {

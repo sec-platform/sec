@@ -1,6 +1,4 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
 
 export function pathEnvKey(): string {
   return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
@@ -17,33 +15,6 @@ export interface RunCommandOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   signal?: AbortSignal;
-}
-
-function isNodeScript(candidate: string): boolean {
-  return ['.js', '.cjs', '.mjs'].includes(path.extname(candidate).toLowerCase());
-}
-
-function npmCliCandidates(): string[] {
-  return [
-    process.env.npm_execpath,
-    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-    path.join(path.dirname(path.dirname(process.execPath)), 'node_modules', 'npm', 'bin', 'npm-cli.js')
-  ].filter((candidate): candidate is string => typeof candidate === 'string' && isNodeScript(candidate));
-}
-
-export function resolveNpmInvocation(args: string[]): { command: string; args: string[] } {
-  const npmCliPath = npmCliCandidates().find((candidate) => existsSync(candidate));
-  if (npmCliPath) {
-    return {
-      command: process.execPath,
-      args: [npmCliPath, ...args]
-    };
-  }
-
-  return {
-    command: process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    args
-  };
 }
 
 export async function runCommand(

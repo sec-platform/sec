@@ -2,21 +2,21 @@
 <% function metricTable(rows) { %>
 <table>
   <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-  <tbody><% rows.forEach(function(r) { %><tr><td><%= esc(r[0]) %></td><td><%= esc(r[1]) %></td></tr><% }); %></tbody>
+  <tbody><% rows.forEach(function(r) { %><tr><td><%- esc(r[0]) %></td><td><%- esc(r[1]) %></td></tr><% }); %></tbody>
 </table>
 <% } %>
 <% function dataTable(headers, rows, colspan, emptyMsg) { %>
 <table>
-  <thead><tr><% headers.forEach(function(h) { %><th><%= esc(h) %></th><% }); %></tr></thead>
-  <tbody><% if (rows.length === 0) { %><tr><td colspan="<%= colspan %>"><%= esc(emptyMsg) %></td></tr><% } else { rows.forEach(function(row) { %><tr><% row.forEach(function(cell) { %><td><%= esc(cell) %></td><% }); %></tr><% }); } %></tbody>
+  <thead><tr><% headers.forEach(function(h) { %><th><%- esc(h) %></th><% }); %></tr></thead>
+  <tbody><% if (rows.length === 0) { %><tr><td colspan="<%= colspan %>"><%- esc(emptyMsg) %></td></tr><% } else { rows.forEach(function(row) { %><tr><% row.forEach(function(cell) { %><td><%- esc(cell) %></td><% }); %></tr><% }); } %></tbody>
 </table>
 <% } %>
 <% function card(title, content) { %>
-<section class="card"><h2><%= esc(title) %></h2><%- content %></section>
+<section class="card"><h2><%- esc(title) %></h2><%- content %></section>
 <% } %>
 <% function subCard(title, content) { %>
-<h3><%= esc(title) %></h3><%- content %>
+<h3><%- esc(title) %></h3><%- content %>
 <% } %>
 <% function jsonPre(value) { %>
-<pre><%= esc(JSON.stringify(value, null, 2)) %></pre>
+<pre><%- esc(JSON.stringify(value, null, 2)) %></pre>
 <% } %>

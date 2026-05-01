@@ -158,10 +158,10 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       'test:fast': 'node --test --experimental-test-isolation=none',
       'test:unit': 'vitest run --config vitest.config.ts',
       'test:acceptance': 'playwright test --config playwright.config.ts',
-      'verify:runtime:service': 'npm run test:unit',
-      'verify:runtime:full': 'npm run build && npm run test:unit && npm run test:acceptance',
-      'verify:runtime': 'npm run verify:runtime:full',
-      test: 'npm run test:fast && npm run test:unit'
+      'verify:runtime:service': 'bun run test:unit',
+      'verify:runtime:full': 'bun run build && bun run test:unit && bun run test:acceptance',
+      'verify:runtime': 'bun run verify:runtime:full',
+      test: 'bun run test:fast && bun run test:unit'
     }
   });
 

@@ -13,431 +13,471 @@
       pre { overflow: auto; background: #0f1d19; color: #e6fff8; padding: 16px; border-radius: 12px; }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4e8e2; vertical-align: top; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
     </style>
   </head>
   <body>
     <main>
-      <nav class="view-nav"><a href="source-view.html" aria-current="page">Source View</a><a href="slot-rule-view.html">Slot / Rule View</a></nav>
-      <section class="card">
-        <h2>CI Summary</h2>
-        <table>
-          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>0</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>3</td></tr><tr><td>Impacted Slots</td><td>1</td></tr><tr><td>Runtime Entries</td><td>8</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Chain Attention Stages</td><td>1</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr></tbody>
-        </table>
-        <h3>E2E Chain Summary</h3>
-        <table>
-          <thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead>
-          <tbody><tr>
-          <td>verification</td>
-          <td>passed</td>
-          <td>lane=all; failed=none</td>
-          <td>ci=passed, failures=0</td>
-        </tr><tr>
-          <td>coverage</td>
-          <td>passed</td>
-          <td>blocks=3/3; slots=1/1</td>
-          <td>blocks=3/3, slots=1/1</td>
-        </tr><tr>
-          <td>artifacts</td>
-          <td>attention</td>
-          <td>total=0; missing=0</td>
-          <td>artifacts=missing</td>
-        </tr><tr>
-          <td>review</td>
-          <td>passed</td>
-          <td>review-summary=generated</td>
-          <td>review-summary=generated</td>
-        </tr></tbody>
-        </table>
-      </section>
-      <section class="card">
-        <h2>Developer Source Layer</h2>
-        <p>Default editable workspace inputs live under top-level source; project remains the materialized runtime target and control stores evidence, graph, provenance, workflow, and Workbench projections.</p>
-        <p>Workbench edits are accepted as structured mutations under source/views/mutations and applied back to source/app.yaml.</p>
-        <h3>Editable Areas</h3>
-        <table>
-          <thead><tr><th>Area</th><th>Path</th></tr></thead>
-          <tbody><tr><td>App Plan</td><td>source/app.yaml</td></tr><tr><td>Model</td><td>source/model/**</td></tr><tr><td>Slots</td><td>source/code/slots/**</td></tr><tr><td>Application Code</td><td>source/code/{app,server,ui,shared,integrations}/**</td></tr><tr><td>Opaque Code</td><td>source/code/opaque/**</td></tr><tr><td>Lab Code</td><td>source/code/lab/**</td></tr><tr><td>Patches</td><td>source/patches/**</td></tr><tr><td>Assets</td><td>source/assets/**</td></tr><tr><td>Views</td><td>source/views/**</td></tr><tr><td>Workbench Mutations</td><td>source/views/mutations/*.json -&gt; source/app.yaml</td></tr><tr><td>Env</td><td>source/env/**</td></tr><tr><td>Private Blocks</td><td>source/blocks/private/**</td></tr></tbody>
-        </table>
-        <h3>Slot Materialization</h3>
-        <table>
-          <thead><tr><th>Slot</th><th>Source Path</th><th>Runtime Target</th></tr></thead>
-          <tbody><tr><td>customer_normalizer</td><td>source/code/slots/customer_normalizer.ts</td><td>custom/customer_normalizer.ts</td></tr></tbody>
-        </table>
-      </section>
-      <section class="card">
-        <h1>Source View</h1>
-        <p>Blocks: 3 | Slots: 1 | Files: 38</p>
-        <table>
-          <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
-          <tbody>
-            <tr><td>app/api/customers/route.ts</td><td>generated:app/api/customers/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/current/route.ts</td><td>generated:app/api/session/current/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/login/route.ts</td><td>generated:app/api/session/login/route.ts</td><td></td><td>none</td></tr><tr><td>app/api/session/logout/route.ts</td><td>generated:app/api/session/logout/route.ts</td><td></td><td>none</td></tr><tr><td>app/customers/page.tsx</td><td>generated:app/customers/page.tsx</td><td></td><td>none</td></tr><tr><td>app/globals.css</td><td>generated:app/globals.css</td><td></td><td>none</td></tr><tr><td>app/layout.tsx</td><td>generated:app/layout.tsx</td><td></td><td>none</td></tr><tr><td>app/login/page.tsx</td><td>generated:app/login/page.tsx</td><td></td><td>none</td></tr><tr><td>app/page.tsx</td><td>generated:app/page.tsx</td><td></td><td>none</td></tr><tr><td>app/workspace/page.tsx</td><td>generated:app/workspace/page.tsx</td><td></td><td>none</td></tr><tr><td>components/customer-form.tsx</td><td>generated:components/customer-form.tsx</td><td></td><td>none</td></tr><tr><td>components/login-form.tsx</td><td>generated:components/login-form.tsx</td><td></td><td>none</td></tr><tr><td>components/logout-button.tsx</td><td>generated:components/logout-button.tsx</td><td></td><td>none</td></tr><tr><td>control/evidence/acceptance-coverage.json</td><td>generated:control/evidence/acceptance-coverage.json</td><td></td><td>none</td></tr><tr><td>control/evidence/block-usage-map.json</td><td>generated:control/evidence/block-usage-map.json</td><td></td><td>none</td></tr><tr><td>control/evidence/install-manifest.json</td><td>generated:control/evidence/install-manifest.json</td><td></td><td>none</td></tr><tr><td>control/evidence/policy-report.json</td><td>generated:control/evidence/policy-report.json</td><td></td><td>none</td></tr><tr><td>control/evidence/runtime-report.json</td><td>generated:control/evidence/runtime-report.json</td><td></td><td>none</td></tr><tr><td>control/evidence/verification-report.json</td><td>generated:control/evidence/verification-report.json</td><td></td><td>none</td></tr><tr><td>control/graph/explain-graph.json</td><td>generated:control/graph/explain-graph.json</td><td></td><td>none</td></tr><tr><td>control/provenance/provenance.json</td><td>generated:control/provenance/provenance.json</td><td></td><td>none</td></tr><tr><td>custom/customer_normalizer.ts</td><td>slot:customer_normalizer</td><td></td><td>none</td></tr><tr><td>generated/routes.ts</td><td>generated:generated/routes.ts</td><td></td><td>none</td></tr><tr><td>lib/session.ts</td><td>generated:lib/session.ts</td><td></td><td>none</td></tr><tr><td>lib/store.ts</td><td>generated:lib/store.ts</td><td></td><td>none</td></tr><tr><td>next-env.d.ts</td><td>generated:next-env.d.ts</td><td></td><td>none</td></tr><tr><td>next.config.mjs</td><td>generated:next.config.mjs</td><td></td><td>none</td></tr><tr><td>package.json</td><td>generated:package.json</td><td></td><td>none</td></tr><tr><td>prisma/schema.prisma</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>source/code/slots/customer_normalizer.ts</td><td>slot:customer_normalizer</td><td></td><td>none</td></tr><tr><td>src/installed/auth/session.ts</td><td>block:auth/basic-session</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/entity/customer-service.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>src/installed/tenant/context.ts</td><td>block:tenant/basic-workspace</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/acceptance/customer-flow.test.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tests/runtime/acceptance/customer-flow.spec.ts</td><td>generated:tests/runtime/acceptance/customer-flow.spec.ts</td><td></td><td>none</td></tr><tr><td>tests/runtime/unit/customer-runtime.test.ts</td><td>generated:tests/runtime/unit/customer-runtime.test.ts</td><td></td><td>none</td></tr><tr><td>tests/unit/customer-normalizer.test.ts</td><td>block:entity/customer-basic</td><td>official (official, compiler)</td><td>none</td></tr><tr><td>tsconfig.json</td><td>generated:tsconfig.json</td><td></td><td>none</td></tr>
-          </tbody>
-        </table>
-      </section>
-      <section class="card">
-        <h2>Runtime Entry Points</h2>
-        <table>
-          <thead><tr><th>Kind</th><th>Path</th></tr></thead>
-          <tbody><tr><td>api</td><td>app/api/customers/route.ts</td></tr><tr><td>api</td><td>app/api/session/current/route.ts</td></tr><tr><td>api</td><td>app/api/session/login/route.ts</td></tr><tr><td>api</td><td>app/api/session/logout/route.ts</td></tr><tr><td>page</td><td>app/customers/page.tsx</td></tr><tr><td>page</td><td>app/login/page.tsx</td></tr><tr><td>page</td><td>app/page.tsx</td></tr><tr><td>page</td><td>app/workspace/page.tsx</td></tr></tbody>
-        </table>
-      </section>
+      <nav class="view-nav">
+        <a href="source-view.html" aria-current="page">Source View</a>
+        <a href="slot-rule-view.html">Slot / Rule View</a>
+      </nav>
+      
+
+<section class="card"><h2>CI Summary</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>0</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>3</td></tr><tr><td>Impacted Slots</td><td>1</td></tr><tr><td>Runtime Entries</td><td>8</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Chain Attention Stages</td><td>1</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr></tbody></table></section>
+
+
+
+
+
+
+
+
+<h3>E2E Chain Summary</h3><table><thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead><tbody><tr><td>verification</td><td>passed</td><td>lane=all; failed=none</td><td>ci=passed, failures=0</td></tr><tr><td>coverage</td><td>passed</td><td>blocks=3/3; slots=1/1</td><td>blocks=3/3, slots=1/1</td></tr><tr><td>artifacts</td><td>attention</td><td>total=0; missing=0</td><td>artifacts=missing</td></tr><tr><td>review</td><td>passed</td><td>review-summary=generated</td><td>review-summary=generated</td></tr></tbody></table>
+
+
+
 <section class="card">
-        <h2>Vertical Summary</h2>
-        <table>
-          <thead><tr><th>Vertical</th><th>Blocks</th><th>Runtime Entries</th><th>Regression Risks</th></tr></thead>
-          <tbody><tr><td>customer</td><td>entity/customer-basic</td><td>app/api/customers/route.ts, app/customers/page.tsx</td><td>none</td></tr></tbody>
-        </table>
-      </section>
+  <h2>Developer Source Layer</h2>
+  <p>Default editable workspace inputs live under top-level source; project remains the materialized runtime target and control stores evidence, graph, provenance, workflow, and Workbench projections.</p>
+  <p>Workbench edits are accepted as structured mutations under source/views/mutations and applied back to source/app.yaml.</p>
+  <h3>Editable Areas</h3><table><thead><tr><th>Area</th><th>Path</th></tr></thead><tbody><tr><td>App Plan</td><td>source/app.yaml</td></tr><tr><td>Model</td><td>source/model/**</td></tr><tr><td>Slots</td><td>source/code/slots/**</td></tr><tr><td>Application Code</td><td>source/code/{app,server,ui,shared,integrations}/**</td></tr><tr><td>Opaque Code</td><td>source/code/opaque/**</td></tr><tr><td>Lab Code</td><td>source/code/lab/**</td></tr><tr><td>Patches</td><td>source/patches/**</td></tr><tr><td>Assets</td><td>source/assets/**</td></tr><tr><td>Views</td><td>source/views/**</td></tr><tr><td>Workbench Mutations</td><td>source/views/mutations/*.json -&gt; source/app.yaml</td></tr><tr><td>Env</td><td>source/env/**</td></tr><tr><td>Private Blocks</td><td>source/blocks/private/**</td></tr></tbody></table>
+  <h3>Slot Materialization</h3><table><thead><tr><th>Slot</th><th>Source Path</th><th>Runtime Target</th></tr></thead><tbody><tr><td>customer_normalizer</td><td>source/code/slots/customer_normalizer.ts</td><td>custom/customer_normalizer.ts</td></tr></tbody></table>
+</section>
+
 <section class="card">
-        <h2>Block Combination Summary</h2>
-        <table>
-          <thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Verticals</th><th>Runtime Entries</th></tr></thead>
-          <tbody><tr>
-          <td>auth/basic-session</td>
-          <td>capability</td>
-          <td>1</td>
-          <td>1</td>
-          <td>none</td>
-          <td>none</td>
-        </tr><tr>
-          <td>tenant/basic-workspace</td>
-          <td>capability</td>
-          <td>2</td>
-          <td>1</td>
-          <td>none</td>
-          <td>none</td>
-        </tr><tr>
-          <td>entity/customer-basic</td>
-          <td>capability</td>
-          <td>3</td>
-          <td>4</td>
-          <td>customer</td>
-          <td>none</td>
-        </tr></tbody>
-        </table>
-      </section>
+  <h1>Source View</h1>
+  <p>Blocks: 3 | Slots: 1 | Files: 42</p>
+  <table>
+    <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
+    <tbody>
+      
+      <tr>
+        <td>app/api/customers/route.ts</td>
+        <td>generated:app/api/customers/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/api/session/current/route.ts</td>
+        <td>generated:app/api/session/current/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/api/session/login/route.ts</td>
+        <td>generated:app/api/session/login/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/api/session/logout/route.ts</td>
+        <td>generated:app/api/session/logout/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/customers/page.tsx</td>
+        <td>generated:app/customers/page.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/globals.css</td>
+        <td>generated:app/globals.css</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/layout.tsx</td>
+        <td>generated:app/layout.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/login/page.tsx</td>
+        <td>generated:app/login/page.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/page.tsx</td>
+        <td>generated:app/page.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>app/workspace/page.tsx</td>
+        <td>generated:app/workspace/page.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>components/customer-form.tsx</td>
+        <td>generated:components/customer-form.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>components/login-form.tsx</td>
+        <td>generated:components/login-form.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>components/logout-button.tsx</td>
+        <td>generated:components/logout-button.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/evidence/acceptance-coverage.json</td>
+        <td>generated:control/evidence/acceptance-coverage.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/evidence/block-usage-map.json</td>
+        <td>generated:control/evidence/block-usage-map.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/evidence/install-manifest.json</td>
+        <td>generated:control/evidence/install-manifest.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/evidence/policy-report.json</td>
+        <td>generated:control/evidence/policy-report.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/evidence/review-summary.json</td>
+        <td>generated:control/evidence/review-summary.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/evidence/runtime-report.json</td>
+        <td>generated:control/evidence/runtime-report.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/evidence/verification-report.json</td>
+        <td>generated:control/evidence/verification-report.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/graph/explain-graph.json</td>
+        <td>generated:control/graph/explain-graph.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/provenance/provenance.json</td>
+        <td>generated:control/provenance/provenance.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/workbench/views/slot-rule-view.html</td>
+        <td>generated:control/workbench/views/slot-rule-view.html</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>control/workbench/views/source-view.html</td>
+        <td>generated:control/workbench/views/source-view.html</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>custom/customer_normalizer.ts</td>
+        <td>slot:customer_normalizer</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>generated/routes.ts</td>
+        <td>generated:generated/routes.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>lib/session.ts</td>
+        <td>generated:lib/session.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>lib/store.ts</td>
+        <td>generated:lib/store.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>next-env.d.ts</td>
+        <td>generated:next-env.d.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>next.config.mjs</td>
+        <td>generated:next.config.mjs</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>package.json</td>
+        <td>generated:package.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>prisma/schema.prisma</td>
+        <td>block:entity/customer-basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>source/code/slots/customer_normalizer.ts</td>
+        <td>slot:customer_normalizer</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>src/installed/auth/session.ts</td>
+        <td>block:auth/basic-session</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>src/installed/entity/customer-service.ts</td>
+        <td>block:entity/customer-basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>src/installed/tenant/context.ts</td>
+        <td>block:tenant/basic-workspace</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>tests/acceptance/customer-flow.test.ts</td>
+        <td>block:entity/customer-basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>tests/runtime/acceptance/customer-flow.spec.ts</td>
+        <td>generated:tests/runtime/acceptance/customer-flow.spec.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>tests/runtime/unit/customer-runtime.test.ts</td>
+        <td>generated:tests/runtime/unit/customer-runtime.test.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>tests/shared/tenant-runtime-fixture.ts</td>
+        <td>block:tenant/basic-workspace</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>tests/unit/customer-normalizer.test.ts</td>
+        <td>block:entity/customer-basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      
+      <tr>
+        <td>tsconfig.json</td>
+        <td>generated:tsconfig.json</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      
+    </tbody>
+  </table>
+</section>
+
+
 <section class="card">
-        <h2>Failure Focus</h2>
-        <h3>Failure Groups</h3>
-        <table>
-          <thead><tr><th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th></tr></thead>
-          <tbody><tr><td colspan="4">No failure groups.</td></tr></tbody>
-        </table>
-        <h3>Failure Details</h3>
-        <table>
-          <thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead>
-          <tbody><tr><td colspan="4">No failure points.</td></tr></tbody>
-        </table>
-      </section>
+  <h2>Runtime Entry Points</h2>
+  <table><thead><tr><th>Kind</th><th>Path</th></tr></thead><tbody><tr><td>api</td><td>app/api/customers/route.ts</td></tr><tr><td>api</td><td>app/api/session/current/route.ts</td></tr><tr><td>api</td><td>app/api/session/login/route.ts</td></tr><tr><td>api</td><td>app/api/session/logout/route.ts</td></tr><tr><td>page</td><td>app/customers/page.tsx</td></tr><tr><td>page</td><td>app/login/page.tsx</td></tr><tr><td>page</td><td>app/page.tsx</td></tr><tr><td>page</td><td>app/workspace/page.tsx</td></tr></tbody></table>
+</section>
+
+
+
 <section class="card">
-        <h2>Review Runtime Attribution</h2>
-        <h3>Runtime Groups</h3>
-        <table>
-          <thead><tr><th>Vertical</th><th>Kind</th><th>Count</th><th>Related Blocks</th></tr></thead>
-          <tbody><tr>
-          <td>customer</td>
-          <td>api</td>
-          <td>1</td>
-          <td>entity/customer-basic</td>
-        </tr><tr>
-          <td>customer</td>
-          <td>page</td>
-          <td>1</td>
-          <td>entity/customer-basic</td>
-        </tr><tr>
-          <td>none</td>
-          <td>api</td>
-          <td>3</td>
-          <td>none</td>
-        </tr><tr>
-          <td>none</td>
-          <td>page</td>
-          <td>3</td>
-          <td>none</td>
-        </tr></tbody>
-        </table>
-        <h3>Runtime Entries</h3>
-        <table>
-          <thead><tr><th>Kind</th><th>Vertical</th><th>Path</th><th>Related Blocks</th></tr></thead>
-          <tbody><tr>
-          <td>api</td>
-          <td>customer</td>
-          <td>app/api/customers/route.ts</td>
-          <td>entity/customer-basic</td>
-        </tr><tr>
-          <td>api</td>
-          <td>none</td>
-          <td>app/api/session/current/route.ts</td>
-          <td>none</td>
-        </tr><tr>
-          <td>api</td>
-          <td>none</td>
-          <td>app/api/session/login/route.ts</td>
-          <td>none</td>
-        </tr><tr>
-          <td>api</td>
-          <td>none</td>
-          <td>app/api/session/logout/route.ts</td>
-          <td>none</td>
-        </tr><tr>
-          <td>page</td>
-          <td>customer</td>
-          <td>app/customers/page.tsx</td>
-          <td>entity/customer-basic</td>
-        </tr><tr>
-          <td>page</td>
-          <td>none</td>
-          <td>app/login/page.tsx</td>
-          <td>none</td>
-        </tr><tr>
-          <td>page</td>
-          <td>none</td>
-          <td>app/page.tsx</td>
-          <td>none</td>
-        </tr><tr>
-          <td>page</td>
-          <td>none</td>
-          <td>app/workspace/page.tsx</td>
-          <td>none</td>
-        </tr></tbody>
-        </table>
-      </section>
+  <h2>Vertical Summary</h2>
+  <table><thead><tr><th>Vertical</th><th>Blocks</th><th>Runtime Entries</th><th>Regression Risks</th></tr></thead><tbody><tr><td>customer</td><td>entity/customer-basic</td><td>app/api/customers/route.ts, app/customers/page.tsx</td><td>none</td></tr></tbody></table>
+</section>
+
+
+
 <section class="card">
-        <h2>Install Impact Summary</h2>
-        <table>
-          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Impacts</td><td>3</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Action Kinds</td><td>2</td></tr><tr><td>Source Roots</td><td>3</td></tr><tr><td>Target Paths</td><td>6</td></tr><tr><td>Verticals</td><td>1</td></tr><tr><td>Runtime Entries</td><td>0</td></tr><tr><td>Groups</td><td>2</td></tr></tbody>
-        </table>
-        <h3>Impact Groups</h3>
-        <table>
-          <thead><tr><th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
-          <tbody><tr>
-          <td>customer</td>
-          <td>1</td>
-          <td>copy, merge-prisma</td>
-          <td>none</td>
-          <td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
-        </tr><tr>
-          <td>none</td>
-          <td>2</td>
-          <td>copy</td>
-          <td>none</td>
-          <td>src/installed/auth/session.ts, src/installed/tenant/context.ts</td>
-        </tr></tbody>
-        </table>
-        <h3>Impact Details</h3>
-        <table>
-          <thead><tr><th>Block</th><th>Actions</th><th>Sources</th><th>Verticals</th><th>Runtime Entries</th><th>Targets</th></tr></thead>
-          <tbody><tr>
-          <td>auth/basic-session</td>
-          <td>copy</td>
-          <td>auth.basic-session</td>
-          <td>none</td>
-          <td>none</td>
-          <td>src/installed/auth/session.ts</td>
-        </tr><tr>
-          <td>entity/customer-basic</td>
-          <td>copy, merge-prisma</td>
-          <td>entity.customer-basic</td>
-          <td>customer</td>
-          <td>none</td>
-          <td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
-        </tr><tr>
-          <td>tenant/basic-workspace</td>
-          <td>copy</td>
-          <td>tenant.basic-workspace</td>
-          <td>none</td>
-          <td>none</td>
-          <td>src/installed/tenant/context.ts</td>
-        </tr></tbody>
-        </table>
-      </section>
+  <h2>Block Combination Summary</h2>
+  <table><thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Verticals</th><th>Runtime Entries</th></tr></thead><tbody><tr><td>auth/basic-session</td><td>capability</td><td>1</td><td>1</td><td>none</td><td>none</td></tr><tr><td>tenant/basic-workspace</td><td>capability</td><td>2</td><td>2</td><td>none</td><td>none</td></tr><tr><td>entity/customer-basic</td><td>capability</td><td>3</td><td>4</td><td>customer</td><td>none</td></tr></tbody></table>
+</section>
+
+
+
 <section class="card">
-        <h2>Provenance Summary</h2>
-        <table>
-          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Artifacts</td><td>38</td></tr><tr><td>Verified Artifacts</td><td>6</td></tr><tr><td>Unverified Artifacts</td><td>32</td></tr><tr><td>Override Artifacts</td><td>0</td></tr><tr><td>Registry Artifacts</td><td>6</td></tr><tr><td>Generated Artifacts</td><td>38</td></tr><tr><td>Generated Passes</td><td>5</td></tr></tbody>
-        </table>
-        <h3>Provenance Origin Summary</h3>
-        <table>
-          <thead><tr><th>Origin</th><th>Count</th><th>Paths</th></tr></thead>
-          <tbody><tr>
-          <td>block</td>
-          <td>6</td>
-          <td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
-        </tr><tr>
-          <td>generated</td>
-          <td>30</td>
-          <td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tsconfig.json</td>
-        </tr><tr>
-          <td>slot</td>
-          <td>2</td>
-          <td>custom/customer_normalizer.ts, source/code/slots/customer_normalizer.ts</td>
-        </tr></tbody>
-        </table>
-        <h3>Provenance Override Summary</h3>
-        <table>
-          <thead><tr><th>Status</th><th>Count</th><th>Paths</th></tr></thead>
-          <tbody><tr>
-          <td>none</td>
-          <td>38</td>
-          <td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, custom/customer_normalizer.ts, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, source/code/slots/customer_normalizer.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td>
-        </tr></tbody>
-        </table>
-        <h3>Provenance Registry Summary</h3>
-        <table>
-          <thead><tr><th>Source</th><th>Kind</th><th>Location</th><th>Count</th><th>Paths</th></tr></thead>
-          <tbody><tr>
-          <td>official</td>
-          <td>official</td>
-          <td>compiler</td>
-          <td>6</td>
-          <td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td>
-        </tr></tbody>
-        </table>
-        <h3>Provenance Generated Pass Summary</h3>
-        <table>
-          <thead><tr><th>Pass</th><th>Count</th><th>Paths</th></tr></thead>
-          <tbody><tr>
-          <td>adapt</td>
-          <td>2</td>
-          <td>custom/customer_normalizer.ts, source/code/slots/customer_normalizer.ts</td>
-        </tr><tr>
-          <td>compose</td>
-          <td>30</td>
-          <td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td>
-        </tr><tr>
-          <td>explain</td>
-          <td>1</td>
-          <td>control/graph/explain-graph.json</td>
-        </tr><tr>
-          <td>lock</td>
-          <td>1</td>
-          <td>control/provenance/provenance.json</td>
-        </tr><tr>
-          <td>verify</td>
-          <td>4</td>
-          <td>control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json</td>
-        </tr></tbody>
-        </table>
-      </section>
+  <h2>Failure Focus</h2>
+  <h3>Failure Groups</h3><table><thead><tr><th>Lane</th><th>Kind</th><th>Count</th><th>Artifacts</th></tr></thead><tbody><tr><td colspan="4">No failure groups.</td></tr></tbody></table>
+  <h3>Failure Details</h3><table><thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead><tbody><tr><td colspan="4">No failure points.</td></tr></tbody></table>
+</section>
+
+
+
 <section class="card">
-        <h2>Acceptance Coverage Summary</h2>
-        <table>
-          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Acceptance Passed</td><td>4</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Covered Blocks</td><td>3</td></tr><tr><td>Uncovered Blocks</td><td>0</td></tr><tr><td>Slots</td><td>1</td></tr><tr><td>Covered Slots</td><td>1</td></tr><tr><td>Uncovered Slots</td><td>0</td></tr></tbody>
-        </table>
-        <h3>Block Coverage Summary</h3>
-        <table>
-          <thead><tr><th>Block</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead>
-          <tbody><tr>
-          <td>auth/basic-session</td>
-          <td>1</td>
-          <td>1</td>
-          <td>user_can_login</td>
-        </tr><tr>
-          <td>entity/customer-basic</td>
-          <td>3</td>
-          <td>3</td>
-          <td>tenant_only_sees_own_customers, user_can_create_customer, user_can_list_customers</td>
-        </tr><tr>
-          <td>tenant/basic-workspace</td>
-          <td>1</td>
-          <td>1</td>
-          <td>tenant_only_sees_own_customers</td>
-        </tr></tbody>
-        </table>
-        <h3>Slot Coverage Summary</h3>
-        <table>
-          <thead><tr><th>Slot</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead>
-          <tbody><tr>
-          <td>customer_normalizer</td>
-          <td>2</td>
-          <td>2</td>
-          <td>tenant_only_sees_own_customers, user_can_create_customer</td>
-        </tr></tbody>
-        </table>
-      </section>
+  <h2>Review Runtime Attribution</h2>
+  <h3>Runtime Groups</h3><table><thead><tr><th>Vertical</th><th>Kind</th><th>Count</th><th>Related Blocks</th></tr></thead><tbody><tr><td>customer</td><td>api</td><td>1</td><td>entity/customer-basic</td></tr><tr><td>customer</td><td>page</td><td>1</td><td>entity/customer-basic</td></tr><tr><td>none</td><td>api</td><td>3</td><td>none</td></tr><tr><td>none</td><td>page</td><td>3</td><td>none</td></tr></tbody></table>
+  <h3>Runtime Entries</h3><table><thead><tr><th>Kind</th><th>Vertical</th><th>Path</th><th>Related Blocks</th></tr></thead><tbody><tr><td>api</td><td>customer</td><td>app/api/customers/route.ts</td><td>entity/customer-basic</td></tr><tr><td>api</td><td>none</td><td>app/api/session/current/route.ts</td><td>none</td></tr><tr><td>api</td><td>none</td><td>app/api/session/login/route.ts</td><td>none</td></tr><tr><td>api</td><td>none</td><td>app/api/session/logout/route.ts</td><td>none</td></tr><tr><td>page</td><td>customer</td><td>app/customers/page.tsx</td><td>entity/customer-basic</td></tr><tr><td>page</td><td>none</td><td>app/login/page.tsx</td><td>none</td></tr><tr><td>page</td><td>none</td><td>app/page.tsx</td><td>none</td></tr><tr><td>page</td><td>none</td><td>app/workspace/page.tsx</td><td>none</td></tr></tbody></table>
+</section>
+
+
+
 <section class="card">
-        <h2>Policy Summary</h2>
-        <table>
-          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Official Policies</td><td>1</td></tr><tr><td>Project Policies</td><td>0</td></tr><tr><td>Merged Policies</td><td>1</td></tr><tr><td>Policy Sources</td><td>2</td></tr><tr><td>Violations</td><td>0</td></tr></tbody>
-        </table>
-        <h3>Policy Severity Summary</h3>
-        <table>
-          <thead><tr><th>Severity</th><th>Count</th></tr></thead>
-          <tbody><tr><td colspan="2">No policy violations.</td></tr></tbody>
-        </table>
-        <h3>Policy Source Summary</h3>
-        <table>
-          <thead><tr><th>Scope</th><th>Path</th><th>Policy IDs</th></tr></thead>
-          <tbody><tr>
-          <td>official</td>
-          <td>platform/policies/official/policy.spec.yaml</td>
-          <td>tenant-scope-required</td>
-        </tr><tr>
-          <td>project</td>
-          <td>source/model/policies/policy.spec.yaml</td>
-          <td>none</td>
-        </tr></tbody>
-        </table>
-        <h3>Policy Merge Summary</h3>
-        <table>
-          <thead><tr><th>Policy</th><th>Scope</th><th>Targets</th><th>Target Paths</th></tr></thead>
-          <tbody><tr>
-          <td>tenant-scope-required</td>
-          <td>official</td>
-          <td>1</td>
-          <td>src/installed/entity/customer-service.ts</td>
-        </tr></tbody>
-        </table>
-        <h3>Policy Violation Summary</h3>
-        <table>
-          <thead><tr><th>Policy</th><th>Severity</th><th>Files</th><th>File Paths</th><th>Message</th></tr></thead>
-          <tbody><tr><td colspan="5">No policy violations.</td></tr></tbody>
-        </table>
-      </section>
+  <h2>Install Impact Summary</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Impacts</td><td>3</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Action Kinds</td><td>2</td></tr><tr><td>Source Roots</td><td>3</td></tr><tr><td>Target Paths</td><td>7</td></tr><tr><td>Verticals</td><td>1</td></tr><tr><td>Runtime Entries</td><td>0</td></tr><tr><td>Groups</td><td>2</td></tr></tbody></table>
+  <h3>Impact Groups</h3><table><thead><tr><th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th></tr></thead><tbody><tr><td>customer</td><td>1</td><td>copy, merge-prisma</td><td>none</td><td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>none</td><td>2</td><td>copy</td><td>none</td><td>src/installed/auth/session.ts, src/installed/tenant/context.ts, tests/shared/tenant-runtime-fixture.ts</td></tr></tbody></table>
+  <h3>Impact Details</h3><table><thead><tr><th>Block</th><th>Actions</th><th>Sources</th><th>Verticals</th><th>Runtime Entries</th><th>Targets</th></tr></thead><tbody><tr><td>auth/basic-session</td><td>copy</td><td>auth.basic-session</td><td>none</td><td>none</td><td>src/installed/auth/session.ts</td></tr><tr><td>entity/customer-basic</td><td>copy, merge-prisma</td><td>entity.customer-basic</td><td>customer</td><td>none</td><td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>tenant/basic-workspace</td><td>copy</td><td>tenant.basic-workspace</td><td>none</td><td>none</td><td>src/installed/tenant/context.ts, tests/shared/tenant-runtime-fixture.ts</td></tr></tbody></table>
+</section>
+
+
+
+
 <section class="card">
-        <h2>Policy Sources</h2>
-        <table>
-          <thead><tr><th>Path</th><th>Policy IDs</th></tr></thead>
-          <tbody><tr><td>platform/policies/official/policy.spec.yaml</td><td>tenant-scope-required</td></tr><tr><td>source/model/policies/policy.spec.yaml</td><td>none</td></tr></tbody>
-        </table>
-      </section>
+  <h2>Provenance Summary</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Artifacts</td><td>42</td></tr><tr><td>Verified Artifacts</td><td>6</td></tr><tr><td>Unverified Artifacts</td><td>36</td></tr><tr><td>Override Artifacts</td><td>0</td></tr><tr><td>Registry Artifacts</td><td>7</td></tr><tr><td>Generated Artifacts</td><td>42</td></tr><tr><td>Generated Passes</td><td>5</td></tr></tbody></table>
+  <h3>Provenance Origin Summary</h3><table><thead><tr><th>Origin</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>undefined</td><td>7</td><td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>undefined</td><td>33</td><td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, control/workbench/views/slot-rule-view.html, control/workbench/views/source-view.html, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tsconfig.json</td></tr><tr><td>undefined</td><td>2</td><td>custom/customer_normalizer.ts, source/code/slots/customer_normalizer.ts</td></tr></tbody></table>
+  <h3>Provenance Override Summary</h3><table><thead><tr><th>Status</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>none</td><td>42</td><td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.json, control/provenance/provenance.json, control/workbench/views/slot-rule-view.html, control/workbench/views/source-view.html, custom/customer_normalizer.ts, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, source/code/slots/customer_normalizer.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td></tr></tbody></table>
+  <h3>Provenance Registry Summary</h3><table><thead><tr><th>Source</th><th>Kind</th><th>Location</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>official</td><td>official</td><td>compiler</td><td>7</td><td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts</td></tr></tbody></table>
+  <h3>Provenance Generated Pass Summary</h3><table><thead><tr><th>Pass</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>adapt</td><td>2</td><td>custom/customer_normalizer.ts, source/code/slots/customer_normalizer.ts</td></tr><tr><td>compose</td><td>31</td><td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td></tr><tr><td>explain</td><td>3</td><td>control/graph/explain-graph.json, control/workbench/views/slot-rule-view.html, control/workbench/views/source-view.html</td></tr><tr><td>lock</td><td>1</td><td>control/provenance/provenance.json</td></tr><tr><td>verify</td><td>5</td><td>control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/review-summary.json, control/evidence/runtime-report.json, control/evidence/verification-report.json</td></tr></tbody></table>
+</section>
+
+
+
 <section class="card">
-        <h2>Merged Policies</h2>
-        <table>
-          <thead><tr><th>Policy</th><th>Scope</th><th>Source</th></tr></thead>
-          <tbody><tr><td>tenant-scope-required</td><td>official</td><td>platform/policies/official/policy.spec.yaml</td></tr></tbody>
-        </table>
-      </section>
+  <h2>Acceptance Coverage Summary</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Acceptance Passed</td><td>4</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Covered Blocks</td><td>3</td></tr><tr><td>Uncovered Blocks</td><td>0</td></tr><tr><td>Slots</td><td>1</td></tr><tr><td>Covered Slots</td><td>1</td></tr><tr><td>Uncovered Slots</td><td>0</td></tr></tbody></table>
+  <h3>Block Coverage Summary</h3><table><thead><tr><th>Block</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead><tbody><tr><td>auth/basic-session</td><td>1</td><td>1</td><td>user_can_login</td></tr><tr><td>entity/customer-basic</td><td>3</td><td>3</td><td>tenant_only_sees_own_customers, user_can_create_customer, user_can_list_customers</td></tr><tr><td>tenant/basic-workspace</td><td>1</td><td>1</td><td>tenant_only_sees_own_customers</td></tr></tbody></table>
+  <h3>Slot Coverage Summary</h3><table><thead><tr><th>Slot</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead><tbody><tr><td>customer_normalizer</td><td>2</td><td>2</td><td>tenant_only_sees_own_customers, user_can_create_customer</td></tr></tbody></table>
+</section>
+
+
+
 <section class="card">
-        <h2>Review Failure Points</h2>
-        <table>
-          <thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </section>
-      <section class="card">
-        <h2>Review Regression Risks</h2>
-        <table>
-          <thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </section>
-      <section class="card">
-        <h2>Review Conflict Hints</h2>
-        <table>
-          <thead><tr><th>Kind</th><th>Related ID</th><th>Message</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </section>
+  <h2>Policy Summary</h2>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Official Policies</td><td>1</td></tr><tr><td>Project Policies</td><td>0</td></tr><tr><td>Merged Policies</td><td>1</td></tr><tr><td>Policy Sources</td><td>2</td></tr><tr><td>Violations</td><td>0</td></tr></tbody></table>
+  <h3>Policy Severity Summary</h3><table><thead><tr><th>Severity</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">No policy violations.</td></tr></tbody></table>
+  <h3>Policy Source Summary</h3><table><thead><tr><th>Scope</th><th>Path</th><th>Policy IDs</th></tr></thead><tbody><tr><td>official</td><td>platform/policies/official/policy.spec.yaml</td><td>tenant-scope-required</td></tr><tr><td>project</td><td>source/model/policies/policy.spec.yaml</td><td>none</td></tr></tbody></table>
+  <h3>Policy Merge Summary</h3><table><thead><tr><th>Policy</th><th>Scope</th><th>Targets</th><th>Target Paths</th></tr></thead><tbody><tr><td>tenant-scope-required</td><td>official</td><td>1</td><td>src/installed/entity/customer-service.ts</td></tr></tbody></table>
+  <h3>Policy Violation Summary</h3><table><thead><tr><th>Policy</th><th>Severity</th><th>Files</th><th>File Paths</th><th>Message</th></tr></thead><tbody><tr><td colspan="5">No policy violations.</td></tr></tbody></table>
+</section>
+
+
+
+
+<section class="card">
+  <h2>Policy Sources</h2>
+  <table><thead><tr><th>Path</th><th>Policy IDs</th></tr></thead><tbody><tr><td>platform/policies/official/policy.spec.yaml</td><td>tenant-scope-required</td></tr><tr><td>source/model/policies/policy.spec.yaml</td><td>none</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Merged Policies</h2>
+  <table><thead><tr><th>Policy</th><th>Scope</th><th>Source</th></tr></thead><tbody><tr><td>tenant-scope-required</td><td>official</td><td>platform/policies/official/policy.spec.yaml</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Policy Violations</h2>
+  <table><thead><tr><th>ID</th><th>Severity</th><th>Scope</th><th>Source</th><th>Message</th></tr></thead><tbody><tr><td colspan="5">No policy violations.</td></tr></tbody></table>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<section class="card">
+  <h2>Review Failure Points</h2>
+  <table><thead><tr><th>Lane</th><th>Kind</th><th>Artifact</th><th>Message</th></tr></thead><tbody><tr><td colspan="4">No failure points.</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Review Regression Risks</h2>
+  <table><thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead><tbody><tr><td colspan="4">No regression risks.</td></tr></tbody></table>
+</section>
+<section class="card">
+  <h2>Review Conflict Hints</h2>
+  <table><thead><tr><th>Kind</th><th>Related ID</th><th>Message</th></tr></thead><tbody><tr><td colspan="3">No conflict hints.</td></tr></tbody></table>
+</section>
+
 <section class="card"><h2>Explain Graph</h2><pre>{
-  &quot;nodes&quot;: 58,
-  &quot;edges&quot;: 67
+  &quot;nodes&quot;: 59,
+  &quot;edges&quot;: 68
 }</pre></section>
+
     </main>
   </body>
 </html>

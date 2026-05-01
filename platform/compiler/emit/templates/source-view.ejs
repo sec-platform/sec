@@ -1,5 +1,5 @@
-<%- include('ci-summary', { review: review, countPositiveValues: countPositiveValues, buildE2eMatrix: buildE2eMatrix }) %>
-<%- include('source-layer', { lock: lock }) %>
+<%- await include('ci-summary', { ...viewHelpers, review: review, countPositiveValues: countPositiveValues, buildE2eMatrix: buildE2eMatrix }) %>
+<%- await include('source-layer', { ...viewHelpers, lock: lock }) %>
 <section class="card">
   <h1>Source View</h1>
   <p>Blocks: <%= lock.resolvedBlocks.length %> | Slots: <%= lock.slotTasks.length %> | Files: <%= provenance.artifacts.length %></p>
@@ -8,24 +8,24 @@
     <tbody>
       <% provenance.artifacts.forEach(function(a) { %>
       <tr>
-        <td><%= esc(a.path) %></td>
-        <td><%= esc(a.originType + ':' + a.originId) %></td>
+        <td><%- esc(a.path) %></td>
+        <td><%- esc(a.originType + ':' + a.originId) %></td>
         <td><%= a.registrySourceId ? esc(a.registrySourceId + ' (' + (a.registryKind ?? 'unknown') + ', ' + (a.registryLocation ?? 'unknown') + ')') : '' %></td>
-        <td><%= esc(a.overrideStatus) %></td>
+        <td><%- esc(a.overrideStatus) %></td>
       </tr>
       <% }); %>
     </tbody>
   </table>
 </section>
-<%- include('runtime-entries', { lock: lock, classifyRuntimeEntry: classifyRuntimeEntry }) %>
-<%- include('vertical-summary', { lock: lock, review: review, detectVerticalFromPath: detectVerticalFromPath, uniqueSorted: uniqueSorted, buildRuntimeAttributions: buildRuntimeAttributions }) %>
-<%- include('block-combination', { lock: lock, review: review, countMatching: countMatching }) %>
-<%- include('failure-focus', { review: review }) %>
-<%- include('runtime-attribution', { review: review, formatList: formatList }) %>
-<%- include('install-impact', { review: review, formatList: formatList }) %>
-<%- include('review-summaries', { review: review }) %>
-<%- include('policy-tables', { policyReport: policyReport }) %>
-<%- include('upgrade', { review: review, upgradePlan: upgradePlan, upgradeDiagnostics: upgradeDiagnostics, buildReviewUpgradePreflightSummaries: buildReviewUpgradePreflightSummaries }) %>
-<%- include('repair', { review: review, repairPlan: repairPlan }) %>
-<%- include('review-tables', { review: review }) %>
-<section class="card"><h2>Explain Graph</h2><pre><%= esc(JSON.stringify({ nodes: graph.nodes.length, edges: graph.edges.length }, null, 2)) %></pre></section>
+<%- await include('runtime-entries', { ...viewHelpers, lock: lock, classifyRuntimeEntry: classifyRuntimeEntry }) %>
+<%- await include('vertical-summary', { ...viewHelpers, lock: lock, review: review, detectVerticalFromPath: detectVerticalFromPath, uniqueSorted: uniqueSorted, buildRuntimeAttributions: buildRuntimeAttributions }) %>
+<%- await include('block-combination', { ...viewHelpers, lock: lock, review: review, countMatching: countMatching }) %>
+<%- await include('failure-focus', { ...viewHelpers, review: review }) %>
+<%- await include('runtime-attribution', { ...viewHelpers, review: review, formatList: formatList }) %>
+<%- await include('install-impact', { ...viewHelpers, review: review, formatList: formatList }) %>
+<%- await include('review-summaries', { ...viewHelpers, review: review }) %>
+<%- await include('policy-tables', { ...viewHelpers, policyReport: policyReport }) %>
+<%- await include('upgrade', { ...viewHelpers, review: review, upgradePlan: upgradePlan, upgradeDiagnostics: upgradeDiagnostics, buildReviewUpgradePreflightSummaries: buildReviewUpgradePreflightSummaries }) %>
+<%- await include('repair', { ...viewHelpers, review: review, repairPlan: repairPlan }) %>
+<%- await include('review-tables', { ...viewHelpers, review: review }) %>
+<section class="card"><h2>Explain Graph</h2><pre><%- esc(JSON.stringify({ nodes: graph.nodes.length, edges: graph.edges.length }, null, 2)) %></pre></section>

@@ -15,7 +15,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
     await expectCliText(workspaceRoot, ['demo', 'checklist'], [
       'Demo checklist attention; items=8; missing=8',
       `verification-report: missing; ${CI_ARTIFACT_FILES.verificationReport}`,
-      'Next command: npm run demo:quickstart'
+      'Next command: bun run demo:quickstart'
     ]);
 
     await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true, explain: true });
@@ -23,7 +23,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
     await expectCliText(workspaceRoot, ['demo', 'checklist'], [
       'Demo checklist passed; items=8; missing=0',
       `review-summary: passed; ${CI_ARTIFACT_FILES.reviewSummary}`,
-      'Next command: npm run demo:closed-loop'
+      'Next command: bun run demo:closed-loop'
     ]);
 
     await expectCliJson(
@@ -34,13 +34,13 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
         status: 'passed',
         itemCount: 8,
         missingCount: 0,
-        nextCommand: 'npm run demo:closed-loop',
+        nextCommand: 'bun run demo:closed-loop',
         items: expect.arrayContaining([
           {
             id: 'explain-graph',
             status: 'passed',
             artifactPath: CI_ARTIFACT_FILES.explainGraph,
-            command: 'npm run platform -- explain'
+            command: 'bun run platform -- explain'
           }
         ])
       },

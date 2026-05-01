@@ -896,7 +896,10 @@ function renderTicketsRoute(options: { auditEnabled: boolean; notifyEmailEnabled
     notifyEmailEnabled: options.notifyEmailEnabled,
     notifyFunction: 'recordTicketCreatedEmail',
     tableFilterEnabled: false,
-    extraImports: [`import type { TicketStatus } from '../../../src/runtime/database.ts';`],
+    extraImports: [
+      `import type { TicketStatus } from '../../../src/runtime/database.ts';`,
+      `import type { TicketFilters } from '../../../src/installed/ticket/ticket-service.ts';`
+    ],
     customGetBlock: `  const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));`,
     extraTopLevelCode: renderReadTicketFilters()
   });

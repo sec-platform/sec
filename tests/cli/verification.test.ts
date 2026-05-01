@@ -169,10 +169,10 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
     }>(workspaceRoot, ['runtime', 'report'], {
       text: [
         'Runtime report passed',
-        'Build: skipped; passed=0; failed=0; command=npm run build',
+        'Build: skipped; passed=0; failed=0; command=bun run build',
         'Unit: passed; passed=',
-        'failed=0; command=npm run test:unit',
-        'Acceptance: skipped; passed=0; failed=0; command=npm run test:acceptance'
+        'failed=0; command=bun run test:unit',
+        'Acceptance: skipped; passed=0; failed=0; command=bun run test:acceptance'
       ],
       compactJson: {
         status: 'passed',
@@ -189,9 +189,9 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
 
     await expectCliText(workspaceRoot, ['runtime', 'steps'], [
       'Runtime steps passed; steps=3; passed=1; failed=0; skipped=2',
-      'build: skipped; passed=0; failed=0; command=npm run build',
+      'build: skipped; passed=0; failed=0; command=bun run build',
       'unit: passed; passed=',
-      'acceptance: skipped; passed=0; failed=0; command=npm run test:acceptance'
+      'acceptance: skipped; passed=0; failed=0; command=bun run test:acceptance'
     ]);
 
     await expectCliJson(

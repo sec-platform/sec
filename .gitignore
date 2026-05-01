@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
-.npm-cache/
 project/package-lock.json
+project/bun.lock
 __pycache__/
 *.pyc
 .venv/
@@ -28,6 +28,7 @@ playwright-report/
 .pjc/
 project/.runtime-deps.stamp.json
 .tmp/
+report/
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 .VSCodeCounter/

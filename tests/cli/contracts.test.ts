@@ -49,8 +49,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(contract).toMatchObject({
     formatVersion: '1',
     status: 'active',
-    command: 'npm run platform -- contract freeze --json',
-    runnerCommand: 'npm run test:contract-freeze',
+    command: 'bun run platform -- contract freeze --json',
+    runnerCommand: 'bun run test:contract-freeze',
     targetFileCount: 15,
     targetFiles: [
       'tests/cli/artifacts.test.ts',
@@ -93,8 +93,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     await expectCliVariants(workspaceRoot, ['contract', 'freeze'], {
       text: [
         'Contract freeze active',
-        'Command: npm run platform -- contract freeze --json',
-        'Runner command: npm run test:contract-freeze',
+        'Command: bun run platform -- contract freeze --json',
+        'Runner command: bun run test:contract-freeze',
         'Target files: 15',
         'Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
         'tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts',
@@ -102,8 +102,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
       ],
       json: {
         status: 'active',
-        command: 'npm run platform -- contract freeze --json',
-        runnerCommand: 'npm run test:contract-freeze',
+        command: 'bun run platform -- contract freeze --json',
+        runnerCommand: 'bun run test:contract-freeze',
         targetFileCount: 15,
         targetFiles: [
           'tests/cli/artifacts.test.ts',
@@ -126,7 +126,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
       },
       compactJson: {
         status: 'active',
-        runnerCommand: 'npm run test:contract-freeze',
+        runnerCommand: 'bun run test:contract-freeze',
         targetFileCount: 15,
         targetCount: 15
       }
@@ -138,35 +138,35 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
   const contract = buildCiContract();
   const formatted = formatCiContract(contract);
   expect(formatted).toContain('CI contract active');
-  expect(formatted).toContain('Step pr-fast-verify; phase=verify; command=npm run platform -- verify --json --compact; producesCount=1');
+  expect(formatted).toContain('Step pr-fast-verify; phase=verify; command=bun run platform -- verify --json --compact; producesCount=1');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
     status: 'active',
-    command: 'npm run platform -- contract ci --json',
+    command: 'bun run platform -- contract ci --json',
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
     verifyCommandCount: 2,
     verifyCommands: [
-      'npm run platform -- verify --json --compact',
-      'npm run platform -- verify --lane all --json --compact'
+      'bun run platform -- verify --json --compact',
+      'bun run platform -- verify --lane all --json --compact'
     ],
     qualityCommandCount: 6,
     qualityCommands: [
-      'npm run typecheck',
-      'npm run imports:check',
-      'npm run platform -- test budget --json --compact',
-      'npm run test:contract-freeze',
-      'npm run platform -- benchmark suite --json --compact',
-      'npm run platform -- reference check --json --compact'
+      'bun run typecheck',
+      'bun run imports:check',
+      'bun run platform -- test budget --json --compact',
+      'bun run test:contract-freeze',
+      'bun run platform -- benchmark suite --json --compact',
+      'bun run platform -- reference check --json --compact'
     ],
     diagnosticCommandCount: 5,
     diagnosticCommands: [
-      'npm run platform -- review summary --json --compact',
-      'npm run platform -- review matrix --json --compact',
-      'npm run platform -- review diagnostics --json --compact',
-      'npm run platform -- explain --json --compact',
-      'npm run platform -- demo checklist --json --compact'
+      'bun run platform -- review summary --json --compact',
+      'bun run platform -- review matrix --json --compact',
+      'bun run platform -- review diagnostics --json --compact',
+      'bun run platform -- explain --json --compact',
+      'bun run platform -- demo checklist --json --compact'
     ],
     artifactUploadCommandCount: 4,
     artifactUploadCommands: CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand),
@@ -184,14 +184,14 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       expect.objectContaining({
         id: 'pr-fast-verify',
         phase: 'verify',
-        command: 'npm run platform -- verify --json --compact',
+        command: 'bun run platform -- verify --json --compact',
         producesCount: 1,
         produces: [CI_ARTIFACT_FILES.verificationReport]
       }),
       expect.objectContaining({
         id: 'full-runtime-verify',
         phase: 'verify',
-        command: 'npm run platform -- verify --lane all --json --compact',
+        command: 'bun run platform -- verify --lane all --json --compact',
         producesCount: 3,
         produces: expect.arrayContaining([
           CI_ARTIFACT_FILES.runtimeReport,
@@ -201,68 +201,68 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       expect.objectContaining({
         id: 'typecheck',
         phase: 'quality',
-        command: 'npm run typecheck',
+        command: 'bun run typecheck',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'organized-imports',
         phase: 'quality',
-        command: 'npm run imports:check',
+        command: 'bun run imports:check',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'slow-test-budget',
         phase: 'quality',
-        command: 'npm run platform -- test budget --json --compact',
+        command: 'bun run platform -- test budget --json --compact',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'contract-freeze',
         phase: 'quality',
-        command: 'npm run test:contract-freeze',
+        command: 'bun run test:contract-freeze',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'benchmark-task-suite',
         phase: 'quality',
-        command: 'npm run platform -- benchmark suite --json --compact',
+        command: 'bun run platform -- benchmark suite --json --compact',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'reference-drift',
         phase: 'quality',
-        command: 'npm run platform -- reference check --json --compact',
+        command: 'bun run platform -- reference check --json --compact',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'diagnostic-review-matrix',
         phase: 'diagnostics',
-        command: 'npm run platform -- review matrix --json --compact',
+        command: 'bun run platform -- review matrix --json --compact',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'diagnostic-demo-checklist',
         phase: 'diagnostics',
-        command: 'npm run platform -- demo checklist --json --compact',
+        command: 'bun run platform -- demo checklist --json --compact',
         producesCount: 0,
         produces: []
       }),
       expect.objectContaining({
         id: 'governance-artifacts',
         phase: 'artifacts',
-        command: 'npm run platform -- artifacts --paths --json --compact --kind governance'
+        command: 'bun run platform -- artifacts --paths --json --compact --kind governance'
       }),
       expect.objectContaining({
         id: 'contract-artifacts',
         phase: 'artifacts',
-        command: 'npm run platform -- artifacts --paths --json --compact --kind contract'
+        command: 'bun run platform -- artifacts --paths --json --compact --kind contract'
       })
     ])
   });
@@ -272,11 +272,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       text: [
         'CI contract active',
         'Verify command count: 2',
-        'Verify commands: npm run platform -- verify --json --compact, npm run platform -- verify --lane all --json --compact',
+        'Verify commands: bun run platform -- verify --json --compact, bun run platform -- verify --lane all --json --compact',
         'Quality command count: 6',
-        'Quality commands: npm run typecheck, npm run imports:check, npm run platform -- test budget --json --compact, npm run test:contract-freeze, npm run platform -- benchmark suite --json --compact, npm run platform -- reference check --json --compact',
+        'Quality commands: bun run typecheck, bun run imports:check, bun run platform -- test budget --json --compact, bun run test:contract-freeze, bun run platform -- benchmark suite --json --compact, bun run platform -- reference check --json --compact',
         'Diagnostic command count: 5',
-        'Diagnostic commands: npm run platform -- review summary --json --compact, npm run platform -- review matrix --json --compact, npm run platform -- review diagnostics --json --compact, npm run platform -- explain --json --compact, npm run platform -- demo checklist --json --compact',
+        'Diagnostic commands: bun run platform -- review summary --json --compact, bun run platform -- review matrix --json --compact, bun run platform -- review diagnostics --json --compact, bun run platform -- explain --json --compact, bun run platform -- demo checklist --json --compact',
         'Artifact upload command count: 4',
         `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`,
         'Artifact paths: 6',
@@ -288,42 +288,42 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           CI_ARTIFACT_FILES.verificationReport,
           CI_ARTIFACT_FILES.explainGraph
         ].join(', ')}`,
-        'Step full-runtime-verify; phase=verify; command=npm run platform -- verify --lane all --json --compact; producesCount=3',
-        'Step typecheck; phase=quality; command=npm run typecheck; producesCount=0',
-        'Step organized-imports; phase=quality; command=npm run imports:check; producesCount=0',
-        'Step slow-test-budget; phase=quality; command=npm run platform -- test budget --json --compact',
-        'Step contract-freeze; phase=quality; command=npm run test:contract-freeze',
-        'Step benchmark-task-suite; phase=quality; command=npm run platform -- benchmark suite --json --compact',
-        'Step reference-drift; phase=quality; command=npm run platform -- reference check --json --compact',
-        'Step diagnostic-review-matrix; phase=diagnostics; command=npm run platform -- review matrix --json --compact; producesCount=0',
-        'Step diagnostic-review-diagnostics; phase=diagnostics; command=npm run platform -- review diagnostics --json --compact; producesCount=0',
-        'Step diagnostic-demo-checklist; phase=diagnostics; command=npm run platform -- demo checklist --json --compact; producesCount=0',
-        'Step contract-artifacts; phase=artifacts; command=npm run platform -- artifacts --paths --json --compact --kind contract'
+        'Step full-runtime-verify; phase=verify; command=bun run platform -- verify --lane all --json --compact; producesCount=3',
+        'Step typecheck; phase=quality; command=bun run typecheck; producesCount=0',
+        'Step organized-imports; phase=quality; command=bun run imports:check; producesCount=0',
+        'Step slow-test-budget; phase=quality; command=bun run platform -- test budget --json --compact',
+        'Step contract-freeze; phase=quality; command=bun run test:contract-freeze',
+        'Step benchmark-task-suite; phase=quality; command=bun run platform -- benchmark suite --json --compact',
+        'Step reference-drift; phase=quality; command=bun run platform -- reference check --json --compact',
+        'Step diagnostic-review-matrix; phase=diagnostics; command=bun run platform -- review matrix --json --compact; producesCount=0',
+        'Step diagnostic-review-diagnostics; phase=diagnostics; command=bun run platform -- review diagnostics --json --compact; producesCount=0',
+        'Step diagnostic-demo-checklist; phase=diagnostics; command=bun run platform -- demo checklist --json --compact; producesCount=0',
+        'Step contract-artifacts; phase=artifacts; command=bun run platform -- artifacts --paths --json --compact --kind contract'
       ],
       json: {
         status: 'active',
         defaultGate: 'pr-fast-verify',
         verifyCommandCount: 2,
         verifyCommands: [
-          'npm run platform -- verify --json --compact',
-          'npm run platform -- verify --lane all --json --compact'
+          'bun run platform -- verify --json --compact',
+          'bun run platform -- verify --lane all --json --compact'
         ],
         qualityCommandCount: 6,
         qualityCommands: [
-          'npm run typecheck',
-          'npm run imports:check',
-          'npm run platform -- test budget --json --compact',
-          'npm run test:contract-freeze',
-          'npm run platform -- benchmark suite --json --compact',
-          'npm run platform -- reference check --json --compact'
+          'bun run typecheck',
+          'bun run imports:check',
+          'bun run platform -- test budget --json --compact',
+          'bun run test:contract-freeze',
+          'bun run platform -- benchmark suite --json --compact',
+          'bun run platform -- reference check --json --compact'
         ],
         diagnosticCommandCount: 5,
         diagnosticCommands: [
-          'npm run platform -- review summary --json --compact',
-          'npm run platform -- review matrix --json --compact',
-          'npm run platform -- review diagnostics --json --compact',
-          'npm run platform -- explain --json --compact',
-          'npm run platform -- demo checklist --json --compact'
+          'bun run platform -- review summary --json --compact',
+          'bun run platform -- review matrix --json --compact',
+          'bun run platform -- review diagnostics --json --compact',
+          'bun run platform -- explain --json --compact',
+          'bun run platform -- demo checklist --json --compact'
         ],
         artifactUploadCommandCount: 4,
         artifactPathCount: 6,
@@ -346,25 +346,25 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         fullRuntimeGate: 'full-runtime-verify',
         verifyCommandCount: 2,
         verifyCommands: [
-          'npm run platform -- verify --json --compact',
-          'npm run platform -- verify --lane all --json --compact'
+          'bun run platform -- verify --json --compact',
+          'bun run platform -- verify --lane all --json --compact'
         ],
         qualityCommandCount: 6,
         qualityCommands: [
-          'npm run typecheck',
-          'npm run imports:check',
-          'npm run platform -- test budget --json --compact',
-          'npm run test:contract-freeze',
-          'npm run platform -- benchmark suite --json --compact',
-          'npm run platform -- reference check --json --compact'
+          'bun run typecheck',
+          'bun run imports:check',
+          'bun run platform -- test budget --json --compact',
+          'bun run test:contract-freeze',
+          'bun run platform -- benchmark suite --json --compact',
+          'bun run platform -- reference check --json --compact'
         ],
         diagnosticCommandCount: 5,
         diagnosticCommands: [
-          'npm run platform -- review summary --json --compact',
-          'npm run platform -- review matrix --json --compact',
-          'npm run platform -- review diagnostics --json --compact',
-          'npm run platform -- explain --json --compact',
-          'npm run platform -- demo checklist --json --compact'
+          'bun run platform -- review summary --json --compact',
+          'bun run platform -- review matrix --json --compact',
+          'bun run platform -- review diagnostics --json --compact',
+          'bun run platform -- explain --json --compact',
+          'bun run platform -- demo checklist --json --compact'
         ],
         artifactUploadCommandCount: 4,
         artifactPathCount: 6,
@@ -390,7 +390,7 @@ test('GitHub compiler CI workflow covers CI command contract gates', async () =>
     ...contract.artifactUploadCommands
   ];
   const missingCommands = requiredWorkflowCommands.filter((command) => {
-    const directCliCommand = command.replace('npm run platform -- ', 'node ./platform/cli/index.ts ');
+    const directCliCommand = command.replace('bun run platform -- ', 'node ./platform/cli/index.ts ');
     return !workflow.includes(command) && !workflow.includes(directCliCommand);
   });
 
@@ -408,7 +408,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   expect(contract).toMatchObject({
     formatVersion: '1',
     status: 'active',
-    command: 'npm run platform -- contract errors --json',
+    command: 'bun run platform -- contract errors --json',
     exampleCount: 13,
     issueTypeCount: 5,
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],

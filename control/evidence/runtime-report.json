@@ -6,7 +6,7 @@
       "next build"
     ],
     "failed": [],
-    "command": "npm run build"
+    "command": "bun run build"
   },
   "unit": {
     "status": "passed",
@@ -14,7 +14,7 @@
       "tests/runtime/unit/customer-runtime.test.ts"
     ],
     "failed": [],
-    "command": "npm run test:unit"
+    "command": "bun run test:unit"
   },
   "acceptance": {
     "status": "passed",
@@ -22,10 +22,10 @@
       "tests/runtime/acceptance/customer-flow.spec.ts"
     ],
     "failed": [],
-    "command": "npm run test:acceptance"
+    "command": "bun run test:acceptance"
   },
   "logs": {
     "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
-    "stderr": ""
+    "stderr": "$ next build --webpack\n$ vitest run --config vitest.config.ts\n$ playwright test --config playwright.config.ts\n"
   }
 }

@@ -14,7 +14,7 @@ import { applyWorkbenchMutations } from '../orchestrator.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
-import { CI_ARTIFACT_KINDS } from '../shared/ci-artifact-contract.ts';
+import { CI_ARTIFACT_FILES, CI_ARTIFACT_KINDS } from '../shared/ci-artifact-contract.ts';
 import type { CiArtifactKind } from '../shared/ci-artifact-types.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import { countMatching } from '../shared/collections.ts';
@@ -64,6 +64,7 @@ import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../shared/test-budget-contract.ts';
+import { platformCommand } from '../shared/platform-command.ts';
 import { buildReviewPolicySummary } from '../shared/review-policy.ts';
 import { formatJson, printJsonOrText } from './format-utils.ts';
 import {
@@ -107,6 +108,23 @@ function jsonOpts(opts: Record<string, unknown>): JsonOpts {
   return { json: !!opts.json, compact: !!opts.compact };
 }
 
+function commandPath(cmd: Command): string {
+  const names: string[] = [];
+  let current: Command | null = cmd;
+  while (current) {
+    const name = current.name();
+    if (name) names.push(name);
+    current = current.parent ?? null;
+  }
+  return names.reverse().join(' ');
+}
+
+function assertJsonFlags(opts: Record<string, unknown>, cmd: Command): void {
+  if (opts.compact && !opts.json) {
+    throw new Error(`Usage: ${commandPath(cmd)} [--json [--compact]]`);
+  }
+}
+
 async function readRequiredJson<T>(filePath: string, missingMessage: string): Promise<T> {
   if (!(await pathExists(filePath))) throw new Error(missingMessage);
   return readJson<T>(filePath);
@@ -127,24 +145,73 @@ async function printWorkspaceJson<T>(
 }
 
 function addJsonFlags(cmd: Command): Command {
-  return cmd.option('--json', 'Output as JSON').option('--compact', 'Compact JSON output');
+  return cmd
+    .option('--json', 'Output as JSON')
+    .option('--compact', 'Compact JSON output')
+    .hook('preAction', (_thisCommand, actionCommand) => {
+      assertJsonFlags(actionCommand.opts(), actionCommand);
+    });
+}
+
+function modeCommand(cmd: Command): Command {
+  return cmd.allowExcessArguments(true);
 }
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
   const paths = getWorkspacePaths(workspaceRoot);
   const items: DemoChecklistItem[] = await Promise.all([
-    { id: 'verification-report', absolutePath: paths.verificationReportPath, command: 'platform verify --lane all' },
-    { id: 'runtime-report', absolutePath: paths.runtimeReportPath, command: 'platform verify --lane all' },
-    { id: 'policy-report', absolutePath: paths.policyReportPath, command: 'platform verify' },
-    { id: 'acceptance-coverage', absolutePath: paths.acceptanceCoveragePath, command: 'platform verify' },
-    { id: 'graph-lock', absolutePath: paths.lockPath, command: 'platform lock' },
-    { id: 'provenance-registry', absolutePath: paths.provenancePath, command: 'platform adapt' },
-    { id: 'explain-graph', absolutePath: paths.explainGraphPath, command: 'platform explain' },
-    { id: 'review-summary', absolutePath: paths.reviewSummaryPath, command: 'platform explain' }
+    {
+      id: 'verification-report',
+      absolutePath: paths.verificationReportPath,
+      artifactPath: CI_ARTIFACT_FILES.verificationReport,
+      command: platformCommand('verify', '--lane', 'all')
+    },
+    {
+      id: 'runtime-report',
+      absolutePath: paths.runtimeReportPath,
+      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+      command: platformCommand('verify', '--lane', 'all')
+    },
+    {
+      id: 'policy-report',
+      absolutePath: paths.policyReportPath,
+      artifactPath: CI_ARTIFACT_FILES.policyReport,
+      command: platformCommand('verify')
+    },
+    {
+      id: 'acceptance-coverage',
+      absolutePath: paths.acceptanceCoveragePath,
+      artifactPath: CI_ARTIFACT_FILES.acceptanceCoverage,
+      command: platformCommand('verify')
+    },
+    {
+      id: 'graph-lock',
+      absolutePath: paths.lockPath,
+      artifactPath: CI_ARTIFACT_FILES.graphLock,
+      command: platformCommand('lock')
+    },
+    {
+      id: 'provenance-registry',
+      absolutePath: paths.provenancePath,
+      artifactPath: CI_ARTIFACT_FILES.provenance,
+      command: platformCommand('adapt')
+    },
+    {
+      id: 'explain-graph',
+      absolutePath: paths.explainGraphPath,
+      artifactPath: CI_ARTIFACT_FILES.explainGraph,
+      command: platformCommand('explain')
+    },
+    {
+      id: 'review-summary',
+      absolutePath: paths.reviewSummaryPath,
+      artifactPath: CI_ARTIFACT_FILES.reviewSummary,
+      command: platformCommand('explain')
+    }
   ].map(async (item) => ({
     id: item.id,
     status: await pathExists(item.absolutePath) ? 'passed' as const : 'missing' as const,
-    artifactPath: '',
+    artifactPath: item.artifactPath,
     command: item.command
   })));
   const missingCount = countMatching(items, (item) => item.status === 'missing');
@@ -154,7 +221,7 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
     itemCount: items.length,
     missingCount,
     items,
-    nextCommand: missingCount === 0 ? 'npm run demo:closed-loop' : 'npm run demo:quickstart'
+    nextCommand: missingCount === 0 ? 'bun run demo:closed-loop' : 'bun run demo:quickstart'
   };
 }
 
@@ -215,7 +282,7 @@ export function registerCommands(program: Command): void {
       printJsonOrText(report, output, (v) => `Verification ${v.summary.status} (${v.summary.requestedLane})`);
     });
 
-  addJsonFlags(program.command('repair'))
+  addJsonFlags(modeCommand(program.command('repair')))
     .description('Run repair')
     .option('--dry-run', 'Dry run repair')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
@@ -239,7 +306,7 @@ export function registerCommands(program: Command): void {
       }
     });
 
-  addJsonFlags(program.command('upgrade'))
+  addJsonFlags(modeCommand(program.command('upgrade')))
     .description('Run upgrade')
     .option('--dry-run', 'Dry run upgrade')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
@@ -247,12 +314,12 @@ export function registerCommands(program: Command): void {
       const args = cmd.args;
       if (args[0] === 'plan') {
         const { upgradePlanPath } = getWorkspacePaths(process.cwd());
-        await printRequiredJson<UpgradePlan>(upgradePlanPath, 'Upgrade plan not found', output, (p) => formatUpgradeSummary(p, true));
+        await printRequiredJson<UpgradePlan>(upgradePlanPath, 'Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first', output, (p) => formatUpgradeSummary(p, true));
         return;
       }
       if (args[0] === 'diagnostics') {
         const { upgradeDiagnosticsPath } = getWorkspacePaths(process.cwd());
-        await printRequiredJson<UpgradeDiagnostics>(upgradeDiagnosticsPath, 'Upgrade diagnostics not found', output, formatUpgradeDiagnostics);
+        await printRequiredJson<UpgradeDiagnostics>(upgradeDiagnosticsPath, 'Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first', output, formatUpgradeDiagnostics);
         return;
       }
       if (args.length < 2) throw new Error('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]');
@@ -261,7 +328,7 @@ export function registerCommands(program: Command): void {
       printJsonOrText(upgradePlan, output, (p) => formatUpgradeSummary(p, !!opts.dryRun));
     });
 
-  addJsonFlags(program.command('lock'))
+  addJsonFlags(modeCommand(program.command('lock')))
     .description('Lock project')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
@@ -274,7 +341,7 @@ export function registerCommands(program: Command): void {
       console.log('Locked project');
     });
 
-  addJsonFlags(program.command('explain'))
+  addJsonFlags(modeCommand(program.command('explain')))
     .description('Explain project')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
@@ -288,7 +355,7 @@ export function registerCommands(program: Command): void {
       printJsonOrText({ graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) }, output, (s) => formatExplainSummary(s.graph, s.reviewSummary));
     });
 
-  addJsonFlags(program.command('artifacts'))
+  addJsonFlags(modeCommand(program.command('artifacts')))
     .description('Manage CI artifacts')
     .option('--paths', 'List artifact paths')
     .option('--kind <kind>', 'Filter by artifact kind')
@@ -296,7 +363,7 @@ export function registerCommands(program: Command): void {
       const output = jsonOpts(opts);
       if (cmd.args[0] === 'manifest' || opts.manifest) {
         await printWorkspaceJson<import('../shared/ci-artifact-types.ts').CiArtifactManifest>(
-          process.cwd(), (p) => p.ciArtifactsPath, 'Artifact manifest not found', output, formatCiArtifactManifest
+          process.cwd(), (p) => p.ciArtifactsPath, 'Artifact manifest not found; run platform artifacts --json first', output, formatCiArtifactManifest
         );
         return;
       }
@@ -311,13 +378,16 @@ export function registerCommands(program: Command): void {
       console.log(formatJson(manifest, output));
     });
 
-  addJsonFlags(program.command('workbench'))
+  addJsonFlags(modeCommand(program.command('workbench')))
     .description('Workbench operations')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
       const report = await applyWorkbenchMutations(process.cwd());
       printJsonOrText(report, output, (r) => {
-        const lines = [`Workbench mutations ${r.status}; files=${r.mutationFileCount}; applied=${r.appliedCount}; skipped=${r.skippedCount}`];
+        const lines = [
+          `Workbench mutations ${r.status}; files=${r.mutationFileCount}; applied=${r.appliedCount}; skipped=${r.skippedCount}`,
+          `target: ${r.targetPath}`
+        ];
         for (const m of r.mutations) lines.push(`Mutation ${m.id}: ${m.kind}; ${m.status}; ${m.detail}`);
         return lines.join('\n');
       });
@@ -347,13 +417,13 @@ export function registerCommands(program: Command): void {
   deps.command('clean')
     .option('--project', 'Clean project deps')
     .option('--shared', 'Clean shared deps')
-    .option('--npm-cache', 'Clean npm cache')
+    .option('--bun-cache', 'Clean Bun cache')
     .option('--all', 'Clean all')
     .option('--force', 'Force clean')
     .action(async (opts: Record<string, unknown>) => {
       const options = opts as DependencyCleanOptions;
-      if (options.all && !options.force) throw new Error('--all requires --force');
-      if (!options.all && options.force) throw new Error('--force requires --all');
+      if (options.all && !options.force) throw new Error('Usage: platform deps clean --all --force');
+      if (!options.all && options.force) throw new Error('Usage: platform deps clean --all --force');
       const removed = await cleanDependencyEnvironment(process.cwd(), options);
       console.log(`Cleaned ${removed.length} dependency paths`);
     });
@@ -365,17 +435,17 @@ export function registerCommands(program: Command): void {
     assertReferenceCheckClean(report);
   });
 
-  addJsonFlags(program.command('benchmark')).action(async (opts: Record<string, unknown>) => {
+  addJsonFlags(modeCommand(program.command('benchmark'))).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
     printJsonOrText(buildBenchmarkTaskSuiteContract(), output, formatBenchmarkTaskSuiteContract);
   });
 
-  addJsonFlags(program.command('test')).action(async (opts: Record<string, unknown>) => {
+  addJsonFlags(modeCommand(program.command('test'))).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
     printJsonOrText(buildTestBudgetContract(), output, formatTestBudgetContract);
   });
 
-  addJsonFlags(program.command('policy'))
+  addJsonFlags(modeCommand(program.command('policy')))
     .description('Policy inspection')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
@@ -389,7 +459,7 @@ export function registerCommands(program: Command): void {
       printJsonOrText(report, output, (v) => formatPolicyReport(buildReviewPolicySummary(v)));
     });
 
-  addJsonFlags(program.command('acceptance'))
+  addJsonFlags(modeCommand(program.command('acceptance')))
     .description('Acceptance inspection')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
@@ -403,7 +473,7 @@ export function registerCommands(program: Command): void {
       printJsonOrText(report, output, formatAcceptanceCoverage);
     });
 
-  addJsonFlags(program.command('runtime'))
+  addJsonFlags(modeCommand(program.command('runtime')))
     .description('Runtime inspection')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
@@ -417,14 +487,14 @@ export function registerCommands(program: Command): void {
       printJsonOrText(report, output, formatRuntimeReport);
     });
 
-  addJsonFlags(program.command('verification'))
+  addJsonFlags(modeCommand(program.command('verification')))
     .description('Verification inspection')
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
       await printWorkspaceJson<VerificationReport>(process.cwd(), (p) => p.verificationReportPath, 'Verification report not found', output, formatVerificationReport);
     });
 
-  addJsonFlags(program.command('provenance'))
+  addJsonFlags(modeCommand(program.command('provenance')))
     .description('Provenance inspection')
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
@@ -432,7 +502,7 @@ export function registerCommands(program: Command): void {
       await printRequiredJson<ProvenanceFile>(provenancePath, 'Provenance registry not found', output, formatProvenanceRegistry);
     });
 
-  addJsonFlags(program.command('review'))
+  addJsonFlags(modeCommand(program.command('review')))
     .description('Review inspection')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
@@ -450,13 +520,13 @@ export function registerCommands(program: Command): void {
       printJsonOrText(summary, output, formatReviewSummaryContract);
     });
 
-  addJsonFlags(program.command('demo')).action(async (opts: Record<string, unknown>) => {
+  addJsonFlags(modeCommand(program.command('demo'))).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
     const checklist = await buildDemoChecklist(process.cwd());
     printJsonOrText(checklist, output, formatDemoChecklist);
   });
 
-  addJsonFlags(program.command('contract'))
+  addJsonFlags(modeCommand(program.command('contract')))
     .description('Contract inspection')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
@@ -476,15 +546,15 @@ export function registerCommands(program: Command): void {
       throw new Error('Usage: platform contract <freeze|errors|ci> [--json [--compact]]');
     });
 
-  addJsonFlags(program.command('install')).action(async (opts: Record<string, unknown>) => {
-    await printWorkspaceJson<InstallManifestEntry[]>(process.cwd(), (p) => p.installManifestPath, 'Install manifest not found', jsonOpts(opts), formatInstallManifest);
+  addJsonFlags(modeCommand(program.command('install'))).action(async (opts: Record<string, unknown>) => {
+    await printWorkspaceJson<InstallManifestEntry[]>(process.cwd(), (p) => p.installManifestPath, 'Install manifest not found; run platform compose first', jsonOpts(opts), formatInstallManifest);
   });
 
-  addJsonFlags(program.command('blocks')).action(async (opts: Record<string, unknown>) => {
-    await printWorkspaceJson<BlockUsageMap>(process.cwd(), (p) => p.blockUsageMapPath, 'Block usage map not found', jsonOpts(opts), formatBlockUsageMap);
+  addJsonFlags(modeCommand(program.command('blocks'))).action(async (opts: Record<string, unknown>) => {
+    await printWorkspaceJson<BlockUsageMap>(process.cwd(), (p) => p.blockUsageMapPath, 'Block usage map not found; run platform compose first', jsonOpts(opts), formatBlockUsageMap);
   });
 
-  addJsonFlags(program.command('postgres')).action(async (opts: Record<string, unknown>) => {
-    await printWorkspaceJson<PostgresContract>(process.cwd(), (p) => p.postgresContractPath, 'Postgres contract not found', jsonOpts(opts), formatPostgresContract);
+  addJsonFlags(modeCommand(program.command('postgres'))).action(async (opts: Record<string, unknown>) => {
+    await printWorkspaceJson<PostgresContract>(process.cwd(), (p) => p.postgresContractPath, 'Postgres contract not found; run platform compose first', jsonOpts(opts), formatPostgresContract);
   });
 }

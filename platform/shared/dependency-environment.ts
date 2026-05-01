@@ -26,14 +26,14 @@ export interface DependencyEnvironmentStatus {
   rootNodeModules: DependencyEntryStatus;
   sharedNodeModules: DependencyEntryStatus;
   projectNodeModules: DependencyEntryStatus;
-  npmCache: DependencyEntryStatus;
+  bunCache: DependencyEntryStatus;
   recommendedAction: string;
 }
 
 export interface DependencyCleanOptions {
   project?: boolean;
   shared?: boolean;
-  npmCache?: boolean;
+  bunCache?: boolean;
   all?: boolean;
   force?: boolean;
 }
@@ -100,8 +100,8 @@ function defaultSharedDepsRoot(): string {
   return path.join(compilerRoot, '.shared-deps');
 }
 
-function npmCacheRoot(workspaceRoot: string): string {
-  return path.join(workspaceRoot, '.npm-cache');
+function bunCacheRoot(sharedDepsRoot: string): string {
+  return path.join(sharedDepsRoot, '.bun-cache');
 }
 
 function projectStampPath(projectRoot: string): string {
@@ -144,9 +144,9 @@ function recommendAction(mode: DependencyEnvironmentMode): string {
     case 'cold':
       return 'platform deps warmup';
     case 'warm-shared':
-      return 'platform deps relink project';
+      return 'platform deps relink';
     case 'dirty':
-      return 'platform deps relink project';
+      return 'platform deps relink';
     case 'stale':
       return 'platform deps warmup';
     case 'warm-project':
@@ -245,11 +245,11 @@ export async function getDependencyEnvironmentStatus(
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const sharedRoot = options.sharedDepsRoot ?? defaultSharedDepsRoot();
   const runtimeSpec = await loadRuntimeDependencySpec();
-  const [rootNodeModules, sharedNodeModules, projectNodeModules, npmCache, sharedStamp, projectStamp] = await Promise.all([
+  const [rootNodeModules, sharedNodeModules, projectNodeModules, bunCache, sharedStamp, projectStamp] = await Promise.all([
     readEntryStatus(path.join(compilerRoot, 'node_modules')),
     readEntryStatus(path.join(sharedRoot, 'node_modules')),
     readEntryStatus(path.join(projectRoot, 'node_modules')),
-    readEntryStatus(npmCacheRoot(workspaceRoot)),
+    readEntryStatus(bunCacheRoot(sharedRoot)),
     readRuntimeDepsStamp(sharedStampPath(sharedRoot)),
     readRuntimeDepsStamp(projectStampPath(projectRoot))
   ]);
@@ -261,7 +261,7 @@ export async function getDependencyEnvironmentStatus(
     rootNodeModules,
     sharedNodeModules,
     projectNodeModules,
-    npmCache
+    bunCache
   };
   const mode = classifyStatus({
     ...statusWithoutMode,
@@ -343,6 +343,7 @@ export async function cleanDependencyEnvironment(
   environmentOptions: DependencyEnvironmentOptions = {}
 ): Promise<string[]> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const sharedRoot = environmentOptions.sharedDepsRoot ?? defaultSharedDepsRoot();
   const targets: string[] = [];
 
   if (options.all || options.project) {
@@ -350,10 +351,10 @@ export async function cleanDependencyEnvironment(
     targets.push(projectStampPath(projectRoot));
   }
   if (options.all || options.shared) {
-    targets.push(environmentOptions.sharedDepsRoot ?? defaultSharedDepsRoot());
+    targets.push(sharedRoot);
   }
-  if (options.all || options.npmCache) {
-    targets.push(npmCacheRoot(workspaceRoot));
+  if (options.all || options.bunCache) {
+    targets.push(bunCacheRoot(sharedRoot));
   }
 
   for (const target of targets) {
@@ -391,7 +392,7 @@ export function formatDependencyEnvironmentStatus(status: DependencyEnvironmentS
     `Root node_modules: ${formatEntryStatus(status.rootNodeModules)}`,
     `Shared deps: ${formatEntryStatus(status.sharedNodeModules)}`,
     `Project node_modules: ${formatEntryStatus(status.projectNodeModules)}`,
-    `NPM cache: ${formatEntryStatus(status.npmCache)}`,
+    `Bun cache: ${formatEntryStatus(status.bunCache)}`,
     `Recommended action: ${status.recommendedAction}`
   ];
 

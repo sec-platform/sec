@@ -54,21 +54,21 @@ describe('root package scripts', () => {
   test('demo scripts follow the documented platform chain', async () => {
     const { scripts } = await readCompilerPackageJson();
 
-    expect(scripts['demo:quickstart']).toBe('npm run platform -- init --reset && npm run reference:refresh');
+    expect(scripts['demo:quickstart']).toBe('bun run platform -- init --reset && bun run reference:refresh');
     expect(scripts['demo:governance']).toBe(
-      'npm run demo:quickstart && npm run platform -- artifacts --paths --kind governance'
+      'bun run demo:quickstart && bun run platform -- artifacts --paths --kind governance'
     );
     expect(scripts['demo:closed-loop']).toBe(
-      'npm run demo:quickstart && npm run platform -- verify --lane all && npm run platform -- artifacts --paths --kind governance && npm run platform -- explain --json --compact'
+      'bun run demo:quickstart && bun run platform -- verify --lane all && bun run platform -- artifacts --paths --kind governance && bun run platform -- explain --json --compact'
     );
   });
 
   test('dogfood scripts delegate to reference and governance commands', async () => {
     const { scripts } = await readCompilerPackageJson();
 
-    expect(scripts['dogfood:reference']).toBe('npm run reference:refresh');
+    expect(scripts['dogfood:reference']).toBe('bun run reference:refresh');
     expect(scripts['dogfood:governance']).toBe(
-      'npm run dogfood:reference && npm run platform -- artifacts --paths --json --kind governance'
+      'bun run dogfood:reference && bun run platform -- artifacts --paths --json --kind governance'
     );
   });
 
@@ -77,12 +77,12 @@ describe('root package scripts', () => {
 
     expect(scripts['reference:refresh']).toBe(
       [
-        'npm run platform -- resolve',
-        'npm run platform -- compose',
-        'npm run platform -- adapt',
-        'npm run platform -- verify --lane all',
-        'npm run platform -- lock',
-        'npm run platform -- explain'
+        'bun run platform -- resolve',
+        'bun run platform -- compose',
+        'bun run platform -- adapt',
+        'bun run platform -- verify --lane all',
+        'bun run platform -- lock',
+        'bun run platform -- explain'
       ].join(' && ')
     );
   });
@@ -94,14 +94,14 @@ describe('test budget and benchmark contracts', () => {
 
     expect(scripts.test).toBe('bun ./platform/dev-runner.ts test:fast');
     expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
-    expect(scripts.check).toBe('npm run typecheck && npm test');
-    expect(scripts['check:full']).toBe('npm run typecheck && npm run test:all');
+    expect(scripts.check).toBe('bun run typecheck && bun run test');
+    expect(scripts['check:full']).toBe('bun run typecheck && bun run test:all');
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
-    expect(scripts['test:budget']).toBe('npm run platform -- test budget --json');
+    expect(scripts['test:budget']).toBe('bun run platform -- test budget --json');
     expect(scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
-    expect(scripts['test:benchmark-contract']).toBe('npm run platform -- benchmark suite --json');
-    expect(scripts['reference:check']).toBe('npm run platform -- reference check');
+    expect(scripts['test:benchmark-contract']).toBe('bun run platform -- benchmark suite --json');
+    expect(scripts['reference:check']).toBe('bun run platform -- reference check');
   });
 
   test('dev-runner does not expose contract subcommands directly', async () => {
@@ -134,7 +134,7 @@ describe('test budget and benchmark contracts', () => {
 
     expectContainsAll(source, [
       "command: platformCommand('test', 'budget', '--json')",
-      "runnerCommand: 'npm run test:budget'",
+      "runnerCommand: 'bun run test:budget'",
       'laneCount',
       'slowLaneCount',
       'slowLaneIds',
@@ -155,14 +155,14 @@ describe('test budget and benchmark contracts', () => {
     expectContainsAll(source, [
       "suiteId: 'engineering-compiler-core'",
       "command: platformCommand('benchmark', 'suite', '--json')",
-      "runnerCommand: 'npm run test:benchmark-contract'",
+      "runnerCommand: 'bun run test:benchmark-contract'",
       'scoreDimensionCount',
       'artifactPathCount',
       'artifactPaths',
       'scoreFocusCount',
       'scoreFocus',
       "id: 'add-block'",
-      "command: 'npm run demo:quickstart'",
+      "command: 'bun run demo:quickstart'",
       "id: 'repair-slot'",
       'CI_ARTIFACT_FILES.repairPlan',
       "id: 'override-conflict'",
@@ -175,7 +175,7 @@ describe('test budget and benchmark contracts', () => {
 
     expectContainsAll(source, [
       "command: platformCommand('reference', 'check', '--json')",
-      "runnerCommand: 'npm run reference:check'",
+      "runnerCommand: 'bun run reference:check'",
       "['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']",
       "['run', 'reference:refresh']",
       "failedStage: ReferenceCheckFailedStage"
@@ -215,9 +215,9 @@ describe('error protocol and developer contracts', () => {
     const { scripts } = await readCompilerPackageJson();
 
     expectContainsAll(scripts['demo:closed-loop'], [
-      'npm run platform -- verify --lane all',
-      'npm run platform -- artifacts --paths --kind governance',
-      'npm run platform -- explain --json --compact'
+      'bun run platform -- verify --lane all',
+      'bun run platform -- artifacts --paths --kind governance',
+      'bun run platform -- explain --json --compact'
     ]);
   });
 
@@ -256,31 +256,31 @@ describe('error protocol and developer contracts', () => {
     const readme = await readCompilerFile('README.md');
 
     expectContainsAll(readme, [
-      'Run the full product closed loop with `npm run demo:closed-loop`.',
-      'npm run platform -- deps status --json --compact',
-      'npm run platform -- artifacts --paths --json --compact --kind governance',
-      'npm run platform -- contract freeze --json --compact',
-      'npm run platform -- contract errors --json --compact',
-      'npm run platform -- contract ci --json --compact',
+      'Run the full product closed loop with `bun run demo:closed-loop`.',
+      'bun run platform -- deps status --json --compact',
+      'bun run platform -- artifacts --paths --json --compact --kind governance',
+      'bun run platform -- contract freeze --json --compact',
+      'bun run platform -- contract errors --json --compact',
+      'bun run platform -- contract ci --json --compact',
       'per-step produced artifact counts',
       'produced artifact paths',
-      'npm run platform -- policy report --json --compact',
-      'npm run platform -- acceptance coverage --json --compact',
-      'npm run platform -- runtime report --json --compact',
-      'npm run platform -- verification report --json --compact',
-      'npm run platform -- verify --json --compact',
-      'npm run platform -- provenance registry --json --compact',
-      'npm run platform -- review summary --json --compact',
-      'npm run platform -- review diagnostics --json --compact',
-      'npm run platform -- workbench mutations apply --json --compact',
+      'bun run platform -- policy report --json --compact',
+      'bun run platform -- acceptance coverage --json --compact',
+      'bun run platform -- runtime report --json --compact',
+      'bun run platform -- verification report --json --compact',
+      'bun run platform -- verify --json --compact',
+      'bun run platform -- provenance registry --json --compact',
+      'bun run platform -- review summary --json --compact',
+      'bun run platform -- review diagnostics --json --compact',
+      'bun run platform -- workbench mutations apply --json --compact',
       'source/views/mutations/*.json',
       CI_ARTIFACT_FILES.viewMutationReport,
-      'npm run platform -- repair --dry-run --json --compact',
-      'npm run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
-      'npm run platform -- test budget --json --compact',
-      'npm run platform -- reference check',
-      'npm run platform -- reference check --json --compact',
-      'npm run platform -- benchmark suite --json --compact',
+      'bun run platform -- repair --dry-run --json --compact',
+      'bun run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+      'bun run platform -- test budget --json --compact',
+      'bun run platform -- reference check',
+      'bun run platform -- reference check --json --compact',
+      'bun run platform -- benchmark suite --json --compact',
       'Governance contract freeze currently covers:',
       CI_ARTIFACT_FILES.explainGraph
     ]);
@@ -291,7 +291,7 @@ describe('error protocol and developer contracts', () => {
 
     expectContainsAll(source, [
       "command: platformCommand('contract', 'freeze', '--json')",
-      "runnerCommand: 'npm run test:contract-freeze'",
+      "runnerCommand: 'bun run test:contract-freeze'",
       'buildContractFreezeRunnerInvocations'
     ]);
   });
@@ -302,14 +302,16 @@ describe('error protocol and developer contracts', () => {
     expectContainsAll(source, [
       "issueType: 'usage' | 'spec' | 'composition' | 'slot' | 'kernel'",
       'artifactPaths: string[]',
-      "code.startsWith('VERIFY-BLOCKED-')",
-      "code.startsWith('VERIFY-')",
-      "code === 'REPAIR-BLOCKED-002'",
-      "code.startsWith('REPAIR-')",
-      "code.startsWith('UPGRADE-NOOP-')",
-      "code.startsWith('UPGRADE-BLOCKED-')",
-      "code.startsWith('UPGRADE-MIGRATION-')",
-      "code.startsWith('UPGRADE-')"
+      'const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [',
+      "prefix: 'VERIFY-BLOCKED-'",
+      "prefix: 'VERIFY-'",
+      "prefix: 'REPAIR-BLOCKED-002'",
+      "prefix: 'REPAIR-'",
+      "prefix: 'UPGRADE-NOOP-'",
+      "prefix: 'UPGRADE-BLOCKED-'",
+      "prefix: 'UPGRADE-MIGRATION-'",
+      "prefix: 'UPGRADE-'",
+      'ERROR_PROTOCOL_RULES.find((r) => code.startsWith(r.prefix))'
     ]);
   });
 
@@ -369,7 +371,7 @@ describe('project and shared runtime manifests', () => {
     expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next);
     expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react);
     expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node']);
-    expect(projectPackage.devDependencies.typescript).toBe(rootPackage.dependencies?.typescript);
+    expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript);
     expect(sharedPackage.dependencies).toEqual(projectPackage.dependencies);
     expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
   });
@@ -415,7 +417,11 @@ describe('ensureProjectDependencies', () => {
     const { projectRoot } = getWorkspacePaths(workspaceRoot);
 
     await fs.mkdir(path.join(sharedDepsRoot, 'node_modules', 'next'), { recursive: true });
-    await fs.writeFile(path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json'), '{\n}\n', 'utf8');
+    await fs.writeFile(
+      path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json'),
+      '{\n  "name": "next",\n  "version": "0.0.0"\n}\n',
+      'utf8'
+    );
     await writeRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'), {
       manifestHash: runtimeSpec.manifestHash,
       packageManager: 'bun',

@@ -1,4 +1,4 @@
-<%- include('helpers') %>
+<% await include('helpers') %>
 <%
   const impactByBlock = new Map(review.installImpacts.map(function(i) { return [i.blockId, i]; }));
   const blockRows = lock.resolvedBlocks.slice().sort(function(a, b) { return a.installOrder - b.installOrder || a.id.localeCompare(b.id); }).map(function(block) {

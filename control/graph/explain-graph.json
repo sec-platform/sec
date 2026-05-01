@@ -241,6 +241,11 @@
       "label": "tests/runtime/unit/customer-runtime.test.ts"
     },
     {
+      "id": "file:tests/shared/tenant-runtime-fixture.ts",
+      "type": "file",
+      "label": "tests/shared/tenant-runtime-fixture.ts"
+    },
+    {
       "id": "file:tests/unit/customer-normalizer.test.ts",
       "type": "file",
       "label": "tests/unit/customer-normalizer.test.ts"
@@ -595,6 +600,11 @@
     {
       "from": "file:tests/runtime/unit/customer-runtime.test.ts",
       "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/shared/tenant-runtime-fixture.ts",
+      "to": "block:tenant/basic-workspace",
       "type": "originates_from"
     },
     {
@@ -966,6 +976,19 @@
         "path": "tests/runtime/unit/customer-runtime.test.ts",
         "originType": "generated",
         "originId": "tests/runtime/unit/customer-runtime.test.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "tests/shared/tenant-runtime-fixture.ts",
+        "originType": "block",
+        "originId": "tenant/basic-workspace",
+        "sourceBlock": "tenant/basic-workspace",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none"

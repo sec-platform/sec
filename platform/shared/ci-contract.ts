@@ -57,14 +57,14 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'typecheck',
     phase: 'quality',
-    command: 'npm run typecheck',
+    command: 'bun run typecheck',
     purpose: 'Run TypeScript static checks before CI gates that execute generated workspaces.',
     produces: []
   },
   {
     id: 'organized-imports',
     phase: 'quality',
-    command: 'npm run imports:check',
+    command: 'bun run imports:check',
     purpose: 'Ensure TypeScript import declarations are normalized by the shared organizer.',
     produces: []
   },
@@ -96,7 +96,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'contract-freeze',
     phase: 'quality',
-    command: 'npm run test:contract-freeze',
+    command: 'bun run test:contract-freeze',
     purpose: 'Run the contract freeze suite declared by platform contract freeze.',
     produces: []
   },

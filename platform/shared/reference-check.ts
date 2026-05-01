@@ -3,7 +3,7 @@ import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
 import { compilerRoot } from './paths.ts';
 import { platformCommand } from './platform-command.ts';
-import { resolveNpmInvocation, runCommand, type CommandResult } from './process.ts';
+import { runCommand, type CommandResult } from './process.ts';
 
 export type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'diff-failed';
 export type ReferenceCheckFailedStage = 'none' | 'refresh' | 'diff';
@@ -34,8 +34,7 @@ export async function buildReferenceCheckReport(options: {
   const commandRunner = options.commandRunner ?? runCommand;
   const refreshArgs = ['run', 'reference:refresh'];
   const diffArgs = ['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control'];
-  const refreshInvocation = resolveNpmInvocation(refreshArgs);
-  const refreshResult = await commandRunner(refreshInvocation.command, refreshInvocation.args, {
+  const refreshResult = await commandRunner('bun', refreshArgs, {
     cwd: root
   });
   const diffResult: CommandResult = refreshResult.code === 0
@@ -63,8 +62,8 @@ export async function buildReferenceCheckReport(options: {
     failedStage,
     root,
     command: platformCommand('reference', 'check', '--json'),
-    runnerCommand: 'npm run reference:check',
-    refreshCommand: 'npm run reference:refresh',
+    runnerCommand: 'bun run reference:check',
+    refreshCommand: 'bun run reference:refresh',
     refreshExitCode: refreshResult.code,
     diffCommand: 'git diff --name-only --exit-code -- source project control',
     diffExitCode: diffResult.code,
