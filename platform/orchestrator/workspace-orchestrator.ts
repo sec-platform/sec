@@ -1,4 +1,5 @@
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
+import { defaultLimit } from '../shared/concurrency.ts';
 import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from '../shared/constants.ts';
 import { pathExists, removeDir, writeJson } from '../shared/fs.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
@@ -62,11 +63,11 @@ export async function initWorkspace(
 ): Promise<{ planPath: string; lockPath: string }> {
   const { projectRoot, developerSourceRoot, controlRoot, localStateRoot, planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
   if (options.reset) {
-    await Promise.all([projectRoot, developerSourceRoot, controlRoot, localStateRoot].map(async (targetRoot) => {
+    await Promise.all([projectRoot, developerSourceRoot, controlRoot, localStateRoot].map(async (targetRoot) => defaultLimit(async () => {
       if (await pathExists(targetRoot)) {
         await removeDir(targetRoot);
       }
-    }));
+    })));
   }
 
   await ensureProjectBase(workspaceRoot);

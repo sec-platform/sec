@@ -1,4 +1,5 @@
 import { normalizeNewlines } from '../../shared/collections.ts';
+import { defaultLimit } from '../../shared/concurrency.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { copyRecursive, pathExists, readText, writeText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
@@ -92,7 +93,7 @@ export class InstallStrategyRegistry {
 
   async executeAll(steps: InstallPlanStep[], context: InstallContext): Promise<void> {
     await Promise.all(
-      steps.map((step) => this.resolve(step).execute(step, context))
+      steps.map((step) => defaultLimit(() => this.resolve(step).execute(step, context)))
     );
   }
 }

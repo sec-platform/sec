@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { cli } from '../shared/cli-output.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
 import { formatJson } from './format-utils.ts';
 import { registerCommands } from './register-commands.ts';
@@ -19,17 +20,17 @@ program.action(() => {
 program.parseAsync().catch((error: unknown) => {
   const failure = error as { code?: string; message?: string; details?: unknown };
   const protocol = buildErrorProtocol(failure);
-  console.error(protocol.code, protocol.message);
-  console.error(formatJson({
+  console.error(cli.error(`${protocol.code} ${protocol.message}`));
+  console.error(cli.dim(formatJson({
     code: protocol.code,
     message: protocol.message,
     recoverable: protocol.recoverable,
     issueType: protocol.issueType,
     suggestedActions: protocol.suggestedActions,
     artifactPaths: protocol.artifactPaths
-  }, { compact: true }));
+  }, { compact: true })));
   if (protocol.details) {
-    console.error(formatJson(protocol.details, { compact: false }));
+    console.error(cli.dim(formatJson(protocol.details, { compact: false })));
   }
   process.exit(1);
 });
