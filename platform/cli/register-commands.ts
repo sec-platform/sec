@@ -1,75 +1,63 @@
 import type { Command } from 'commander';
-import { initWorkspace } from '../orchestrator.ts';
-import { addBlock } from '../orchestrator.ts';
-import { resolveWorkspace } from '../orchestrator.ts';
-import { composeWorkspace } from '../orchestrator.ts';
-import { adaptWorkspace } from '../orchestrator.ts';
-import { verifyWorkspace } from '../orchestrator.ts';
-import { repairWorkspace } from '../orchestrator.ts';
-import { upgradeWorkspace } from '../orchestrator.ts';
-import { lockWorkspace } from '../orchestrator.ts';
-import { explainWorkspace } from '../orchestrator.ts';
-import { writeWorkspaceArtifacts } from '../orchestrator.ts';
-import { applyWorkbenchMutations } from '../orchestrator.ts';
+import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
-import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
-import {
-  CI_ARTIFACT_FILES,
-  CI_ARTIFACT_KINDS,
-  CI_EXPLAIN_GRAPH_ARTIFACTS
-} from '../shared/ci-artifact-contract.ts';
-import type { CiArtifactKind } from '../shared/ci-artifact-types.ts';
+import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
-import { countMatching } from '../shared/collections.ts';
-import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
-import type { DependencyCleanOptions } from '../shared/dependency-environment.ts';
-import {
-  cleanDependencyEnvironment,
-  formatDependencyEnvironmentStatus,
-  getDependencyEnvironmentStatus,
-  getDoctorReport,
-  formatDoctorReport,
-  relinkProjectDependencies,
-  warmupDependencyEnvironment
-} from '../shared/dependency-environment.ts';
-import { pathExists, readJson } from '../shared/fs.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
-import type { LockFile } from '../shared/lock-types.ts';
-import type { PolicyReport } from '../shared/policy-types.ts';
-import type { ProvenanceFile } from '../shared/provenance-types.ts';
-import type { RepairPlan } from '../shared/repair-types.ts';
-import { buildE2eMatrix } from '../shared/review-matrix.ts';
-import type { ReviewSummary } from '../shared/review-types.ts';
-import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
-import type { RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../shared/verification-types.ts';
 import {
   buildBenchmarkTaskSuiteContract,
   formatBenchmarkTaskSuiteContract
 } from '../shared/benchmark-contract.ts';
 import {
+  CI_ARTIFACT_FILES,
+  CI_EXPLAIN_GRAPH_ARTIFACTS
+} from '../shared/ci-artifact-contract.ts';
+import type { CiArtifactKind } from '../shared/ci-artifact-types.ts';
+import {
   buildCiContract,
   formatCiContract
 } from '../shared/ci-contract.ts';
+import { countMatching } from '../shared/collections.ts';
+import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
 import {
   buildContractFreezeContract,
   formatContractFreezeContract
 } from '../shared/contract-freeze-contract.ts';
+import type { DependencyCleanOptions } from '../shared/dependency-environment.ts';
+import {
+  cleanDependencyEnvironment,
+  formatDependencyEnvironmentStatus,
+  formatDoctorReport,
+  getDependencyEnvironmentStatus,
+  getDoctorReport,
+  relinkProjectDependencies,
+  warmupDependencyEnvironment
+} from '../shared/dependency-environment.ts';
 import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../shared/error-protocol-contract.ts';
+import { pathExists, readJson } from '../shared/fs.ts';
+import type { LockFile } from '../shared/lock-types.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
+import { platformCommand } from '../shared/platform-command.ts';
+import type { PolicyReport } from '../shared/policy-types.ts';
+import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import {
   assertReferenceCheckClean,
   buildReferenceCheckReport,
   formatReferenceCheck
 } from '../shared/reference-check.ts';
+import type { RepairPlan } from '../shared/repair-types.ts';
+import { buildE2eMatrix } from '../shared/review-matrix.ts';
+import { buildReviewPolicySummary } from '../shared/review-policy.ts';
+import type { ReviewSummary } from '../shared/review-types.ts';
 import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../shared/test-budget-contract.ts';
-import { platformCommand } from '../shared/platform-command.ts';
-import { buildReviewPolicySummary } from '../shared/review-policy.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
+import type { RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../shared/verification-types.ts';
 import { formatJson, printJsonOrText } from './format-utils.ts';
 import {
   buildAcceptanceTargetInspect,
