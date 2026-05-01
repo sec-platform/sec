@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
-import { loadPlan } from '../compiler/parse/load-plan.ts';
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import {
@@ -39,7 +39,7 @@ import {
 } from '../shared/error-protocol-contract.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import { platformCommand } from '../shared/platform-command.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
@@ -239,7 +239,7 @@ export function registerCommands(program: Command): void {
     .action(async (blockId: string) => {
       const cwd = process.cwd();
       await addBlock(cwd, blockId);
-      const plan = await loadPlan(await resolveWorkspacePlanPath(cwd));
+      const plan = await loadWorkspacePlan(cwd);
       const entry = await loadManifestById(blockId, {
         workspaceRoot: cwd,
         version: plan.blocks.find((b) => b.id === blockId)?.version,

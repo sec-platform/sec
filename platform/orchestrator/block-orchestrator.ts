@@ -3,7 +3,7 @@ import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { resolveGraph } from '../compiler/resolve/resolve-graph.ts';
 import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-templates.ts';
-import { writeJson } from '../shared/fs.ts';
+import { saveLock } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
@@ -34,7 +34,7 @@ export async function addBlock(workspaceRoot = process.cwd(), blockId: string): 
 export async function resolveWorkspace(
   workspaceRoot = process.cwd()
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
-  const { lockPath, planPath } = getWorkspacePaths(workspaceRoot);
+  const { planPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   const manifestMap = new Map<string, ManifestEntry>();
   for (const block of plan.blocks) {
@@ -50,6 +50,6 @@ export async function resolveWorkspace(
   alignInterfaces(plan, manifestMap);
   const lock = await resolveGraph(workspaceRoot, plan);
   await validateResolvedTemplates(workspaceRoot, lock);
-  await writeJson(lockPath, lock);
+  await saveLock(workspaceRoot, lock);
   return { plan, lock };
 }

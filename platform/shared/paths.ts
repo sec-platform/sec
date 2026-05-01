@@ -29,7 +29,7 @@ export const controlAuditRelativePath = path.join(controlRelativePath, 'audit');
 export const controlCiRelativePath = path.join(controlRelativePath, 'ci');
 export const officialRegistryRoot = path.join(compilerRoot, officialRegistryRelativePath);
 
-function posixPath(value: string): string {
+export function posixPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
 

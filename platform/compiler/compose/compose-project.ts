@@ -2,7 +2,7 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
-import { addGeneratedPaths } from '../../shared/lock-utils.ts';
+import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
@@ -36,7 +36,7 @@ function renderSlotSkeleton(task: SlotTask): string {
 }
 
 export async function composeProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
-  const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
 
   await ensureProjectBase(workspaceRoot);
 
@@ -90,6 +90,6 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
 
   await writeJson(installManifestPath, installManifest);
   lock.passStatus.compose = 'succeeded';
-  await writeJson(lockPath, lock);
+  await saveLock(workspaceRoot, lock);
   return lock;
 }

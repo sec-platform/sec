@@ -8,14 +8,14 @@ import { CompilerError } from '../shared/errors.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
-import { assertPassStatus } from '../shared/lock-utils.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
+import { assertPassStatus, readLockFile } from '../shared/lock-utils.ts';
+import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import type { VerificationReport } from '../shared/verification-types.ts';
 
 export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<LockFile> {
-  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+  const lock = await readLockFile(workspaceRoot);
   await lockProject(workspaceRoot, lock);
   return lock;
 }
@@ -33,7 +33,7 @@ export async function explainWorkspace(
     acceptanceCoveragePath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+  const lock = await readLockFile(workspaceRoot);
 
   assertPassStatus(lock, 'lock', 'succeeded', new CompilerError('EXPLAIN-BLOCKED-001', 'lock must succeed before explain'));
 
@@ -80,7 +80,7 @@ export async function writeWorkspaceArtifacts(workspaceRoot = process.cwd()): Pr
   reviewSummary: ReviewSummary | null;
 }> {
   const manifest = await writeCiArtifactManifest(workspaceRoot);
-  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+  const lock = await readLockFile(workspaceRoot);
   const reviewSummary = await refreshReviewArtifacts(workspaceRoot, lock);
   return { manifest, reviewSummary };
 }

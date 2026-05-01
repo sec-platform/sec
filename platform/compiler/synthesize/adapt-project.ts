@@ -1,30 +1,17 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
-import { isFileNotFoundError, writeJson } from '../../shared/fs.ts';
+import { isFileNotFoundError } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-import { assertPassStatus } from '../../shared/lock-utils.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
+import { assertPassStatus, saveLock } from '../../shared/lock-utils.ts';
+import { rebaseRelativeImports } from '../../shared/path-imports.ts';
+import { resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import { applyOverrides } from '../compose/apply-overrides.ts';
 import { buildTaskEnvelope } from './build-task-envelope.ts';
 import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
 
-function projectRelativeImport(fromFile: string, toFile: string): string {
-  const relativePath = path.posix.relative(path.posix.dirname(fromFile), toFile);
-  return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
-}
-
-function rebaseRelativeImports(source: string, fromFile: string, toFile: string): string {
-  return source.replace(/(from\s+['"])(\.{1,2}\/[^'"]+)(['"])/g, (_match, prefix: string, specifier: string, suffix: string) => {
-    const resolvedTarget = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier));
-    return `${prefix}${projectRelativeImport(toFile, resolvedTarget)}${suffix}`;
-  });
-}
-
 export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: LockFile): Promise<LockFile> {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
-
   assertPassStatus(lock, 'compose', 'succeeded', new CompilerError('SLOT-WRITE-003', 'compose must succeed before adapt'));
 
   for (const task of lock.slotTasks) {
@@ -52,6 +39,6 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
   await applyOverrides(workspaceRoot, 'adapt');
 
   lock.passStatus.adapt = 'succeeded';
-  await writeJson(lockPath, lock);
+  await saveLock(workspaceRoot, lock);
   return lock;
 }

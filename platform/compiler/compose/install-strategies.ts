@@ -1,3 +1,4 @@
+import { normalizeNewlines } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { copyRecursive, pathExists, readText, writeText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
@@ -31,10 +32,6 @@ function resolveTargetPath(step: InstallPlanStep, context: InstallContext): stri
     throw new CompilerError('COMPOSE-PATH-004', `Install target path "${step.to}" escapes project root`);
   }
   return targetPath;
-}
-
-function normalizeNewlines(value: string): string {
-  return value.replace(/\r\n/g, '\n');
 }
 
 export class CopyInstallStrategy implements InstallStrategy {

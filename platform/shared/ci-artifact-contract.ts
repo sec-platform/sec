@@ -1,21 +1,22 @@
 import {
-  CI_ARTIFACT_KINDS,
-  CI_ARTIFACT_MISSING_REASONS,
-  type CiArtifactEntry,
-  type CiArtifactKind,
-  type CiArtifactManifest,
-  type CiArtifactMissingEntry,
-  type CiArtifactSummary,
-  type CiArtifactUploadGroup
+    CI_ARTIFACT_KINDS,
+    CI_ARTIFACT_MISSING_REASONS,
+    type CiArtifactEntry,
+    type CiArtifactKind,
+    type CiArtifactManifest,
+    type CiArtifactMissingEntry,
+    type CiArtifactSummary,
+    type CiArtifactUploadGroup
 } from './ci-artifact-types.ts';
 import { countPositiveValues, uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
+import { posixPath } from './paths.ts';
 import { platformCommand } from './platform-command.ts';
 
 export {
-  CI_ARTIFACT_KINDS,
-  CI_ARTIFACT_MISSING_REASON,
-  CI_ARTIFACT_MISSING_REASONS
+    CI_ARTIFACT_KINDS,
+    CI_ARTIFACT_MISSING_REASON,
+    CI_ARTIFACT_MISSING_REASONS
 } from './ci-artifact-types.ts';
 
 export const CI_ARTIFACT_FILES = {
@@ -84,7 +85,7 @@ export const CI_ARTIFACT_PATHS = {
 } as const;
 
 export function normalizeCiArtifactPath(value: string): string {
-  return value.replaceAll('\\', '/');
+  return posixPath(value);
 }
 
 export function uniqueSortedCiArtifactPaths(values: readonly string[]): string[] {

@@ -1,9 +1,9 @@
-import { loadPlan } from '../compiler/parse/load-plan.ts';
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from '../compiler/repair/build-repair-plan.ts';
 import { CompilerError } from '../shared/errors.ts';
-import { readJson, writeJson } from '../shared/fs.ts';
-import { assertPassStatus } from '../shared/lock-utils.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
+import { readJson } from '../shared/fs.ts';
+import { assertPassStatus, readLockFile, saveLock } from '../shared/lock-utils.ts';
+import { getWorkspacePaths } from '../shared/paths.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import type { LockFile } from '../shared/types.ts';
 import type { VerificationReport } from '../shared/verification-types.ts';
@@ -12,9 +12,9 @@ export async function repairWorkspace(
   workspaceRoot = process.cwd(),
   options: { dryRun?: boolean } = {}
 ): Promise<{ lock: LockFile; repairPlan: RepairPlan }> {
-  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
-  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+  const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadWorkspacePlan(workspaceRoot);
+  const lock = await readLockFile(workspaceRoot);
 
   assertPassStatus(lock, 'verify', 'pending', new CompilerError('REPAIR-BLOCKED-002', 'verify must run before repair'), 'differs');
 
@@ -49,7 +49,7 @@ export async function repairWorkspace(
     return { lock, repairPlan };
   } catch (error) {
     lock.passStatus.repair = 'failed';
-    await writeJson(lockPath, lock);
+    await saveLock(workspaceRoot, lock);
     throw error;
   }
 }

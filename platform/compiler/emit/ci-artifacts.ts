@@ -19,10 +19,9 @@ import type {
   CiArtifactMissingEntry
 } from '../../shared/ci-artifact-types.ts';
 import { countMatching } from '../../shared/collections.ts';
-import { pathExists, readJson, writeJson } from '../../shared/fs.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
-import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
+import { pathExists, writeJson } from '../../shared/fs.ts';
+import { readLockFile, writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../shared/paths.ts';
 import { writeProvenance } from './write-provenance.ts';
 
 interface GeneratedPathResult {
@@ -39,12 +38,12 @@ function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissi
 }
 
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
-  const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
-  if (!(await pathExists(readableLockPath))) {
+  try {
+    const lock = await readLockFile(workspaceRoot);
+    return { paths: lock.generatedPaths, lockExists: true };
+  } catch {
     return { paths: [], lockExists: false };
   }
-  const lock = await readJson<LockFile>(readableLockPath);
-  return { paths: lock.generatedPaths, lockExists: true };
 }
 
 export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
@@ -123,7 +122,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
 
 export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+  const lock = await readLockFile(workspaceRoot);
   await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_MANIFEST_PATH]);
   await writeJson(ciArtifactsPath, emptyCiArtifactManifest());
   const manifest = await buildCiArtifactManifest(workspaceRoot);

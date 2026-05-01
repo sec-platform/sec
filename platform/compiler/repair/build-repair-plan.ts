@@ -6,6 +6,7 @@ import { CompilerError } from '../../shared/errors.ts';
 import { writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
+import { rebaseRelativeImports } from '../../shared/path-imports.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type {
@@ -37,18 +38,6 @@ function addFailedRepairPoint(
   point: RepairFailurePoint
 ): void {
   if (status === 'failed') points.push(point);
-}
-
-function projectRelativeImport(fromFile: string, toFile: string): string {
-  const relativePath = path.posix.relative(path.posix.dirname(fromFile), toFile);
-  return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
-}
-
-function rebaseRelativeImports(source: string, fromFile: string, toFile: string): string {
-  return source.replace(/(from\s+['"])(\.{1,2}\/[^'"]+)(['"])/g, (_match, prefix: string, specifier: string, suffix: string) => {
-    const resolvedTarget = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier));
-    return `${prefix}${projectRelativeImport(toFile, resolvedTarget)}${suffix}`;
-  });
 }
 
 function slotWritePath(task: { sourcePath?: string; target: string }): string {
