@@ -1,0 +1,16 @@
+<%- include('helpers') %>
+<%
+  const allSources = [...policyReport.official.sources, ...policyReport.project.sources];
+%>
+<section class="card">
+  <h2>Policy Sources</h2>
+  <%- dataTable(['Path','Policy IDs'], allSources.map(function(s) { return [s.path, s.policyIds.join(', ') || 'none']; }), 2, 'No policy sources.') %>
+</section>
+<section class="card">
+  <h2>Merged Policies</h2>
+  <%- dataTable(['Policy','Scope','Source'], policyReport.merged.policies.map(function(p) { return [p.id, p.sourceScope, p.sourcePath]; }), 3, 'No merged policies.') %>
+</section>
+<section class="card">
+  <h2>Policy Violations</h2>
+  <%- dataTable(['ID','Severity','Scope','Source','Message'], policyReport.violations.map(function(v) { return [v.id, v.severity, v.sourceScope, v.sourcePath, v.message]; }), 5, 'No policy violations.') %>
+</section>

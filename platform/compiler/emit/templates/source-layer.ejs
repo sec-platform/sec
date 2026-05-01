@@ -1,0 +1,25 @@
+<%- include('helpers') %>
+<%
+  const sourceAreas = [
+    ['App Plan', 'source/app.yaml'],
+    ['Model', 'source/model/**'],
+    ['Slots', 'source/code/slots/**'],
+    ['Application Code', 'source/code/{app,server,ui,shared,integrations}/**'],
+    ['Opaque Code', 'source/code/opaque/**'],
+    ['Lab Code', 'source/code/lab/**'],
+    ['Patches', 'source/patches/**'],
+    ['Assets', 'source/assets/**'],
+    ['Views', 'source/views/**'],
+    ['Workbench Mutations', 'source/views/mutations/*.json -> source/app.yaml'],
+    ['Env', 'source/env/**'],
+    ['Private Blocks', 'source/blocks/private/**']
+  ];
+  const slotRows = lock.slotTasks.map(function(t) { return [t.id, t.sourcePath ?? 'compatibility target only', t.target]; });
+%>
+<section class="card">
+  <h2>Developer Source Layer</h2>
+  <p>Default editable workspace inputs live under top-level source; project remains the materialized runtime target and control stores evidence, graph, provenance, workflow, and Workbench projections.</p>
+  <p>Workbench edits are accepted as structured mutations under source/views/mutations and applied back to source/app.yaml.</p>
+  <%- subCard('Editable Areas', dataTable(['Area','Path'], sourceAreas, 2, 'No areas.')) %>
+  <%- subCard('Slot Materialization', dataTable(['Slot','Source Path','Runtime Target'], slotRows, 3, 'No slot tasks.')) %>
+</section>

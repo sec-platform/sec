@@ -1,0 +1,53 @@
+<%- include('helpers') %>
+<%
+  const ciRows = [
+    ['Status', review.ciSummary.status],
+    ['Failures', String(review.ciSummary.failureCount)],
+    ['Regression Risks', String(review.ciSummary.regressionRiskCount)],
+    ['Conflict Hints', String(review.ciSummary.conflictHintCount)],
+    ['Impacted Blocks', String(review.ciSummary.impactedBlockCount)],
+    ['Impacted Slots', String(review.ciSummary.impactedSlotCount)],
+    ['Runtime Entries', String(review.ciSummary.runtimeEntryCount)],
+    ['Chain Status', review.chainSummary.status],
+    ['Chain Stages', review.chainSummary.passedStageCount + '/' + review.chainSummary.stageCount],
+    ['Chain Attention Stages', String(review.chainSummary.attentionStageCount)],
+    ['Chain Failed Stages', String(review.chainSummary.failedStageCount)]
+  ];
+  if (review.artifactSummary) {
+    const as = review.artifactSummary;
+    const missingReasonTypeCount = as.missingReasonTypeCount ?? countPositiveValues(Object.values(as.missingReasonCounts ?? {}));
+    ciRows.push(
+      ['Artifact Status', as.artifactStatus ?? 'passed'],
+      ['Artifacts', String(as.artifactCount)],
+      ['Governance Artifacts', String(as.governanceCount)],
+      ['View Artifacts', String(as.viewCount)],
+      ['Test Artifacts', String(as.testCount ?? 0)],
+      ['Contract Artifacts', String(as.contractCount ?? 0)],
+      ['Contract Paths', as.contractPaths?.join(', ') || 'none'],
+      ['Upload Groups', String(as.uploadGroupCount ?? as.uploadGroups?.length ?? 0)],
+      ['Missing Artifacts', String(as.missingCount)],
+      ['Missing Reason Types', String(missingReasonTypeCount)]
+    );
+  }
+%>
+<%- card('CI Summary', metricTable(ciRows)) %>
+
+<% if (review.artifactSummary?.missingReasonCounts) { %>
+  <% const mrEntries = Object.entries(review.artifactSummary.missingReasonCounts).filter(function(e) { return e[1] > 0; }); %>
+  <% if (mrEntries.length > 0) { %>
+    <%- subCard('Missing Reason Summary', dataTable(['Reason','Count'], mrEntries.map(function(e) { return [e[0], String(e[1])]; }), 2, 'No missing reasons.')) %>
+  <% } %>
+<% } %>
+
+<% if (review.artifactSummary?.uploadGroups?.length) { %>
+  <%- subCard('Artifact Upload Groups', dataTable(['Kind','Count','Paths'], review.artifactSummary.uploadGroups.map(function(g) { return [g.kind, String(g.count), g.paths.join(', ')]; }), 3, 'No upload groups.')) %>
+<% } %>
+
+<% if (review.artifactSummary?.missing?.length) { %>
+  <%- subCard('Missing Artifact Diagnostics', dataTable(['Path','Reason','Declared By'], review.artifactSummary.missing.map(function(e) { return [e.path, e.reason, e.declaredBy]; }), 3, 'No missing artifacts.')) %>
+<% } %>
+
+<%
+  const e2eRows = buildE2eMatrix(review).rows.map(function(s) { return [s.stage, s.status, s.detail, s.evidence.join(', ') || 'none']; });
+%>
+<%- subCard('E2E Chain Summary', dataTable(['Stage','Status','Detail','Evidence'], e2eRows, 4, 'No chain stages.')) %>

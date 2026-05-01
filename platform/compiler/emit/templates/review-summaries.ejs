@@ -1,0 +1,61 @@
+<%- include('helpers') %>
+<%
+  function taxonomyRows(entries) { return entries.map(function(e) { return [e.id, String(e.count)]; }); }
+  function countRecordRows(counts) {
+    return Object.entries(counts).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e) { return [e[0], String(e[1])]; });
+  }
+%>
+<% if (review.provenanceSummary) { const p = review.provenanceSummary; %>
+<section class="card">
+  <h2>Provenance Summary</h2>
+  <%- metricTable([
+    ['Artifacts', String(p.artifactCount)],
+    ['Verified Artifacts', String(p.verifiedArtifactCount)],
+    ['Unverified Artifacts', String(p.unverifiedArtifactCount)],
+    ['Override Artifacts', String(p.overrideArtifactCount)],
+    ['Registry Artifacts', String(p.registryArtifactCount)],
+    ['Generated Artifacts', String(p.generatedArtifactCount)],
+    ['Generated Passes', String(p.generatedPassCount)]
+  ]) %>
+  <%- subCard('Provenance Origin Summary', dataTable(['Origin','Count','Paths'], taxonomyRows(p.originSummaries).map(function(r, i) { return r.concat([p.originSummaries[i].paths.join(', ') || 'none']); }), 3, 'No provenance origins.')) %>
+  <%- subCard('Provenance Override Summary', dataTable(['Status','Count','Paths'], p.overrideSummaries.map(function(o) { return [o.overrideStatus, String(o.count), o.paths.join(', ') || 'none']; }), 3, 'No overrides.')) %>
+  <%- subCard('Provenance Registry Summary', dataTable(['Source','Kind','Location','Count','Paths'], p.registrySummaries.map(function(r) { return [r.registrySourceId, r.registryKind ?? 'unknown', r.registryLocation ?? 'unknown', String(r.count), r.paths.join(', ') || 'none']; }), 5, 'No registry provenance.')) %>
+  <%- subCard('Provenance Generated Pass Summary', dataTable(['Pass','Count','Paths'], p.generatedPassSummaries.map(function(s) { return [s.pass, String(s.count), s.paths.join(', ') || 'none']; }), 3, 'No generated pass provenance.')) %>
+</section>
+<% } %>
+
+<% if (review.coverageSummary) { const c = review.coverageSummary; %>
+<section class="card">
+  <h2>Acceptance Coverage Summary</h2>
+  <%- metricTable([
+    ['Status', c.status],
+    ['Acceptance Passed', String(c.acceptancePassedCount)],
+    ['Blocks', String(c.blockCount)],
+    ['Covered Blocks', String(c.coveredBlockCount)],
+    ['Uncovered Blocks', String(c.uncoveredBlockCount)],
+    ['Slots', String(c.slotCount)],
+    ['Covered Slots', String(c.coveredSlotCount)],
+    ['Uncovered Slots', String(c.uncoveredSlotCount)]
+  ]) %>
+  <%- subCard('Block Coverage Summary', dataTable(['Block','Declared Acceptance','Covered By','Acceptance IDs'], c.blockSummaries.map(function(b) { return [b.id, String(b.declaredAcceptanceCount), String(b.coveredByCount), b.coveredBy.join(', ') || 'none']; }), 4, 'No block coverage.')) %>
+  <%- subCard('Slot Coverage Summary', dataTable(['Slot','Declared Acceptance','Covered By','Acceptance IDs'], c.slotSummaries.map(function(s) { return [s.id, String(s.declaredAcceptanceCount), String(s.coveredByCount), s.coveredBy.join(', ') || 'none']; }), 4, 'No slot coverage.')) %>
+</section>
+<% } %>
+
+<% if (review.policySummary) { const ps = review.policySummary; %>
+<section class="card">
+  <h2>Policy Summary</h2>
+  <%- metricTable([
+    ['Status', ps.status],
+    ['Official Policies', String(ps.officialPolicyCount)],
+    ['Project Policies', String(ps.projectPolicyCount)],
+    ['Merged Policies', String(ps.mergedPolicyCount)],
+    ['Policy Sources', String(ps.sourceCount)],
+    ['Violations', String(ps.violationCount)]
+  ]) %>
+  <%- subCard('Policy Severity Summary', dataTable(['Severity','Count'], Object.entries(ps.severityCounts).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e) { return [e[0], String(e[1])]; }), 2, 'No policy violations.')) %>
+  <%- subCard('Policy Source Summary', dataTable(['Scope','Path','Policy IDs'], ps.sourceSummaries.map(function(s) { return [s.scope, s.path, s.policyIds.join(', ') || 'none']; }), 3, 'No policy sources.')) %>
+  <%- subCard('Policy Merge Summary', dataTable(['Policy','Scope','Targets','Target Paths'], ps.mergedSummaries.map(function(m) { return [m.id, m.sourceScope, String(m.targetCount), m.targets.join(', ') || 'none']; }), 4, 'No merged policies.')) %>
+  <%- subCard('Policy Violation Summary', dataTable(['Policy','Severity','Files','File Paths','Message'], ps.violationSummaries.map(function(v) { return [v.id, v.severity, String(v.fileCount), v.files.join(', ') || 'none', v.message]; }), 5, 'No policy violations.')) %>
+</section>
+<% } %>

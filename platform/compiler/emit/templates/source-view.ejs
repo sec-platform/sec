@@ -1,0 +1,31 @@
+<%- include('ci-summary', { review: review, countPositiveValues: countPositiveValues, buildE2eMatrix: buildE2eMatrix }) %>
+<%- include('source-layer', { lock: lock }) %>
+<section class="card">
+  <h1>Source View</h1>
+  <p>Blocks: <%= lock.resolvedBlocks.length %> | Slots: <%= lock.slotTasks.length %> | Files: <%= provenance.artifacts.length %></p>
+  <table>
+    <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
+    <tbody>
+      <% provenance.artifacts.forEach(function(a) { %>
+      <tr>
+        <td><%= esc(a.path) %></td>
+        <td><%= esc(a.originType + ':' + a.originId) %></td>
+        <td><%= a.registrySourceId ? esc(a.registrySourceId + ' (' + (a.registryKind ?? 'unknown') + ', ' + (a.registryLocation ?? 'unknown') + ')') : '' %></td>
+        <td><%= esc(a.overrideStatus) %></td>
+      </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</section>
+<%- include('runtime-entries', { lock: lock, classifyRuntimeEntry: classifyRuntimeEntry }) %>
+<%- include('vertical-summary', { lock: lock, review: review, detectVerticalFromPath: detectVerticalFromPath, uniqueSorted: uniqueSorted, buildRuntimeAttributions: buildRuntimeAttributions }) %>
+<%- include('block-combination', { lock: lock, review: review, countMatching: countMatching }) %>
+<%- include('failure-focus', { review: review }) %>
+<%- include('runtime-attribution', { review: review, formatList: formatList }) %>
+<%- include('install-impact', { review: review, formatList: formatList }) %>
+<%- include('review-summaries', { review: review }) %>
+<%- include('policy-tables', { policyReport: policyReport }) %>
+<%- include('upgrade', { review: review, upgradePlan: upgradePlan, upgradeDiagnostics: upgradeDiagnostics, buildReviewUpgradePreflightSummaries: buildReviewUpgradePreflightSummaries }) %>
+<%- include('repair', { review: review, repairPlan: repairPlan }) %>
+<%- include('review-tables', { review: review }) %>
+<section class="card"><h2>Explain Graph</h2><pre><%= esc(JSON.stringify({ nodes: graph.nodes.length, edges: graph.edges.length }, null, 2)) %></pre></section>

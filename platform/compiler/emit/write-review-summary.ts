@@ -14,11 +14,13 @@ import type {
   ReviewFailurePoint,
   ReviewInstallImpact,
   ReviewRegressionRisk,
+  ReviewRepairVerificationTrace,
   ReviewSummary
 } from '../../shared/review-types.ts';
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
 import type { UpgradeDiagnostics } from '../../shared/upgrade-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { groupBy, uniqBy } from 'lodash-es';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
@@ -81,55 +83,24 @@ type VerificationFailurePointSpec = {
 
 function addVerificationFailurePoint(points: ReviewFailurePoint[], spec: VerificationFailurePointSpec): void {
   if (spec.status !== 'failed') return;
-
-  addFailurePoint(points, {
-    lane: spec.lane,
-    kind: spec.kind,
-    message: spec.summaryMessage,
-    artifactPath: spec.artifactPath
-  });
-
-  if (!spec.targetMessage) return;
-  for (const target of spec.failedTargets ?? []) {
-    addFailurePoint(points, {
-      lane: spec.lane,
-      kind: spec.kind,
-      message: `${spec.targetMessage}: ${target}`,
-      artifactPath: spec.artifactPath
-    });
+  addFailurePoint(points, { lane: spec.lane, kind: spec.kind, message: spec.summaryMessage, artifactPath: spec.artifactPath });
+  if (spec.targetMessage) {
+    for (const target of spec.failedTargets ?? []) {
+      addFailurePoint(points, { lane: spec.lane, kind: spec.kind, message: `${spec.targetMessage}: ${target}`, artifactPath: spec.artifactPath });
+    }
   }
 }
 
-function mapOverrideTarget(
-  lock: LockFile,
-  target: string
-): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
+function mapOverrideTarget(lock: LockFile, target: string): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
   const slotTask = lock.slotTasks.find((task) => task.target === target);
-  if (slotTask) {
-    return {
-      blockId: slotTask.block,
-      slotId: slotTask.id
-    };
-  }
-
+  if (slotTask) return { blockId: slotTask.block, slotId: slotTask.id };
   const installStep = lock.installPlan.find((step) => step.to === target);
-  if (installStep) {
-    return {
-      blockId: installStep.blockId
-    };
-  }
-
+  if (installStep) return { blockId: installStep.blockId };
   const runtimeEntry = buildRuntimeAttribution(lock, target);
   if (runtimeEntry?.relatedBlocks.length) {
     const verticalBlock = runtimeEntry.vertical ? `${runtimeEntry.vertical}/basic` : null;
-    return {
-      blockId:
-        verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock)
-          ? verticalBlock
-          : runtimeEntry.relatedBlocks[0]
-    };
+    return { blockId: verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock) ? verticalBlock : runtimeEntry.relatedBlocks[0] };
   }
-
   return {};
 }
 
@@ -146,24 +117,9 @@ function buildReviewCiSummary(
   const conflictHintCount = conflictHints.length;
   return {
     status: failureCount > 0 ? 'failed' : regressionRiskCount > 0 || conflictHintCount > 0 ? 'attention' : 'passed',
-    failureCount,
-    regressionRiskCount,
-    conflictHintCount,
-    impactedBlockCount: impactedBlocks.length,
-    impactedSlotCount: impactedSlots.length,
-    runtimeEntryCount: runtimeEntries.length
+    failureCount, regressionRiskCount, conflictHintCount,
+    impactedBlockCount: impactedBlocks.length, impactedSlotCount: impactedSlots.length, runtimeEntryCount: runtimeEntries.length
   };
-}
-
-function groupBy<T, K extends string>(values: readonly T[], key: (value: T) => K): Map<K, T[]> {
-  const groups = new Map<K, T[]>();
-  for (const value of values) {
-    const groupKey = key(value);
-    const group = groups.get(groupKey) ?? [];
-    group.push(value);
-    groups.set(groupKey, group);
-  }
-  return groups;
 }
 
 function buildPathGroupSummaries<T, K extends string, S>(
@@ -172,8 +128,9 @@ function buildPathGroupSummaries<T, K extends string, S>(
   buildSummary: (group: K, values: readonly T[]) => S,
   sortKey: (summary: S) => string
 ): S[] {
-  return [...groupBy(values, key).entries()]
-    .map(([group, groupValues]) => buildSummary(group, groupValues))
+  const groups = groupBy([...values], key);
+  return Object.entries(groups)
+    .map(([group, groupValues]) => buildSummary(group as K, groupValues))
     .sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
 }
 
@@ -191,12 +148,7 @@ function buildCoverageTargetSummaries(
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function buildCoverageSummary(
-  coverage: AcceptanceCoverageReport
-): NonNullable<ReviewSummary['coverageSummary']> {
-  const blockSummaries = buildCoverageTargetSummaries(coverage.blocks);
-  const slotSummaries = buildCoverageTargetSummaries(coverage.slots);
-
+function buildCoverageSummary(coverage: AcceptanceCoverageReport): NonNullable<ReviewSummary['coverageSummary']> {
   return {
     status: coverage.status,
     acceptancePassedCount: coverage.acceptancePassed.length,
@@ -209,129 +161,86 @@ function buildCoverageSummary(
     acceptancePassed: uniqueSorted(coverage.acceptancePassed),
     uncoveredBlocks: uniqueSorted(coverage.uncoveredBlocks),
     uncoveredSlots: uniqueSorted(coverage.uncoveredSlots),
-    blockSummaries,
-    slotSummaries
+    blockSummaries: buildCoverageTargetSummaries(coverage.blocks),
+    slotSummaries: buildCoverageTargetSummaries(coverage.slots)
   };
 }
 
 function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['provenanceSummary'] {
   const originSummaries = buildPathGroupSummaries(
-    provenance.artifacts,
-    (artifact) => artifact.originType,
-    (originType: ProvenanceOriginType, artifacts) => ({
-      originType,
-      count: artifacts.length,
-      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
-    }),
-    (summary) => summary.originType
+    provenance.artifacts, (a) => a.originType,
+    (originType: ProvenanceOriginType, artifacts) => ({ originType, count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path)) }),
+    (s) => s.originType
   );
   const overrideSummaries = buildPathGroupSummaries(
-    provenance.artifacts,
-    (artifact) => artifact.overrideStatus,
-    (overrideStatus: OverrideStatus, artifacts) => ({
-      overrideStatus,
-      count: artifacts.length,
-      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
-    }),
-    (summary) => summary.overrideStatus
+    provenance.artifacts, (a) => a.overrideStatus,
+    (overrideStatus: OverrideStatus, artifacts) => ({ overrideStatus, count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path)) }),
+    (s) => s.overrideStatus
   );
-  const registryArtifacts = provenance.artifacts.filter((artifact) => artifact.registrySourceId);
+  const registryArtifacts = provenance.artifacts.filter((a) => a.registrySourceId);
   const registrySummaries = buildPathGroupSummaries(
-    registryArtifacts,
-    (artifact) => artifact.registrySourceId ?? '',
+    registryArtifacts, (a) => a.registrySourceId ?? '',
     (registrySourceId, artifacts) => ({
       registrySourceId,
       ...(artifacts[0].registryKind ? { registryKind: artifacts[0].registryKind } : {}),
       ...(artifacts[0].registryLocation ? { registryLocation: artifacts[0].registryLocation } : {}),
-      count: artifacts.length,
-      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
+      count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path))
     }),
-    (summary) => summary.registrySourceId
+    (s) => s.registrySourceId
   );
-  const generatedPassArtifacts = provenance.artifacts.filter((artifact) => artifact.generatedByPass);
+  const generatedPassArtifacts = provenance.artifacts.filter((a) => a.generatedByPass);
   const generatedPassSummaries = buildPathGroupSummaries(
-    generatedPassArtifacts,
-    (artifact) => artifact.generatedByPass ?? '',
-    (pass, artifacts) => ({
-      pass,
-      count: artifacts.length,
-      paths: uniqueSorted(artifacts.map((artifact) => artifact.path))
-    }),
-    (summary) => summary.pass
+    generatedPassArtifacts, (a) => a.generatedByPass ?? '',
+    (pass, artifacts) => ({ pass, count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path)) }),
+    (s) => s.pass
   );
-  const unverifiedArtifacts = provenance.artifacts.filter((artifact) => artifact.verifiedBy.length === 0);
+  const unverifiedArtifacts = provenance.artifacts.filter((a) => a.verifiedBy.length === 0);
 
   return {
     artifactCount: provenance.artifacts.length,
     verifiedArtifactCount: provenance.artifacts.length - unverifiedArtifacts.length,
     unverifiedArtifactCount: unverifiedArtifacts.length,
-    overrideArtifactCount: countMatching(provenance.artifacts, (artifact) => artifact.overrideStatus !== 'none'),
+    overrideArtifactCount: countMatching(provenance.artifacts, (a) => a.overrideStatus !== 'none'),
     registryArtifactCount: registryArtifacts.length,
     generatedArtifactCount: generatedPassArtifacts.length,
     generatedPassCount: generatedPassSummaries.length,
-    originSummaryCount: originSummaries.length,
-    originSummaries,
-    overrideSummaryCount: overrideSummaries.length,
-    overrideSummaries,
-    registrySummaryCount: registrySummaries.length,
-    registrySummaries,
+    originSummaryCount: originSummaries.length, originSummaries,
+    overrideSummaryCount: overrideSummaries.length, overrideSummaries,
+    registrySummaryCount: registrySummaries.length, registrySummaries,
     generatedPassSummaries,
-    unverifiedArtifacts: uniqueSorted(unverifiedArtifacts.map((artifact) => artifact.path))
-  };
-}
-
-function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['failureTaxonomy'] {
-  const failurePoints = repairFailurePoints(repairPlan);
-
-  return {
-    laneSummaries: summarizeCounts(failurePoints.map((point) => point.lane)),
-    kindSummaries: summarizeCounts(failurePoints.map((point) => point.kind)),
-    issueTypeSummaries: summarizeCounts(failurePoints.map((point) => point.issueType)),
-    repairabilitySummaries: summarizeCounts(
-      failurePoints.map((point) => point.repairable ? 'repairable' : 'blocked')
-    )
+    unverifiedArtifacts: uniqueSorted(unverifiedArtifacts.map((a) => a.path))
   };
 }
 
 function repairFailurePoints(repairPlan: RepairPlan) {
-  return [
-    ...repairPlan.tasks.flatMap((task) => task.failurePoints),
-    ...(repairPlan.blockers ?? []).flatMap((blocker) => blocker.failurePoints)
-  ];
+  return [...repairPlan.tasks.flatMap((t) => t.failurePoints), ...(repairPlan.blockers ?? []).flatMap((b) => b.failurePoints)];
+}
+
+function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['failureTaxonomy'] {
+  const fps = repairFailurePoints(repairPlan);
+  return {
+    laneSummaries: summarizeCounts(fps.map((p) => p.lane)),
+    kindSummaries: summarizeCounts(fps.map((p) => p.kind)),
+    issueTypeSummaries: summarizeCounts(fps.map((p) => p.issueType)),
+    repairabilitySummaries: summarizeCounts(fps.map((p) => p.repairable ? 'repairable' : 'blocked'))
+  };
 }
 
 function repairTargetType(
   point: ReturnType<typeof repairFailurePoints>[number],
   targetId: string
 ): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'][number]['targetType'] {
-  if (targetId.startsWith('generated/')) {
-    return 'generated-file';
-  }
-  if (targetId.startsWith('custom/') || targetId.startsWith('src/')) {
-    return point.kind === 'policy' ? 'policy-target' : 'slot-target';
-  }
-  if (point.kind === 'acceptance' || targetId.endsWith('.spec.ts')) {
-    return 'acceptance-case';
-  }
-  if (point.kind === 'runtime-unit' || point.kind === 'runtime-acceptance') {
-    return 'runtime-target';
-  }
-  if (point.kind === 'policy') {
-    return 'policy-target';
-  }
-  if (point.issueType === 'slot') {
-    return 'slot-target';
-  }
+  if (targetId.startsWith('generated/')) return 'generated-file';
+  if (targetId.startsWith('custom/') || targetId.startsWith('src/')) return point.kind === 'policy' ? 'policy-target' : 'slot-target';
+  if (point.kind === 'acceptance' || targetId.endsWith('.spec.ts')) return 'acceptance-case';
+  if (point.kind === 'runtime-unit' || point.kind === 'runtime-acceptance') return 'runtime-target';
+  if (point.kind === 'policy') return 'policy-target';
+  if (point.issueType === 'slot') return 'slot-target';
   return 'unknown';
 }
 
-function buildRepairTargetSummaries(
-  repairPlan: RepairPlan
-): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'] {
-  const counts = new Map<
-    string,
-    { targetType: ReturnType<typeof repairTargetType>; count: number }
-  >();
+function buildRepairTargetSummaries(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'] {
+  const counts = new Map<string, { targetType: ReturnType<typeof repairTargetType>; count: number }>();
   for (const point of repairFailurePoints(repairPlan)) {
     for (const targetId of point.targetIds ?? []) {
       const targetType = repairTargetType(point, targetId);
@@ -341,16 +250,9 @@ function buildRepairTargetSummaries(
       counts.set(key, current);
     }
   }
-
   return [...counts.entries()]
-    .map(([key, summary]) => ({
-      id: key.slice(summary.targetType.length + 1),
-      targetType: summary.targetType,
-      count: summary.count
-    }))
-    .sort((left, right) =>
-      `${left.targetType}:${left.id}`.localeCompare(`${right.targetType}:${right.id}`)
-    );
+    .map(([key, summary]) => ({ id: key.slice(summary.targetType.length + 1), targetType: summary.targetType, count: summary.count }))
+    .sort((left, right) => `${left.targetType}:${left.id}`.localeCompare(`${right.targetType}:${right.id}`));
 }
 
 function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCategory {
@@ -358,220 +260,129 @@ function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCatego
 }
 
 function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {
-  const failureTargets = uniqueSorted(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+  const failureTargets = uniqueSorted(task.failurePoints.flatMap((p) => p.targetIds ?? []));
   return task.review ?? {
-    allowedPathCount: task.allowedPaths.length,
-    requiredSymbolCount: task.requiredSymbols.length,
-    forbiddenOperationCount: task.forbiddenOperations.length,
-    testCount: task.testsToPass.length,
+    allowedPathCount: task.allowedPaths.length, requiredSymbolCount: task.requiredSymbols.length,
+    forbiddenOperationCount: task.forbiddenOperations.length, testCount: task.testsToPass.length,
     failureTargetCount: failureTargets.length,
-    writeBounds: uniqueSorted(task.allowedPaths),
-    requiredSymbols: uniqueSorted(task.requiredSymbols),
-    forbiddenOperations: uniqueSorted(task.forbiddenOperations),
-    testsToPass: uniqueSorted(task.testsToPass),
+    writeBounds: uniqueSorted(task.allowedPaths), requiredSymbols: uniqueSorted(task.requiredSymbols),
+    forbiddenOperations: uniqueSorted(task.forbiddenOperations), testsToPass: uniqueSorted(task.testsToPass),
     failureTargets
   };
 }
 
-function buildRepairVerificationTrace(
-  repairPlan: RepairPlan
-): NonNullable<ReviewSummary['repairSummary']>['verificationTrace'] {
-  const pendingReason = repairPlan.status === 'blocked'
-    ? 'blocked'
-    : repairPlan.requiresVerification
-      ? 'verify-required'
-      : repairPlan.status === 'pending'
-        ? 'repair-not-applied'
-        : 'none';
-  const nextAction = pendingReason === 'blocked'
-    ? 'resolve-blocker'
-    : pendingReason === 'verify-required'
-      ? 'rerun-verify'
-      : pendingReason === 'repair-not-applied'
-        ? 'apply-repair'
-        : 'none';
+const PENDING_ACTION_MAP: Record<string, ReviewRepairVerificationTrace['nextAction']> = {
+  blocked: 'resolve-blocker',
+  'verify-required': 'rerun-verify',
+  'repair-not-applied': 'apply-repair',
+  none: 'none'
+};
 
-  return {
-    pendingReason,
-    nextAction
-  };
+function buildRepairVerificationTrace(repairPlan: RepairPlan): ReviewRepairVerificationTrace {
+  const pendingReason = repairPlan.status === 'blocked' ? 'blocked'
+    : repairPlan.requiresVerification ? 'verify-required'
+    : repairPlan.status === 'pending' ? 'repair-not-applied' : 'none';
+  return { pendingReason, nextAction: PENDING_ACTION_MAP[pendingReason] };
 }
 
 function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummary'] {
   const taskSummaries = repairPlan.tasks
     .map((task) => {
-      const category = repairTaskCategory(task);
       const review = repairTaskReview(task);
       const previewStatus: 'changed' | 'unchanged' | 'missing' = task.preview
-        ? task.preview.changed ? 'changed' : 'unchanged'
-        : 'missing';
+        ? task.preview.changed ? 'changed' : 'unchanged' : 'missing';
       return {
-        taskId: task.taskId,
-        category,
-        sourceSlotId: task.sourceSlotId,
-        targetBlock: task.targetBlock,
-        targetFile: task.targetFile,
-        previewStatus,
-        addedLines: task.preview?.addedLines ?? 0,
-        removedLines: task.preview?.removedLines ?? 0,
-        failurePointCount: task.failurePoints.length,
-        targetIds: review.failureTargets,
-        allowedPathCount: review.allowedPathCount,
-        requiredSymbolCount: review.requiredSymbolCount,
-        forbiddenOperationCount: review.forbiddenOperationCount,
-        testCount: review.testCount,
-        failureTargetCount: review.failureTargetCount,
-        writeBounds: review.writeBounds,
-        requiredSymbols: review.requiredSymbols,
-        forbiddenOperations: review.forbiddenOperations,
-        testsToPass: review.testsToPass,
-        failureTargets: review.failureTargets
+        taskId: task.taskId, category: repairTaskCategory(task), sourceSlotId: task.sourceSlotId,
+        targetBlock: task.targetBlock, targetFile: task.targetFile, previewStatus,
+        addedLines: task.preview?.addedLines ?? 0, removedLines: task.preview?.removedLines ?? 0,
+        failurePointCount: task.failurePoints.length, targetIds: review.failureTargets,
+        allowedPathCount: review.allowedPathCount, requiredSymbolCount: review.requiredSymbolCount,
+        forbiddenOperationCount: review.forbiddenOperationCount, testCount: review.testCount,
+        failureTargetCount: review.failureTargetCount, writeBounds: review.writeBounds,
+        requiredSymbols: review.requiredSymbols, forbiddenOperations: review.forbiddenOperations,
+        testsToPass: review.testsToPass, failureTargets: review.failureTargets
       };
     })
     .sort((left, right) => left.taskId.localeCompare(right.taskId));
   const blockerSummaries = (repairPlan.blockers ?? [])
-    .map((blocker) => ({
-      blockerId: blocker.blockerId,
-      boundary: blocker.boundary,
-      reason: blocker.reason,
-      decisionRequired: blocker.decisionRequired,
-      failurePointCount: blocker.failurePoints.length
-    }))
+    .map((b) => ({ blockerId: b.blockerId, boundary: b.boundary, reason: b.reason, decisionRequired: b.decisionRequired, failurePointCount: b.failurePoints.length }))
     .sort((left, right) => left.blockerId.localeCompare(right.blockerId));
-  const changedPreviewCount = countMatching(repairPlan.tasks, (task) => task.preview?.changed === true);
-  const targetFiles = uniqueSorted(repairPlan.tasks.map((task) => task.targetFile));
+  const changedPreviewCount = countMatching(repairPlan.tasks, (t) => t.preview?.changed === true);
+  const targetFiles = uniqueSorted(repairPlan.tasks.map((t) => t.targetFile));
 
   return {
-    status: repairPlan.status,
-    sourceVerificationStatus: repairPlan.sourceVerificationStatus,
-    requiresVerification: repairPlan.requiresVerification,
-    taskCount: repairPlan.tasks.length,
+    status: repairPlan.status, sourceVerificationStatus: repairPlan.sourceVerificationStatus,
+    requiresVerification: repairPlan.requiresVerification, taskCount: repairPlan.tasks.length,
     blockerCount: repairPlan.blockers?.length ?? 0,
-    previewCount: countMatching(repairPlan.tasks, (task) => task.preview !== undefined),
+    previewCount: countMatching(repairPlan.tasks, (t) => t.preview !== undefined),
     changedPreviewCount,
-    failurePointCount: repairPlan.tasks.reduce(
-      (total, task) => total + task.failurePoints.length,
-      blockerSummaries.reduce((total, blocker) => total + blocker.failurePointCount, 0)
-    ),
+    failurePointCount: repairPlan.tasks.reduce((total, t) => total + t.failurePoints.length, blockerSummaries.reduce((total, b) => total + b.failurePointCount, 0)),
     verificationTrace: buildRepairVerificationTrace(repairPlan),
     failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
     targetSummaries: buildRepairTargetSummaries(repairPlan),
     taskCategorySummaries: summarizeCounts(repairPlan.tasks.map(repairTaskCategory)),
-    targetFileCount: targetFiles.length,
-    targetFiles,
-    taskSummaries,
-    blockerSummaries
+    targetFileCount: targetFiles.length, targetFiles, taskSummaries, blockerSummaries
   };
 }
 
 function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics): string {
   const attribution = upgradeDiagnosticsAttributionParts(diagnostics.details);
   const attributionSuffix = attribution.length > 0 ? `; ${attribution.join('; ')}` : '';
-  return [
-    `Upgrade blocked at ${diagnostics.failedCheck}:`,
-    diagnostics.errorCode,
-    `${diagnostics.message}${attributionSuffix}`
-  ].join(' ');
+  return [`Upgrade blocked at ${diagnostics.failedCheck}:`, diagnostics.errorCode, `${diagnostics.message}${attributionSuffix}`].join(' ');
 }
 
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
   const impacts = new Map<string, ReviewInstallImpact>();
-
   for (const step of lock.installPlan) {
     let impact = impacts.get(step.blockId);
     if (!impact) {
-      impact = {
-        blockId: step.blockId,
-        actionKinds: [],
-        sourceRoots: [],
-        targetPaths: [],
-        verticals: [],
-        runtimeEntries: []
-      };
+      impact = { blockId: step.blockId, actionKinds: [], sourceRoots: [], targetPaths: [], verticals: [], runtimeEntries: [] };
       impacts.set(step.blockId, impact);
     }
-
     impact.actionKinds = uniqueSorted([...impact.actionKinds, step.action]);
     impact.sourceRoots = uniqueSorted([...impact.sourceRoots, step.sourceRoot]);
     impact.targetPaths = uniqueSorted([...impact.targetPaths, step.to]);
-
     const vertical = detectVerticalFromPath(step.to) ?? detectVerticalFromPath(step.blockId);
-    if (vertical) {
-      impact.verticals = uniqueSorted([...impact.verticals, vertical]);
-    }
-
-    if (classifyRuntimeEntry(step.to)) {
-      impact.runtimeEntries = uniqueSorted([...impact.runtimeEntries, step.to]);
-    }
+    if (vertical) impact.verticals = uniqueSorted([...impact.verticals, vertical]);
+    if (classifyRuntimeEntry(step.to)) impact.runtimeEntries = uniqueSorted([...impact.runtimeEntries, step.to]);
   }
-
   return [...impacts.values()].sort((left, right) => left.blockId.localeCompare(right.blockId));
 }
 
 function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): ReviewSummary['installImpactSummary'] {
-  const blocks = uniqueSorted(installImpacts.map((impact) => impact.blockId));
-  const actionKinds = uniqueSorted(installImpacts.flatMap((impact) => impact.actionKinds));
-  const sourceRoots = uniqueSorted(installImpacts.flatMap((impact) => impact.sourceRoots));
-  const targetPaths = uniqueSorted(installImpacts.flatMap((impact) => impact.targetPaths));
-  const verticals = uniqueSorted(installImpacts.flatMap((impact) => impact.verticals));
-  const runtimeEntries = uniqueSorted(installImpacts.flatMap((impact) => impact.runtimeEntries));
-  const groups = new Map<
-    string,
-    {
-      blocks: string[];
-      actionKinds: string[];
-      runtimeEntries: string[];
-      targetPaths: string[];
-    }
-  >();
+  const flatField = (field: keyof ReviewInstallImpact) => uniqueSorted(installImpacts.flatMap((i) => i[field] as string[]));
+  const blocks = uniqueSorted(installImpacts.map((i) => i.blockId));
+  const actionKinds = flatField('actionKinds');
+  const sourceRoots = flatField('sourceRoots');
+  const targetPaths = flatField('targetPaths');
+  const verticals = flatField('verticals');
+  const runtimeEntries = flatField('runtimeEntries');
 
+  const groupMap = new Map<string, { blocks: string[]; actionKinds: string[]; runtimeEntries: string[]; targetPaths: string[] }>();
   for (const impact of installImpacts) {
-    const impactVerticals = impact.verticals.length > 0 ? impact.verticals : ['none'];
-    for (const vertical of impactVerticals) {
-      const group = groups.get(vertical) ?? {
-        blocks: [],
-        actionKinds: [],
-        runtimeEntries: [],
-        targetPaths: []
-      };
+    for (const vertical of impact.verticals.length > 0 ? impact.verticals : ['none']) {
+      const group = groupMap.get(vertical) ?? { blocks: [], actionKinds: [], runtimeEntries: [], targetPaths: [] };
       group.blocks = uniqueSorted([...group.blocks, impact.blockId]);
       group.actionKinds = uniqueSorted([...group.actionKinds, ...impact.actionKinds]);
       group.runtimeEntries = uniqueSorted([...group.runtimeEntries, ...impact.runtimeEntries]);
       group.targetPaths = uniqueSorted([...group.targetPaths, ...impact.targetPaths]);
-      groups.set(vertical, group);
+      groupMap.set(vertical, group);
     }
   }
 
-  const groupSummaries = [...groups.entries()]
+  const groupSummaries = [...groupMap.entries()]
     .map(([vertical, group]) => ({
-      vertical,
-      blockCount: group.blocks.length,
-      actionKindCount: group.actionKinds.length,
-      runtimeEntryCount: group.runtimeEntries.length,
-      targetPathCount: group.targetPaths.length,
-      blocks: group.blocks,
-      actionKinds: group.actionKinds,
-      runtimeEntries: group.runtimeEntries,
-      targetPaths: group.targetPaths
+      vertical, blockCount: group.blocks.length, actionKindCount: group.actionKinds.length,
+      runtimeEntryCount: group.runtimeEntries.length, targetPathCount: group.targetPaths.length,
+      blocks: group.blocks, actionKinds: group.actionKinds, runtimeEntries: group.runtimeEntries, targetPaths: group.targetPaths
     }))
     .sort((left, right) => left.vertical.localeCompare(right.vertical));
 
   return {
-    impactCount: installImpacts.length,
-    blockCount: blocks.length,
-    actionKindCount: actionKinds.length,
-    sourceRootCount: sourceRoots.length,
-    targetPathCount: targetPaths.length,
-    verticalCount: verticals.length,
-    runtimeEntryCount: runtimeEntries.length,
-    groupCount: groupSummaries.length,
-    blocks,
-    actionKinds,
-    sourceRoots,
-    targetPaths,
-    verticals,
-    runtimeEntries,
-    groupSummaries
+    impactCount: installImpacts.length, blockCount: blocks.length, actionKindCount: actionKinds.length,
+    sourceRootCount: sourceRoots.length, targetPathCount: targetPaths.length, verticalCount: verticals.length,
+    runtimeEntryCount: runtimeEntries.length, groupCount: groupSummaries.length,
+    blocks, actionKinds, sourceRoots, targetPaths, verticals, runtimeEntries, groupSummaries
   };
 }
 
@@ -583,13 +394,8 @@ export async function buildReviewSummary(
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
-  const {
-    policyReport,
-    repairPlan,
-    upgradePlan,
-    upgradeDiagnostics
-  } = await readReviewGovernanceReports(workspaceRoot);
-  const coverageSummary: NonNullable<ReviewSummary['coverageSummary']> = buildCoverageSummary(coverage);
+  const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = await readReviewGovernanceReports(workspaceRoot);
+  const coverageSummary = buildCoverageSummary(coverage);
   const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = policyReport ? buildReviewPolicySummary(policyReport) : undefined;
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
@@ -599,256 +405,113 @@ export async function buildReviewSummary(
   const conflictHints: ReviewConflictHint[] = [];
 
   if (report.summary.failedLanes.length > 0) {
-    addFailurePoint(failurePoints, {
-      lane: 'all',
-      kind: 'summary',
-      message: `Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`,
-      artifactPath: CI_ARTIFACT_FILES.verificationReport
-    });
+    addFailurePoint(failurePoints, { lane: 'all', kind: 'summary', message: `Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`, artifactPath: CI_ARTIFACT_FILES.verificationReport });
   }
 
   for (const violation of report.fast.policy.violations) {
-    addFailurePoint(failurePoints, {
-      lane: 'fast',
-      kind: 'policy',
-      message: `Policy ${violation.id}: ${violation.message}`,
-      artifactPath: CI_ARTIFACT_FILES.policyReport
-    });
+    addFailurePoint(failurePoints, { lane: 'fast', kind: 'policy', message: `Policy ${violation.id}: ${violation.message}`, artifactPath: CI_ARTIFACT_FILES.policyReport });
   }
 
   for (const failure of [
-    {
-      lane: 'fast',
-      kind: 'build',
-      status: report.fast.build.status,
-      summaryMessage: 'Fast-lane typecheck failed',
-      artifactPath: CI_ARTIFACT_FILES.verificationReport
-    },
-    {
-      lane: 'fast',
-      kind: 'unit',
-      status: report.fast.unit.status,
-      summaryMessage: 'Fast-lane unit tests failed',
-      artifactPath: CI_ARTIFACT_FILES.verificationReport
-    },
-    {
-      lane: 'fast',
-      kind: 'acceptance',
-      status: report.fast.acceptance.status,
-      summaryMessage: 'Fast-lane acceptance tests failed',
-      artifactPath: CI_ARTIFACT_FILES.verificationReport,
-      failedTargets: report.fast.acceptance.failed,
-      targetMessage: 'Fast-lane acceptance test failed'
-    },
-    {
-      lane: 'runtime',
-      kind: 'build',
-      status: report.runtime.build.status,
-      summaryMessage: 'Runtime build failed',
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-      failedTargets: report.runtime.build.failed,
-      targetMessage: 'Runtime build failed'
-    },
-    {
-      lane: 'runtime',
-      kind: 'unit',
-      status: report.runtime.unit.status,
-      summaryMessage: 'Runtime unit tests failed',
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-      failedTargets: report.runtime.unit.failed,
-      targetMessage: 'Runtime unit test failed'
-    },
-    {
-      lane: 'runtime',
-      kind: 'acceptance',
-      status: report.runtime.acceptance.status,
-      summaryMessage: 'Runtime acceptance tests failed',
-      artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-      failedTargets: report.runtime.acceptance.failed,
-      targetMessage: 'Runtime acceptance test failed'
-    }
+    { lane: 'fast', kind: 'build', status: report.fast.build.status, summaryMessage: 'Fast-lane typecheck failed', artifactPath: CI_ARTIFACT_FILES.verificationReport },
+    { lane: 'fast', kind: 'unit', status: report.fast.unit.status, summaryMessage: 'Fast-lane unit tests failed', artifactPath: CI_ARTIFACT_FILES.verificationReport },
+    { lane: 'fast', kind: 'acceptance', status: report.fast.acceptance.status, summaryMessage: 'Fast-lane acceptance tests failed', artifactPath: CI_ARTIFACT_FILES.verificationReport, failedTargets: report.fast.acceptance.failed, targetMessage: 'Fast-lane acceptance test failed' },
+    { lane: 'runtime', kind: 'build', status: report.runtime.build.status, summaryMessage: 'Runtime build failed', artifactPath: CI_ARTIFACT_FILES.runtimeReport, failedTargets: report.runtime.build.failed, targetMessage: 'Runtime build failed' },
+    { lane: 'runtime', kind: 'unit', status: report.runtime.unit.status, summaryMessage: 'Runtime unit tests failed', artifactPath: CI_ARTIFACT_FILES.runtimeReport, failedTargets: report.runtime.unit.failed, targetMessage: 'Runtime unit test failed' },
+    { lane: 'runtime', kind: 'acceptance', status: report.runtime.acceptance.status, summaryMessage: 'Runtime acceptance tests failed', artifactPath: CI_ARTIFACT_FILES.runtimeReport, failedTargets: report.runtime.acceptance.failed, targetMessage: 'Runtime acceptance test failed' }
   ] satisfies VerificationFailurePointSpec[]) {
     addVerificationFailurePoint(failurePoints, failure);
   }
 
   for (const blockId of coverage.uncoveredBlocks) {
-    addRegressionRisk(regressionRisks, {
-      kind: 'coverage-gap',
-      blockId,
-      message: `Block ${blockId} has no runtime acceptance coverage`
-    });
+    addRegressionRisk(regressionRisks, { kind: 'coverage-gap', blockId, message: `Block ${blockId} has no runtime acceptance coverage` });
   }
-
   for (const slotId of coverage.uncoveredSlots) {
-    addRegressionRisk(regressionRisks, {
-      kind: 'coverage-gap',
-      slotId,
-      message: `Slot ${slotId} has no runtime acceptance coverage`
-    });
+    addRegressionRisk(regressionRisks, { kind: 'coverage-gap', slotId, message: `Slot ${slotId} has no runtime acceptance coverage` });
   }
 
   for (const override of overrideManifest.overrides) {
-    addRegressionRisk(regressionRisks, {
-      kind: 'override-active',
-      message: `Override active: ${override.id} -> ${override.target}`,
-      ...mapOverrideTarget(lock, override.target)
-    });
-
+    addRegressionRisk(regressionRisks, { kind: 'override-active', message: `Override active: ${override.id} -> ${override.target}`, ...mapOverrideTarget(lock, override.target) });
     for (const conflict of override.conflictsWith) {
-      addConflictHint(conflictHints, {
-        kind: 'override-conflict',
-        relatedId: conflict,
-        message: `Override ${override.id} conflicts with ${conflict}`
-      });
+      addConflictHint(conflictHints, { kind: 'override-conflict', relatedId: conflict, message: `Override ${override.id} conflicts with ${conflict}` });
     }
   }
 
   if (upgradePlan) {
     addConflictHint(conflictHints, {
-      kind: 'upgrade-plan-present',
-      relatedId: upgradePlan.blockId,
-      message:
-        upgradePlan.status === 'applied'
-          ? `Upgrade plan applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
-          : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+      kind: 'upgrade-plan-present', relatedId: upgradePlan.blockId,
+      message: upgradePlan.status === 'applied' ? `Upgrade plan applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}` : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
     });
     if (upgradePlan.preflightChecks.length > 0) {
-      addConflictHint(conflictHints, {
-        kind: 'upgrade-preflight-passed',
-        relatedId: upgradePlan.blockId,
-        message: `Upgrade preflight passed: ${upgradePlan.preflightChecks.map((check) => check.id).join(', ')}`
-      });
+      addConflictHint(conflictHints, { kind: 'upgrade-preflight-passed', relatedId: upgradePlan.blockId, message: `Upgrade preflight passed: ${upgradePlan.preflightChecks.map((c) => c.id).join(', ')}` });
     }
     for (const impact of upgradePlan.impacts) {
-      addRegressionRisk(regressionRisks, {
-        kind: 'upgrade-impact',
-        blockId: upgradePlan.blockId,
-        message: `Upgrade ${upgradePlan.blockId} impacts ${impact}`
-      });
+      addRegressionRisk(regressionRisks, { kind: 'upgrade-impact', blockId: upgradePlan.blockId, message: `Upgrade ${upgradePlan.blockId} impacts ${impact}` });
     }
     for (const migration of upgradePlan.migrationSummaries) {
-      if (!migration.requiresVerification) {
-        continue;
+      if (migration.requiresVerification) {
+        addRegressionRisk(regressionRisks, { kind: 'upgrade-verification', blockId: upgradePlan.blockId, message: `Upgrade migration ${migration.id} requires verification for ${migration.target}` });
       }
-      addRegressionRisk(regressionRisks, {
-        kind: 'upgrade-verification',
-        blockId: upgradePlan.blockId,
-        message: `Upgrade migration ${migration.id} requires verification for ${migration.target}`
-      });
     }
   }
 
   if (upgradeDiagnostics) {
-    addFailurePoint(failurePoints, {
-      lane: 'all',
-      kind: 'upgrade',
-      message: formatUpgradeDiagnosticsFailureMessage(upgradeDiagnostics),
-      artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics
-    });
+    addFailurePoint(failurePoints, { lane: 'all', kind: 'upgrade', message: formatUpgradeDiagnosticsFailureMessage(upgradeDiagnostics), artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics });
   }
 
   if (repairPlan) {
     if (repairPlan.requiresVerification) {
-      addRegressionRisk(regressionRisks, {
-        kind: 'repair-verification',
-        message: 'Repair applied and requires verification rerun'
-      });
+      addRegressionRisk(regressionRisks, { kind: 'repair-verification', message: 'Repair applied and requires verification rerun' });
     }
     for (const blocker of repairPlan.blockers ?? []) {
-      addFailurePoint(failurePoints, {
-        lane: 'all',
-        kind: 'repair',
-        artifactPath: CI_ARTIFACT_FILES.repairPlan,
-        message: `Repair blocked at ${blocker.boundary}: ${blocker.reason}`
-      });
-      addConflictHint(conflictHints, {
-        kind: 'repair-blocked',
-        relatedId: blocker.blockerId,
-        message: `Repair blocked: ${blocker.reason}; decision ${blocker.decisionRequired}`
-      });
+      addFailurePoint(failurePoints, { lane: 'all', kind: 'repair', artifactPath: CI_ARTIFACT_FILES.repairPlan, message: `Repair blocked at ${blocker.boundary}: ${blocker.reason}` });
+      addConflictHint(conflictHints, { kind: 'repair-blocked', relatedId: blocker.blockerId, message: `Repair blocked: ${blocker.reason}; decision ${blocker.decisionRequired}` });
     }
     for (const task of repairPlan.tasks) {
-      const preview = task.preview
-        ? `; preview ${task.preview.changed ? 'changed' : 'unchanged'} +${task.preview.addedLines}/-${task.preview.removedLines}`
-        : '';
-      const targetIds = uniqueSorted(task.failurePoints.flatMap((point) => point.targetIds ?? []));
+      const preview = task.preview ? `; preview ${task.preview.changed ? 'changed' : 'unchanged'} +${task.preview.addedLines}/-${task.preview.removedLines}` : '';
+      const targetIds = uniqueSorted(task.failurePoints.flatMap((p) => p.targetIds ?? []));
       const targets = targetIds.length > 0 ? `; targets ${targetIds.join(', ')}` : '';
       addConflictHint(conflictHints, {
-        kind: 'repair-plan-present',
-        relatedId: task.taskId,
-        message:
-          repairPlan.status === 'applied'
-            ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}`
-            : `Repair task pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}`
+        kind: 'repair-plan-present', relatedId: task.taskId,
+        message: repairPlan.status === 'applied' ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}` : `Repair task pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}`
       });
     }
   }
 
-  const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path));
-  const runtimeEntryByPath = new Map(runtimeEntries.map((entry) => [entry.path, entry]));
+  const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((a) => a.path));
+  const runtimeEntryByPath = new Map(runtimeEntries.map((e) => [e.path, e]));
   const changeSources = provenance.artifacts.map((artifact) => {
     const runtimeEntry = runtimeEntryByPath.get(artifact.path);
     return {
-      path: artifact.path,
-      originType: artifact.originType,
-      originId: artifact.originId,
+      path: artifact.path, originType: artifact.originType, originId: artifact.originId,
       ...(artifact.sourcePath ? { sourcePath: artifact.sourcePath } : {}),
       ...(artifact.runtimeTarget ? { runtimeTarget: artifact.runtimeTarget } : {}),
-      ...(artifact.registrySourceId
-        ? {
-            registrySourceId: artifact.registrySourceId,
-            registryKind: artifact.registryKind,
-            registryLocation: artifact.registryLocation
-          }
-        : {}),
-      ...(runtimeEntry
-        ? {
-            runtimeKind: runtimeEntry.kind,
-            ...(runtimeEntry.vertical ? { vertical: runtimeEntry.vertical } : {}),
-            relatedBlocks: runtimeEntry.relatedBlocks
-          }
-        : {})
+      ...(artifact.registrySourceId ? { registrySourceId: artifact.registrySourceId, registryKind: artifact.registryKind, registryLocation: artifact.registryLocation } : {}),
+      ...(runtimeEntry ? { runtimeKind: runtimeEntry.kind, ...(runtimeEntry.vertical ? { vertical: runtimeEntry.vertical } : {}), relatedBlocks: runtimeEntry.relatedBlocks } : {})
     };
   });
   const artifactSummary = await readReviewArtifactSummary(workspaceRoot);
   const installImpacts = buildInstallImpacts(lock);
   const installImpactSummary = buildInstallImpactSummary(installImpacts);
-  const impactedBlocks = uniqueSorted(lock.resolvedBlocks.map((block) => block.id));
-  const impactedSlots = uniqueSorted(lock.slotTasks.map((task) => task.id));
+  const impactedBlocks = uniqueSorted(lock.resolvedBlocks.map((b) => b.id));
+  const impactedSlots = uniqueSorted(lock.slotTasks.map((t) => t.id));
   const sortedFailurePoints = [...failurePoints].sort(compareFailurePoints);
   const sortedRegressionRisks = [...regressionRisks].sort(compareRegressionRisks);
   const sortedConflictHints = [...conflictHints].sort(compareConflictHints);
 
   return {
     formatVersion: '2',
-    ciSummary: buildReviewCiSummary(
-      sortedFailurePoints,
-      sortedRegressionRisks,
-      sortedConflictHints,
-      impactedBlocks,
-      impactedSlots,
-      runtimeEntries
-    ),
+    ciSummary: buildReviewCiSummary(sortedFailurePoints, sortedRegressionRisks, sortedConflictHints, impactedBlocks, impactedSlots, runtimeEntries),
     chainSummary: buildReviewChainSummary(report, coverageSummary, artifactSummary),
     ...(artifactSummary ? { artifactSummary } : {}),
-    coverageSummary,
-    provenanceSummary,
+    coverageSummary, provenanceSummary,
     ...(policySummary ? { policySummary } : {}),
     ...(repairSummary ? { repairSummary } : {}),
     ...(upgradeSummary ? { upgradeSummary } : {}),
-    changeSourceCount: changeSources.length,
-    runtimeEntryCount: runtimeEntries.length,
-    installImpactCount: installImpacts.length,
-    changeSources,
-    runtimeEntries,
-    verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
-    installImpacts,
-    installImpactSummary,
-    impactedBlocks,
-    impactedSlots,
-    failurePoints: sortedFailurePoints,
-    regressionRisks: sortedRegressionRisks,
-    conflictHints: sortedConflictHints
+    changeSourceCount: changeSources.length, runtimeEntryCount: runtimeEntries.length, installImpactCount: installImpacts.length,
+    changeSources, runtimeEntries, verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
+    installImpacts, installImpactSummary, impactedBlocks, impactedSlots,
+    failurePoints: sortedFailurePoints, regressionRisks: sortedRegressionRisks, conflictHints: sortedConflictHints
   };
 }
 
@@ -860,14 +523,9 @@ export async function writeReviewSummary(
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
   const { reviewSummaryPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  return writeGeneratedArtifactWithLock(
-    lockPath,
-    lock,
-    [CI_ARTIFACT_FILES.reviewSummary],
-    async () => {
-      const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
-      await writeJson(reviewSummaryPath, summary);
-      return summary;
-    }
-  );
+  return writeGeneratedArtifactWithLock(lockPath, lock, [CI_ARTIFACT_FILES.reviewSummary], async () => {
+    const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+    await writeJson(reviewSummaryPath, summary);
+    return summary;
+  });
 }

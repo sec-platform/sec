@@ -1,0 +1,36 @@
+<%- include('helpers') %>
+<%
+  const riskMap = new Map();
+  for (const risk of review.regressionRisks) {
+    const vertical = detectVerticalFromPath(risk.blockId ?? '') ?? detectVerticalFromPath(risk.message);
+    if (!vertical) continue;
+    const existing = riskMap.get(vertical) ?? [];
+    existing.push(risk.message);
+    riskMap.set(vertical, uniqueSorted(existing));
+  }
+  const fallbackSlices = new Map();
+  for (const entry of buildRuntimeAttributions(lock, lock.generatedPaths)) {
+    if (!entry.vertical) continue;
+    let slice = fallbackSlices.get(entry.vertical);
+    if (!slice) { slice = { runtimeEntries: new Set(), relatedBlocks: new Set() }; fallbackSlices.set(entry.vertical, slice); }
+    slice.runtimeEntries.add(entry.path);
+    for (const b of entry.relatedBlocks) slice.relatedBlocks.add(b);
+  }
+  const sliceIds = new Set([
+    ...review.verticalSlices.map(function(s) { return s.id; }),
+    ...fallbackSlices.keys(),
+    ...riskMap.keys()
+  ]);
+  const vRows = uniqueSorted([...sliceIds]).map(function(v) {
+    const summary = review.verticalSlices.find(function(s) { return s.id === v; });
+    const fallback = fallbackSlices.get(v);
+    const blocks = summary?.relatedBlocks ?? uniqueSorted([...(fallback?.relatedBlocks ?? [])]);
+    const runtimeEntries = summary?.runtimeEntries ?? uniqueSorted([...(fallback?.runtimeEntries ?? [])]);
+    const risks = riskMap.get(v) ?? [];
+    return [v, blocks.join(', ') || 'none', runtimeEntries.join(', ') || 'none', risks.join(' | ') || 'none'];
+  });
+%>
+<section class="card">
+  <h2>Vertical Summary</h2>
+  <%- dataTable(['Vertical','Blocks','Runtime Entries','Regression Risks'], vRows, 4, 'No vertical summaries.') %>
+</section>

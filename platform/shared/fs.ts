@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { globby } from 'globby';
 
 export async function ensureDir(dirPath: string): Promise<void> {
   await fs.mkdir(dirPath, { recursive: true });
@@ -50,28 +51,13 @@ export async function copyRecursive(source: string, target: string): Promise<voi
     }
     return;
   }
-
   await ensureDir(path.dirname(target));
   await fs.copyFile(source, target);
 }
 
 export async function listFilesRecursive(rootDir: string): Promise<string[]> {
-  const files: string[] = [];
-  if (!(await pathExists(rootDir))) {
-    return files;
-  }
-
-  const entries = await fs.readdir(rootDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await listFilesRecursive(fullPath)));
-      continue;
-    }
-    files.push(fullPath);
-  }
-
-  return files;
+  if (!(await pathExists(rootDir))) return [];
+  return globby('**/*', { cwd: rootDir, absolute: true, dot: false, onlyFiles: true });
 }
 
 export async function readText(filePath: string): Promise<string> {
