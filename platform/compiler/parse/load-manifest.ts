@@ -8,6 +8,7 @@ import {
   blockDirName,
   isSafeRelativePath,
   officialRegistryRelativePath,
+  posixPath,
   resolveRegistryRoot
 } from '../../shared/paths.ts';
 import type {
@@ -63,7 +64,7 @@ export function resolveRegistrySources(
           id: 'official',
           kind: 'official',
           location: 'compiler',
-          path: officialRegistryRelativePath.replaceAll('\\', '/')
+          path: posixPath(officialRegistryRelativePath)
         } satisfies PlanRegistrySource
       ];
 
@@ -71,7 +72,7 @@ export function resolveRegistrySources(
     id: source.id,
     kind: source.kind,
     location: source.location,
-    path: source.path.replaceAll('\\', '/'),
+    path: posixPath(source.path),
     root: resolveRegistryRoot(workspaceRoot, source.location, source.path)
   }));
 }

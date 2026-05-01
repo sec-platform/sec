@@ -3,7 +3,9 @@ import { CompilerError } from '../../shared/errors.ts';
 import {
   isSafeRelativePath,
   officialRegistryRelativePath,
+  posixPath,
   privateRegistryRelativePath,
+  resolveWorkspacePlanPath,
   sourcePrivateRegistryRelativePath
 } from '../../shared/paths.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
@@ -16,19 +18,19 @@ function defaultRegistry(): PlanRegistry {
         id: 'official',
         kind: 'official',
         location: 'compiler',
-        path: officialRegistryRelativePath.replaceAll('\\', '/')
+        path: posixPath(officialRegistryRelativePath)
       },
       {
         id: 'source-private',
         kind: 'private',
         location: 'workspace',
-        path: sourcePrivateRegistryRelativePath.replaceAll('\\', '/')
+        path: posixPath(sourcePrivateRegistryRelativePath)
       },
       {
         id: 'private',
         kind: 'private',
         location: 'workspace',
-        path: privateRegistryRelativePath.replaceAll('\\', '/')
+        path: posixPath(privateRegistryRelativePath)
       }
     ]
   };
@@ -37,13 +39,13 @@ function defaultRegistry(): PlanRegistry {
 function normalizeRegistrySource(source: Partial<PlanRegistrySource>): PlanRegistrySource {
   const kind = source.kind ?? 'private';
   const defaultPrivatePath = source.id === 'source-private'
-    ? sourcePrivateRegistryRelativePath.replaceAll('\\', '/')
-    : privateRegistryRelativePath.replaceAll('\\', '/');
+    ? posixPath(sourcePrivateRegistryRelativePath)
+    : posixPath(privateRegistryRelativePath);
   return {
     id: source.id ?? '',
     kind,
     location: source.location ?? (kind === 'official' ? 'compiler' : 'workspace'),
-    path: source.path ?? (kind === 'official' ? officialRegistryRelativePath.replaceAll('\\', '/') : defaultPrivatePath)
+    path: source.path ?? (kind === 'official' ? posixPath(officialRegistryRelativePath) : defaultPrivatePath)
   };
 }
 
@@ -144,4 +146,8 @@ export async function loadPlan(planPath: string): Promise<PlanFile> {
   const plan = normalizePlan(await readYaml<PlanFile>(planPath));
   validatePlan(plan);
   return plan;
+}
+
+export async function loadWorkspacePlan(workspaceRoot: string): Promise<PlanFile> {
+  return loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
 }

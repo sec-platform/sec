@@ -6,7 +6,7 @@ import { lockProject } from '../compiler/emit/lock-project.ts';
 import { writeProvenance } from '../compiler/emit/write-provenance.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadOverrideManifest } from '../compiler/parse/load-override-manifest.ts';
-import { loadPlan } from '../compiler/parse/load-plan.ts';
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import { resolveGraph } from '../compiler/resolve/resolve-graph.ts';
 import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
 import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-templates.ts';
@@ -16,8 +16,8 @@ import { uniqueSorted } from '../shared/collections.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, isFileNotFoundError, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
-import { addGeneratedPaths } from '../shared/lock-utils.ts';
-import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../shared/paths.ts';
+import { addGeneratedPaths, readLockFile, saveLock } from '../shared/lock-utils.ts';
+import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type {
   ManifestSlot,
   PlanFile,
@@ -1805,7 +1805,7 @@ const upgradeApplySteps: UpgradeApplyStep[] = [
 ];
 
 async function readWorkspaceLock(workspaceRoot: string): Promise<LockFile> {
-  return readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+  return readLockFile(workspaceRoot);
 }
 
 async function runUpgradeApplySteps(context: UpgradeApplyContext, lock: LockFile): Promise<LockFile> {
@@ -1820,7 +1820,6 @@ async function runUpgradeApplySteps(context: UpgradeApplyContext, lock: LockFile
 async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promise<LockFile> {
   const {
     impacts,
-    lockPath,
     migrationEntries,
     plan,
     currentBlock,
@@ -1839,7 +1838,7 @@ async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promi
 
   let lock = await resolveGraph(workspaceRoot, plan);
   await validateResolvedTemplates(workspaceRoot, lock);
-  await writeJson(lockPath, lock);
+  await saveLock(workspaceRoot, lock);
 
   lock = await runUpgradeApplySteps(context, lock);
   await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
@@ -1855,8 +1854,8 @@ export async function upgradeWorkspace(
   targetVersion: string,
   options: { dryRun?: boolean } = {}
 ): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
-  const { projectRoot, planPath, lockPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
+  const { lockPath, projectRoot, planPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadWorkspacePlan(workspaceRoot);
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   const existingLock = (await pathExists(readableLockPath)) ? await readJson<LockFile>(readableLockPath) : null;
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
@@ -1880,7 +1879,7 @@ export async function upgradeWorkspace(
   const { upgradePlan } = plannedUpgrade;
 
   if (options.dryRun) {
-    const lock = await readJson<LockFile>(await resolveWorkspaceLockPath(workspaceRoot));
+    const lock = await readLockFile(workspaceRoot);
     await writeJson(upgradePlanPath, upgradePlan);
     await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
     return { plan, lock, upgradePlan };

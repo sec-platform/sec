@@ -2,7 +2,7 @@ import path from 'node:path';
 import { countMatching } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, listFilesRecursive, pathExists, readJson, writeJson } from '../../shared/fs.ts';
-import { getWorkspacePaths, workspaceRelativePath } from '../../shared/paths.ts';
+import { getWorkspacePaths, posixPath, workspaceRelativePath } from '../../shared/paths.ts';
 import type { AppMode, PlanFile } from '../../shared/plan-manifest-types.ts';
 import { writeYaml } from '../../shared/yaml.ts';
 import { loadPlan } from '../parse/load-plan.ts';
@@ -80,7 +80,7 @@ function assertNonEmptyString(value: unknown, label: string): string {
 }
 
 function assertSlotSourcePath(value: unknown, label: string): string {
-  const sourcePath = assertNonEmptyString(value, label).replaceAll('\\', '/');
+  const sourcePath = posixPath(assertNonEmptyString(value, label));
   const normalized = path.posix.normalize(sourcePath);
   if (
     normalized !== sourcePath ||

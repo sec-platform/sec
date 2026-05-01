@@ -16,18 +16,6 @@ function formatDiagnostic(diagnostic: ts.Diagnostic): string {
   return `${filePath}:${position.line + 1}:${position.character + 1} ${message}`;
 }
 
-export function formatCompilerFailure(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return String(error);
-  }
-
-  if (error instanceof CompilerError && error.details) {
-    return `${error.stack ?? error.message}\n${JSON.stringify(error.details, null, 2)}`;
-  }
-
-  return error.stack ?? error.message;
-}
-
 export async function typecheckProject(projectRoot: string): Promise<void> {
   await withProjectDependencyBridge(projectRoot, async () => {
     const tsconfigPath = path.join(projectRoot, 'tsconfig.json');

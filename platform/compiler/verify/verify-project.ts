@@ -2,7 +2,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
-import { CompilerError } from '../../shared/errors.ts';
+import { CompilerError, formatCompilerFailure } from '../../shared/errors.ts';
 import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths, assertPassStatus } from '../../shared/lock-utils.ts';
@@ -17,7 +17,7 @@ import type {
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
-import { formatCompilerFailure, typecheckProject } from './typecheck-project.ts';
+import { typecheckProject } from './typecheck-project.ts';
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;

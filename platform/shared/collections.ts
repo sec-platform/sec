@@ -30,3 +30,7 @@ export function summarizeCounts<T extends string>(values: Iterable<T>): Array<Co
 export function uniqueSorted<T extends string>(values: readonly T[]): T[] {
   return sortBy(uniq(filter([...values], (v) => v.length > 0)));
 }
+
+export function normalizeNewlines(value: string): string {
+  return value.replace(/\r\n/g, '\n');
+}

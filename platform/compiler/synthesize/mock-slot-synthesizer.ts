@@ -1,10 +1,5 @@
-import path from 'node:path';
+import { projectRelativeImport } from '../../shared/path-imports.ts';
 import type { TaskEnvelope } from '../../shared/task-envelope-types.ts';
-
-function projectRelativeImport(fromFile: string, toFile: string): string {
-  const relativePath = path.posix.relative(path.posix.dirname(fromFile), toFile);
-  return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
-}
 
 function parseRules(description: string): {
   requireName: boolean;
