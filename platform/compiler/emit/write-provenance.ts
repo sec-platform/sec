@@ -1,7 +1,8 @@
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
-  CI_ARTIFACT_PATHS
+  CI_ARTIFACT_PATHS,
+  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { readOptionalJson, writeJson } from '../../shared/fs.ts';
@@ -36,7 +37,7 @@ const PASS_RULES: PassRule[] = [
   { test: (p) => p === CI_ARTIFACT_FILES.provenance || p === 'provenance.json', pass: 'lock' },
   { test: (p) => p === CI_ARTIFACT_FILES.blockUsageMap || p === CI_ARTIFACT_FILES.installManifest, pass: 'compose' },
   { test: (p) => p.startsWith('control/evidence/'), pass: 'verify' },
-  { test: (p) => p === CI_ARTIFACT_FILES.explainGraph, pass: 'explain' },
+  { test: (p) => CI_EXPLAIN_GRAPH_ARTIFACT_PATHS.includes(p), pass: 'explain' },
   { test: (p) => p === CI_ARTIFACT_MANIFEST_PATH, pass: 'artifacts' },
   { test: (p) => (CI_ARTIFACT_PATHS.view as readonly string[]).includes(p), pass: 'explain' },
   { test: (p) => p === CI_ARTIFACT_FILES.repairPlan, pass: 'repair' },

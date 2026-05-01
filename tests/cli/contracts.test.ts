@@ -4,6 +4,7 @@ import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_KINDS,
   CI_ARTIFACT_MANIFEST_PATH,
+  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
   ciArtifactUploadCommand
 } from '../../platform/shared/ci-artifact-contract.ts';
 import {
@@ -22,6 +23,15 @@ import {
 import { expectCliVariants } from '../helpers/cli-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+
+const expectedCiArtifactPaths = [
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_FILES.acceptanceCoverage,
+  CI_ARTIFACT_FILES.reviewSummary,
+  CI_ARTIFACT_FILES.runtimeReport,
+  CI_ARTIFACT_FILES.verificationReport,
+  ...[...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS].sort()
+];
 
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
@@ -170,15 +180,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     ],
     artifactUploadCommandCount: 4,
     artifactUploadCommands: CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand),
-    artifactPathCount: 6,
-    artifactPaths: [
-      CI_ARTIFACT_MANIFEST_PATH,
-      CI_ARTIFACT_FILES.acceptanceCoverage,
-      CI_ARTIFACT_FILES.reviewSummary,
-      CI_ARTIFACT_FILES.runtimeReport,
-      CI_ARTIFACT_FILES.verificationReport,
-      CI_ARTIFACT_FILES.explainGraph
-    ],
+    artifactPathCount: expectedCiArtifactPaths.length,
+    artifactPaths: expectedCiArtifactPaths,
     stepCount: 17,
     steps: expect.arrayContaining([
       expect.objectContaining({
@@ -279,15 +282,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'Diagnostic commands: bun run platform -- review summary --json --compact, bun run platform -- review matrix --json --compact, bun run platform -- review diagnostics --json --compact, bun run platform -- explain --json --compact, bun run platform -- demo checklist --json --compact',
         'Artifact upload command count: 4',
         `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`,
-        'Artifact paths: 6',
-        `Artifact path list: ${[
-          CI_ARTIFACT_MANIFEST_PATH,
-          CI_ARTIFACT_FILES.acceptanceCoverage,
-          CI_ARTIFACT_FILES.reviewSummary,
-          CI_ARTIFACT_FILES.runtimeReport,
-          CI_ARTIFACT_FILES.verificationReport,
-          CI_ARTIFACT_FILES.explainGraph
-        ].join(', ')}`,
+        `Artifact paths: ${expectedCiArtifactPaths.length}`,
+        `Artifact path list: ${expectedCiArtifactPaths.join(', ')}`,
         'Step full-runtime-verify; phase=verify; command=bun run platform -- verify --lane all --json --compact; producesCount=3',
         'Step typecheck; phase=quality; command=bun run typecheck; producesCount=0',
         'Step organized-imports; phase=quality; command=bun run imports:check; producesCount=0',
@@ -326,10 +322,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           'bun run platform -- demo checklist --json --compact'
         ],
         artifactUploadCommandCount: 4,
-        artifactPathCount: 6,
+        artifactPathCount: expectedCiArtifactPaths.length,
         artifactPaths: expect.arrayContaining([
           CI_ARTIFACT_MANIFEST_PATH,
-          CI_ARTIFACT_FILES.verificationReport
+          CI_ARTIFACT_FILES.verificationReport,
+          ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
         ]),
         stepCount: 17,
         steps: expect.arrayContaining([
@@ -367,7 +364,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           'bun run platform -- demo checklist --json --compact'
         ],
         artifactUploadCommandCount: 4,
-        artifactPathCount: 6,
+        artifactPathCount: expectedCiArtifactPaths.length,
         steps: expect.arrayContaining([
           expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
           expect.objectContaining({ id: 'typecheck', producesCount: 0 }),

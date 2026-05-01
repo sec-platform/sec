@@ -14,7 +14,11 @@ import { applyWorkbenchMutations } from '../orchestrator.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadPlan } from '../compiler/parse/load-plan.ts';
 import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
-import { CI_ARTIFACT_FILES, CI_ARTIFACT_KINDS } from '../shared/ci-artifact-contract.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_KINDS,
+  CI_EXPLAIN_GRAPH_ARTIFACTS
+} from '../shared/ci-artifact-contract.ts';
 import type { CiArtifactKind } from '../shared/ci-artifact-types.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import { countMatching } from '../shared/collections.ts';
@@ -159,6 +163,14 @@ function modeCommand(cmd: Command): Command {
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
   const paths = getWorkspacePaths(workspaceRoot);
+  const explainGraphChecklistPaths: Record<
+    (typeof CI_EXPLAIN_GRAPH_ARTIFACTS)[number]['id'],
+    string
+  > = {
+    'explain-graph': paths.explainGraphPath,
+    'explain-graph-mermaid': paths.explainGraphMermaidPath,
+    'explain-graph-dot': paths.explainGraphDotPath
+  };
   const items: DemoChecklistItem[] = await Promise.all([
     {
       id: 'verification-report',
@@ -196,12 +208,12 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
       artifactPath: CI_ARTIFACT_FILES.provenance,
       command: platformCommand('adapt')
     },
-    {
-      id: 'explain-graph',
-      absolutePath: paths.explainGraphPath,
-      artifactPath: CI_ARTIFACT_FILES.explainGraph,
+    ...CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => ({
+      id: artifact.id,
+      absolutePath: explainGraphChecklistPaths[artifact.id],
+      artifactPath: artifact.path,
       command: platformCommand('explain')
-    },
+    })),
     {
       id: 'review-summary',
       absolutePath: paths.reviewSummaryPath,

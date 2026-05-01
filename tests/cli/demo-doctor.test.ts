@@ -1,6 +1,9 @@
 import { expect, test } from 'vitest';
 
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_EXPLAIN_GRAPH_ARTIFACTS
+} from '../../platform/shared/ci-artifact-contract.ts';
 import {
   expectCliJson,
   expectCliSuccess,
@@ -10,19 +13,35 @@ import {
 } from '../helpers/cli-helpers.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
+const expectedDemoChecklistItemCount = [
+  'verification-report',
+  'runtime-report',
+  'policy-report',
+  'acceptance-coverage',
+  'graph-lock',
+  'provenance-registry',
+  ...CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => artifact.id),
+  'review-summary'
+].length;
+const [, explainGraphMermaidArtifact, explainGraphDotArtifact] = CI_EXPLAIN_GRAPH_ARTIFACTS;
+
 test('CLI exposes demo checklist as text and JSON readiness contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['demo', 'checklist'], [
-      'Demo checklist attention; items=8; missing=8',
+      `Demo checklist attention; items=${expectedDemoChecklistItemCount}; missing=${expectedDemoChecklistItemCount}`,
       `verification-report: missing; ${CI_ARTIFACT_FILES.verificationReport}`,
+      `${explainGraphMermaidArtifact.id}: missing; ${explainGraphMermaidArtifact.path}`,
+      `${explainGraphDotArtifact.id}: missing; ${explainGraphDotArtifact.path}`,
       'Next command: bun run demo:quickstart'
     ]);
 
     await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true, explain: true });
 
     await expectCliText(workspaceRoot, ['demo', 'checklist'], [
-      'Demo checklist passed; items=8; missing=0',
+      `Demo checklist passed; items=${expectedDemoChecklistItemCount}; missing=0`,
       `review-summary: passed; ${CI_ARTIFACT_FILES.reviewSummary}`,
+      `${explainGraphMermaidArtifact.id}: passed; ${explainGraphMermaidArtifact.path}`,
+      `${explainGraphDotArtifact.id}: passed; ${explainGraphDotArtifact.path}`,
       'Next command: bun run demo:closed-loop'
     ]);
 
@@ -32,17 +51,17 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
       {
         formatVersion: '1',
         status: 'passed',
-        itemCount: 8,
+        itemCount: expectedDemoChecklistItemCount,
         missingCount: 0,
         nextCommand: 'bun run demo:closed-loop',
-        items: expect.arrayContaining([
-          {
-            id: 'explain-graph',
+        items: expect.arrayContaining(
+          CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => ({
+            id: artifact.id,
             status: 'passed',
-            artifactPath: CI_ARTIFACT_FILES.explainGraph,
+            artifactPath: artifact.path,
             command: 'bun run platform -- explain'
-          }
-        ])
+          }))
+        )
       },
       { compact: true }
     );

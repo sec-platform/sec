@@ -50,6 +50,8 @@ export interface WorkspacePaths {
   policyReportPath: string;
   runtimeReportPath: string;
   explainGraphPath: string;
+  explainGraphMermaidPath: string;
+  explainGraphDotPath: string;
   reviewSummaryPath: string;
   ciArtifactsPath: string;
   sourceViewPath: string;
