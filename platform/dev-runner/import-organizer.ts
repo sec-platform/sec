@@ -129,7 +129,7 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
 
   const fileList = changedFiles.map((fileName) => `- ${fileName}`).join('\n');
   if (options.check) {
-    console.error(`Imports need organizing in ${changedFiles.length} file(s):\n${fileList}\nRun npm run imports:organize.`);
+    console.error(`Imports need organizing in ${changedFiles.length} file(s):\n${fileList}\nRun bun run imports:organize.`);
     return 1;
   }
 

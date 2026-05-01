@@ -57,43 +57,43 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Check organized imports
-        run: npm run imports:check
+        run: bun run imports:check
 
       - name: Test budget contract
-        run: npm run platform -- test budget --json --compact
+        run: bun run platform -- test budget --json --compact
 
       - name: Contract freeze
-        run: npm run test:contract-freeze
+        run: bun run test:contract-freeze
 
       - name: Warm runtime dependency cache
-        run: node ./platform/cli/index.ts deps warmup
+        run: bun run platform -- deps warmup
 
       - name: Resolve graph
-        run: node ./platform/cli/index.ts resolve
+        run: bun run platform -- resolve
 
       - name: Compose project
-        run: node ./platform/cli/index.ts compose
+        run: bun run platform -- compose
 
       - name: Adapt project
-        run: node ./platform/cli/index.ts adapt
+        run: bun run platform -- adapt
 
       - name: Verify fast lane
-        run: npm run platform -- verify --json --compact
+        run: bun run platform -- verify --json --compact
 
       - name: Generate fast artifact manifest
         if: failure()
         id: fast_artifacts
         shell: pwsh
         run: |
-          node ./platform/cli/index.ts artifacts --json
+          bun run platform -- artifacts --json
           $manifest = Get-Content control/ci/artifacts.json -Raw | ConvertFrom-Json
-          $governancePaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind governance | ConvertFrom-Json).paths)
-          $viewPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind view | ConvertFrom-Json).paths)
-          $testPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind test | ConvertFrom-Json).paths)
-          $contractPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind contract | ConvertFrom-Json).paths)
+          $governancePaths = @((bun run platform -- artifacts --paths --json --compact --kind governance | ConvertFrom-Json).paths)
+          $viewPaths = @((bun run platform -- artifacts --paths --json --compact --kind view | ConvertFrom-Json).paths)
+          $testPaths = @((bun run platform -- artifacts --paths --json --compact --kind test | ConvertFrom-Json).paths)
+          $contractPaths = @((bun run platform -- artifacts --paths --json --compact --kind contract | ConvertFrom-Json).paths)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing workspace artifacts: $($missing -join ', ')"
@@ -201,55 +201,55 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Check organized imports
-        run: npm run imports:check
+        run: bun run imports:check
 
       - name: Test budget contract
-        run: npm run platform -- test budget --json --compact
+        run: bun run platform -- test budget --json --compact
 
       - name: Contract freeze
-        run: npm run test:contract-freeze
+        run: bun run test:contract-freeze
 
       - name: Benchmark task suite contract
-        run: npm run platform -- benchmark suite --json --compact
+        run: bun run platform -- benchmark suite --json --compact
 
       - name: Warm runtime dependency cache
-        run: node ./platform/cli/index.ts deps warmup
+        run: bun run platform -- deps warmup
 
       - name: Resolve graph
-        run: node ./platform/cli/index.ts resolve
+        run: bun run platform -- resolve
 
       - name: Compose project
-        run: node ./platform/cli/index.ts compose
+        run: bun run platform -- compose
 
       - name: Adapt project
-        run: node ./platform/cli/index.ts adapt
+        run: bun run platform -- adapt
 
       - name: Verify all lanes
-        run: npm run platform -- verify --lane all --json --compact
+        run: bun run platform -- verify --lane all --json --compact
 
       - name: Lock project
-        run: node ./platform/cli/index.ts lock
+        run: bun run platform -- lock
 
       - name: Explain project
-        run: node ./platform/cli/index.ts explain
+        run: bun run platform -- explain
 
       - name: Reference drift check
-        run: npm run platform -- reference check --json --compact
+        run: bun run platform -- reference check --json --compact
 
       - name: Generate artifact manifest
         if: always()
         id: full_artifacts
         shell: pwsh
         run: |
-          node ./platform/cli/index.ts artifacts --json
+          bun run platform -- artifacts --json
           $manifest = Get-Content control/ci/artifacts.json -Raw | ConvertFrom-Json
-          $governancePaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind governance | ConvertFrom-Json).paths)
-          $viewPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind view | ConvertFrom-Json).paths)
-          $testPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind test | ConvertFrom-Json).paths)
-          $contractPaths = @((node ./platform/cli/index.ts artifacts --paths --json --compact --kind contract | ConvertFrom-Json).paths)
+          $governancePaths = @((bun run platform -- artifacts --paths --json --compact --kind governance | ConvertFrom-Json).paths)
+          $viewPaths = @((bun run platform -- artifacts --paths --json --compact --kind view | ConvertFrom-Json).paths)
+          $testPaths = @((bun run platform -- artifacts --paths --json --compact --kind test | ConvertFrom-Json).paths)
+          $contractPaths = @((bun run platform -- artifacts --paths --json --compact --kind contract | ConvertFrom-Json).paths)
           if ($manifest.missing.Count -gt 0) {
             $missing = @($manifest.missing | ForEach-Object { "$($_.path) [$($_.reason); $($_.declaredBy)]" })
             Write-Warning "Missing workspace artifacts: $($missing -join ', ')"

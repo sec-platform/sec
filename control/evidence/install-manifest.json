@@ -26,7 +26,20 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:3",
+    "stepId": "tenant/basic-workspace:3",
+    "blockId": "tenant/basic-workspace",
+    "registrySourceId": "official",
+    "registryKind": "official",
+    "registryLocation": "compiler",
+    "registryPath": "platform/registry/official",
+    "sourceRoot": "tenant.basic-workspace",
+    "action": "copy",
+    "from": "files/tests/shared/tenant-runtime-fixture.ts",
+    "to": "tests/shared/tenant-runtime-fixture.ts",
+    "status": "installed"
+  },
+  {
+    "stepId": "entity/customer-basic:4",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -39,7 +52,7 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:4",
+    "stepId": "entity/customer-basic:5",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -52,7 +65,7 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:5",
+    "stepId": "entity/customer-basic:6",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",
@@ -65,7 +78,7 @@
     "status": "installed"
   },
   {
-    "stepId": "entity/customer-basic:6",
+    "stepId": "entity/customer-basic:7",
     "blockId": "entity/customer-basic",
     "registrySourceId": "official",
     "registryKind": "official",

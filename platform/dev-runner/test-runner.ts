@@ -16,6 +16,13 @@ function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
+function fullTestInvocations(): string[][] {
+  return [
+    fastTestArgs([]),
+    ...getSlowTestFiles().map((file) => ['run', file])
+  ];
+}
+
 export async function runTests(args: string[] = []): Promise<number> {
   const sharedDeps = await ensureSharedDepsReady();
   const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
@@ -25,7 +32,11 @@ export async function runTests(args: string[] = []): Promise<number> {
 
   let exitCode = 1;
   await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    exitCode = await runDevCommand(commandPath(binPath, 'vitest'), ['run', ...args], env);
+    const invocations = args.length > 0 ? [['run', ...args]] : fullTestInvocations();
+    for (const invocation of invocations) {
+      exitCode = await runDevCommand(commandPath(binPath, 'vitest'), invocation, env);
+      if (exitCode !== 0) return;
+    }
   });
   return exitCode;
 }

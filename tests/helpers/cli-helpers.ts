@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import { expect } from 'vitest';
 import { Command } from 'commander';
 
@@ -7,12 +9,69 @@ import { expectContainsAll } from './assertion-helpers.ts';
 
 export type CliResult = { code: number; stdout: string; stderr: string };
 
-function createProgram(): Command {
+type CliContext = { stdoutChunks: string[]; stderrChunks: string[]; cwd: string };
+
+const cliContext = new AsyncLocalStorage<CliContext>();
+const originalLog = console.log.bind(console);
+const originalError = console.error.bind(console);
+const originalWarn = console.warn.bind(console);
+const originalCwd = process.cwd.bind(process);
+let cliContextGlobalsInstalled = false;
+
+function formatConsoleChunks(chunks: unknown[]): string {
+  return `${chunks.map(String).join(' ')}\n`;
+}
+
+function installCliContextGlobals(): void {
+  if (cliContextGlobalsInstalled) return;
+
+  console.log = (...chunks: unknown[]) => {
+    const context = cliContext.getStore();
+    if (context) {
+      context.stdoutChunks.push(formatConsoleChunks(chunks));
+      return;
+    }
+    originalLog(...chunks);
+  };
+  console.error = (...chunks: unknown[]) => {
+    const context = cliContext.getStore();
+    if (context) {
+      context.stderrChunks.push(formatConsoleChunks(chunks));
+      return;
+    }
+    originalError(...chunks);
+  };
+  console.warn = (...chunks: unknown[]) => {
+    const context = cliContext.getStore();
+    if (context) {
+      context.stderrChunks.push(formatConsoleChunks(chunks));
+      return;
+    }
+    originalWarn(...chunks);
+  };
+  process.cwd = () => cliContext.getStore()?.cwd ?? originalCwd();
+
+  cliContextGlobalsInstalled = true;
+}
+
+function runWithCliContext<T>(context: CliContext, fn: () => Promise<T>): Promise<T> {
+  installCliContextGlobals();
+  return cliContext.run(context, fn);
+}
+
+function createProgram(output: { stdoutChunks: string[]; stderrChunks: string[] }): Command {
   const program = new Command();
   program.exitOverride();
+  program.configureOutput({
+    writeOut: (value) => { output.stdoutChunks.push(value); },
+    writeErr: (value) => { output.stderrChunks.push(value); }
+  });
   program.name('platform');
   program.allowUnknownOption(false);
   registerCommands(program);
+  program.action(() => {
+    program.help();
+  });
   return program;
 }
 
@@ -126,46 +185,47 @@ export async function expectCliUsageError(
   expect(result.code).toBe(1);
 }
 
+function isUnknownRootCommand(program: Command | undefined, args: string[]): boolean {
+  const commandName = args[0];
+  return commandName !== undefined
+    && !commandName.startsWith('-')
+    && !program?.commands.some((command) => command.name() === commandName);
+}
+
 export async function runCliInProcess(workspaceRoot: string, args: string[]): Promise<CliResult> {
-  const stdoutChunks: string[] = [];
-  const stderrChunks: string[] = [];
-  const originalLog = console.log;
-  const originalError = console.error;
-  const originalWarn = console.warn;
-  const originalCwd = process.cwd;
+  const context: CliContext = { stdoutChunks: [], stderrChunks: [], cwd: workspaceRoot };
 
-  console.log = (...chunks: unknown[]) => { stdoutChunks.push(`${chunks.map(String).join(' ')}\n`); };
-  console.error = (...chunks: unknown[]) => { stderrChunks.push(`${chunks.map(String).join(' ')}\n`); };
-  console.warn = (...chunks: unknown[]) => { stderrChunks.push(`${chunks.map(String).join(' ')}\n`); };
-  process.cwd = () => workspaceRoot;
-
-  try {
-    const program = createProgram();
-    await program.parseAsync(['node', 'platform', ...args], { from: 'user' });
-    return { code: 0, stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') };
-  } catch (error: unknown) {
-    const failure = error as { code?: string; message?: string; details?: unknown };
-    if (failure.code === 'commander.help' || failure.code === 'commander.helpDisplayed') {
-      return { code: 0, stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') };
+  return runWithCliContext(context, async () => {
+    let program: Command | undefined;
+    try {
+      program = createProgram(context);
+      await program.parseAsync(args, { from: 'user' });
+      return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
+    } catch (error: unknown) {
+      const failure = error as { code?: string; message?: string; details?: unknown };
+      if (failure.code === 'commander.help' || failure.code === 'commander.helpDisplayed') {
+        return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
+      }
+      if (failure.code === 'commander.unknownCommand' || isUnknownRootCommand(program, args)) {
+        context.stdoutChunks.length = 0;
+        context.stderrChunks.length = 0;
+        program?.outputHelp();
+        return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
+      }
+      const protocol = buildErrorProtocol(failure);
+      console.error(protocol.code, protocol.message);
+      console.error(JSON.stringify({
+        code: protocol.code,
+        message: protocol.message,
+        recoverable: protocol.recoverable,
+        issueType: protocol.issueType,
+        suggestedActions: protocol.suggestedActions,
+        artifactPaths: protocol.artifactPaths
+      }));
+      if (protocol.details) {
+        console.error(JSON.stringify(protocol.details, null, 2));
+      }
+      return { code: 1, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
     }
-    const protocol = buildErrorProtocol(failure);
-    console.error(protocol.code, protocol.message);
-    console.error(JSON.stringify({
-      code: protocol.code,
-      message: protocol.message,
-      recoverable: protocol.recoverable,
-      issueType: protocol.issueType,
-      suggestedActions: protocol.suggestedActions,
-      artifactPaths: protocol.artifactPaths
-    }));
-    if (protocol.details) {
-      console.error(JSON.stringify(protocol.details, null, 2));
-    }
-    return { code: 1, stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') };
-  } finally {
-    console.log = originalLog;
-    console.error = originalError;
-    console.warn = originalWarn;
-    process.cwd = originalCwd;
-  }
+  });
 }

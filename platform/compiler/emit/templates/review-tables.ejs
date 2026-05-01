@@ -1,4 +1,4 @@
-<%- include('helpers') %>
+<% await include('helpers') %>
 <%
   const failureRows = review.failurePoints.map(function(f) { return [f.lane, f.kind, f.artifactPath, f.message]; });
   const regressionRows = review.regressionRisks.map(function(r) { return [r.kind, r.blockId ?? '', r.slotId ?? '', r.message]; });

@@ -111,30 +111,31 @@
     ]
   },
   "provenanceSummary": {
-    "artifactCount": 38,
+    "artifactCount": 42,
     "verifiedArtifactCount": 6,
-    "unverifiedArtifactCount": 32,
+    "unverifiedArtifactCount": 36,
     "overrideArtifactCount": 0,
-    "registryArtifactCount": 6,
-    "generatedArtifactCount": 38,
+    "registryArtifactCount": 7,
+    "generatedArtifactCount": 42,
     "generatedPassCount": 5,
     "originSummaryCount": 3,
     "originSummaries": [
       {
         "originType": "block",
-        "count": 6,
+        "count": 7,
         "paths": [
           "prisma/schema.prisma",
           "src/installed/auth/session.ts",
           "src/installed/entity/customer-service.ts",
           "src/installed/tenant/context.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/shared/tenant-runtime-fixture.ts",
           "tests/unit/customer-normalizer.test.ts"
         ]
       },
       {
         "originType": "generated",
-        "count": 30,
+        "count": 33,
         "paths": [
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
@@ -153,10 +154,13 @@
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json",
           "control/graph/explain-graph.json",
           "control/provenance/provenance.json",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html",
           "generated/routes.ts",
           "lib/session.ts",
           "lib/store.ts",
@@ -181,7 +185,7 @@
     "overrideSummaries": [
       {
         "overrideStatus": "none",
-        "count": 38,
+        "count": 42,
         "paths": [
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
@@ -200,10 +204,13 @@
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json",
           "control/graph/explain-graph.json",
           "control/provenance/provenance.json",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html",
           "custom/customer_normalizer.ts",
           "generated/routes.ts",
           "lib/session.ts",
@@ -219,6 +226,7 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/shared/tenant-runtime-fixture.ts",
           "tests/unit/customer-normalizer.test.ts",
           "tsconfig.json"
         ]
@@ -230,13 +238,14 @@
         "registrySourceId": "official",
         "registryKind": "official",
         "registryLocation": "compiler",
-        "count": 6,
+        "count": 7,
         "paths": [
           "prisma/schema.prisma",
           "src/installed/auth/session.ts",
           "src/installed/entity/customer-service.ts",
           "src/installed/tenant/context.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/shared/tenant-runtime-fixture.ts",
           "tests/unit/customer-normalizer.test.ts"
         ]
       }
@@ -252,7 +261,7 @@
       },
       {
         "pass": "compose",
-        "count": 30,
+        "count": 31,
         "paths": [
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
@@ -282,15 +291,18 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/shared/tenant-runtime-fixture.ts",
           "tests/unit/customer-normalizer.test.ts",
           "tsconfig.json"
         ]
       },
       {
         "pass": "explain",
-        "count": 1,
+        "count": 3,
         "paths": [
-          "control/graph/explain-graph.json"
+          "control/graph/explain-graph.json",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html"
         ]
       },
       {
@@ -302,10 +314,11 @@
       },
       {
         "pass": "verify",
-        "count": 4,
+        "count": 5,
         "paths": [
           "control/evidence/acceptance-coverage.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json"
         ]
@@ -329,10 +342,13 @@
       "control/evidence/block-usage-map.json",
       "control/evidence/install-manifest.json",
       "control/evidence/policy-report.json",
+      "control/evidence/review-summary.json",
       "control/evidence/runtime-report.json",
       "control/evidence/verification-report.json",
       "control/graph/explain-graph.json",
       "control/provenance/provenance.json",
+      "control/workbench/views/slot-rule-view.html",
+      "control/workbench/views/source-view.html",
       "generated/routes.ts",
       "lib/session.ts",
       "lib/store.ts",
@@ -343,6 +359,7 @@
       "src/installed/tenant/context.ts",
       "tests/runtime/acceptance/customer-flow.spec.ts",
       "tests/runtime/unit/customer-runtime.test.ts",
+      "tests/shared/tenant-runtime-fixture.ts",
       "tsconfig.json"
     ]
   },
@@ -381,7 +398,7 @@
     ],
     "violationSummaries": []
   },
-  "changeSourceCount": 38,
+  "changeSourceCount": 42,
   "runtimeEntryCount": 8,
   "installImpactCount": 3,
   "changeSources": [
@@ -493,6 +510,11 @@
       "originId": "control/evidence/policy-report.json"
     },
     {
+      "path": "control/evidence/review-summary.json",
+      "originType": "generated",
+      "originId": "control/evidence/review-summary.json"
+    },
+    {
       "path": "control/evidence/runtime-report.json",
       "originType": "generated",
       "originId": "control/evidence/runtime-report.json"
@@ -511,6 +533,16 @@
       "path": "control/provenance/provenance.json",
       "originType": "generated",
       "originId": "control/provenance/provenance.json"
+    },
+    {
+      "path": "control/workbench/views/slot-rule-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/slot-rule-view.html"
+    },
+    {
+      "path": "control/workbench/views/source-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/source-view.html"
     },
     {
       "path": "custom/customer_normalizer.ts",
@@ -605,6 +637,14 @@
       "path": "tests/runtime/unit/customer-runtime.test.ts",
       "originType": "generated",
       "originId": "tests/runtime/unit/customer-runtime.test.ts"
+    },
+    {
+      "path": "tests/shared/tenant-runtime-fixture.ts",
+      "originType": "block",
+      "originId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
     },
     {
       "path": "tests/unit/customer-normalizer.test.ts",
@@ -724,7 +764,8 @@
         "tenant.basic-workspace"
       ],
       "targetPaths": [
-        "src/installed/tenant/context.ts"
+        "src/installed/tenant/context.ts",
+        "tests/shared/tenant-runtime-fixture.ts"
       ],
       "verticals": [],
       "runtimeEntries": []
@@ -735,7 +776,7 @@
     "blockCount": 3,
     "actionKindCount": 2,
     "sourceRootCount": 3,
-    "targetPathCount": 6,
+    "targetPathCount": 7,
     "verticalCount": 1,
     "runtimeEntryCount": 0,
     "groupCount": 2,
@@ -759,6 +800,7 @@
       "src/installed/entity/customer-service.ts",
       "src/installed/tenant/context.ts",
       "tests/acceptance/customer-flow.test.ts",
+      "tests/shared/tenant-runtime-fixture.ts",
       "tests/unit/customer-normalizer.test.ts"
     ],
     "verticals": [
@@ -792,7 +834,7 @@
         "blockCount": 2,
         "actionKindCount": 1,
         "runtimeEntryCount": 0,
-        "targetPathCount": 2,
+        "targetPathCount": 3,
         "blocks": [
           "auth/basic-session",
           "tenant/basic-workspace"
@@ -803,7 +845,8 @@
         "runtimeEntries": [],
         "targetPaths": [
           "src/installed/auth/session.ts",
-          "src/installed/tenant/context.ts"
+          "src/installed/tenant/context.ts",
+          "tests/shared/tenant-runtime-fixture.ts"
         ]
       }
     ]

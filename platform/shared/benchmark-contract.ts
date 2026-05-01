@@ -33,7 +33,7 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     id: 'add-block',
     goal: 'install one capability block into a clean workspace',
     gate: 'resolve compose adapt verify lock explain',
-    command: 'npm run demo:quickstart',
+    command: 'bun run demo:quickstart',
     artifactPaths: [
       CI_ARTIFACT_FILES.graphLock,
       CI_ARTIFACT_FILES.provenance,
@@ -125,7 +125,7 @@ export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
     suiteId: 'engineering-compiler-core',
     status: CONTRACT_STATUS_ACTIVE,
     command: platformCommand('benchmark', 'suite', '--json'),
-    runnerCommand: 'npm run test:benchmark-contract',
+    runnerCommand: 'bun run test:benchmark-contract',
     taskCount: benchmarkTasks.length,
     tasks: benchmarkTasks.map((task) => ({
       ...task,

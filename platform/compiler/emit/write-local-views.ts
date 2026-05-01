@@ -26,6 +26,50 @@ function formatList(values: Iterable<string>, fallback = 'none'): string {
   return items.length > 0 ? items.join(', ') : fallback;
 }
 
+function esc(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function metricTable(rows: readonly (readonly unknown[])[]): string {
+  return dataTable(['Metric', 'Value'], rows, 2, 'No metrics.');
+}
+
+function dataTable(
+  headers: readonly string[],
+  rows: readonly (readonly unknown[])[],
+  colspan: number,
+  emptyMsg: string
+): string {
+  const body = rows.length === 0
+    ? `<tr><td colspan="${colspan}">${esc(emptyMsg)}</td></tr>`
+    : rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('');
+
+  return [
+    '<table>',
+    `<thead><tr>${headers.map((header) => `<th>${esc(header)}</th>`).join('')}</tr></thead>`,
+    `<tbody>${body}</tbody>`,
+    '</table>'
+  ].join('');
+}
+
+function card(title: string, content: string): string {
+  return `<section class="card"><h2>${esc(title)}</h2>${content}</section>`;
+}
+
+function subCard(title: string, content: string): string {
+  return `<h3>${esc(title)}</h3>${content}`;
+}
+
+function jsonPre(value: unknown): string {
+  return `<pre>${esc(JSON.stringify(value, null, 2))}</pre>`;
+}
+
+const templateHelpers = { esc, metricTable, dataTable, card, subCard, jsonPre };
+
 async function readRequiredArtifact<T>(filePath: string, label: string): Promise<T> {
   if (!(await pathExists(filePath))) {
     throw new CompilerError('EXPLAIN-BLOCKED-003', `${label} is missing`);
@@ -35,7 +79,7 @@ async function readRequiredArtifact<T>(filePath: string, label: string): Promise
 
 async function renderTemplate(name: string, data: Record<string, unknown>): Promise<string> {
   const filePath = path.join(TEMPLATES_DIR, name);
-  return ejs.renderFile(filePath, data, { async: true });
+  return ejs.renderFile(filePath, { viewHelpers: templateHelpers, ...templateHelpers, ...data }, { async: true });
 }
 
 async function renderLayout(title: string, currentNav: 'source' | 'slot-rule', body: string): Promise<string> {

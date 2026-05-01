@@ -101,9 +101,9 @@ export function buildRuntimeVerificationReport(
 ): VerificationReport['runtime'] {
   const base: VerificationReport['runtime'] = {
     status: 'passed',
-    build: { status: 'passed', passed: [], failed: [], command: 'npm run build' },
-    unit: { status: 'passed', passed: [], failed: [], command: 'npm run test:unit' },
-    acceptance: { status: 'passed', passed: [], failed: [], command: 'npm run test:acceptance' },
+    build: { status: 'passed', passed: [], failed: [], command: 'bun run build' },
+    unit: { status: 'passed', passed: [], failed: [], command: 'bun run test:unit' },
+    acceptance: { status: 'passed', passed: [], failed: [], command: 'bun run test:acceptance' },
     logs: emptyVerificationLogs()
   };
 
@@ -147,9 +147,9 @@ export function buildPassingReviewReport(options: ReviewReportOptions = {}): Ver
     },
     runtime: {
       status: 'skipped',
-      build: { status: 'skipped', passed: [], failed: [], command: 'npm run build' },
-      unit: { status: 'skipped', passed: [], failed: [], command: 'npm run test:unit' },
-      acceptance: { status: 'skipped', passed: [], failed: [], command: 'npm run test:acceptance' },
+      build: { status: 'skipped', passed: [], failed: [], command: 'bun run build' },
+      unit: { status: 'skipped', passed: [], failed: [], command: 'bun run test:unit' },
+      acceptance: { status: 'skipped', passed: [], failed: [], command: 'bun run test:acceptance' },
       logs: emptyVerificationLogs()
     },
     summary: {

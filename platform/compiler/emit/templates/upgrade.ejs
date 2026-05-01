@@ -1,4 +1,4 @@
-<%- include('helpers') %>
+<% await include('helpers') %>
 <%
   function taxonomyRows(entries) { return entries.map(function(e) { return [e.id, String(e.count)]; }); }
   function countRecordRows(counts) {
@@ -43,7 +43,7 @@
     ['Impacts', String(u.impactCount)], ['Requires Verification', String(u.requiresVerification)],
     ['Verification Migrations', String(u.requiresVerificationCount)]
   ]) %>
-  <%- subCard('Upgrade Preflight Summary', dataTable(['Group','Checks','Evidence Items'], preflightRows(buildReviewUpgradePreflightSummaries(u.preflightSummaries)), 3, 'No upgrade preflight checks.')) %>
+  <%- subCard('Upgrade Preflight Summary', dataTable(['Group','Checks','Evidence Items'], preflightRows(u.preflightSummaries), 3, 'No upgrade preflight checks.')) %>
   <%- subCard('Upgrade Migration Kind Summary', dataTable(['Kind','Count'], countRecordRows(u.migrationKindCounts), 2, 'No upgrade migration kinds.')) %>
   <%- subCard('Upgrade Operation Role Summary', dataTable(['Role','Count'], operationRoleRows(u.migrationOperationSummaries), 2, 'No upgrade operation roles.')) %>
   <%- subCard('Upgrade Verification Summary', dataTable(['Verification','Count'], taxonomyRows(u.verificationSummaries), 2, 'No upgrade verification categories.')) %>
@@ -53,7 +53,7 @@
     <h3>Upgrade Blocker Summary</h3>
     <table>
       <thead><tr><th>Phase</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
-      <tbody><tr><td><%= esc(u.diagnostics.phase ?? 'planning') %></td><td><%= esc(u.diagnostics.failedCheck) %></td><td><%= esc(u.diagnostics.errorCode) %></td><td><%= esc(u.diagnostics.message) %></td><td><%= u.diagnostics.details === undefined ? 'none' : '' %><% if (u.diagnostics.details !== undefined) { %><%- jsonPre(u.diagnostics.details) %><% } %></td></tr></tbody>
+      <tbody><tr><td><%- esc(u.diagnostics.phase ?? 'planning') %></td><td><%- esc(u.diagnostics.failedCheck) %></td><td><%- esc(u.diagnostics.errorCode) %></td><td><%- esc(u.diagnostics.message) %></td><td><%= u.diagnostics.details === undefined ? 'none' : '' %><% if (u.diagnostics.details !== undefined) { %><%- jsonPre(u.diagnostics.details) %><% } %></td></tr></tbody>
     </table>
   <% } %>
 </section>
@@ -62,7 +62,7 @@
 <% if (upgradePlan) { %>
 <section class="card">
   <h2>Upgrade Plan</h2>
-  <p><%= esc(upgradePlan.blockId) %> <%= esc(upgradePlan.fromVersion) %> -&gt; <%= esc(upgradePlan.toVersion) %> (<%= esc(upgradePlan.status) %>)</p>
+  <p><%- esc(upgradePlan.blockId) %> <%- esc(upgradePlan.fromVersion) %> -&gt; <%- esc(upgradePlan.toVersion) %> (<%- esc(upgradePlan.status) %>)</p>
   <%- subCard('Preflight Summary', dataTable(['Group','Checks','Evidence Items'], preflightRows(buildReviewUpgradePreflightSummaries(upgradePlan.preflightChecks)), 3, 'No preflight checks.')) %>
   <%- subCard('Preflight Checks', dataTable(['ID','Status','Message','Evidence'], upgradePlan.preflightChecks.map(function(c) { return [c.id, c.status, c.message, c.evidence.join(', ') || 'none']; }), 4, 'No preflight checks.')) %>
   <%- subCard('Migration Kind Summary', dataTable(['Kind','Count'], countRecordRows(upgradePlan.migrationKindCounts), 2, 'No migration kinds.')) %>
@@ -78,7 +78,7 @@
   <h2>Upgrade Diagnostics</h2>
   <table>
     <thead><tr><th>Status</th><th>Phase</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
-    <tbody><tr><td><%= esc(upgradeDiagnostics.status) %></td><td><%= esc(upgradeDiagnostics.phase ?? 'planning') %></td><td><%= esc(upgradeDiagnostics.blockId) %></td><td><%= esc(upgradeDiagnostics.targetVersion) %></td><td><%= esc(upgradeDiagnostics.failedCheck) %></td><td><%= esc(upgradeDiagnostics.errorCode) %></td><td><%= esc(upgradeDiagnostics.message) %></td><td><%= upgradeDiagnostics.details === undefined ? 'none' : '' %><% if (upgradeDiagnostics.details !== undefined) { %><%- jsonPre(upgradeDiagnostics.details) %><% } %></td></tr></tbody>
+    <tbody><tr><td><%- esc(upgradeDiagnostics.status) %></td><td><%- esc(upgradeDiagnostics.phase ?? 'planning') %></td><td><%- esc(upgradeDiagnostics.blockId) %></td><td><%- esc(upgradeDiagnostics.targetVersion) %></td><td><%- esc(upgradeDiagnostics.failedCheck) %></td><td><%- esc(upgradeDiagnostics.errorCode) %></td><td><%- esc(upgradeDiagnostics.message) %></td><td><%= upgradeDiagnostics.details === undefined ? 'none' : '' %><% if (upgradeDiagnostics.details !== undefined) { %><%- jsonPre(upgradeDiagnostics.details) %><% } %></td></tr></tbody>
   </table>
 </section>
 <% } %>

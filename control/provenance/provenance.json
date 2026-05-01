@@ -138,6 +138,14 @@
       "overrideStatus": "none"
     },
     {
+      "path": "control/evidence/review-summary.json",
+      "originType": "generated",
+      "originId": "control/evidence/review-summary.json",
+      "generatedByPass": "verify",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
       "path": "control/evidence/runtime-report.json",
       "originType": "generated",
       "originId": "control/evidence/runtime-report.json",
@@ -166,6 +174,22 @@
       "originType": "generated",
       "originId": "control/provenance/provenance.json",
       "generatedByPass": "lock",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "control/workbench/views/slot-rule-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/slot-rule-view.html",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "control/workbench/views/source-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/source-view.html",
+      "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none"
     },
@@ -337,6 +361,19 @@
       "path": "tests/runtime/unit/customer-runtime.test.ts",
       "originType": "generated",
       "originId": "tests/runtime/unit/customer-runtime.test.ts",
+      "generatedByPass": "compose",
+      "verifiedBy": [],
+      "overrideStatus": "none"
+    },
+    {
+      "path": "tests/shared/tenant-runtime-fixture.ts",
+      "originType": "block",
+      "originId": "tenant/basic-workspace",
+      "sourceBlock": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none"

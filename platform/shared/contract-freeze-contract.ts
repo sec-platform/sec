@@ -189,7 +189,7 @@ export function buildContractFreezeContract(): ContractFreezeContract {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: CONTRACT_STATUS_ACTIVE,
     command: platformCommand('contract', 'freeze', '--json'),
-    runnerCommand: 'npm run test:contract-freeze',
+    runnerCommand: 'bun run test:contract-freeze',
     targetFileCount: targetFiles.length,
     targetFiles,
     targetCount: targets.length,

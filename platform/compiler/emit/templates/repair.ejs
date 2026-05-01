@@ -1,4 +1,4 @@
-<%- include('helpers') %>
+<% await include('helpers') %>
 <%
   function taxonomyRows(entries) { return entries.map(function(e) { return [e.id, String(e.count)]; }); }
 %>
@@ -30,7 +30,7 @@
 <% if (repairPlan) { %>
 <section class="card">
   <h2>Repair Plan</h2>
-  <p><%= esc(repairPlan.status) %> | source verification: <%= esc(repairPlan.sourceVerificationStatus) %> | requires verification: <%= esc(String(repairPlan.requiresVerification)) %></p>
+  <p><%- esc(repairPlan.status) %> | source verification: <%- esc(repairPlan.sourceVerificationStatus) %> | requires verification: <%- esc(String(repairPlan.requiresVerification)) %></p>
   <% if (repairPlan.blockers?.length) { %>
     <%- subCard('Blockers', dataTable(['Blocker','Boundary','Reason','Decision Required'], repairPlan.blockers.map(function(b) { return [b.blockerId, b.boundary, b.reason, b.decisionRequired]; }), 4, 'No blockers.')) %>
   <% } %>

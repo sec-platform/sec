@@ -39,10 +39,10 @@ test('compose refreshes runtime host scaffold for an existing workspace baseline
     scripts: Record<string, string>;
   }>(path.join(projectRoot, 'package.json'));
   expect(projectPackage.scripts.build).toBe('next build --webpack');
-  expect(projectPackage.scripts['verify:runtime:service']).toBe('npm run test:unit');
+  expect(projectPackage.scripts['verify:runtime:service']).toBe('bun run test:unit');
   expect(projectPackage.scripts['verify:runtime:full']).toBe(
-    'npm run build && npm run test:unit && npm run test:acceptance'
+    'bun run build && bun run test:unit && bun run test:acceptance'
   );
-  expect(projectPackage.scripts['verify:runtime']).toBe('npm run verify:runtime:full');
+  expect(projectPackage.scripts['verify:runtime']).toBe('bun run verify:runtime:full');
   await expect(fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8')).resolves.toContain('workers: 1');
 });

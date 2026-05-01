@@ -24,10 +24,10 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
 
   expect(formatReferenceCheck(report)).toContain('Reference workspace drifted');
   expect(formatReferenceCheck(report)).toContain('Failed stage: diff');
-  expect(formatReferenceCheck(report)).toContain('Command: npm run platform -- reference check --json');
-  expect(formatReferenceCheck(report)).toContain('Runner command: npm run reference:check');
+  expect(formatReferenceCheck(report)).toContain('Command: bun run platform -- reference check --json');
+  expect(formatReferenceCheck(report)).toContain('Runner command: bun run reference:check');
   expect(formatReferenceCheck(report)).toContain(
-    'Commands: refresh=npm run reference:refresh; diff=git diff --name-only --exit-code -- source project control'
+    'Commands: refresh=bun run reference:refresh; diff=git diff --name-only --exit-code -- source project control'
   );
   expect(formatReferenceCheck(report)).toContain(
     `Changed paths: ${CI_ARTIFACT_FILES.reviewSummary}, source/app.yaml`
@@ -38,9 +38,9 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     status: 'drifted',
     failedStage: 'diff',
     root: compilerRoot,
-    command: 'npm run platform -- reference check --json',
-    runnerCommand: 'npm run reference:check',
-    refreshCommand: 'npm run reference:refresh',
+    command: 'bun run platform -- reference check --json',
+    runnerCommand: 'bun run reference:check',
+    refreshCommand: 'bun run reference:refresh',
     refreshExitCode: 0,
     diffCommand: 'git diff --name-only --exit-code -- source project control',
     diffExitCode: 1,

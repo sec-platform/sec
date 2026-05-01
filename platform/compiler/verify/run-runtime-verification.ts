@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { listFilesRecursive } from '../../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
-import { pathEnvKey, resolveNpmInvocation, runCommand } from '../../shared/process.ts';
+import { pathEnvKey, runCommand } from '../../shared/process.ts';
 import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 
@@ -14,10 +14,14 @@ type RuntimeVerificationOptions = {
 type RuntimeVerificationStep = 'build' | 'unit' | 'acceptance';
 
 const RUNTIME_VERIFICATION_COMMANDS = {
-  build: 'npm run build',
-  unit: 'npm run test:unit',
-  acceptance: 'npm run test:acceptance'
+  build: 'bun run build',
+  unit: 'bun run test:unit',
+  acceptance: 'bun run test:acceptance'
 } satisfies Record<RuntimeVerificationStep, string>;
+
+function bunRunInvocation(script: string): { command: string; args: string[] } {
+  return { command: 'bun', args: ['run', script] };
+}
 
 function createRuntimeStepReport(
   status: VerificationStatus,
@@ -134,7 +138,7 @@ export async function runRuntimeVerification(
   const lane = createSkippedRuntimeLane();
 
   if (mode === 'full') {
-    const buildInvocation = resolveNpmInvocation(['run', 'build']);
+    const buildInvocation = bunRunInvocation('build');
     const buildResult = await timed('next build', emitTiming, () =>
       runCommand(buildInvocation.command, buildInvocation.args, {
         cwd: projectRoot,
@@ -151,7 +155,7 @@ export async function runRuntimeVerification(
   }
 
   if (runtimeUnitFiles.length > 0) {
-    const unitInvocation = resolveNpmInvocation(['run', 'test:unit']);
+    const unitInvocation = bunRunInvocation('test:unit');
     const unitResult = await timed('vitest unit', emitTiming, () =>
       runCommand(unitInvocation.command, unitInvocation.args, {
         cwd: projectRoot,
@@ -186,7 +190,7 @@ export async function runRuntimeVerification(
   }
 
   const testPort = generatePort(projectRoot);
-  const acceptanceInvocation = resolveNpmInvocation(['run', 'test:acceptance']);
+  const acceptanceInvocation = bunRunInvocation('test:acceptance');
   const acceptanceResult = await timed('playwright test', emitTiming, () =>
     runCommand(acceptanceInvocation.command, acceptanceInvocation.args, {
       cwd: projectRoot,

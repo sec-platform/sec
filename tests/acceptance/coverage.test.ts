@@ -30,7 +30,7 @@ function runtime(passed: string[]): RuntimeVerificationLaneReport {
     status: 'passed',
     build: { status: 'skipped', passed: [], failed: [], command: null },
     unit: { status: 'skipped', passed: [], failed: [], command: null },
-    acceptance: { status: 'passed', passed, failed: [], command: 'npm run test:acceptance' },
+    acceptance: { status: 'passed', passed, failed: [], command: 'bun run test:acceptance' },
     logs: emptyVerificationLogs()
   };
 }

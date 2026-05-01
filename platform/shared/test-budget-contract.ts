@@ -79,7 +79,7 @@ export function buildTestBudgetContract(): TestBudgetContract {
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
     command: platformCommand('test', 'budget', '--json'),
-    runnerCommand: 'npm run test:budget',
+    runnerCommand: 'bun run test:budget',
     defaultLane: 'fast',
     laneCount: lanes.length,
     slowLaneCount: slowLaneIds.length,
@@ -87,7 +87,7 @@ export function buildTestBudgetContract(): TestBudgetContract {
     slowTestFileCount: slowTestFiles.length,
     slowTestFiles: getSlowTestFiles(),
     lanes,
-    localDefault: 'npm test / npm run check stay on fast tests; use test:all or check:full for slow runtime gates',
+    localDefault: 'bun run test / bun run check stay on fast tests; use test:all or check:full for slow runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
 }
