@@ -54,6 +54,7 @@ export interface WorkspacePaths {
   explainGraphDotPath: string;
   reviewSummaryPath: string;
   ciArtifactsPath: string;
+  overviewViewPath: string;
   sourceViewPath: string;
   slotRuleViewPath: string;
   graphViewPath: string;

@@ -271,7 +271,14 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       formatVersion: '1',
       root: 'workspace'
     });
-    expect(manifest.missing).toEqual([]);
+    const overviewMissingDiagnostics: CiArtifactMissingEntry[] = [
+      {
+        path: CI_ARTIFACT_FILES.overviewView,
+        reason: CI_ARTIFACT_MISSING_REASON.fixedViewMissing,
+        declaredBy: 'artifact-manifest'
+      }
+    ];
+    expect(manifest.missing).toEqual(overviewMissingDiagnostics);
     const governancePaths = artifactPathsByKind(manifest, 'governance');
     const viewPaths = artifactPathsByKind(manifest, 'view');
     const testPaths = artifactPathsByKind(manifest, 'test');
@@ -283,7 +290,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       ...optionalUploadGroup('contract', manifest.summary.contractCount, contractPaths)
     ];
     expect(manifest.summary).toEqual({
-      artifactStatus: 'passed',
+      artifactStatus: 'attention',
       artifactCount: manifest.artifacts.length,
       governanceCount: governancePaths.length,
       viewCount: viewPaths.length,
@@ -291,15 +298,17 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       contractCount: 0,
       contractPaths: [],
       uploadGroupCount: expectedUploadGroups.length,
-      missingCount: 0,
-      missingReasonTypeCount: 0,
-      missingReasonCounts: buildArtifactMissingReasonCounts()
+      missingCount: overviewMissingDiagnostics.length,
+      missingReasonTypeCount: 1,
+      missingReasonCounts: buildArtifactMissingReasonCounts({
+        [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
+      })
     });
     expect(manifest.uploadGroups).toEqual(expectedUploadGroups);
 
     await expectCliText(workspaceRoot, ['artifacts', 'manifest'], [
-      'Artifact manifest passed',
-      `artifacts=${manifest.summary.artifactCount}; missing=0; upload groups=${manifest.summary.uploadGroupCount}`
+      'Artifact manifest attention',
+      `artifacts=${manifest.summary.artifactCount}; missing=${overviewMissingDiagnostics.length}; upload groups=${manifest.summary.uploadGroupCount}`
     ]);
 
     const inspectJson = await expectCliJson<CiArtifactManifest>(
@@ -359,7 +368,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       ])
     );
 
-    const { lockPath, provenancePath, reviewSummaryPath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
+    const { lockPath, overviewViewPath, provenancePath, reviewSummaryPath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
     const lock = await readJson<{ generatedPaths: string[] }>(lockPath);
     const provenance = await readJson<{
       artifacts: Array<{ path: string; generatedByPass?: string }>;
@@ -371,6 +380,37 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
         generatedByPass: 'artifacts'
       })
     );
+
+    try {
+      await fs.writeFile(overviewViewPath, '<!doctype html><title>Overview</title>\n', 'utf8');
+      const manifestWithOverview = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
+      const viewPathsWithOverview = artifactPathsByKind(manifestWithOverview, 'view');
+      expect(CI_ARTIFACT_PATHS.view[0]).toBe(CI_ARTIFACT_FILES.overviewView);
+      expect(viewPathsWithOverview).toContain(CI_ARTIFACT_FILES.overviewView);
+      expect(manifestWithOverview.missing).toEqual([]);
+      expect(manifestWithOverview.summary).toMatchObject({
+        artifactStatus: 'passed',
+        missingCount: 0,
+        missingReasonTypeCount: 0
+      });
+      expect(manifestWithOverview.artifacts).toContainEqual({
+        path: CI_ARTIFACT_FILES.overviewView,
+        kind: 'view',
+        uploadName: 'control__workbench__views__overview-view.html',
+        exists: true
+      });
+      expectUploadGroup(
+        manifestWithOverview.uploadGroups,
+        'view',
+        viewPathsWithOverview,
+        viewPathsWithOverview.length
+      );
+    } finally {
+      await fs.rm(overviewViewPath, { force: true });
+    }
+    const manifestAfterOverviewProbe = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
+    expect(manifestAfterOverviewProbe.summary).toMatchObject(manifest.summary);
+    expect(manifestAfterOverviewProbe.missing).toEqual(overviewMissingDiagnostics);
 
     const explainPayload = await expectCliJson<{
       reviewSummary: {
@@ -389,11 +429,17 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
 
     const contractManifest = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     expect(contractManifest.summary).toMatchObject({
+      artifactStatus: 'attention',
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json'],
       uploadGroupCount: contractManifest.uploadGroups.length,
-      missingReasonTypeCount: 0
+      missingCount: overviewMissingDiagnostics.length,
+      missingReasonTypeCount: 1,
+      missingReasonCounts: buildArtifactMissingReasonCounts({
+        [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
+      })
     });
+    expect(contractManifest.missing).toEqual(overviewMissingDiagnostics);
     expect(contractManifest.artifacts).toContainEqual({
       path: 'generated/postgres-contract.json',
       kind: 'contract',
@@ -441,8 +487,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(contractPathsCompact).toEqual(contractPathsJson);
 
     await expectCliText(workspaceRoot, ['explain'], [
-      `E2E artifacts: passed; total=${contractManifest.summary.artifactCount}; missing=0; evidence=total=${contractManifest.summary.artifactCount}, missing=0, uploadGroups=${contractManifest.summary.uploadGroupCount}, missingReasonTypes=0`,
-      'missing reason types: 0',
+      `E2E artifacts: attention; total=${contractManifest.summary.artifactCount}; missing=${overviewMissingDiagnostics.length}; evidence=total=${contractManifest.summary.artifactCount}, missing=${overviewMissingDiagnostics.length}, uploadGroups=${contractManifest.summary.uploadGroupCount}, missingReasonTypes=1`,
+      'missing reason types: 1',
       'contracts: 1',
       `upload groups: ${contractManifest.summary.uploadGroupCount}`
     ]);
@@ -454,7 +500,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       contractCount: 1,
       contractPaths: ['generated/postgres-contract.json'],
       uploadGroupCount: contractManifest.uploadGroups.length,
-      missingReasonTypeCount: 0
+      missingCount: overviewMissingDiagnostics.length,
+      missingReasonTypeCount: 1
     });
     expectUploadGroup(
       contractReviewSummary.artifactSummary?.uploadGroups,
@@ -476,12 +523,13 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     ];
     expect(manifestWithLockMissing.summary.artifactStatus).toBe('attention');
     expect(manifestWithLockMissing.summary.uploadGroupCount).toBe(manifestWithLockMissing.uploadGroups.length);
-    expect(manifestWithLockMissing.summary.missingCount).toBe(1);
-    expect(manifestWithLockMissing.summary.missingReasonTypeCount).toBe(1);
+    expect(manifestWithLockMissing.summary.missingCount).toBe(2);
+    expect(manifestWithLockMissing.summary.missingReasonTypeCount).toBe(2);
     expect(manifestWithLockMissing.summary.missingReasonCounts).toEqual(buildArtifactMissingReasonCounts({
-      [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
+      [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
+      [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
     }));
-    expect(manifestWithLockMissing.missing).toEqual(lockMissingDiagnostics);
+    expect(manifestWithLockMissing.missing).toEqual([...overviewMissingDiagnostics, ...lockMissingDiagnostics]);
 
     const explainWithMissingPayload = await expectCliJson<{
       e2eMatrix: {
@@ -494,17 +542,20 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(
       manifestWithLockMissing.uploadGroups
     );
-    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missingReasonTypeCount).toBe(1);
+    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missingReasonTypeCount).toBe(2);
     expect(explainWithMissingPayload.e2eMatrix.rows.find((row) => row.stage === 'artifacts')).toMatchObject({
       evidenceCount: 4,
       evidence: [
         `total=${manifestWithLockMissing.summary.artifactCount}`,
-        'missing=1',
+        'missing=2',
         `uploadGroups=${manifestWithLockMissing.summary.uploadGroupCount}`,
-        'missingReasonTypes=1'
+        'missingReasonTypes=2'
       ]
     });
-    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual(lockMissingDiagnostics);
+    expect(explainWithMissingPayload.reviewSummary.artifactSummary?.missing).toEqual([
+      ...overviewMissingDiagnostics,
+      ...lockMissingDiagnostics
+    ]);
 
     const testPathsBeforeFixture = await expectCliSuccess(workspaceRoot, ['artifacts', '--paths', '--kind', 'test']);
     expect(testPathsBeforeFixture.stdout === '\n' || testPathsBeforeFixture.stdout === 'project/test-results/**\n').toBe(true);
@@ -528,11 +579,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       paths: ['project/test-results/**'],
       byKind: { test: 1 },
       uploadGroups: [buildArtifactUploadGroup('test', 1, ['project/test-results/**'])],
-      missingReasonTypeCount: 1,
+      missingReasonTypeCount: 2,
       missingReasonCounts: buildArtifactMissingReasonCounts({
-        [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1
+        [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
+        [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
       }),
-      missing: lockMissingDiagnostics
+      missing: [...overviewMissingDiagnostics, ...lockMissingDiagnostics]
     });
 
     const testManifest = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
@@ -544,7 +596,8 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     }>(reviewSummaryPath);
     expect(refreshedReviewSummary.artifactSummary).toMatchObject({
       testCount: 1,
-      missingReasonTypeCount: 1
+      missingCount: 2,
+      missingReasonTypeCount: 2
     });
     expectUploadGroup(
       refreshedReviewSummary.artifactSummary?.uploadGroups,
@@ -575,6 +628,11 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
         declaredBy: 'artifact-manifest'
       },
       {
+        path: CI_ARTIFACT_FILES.overviewView,
+        reason: CI_ARTIFACT_MISSING_REASON.fixedViewMissing,
+        declaredBy: 'artifact-manifest'
+      },
+      {
         path: CI_ARTIFACT_FILES.sourceView,
         reason: CI_ARTIFACT_MISSING_REASON.fixedViewMissing,
         declaredBy: 'artifact-manifest'
@@ -582,12 +640,12 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       ...lockMissingDiagnostics
     ];
     expect(manifestWithMissing.summary.artifactStatus).toBe('attention');
-    expect(manifestWithMissing.summary.missingCount).toBe(3);
+    expect(manifestWithMissing.summary.missingCount).toBe(4);
     expect(manifestWithMissing.summary.missingReasonTypeCount).toBe(3);
     expect(manifestWithMissing.summary.missingReasonCounts).toEqual(buildArtifactMissingReasonCounts({
       [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
       [CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing]: 1,
-      [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
+      [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 2
     }));
     expect(manifestWithMissing.missing).toEqual(fixedMissingDiagnostics);
 
@@ -606,6 +664,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(uploadPaths).toContain(CI_ARTIFACT_MANIFEST_PATH);
     expect(uploadPaths).toContain(CI_ARTIFACT_FILES.reviewSummary);
     expect(uploadPaths).not.toContain('project/generated/missing-diagnostic.json');
+    expect(uploadPaths).not.toContain(CI_ARTIFACT_FILES.overviewView);
     expect(uploadPaths).not.toContain(CI_ARTIFACT_FILES.sourceView);
 
     const pathsJson = await expectCliJson<ArtifactPathsPayload>(workspaceRoot, ['artifacts', '--paths', '--json']);
@@ -632,7 +691,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     expect(pathsJson.missingReasonCounts).toEqual(buildArtifactMissingReasonCounts({
       [CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing]: 1,
       [CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing]: 1,
-      [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 1
+      [CI_ARTIFACT_MISSING_REASON.fixedViewMissing]: 2
     }));
     expect(pathsJson.missing).toEqual(fixedMissingDiagnostics);
 
@@ -650,7 +709,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       'view'
     ]);
     const expectedAvailableViewPaths = CI_ARTIFACT_PATHS.view
-      .filter((viewPath) => viewPath !== CI_ARTIFACT_FILES.sourceView)
+      .filter((viewPath) => viewPath !== CI_ARTIFACT_FILES.overviewView && viewPath !== CI_ARTIFACT_FILES.sourceView)
       .sort();
     expectArtifactPathsPayload(viewPathsJson, {
       kind: 'view',
