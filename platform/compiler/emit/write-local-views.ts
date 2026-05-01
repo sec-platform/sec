@@ -5,7 +5,7 @@ import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts'
 import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, countPositiveValues, uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import type { ExplainGraph } from '../../shared/explain-types.ts';
+import { EXPLAIN_NODE_TYPES, type ExplainGraph } from '../../shared/explain-types.ts';
 import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
@@ -118,6 +118,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
 
   const sharedData = {
     review, lock, provenance, policyReport, graph, repairPlan, upgradeDiagnostics, upgradePlan,
+    explainNodeTypes: EXPLAIN_NODE_TYPES,
     countMatching, countPositiveValues, uniqueSorted, formatList,
     buildE2eMatrix, buildReviewUpgradePreflightSummaries,
     buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath

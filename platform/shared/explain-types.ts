@@ -1,17 +1,20 @@
 import type { ProvenanceArtifact } from './provenance-types.ts';
 
-export type ExplainNodeType =
-  | 'app'
-  | 'block'
-  | 'capability'
-  | 'pin'
-  | 'slot'
-  | 'file'
-  | 'acceptance'
-  | 'policy'
-  | 'override'
-  | 'repair'
-  | 'upgrade';
+export const EXPLAIN_NODE_TYPES = [
+  'app',
+  'block',
+  'capability',
+  'pin',
+  'slot',
+  'file',
+  'acceptance',
+  'policy',
+  'override',
+  'repair',
+  'upgrade'
+] as const;
+
+export type ExplainNodeType = (typeof EXPLAIN_NODE_TYPES)[number];
 
 export type ExplainEdgeType =
   | 'depends_on'
