@@ -1,0 +1,84 @@
+<%- include('helpers') %>
+<%
+  function taxonomyRows(entries) { return entries.map(function(e) { return [e.id, String(e.count)]; }); }
+  function countRecordRows(counts) {
+    return Object.entries(counts).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e) { return [e[0], String(e[1])]; });
+  }
+  function preflightRows(summaries) { return summaries.map(function(s) { return [s.group, String(s.checkCount), String(s.evidenceCount)]; }); }
+  function migrationRows(migrations) { return migrations.map(function(m) { return [m.id, m.kind, m.source ?? 'none', m.target, m.slotId ?? 'none', String(m.requiresVerification), m.reason]; }); }
+  function operationRoleRows(operations) {
+    const counts = {};
+    for (const o of operations) { counts[o.role] = (counts[o.role] ?? 0) + 1; }
+    return countRecordRows(counts);
+  }
+  function operationDetail(o) {
+    return [
+      o.source ? 'source=' + o.source : '',
+      o.slotId ? 'slot=' + o.slotId : '',
+      o.inputType ? 'input=' + o.inputType : '',
+      o.outputType ? 'output=' + o.outputType : '',
+      o.writableZones ? 'writable=' + o.writableZones.join(', ') : '',
+      o.path ? 'path=' + o.path.join('.') : '',
+      o.updateCount !== undefined ? 'updates=' + o.updateCount : '',
+      o.itemCount !== undefined ? 'items=' + o.itemCount : '',
+      o.valueKeyCount !== undefined ? 'valueKeys=' + o.valueKeyCount : '',
+      o.contentLength !== undefined ? 'contentLength=' + o.contentLength : '',
+      o.searchLength !== undefined ? 'searchLength=' + o.searchLength : '',
+      o.replacementLength !== undefined ? 'replacementLength=' + o.replacementLength : '',
+      o.pattern ? 'pattern=' + o.pattern : '',
+      o.flags ? 'flags=' + o.flags : ''
+    ].filter(function(d) { return d.length > 0; }).join('; ') || 'none';
+  }
+  function operationRows(operations) { return operations.map(function(o) { return [o.id, o.kind, o.role, o.target, operationDetail(o)]; }); }
+%>
+
+<% if (review.upgradeSummary) { const u = review.upgradeSummary; %>
+<section class="card">
+  <h2>Upgrade Summary</h2>
+  <%- metricTable([
+    ['Status', u.status], ['Block', u.blockId], ['From Version', u.fromVersion ?? 'unknown'], ['To Version', u.toVersion],
+    ['Preflight Checks', String(u.preflightCheckCount)], ['Preflight Evidence', String(u.preflightEvidenceCount)],
+    ['Migrations', String(u.migrationCount)], ['Source Migrations', String(u.sourceMigrationCount)],
+    ['Slot Migrations', String(u.slotMigrationCount)], ['Operations', String(u.migrationOperationCount)],
+    ['Impacts', String(u.impactCount)], ['Requires Verification', String(u.requiresVerification)],
+    ['Verification Migrations', String(u.requiresVerificationCount)]
+  ]) %>
+  <%- subCard('Upgrade Preflight Summary', dataTable(['Group','Checks','Evidence Items'], preflightRows(buildReviewUpgradePreflightSummaries(u.preflightSummaries)), 3, 'No upgrade preflight checks.')) %>
+  <%- subCard('Upgrade Migration Kind Summary', dataTable(['Kind','Count'], countRecordRows(u.migrationKindCounts), 2, 'No upgrade migration kinds.')) %>
+  <%- subCard('Upgrade Operation Role Summary', dataTable(['Role','Count'], operationRoleRows(u.migrationOperationSummaries), 2, 'No upgrade operation roles.')) %>
+  <%- subCard('Upgrade Verification Summary', dataTable(['Verification','Count'], taxonomyRows(u.verificationSummaries), 2, 'No upgrade verification categories.')) %>
+  <%- subCard('Upgrade Migration Summary', dataTable(['ID','Kind','Source','Target','Slot','Requires Verification','Reason'], migrationRows(u.migrationSummaries), 7, 'No upgrade migrations.')) %>
+  <%- subCard('Upgrade Migration Operation Summary', dataTable(['ID','Kind','Role','Target','Details'], operationRows(u.migrationOperationSummaries), 5, 'No upgrade migration operations.')) %>
+  <% if (u.diagnostics) { %>
+    <h3>Upgrade Blocker Summary</h3>
+    <table>
+      <thead><tr><th>Phase</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
+      <tbody><tr><td><%= esc(u.diagnostics.phase ?? 'planning') %></td><td><%= esc(u.diagnostics.failedCheck) %></td><td><%= esc(u.diagnostics.errorCode) %></td><td><%= esc(u.diagnostics.message) %></td><td><%= u.diagnostics.details === undefined ? 'none' : '' %><% if (u.diagnostics.details !== undefined) { %><%- jsonPre(u.diagnostics.details) %><% } %></td></tr></tbody>
+    </table>
+  <% } %>
+</section>
+<% } %>
+
+<% if (upgradePlan) { %>
+<section class="card">
+  <h2>Upgrade Plan</h2>
+  <p><%= esc(upgradePlan.blockId) %> <%= esc(upgradePlan.fromVersion) %> -&gt; <%= esc(upgradePlan.toVersion) %> (<%= esc(upgradePlan.status) %>)</p>
+  <%- subCard('Preflight Summary', dataTable(['Group','Checks','Evidence Items'], preflightRows(buildReviewUpgradePreflightSummaries(upgradePlan.preflightChecks)), 3, 'No preflight checks.')) %>
+  <%- subCard('Preflight Checks', dataTable(['ID','Status','Message','Evidence'], upgradePlan.preflightChecks.map(function(c) { return [c.id, c.status, c.message, c.evidence.join(', ') || 'none']; }), 4, 'No preflight checks.')) %>
+  <%- subCard('Migration Kind Summary', dataTable(['Kind','Count'], countRecordRows(upgradePlan.migrationKindCounts), 2, 'No migration kinds.')) %>
+  <%- subCard('Operation Role Summary', dataTable(['Role','Count'], operationRoleRows(upgradePlan.migrationOperations), 2, 'No upgrade plan operation roles.')) %>
+  <%- subCard('Migrations', dataTable(['ID','Kind','Source','Target','Slot','Requires Verification','Reason'], migrationRows(upgradePlan.migrationSummaries), 7, 'No migrations.')) %>
+  <%- subCard('Migration Operations', dataTable(['ID','Kind','Role','Target','Details'], operationRows(upgradePlan.migrationOperations), 5, 'No upgrade plan migration operations.')) %>
+  <%- subCard('Impacts', dataTable(['Path'], upgradePlan.impacts.map(function(i) { return [i]; }), 1, 'No impacts.')) %>
+</section>
+<% } %>
+
+<% if (upgradeDiagnostics) { %>
+<section class="card">
+  <h2>Upgrade Diagnostics</h2>
+  <table>
+    <thead><tr><th>Status</th><th>Phase</th><th>Block</th><th>Target Version</th><th>Failed Check</th><th>Error</th><th>Message</th><th>Details</th></tr></thead>
+    <tbody><tr><td><%= esc(upgradeDiagnostics.status) %></td><td><%= esc(upgradeDiagnostics.phase ?? 'planning') %></td><td><%= esc(upgradeDiagnostics.blockId) %></td><td><%= esc(upgradeDiagnostics.targetVersion) %></td><td><%= esc(upgradeDiagnostics.failedCheck) %></td><td><%= esc(upgradeDiagnostics.errorCode) %></td><td><%= esc(upgradeDiagnostics.message) %></td><td><%= upgradeDiagnostics.details === undefined ? 'none' : '' %><% if (upgradeDiagnostics.details !== undefined) { %><%- jsonPre(upgradeDiagnostics.details) %><% } %></td></tr></tbody>
+  </table>
+</section>
+<% } %>

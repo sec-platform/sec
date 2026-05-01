@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { z } from 'zod';
 import { ensureDir, isFileNotFoundError } from './fs.ts';
 
 export async function readYaml<T>(filePath: string): Promise<T> {
@@ -12,27 +13,12 @@ export async function readOptionalYaml<T>(filePath: string): Promise<T | null> {
   try {
     return await readYaml<T>(filePath);
   } catch (error) {
-    if (isFileNotFoundError(error)) {
-      return null;
-    }
+    if (isFileNotFoundError(error)) return null;
     throw error;
   }
 }
 
-export type YamlSchemaError = {
-  path: string[];
-  message: string;
-};
-
-export type YamlValidationResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; errors: YamlSchemaError[] };
-
-export interface YamlSchemaValidator<T> {
-  validate(value: unknown): YamlValidationResult<T>;
-}
-
-export async function readYamlWithSchema<T>(filePath: string, validator: YamlSchemaValidator<T>): Promise<T> {
+export async function readYamlWithSchema<T>(filePath: string, schema: z.ZodType<T>): Promise<T> {
   const raw = await fs.readFile(filePath, 'utf8');
   let parsed: unknown;
   try {
@@ -40,14 +26,14 @@ export async function readYamlWithSchema<T>(filePath: string, validator: YamlSch
   } catch (error) {
     throw new Error(`Failed to parse YAML at "${filePath}": ${error instanceof Error ? error.message : String(error)}`);
   }
-  const result = validator.validate(parsed);
-  if (!result.ok) {
-    const errorMessages = result.errors
-      .map((error_) => `${error_.path.join('.')}: ${error_.message}`)
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    const errorMessages = result.error.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
       .join('\n');
     throw new Error(`Schema validation failed for "${filePath}":\n${errorMessages}`);
   }
-  return result.value;
+  return result.data;
 }
 
 export async function writeYaml(filePath: string, value: unknown): Promise<void> {

@@ -1,0 +1,20 @@
+<%- include('helpers') %>
+<%
+  const failureGroups = new Map();
+  for (const f of review.failurePoints) {
+    const key = f.lane + ':' + f.kind;
+    let g = failureGroups.get(key);
+    if (!g) { g = { lane: f.lane, kind: f.kind, count: 0, artifacts: new Set() }; failureGroups.set(key, g); }
+    g.count += 1;
+    g.artifacts.add(f.artifactPath);
+  }
+  const groupRows = [...failureGroups.values()].sort(function(a, b) { return a.lane.localeCompare(b.lane) || a.kind.localeCompare(b.kind); }).map(function(g) {
+    return [g.lane, g.kind, String(g.count), [...g.artifacts].join(', ') || ''];
+  });
+  const detailRows = review.failurePoints.map(function(f) { return [f.lane, f.kind, f.artifactPath, f.message]; });
+%>
+<section class="card">
+  <h2>Failure Focus</h2>
+  <%- subCard('Failure Groups', dataTable(['Lane','Kind','Count','Artifacts'], groupRows, 4, 'No failure groups.')) %>
+  <%- subCard('Failure Details', dataTable(['Lane','Kind','Artifact','Message'], detailRows, 4, 'No failure points.')) %>
+</section>

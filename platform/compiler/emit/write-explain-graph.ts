@@ -1,7 +1,7 @@
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../shared/explain-types.ts';
+import type { ExplainEdgeType, ExplainGraph, ExplainGraphEdge, ExplainGraphNode, ExplainNodeType } from '../../shared/explain-types.ts';
 import { pathExists, readJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
@@ -15,23 +15,47 @@ import { readReviewGovernanceReports } from './read-review-governance-reports.ts
 import { buildRuntimeAttribution } from './runtime-attribution.ts';
 import { buildProvenance, writeProvenance } from './write-provenance.ts';
 
-function pushNode(nodes: ExplainGraphNode[], node: ExplainGraphNode): void {
-  if (!nodes.some((candidate) => candidate.id === node.id)) {
-    nodes.push(node);
-  }
-}
+class GraphBuilder {
+  private readonly nodeSet = new Set<string>();
+  private readonly edgeSet = new Set<string>();
+  private readonly nodes: ExplainGraphNode[] = [];
+  private readonly edges: ExplainGraphEdge[] = [];
 
-function pushEdge(edges: ExplainGraphEdge[], edge: ExplainGraphEdge): void {
-  if (!edges.some((candidate) => candidate.from === edge.from && candidate.to === edge.to && candidate.type === edge.type)) {
-    edges.push(edge);
+  node(id: string, type: ExplainNodeType, label: string): this {
+    if (!this.nodeSet.has(id)) {
+      this.nodeSet.add(id);
+      this.nodes.push({ id, type, label });
+    }
+    return this;
+  }
+
+  edge(from: string, to: string, type: ExplainEdgeType): this {
+    const key = `${from}:${type}:${to}`;
+    if (!this.edgeSet.has(key)) {
+      this.edgeSet.add(key);
+      this.edges.push({ from, to, type });
+    }
+    return this;
+  }
+
+  link(from: string, to: string, type: ExplainEdgeType, nodeType: ExplainNodeType, label: string): this {
+    this.node(to, nodeType, label);
+    this.edge(from, to, type);
+    return this;
+  }
+
+  build(overlays: ExplainGraph['overlays']): ExplainGraph {
+    return {
+      nodes: this.nodes.sort((a, b) => a.id.localeCompare(b.id)),
+      edges: this.edges.sort((a, b) => `${a.from}:${a.type}:${a.to}`.localeCompare(`${b.from}:${b.type}:${b.to}`)),
+      overlays
+    };
   }
 }
 
 function readUpgradeDiagnosticsString(diagnostics: UpgradeDiagnostics, key: string): string | null {
   const details = diagnostics.details;
-  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
-    return null;
-  }
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) return null;
   const value = (details as Record<string, unknown>)[key];
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
@@ -46,486 +70,172 @@ export async function buildExplainGraph(
   repairPlan: RepairPlan | null = null,
   upgradeDiagnostics: UpgradeDiagnostics | null = null
 ): Promise<ExplainGraph> {
-  const nodes: ExplainGraphNode[] = [];
-  const edges: ExplainGraphEdge[] = [];
+  const g = new GraphBuilder();
 
-  pushNode(nodes, {
-    id: `app:${lock.app.name}`,
-    type: 'app',
-    label: lock.app.name
-  });
+  g.node(`app:${lock.app.name}`, 'app', lock.app.name);
 
   for (const block of lock.resolvedBlocks) {
     const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
-    const blockNodeId = `block:${block.id}`;
-    pushNode(nodes, {
-      id: blockNodeId,
-      type: 'block',
-      label: block.id
-    });
-    pushEdge(edges, {
-      from: `app:${lock.app.name}`,
-      to: blockNodeId,
-      type: 'depends_on'
-    });
+    const blockId = `block:${block.id}`;
+    g.node(blockId, 'block', block.id);
+    g.edge(`app:${lock.app.name}`, blockId, 'depends_on');
 
-    for (const requirement of manifestEntry.manifest.requires) {
-      const capabilityNodeId = `capability:${requirement}`;
-      pushNode(nodes, {
-        id: capabilityNodeId,
-        type: 'capability',
-        label: requirement
-      });
-      pushEdge(edges, {
-        from: blockNodeId,
-        to: capabilityNodeId,
-        type: 'depends_on'
-      });
+    for (const req of manifestEntry.manifest.requires) {
+      g.link(blockId, `capability:${req}`, 'depends_on', 'capability', req);
     }
-
-    for (const capability of manifestEntry.manifest.provides) {
-      const capabilityNodeId = `capability:${capability}`;
-      pushNode(nodes, {
-        id: capabilityNodeId,
-        type: 'capability',
-        label: capability
-      });
-      pushEdge(edges, {
-        from: blockNodeId,
-        to: capabilityNodeId,
-        type: 'provides'
-      });
+    for (const cap of manifestEntry.manifest.provides) {
+      g.link(blockId, `capability:${cap}`, 'provides', 'capability', cap);
     }
-
     for (const pin of manifestEntry.manifest.pins.inputs) {
-      const pinNodeId = `pin:${block.id}:input:${pin.id}`;
-      pushNode(nodes, {
-        id: pinNodeId,
-        type: 'pin',
-        label: pin.id
-      });
-      pushEdge(edges, {
-        from: blockNodeId,
-        to: pinNodeId,
-        type: 'depends_on'
-      });
+      g.link(blockId, `pin:${block.id}:input:${pin.id}`, 'depends_on', 'pin', pin.id);
     }
-
     for (const pin of manifestEntry.manifest.pins.outputs) {
-      const pinNodeId = `pin:${block.id}:output:${pin.id}`;
-      pushNode(nodes, {
-        id: pinNodeId,
-        type: 'pin',
-        label: pin.id
-      });
-      pushEdge(edges, {
-        from: blockNodeId,
-        to: pinNodeId,
-        type: 'provides'
-      });
+      g.link(blockId, `pin:${block.id}:output:${pin.id}`, 'provides', 'pin', pin.id);
     }
   }
 
   for (const task of lock.slotTasks) {
-    const slotNodeId = `slot:${task.id}`;
-    const sourceFilePath = task.sourcePath ?? task.target;
-    const sourceFileNodeId = `file:${sourceFilePath}`;
-    pushNode(nodes, {
-      id: slotNodeId,
-      type: 'slot',
-      label: task.id
-    });
-    pushNode(nodes, {
-      id: sourceFileNodeId,
-      type: 'file',
-      label: sourceFilePath
-    });
-    pushEdge(edges, {
-      from: `block:${task.block}`,
-      to: slotNodeId,
-      type: 'connects_to'
-    });
-    pushEdge(edges, {
-      from: slotNodeId,
-      to: sourceFileNodeId,
-      type: 'writes_to'
-    });
+    const slotId = `slot:${task.id}`;
+    const sourcePath = task.sourcePath ?? task.target;
+    const sourceFileId = `file:${sourcePath}`;
+    g.node(slotId, 'slot', task.id);
+    g.node(sourceFileId, 'file', sourcePath);
+    g.edge(`block:${task.block}`, slotId, 'connects_to');
+    g.edge(slotId, sourceFileId, 'writes_to');
     if (task.sourcePath) {
-      const runtimeFileNodeId = `file:${task.target}`;
-      pushNode(nodes, {
-        id: runtimeFileNodeId,
-        type: 'file',
-        label: task.target
-      });
-      pushEdge(edges, {
-        from: sourceFileNodeId,
-        to: runtimeFileNodeId,
-        type: 'connects_to'
-      });
+      g.link(sourceFileId, `file:${task.target}`, 'connects_to', 'file', task.target);
     }
   }
 
   for (const artifact of provenance.artifacts) {
-    const fileNodeId = `file:${artifact.path}`;
-    pushNode(nodes, {
-      id: fileNodeId,
-      type: 'file',
-      label: artifact.path
-    });
+    const fileId = `file:${artifact.path}`;
+    g.node(fileId, 'file', artifact.path);
 
-    const originNodeId =
-      artifact.originType === 'slot'
-        ? `slot:${artifact.originId}`
-        : artifact.originType === 'block'
-          ? `block:${artifact.originId}`
-          : artifact.originType === 'override'
-            ? `override:${artifact.originId}`
-            : `app:${lock.app.name}`;
+    const originId =
+      artifact.originType === 'slot' ? `slot:${artifact.originId}` :
+      artifact.originType === 'block' ? `block:${artifact.originId}` :
+      artifact.originType === 'override' ? `override:${artifact.originId}` :
+      `app:${lock.app.name}`;
 
     if (artifact.originType === 'override') {
-      pushNode(nodes, {
-        id: originNodeId,
-        type: 'override',
-        label: artifact.originId
-      });
+      g.node(originId, 'override', artifact.originId);
     }
+    g.edge(fileId, originId, 'originates_from');
 
-    pushEdge(edges, {
-      from: fileNodeId,
-      to: originNodeId,
-      type: 'originates_from'
-    });
-
-    const runtimeAttribution = buildRuntimeAttribution(lock, artifact.path);
-    if (!runtimeAttribution) {
-      continue;
-    }
-
-    for (const blockId of runtimeAttribution.relatedBlocks) {
-      pushEdge(edges, {
-        from: `block:${blockId}`,
-        to: fileNodeId,
-        type: 'writes_to'
-      });
+    const attribution = buildRuntimeAttribution(lock, artifact.path);
+    if (attribution) {
+      for (const blockId of attribution.relatedBlocks) {
+        g.edge(`block:${blockId}`, fileId, 'writes_to');
+      }
     }
   }
 
   if (policyReport) {
-    const blockIds = new Set(lock.resolvedBlocks.map((block) => block.id));
+    const blockIds = new Set(lock.resolvedBlocks.map((b) => b.id));
     for (const policy of policyReport.merged.policies) {
-      const policyNodeId = `policy:${policy.id}`;
-      pushNode(nodes, {
-        id: policyNodeId,
-        type: 'policy',
-        label: policy.id
-      });
+      const policyId = `policy:${policy.id}`;
+      g.node(policyId, 'policy', policy.id);
       for (const target of policy.targets) {
-        const targetIsBlock = blockIds.has(target);
-        const targetNodeId = targetIsBlock ? `block:${target}` : `file:${target}`;
-        pushNode(nodes, {
-          id: targetNodeId,
-          type: targetIsBlock ? 'block' : 'file',
-          label: target
-        });
-        pushEdge(edges, {
-          from: policyNodeId,
-          to: targetNodeId,
-          type: 'connects_to'
-        });
+        const isBlock = blockIds.has(target);
+        g.link(policyId, isBlock ? `block:${target}` : `file:${target}`, 'connects_to', isBlock ? 'block' : 'file', target);
       }
     }
-
     for (const violation of policyReport.violations) {
-      const policyNodeId = `policy:${violation.id}`;
-      pushNode(nodes, {
-        id: policyNodeId,
-        type: 'policy',
-        label: violation.id
-      });
+      const policyId = `policy:${violation.id}`;
+      g.node(policyId, 'policy', violation.id);
       for (const file of violation.files) {
-        const fileNodeId = `file:${file}`;
-        pushNode(nodes, {
-          id: fileNodeId,
-          type: 'file',
-          label: file
-        });
-        pushEdge(edges, {
-          from: fileNodeId,
-          to: policyNodeId,
-          type: 'violates'
-        });
+        g.node(`file:${file}`, 'file', file);
+        g.edge(`file:${file}`, policyId, 'violates');
       }
     }
   }
 
   if (upgradePlan) {
-    const upgradeNodeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}`;
-    pushNode(nodes, {
-      id: `block:${upgradePlan.blockId}`,
-      type: 'block',
-      label: upgradePlan.blockId
-    });
-    pushNode(nodes, {
-      id: upgradeNodeId,
-      type: 'upgrade',
-      label: `${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
-    });
-    pushEdge(edges, {
-      from: upgradeNodeId,
-      to: `block:${upgradePlan.blockId}`,
-      type: 'connects_to'
-    });
+    const upgradeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}`;
+    g.node(`block:${upgradePlan.blockId}`, 'block', upgradePlan.blockId);
+    g.node(upgradeId, 'upgrade', `${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`);
+    g.edge(upgradeId, `block:${upgradePlan.blockId}`, 'connects_to');
 
     for (const check of upgradePlan.preflightChecks) {
-      const checkNodeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}:preflight:${check.id}`;
-      pushNode(nodes, {
-        id: checkNodeId,
-        type: 'upgrade',
-        label: check.id
-      });
-      pushEdge(edges, {
-        from: upgradeNodeId,
-        to: checkNodeId,
-        type: 'depends_on'
-      });
+      g.link(upgradeId, `${upgradeId}:preflight:${check.id}`, 'depends_on', 'upgrade', check.id);
     }
-
     for (const impact of upgradePlan.impacts) {
-      const fileNodeId = `file:${impact}`;
-      pushNode(nodes, {
-        id: fileNodeId,
-        type: 'file',
-        label: impact
-      });
-      pushEdge(edges, {
-        from: upgradeNodeId,
-        to: fileNodeId,
-        type: 'writes_to'
-      });
+      g.link(upgradeId, `file:${impact}`, 'writes_to', 'file', impact);
     }
-
     for (const migration of upgradePlan.migrationSummaries) {
-      const migrationNodeId = `upgrade:${upgradePlan.blockId}:${upgradePlan.toVersion}:migration:${migration.id}`;
-      const fileNodeId = `file:${migration.target}`;
-      const verificationNodeId = migration.requiresVerification
-        ? 'upgrade-verification:required'
-        : 'upgrade-verification:skipped';
-      pushNode(nodes, {
-        id: migrationNodeId,
-        type: 'upgrade',
-        label: migration.id
-      });
-      pushNode(nodes, {
-        id: verificationNodeId,
-        type: 'upgrade',
-        label: migration.requiresVerification ? 'verification required' : 'verification skipped'
-      });
-      pushNode(nodes, {
-        id: fileNodeId,
-        type: 'file',
-        label: migration.target
-      });
-      pushEdge(edges, {
-        from: upgradeNodeId,
-        to: migrationNodeId,
-        type: 'depends_on'
-      });
-      pushEdge(edges, {
-        from: migrationNodeId,
-        to: verificationNodeId,
-        type: 'depends_on'
-      });
-      pushEdge(edges, {
-        from: migrationNodeId,
-        to: fileNodeId,
-        type: 'writes_to'
-      });
+      const migId = `${upgradeId}:migration:${migration.id}`;
+      const verifId = migration.requiresVerification ? 'upgrade-verification:required' : 'upgrade-verification:skipped';
+      g.node(migId, 'upgrade', migration.id);
+      g.node(verifId, 'upgrade', migration.requiresVerification ? 'verification required' : 'verification skipped');
+      g.link(migId, `file:${migration.target}`, 'writes_to', 'file', migration.target);
+      g.edge(upgradeId, migId, 'depends_on');
+      g.edge(migId, verifId, 'depends_on');
 
-      if (migration.kind !== 'slot-contract-update' || !migration.slotId) {
-        continue;
+      if (migration.kind === 'slot-contract-update' && migration.slotId) {
+        const slotId = `slot:${migration.slotId}`;
+        g.node(slotId, 'slot', migration.slotId);
+        g.edge(`block:${upgradePlan.blockId}`, slotId, 'connects_to');
+        g.edge(slotId, `file:${migration.target}`, 'writes_to');
       }
-      const slotNodeId = `slot:${migration.slotId}`;
-      pushNode(nodes, {
-        id: slotNodeId,
-        type: 'slot',
-        label: migration.slotId
-      });
-      pushEdge(edges, {
-        from: `block:${upgradePlan.blockId}`,
-        to: slotNodeId,
-        type: 'connects_to'
-      });
-      pushEdge(edges, {
-        from: slotNodeId,
-        to: fileNodeId,
-        type: 'writes_to'
-      });
     }
   }
 
   if (upgradeDiagnostics) {
-    const diagnosticsNodeId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:diagnostics`;
-    const planNodeId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}`;
-    pushNode(nodes, {
-      id: `block:${upgradeDiagnostics.blockId}`,
-      type: 'block',
-      label: upgradeDiagnostics.blockId
-    });
-    pushNode(nodes, {
-      id: diagnosticsNodeId,
-      type: 'upgrade',
-      label: upgradeDiagnostics.errorCode
-    });
-    pushEdge(edges, {
-      from: diagnosticsNodeId,
-      to: upgradePlan ? planNodeId : `block:${upgradeDiagnostics.blockId}`,
-      type: 'connects_to'
-    });
-    const failedCheckNodeId = `${planNodeId}:preflight:${upgradeDiagnostics.failedCheck}`;
-    pushNode(nodes, {
-      id: failedCheckNodeId,
-      type: 'upgrade',
-      label: upgradeDiagnostics.failedCheck
-    });
-    pushEdge(edges, {
-      from: diagnosticsNodeId,
-      to: failedCheckNodeId,
-      type: 'connects_to'
-    });
+    const diagId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:diagnostics`;
+    const planId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}`;
+    g.node(`block:${upgradeDiagnostics.blockId}`, 'block', upgradeDiagnostics.blockId);
+    g.node(diagId, 'upgrade', upgradeDiagnostics.errorCode);
+    g.edge(diagId, upgradePlan ? planId : `block:${upgradeDiagnostics.blockId}`, 'connects_to');
+    g.link(diagId, `${planId}:preflight:${upgradeDiagnostics.failedCheck}`, 'connects_to', 'upgrade', upgradeDiagnostics.failedCheck);
 
     const migrationId = readUpgradeDiagnosticsString(upgradeDiagnostics, 'migrationId');
     if (upgradePlan && migrationId) {
-      pushEdge(edges, {
-        from: diagnosticsNodeId,
-        to: `${planNodeId}:migration:${migrationId}`,
-        type: 'connects_to'
-      });
+      g.edge(diagId, `${planId}:migration:${migrationId}`, 'connects_to');
     }
 
     const entry = readUpgradeDiagnosticsString(upgradeDiagnostics, 'entry');
     if (entry) {
-      const entryNodeId = `file:${entry}`;
-      pushNode(nodes, {
-        id: entryNodeId,
-        type: 'file',
-        label: entry
-      });
-      pushEdge(edges, {
-        from: diagnosticsNodeId,
-        to: entryNodeId,
-        type: 'connects_to'
-      });
+      g.link(diagId, `file:${entry}`, 'connects_to', 'file', entry);
     }
 
     const rollbackStatus = readUpgradeDiagnosticsString(upgradeDiagnostics, 'rollbackStatus');
     if (rollbackStatus) {
-      const rollbackNodeId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:rollback:${rollbackStatus}`;
-      pushNode(nodes, {
-        id: rollbackNodeId,
-        type: 'upgrade',
-        label: `rollback ${rollbackStatus}`
-      });
-      pushEdge(edges, {
-        from: diagnosticsNodeId,
-        to: rollbackNodeId,
-        type: 'connects_to'
-      });
+      g.link(diagId, `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:rollback:${rollbackStatus}`, 'connects_to', 'upgrade', `rollback ${rollbackStatus}`);
     }
   }
 
   if (repairPlan) {
     for (const task of repairPlan.tasks) {
-      const repairNodeId = `repair:${task.taskId}`;
+      const repairId = `repair:${task.taskId}`;
       const category = task.category ?? 'slot-rewrite';
-      const categoryNodeId = `repair-category:${category}`;
-      const slotNodeId = `slot:${task.sourceSlotId}`;
-      const fileNodeId = `file:${task.targetFile}`;
-      pushNode(nodes, {
-        id: repairNodeId,
-        type: 'repair',
-        label: task.taskId
-      });
-      pushNode(nodes, {
-        id: categoryNodeId,
-        type: 'repair',
-        label: category
-      });
-      pushNode(nodes, {
-        id: slotNodeId,
-        type: 'slot',
-        label: task.sourceSlotId
-      });
-      pushNode(nodes, {
-        id: fileNodeId,
-        type: 'file',
-        label: task.targetFile
-      });
-      pushEdge(edges, {
-        from: repairNodeId,
-        to: categoryNodeId,
-        type: 'depends_on'
-      });
-      pushEdge(edges, {
-        from: repairNodeId,
-        to: slotNodeId,
-        type: 'connects_to'
-      });
-      pushEdge(edges, {
-        from: repairNodeId,
-        to: fileNodeId,
-        type: 'writes_to'
-      });
+      g.node(repairId, 'repair', task.taskId);
+      g.link(repairId, `repair-category:${category}`, 'depends_on', 'repair', category);
+      g.link(repairId, `slot:${task.sourceSlotId}`, 'connects_to', 'slot', task.sourceSlotId);
+      g.link(repairId, `file:${task.targetFile}`, 'writes_to', 'file', task.targetFile);
     }
   }
 
   for (const acceptanceId of lock.acceptancePlan) {
-    const acceptanceNodeId = `acceptance:${acceptanceId}`;
-    pushNode(nodes, {
-      id: acceptanceNodeId,
-      type: 'acceptance',
-      label: acceptanceId
-    });
+    g.node(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId);
   }
-
-  for (const blockCoverage of coverage.blocks) {
-    for (const acceptanceId of blockCoverage.coveredBy) {
-      pushEdge(edges, {
-        from: `block:${blockCoverage.id}`,
-        to: `acceptance:${acceptanceId}`,
-        type: 'verified_by'
-      });
+  for (const blockCov of coverage.blocks) {
+    for (const accId of blockCov.coveredBy) {
+      g.edge(`block:${blockCov.id}`, `acceptance:${accId}`, 'verified_by');
+    }
+  }
+  for (const slotCov of coverage.slots) {
+    for (const accId of slotCov.coveredBy) {
+      g.edge(`slot:${slotCov.id}`, `acceptance:${accId}`, 'verified_by');
     }
   }
 
-  for (const slotCoverage of coverage.slots) {
-    for (const acceptanceId of slotCoverage.coveredBy) {
-      pushEdge(edges, {
-        from: `slot:${slotCoverage.id}`,
-        to: `acceptance:${acceptanceId}`,
-        type: 'verified_by'
-      });
+  return g.build({
+    provenance: provenance.artifacts,
+    coverage: {
+      blocks: coverage.blocks.map((e) => ({ id: e.id, coveredBy: [...e.coveredBy] })),
+      slots: coverage.slots.map((e) => ({ id: e.id, coveredBy: [...e.coveredBy] }))
     }
-  }
-
-  return {
-    nodes: nodes.sort((left, right) => left.id.localeCompare(right.id)),
-    edges: edges.sort((left, right) =>
-      `${left.from}:${left.type}:${left.to}`.localeCompare(`${right.from}:${right.type}:${right.to}`)
-    ),
-    overlays: {
-      provenance: provenance.artifacts,
-      coverage: {
-        blocks: coverage.blocks.map((entry) => ({
-          id: entry.id,
-          coveredBy: [...entry.coveredBy]
-        })),
-        slots: coverage.slots.map((entry) => ({
-          id: entry.id,
-          coveredBy: [...entry.coveredBy]
-        }))
-      }
-    }
-  };
+  });
 }
 
 export async function writeExplainGraph(
@@ -542,23 +252,14 @@ export async function writeExplainGraph(
       if (!(await pathExists(acceptanceCoveragePath))) {
         throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
       }
-
       const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
       const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = await readReviewGovernanceReports(workspaceRoot);
-      const nextProvenance = provenance.artifacts.some((artifact) => artifact.path === CI_ARTIFACT_FILES.explainGraph)
+      const nextProvenance = provenance.artifacts.some((a) => a.path === CI_ARTIFACT_FILES.explainGraph)
         ? provenance
         : await buildProvenance(workspaceRoot, lock);
       const nextGraph = await buildExplainGraph(
-        workspaceRoot,
-        lock,
-        nextProvenance,
-        coverage,
-        policyReport,
-        upgradePlan,
-        repairPlan,
-        upgradeDiagnostics
+        workspaceRoot, lock, nextProvenance, coverage, policyReport, upgradePlan, repairPlan, upgradeDiagnostics
       );
-
       await writeJson(explainGraphPath, nextGraph);
       return nextGraph;
     }
