@@ -30,7 +30,8 @@ const runtimeDevDependencyKeys = [
   '@types/node',
   '@types/react',
   '@types/react-dom',
-  'typescript'
+  'typescript',
+  'vitest'
 ] as const;
 
 function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): string {
