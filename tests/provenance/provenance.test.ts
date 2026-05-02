@@ -95,7 +95,7 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
     expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
       verifiedBy: ['tests/unit/customer-runtime.test.ts']
     });
-    expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([] as any);
+    expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toHaveLength(0);
 
     await writeJson(verificationReportPath, {
       ...report,

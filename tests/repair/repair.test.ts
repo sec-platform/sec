@@ -83,7 +83,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     expect(repairPlan.status).toBe('applied');
     expect(repairPlan.requiresVerification).toBe(true);
     expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
-    expect(repairPlan.tasks[0].allowedPaths).toEqual([] as any);
+    expect(repairPlan.tasks[0].allowedPaths).toHaveLength(0);
     expect(writtenSource).toContain('// @generated task:fill_slot_customer_normalizer');
     expect(writtenSource).toContain('export function normalizeCustomerInput');
     expect(repairedLock.passStatus.repair).toBe('succeeded');
@@ -179,7 +179,7 @@ test('repair writes blocked plans before reporting non-repairable failures', asy
     expect(result.stderr).toContain('No eligible slot tasks are present in graph.lock.json');
     expect(persistedLock.passStatus.repair).toBe('failed');
     expect(persistedRepairPlan.status).toBe('blocked');
-    expect(persistedRepairPlan.blockers).toEqual([] as any);
+    expect(persistedRepairPlan.blockers).toHaveLength(0);
   });
 });
 

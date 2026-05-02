@@ -81,6 +81,6 @@ test('review summary surfaces acceptance coverage summary', async () => {
     uncoveredBlocks: ['tenant/basic-workspace'],
     uncoveredSlots: ['tenant_context_provider']
   });
-  expect(summary.coverageSummary?.blockSummaries).toEqual([] as any);
-  expect(summary.coverageSummary?.slotSummaries).toEqual([] as any);
+  expect(summary.coverageSummary?.blockSummaries).toHaveLength(0);
+  expect(summary.coverageSummary?.slotSummaries).toHaveLength(0);
 });

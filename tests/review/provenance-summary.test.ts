@@ -66,8 +66,8 @@ test('review summary surfaces provenance summary', async () => {
       'custom/customer_normalizer.ts'
     ]
   });
-  expect(summary.provenanceSummary?.originSummaries).toEqual([] as any);
-  expect(summary.provenanceSummary?.overrideSummaries).toEqual([] as any);
-  expect(summary.provenanceSummary?.registrySummaries).toEqual([] as any);
-  expect(summary.provenanceSummary?.generatedPassSummaries).toEqual([] as any);
+  expect(summary.provenanceSummary?.originSummaries).toHaveLength(0);
+  expect(summary.provenanceSummary?.overrideSummaries).toHaveLength(0);
+  expect(summary.provenanceSummary?.registrySummaries).toHaveLength(0);
+  expect(summary.provenanceSummary?.generatedPassSummaries).toHaveLength(0);
 });

@@ -22,11 +22,11 @@ test('upgrade dry-run records text append migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-append': 1
   });
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
 });
 
 test('upgrade dry-run records literal text replace migration impacts', async () => {
@@ -52,7 +52,7 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
     }
   });
 
-  expect(upgradePlan.impacts).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace': 1
   });
@@ -65,7 +65,7 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
       })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
 });
 
 test('upgrade dry-run records text replace regex migration impacts', async () => {
@@ -91,7 +91,7 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
     }
   });
 
-  expect(upgradePlan.impacts).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace-regex': 1
   });
@@ -104,5 +104,5 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
       })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
 });

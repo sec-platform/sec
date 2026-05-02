@@ -136,9 +136,9 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         }
       }
     });
-    expect(summary.upgradeSummary?.preflightSummaries).toEqual([] as any);
-    expect(summary.upgradeSummary?.migrationSummaries).toEqual([] as any);
-    expect(summary.conflictHints).toEqual([] as any);
+    expect(summary.upgradeSummary?.preflightSummaries).toHaveLength(0);
+    expect(summary.upgradeSummary?.migrationSummaries).toHaveLength(0);
+    expect(summary.conflictHints).toHaveLength(0);
     expectUpgradeFailurePoint(
       summary,
       'Upgrade blocked at override-conflicts: UPGRADE-CONFLICT-001 Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"'

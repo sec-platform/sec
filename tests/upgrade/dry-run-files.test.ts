@@ -26,7 +26,7 @@ test('upgrade dry-run records delete file migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'delete-file': 1
   });
@@ -39,7 +39,7 @@ test('upgrade dry-run records delete file migration impacts', async () => {
       })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
 });
 
 test('upgrade dry-run records copy file migration impacts', async () => {
@@ -65,7 +65,7 @@ test('upgrade dry-run records copy file migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'copy-file': 1
   });
@@ -78,7 +78,7 @@ test('upgrade dry-run records copy file migration impacts', async () => {
       })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
 });
 
 test('upgrade dry-run records rename file migration impacts', async () => {
@@ -104,7 +104,7 @@ test('upgrade dry-run records rename file migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'rename-file': 1
   });
@@ -120,5 +120,5 @@ test('upgrade dry-run records rename file migration impacts', async () => {
       })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
 });

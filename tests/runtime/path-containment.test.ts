@@ -94,8 +94,8 @@ test('manifest validation rejects install paths that traverse outside allowed ro
   try {
     validateManifest(manifest);
     throw new Error('Expected manifest validation to reject traversal');
-  } catch (error) {
-    expect(error).toMatchObject({ code: 'MANIFEST-SCHEMA-006' });
+  } catch (caught) {
+    expect(caught).toMatchObject({ code: 'MANIFEST-SCHEMA-006' });
   }
 });
 

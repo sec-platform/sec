@@ -626,7 +626,6 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
 
     await fs.rm(path.join(workspaceRoot, 'control', 'evidence', 'policy-report.json'));
     await fs.rm(sourceViewPath);
-    console.log('DEBUG: overviewViewPath exists before artifacts at 630:', await pathExists(overviewViewPath));
 
     await fs.rm(overviewViewPath, { force: true });
     const manifestWithMissing = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);

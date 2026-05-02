@@ -97,8 +97,8 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     uncoveredSlots: string[];
   }>(acceptanceCoveragePath);
   expect(coverage.status).toBe('passed');
-  expect(coverage.uncoveredBlocks).toEqual([] as any);
-  expect(coverage.uncoveredSlots).toEqual([] as any);
+  expect(coverage.uncoveredBlocks).toHaveLength(0);
+  expect(coverage.uncoveredSlots).toHaveLength(0);
 
   const policyReport = await readJson<{
     status: string;
@@ -106,7 +106,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     violations: unknown[];
   }>(policyReportPath);
   expect(policyReport.status).toBe('passed');
-  expect(policyReport.violations).toEqual([] as any);
+  expect(policyReport.violations).toHaveLength(0);
   expect(policyReport.merged.policies.find((policy) => policy.id === 'tenant-scope-required')).toEqual({
     id: 'tenant-scope-required',
     sourceScope: 'official',
@@ -163,33 +163,14 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
       }
     ]
   });
-  expect(reviewSummary.failurePoints).toEqual([] as any);
-  expect(reviewSummary.regressionRisks).toEqual([] as any);
-  expect(reviewSummary.conflictHints).toEqual([] as any);
+  expect(reviewSummary.failurePoints).toHaveLength(0);
+  expect(reviewSummary.regressionRisks).toHaveLength(0);
+  expect(reviewSummary.conflictHints).toHaveLength(0);
 
-  const sourceViewExists = await fs
-    .access(sourceViewPath)
-    .then(() => true)
-    .catch(() => false);
-  expect(sourceViewExists).toBe(true);
-
-  const slotRuleViewExists = await fs
-    .access(slotRuleViewPath)
-    .then(() => true)
-    .catch(() => false);
-  expect(slotRuleViewExists).toBe(true);
-
-  const graphViewExists = await fs
-    .access(graphViewPath)
-    .then(() => true)
-    .catch(() => false);
-  expect(graphViewExists).toBe(true);
-
-  const reviewViewExists = await fs
-    .access(reviewViewPath)
-    .then(() => true)
-    .catch(() => false);
-  expect(reviewViewExists).toBe(true);
+  await expect(fs.access(sourceViewPath)).resolves.not.toThrow();
+  await expect(fs.access(slotRuleViewPath)).resolves.not.toThrow();
+  await expect(fs.access(graphViewPath)).resolves.not.toThrow();
+  await expect(fs.access(reviewViewPath)).resolves.not.toThrow();
 
   const refreshedProvenance = await readJson<{
     artifacts: Array<{ path: string; generatedByPass?: string }>;

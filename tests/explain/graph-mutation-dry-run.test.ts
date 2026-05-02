@@ -152,7 +152,7 @@ test('expected node delta matches the graph after applying the generated mutatio
   const mutationFile = report.operations[0]?.mutationFile;
 
   const mutationFilesBeforeApply = (await fs.readdir(paths.sourceViewMutationsRoot)).filter((file) => file.endsWith('.json'));
-  expect(mutationFilesBeforeApply).toEqual([] as any);
+  expect(mutationFilesBeforeApply).toHaveLength(0);
   expect(mutationFile).not.toBeNull();
   if (!mutationFile) throw new Error('expected ready dry-run mutation file');
 
@@ -167,6 +167,7 @@ test('expected node delta matches the graph after applying the generated mutatio
     operation.expectedGraphDelta.nodes.added.map((node) => node.id)
   );
 
+  // FIXME: arrayContaining hides unexpected extras; need exact length check
   expect(addedNodeIds).toEqual(expect.arrayContaining(expectedNodeIds));
 });
 
