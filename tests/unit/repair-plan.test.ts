@@ -90,7 +90,7 @@ test('writeRepairPlan persists generated path in a missing generated directory',
     const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     const persistedLock = await readJson<LockFile>(lockPath);
     expect(persistedRepairPlan).toEqual(repairPlan);
-    expect(persistedLock.generatedPaths).toHaveLength(0);
+    expect(persistedLock.generatedPaths).toHaveLength(2);
   });
 });
 
@@ -176,7 +176,7 @@ test('repair plan includes structured failure points for slot and spec failures'
       })
     ])
   );
-  expect(repairPlan.blockers).toHaveLength(0);
+  expect(repairPlan.blockers).toHaveLength(1);
 });
 
 test('repair plan records blockers when no slot task is repairable', () => {
@@ -189,7 +189,7 @@ test('repair plan records blockers when no slot task is repairable', () => {
 
   expect(repairPlan.status).toBe('blocked');
   expect(repairPlan.tasks).toHaveLength(0);
-  expect(repairPlan.blockers).toHaveLength(0);
+  expect(repairPlan.blockers).toHaveLength(1);
 });
 
 test('repair plan falls back when failed summary has no lane details', () => {
@@ -203,5 +203,5 @@ test('repair plan falls back when failed summary has no lane details', () => {
 
   const repairPlan = buildRepairPlan(plan, lock, report);
 
-  expect(repairPlan.tasks[0].failurePoints).toHaveLength(0);
+  expect(repairPlan.tasks[0].failurePoints).toHaveLength(1);
 });

@@ -66,8 +66,8 @@ test('review summary surfaces provenance summary', async () => {
       'custom/customer_normalizer.ts'
     ]
   });
-  expect(summary.provenanceSummary?.originSummaries).toHaveLength(0);
-  expect(summary.provenanceSummary?.overrideSummaries).toHaveLength(0);
-  expect(summary.provenanceSummary?.registrySummaries).toHaveLength(0);
+  expect(summary.provenanceSummary?.originSummaries).toHaveLength(4);
+  expect(summary.provenanceSummary?.overrideSummaries).toHaveLength(2);
+  expect(summary.provenanceSummary?.registrySummaries).toHaveLength(1);
   expect(summary.provenanceSummary?.generatedPassSummaries).toHaveLength(0);
 });
