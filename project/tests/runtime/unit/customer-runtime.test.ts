@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { login } from '../../../src/installed/auth/session.ts';
 import { createCustomer, listCustomers } from '../../../src/installed/entity/customer-service.ts';
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';
@@ -22,5 +22,6 @@ describe('runtime customer service', () => {
 
     expect(created.company).toBe('Unknown');
     expect(listCustomers(database, tenantA)).toHaveLength(1);
-    expect(listCustomers(database, tenantB)).toHaveLength(0);  });
+    expect(listCustomers(database, tenantB)).toHaveLength(0);
+  });
 });
