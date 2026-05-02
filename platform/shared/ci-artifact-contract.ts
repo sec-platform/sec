@@ -1,22 +1,29 @@
 import {
-  CI_ARTIFACT_KINDS,
-  CI_ARTIFACT_MISSING_REASONS,
-  type CiArtifactEntry,
-  type CiArtifactKind,
-  type CiArtifactManifest,
-  type CiArtifactMissingEntry,
-  type CiArtifactSummary,
-  type CiArtifactUploadGroup
+    CI_ARTIFACT_KINDS,
+    CI_ARTIFACT_MISSING_REASONS,
+    type CiArtifactEntry,
+    type CiArtifactKind,
+    type CiArtifactManifest,
+    type CiArtifactMissingEntry,
+    type CiArtifactSummary,
+    type CiArtifactUploadGroup
 } from './ci-artifact-types.ts';
 import { countPositiveValues, uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
-import { posixPath } from './paths.ts';
+import {
+    graphViewRelativePath,
+    overviewViewRelativePath,
+    posixPath,
+    reviewViewRelativePath,
+    slotRuleViewRelativePath,
+    sourceViewRelativePath
+} from './paths.ts';
 import { platformCommand } from './platform-command.ts';
 
 export {
-  CI_ARTIFACT_KINDS,
-  CI_ARTIFACT_MISSING_REASON,
-  CI_ARTIFACT_MISSING_REASONS
+    CI_ARTIFACT_KINDS,
+    CI_ARTIFACT_MISSING_REASON,
+    CI_ARTIFACT_MISSING_REASONS
 } from './ci-artifact-types.ts';
 
 export const CI_ARTIFACT_FILES = {
@@ -37,10 +44,11 @@ export const CI_ARTIFACT_FILES = {
   upgradePlan: 'control/workflow/upgrade-plan.json',
   upgradeDiagnostics: 'control/workflow/upgrade-diagnostics.json',
   viewMutationReport: 'control/workflow/view-mutation-report.json',
-  sourceView: 'control/workbench/views/source-view.html',
-  slotRuleView: 'control/workbench/views/slot-rule-view.html',
-  graphView: 'control/workbench/views/graph-view.html',
-  reviewView: 'control/workbench/views/review-view.html',
+  overviewView: overviewViewRelativePath,
+  sourceView: sourceViewRelativePath,
+  slotRuleView: slotRuleViewRelativePath,
+  graphView: graphViewRelativePath,
+  reviewView: reviewViewRelativePath,
   testResults: 'test-results/**'
 } as const;
 
@@ -74,6 +82,7 @@ export const CI_ARTIFACT_PATHS = {
     CI_ARTIFACT_FILES.viewMutationReport
   ],
   view: [
+    CI_ARTIFACT_FILES.overviewView,
     CI_ARTIFACT_FILES.sourceView,
     CI_ARTIFACT_FILES.slotRuleView,
     CI_ARTIFACT_FILES.graphView,

@@ -6,16 +6,22 @@ import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, countPositiveValues, uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { EXPLAIN_NODE_TYPES, type ExplainGraph } from '../../shared/explain-types.ts';
-import { ensureDir, pathExists, readJson } from '../../shared/fs.ts';
+import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
+import {
+    buildProjectOverview,
+    PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
+    type ProjectOverview
+} from '../../shared/project-overview.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import type { ReviewSummary } from '../../shared/review-types.ts';
 import { buildReviewUpgradePreflightSummaries } from '../../shared/review-upgrade.ts';
-import type { VerificationReport } from '../../shared/verification-types.ts';
+import type { ToolEvidenceReport } from '../../shared/tool-evidence-contract.ts';
+import type { CiArtifactManifest, VerificationReport } from '../../shared/types.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 
@@ -82,18 +88,35 @@ async function renderTemplate(name: string, data: Record<string, unknown>): Prom
   return ejs.renderFile(filePath, { viewHelpers: templateHelpers, ...templateHelpers, ...data }, { async: true });
 }
 
-async function renderLayout(title: string, currentNav: 'source' | 'slot-rule' | 'graph' | 'review', body: string): Promise<string> {
+async function renderLayout(title: string, currentNav: 'overview' | 'source' | 'slot-rule' | 'graph' | 'review', body: string): Promise<string> {
   return renderTemplate('layout.ejs', { title, currentNav, body });
+}
+
+function buildOverviewNextAction(overview: ProjectOverview): string {
+  switch (overview.status.overall) {
+    case 'failed':
+      return 'Open Review View first, resolve failure points and blockers, then rerun verification.';
+    case 'attention':
+      return 'Inspect priority review files and missing artifacts, then rerun verification for handoff readiness.';
+    case 'passed':
+      return 'Use the linked workbench views for AI handoff or deeper source and graph inspection.';
+    case 'skipped':
+      return 'Complete skipped governance steps before handing the workspace to review or AI repair.';
+    default:
+      return 'Refresh governance artifacts, then reopen this overview to rebuild the workbench state.';
+  }
 }
 
 export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   const {
     acceptanceCoveragePath,
+    ciArtifactsPath,
     explainGraphPath,
     generatedViewsDir,
     graphViewPath,
     reviewViewPath,
     lockPath,
+    overviewViewPath,
     policyReportPath,
     provenancePath,
     reviewSummaryPath,
@@ -106,16 +129,35 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   await ensureDir(generatedViewsDir);
   await writeLockWithGeneratedPaths(lockPath, lock, CI_ARTIFACT_PATHS.view);
 
-  const [provenance, report, coverage, policyReport, review, graph, governanceReports] = await Promise.all([
+  const [provenance, report, coverage, policyReport, review, graph, artifactManifest, codeQuality, architectureBoundary, semanticPattern, governanceReports] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
     readRequiredArtifact<VerificationReport>(verificationReportPath, 'verification-report.json'),
     readRequiredArtifact<AcceptanceCoverageReport>(acceptanceCoveragePath, 'acceptance-coverage.json'),
     readRequiredArtifact<PolicyReport>(policyReportPath, 'policy-report.json'),
     readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
     readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json'),
+    readOptionalJson<CiArtifactManifest>(ciArtifactsPath),
+    readOptionalJson<ToolEvidenceReport>(path.join(workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['code-quality'])),
+    readOptionalJson<ToolEvidenceReport>(path.join(workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['architecture-boundary'])),
+    readOptionalJson<ToolEvidenceReport>(path.join(workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['semantic-pattern'])),
     readReviewGovernanceReports(workspaceRoot)
   ]);
   const { repairPlan, upgradeDiagnostics, upgradePlan } = governanceReports;
+
+  const overview = buildProjectOverview({
+    workspaceRoot,
+    lock,
+    explainGraph: graph,
+    provenance,
+    verification: report,
+    acceptanceCoverage: coverage,
+    policy: policyReport,
+    reviewSummary: review,
+    artifactManifest,
+    toolEvidenceReports: [codeQuality, architectureBoundary, semanticPattern].filter(
+      (toolReport): toolReport is ToolEvidenceReport => toolReport !== null
+    )
+  });
 
   const sharedData = {
     review, lock, provenance, policyReport, graph, repairPlan, upgradeDiagnostics, upgradePlan,
@@ -124,6 +166,13 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     buildE2eMatrix, buildReviewUpgradePreflightSummaries,
     buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath
   };
+
+  const overviewBody = await renderTemplate('overview-view.ejs', {
+    overview,
+    nextAction: buildOverviewNextAction(overview)
+  });
+  const overviewHtml = await renderLayout('Overview', 'overview', overviewBody);
+  await fs.writeFile(overviewViewPath, overviewHtml, 'utf8');
 
   const sourceBody = await renderTemplate('source-view.ejs', sharedData);
   const sourceHtml = await renderLayout('Source View', 'source', sourceBody);
