@@ -13,11 +13,11 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     root: compilerRoot,
     commandRunner: async (command, args) => {
       if (command === 'git') {
-        expect(args).toHaveLength(0);
+        expect(args).toEqual(['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']);
         return { code: 1, stdout: `source/app.yaml\n${CI_ARTIFACT_FILES.reviewSummary}\n`, stderr: '' };
       }
 
-      expect(args.slice(-2)).toHaveLength(0);
+      expect(args).toEqual(['run', 'reference:refresh']);
       return { code: 0, stdout: '', stderr: '' };
     }
   });

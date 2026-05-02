@@ -37,7 +37,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   const contract = buildContractFreezeContract();
   const formatted = formatContractFreezeContract(contract);
   expect(formatted).toContain('Contract freeze active');
-  expect(formatted).toContain('Target tests/cli/contracts.test.ts; command=bun test tests/cli/contracts.test.ts --test-name-pattern');
+  expect(formatted).toContain('Target tests/contract/contracts.test.ts; command=bun test tests/contract/contracts.test.ts --test-name-pattern');
   const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
   expect(runnerInvocations).toHaveLength(1);
   const runnerInvocation = runnerInvocations[0];
@@ -64,32 +64,32 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     runnerCommand: 'bun run test:contract-freeze',
     targetFileCount: 15,
     targetFiles: [
+      'tests/contract/benchmark-budget.test.ts',
+      'tests/contract/contracts.test.ts',
+      'tests/contract/environment.test.ts',
+      'tests/contract/reference.test.ts',
+      'tests/contract/usage.test.ts',
       'tests/e2e/artifacts.slow.test.ts',
-      'tests/cli/benchmark-budget.test.ts',
-      'tests/cli/contracts.test.ts',
       'tests/e2e/demo-doctor.slow.test.ts',
-      'tests/cli/environment.test.ts',
+      'tests/e2e/end-to-end.slow.test.ts',
       'tests/e2e/explain.slow.test.ts',
       'tests/e2e/provenance.slow.test.ts',
-      'tests/cli/reference.test.ts',
       'tests/e2e/repair.slow.test.ts',
-      'tests/cli/review.test.ts',
       'tests/e2e/upgrade.slow.test.ts',
-      'tests/cli/usage.test.ts',
       'tests/e2e/verification.slow.test.ts',
-      'tests/e2e/end-to-end.slow.test.ts',
-      'tests/runtime/project-runtime.test.ts'
+      'tests/integration/project-runtime.test.ts',
+      'tests/integration/review.test.ts'
     ],
     targetCount: 15,
     targets: expect.arrayContaining([
       expect.objectContaining({
-        file: 'tests/cli/contracts.test.ts',
-        command: expect.stringContaining('bun test tests/cli/contracts.test.ts --test-name-pattern'),
+        file: 'tests/contract/contracts.test.ts',
+        command: expect.stringContaining('bun test tests/contract/contracts.test.ts --test-name-pattern'),
         testNamePattern: expect.stringContaining('CLI exposes contract freeze target list as text and JSON contracts')
       }),
       expect.objectContaining({
-        file: 'tests/runtime/project-runtime.test.ts',
-        command: expect.stringContaining('bun test tests/runtime/project-runtime.test.ts --test-name-pattern'),
+        file: 'tests/integration/project-runtime.test.ts',
+        command: expect.stringContaining('bun test tests/integration/project-runtime.test.ts --test-name-pattern'),
         testNamePattern: expect.stringContaining('test budget contract documents lanes and their capabilities')
       }),
       expect.objectContaining({
@@ -107,8 +107,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         'Command: bun run platform -- contract freeze --json',
         'Runner command: bun run test:contract-freeze',
         'Target files: 15',
-        'Target file list: tests/e2e/artifacts.slow.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
-        'tests/e2e/end-to-end.slow.test.ts, tests/runtime/project-runtime.test.ts',
+        'Target file list: tests/contract/benchmark-budget.test.ts, tests/contract/contracts.test.ts, tests/contract/environment.test.ts',
+        'tests/e2e/verification.slow.test.ts, tests/integration/project-runtime.test.ts, tests/integration/review.test.ts',
         'Target tests/e2e/end-to-end.slow.test.ts; command=bun test tests/e2e/end-to-end.slow.test.ts --test-name-pattern'
       ],
       json: {
@@ -117,21 +117,21 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         runnerCommand: 'bun run test:contract-freeze',
         targetFileCount: 15,
         targetFiles: [
+          'tests/contract/benchmark-budget.test.ts',
+          'tests/contract/contracts.test.ts',
+          'tests/contract/environment.test.ts',
+          'tests/contract/reference.test.ts',
+          'tests/contract/usage.test.ts',
           'tests/e2e/artifacts.slow.test.ts',
-          'tests/cli/benchmark-budget.test.ts',
-          'tests/cli/contracts.test.ts',
           'tests/e2e/demo-doctor.slow.test.ts',
-          'tests/cli/environment.test.ts',
+          'tests/e2e/end-to-end.slow.test.ts',
           'tests/e2e/explain.slow.test.ts',
           'tests/e2e/provenance.slow.test.ts',
-          'tests/cli/reference.test.ts',
           'tests/e2e/repair.slow.test.ts',
-          'tests/cli/review.test.ts',
           'tests/e2e/upgrade.slow.test.ts',
-          'tests/cli/usage.test.ts',
           'tests/e2e/verification.slow.test.ts',
-          'tests/e2e/end-to-end.slow.test.ts',
-          'tests/runtime/project-runtime.test.ts'
+          'tests/integration/project-runtime.test.ts',
+          'tests/integration/review.test.ts'
         ],
         targetCount: 15
       },

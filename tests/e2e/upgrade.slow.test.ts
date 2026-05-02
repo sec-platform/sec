@@ -171,8 +171,14 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
         'json-array-append': 1
       }
     });
-    expect(upgradePlan.impacts).toHaveLength(0);
-    expect(upgradePlan.migrationOperations).toHaveLength(0);
+    expect(upgradePlan.impacts).toEqual(['src/installed/auth/session.ts', 'upgrade.metadata.json']);
+    expect(upgradePlan.migrationOperations).toHaveLength(2);
+    expect(upgradePlan.migrationOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'mig-auth-session-refresh', role: 'file' }),
+        expect.objectContaining({ id: 'mig-auth-session-upgrade-metadata', role: 'json' })
+      ])
+    );
 
     const compactResult = await expectCliJson<UpgradePlan>(
       workspaceRoot,

@@ -65,8 +65,7 @@ jobs:
       - name: Test budget contract
         run: bun run platform -- test budget --json --compact
 
-      - name: Contract freeze diagnostics
-        continue-on-error: true
+      - name: Contract freeze
         run: bun run test:contract-freeze
 
       - name: Warm runtime dependency cache
@@ -114,8 +113,7 @@ jobs:
       - name: Test budget contract
         run: bun run platform -- test budget --json --compact
 
-      - name: Contract freeze diagnostics
-        continue-on-error: true
+      - name: Contract freeze
         run: bun run test:contract-freeze
 
       - name: Benchmark task suite contract

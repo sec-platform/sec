@@ -25,7 +25,11 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
       status: 'passed',
       violations: []
     });
-    expect(policyReport.merged.policies).toHaveLength(0);
+    expect(policyReport.merged.policies).toHaveLength(1);
+    expect(policyReport.merged.policies[0]).toMatchObject({
+      id: 'tenant-scope-required',
+      targets: ['src/installed/entity/customer-service.ts']
+    });
 
     await expectCliText(workspaceRoot, ['policy', 'sources'], [
       'Policy sources passed',
@@ -100,7 +104,11 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
         })
       ])
     );
-    expect(coverageReport.slots).toHaveLength(0);
+    expect(coverageReport.slots).toHaveLength(1);
+    expect(coverageReport.slots[0]).toMatchObject({
+      id: 'customer_normalizer',
+      uncovered: true
+    });
 
     await expectCliText(workspaceRoot, ['acceptance', 'blocks'], [
       'Acceptance coverage blocks passed',

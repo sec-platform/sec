@@ -139,7 +139,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       'CLI emits artifact manifest JSON for CI upload consumers'
     ),
     contractFreezeTarget(
-      'tests/runtime/project-runtime.test.ts',
+      'tests/integration/project-runtime.test.ts',
       [
         'root package exposes budget and contract scripts',
         'dev-runner does not expose contract subcommands directly',
