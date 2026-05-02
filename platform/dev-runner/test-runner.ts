@@ -4,7 +4,7 @@ import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
-import { getSlowTestFiles, isFastTestFile, isSlowTestFile } from '../shared/test-budget-contract.ts';
+import { getSlowTestFilesSync, isFastTestFile, isSlowTestFile, slowTestExcludePattern } from '../shared/test-budget-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { commandPath, pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 
@@ -16,58 +16,58 @@ interface AffectedTestRule {
 const affectedTestRules: AffectedTestRule[] = [
   {
     sourcePattern: /^platform\/shared\/test-budget-contract\.ts$/,
-    tests: ['tests/cli/benchmark-budget.test.ts']
+    tests: ['tests/contract/benchmark-budget.test.ts']
   },
   {
     sourcePattern: /^platform\/shared\/benchmark-contract\.ts$/,
-    tests: ['tests/cli/benchmark-budget.test.ts']
+    tests: ['tests/contract/benchmark-budget.test.ts']
   },
   {
     sourcePattern: /^platform\/shared\/runtime-dependency-spec\.ts$/,
-    tests: ['tests/cli/demo-doctor.test.ts', 'tests/pipeline/runtime-host.test.ts']
+    tests: ['tests/e2e/demo-doctor.slow.test.ts', 'tests/e2e/runtime-host.slow.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/verify\//,
-    tests: ['tests/cli/verification.test.ts', 'tests/pipeline/lanes.test.ts', 'tests/pipeline/runtime-host.test.ts']
+    tests: ['tests/e2e/verification.slow.test.ts', 'tests/e2e/lanes.slow.test.ts', 'tests/e2e/runtime-host.slow.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/upgrade\//,
-    tests: ['tests/cli/upgrade.test.ts', 'tests/upgrade/conflicts.test.ts', 'tests/upgrade/dry-run-plan.test.ts']
+    tests: ['tests/e2e/upgrade.slow.test.ts', 'tests/e2e/conflicts.slow.test.ts', 'tests/e2e/dry-run-plan.slow.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/repair\//,
-    tests: ['tests/cli/repair.test.ts', 'tests/repair/repair-plan.test.ts', 'tests/review/repair-summary.test.ts']
+    tests: ['tests/e2e/repair.slow.test.ts', 'tests/unit/repair-plan.test.ts', 'tests/unit/repair-summary.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/(parse|resolve|compose|adapt)\//,
-    tests: ['tests/pipeline/end-to-end.test.ts', 'tests/registry/expanded-blocks.test.ts']
+    tests: ['tests/e2e/end-to-end.slow.test.ts', 'tests/e2e/expanded-blocks.slow.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/explain\//,
-    tests: ['tests/cli/explain.test.ts', 'tests/explain/graph.test.ts', 'tests/review/summary.test.ts']
+    tests: ['tests/e2e/explain.slow.test.ts', 'tests/e2e/graph.slow.test.ts', 'tests/e2e/summary.slow.test.ts']
   },
   {
     sourcePattern: /^platform\/cli\//,
     tests: [
-      'tests/cli/benchmark-budget.test.ts',
-      'tests/cli/contracts.test.ts',
-      'tests/cli/overview.test.ts',
-      'tests/cli/reference.test.ts',
-      'tests/cli/usage.test.ts'
+      'tests/contract/benchmark-budget.test.ts',
+      'tests/contract/contracts.test.ts',
+      'tests/integration/overview.test.ts',
+      'tests/contract/reference.test.ts',
+      'tests/contract/usage.test.ts'
     ]
   },
   {
     sourcePattern: /^platform\/registry\//,
-    tests: ['tests/registry/expanded-blocks.test.ts', 'tests/registry/registry.test.ts']
+    tests: ['tests/e2e/expanded-blocks.slow.test.ts', 'tests/e2e/registry.slow.test.ts']
   },
   {
     sourcePattern: /^scripts\//,
-    tests: ['tests/cli/usage.test.ts']
+    tests: ['tests/contract/usage.test.ts']
   }
 ];
 
 function fastTestArgs(args: string[]): string[] {
-  return ['test', ...getSlowTestFiles().flatMap((file) => ['--exclude', file]), ...args];
+  return ['test', '--exclude', slowTestExcludePattern(), ...args];
 }
 
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -78,7 +78,7 @@ function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 function fullTestInvocations(): string[][] {
-  const slowTests = getSlowTestFiles();
+  const slowTests = getSlowTestFilesSync();
   return [
     fastTestArgs([]),
     slowTests.length > 0 ? ['test', ...slowTests] : []

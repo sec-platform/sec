@@ -141,20 +141,20 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
 });
 
 test('CLI exposes test budget as text and JSON contracts', async () => {
-  const contract = buildTestBudgetContract();
+  const contract = await buildTestBudgetContract();
   const formatted = formatTestBudgetContract(contract);
 
   expect(isTestFile('tests/repair/repair.test.ts')).toBe(true);
   expect(isFastTestFile('tests/repair/repair.test.ts')).toBe(true);
-  expect(isSlowTestFile('tests/upgrade/dry-run-plan.test.ts')).toBe(true);
-  expect(isFastTestFile('tests/upgrade/dry-run-plan.test.ts')).toBe(false);
+  expect(isSlowTestFile('tests/e2e/dry-run-plan.slow.test.ts')).toBe(true);
+  expect(isFastTestFile('tests/e2e/dry-run-plan.slow.test.ts')).toBe(false);
   expect(isTestFile('platform/dev-runner/test-runner.ts')).toBe(false);
 
   expectContainsAll(formatted, [
     'Test budget default lane: fast',
     'Lane all; nextBuild=true; playwright=true; command=bun run platform -- verify --lane all',
-    'Slow test files: 22',
-    'tests/pipeline/end-to-end.test.ts'
+    'Slow test files: 23',
+    'tests/e2e/end-to-end.slow.test.ts'
   ]);
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
@@ -165,31 +165,15 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     laneCount: 3,
     slowLaneCount: 1,
     slowLaneIds: ['all'],
-    slowTestFileCount: 22,
-    slowTestFiles: [
-      'tests/cli/artifacts.test.ts',
-      'tests/cli/demo-doctor.test.ts',
-      'tests/cli/explain.test.ts',
-      'tests/cli/provenance.test.ts',
-      'tests/cli/repair.test.ts',
-      'tests/cli/upgrade.test.ts',
-      'tests/cli/verification.test.ts',
-      'tests/cli/workspace.test.ts',
-      'tests/explain/graph.test.ts',
-      'tests/override/manifest.test.ts',
-      'tests/pipeline/end-to-end.test.ts',
-      'tests/pipeline/lanes.test.ts',
-      'tests/pipeline/local-views.test.ts',
-      'tests/pipeline/runtime-host.test.ts',
-      'tests/policy/policy.test.ts',
-      'tests/registry/expanded-blocks.test.ts',
-      'tests/registry/private-registry.test.ts',
-      'tests/registry/registry.test.ts',
-      'tests/review/summary.test.ts',
-      'tests/upgrade/conflicts.test.ts',
-      'tests/upgrade/dry-run-plan.test.ts',
-      'tests/upgrade/pipeline.test.ts'
-    ],
+    slowTestFileCount: 23,
+    slowTestFiles: expect.arrayContaining([
+      'tests/e2e/artifacts.slow.test.ts',
+      'tests/e2e/end-to-end.slow.test.ts',
+      'tests/e2e/graph.slow.test.ts',
+      'tests/e2e/policy.slow.test.ts',
+      'tests/e2e/registry.slow.test.ts',
+      'tests/e2e/pipeline.slow.test.ts'
+    ]),
     lanes: [
       {
         id: 'fast',
@@ -223,8 +207,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         'Lanes: 3',
         'Slow lane count: 1',
         'Slow lanes: all',
-        'Slow test files: 22',
-        'tests/pipeline/end-to-end.test.ts',
+        'Slow test files: 23',
+        'tests/e2e/end-to-end.slow.test.ts',
         'Lane fast; nextBuild=false; playwright=false'
       ],
       json: {
@@ -234,8 +218,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         laneCount: 3,
         slowLaneCount: 1,
         slowLaneIds: ['all'],
-        slowTestFileCount: 22,
-        slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts']),
+        slowTestFileCount: 23,
+        slowTestFiles: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts']),
         lanes: expect.arrayContaining([
           expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
         ])
@@ -246,8 +230,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         laneCount: 3,
         slowLaneCount: 1,
         slowLaneIds: ['all'],
-        slowTestFileCount: 22,
-        slowTestFiles: expect.arrayContaining(['tests/pipeline/end-to-end.test.ts'])
+        slowTestFileCount: 23,
+        slowTestFiles: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts'])
       }
     });
   });

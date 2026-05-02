@@ -156,7 +156,7 @@ export async function runRuntimeVerification(
 
   if (runtimeUnitFiles.length > 0) {
     const unitInvocation = bunRunInvocation('test:unit');
-    const unitResult = await timed('vitest unit', emitTiming, () =>
+    const unitResult = await timed('bun unit', emitTiming, () =>
       runCommand(unitInvocation.command, unitInvocation.args, {
         cwd: projectRoot,
         env: baseEnv

@@ -64,20 +64,20 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     runnerCommand: 'bun run test:contract-freeze',
     targetFileCount: 15,
     targetFiles: [
-      'tests/cli/artifacts.test.ts',
+      'tests/e2e/artifacts.slow.test.ts',
       'tests/cli/benchmark-budget.test.ts',
       'tests/cli/contracts.test.ts',
-      'tests/cli/demo-doctor.test.ts',
+      'tests/e2e/demo-doctor.slow.test.ts',
       'tests/cli/environment.test.ts',
-      'tests/cli/explain.test.ts',
-      'tests/cli/provenance.test.ts',
+      'tests/e2e/explain.slow.test.ts',
+      'tests/e2e/provenance.slow.test.ts',
       'tests/cli/reference.test.ts',
-      'tests/cli/repair.test.ts',
+      'tests/e2e/repair.slow.test.ts',
       'tests/cli/review.test.ts',
-      'tests/cli/upgrade.test.ts',
+      'tests/e2e/upgrade.slow.test.ts',
       'tests/cli/usage.test.ts',
-      'tests/cli/verification.test.ts',
-      'tests/pipeline/end-to-end.test.ts',
+      'tests/e2e/verification.slow.test.ts',
+      'tests/e2e/end-to-end.slow.test.ts',
       'tests/runtime/project-runtime.test.ts'
     ],
     targetCount: 15,
@@ -93,8 +93,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         testNamePattern: expect.stringContaining('test budget contract documents lanes and their capabilities')
       }),
       expect.objectContaining({
-        file: 'tests/pipeline/end-to-end.test.ts',
-        command: 'bun test tests/pipeline/end-to-end.test.ts --test-name-pattern "v0.1 pipeline runs end to end in a temporary workspace"',
+        file: 'tests/e2e/end-to-end.slow.test.ts',
+        command: 'bun test tests/e2e/end-to-end.slow.test.ts --test-name-pattern "v0.1 pipeline runs end to end in a temporary workspace"',
         testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
       })
     ])
@@ -107,9 +107,9 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         'Command: bun run platform -- contract freeze --json',
         'Runner command: bun run test:contract-freeze',
         'Target files: 15',
-        'Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
-        'tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts',
-        'Target tests/pipeline/end-to-end.test.ts; command=bun test tests/pipeline/end-to-end.test.ts --test-name-pattern'
+        'Target file list: tests/e2e/artifacts.slow.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
+        'tests/e2e/end-to-end.slow.test.ts, tests/runtime/project-runtime.test.ts',
+        'Target tests/e2e/end-to-end.slow.test.ts; command=bun test tests/e2e/end-to-end.slow.test.ts --test-name-pattern'
       ],
       json: {
         status: 'active',
@@ -117,20 +117,20 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         runnerCommand: 'bun run test:contract-freeze',
         targetFileCount: 15,
         targetFiles: [
-          'tests/cli/artifacts.test.ts',
+          'tests/e2e/artifacts.slow.test.ts',
           'tests/cli/benchmark-budget.test.ts',
           'tests/cli/contracts.test.ts',
-          'tests/cli/demo-doctor.test.ts',
+          'tests/e2e/demo-doctor.slow.test.ts',
           'tests/cli/environment.test.ts',
-          'tests/cli/explain.test.ts',
-          'tests/cli/provenance.test.ts',
+          'tests/e2e/explain.slow.test.ts',
+          'tests/e2e/provenance.slow.test.ts',
           'tests/cli/reference.test.ts',
-          'tests/cli/repair.test.ts',
+          'tests/e2e/repair.slow.test.ts',
           'tests/cli/review.test.ts',
-          'tests/cli/upgrade.test.ts',
+          'tests/e2e/upgrade.slow.test.ts',
           'tests/cli/usage.test.ts',
-          'tests/cli/verification.test.ts',
-          'tests/pipeline/end-to-end.test.ts',
+          'tests/e2e/verification.slow.test.ts',
+          'tests/e2e/end-to-end.slow.test.ts',
           'tests/runtime/project-runtime.test.ts'
         ],
         targetCount: 15

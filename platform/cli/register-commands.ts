@@ -460,7 +460,7 @@ export function registerCommands(program: Command): void {
 
   addJsonFlags(modeCommand(program.command('test'))).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
-    printJsonOrText(buildTestBudgetContract(), output, formatTestBudgetContract);
+    printJsonOrText(await buildTestBudgetContract(), output, formatTestBudgetContract);
   });
 
   addJsonFlags(modeCommand(program.command('policy')))
