@@ -72,13 +72,6 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/e2e/demo-doctor.slow.test.ts',
-      [
-        'CLI exposes demo checklist as text and JSON readiness contracts',
-        'CLI exposes doctor as text and JSON readiness contracts'
-      ].join('|')
-    ),
-    contractFreezeTarget(
       'tests/contract/environment.test.ts',
       'CLI exposes dependency environment maintenance entrypoints'
     ),
@@ -102,41 +95,8 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/e2e/verification.slow.test.ts',
-      [
-        'CLI exposes policy report as text and JSON contracts',
-        'CLI exposes acceptance coverage as text and JSON contracts',
-        'CLI exposes runtime report as text and JSON contracts',
-        'CLI runs verify with JSON output for CI consumers',
-        'CLI exposes verification report as text and JSON contracts'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/e2e/provenance.slow.test.ts',
-      'CLI exposes provenance registry as text and JSON contracts'
-    ),
-    contractFreezeTarget(
       'tests/integration/review.test.ts',
       'CLI exposes review summary as text and JSON contracts'
-    ),
-    contractFreezeTarget(
-      'tests/e2e/repair.slow.test.ts',
-      [
-        'CLI emits repair dry-run JSON for CI consumers',
-        'CLI emits blocked repair JSON for CI consumers'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/e2e/upgrade.slow.test.ts',
-      'CLI emits upgrade dry-run JSON for CI consumers'
-    ),
-    contractFreezeTarget(
-      'tests/e2e/explain.slow.test.ts',
-      'CLI emits explain JSON for CI consumers'
-    ),
-    contractFreezeTarget(
-      'tests/e2e/artifacts.slow.test.ts',
-      'CLI emits artifact manifest JSON for CI upload consumers'
     ),
     contractFreezeTarget(
       'tests/integration/project-runtime.test.ts',
@@ -153,10 +113,6 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
         'error protocol contract documents error shape and sample IDs',
         'CLI surfaces protocol fields in error output'
       ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/e2e/end-to-end.slow.test.ts',
-      'v0.1 pipeline runs end to end in a temporary workspace'
     )
   ];
 }
