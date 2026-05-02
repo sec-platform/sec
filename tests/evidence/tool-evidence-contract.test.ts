@@ -71,7 +71,7 @@ test('builds draft tool evidence reports with derived summaries', () => {
         affectedFiles: expectedAffectedFiles(input.diagnostics)
       }
     });
-    expect(report.diagnostics[0]?.filePaths).toEqual([] as any);
+    expect(report.diagnostics[0]?.filePaths).toHaveLength(0);
   }
 });
 

@@ -83,7 +83,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
         failureTargets: []
       }
     });
-    expect(repairPlan.tasks[0].failurePoints).toEqual([] as any);
+    expect(repairPlan.tasks[0].failurePoints).toHaveLength(0);
     expect(repairPlan.tasks[0].preview).toMatchObject({
       changed: false
     });
@@ -268,8 +268,8 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
       requiresVerification: false,
       tasks: []
     });
-    expect(repairPlan.blockers).toEqual([] as any);
-    expect(repairPlan.blockers?.[0]?.failurePoints).toEqual([] as any);
+    expect(repairPlan.blockers).toHaveLength(0);
+    expect(repairPlan.blockers?.[0]?.failurePoints).toHaveLength(0);
 
     const writtenRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     expect(writtenRepairPlan).toEqual(repairPlan);

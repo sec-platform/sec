@@ -49,9 +49,9 @@ test('expanded official block set composes and verifies as one project', async (
   }>(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'));
   expect(postgresContract.provider).toBe('postgres');
   expect(postgresContract.persistenceMode).toBe('contract-only');
-  expect(postgresContract.tables.map((table) => table.name)).toEqual([] as any);
-  expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toEqual([] as any);
-  expect(postgresContract.tables.find((table) => table.name === 'tickets')?.columns).toEqual([] as any);
+  expect(postgresContract.tables.map((table) => table.name)).toHaveLength(0);
+  expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toHaveLength(0);
+  expect(postgresContract.tables.find((table) => table.name === 'tickets')?.columns).toHaveLength(0);
 
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<typeof resolvedLock>(lockPath);
@@ -113,6 +113,6 @@ test('reference project coverage has no uncovered blocks', async () => {
     uncoveredSlots: string[];
   }>(acceptanceCoveragePath);
 
-  expect(coverage.uncoveredBlocks).toEqual([] as any);
-  expect(coverage.uncoveredSlots).toEqual([] as any);
+  expect(coverage.uncoveredBlocks).toHaveLength(0);
+  expect(coverage.uncoveredSlots).toHaveLength(0);
 });

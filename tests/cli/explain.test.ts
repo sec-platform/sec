@@ -292,6 +292,6 @@ test('CLI emits explain JSON for CI consumers', async () => {
         'tenant/basic-workspace'
       ])
     );
-    expect(payload.reviewSummary.failurePoints).toEqual([] as any);
+    expect(payload.reviewSummary.failurePoints).toHaveLength(0);
   });
 }, 120000);

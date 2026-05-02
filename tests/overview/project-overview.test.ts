@@ -508,7 +508,20 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     }
   });
 
-  expect(overview.aiContext.priorityReviewFiles).toEqual([] as any);
+  expect(overview.aiContext.priorityReviewFiles).toEqual([
+    {
+      path: CI_ARTIFACT_FILES.overviewView,
+      reasons: ['missing artifact: fixed-view-missing']
+    },
+    {
+      path: 'custom/customer_normalizer.ts',
+      reasons: ['unverified provenance']
+    },
+    {
+      path: 'slot:customer_normalizer',
+      reasons: ['regression risk: coverage-gap']
+    }
+  ]);
   expect(formatProjectOverview(overview)).toContain('Project overview attention');
   expect(formatProjectOverview(overview)).toContain('Graph: 3 nodes / 2 edges; blocks=2; slots=1');
   expect(formatProjectOverview(overview)).toContain(

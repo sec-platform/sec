@@ -112,13 +112,13 @@ test('upgrade advances an official block version and preserves a passing pipelin
       expect.objectContaining({ id: 'override-conflicts', status: 'passed', evidence: [] })
     ])
   );
-  expect(persistedUpgradePlan.impacts).toEqual([] as any);
+  expect(persistedUpgradePlan.impacts).toHaveLength(0);
   expect(persistedUpgradePlan.migrationKindCounts).toEqual({
     'file-replace': 1,
     'json-array-append': 1
   });
-  expect(persistedUpgradePlan.migrationSummaries).toEqual([] as any);
-  expect(persistedUpgradePlan.migrationOperations).toEqual([] as any);
+  expect(persistedUpgradePlan.migrationSummaries).toHaveLength(0);
+  expect(persistedUpgradePlan.migrationOperations).toHaveLength(0);
 
   const { reviewSummary } = await explainWorkspace(workspaceRoot);
   expectReviewConflictHint(reviewSummary, {
@@ -146,7 +146,7 @@ test('upgrade advances ticket block version and surfaces runtime upgrade impact'
   expect(resolvedTicketBlock?.version).toBe('0.1.1');
   expect(lock.passStatus.lock).toBe('succeeded');
   expect(upgradePlan.status).toBe('applied');
-  expect(upgradePlan.impacts).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'file-replace': 1,
     'json-array-append': 1

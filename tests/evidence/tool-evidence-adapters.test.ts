@@ -70,7 +70,7 @@ test('converts jscpd duplicates into code-quality evidence', () => {
   expect(report.kind).toBe('code-quality');
   expect(report.toolId).toBe('jscpd');
   expect(report.stableArtifact).toBe(false);
-  expect(report.rawReportPaths).toEqual([] as any);
+  expect(report.rawReportPaths).toHaveLength(0);
   expect(report.summary).toMatchObject({
     status: 'attention',
     diagnosticCount: jscpdDuplicates.length,
@@ -117,7 +117,7 @@ test('converts dependency-cruiser violations into architecture-boundary evidence
     warningCount: violations.filter((violation) => violation.rule.severity === 'warn').length,
     affectedFiles: expectedFiles
   });
-  expect(report.diagnostics.map((diagnostic) => diagnostic.id)).toEqual([] as any);
+  expect(report.diagnostics.map((diagnostic) => diagnostic.id)).toHaveLength(0);
 });
 
 test('converts discover structural duplicates into semantic-pattern evidence', () => {

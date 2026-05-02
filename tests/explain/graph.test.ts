@@ -237,6 +237,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
     diagnostics
   );
 
+  // FIXME: arrayContaining hides unexpected extras; need exact node count assertion
   expect(graph.nodes).toEqual(
     expect.arrayContaining([
       {
@@ -284,6 +285,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       { id: 'file:upgrade.metadata.json', type: 'file', label: 'upgrade.metadata.json' }
     ])
   );
+  // FIXME: arrayContaining hides unexpected extras; need exact edge count assertion
   expect(graph.edges).toEqual(
     expect.arrayContaining([
       { from: 'upgrade:entity/customer-basic:0.2.0', to: 'block:entity/customer-basic', type: 'connects_to' },
@@ -380,6 +382,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
 
   const graph = await buildExplainGraph(workspaceRoot, lock, { formatVersion: '1', artifacts: [] }, emptyCoverage(), null, null, repairPlan);
 
+  expect(graph.nodes).toHaveLength(4);
   expect(graph.nodes).toEqual(
     expect.arrayContaining([
       { id: 'repair:repair_customer_normalizer', type: 'repair', label: 'repair_customer_normalizer' },
@@ -388,6 +391,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
     ])
   );
+  // FIXME: arrayContaining hides unexpected extras; need exact edge count assertion
   expect(graph.edges).toEqual(
     expect.arrayContaining([
       { from: 'repair:repair_customer_normalizer', to: 'repair-category:slot-rewrite', type: 'depends_on' },
@@ -444,6 +448,7 @@ test('explain graph links generated ticket runtime routes back to related blocks
 
   const graph = await buildExplainGraph(workspaceRoot, lock, provenance, emptyCoverage(), null);
 
+  // FIXME: arrayContaining hides unexpected extras; need exact edge count assertion
   expect(graph.edges).toEqual(
     expect.arrayContaining([
       {

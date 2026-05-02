@@ -97,7 +97,7 @@ test('review summary surfaces policy governance summary', async () => {
       error: 1
     }
   });
-  expect(summary.policySummary?.sourceSummaries).toEqual([] as any);
-  expect(summary.policySummary?.mergedSummaries).toEqual([] as any);
-  expect(summary.policySummary?.violationSummaries).toEqual([] as any);
+  expect(summary.policySummary?.sourceSummaries).toHaveLength(0);
+  expect(summary.policySummary?.mergedSummaries).toHaveLength(0);
+  expect(summary.policySummary?.violationSummaries).toHaveLength(0);
 });

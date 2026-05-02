@@ -79,9 +79,9 @@ test('writeReviewSummary persists generated path in lock', async () => {
     runtimeEntryCount: 0,
     installImpactCount: 0
   });
-  expect(summary.conflictHints).toEqual([] as any);
+  expect(summary.conflictHints).toHaveLength(0);
   expect(persistedSummary).toEqual(summary);
-  expect(persistedLock.generatedPaths).toEqual([] as any);
+  expect(persistedLock.generatedPaths).toHaveLength(0);
 });
 
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
@@ -324,8 +324,8 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       }
     ])
   );
-  expect(summary.verticalSlices).toEqual([] as any);
-  expect(summary.installImpacts).toEqual([] as any);
+  expect(summary.verticalSlices).toHaveLength(0);
+  expect(summary.installImpacts).toHaveLength(0);
   expect(summary.installImpactSummary).toEqual({
     impactCount: 3,
     blockCount: 3,

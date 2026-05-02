@@ -97,15 +97,15 @@ test('review summary surfaces pending repair tasks', async () => {
       targetFileCount: 2,
       targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
     });
-    expect(summary.repairSummary?.taskSummaries).toEqual([] as any);
-    expect(summary.repairSummary?.blockerSummaries).toEqual([] as any);
+    expect(summary.repairSummary?.taskSummaries).toHaveLength(0);
+    expect(summary.repairSummary?.blockerSummaries).toHaveLength(0);
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'repair',
       artifactPath: CI_ARTIFACT_FILES.repairPlan,
       message: 'Repair blocked at spec: policy failure is outside automatic slot repair: tenant scope missing'
     });
-    expect(summary.conflictHints).toEqual([] as any);
+    expect(summary.conflictHints).toHaveLength(0);
 
     repairPlan.status = 'applied';
     repairPlan.requiresVerification = true;
@@ -124,7 +124,7 @@ test('review summary surfaces pending repair tasks', async () => {
         nextAction: 'rerun-verify'
       }
     });
-    expect(appliedSummary.conflictHints).toEqual([] as any);
+    expect(appliedSummary.conflictHints).toHaveLength(0);
     expect(appliedSummary.regressionRisks).toContainEqual({
       kind: 'repair-verification',
       message: 'Repair applied and requires verification rerun'

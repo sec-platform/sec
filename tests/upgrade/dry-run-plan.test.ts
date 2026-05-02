@@ -57,8 +57,8 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       expect.objectContaining({ id: 'override-conflicts', status: 'passed' })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
-  expect(upgradePlan.migrationOperations).toEqual([] as any);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
+  expect(upgradePlan.migrationOperations).toHaveLength(0);
   await expectFileUnchanged(planPath, beforePlan);
   await expectFileUnchanged(sessionPath, beforeSession);
 
@@ -124,9 +124,9 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
       expect.objectContaining({ id: 'override-conflicts', evidence: [] })
     ])
   );
-  expect(upgradePlan.impacts).toEqual([] as any);
-  expect(upgradePlan.migrationSummaries).toEqual([] as any);
-  expect(upgradePlan.migrationOperations).toEqual([] as any);
+  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.migrationSummaries).toHaveLength(0);
+  expect(upgradePlan.migrationOperations).toHaveLength(0);
   await expectFileUnchanged(planPath, beforePlan);
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 });

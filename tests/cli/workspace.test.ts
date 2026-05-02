@@ -43,7 +43,7 @@ function developerSourceLayerDirectories(paths: WorkspacePathsSnapshot): string[
 
 async function expectDirectoriesExist(directories: readonly string[]): Promise<void> {
   for (const directory of directories) {
-    await expect(fs.stat(directory)).resolves.toMatchObject({});
+    await expect(fs.stat(directory)).resolves.toBeTruthy();
   }
 }
 
