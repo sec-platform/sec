@@ -54,7 +54,7 @@ jobs:
             ${{ runner.os }}-runtime-deps-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Typecheck
         run: bun run typecheck
@@ -112,7 +112,7 @@ jobs:
           "EOF" >> $env:GITHUB_OUTPUT
 
       - name: Upload fast governance diagnostics
-        if: failure()
+        if: failure() && steps.fast_artifacts.outputs.governance_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-fast-governance-diagnostics
@@ -120,7 +120,7 @@ jobs:
           path: ${{ steps.fast_artifacts.outputs.governance_paths }}
 
       - name: Upload fast local views
-        if: failure()
+        if: failure() && steps.fast_artifacts.outputs.view_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-fast-local-views
@@ -128,7 +128,7 @@ jobs:
           path: ${{ steps.fast_artifacts.outputs.view_paths }}
 
       - name: Upload fast runtime test results
-        if: failure()
+        if: failure() && steps.fast_artifacts.outputs.test_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-fast-runtime-test-results
@@ -136,7 +136,7 @@ jobs:
           path: ${{ steps.fast_artifacts.outputs.test_paths }}
 
       - name: Upload fast contract artifacts
-        if: failure()
+        if: failure() && steps.fast_artifacts.outputs.contract_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-fast-contract-artifacts
@@ -198,7 +198,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Typecheck
         run: bun run typecheck
@@ -268,7 +268,7 @@ jobs:
           "EOF" >> $env:GITHUB_OUTPUT
 
       - name: Upload governance artifacts
-        if: always()
+        if: always() && steps.full_artifacts.outputs.governance_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-governance-artifacts
@@ -276,7 +276,7 @@ jobs:
           path: ${{ steps.full_artifacts.outputs.governance_paths }}
 
       - name: Upload local views
-        if: always()
+        if: always() && steps.full_artifacts.outputs.view_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-local-views
@@ -284,7 +284,7 @@ jobs:
           path: ${{ steps.full_artifacts.outputs.view_paths }}
 
       - name: Upload runtime test results
-        if: always()
+        if: always() && steps.full_artifacts.outputs.test_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-runtime-test-results
@@ -292,7 +292,7 @@ jobs:
           path: ${{ steps.full_artifacts.outputs.test_paths }}
 
       - name: Upload contract artifacts
-        if: always()
+        if: always() && steps.full_artifacts.outputs.contract_paths != ''
         uses: actions/upload-artifact@v7
         with:
           name: compiler-contract-artifacts
