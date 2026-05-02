@@ -1,0 +1,105 @@
+<%
+  const statusRows = [
+    ['Overall', overview.status.overall],
+    ['Verification', overview.status.verification],
+    ['Policy', overview.status.policy],
+    ['Coverage', overview.status.coverage],
+    ['Artifacts', overview.status.artifacts],
+    ['Review Chain', overview.status.reviewChain],
+    ['Next Action', nextAction]
+  ];
+
+  const workspaceRows = [
+    ['Workspace Root', overview.workspace.root],
+    ['Source Root', overview.workspace.sourceRoot],
+    ['Project Root', overview.workspace.projectRoot],
+    ['Control Root', overview.workspace.controlRoot],
+    ['Local State Root', overview.workspace.localStateRoot]
+  ];
+
+  const navigationRows = overview.navigation.workbenchViews.map(function(view) {
+    return [view.id, view.path ?? 'unavailable'];
+  });
+
+  const aiContextRows = [
+    ['App Name', overview.aiContext.appName],
+    ['Blocks', String(overview.aiContext.blockCount)],
+    ['Slots', String(overview.aiContext.slotCount)],
+    ['Graph Nodes', String(overview.aiContext.graphNodeCount)],
+    ['Graph Edges', String(overview.aiContext.graphEdgeCount)],
+    ['Generated Paths', String(overview.aiContext.generatedPathCount)],
+    ['Unverified Artifacts', String(overview.aiContext.unverifiedArtifactCount)],
+    ['Priority Review Files', String(overview.aiContext.priorityReviewFileCount)]
+  ];
+
+  const priorityFileRows = overview.aiContext.priorityReviewFiles.map(function(entry) {
+    return [entry.path, entry.reasons.join(', ')];
+  });
+
+  const qualityRows = overview.quality.reports.map(function(report) {
+    return [
+      report.kind,
+      report.available ? 'available' : 'unavailable',
+      report.status,
+      String(report.diagnosticCount),
+      String(report.affectedFileCount),
+      report.rawReportPaths.join(', ')
+    ];
+  });
+
+  const riskRows = [
+    ['Failure Points', String(overview.risks.failureCount)],
+    ['Regression Risks', String(overview.risks.regressionRiskCount)],
+    ['Conflict Hints', String(overview.risks.conflictHintCount)],
+    ['Missing Artifacts', String(overview.risks.missingArtifactCount)],
+    ['Policy Errors', String(overview.risks.policyErrorCount)]
+  ];
+
+  function localViewHref(viewPath) {
+    return viewPath ? viewPath.split('/').pop() : viewPath;
+  }
+
+  const viewPathById = new Map(overview.navigation.workbenchViews.map(function(view) {
+    return [view.id, view.path];
+  }));
+  const quickLinks = [
+    ['Source View', localViewHref(viewPathById.get('source'))],
+    ['Slot / Rule View', localViewHref(viewPathById.get('slot-rule'))],
+    ['Graph View', localViewHref(viewPathById.get('graph'))],
+    ['Review View', localViewHref(viewPathById.get('review'))]
+  ];
+%>
+<section class="card">
+  <h1>Workbench Overview</h1>
+  <p>Read-only dashboard derived from the shared project overview builder.</p>
+</section>
+<div class="grid">
+  <%- card('Overall Status', metricTable(statusRows)) %>
+  <%- card('Risk Radar', metricTable(riskRows)) %>
+</div>
+<div class="grid">
+  <%- card('Workspace Navigation', metricTable(workspaceRows)) %>
+  <%- card('Workbench Views', dataTable(['View','Path'], navigationRows, 2, 'No workbench views.')) %>
+</div>
+<div class="grid">
+  <%- card('AI Handoff Context', metricTable(aiContextRows)) %>
+  <%- card('Quality Evidence Availability', dataTable(['Kind','Availability','Status','Diagnostics','Affected Files','Report Paths'], qualityRows, 6, 'No quality evidence reports.')) %>
+</div>
+<section class="card">
+  <h2>Priority Review Files</h2>
+  <%- dataTable(['Path','Reasons'], priorityFileRows, 2, 'No priority review files.') %>
+</section>
+<section class="card">
+  <h2>Workbench Links</h2>
+  <ul>
+    <% quickLinks.forEach(function(link) { %>
+      <li>
+        <% if (link[1]) { %>
+          <a href="<%- esc(link[1]) %>"><%- esc(link[0]) %></a>
+        <% } else { %>
+          <span><%- esc(link[0]) %> unavailable</span>
+        <% } %>
+      </li>
+    <% }) %>
+  </ul>
+</section>

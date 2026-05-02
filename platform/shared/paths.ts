@@ -27,6 +27,12 @@ export const controlWorkflowRelativePath = path.join(controlRelativePath, 'workf
 export const controlWorkbenchRelativePath = path.join(controlRelativePath, 'workbench');
 export const controlAuditRelativePath = path.join(controlRelativePath, 'audit');
 export const controlCiRelativePath = path.join(controlRelativePath, 'ci');
+export const controlWorkbenchViewsRelativePath = 'control/workbench/views' as const;
+export const overviewViewRelativePath = `${controlWorkbenchViewsRelativePath}/overview-view.html` as const;
+export const sourceViewRelativePath = `${controlWorkbenchViewsRelativePath}/source-view.html` as const;
+export const slotRuleViewRelativePath = `${controlWorkbenchViewsRelativePath}/slot-rule-view.html` as const;
+export const graphViewRelativePath = `${controlWorkbenchViewsRelativePath}/graph-view.html` as const;
+export const reviewViewRelativePath = `${controlWorkbenchViewsRelativePath}/review-view.html` as const;
 export const officialRegistryRoot = path.join(compilerRoot, officialRegistryRelativePath);
 
 export function posixPath(value: string): string {
@@ -117,7 +123,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     controlAuditRoot,
     controlCiRoot,
     localStateRoot: path.join(root, localStateRelativePath),
-    generatedViewsDir: path.join(controlWorkbenchRoot, 'views'),
+    generatedViewsDir: path.join(root, controlWorkbenchViewsRelativePath),
     planPath: path.join(developerSourceRoot, 'app.yaml'),
     legacyPlanPath: path.join(projectRoot, 'app.plan.yaml'),
     lockPath: path.join(controlStateRoot, 'graph.lock.json'),
@@ -140,10 +146,11 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     explainGraphDotPath: path.join(controlGraphRoot, 'explain-graph.dot'),
     reviewSummaryPath: path.join(controlEvidenceRoot, 'review-summary.json'),
     ciArtifactsPath: path.join(controlCiRoot, 'artifacts.json'),
-    sourceViewPath: path.join(controlWorkbenchRoot, 'views', 'source-view.html'),
-    slotRuleViewPath: path.join(controlWorkbenchRoot, 'views', 'slot-rule-view.html'),
-    graphViewPath: path.join(controlWorkbenchRoot, 'views', 'graph-view.html'),
-    reviewViewPath: path.join(controlWorkbenchRoot, 'views', 'review-view.html'),
+    overviewViewPath: path.join(root, overviewViewRelativePath),
+    sourceViewPath: path.join(root, sourceViewRelativePath),
+    slotRuleViewPath: path.join(root, slotRuleViewRelativePath),
+    graphViewPath: path.join(root, graphViewRelativePath),
+    reviewViewPath: path.join(root, reviewViewRelativePath),
     repairPlanPath: path.join(controlWorkflowRoot, 'repair-plan.json'),
     upgradePlanPath: path.join(controlWorkflowRoot, 'upgrade-plan.json'),
     upgradeDiagnosticsPath: path.join(controlWorkflowRoot, 'upgrade-diagnostics.json'),
