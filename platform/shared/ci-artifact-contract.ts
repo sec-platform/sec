@@ -1,29 +1,29 @@
 import {
-    CI_ARTIFACT_KINDS,
-    CI_ARTIFACT_MISSING_REASONS,
-    type CiArtifactEntry,
-    type CiArtifactKind,
-    type CiArtifactManifest,
-    type CiArtifactMissingEntry,
-    type CiArtifactSummary,
-    type CiArtifactUploadGroup
+  CI_ARTIFACT_KINDS,
+  CI_ARTIFACT_MISSING_REASONS,
+  type CiArtifactEntry,
+  type CiArtifactKind,
+  type CiArtifactManifest,
+  type CiArtifactMissingEntry,
+  type CiArtifactSummary,
+  type CiArtifactUploadGroup
 } from './ci-artifact-types.ts';
 import { countPositiveValues, uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import {
-    graphViewRelativePath,
-    overviewViewRelativePath,
-    posixPath,
-    reviewViewRelativePath,
-    slotRuleViewRelativePath,
-    sourceViewRelativePath
+  graphViewRelativePath,
+  overviewViewRelativePath,
+  posixPath,
+  reviewViewRelativePath,
+  slotRuleViewRelativePath,
+  sourceViewRelativePath
 } from './paths.ts';
 import { platformCommand } from './platform-command.ts';
 
 export {
-    CI_ARTIFACT_KINDS,
-    CI_ARTIFACT_MISSING_REASON,
-    CI_ARTIFACT_MISSING_REASONS
+  CI_ARTIFACT_KINDS,
+  CI_ARTIFACT_MISSING_REASON,
+  CI_ARTIFACT_MISSING_REASONS
 } from './ci-artifact-types.ts';
 
 export const CI_ARTIFACT_FILES = {

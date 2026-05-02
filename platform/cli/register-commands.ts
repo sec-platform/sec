@@ -5,37 +5,37 @@ import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import {
-    buildBenchmarkTaskSuiteContract,
-    formatBenchmarkTaskSuiteContract
+  buildBenchmarkTaskSuiteContract,
+  formatBenchmarkTaskSuiteContract
 } from '../shared/benchmark-contract.ts';
 import {
-    CI_ARTIFACT_FILES,
-    CI_EXPLAIN_GRAPH_ARTIFACTS
+  CI_ARTIFACT_FILES,
+  CI_EXPLAIN_GRAPH_ARTIFACTS
 } from '../shared/ci-artifact-contract.ts';
 import type { CiArtifactKind } from '../shared/ci-artifact-types.ts';
 import {
-    buildCiContract,
-    formatCiContract
+  buildCiContract,
+  formatCiContract
 } from '../shared/ci-contract.ts';
 import { countMatching } from '../shared/collections.ts';
 import { CONTRACT_FORMAT_VERSION } from '../shared/constants.ts';
 import {
-    buildContractFreezeContract,
-    formatContractFreezeContract
+  buildContractFreezeContract,
+  formatContractFreezeContract
 } from '../shared/contract-freeze-contract.ts';
 import type { DependencyCleanOptions } from '../shared/dependency-environment.ts';
 import {
-    cleanDependencyEnvironment,
-    formatDependencyEnvironmentStatus,
-    formatDoctorReport,
-    getDependencyEnvironmentStatus,
-    getDoctorReport,
-    relinkProjectDependencies,
-    warmupDependencyEnvironment
+  cleanDependencyEnvironment,
+  formatDependencyEnvironmentStatus,
+  formatDoctorReport,
+  getDependencyEnvironmentStatus,
+  getDoctorReport,
+  relinkProjectDependencies,
+  warmupDependencyEnvironment
 } from '../shared/dependency-environment.ts';
 import {
-    buildErrorProtocolContract,
-    formatErrorProtocolContract
+  buildErrorProtocolContract,
+  formatErrorProtocolContract
 } from '../shared/error-protocol-contract.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
@@ -44,14 +44,14 @@ import { platformCommand } from '../shared/platform-command.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProjectOverview } from '../shared/project-overview.ts';
 import {
-    buildProjectOverviewFromWorkspace,
-    formatProjectOverview
+  buildProjectOverviewFromWorkspace,
+  formatProjectOverview
 } from '../shared/project-overview.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import {
-    assertReferenceCheckClean,
-    buildReferenceCheckReport,
-    formatReferenceCheck
+  assertReferenceCheckClean,
+  buildReferenceCheckReport,
+  formatReferenceCheck
 } from '../shared/reference-check.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
@@ -59,45 +59,45 @@ import { buildReviewPolicySummary } from '../shared/review-policy.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import { withSpinner } from '../shared/spinner.ts';
 import {
-    buildTestBudgetContract,
-    formatTestBudgetContract
+  buildTestBudgetContract,
+  formatTestBudgetContract
 } from '../shared/test-budget-contract.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../shared/verification-types.ts';
 import { formatJson, printJsonOrText } from './format-utils.ts';
 import {
-    buildAcceptanceTargetInspect,
-    buildArtifactUploadPathContract,
-    buildPolicySourceInspect,
-    buildReviewDiagnosticsInspect,
-    buildRuntimeStepsInspect,
-    formatAcceptanceCoverage,
-    formatAcceptanceTargets,
-    formatBlockUsageMap,
-    formatCiArtifactManifest,
-    formatDemoChecklist,
-    formatE2eMatrix,
-    formatExplainGraphInspect,
-    formatExplainSummary,
-    formatInstallManifest,
-    formatLockInspect,
-    formatPolicyReport,
-    formatPolicySources,
-    formatPostgresContract,
-    formatProvenanceRegistry,
-    formatRepairSummary,
-    formatReviewDiagnosticsInspect,
-    formatReviewSummaryContract,
-    formatRuntimeReport,
-    formatRuntimeStepsInspect,
-    formatUpgradeDiagnostics,
-    formatUpgradeSummary,
-    formatVerificationReport,
-    type BlockUsageMap,
-    type DemoChecklist,
-    type DemoChecklistItem,
-    type InstallManifestEntry,
-    type PostgresContract
+  buildAcceptanceTargetInspect,
+  buildArtifactUploadPathContract,
+  buildPolicySourceInspect,
+  buildReviewDiagnosticsInspect,
+  buildRuntimeStepsInspect,
+  formatAcceptanceCoverage,
+  formatAcceptanceTargets,
+  formatBlockUsageMap,
+  formatCiArtifactManifest,
+  formatDemoChecklist,
+  formatE2eMatrix,
+  formatExplainGraphInspect,
+  formatExplainSummary,
+  formatInstallManifest,
+  formatLockInspect,
+  formatPolicyReport,
+  formatPolicySources,
+  formatPostgresContract,
+  formatProvenanceRegistry,
+  formatRepairSummary,
+  formatReviewDiagnosticsInspect,
+  formatReviewSummaryContract,
+  formatRuntimeReport,
+  formatRuntimeStepsInspect,
+  formatUpgradeDiagnostics,
+  formatUpgradeSummary,
+  formatVerificationReport,
+  type BlockUsageMap,
+  type DemoChecklist,
+  type DemoChecklistItem,
+  type InstallManifestEntry,
+  type PostgresContract
 } from './formatters.ts';
 
 type JsonOpts = { json: boolean; compact: boolean };
