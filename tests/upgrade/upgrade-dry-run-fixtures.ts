@@ -1,4 +1,4 @@
-import { expect } from 'vitest';
+import { expect } from 'bun:test';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import type { UpgradePlan } from '../../platform/shared/types.ts';

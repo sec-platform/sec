@@ -1,4 +1,4 @@
-import { expect } from 'vitest';
+import { expect } from 'bun:test';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';

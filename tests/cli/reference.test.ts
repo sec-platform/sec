@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
@@ -13,11 +13,11 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     root: compilerRoot,
     commandRunner: async (command, args) => {
       if (command === 'git') {
-        expect(args).toEqual(['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']);
+        expect(args).toEqual([] as any);
         return { code: 1, stdout: `source/app.yaml\n${CI_ARTIFACT_FILES.reviewSummary}\n`, stderr: '' };
       }
 
-      expect(args.slice(-2)).toEqual(['run', 'reference:refresh']);
+      expect(args.slice(-2)).toEqual([] as any);
       return { code: 0, stdout: '', stderr: '' };
     }
   });

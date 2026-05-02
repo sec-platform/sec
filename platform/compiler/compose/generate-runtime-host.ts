@@ -1,4 +1,4 @@
-﻿import path from 'node:path';
+import path from 'node:path';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { ensureDir, writeText } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
@@ -1562,7 +1562,7 @@ function renderRuntimeUnitTest(options: {
   worklogEnabled: boolean;
 }): string {
   const imports = renderImportBlock([
-    `import { beforeEach, describe, expect, it } from 'vitest';`,
+    `import { beforeEach, describe, expect, it } from 'bun:test';`,
     `import { login } from '../../../src/installed/auth/session.ts';`,
     `import { createCustomer, listCustomers } from '../../../src/installed/entity/customer-service.ts';`,
     renderOptional(options.auditEnabled, `import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';`),
@@ -1720,7 +1720,7 @@ import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../s
 `]
   ]);
 
-  return `import { beforeEach, describe, expect, it } from 'vitest';
+  return `import { beforeEach, describe, expect, it } from 'bun:test';
 import { login } from '../../../src/installed/auth/session.ts';
 import { addTicketAttachment, addTicketComment, createTicket, listTicketAttachments, listTicketComments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';${featureImports}
 import { getDatabase, resetDatabase } from '../../../lib/store.ts';

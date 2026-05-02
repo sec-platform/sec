@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
@@ -368,10 +368,10 @@ describe('project and shared runtime manifests', () => {
     const projectPackage = await readJson<RuntimePackageJson>(projectPackagePath);
     const sharedPackage = await readJson<RuntimePackageJson>(path.join(sharedDepsRoot, 'package.json'));
 
-    expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next);
-    expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react);
-    expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node']);
-    expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript);
+    expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next as string);
+    expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react as string);
+    expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node'] as string);
+    expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript as string);
     expect(sharedPackage.dependencies).toEqual(projectPackage.dependencies);
     expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
   });

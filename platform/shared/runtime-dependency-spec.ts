@@ -26,11 +26,11 @@ export interface RuntimePackageManifest {
 const runtimeDependencyKeys = ['next', 'react', 'react-dom', 'yaml'] as const;
 const runtimeDevDependencyKeys = [
   '@playwright/test',
+  '@types/bun',
   '@types/node',
   '@types/react',
   '@types/react-dom',
-  'typescript',
-  'vitest'
+  'typescript'
 ] as const;
 
 function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): string {

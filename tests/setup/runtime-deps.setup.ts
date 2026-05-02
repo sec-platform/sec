@@ -19,3 +19,6 @@ export default async function prewarmSharedRuntimeDeps(): Promise<void> {
     await ensureSharedDepsReady();
   }
 }
+
+// Bun test compat: execute immediately
+await prewarmSharedRuntimeDeps();

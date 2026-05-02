@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import {
   CI_ARTIFACT_FILES,
@@ -241,6 +241,10 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     });
 
     await expectCliSuccess(workspaceRoot, ['explain']);
+    {
+      const { overviewViewPath } = getWorkspacePaths(workspaceRoot);
+      await fs.rm(overviewViewPath, { force: true });
+    }
 
     {
       const { ciArtifactsPath, lockPath, provenancePath } = getWorkspacePaths(workspaceRoot);
@@ -419,6 +423,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
     }>(workspaceRoot, ['explain', '--json']);
     expect(explainPayload.reviewSummary.artifactSummary).toMatchObject(manifest.summary);
     expect(explainPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(manifest.uploadGroups);
+    await fs.rm(overviewViewPath, { force: true });
 
     const contractArtifactPath = path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json');
     await fs.mkdir(path.dirname(contractArtifactPath), { recursive: true });
@@ -492,6 +497,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       'contracts: 1',
       `upload groups: ${contractManifest.summary.uploadGroupCount}`
     ]);
+    await fs.rm(overviewViewPath, { force: true });
 
     const contractReviewSummary = await readJson<{
       artifactSummary?: ReviewArtifactSummary;
@@ -539,6 +545,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
         artifactSummary?: ReviewArtifactSummary;
       };
     }>(workspaceRoot, ['explain', '--json']);
+    await fs.rm(overviewViewPath, { force: true });
     expect(explainWithMissingPayload.reviewSummary.artifactSummary?.uploadGroups).toEqual(
       manifestWithLockMissing.uploadGroups
     );
@@ -619,7 +626,9 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
 
     await fs.rm(path.join(workspaceRoot, 'control', 'evidence', 'policy-report.json'));
     await fs.rm(sourceViewPath);
+    console.log('DEBUG: overviewViewPath exists before artifacts at 630:', await pathExists(overviewViewPath));
 
+    await fs.rm(overviewViewPath, { force: true });
     const manifestWithMissing = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
     const fixedMissingDiagnostics = [
       {

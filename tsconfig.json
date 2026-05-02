@@ -7,7 +7,7 @@
     "verbatimModuleSyntax": true,
     "strict": true,
     "noEmit": true,
-    "types": ["node"],
+    "types": ["node", "bun"],
     "lib": ["ES2022"],
     "skipLibCheck": true
   },

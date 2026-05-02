@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { lockWorkspace, verifyWorkspace } from '../../platform/orchestrator.ts';
 import { prepareAdaptedWorkspace } from '../helpers/workspace-fixtures.ts';

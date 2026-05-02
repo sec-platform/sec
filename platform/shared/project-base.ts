@@ -156,7 +156,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       dev: 'next dev',
       build: 'next build --webpack',
       'test:fast': 'node --test --experimental-test-isolation=none',
-      'test:unit': 'vitest run --config vitest.config.ts',
+      'test:unit': 'bun test tests/runtime/unit',
       'test:acceptance': 'playwright test --config playwright.config.ts',
       'verify:runtime:service': 'bun run test:unit',
       'verify:runtime:full': 'bun run build && bun run test:unit && bun run test:acceptance',
@@ -179,7 +179,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       esModuleInterop: true,
       resolveJsonModule: true,
       incremental: true,
-      types: ['node'],
+      types: ['node', 'bun'],
       lib: ['DOM', 'DOM.Iterable', 'ES2022'],
       skipLibCheck: true,
       plugins: [{ name: 'next' }]
@@ -197,7 +197,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       'tests/**/*.ts',
       'tests/**/*.tsx',
       'custom/**/*.ts',
-      'vitest.config.ts',
+      'bunfig.toml',
       'playwright.config.ts'
     ],
     exclude: ['node_modules']
@@ -324,15 +324,8 @@ pre.json {
 }
 `);
   await writeText(
-    path.join(projectRoot, 'vitest.config.ts'),
-    `import { defineConfig } from 'vitest/config';
-
-export default defineConfig({
-  test: {
-    include: ['tests/runtime/unit/**/*.test.ts'],
-    environment: 'node'
-  }
-});
+    path.join(projectRoot, 'bunfig.toml'),
+    `[test]
 `
   );
   await writeText(
