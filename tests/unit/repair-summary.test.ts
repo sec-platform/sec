@@ -97,15 +97,15 @@ test('review summary surfaces pending repair tasks', async () => {
       targetFileCount: 2,
       targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
     });
-    expect(summary.repairSummary?.taskSummaries).toHaveLength(0);
-    expect(summary.repairSummary?.blockerSummaries).toHaveLength(0);
+    expect(summary.repairSummary?.taskSummaries).toHaveLength(2);
+    expect(summary.repairSummary?.blockerSummaries).toHaveLength(1);
     expect(summary.failurePoints).toContainEqual({
       lane: 'all',
       kind: 'repair',
       artifactPath: CI_ARTIFACT_FILES.repairPlan,
       message: 'Repair blocked at spec: policy failure is outside automatic slot repair: tenant scope missing'
     });
-    expect(summary.conflictHints).toHaveLength(0);
+    expect(summary.conflictHints).toHaveLength(3);
 
     repairPlan.status = 'applied';
     repairPlan.requiresVerification = true;
