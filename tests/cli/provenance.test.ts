@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { expectCliVariants, runCliPipeline } from '../helpers/cli-helpers.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';

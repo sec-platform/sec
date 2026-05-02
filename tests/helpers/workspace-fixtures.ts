@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { afterAll } from 'vitest';
+import { afterAll } from 'bun:test';
 import {
   adaptWorkspace,
   addBlock,

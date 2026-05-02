@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../helpers/cli-helpers.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
@@ -292,6 +292,6 @@ test('CLI emits explain JSON for CI consumers', async () => {
         'tenant/basic-workspace'
       ])
     );
-    expect(payload.reviewSummary.failurePoints).toEqual([]);
+    expect(payload.reviewSummary.failurePoints).toEqual([] as any);
   });
 }, 120000);

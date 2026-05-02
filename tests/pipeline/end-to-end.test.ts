@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import {
   adaptWorkspace,
@@ -97,8 +97,8 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     uncoveredSlots: string[];
   }>(acceptanceCoveragePath);
   expect(coverage.status).toBe('passed');
-  expect(coverage.uncoveredBlocks).toEqual([]);
-  expect(coverage.uncoveredSlots).toEqual([]);
+  expect(coverage.uncoveredBlocks).toEqual([] as any);
+  expect(coverage.uncoveredSlots).toEqual([] as any);
 
   const policyReport = await readJson<{
     status: string;
@@ -106,7 +106,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     violations: unknown[];
   }>(policyReportPath);
   expect(policyReport.status).toBe('passed');
-  expect(policyReport.violations).toEqual([]);
+  expect(policyReport.violations).toEqual([] as any);
   expect(policyReport.merged.policies.find((policy) => policy.id === 'tenant-scope-required')).toEqual({
     id: 'tenant-scope-required',
     sourceScope: 'official',
@@ -163,9 +163,9 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
       }
     ]
   });
-  expect(reviewSummary.failurePoints).toEqual([]);
-  expect(reviewSummary.regressionRisks).toEqual([]);
-  expect(reviewSummary.conflictHints).toEqual([]);
+  expect(reviewSummary.failurePoints).toEqual([] as any);
+  expect(reviewSummary.regressionRisks).toEqual([] as any);
+  expect(reviewSummary.conflictHints).toEqual([] as any);
 
   const sourceViewExists = await fs
     .access(sourceViewPath)

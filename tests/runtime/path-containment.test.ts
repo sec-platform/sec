@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 import { defaultInstallRegistry } from '../../platform/compiler/compose/install-strategies.ts';
 import { validateManifest } from '../../platform/compiler/parse/load-manifest.ts';
 import { loadPlan } from '../../platform/compiler/parse/load-plan.ts';

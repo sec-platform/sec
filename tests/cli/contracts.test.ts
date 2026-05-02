@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import {
   CI_ARTIFACT_FILES,
@@ -37,7 +37,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   const contract = buildContractFreezeContract();
   const formatted = formatContractFreezeContract(contract);
   expect(formatted).toContain('Contract freeze active');
-  expect(formatted).toContain('Target tests/cli/contracts.test.ts; command=bunx vitest run tests/cli/contracts.test.ts --testNamePattern');
+  expect(formatted).toContain('Target tests/cli/contracts.test.ts; command=bun test tests/cli/contracts.test.ts --test-name-pattern');
   const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
   expect(runnerInvocations).toHaveLength(1);
   const runnerInvocation = runnerInvocations[0];
@@ -47,10 +47,11 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(runnerInvocation.testNamePattern).toBeDefined();
   const runnerPattern = runnerInvocation.testNamePattern;
   if (!runnerPattern) throw new Error('Missing contract-freeze runner pattern');
+  expect(runnerInvocation.args).toContain('--test-name-pattern');
   expect(runnerInvocation.args).toEqual([
-    'run',
+    'test',
     ...runnerInvocation.files,
-    '--testNamePattern',
+    '--test-name-pattern',
     runnerPattern
   ]);
   expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
@@ -83,17 +84,17 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     targets: expect.arrayContaining([
       expect.objectContaining({
         file: 'tests/cli/contracts.test.ts',
-        command: expect.stringContaining('bunx vitest run tests/cli/contracts.test.ts --testNamePattern'),
+        command: expect.stringContaining('bun test tests/cli/contracts.test.ts --test-name-pattern'),
         testNamePattern: expect.stringContaining('CLI exposes contract freeze target list as text and JSON contracts')
       }),
       expect.objectContaining({
         file: 'tests/runtime/project-runtime.test.ts',
-        command: expect.stringContaining('bunx vitest run tests/runtime/project-runtime.test.ts --testNamePattern'),
+        command: expect.stringContaining('bun test tests/runtime/project-runtime.test.ts --test-name-pattern'),
         testNamePattern: expect.stringContaining('test budget contract documents lanes and their capabilities')
       }),
       expect.objectContaining({
         file: 'tests/pipeline/end-to-end.test.ts',
-        command: 'bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern "v0.1 pipeline runs end to end in a temporary workspace"',
+        command: 'bun test tests/pipeline/end-to-end.test.ts --test-name-pattern "v0.1 pipeline runs end to end in a temporary workspace"',
         testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
       })
     ])
@@ -108,7 +109,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         'Target files: 15',
         'Target file list: tests/cli/artifacts.test.ts, tests/cli/benchmark-budget.test.ts, tests/cli/contracts.test.ts',
         'tests/pipeline/end-to-end.test.ts, tests/runtime/project-runtime.test.ts',
-        'Target tests/pipeline/end-to-end.test.ts; command=bunx vitest run tests/pipeline/end-to-end.test.ts --testNamePattern'
+        'Target tests/pipeline/end-to-end.test.ts; command=bun test tests/pipeline/end-to-end.test.ts --test-name-pattern'
       ],
       json: {
         status: 'active',

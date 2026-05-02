@@ -9,7 +9,7 @@ import { runDevCommand } from './command-runner.ts';
 import { commandPath, pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 
 function fastTestArgs(args: string[]): string[] {
-  return ['run', ...getSlowTestFiles().flatMap((file) => ['--exclude', file]), ...args];
+  return ['test', ...getSlowTestFiles().flatMap((file) => ['--exclude', file]), ...args];
 }
 
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -20,10 +20,11 @@ function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 function fullTestInvocations(): string[][] {
+  const slowTests = getSlowTestFiles();
   return [
     fastTestArgs([]),
-    ...getSlowTestFiles().map((file) => ['run', file])
-  ];
+    slowTests.length > 0 ? ['test', ...slowTests] : []
+  ].filter(args => args.length > 0);
 }
 
 async function gitChangedFiles(): Promise<string[] | null> {
@@ -87,9 +88,9 @@ export async function runTests(args: string[] = []): Promise<number> {
 
   let exitCode = 1;
   await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    const invocations = args.length > 0 ? [['run', ...args]] : fullTestInvocations();
+    const invocations = args.length > 0 ? [['test', ...args]] : fullTestInvocations();
     for (const invocation of invocations) {
-      exitCode = await runDevCommand(commandPath(binPath, 'vitest'), invocation, env);
+      exitCode = await runDevCommand('bun', invocation, env);
       if (exitCode !== 0) return;
     }
   });
@@ -105,7 +106,7 @@ export async function runFastTests(args: string[] = []): Promise<number> {
 
   let exitCode = 1;
   await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    exitCode = await runDevCommand(commandPath(binPath, 'vitest'), fastTestArgs(args), fastTestEnv(env));
+    exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(env));
   });
   return exitCode;
 }
@@ -119,7 +120,7 @@ export async function runContractFreeze(): Promise<number> {
       const env = {
         [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
       };
-      exitCode = await runDevCommand(commandPath(binPath, 'vitest'), invocation.args, env);
+      exitCode = await runDevCommand('bun', invocation.args, env);
       if (exitCode !== 0) {
         return;
       }

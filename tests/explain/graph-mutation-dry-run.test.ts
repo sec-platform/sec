@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { buildExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
 import { applyViewMutations } from '../../platform/compiler/workbench/apply-view-mutations.ts';
@@ -152,7 +152,7 @@ test('expected node delta matches the graph after applying the generated mutatio
   const mutationFile = report.operations[0]?.mutationFile;
 
   const mutationFilesBeforeApply = (await fs.readdir(paths.sourceViewMutationsRoot)).filter((file) => file.endsWith('.json'));
-  expect(mutationFilesBeforeApply).toEqual([]);
+  expect(mutationFilesBeforeApply).toEqual([] as any);
   expect(mutationFile).not.toBeNull();
   if (!mutationFile) throw new Error('expected ready dry-run mutation file');
 

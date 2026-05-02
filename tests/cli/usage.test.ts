@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { expectCliText, expectCliUsageError } from '../helpers/cli-helpers.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';

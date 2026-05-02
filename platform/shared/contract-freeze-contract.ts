@@ -27,8 +27,8 @@ export type ContractFreezeRunnerInvocation = {
 
 function buildTargetCommand(file: string, testNamePattern?: string): string {
   return testNamePattern
-    ? `bunx vitest run ${file} --testNamePattern "${testNamePattern}"`
-    : `bunx vitest run ${file}`;
+    ? `bun test ${file} --test-name-pattern "${testNamePattern}"`
+    : `bun test ${file}`;
 }
 
 function contractFreezeTarget(file: string, testNamePattern?: string): ContractFreezeTarget {
@@ -56,8 +56,8 @@ function runnerInvocation(files: string[], testNamePattern?: string): ContractFr
   return {
     files,
     args: testNamePattern
-      ? ['run', ...files, '--testNamePattern', testNamePattern]
-      : ['run', ...files],
+      ? ['test', ...files, '--test-name-pattern', testNamePattern]
+      : ['test', ...files],
     ...(testNamePattern ? { testNamePattern } : {})
   };
 }
