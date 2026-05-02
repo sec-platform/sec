@@ -83,7 +83,14 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
         failureTargets: []
       }
     });
-    expect(repairPlan.tasks[0].failurePoints).toHaveLength(0);
+    expect(repairPlan.tasks[0].failurePoints).toHaveLength(1);
+    expect(repairPlan.tasks[0].failurePoints[0]).toMatchObject({
+      lane: 'fast',
+      kind: 'unit',
+      issueType: 'slot',
+      repairable: true,
+      artifactPath: 'tests/unit'
+    });
     expect(repairPlan.tasks[0].preview).toMatchObject({
       changed: false
     });
@@ -268,8 +275,12 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
       requiresVerification: false,
       tasks: []
     });
-    expect(repairPlan.blockers).toHaveLength(0);
-    expect(repairPlan.blockers?.[0]?.failurePoints).toHaveLength(0);
+    expect(repairPlan.blockers).toHaveLength(1);
+    expect(repairPlan.blockers?.[0]).toMatchObject({
+      blockerId: 'repair_blocker_no_slot_tasks',
+      boundary: 'slot'
+    });
+    expect(repairPlan.blockers?.[0]?.failurePoints).toHaveLength(1);
 
     const writtenRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     expect(writtenRepairPlan).toEqual(repairPlan);

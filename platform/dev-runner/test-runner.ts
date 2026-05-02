@@ -6,7 +6,7 @@ import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
 import { getSlowTestFilesSync, isFastTestFile, isSlowTestFile, slowTestExcludePattern } from '../shared/test-budget-contract.ts';
 import { runDevCommand } from './command-runner.ts';
-import { commandPath, pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
+import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 
 interface AffectedTestRule {
   sourcePattern: RegExp;
@@ -24,27 +24,27 @@ const affectedTestRules: AffectedTestRule[] = [
   },
   {
     sourcePattern: /^platform\/shared\/runtime-dependency-spec\.ts$/,
-    tests: ['tests/e2e/demo-doctor.slow.test.ts', 'tests/e2e/runtime-host.slow.test.ts']
+    tests: ['tests/integration/project-runtime.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/verify\//,
-    tests: ['tests/e2e/verification.slow.test.ts', 'tests/e2e/lanes.slow.test.ts', 'tests/e2e/runtime-host.slow.test.ts']
+    tests: ['tests/unit/coverage.test.ts', 'tests/unit/policy-summary.test.ts', 'tests/integration/project-runtime.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/upgrade\//,
-    tests: ['tests/e2e/upgrade.slow.test.ts', 'tests/e2e/conflicts.slow.test.ts', 'tests/e2e/dry-run-plan.slow.test.ts']
+    tests: ['tests/unit/upgrade-summary.test.ts', 'tests/integration/dry-run-files.test.ts', 'tests/integration/dry-run-text.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/repair\//,
-    tests: ['tests/e2e/repair.slow.test.ts', 'tests/unit/repair-plan.test.ts', 'tests/unit/repair-summary.test.ts']
+    tests: ['tests/unit/repair-plan.test.ts', 'tests/unit/repair-summary.test.ts', 'tests/integration/repair.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/(parse|resolve|compose|adapt)\//,
-    tests: ['tests/e2e/end-to-end.slow.test.ts', 'tests/e2e/expanded-blocks.slow.test.ts']
+    tests: ['tests/integration/overview.test.ts', 'tests/integration/project-runtime.test.ts']
   },
   {
     sourcePattern: /^platform\/compiler\/explain\//,
-    tests: ['tests/e2e/explain.slow.test.ts', 'tests/e2e/graph.slow.test.ts', 'tests/e2e/summary.slow.test.ts']
+    tests: ['tests/unit/graph-mutation-dry-run.test.ts', 'tests/unit/project-overview.test.ts', 'tests/integration/review.test.ts']
   },
   {
     sourcePattern: /^platform\/cli\//,
@@ -58,7 +58,7 @@ const affectedTestRules: AffectedTestRule[] = [
   },
   {
     sourcePattern: /^platform\/registry\//,
-    tests: ['tests/e2e/expanded-blocks.slow.test.ts', 'tests/e2e/registry.slow.test.ts']
+    tests: ['tests/unit/path-containment.test.ts', 'tests/integration/project-runtime.test.ts']
   },
   {
     sourcePattern: /^scripts\//,
