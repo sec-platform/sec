@@ -53,11 +53,12 @@ function uniqueFiles(targets: ContractFreezeTarget[]): string[] {
 }
 
 function runnerInvocation(files: string[], testNamePattern?: string): ContractFreezeRunnerInvocation {
+  const sortedFiles = uniqueSorted(files);
   return {
-    files,
+    files: sortedFiles,
     args: testNamePattern
-      ? ['test', ...files, '--test-name-pattern', testNamePattern]
-      : ['test', ...files],
+      ? ['test', ...sortedFiles, '--test-name-pattern', testNamePattern]
+      : ['test', ...sortedFiles],
     ...(testNamePattern ? { testNamePattern } : {})
   };
 }
