@@ -33,6 +33,16 @@ const expectedCiArtifactPaths = [
   ...[...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS].sort()
 ];
 
+const expectedContractFreezeTargetFiles = [
+  'tests/contract/benchmark-budget.test.ts',
+  'tests/contract/contracts.test.ts',
+  'tests/contract/environment.test.ts',
+  'tests/contract/reference.test.ts',
+  'tests/contract/usage.test.ts',
+  'tests/integration/project-runtime.test.ts',
+  'tests/integration/review.test.ts'
+];
+
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
   const formatted = formatContractFreezeContract(contract);
@@ -43,7 +53,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   const runnerInvocation = runnerInvocations[0];
   expect(runnerInvocation).toBeDefined();
   if (!runnerInvocation) throw new Error('Missing contract-freeze runner invocation');
-  expect(runnerInvocation.files).toHaveLength(15);
+  expect(runnerInvocation.files).toHaveLength(expectedContractFreezeTargetFiles.length);
+  expect(runnerInvocation.files).toEqual(expectedContractFreezeTargetFiles);
   expect(runnerInvocation.testNamePattern).toBeDefined();
   const runnerPattern = runnerInvocation.testNamePattern;
   if (!runnerPattern) throw new Error('Missing contract-freeze runner pattern');
@@ -55,32 +66,16 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     runnerPattern
   ]);
   expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
-  expect(runnerPattern).toContain('v0.1 pipeline runs end to end in a temporary workspace');
+  expect(runnerPattern).toContain('contract freeze contract documents runner wiring');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
     status: 'active',
     command: 'bun run platform -- contract freeze --json',
     runnerCommand: 'bun run test:contract-freeze',
-    targetFileCount: 15,
-    targetFiles: [
-      'tests/contract/benchmark-budget.test.ts',
-      'tests/contract/contracts.test.ts',
-      'tests/contract/environment.test.ts',
-      'tests/contract/reference.test.ts',
-      'tests/contract/usage.test.ts',
-      'tests/e2e/artifacts.slow.test.ts',
-      'tests/e2e/demo-doctor.slow.test.ts',
-      'tests/e2e/end-to-end.slow.test.ts',
-      'tests/e2e/explain.slow.test.ts',
-      'tests/e2e/provenance.slow.test.ts',
-      'tests/e2e/repair.slow.test.ts',
-      'tests/e2e/upgrade.slow.test.ts',
-      'tests/e2e/verification.slow.test.ts',
-      'tests/integration/project-runtime.test.ts',
-      'tests/integration/review.test.ts'
-    ],
-    targetCount: 15,
+    targetFileCount: expectedContractFreezeTargetFiles.length,
+    targetFiles: expectedContractFreezeTargetFiles,
+    targetCount: 7,
     targets: expect.arrayContaining([
       expect.objectContaining({
         file: 'tests/contract/contracts.test.ts',
@@ -93,9 +88,9 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         testNamePattern: expect.stringContaining('test budget contract documents lanes and their capabilities')
       }),
       expect.objectContaining({
-        file: 'tests/e2e/end-to-end.slow.test.ts',
-        command: 'bun test tests/e2e/end-to-end.slow.test.ts --test-name-pattern "v0.1 pipeline runs end to end in a temporary workspace"',
-        testNamePattern: 'v0.1 pipeline runs end to end in a temporary workspace'
+        file: 'tests/integration/review.test.ts',
+        command: 'bun test tests/integration/review.test.ts --test-name-pattern "CLI exposes review summary as text and JSON contracts"',
+        testNamePattern: 'CLI exposes review summary as text and JSON contracts'
       })
     ])
   });
@@ -106,40 +101,24 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         'Contract freeze active',
         'Command: bun run platform -- contract freeze --json',
         'Runner command: bun run test:contract-freeze',
-        'Target files: 15',
+        `Target files: ${expectedContractFreezeTargetFiles.length}`,
         'Target file list: tests/contract/benchmark-budget.test.ts, tests/contract/contracts.test.ts, tests/contract/environment.test.ts',
-        'tests/e2e/verification.slow.test.ts, tests/integration/project-runtime.test.ts, tests/integration/review.test.ts',
-        'Target tests/e2e/end-to-end.slow.test.ts; command=bun test tests/e2e/end-to-end.slow.test.ts --test-name-pattern'
+        'tests/integration/project-runtime.test.ts, tests/integration/review.test.ts',
+        'Target tests/integration/review.test.ts; command=bun test tests/integration/review.test.ts --test-name-pattern'
       ],
       json: {
         status: 'active',
         command: 'bun run platform -- contract freeze --json',
         runnerCommand: 'bun run test:contract-freeze',
-        targetFileCount: 15,
-        targetFiles: [
-          'tests/contract/benchmark-budget.test.ts',
-          'tests/contract/contracts.test.ts',
-          'tests/contract/environment.test.ts',
-          'tests/contract/reference.test.ts',
-          'tests/contract/usage.test.ts',
-          'tests/e2e/artifacts.slow.test.ts',
-          'tests/e2e/demo-doctor.slow.test.ts',
-          'tests/e2e/end-to-end.slow.test.ts',
-          'tests/e2e/explain.slow.test.ts',
-          'tests/e2e/provenance.slow.test.ts',
-          'tests/e2e/repair.slow.test.ts',
-          'tests/e2e/upgrade.slow.test.ts',
-          'tests/e2e/verification.slow.test.ts',
-          'tests/integration/project-runtime.test.ts',
-          'tests/integration/review.test.ts'
-        ],
-        targetCount: 15
+        targetFileCount: expectedContractFreezeTargetFiles.length,
+        targetFiles: expectedContractFreezeTargetFiles,
+        targetCount: 7
       },
       compactJson: {
         status: 'active',
         runnerCommand: 'bun run test:contract-freeze',
-        targetFileCount: 15,
-        targetCount: 15
+        targetFileCount: expectedContractFreezeTargetFiles.length,
+        targetCount: 7
       }
     });
   });
