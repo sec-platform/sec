@@ -15,7 +15,7 @@ const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const templateParent = path.join(workspaceParent, '.templates');
 const deferredCleanupDirs = new Set<string>();
 
-export type WorkspaceTemplateKind = 'composed-default' | 'adapted-default' | 'locked-default';
+export type WorkspaceTemplateKind = 'empty-default' | 'resolved-default' | 'composed-default' | 'adapted-default' | 'locked-default';
 
 afterAll(async () => {
   for (const directory of deferredCleanupDirs) {
@@ -66,10 +66,14 @@ async function prepareWorkspacePipeline(
   target: WorkspaceTemplateKind
 ): Promise<void> {
   await initWorkspace(workspaceRoot, { reset: true });
+  if (target === 'empty-default') return;
+
   for (const blockId of options.blockIds ?? []) {
     await addBlock(workspaceRoot, blockId);
   }
   await resolveWorkspace(workspaceRoot);
+  if (target === 'resolved-default') return;
+
   await composeWorkspace(workspaceRoot);
   if (target === 'composed-default') return;
 
@@ -173,5 +177,18 @@ export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOp
   }
   const workspaceRoot = await createWorkspace(options.prefix);
   await prepareWorkspacePipeline(workspaceRoot, options, 'locked-default');
+  return workspaceRoot;
+}
+
+export async function prepareEmptyWorkspace(prefix?: string): Promise<string> {
+  return cloneWorkspaceTemplate('empty-default', prefix ?? 'engineering-compiler-empty-');
+}
+
+export async function prepareResolvedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
+  if (defaultWorkspaceOptions(options)) {
+    return cloneWorkspaceTemplate('resolved-default', options.prefix ?? 'engineering-compiler-resolved-');
+  }
+  const workspaceRoot = await createWorkspace(options.prefix);
+  await prepareWorkspacePipeline(workspaceRoot, options, 'resolved-default');
   return workspaceRoot;
 }

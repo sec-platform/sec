@@ -1,3 +1,5 @@
+import { Glob } from 'bun';
+
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { platformCommand } from './platform-command.ts';
 
@@ -23,54 +25,26 @@ export type TestBudgetContract = {
   fullRuntimeGate: string;
 };
 
-const slowTestFiles = [
-  'tests/cli/artifacts.test.ts',
-  'tests/cli/demo-doctor.test.ts',
-  'tests/cli/explain.test.ts',
-  'tests/cli/provenance.test.ts',
-  'tests/cli/repair.test.ts',
-  'tests/cli/upgrade.test.ts',
-  'tests/cli/verification.test.ts',
-  'tests/cli/workspace.test.ts',
-  'tests/explain/graph.test.ts',
-  'tests/override/manifest.test.ts',
-  'tests/pipeline/end-to-end.test.ts',
-  'tests/pipeline/lanes.test.ts',
-  'tests/pipeline/local-views.test.ts',
-  'tests/pipeline/runtime-host.test.ts',
-  'tests/policy/policy.test.ts',
-  'tests/registry/expanded-blocks.test.ts',
-  'tests/registry/private-registry.test.ts',
-  'tests/registry/registry.test.ts',
-  'tests/review/summary.test.ts',
-  'tests/upgrade/conflicts.test.ts',
-  'tests/upgrade/dry-run-plan.test.ts',
-  'tests/upgrade/pipeline.test.ts'
-];
+const SLOW_TEST_GLOB = 'tests/e2e/**/*.slow.test.ts';
 
-const testBudgetLanes: TestBudgetLane[] = [
-  {
-    id: 'fast',
-    nextBuild: false,
-    playwright: false,
-    command: platformCommand('verify')
-  },
-  {
-    id: 'runtime',
-    nextBuild: false,
-    playwright: false,
-    command: platformCommand('verify', '--lane', 'runtime')
-  },
-  {
-    id: 'all',
-    nextBuild: true,
-    playwright: true,
-    command: platformCommand('verify', '--lane', 'all')
-  }
-];
+let cachedSlowTestFiles: string[] | null = null;
 
-export function getSlowTestFiles(): string[] {
-  return [...slowTestFiles];
+export async function getSlowTestFiles(): Promise<string[]> {
+  if (cachedSlowTestFiles) return cachedSlowTestFiles;
+  const glob = new Glob(SLOW_TEST_GLOB);
+  cachedSlowTestFiles = [...glob.scanSync()].map((file) => file.replaceAll('\\', '/')).sort();
+  return cachedSlowTestFiles;
+}
+
+export function getSlowTestFilesSync(): string[] {
+  if (cachedSlowTestFiles) return cachedSlowTestFiles;
+  const glob = new Glob(SLOW_TEST_GLOB);
+  cachedSlowTestFiles = [...glob.scanSync()].map((file) => file.replaceAll('\\', '/')).sort();
+  return cachedSlowTestFiles;
+}
+
+export function slowTestExcludePattern(): string {
+  return SLOW_TEST_GLOB;
 }
 
 export function isTestFile(file: string): boolean {
@@ -78,16 +52,17 @@ export function isTestFile(file: string): boolean {
 }
 
 export function isSlowTestFile(file: string): boolean {
-  return slowTestFiles.includes(file);
+  return /^tests\/e2e\/.+\.slow\.(test|spec)\.tsx?$/.test(file);
 }
 
 export function isFastTestFile(file: string): boolean {
   return isTestFile(file) && !isSlowTestFile(file);
 }
 
-export function buildTestBudgetContract(): TestBudgetContract {
+export async function buildTestBudgetContract(): Promise<TestBudgetContract> {
   const lanes = testBudgetLanes.map((lane) => ({ ...lane }));
   const slowLaneIds = lanes.filter((lane) => lane.nextBuild || lane.playwright).map((lane) => lane.id);
+  const slowFiles = await getSlowTestFiles();
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
     command: platformCommand('test', 'budget', '--json'),
@@ -96,8 +71,8 @@ export function buildTestBudgetContract(): TestBudgetContract {
     laneCount: lanes.length,
     slowLaneCount: slowLaneIds.length,
     slowLaneIds,
-    slowTestFileCount: slowTestFiles.length,
-    slowTestFiles: getSlowTestFiles(),
+    slowTestFileCount: slowFiles.length,
+    slowTestFiles: slowFiles,
     lanes,
     localDefault: 'bun run check:changed runs changed fast tests and falls back to the fast suite for source changes; use test:all or check:full for slow runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
@@ -124,3 +99,24 @@ export function formatTestBudgetContract(contract: TestBudgetContract): string {
     ].join('; '))
   ].join('\n');
 }
+
+const testBudgetLanes: TestBudgetLane[] = [
+  {
+    id: 'fast',
+    nextBuild: false,
+    playwright: false,
+    command: platformCommand('verify')
+  },
+  {
+    id: 'runtime',
+    nextBuild: false,
+    playwright: false,
+    command: platformCommand('verify', '--lane', 'runtime')
+  },
+  {
+    id: 'all',
+    nextBuild: true,
+    playwright: true,
+    command: platformCommand('verify', '--lane', 'all')
+  }
+];

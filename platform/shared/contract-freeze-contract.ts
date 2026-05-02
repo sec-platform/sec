@@ -65,36 +65,36 @@ function runnerInvocation(files: string[], testNamePattern?: string): ContractFr
 export function getContractFreezeTargets(): ContractFreezeTarget[] {
   return [
     contractFreezeTarget(
-      'tests/cli/usage.test.ts',
+      'tests/contract/usage.test.ts',
       [
         'CLI prints usage for missing or unknown commands',
         'CLI reports argument usage errors'
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/cli/demo-doctor.test.ts',
+      'tests/e2e/demo-doctor.slow.test.ts',
       [
         'CLI exposes demo checklist as text and JSON readiness contracts',
         'CLI exposes doctor as text and JSON readiness contracts'
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/cli/environment.test.ts',
+      'tests/contract/environment.test.ts',
       'CLI exposes dependency environment maintenance entrypoints'
     ),
     contractFreezeTarget(
-      'tests/cli/reference.test.ts',
+      'tests/contract/reference.test.ts',
       'CLI exposes reference drift check as text and JSON contracts'
     ),
     contractFreezeTarget(
-      'tests/cli/benchmark-budget.test.ts',
+      'tests/contract/benchmark-budget.test.ts',
       [
         'CLI exposes benchmark task-suite as text and JSON contracts',
         'CLI exposes test budget as text and JSON contracts'
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/cli/contracts.test.ts',
+      'tests/contract/contracts.test.ts',
       [
         'CLI exposes contract freeze target list as text and JSON contracts',
         'CLI exposes CI command contract as text and JSON contracts',
@@ -102,7 +102,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/cli/verification.test.ts',
+      'tests/e2e/verification.slow.test.ts',
       [
         'CLI exposes policy report as text and JSON contracts',
         'CLI exposes acceptance coverage as text and JSON contracts',
@@ -112,30 +112,30 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/cli/provenance.test.ts',
+      'tests/e2e/provenance.slow.test.ts',
       'CLI exposes provenance registry as text and JSON contracts'
     ),
     contractFreezeTarget(
-      'tests/cli/review.test.ts',
+      'tests/integration/review.test.ts',
       'CLI exposes review summary as text and JSON contracts'
     ),
     contractFreezeTarget(
-      'tests/cli/repair.test.ts',
+      'tests/e2e/repair.slow.test.ts',
       [
         'CLI emits repair dry-run JSON for CI consumers',
         'CLI emits blocked repair JSON for CI consumers'
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/cli/upgrade.test.ts',
+      'tests/e2e/upgrade.slow.test.ts',
       'CLI emits upgrade dry-run JSON for CI consumers'
     ),
     contractFreezeTarget(
-      'tests/cli/explain.test.ts',
+      'tests/e2e/explain.slow.test.ts',
       'CLI emits explain JSON for CI consumers'
     ),
     contractFreezeTarget(
-      'tests/cli/artifacts.test.ts',
+      'tests/e2e/artifacts.slow.test.ts',
       'CLI emits artifact manifest JSON for CI upload consumers'
     ),
     contractFreezeTarget(
@@ -155,7 +155,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/pipeline/end-to-end.test.ts',
+      'tests/e2e/end-to-end.slow.test.ts',
       'v0.1 pipeline runs end to end in a temporary workspace'
     )
   ];
