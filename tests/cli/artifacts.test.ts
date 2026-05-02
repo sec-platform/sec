@@ -630,7 +630,7 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
 
     await fs.rm(overviewViewPath, { force: true });
     const manifestWithMissing = await expectCliJson<typeof manifest>(workspaceRoot, ['artifacts', '--json']);
-    const fixedMissingDiagnostics = [
+    const fixedMissingDiagnostics: CiArtifactMissingEntry[] = [
       {
         path: CI_ARTIFACT_FILES.policyReport,
         reason: CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing,
