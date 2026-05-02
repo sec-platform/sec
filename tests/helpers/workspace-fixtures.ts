@@ -25,6 +25,12 @@ afterAll(async () => {
   }
 }, 120000);
 
+function sleepMs(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
 export async function createWorkspace(prefix = 'engineering-compiler-test-'): Promise<string> {
   await fs.mkdir(workspaceParent, { recursive: true });
   const directory = await fs.mkdtemp(path.join(workspaceParent, prefix));
@@ -77,10 +83,40 @@ async function prepareWorkspacePipeline(
 async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
   await fs.mkdir(templateParent, { recursive: true });
   const templateRoot = path.join(templateParent, kind);
+  const stagingRoot = path.join(templateParent, `${kind}.staging-${process.pid}-${Date.now()}`);
+  await fs.rm(stagingRoot, { recursive: true, force: true });
+  await fs.mkdir(stagingRoot, { recursive: true });
+  await prepareWorkspacePipeline(stagingRoot, {}, kind);
+  await fs.writeFile(path.join(stagingRoot, '.template-ready'), `${kind}\n`, 'utf8');
   await fs.rm(templateRoot, { recursive: true, force: true });
-  await fs.mkdir(templateRoot, { recursive: true });
-  await prepareWorkspacePipeline(templateRoot, {}, kind);
+  await fs.rename(stagingRoot, templateRoot);
   return templateRoot;
+}
+
+async function withTemplateLock<T>(kind: WorkspaceTemplateKind, callback: () => Promise<T>): Promise<T> {
+  await fs.mkdir(templateParent, { recursive: true });
+  const lockPath = path.join(templateParent, `${kind}.lock`);
+  const deadline = Date.now() + 120000;
+
+  while (true) {
+    try {
+      await fs.mkdir(lockPath);
+      break;
+    } catch (error) {
+      const failure = error as NodeJS.ErrnoException;
+      if (failure.code !== 'EEXIST') throw error;
+      if (Date.now() > deadline) {
+        throw new Error(`Timed out waiting for workspace template lock: ${kind}`);
+      }
+      await sleepMs(50);
+    }
+  }
+
+  try {
+    return await callback();
+  } finally {
+    await fs.rm(lockPath, { recursive: true, force: true });
+  }
 }
 
 async function ensureTemplate(kind: WorkspaceTemplateKind): Promise<string> {
@@ -91,9 +127,13 @@ async function ensureTemplate(kind: WorkspaceTemplateKind): Promise<string> {
     return templateRoot;
   } catch {}
 
-  const createdRoot = await createTemplate(kind);
-  await fs.writeFile(markerPath, `${kind}\n`, 'utf8');
-  return createdRoot;
+  return withTemplateLock(kind, async () => {
+    try {
+      await fs.access(markerPath);
+      return templateRoot;
+    } catch {}
+    return createTemplate(kind);
+  });
 }
 
 export async function cloneWorkspaceTemplate(
