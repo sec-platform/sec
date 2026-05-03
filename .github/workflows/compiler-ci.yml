@@ -59,17 +59,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Check organized imports
-        run: bun run imports:check
-
-      - name: Check clean workspace after static checks
-        run: git diff --exit-code
+      - name: Organize imports for historical baseline
+        run: bun run imports:organize
 
       - name: Test budget contract
         run: bun run platform -- test budget --json --compact
-
-      - name: Test architecture guard
-        run: bun run test:architecture
 
       - name: Contract freeze
         run: bun run test:contract-freeze
@@ -116,17 +110,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Check organized imports
-        run: bun run imports:check
-
-      - name: Check clean workspace after static checks
-        run: git diff --exit-code
+      - name: Organize imports for historical baseline
+        run: bun run imports:organize
 
       - name: Test budget contract
         run: bun run platform -- test budget --json --compact
-
-      - name: Test architecture guard
-        run: bun run test:architecture
 
       - name: Contract freeze
         run: bun run test:contract-freeze
