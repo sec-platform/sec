@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import ts from 'typescript';
 
@@ -63,10 +64,46 @@ function applyTextChanges(source: string, changes: readonly ts.TextChange[]): st
     ), source);
 }
 
+function changedTypeScriptFiles(): Set<string> | null {
+  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD^1', 'HEAD'], {
+    cwd: compilerRoot,
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+
+  return new Set(
+    result.stdout
+      .split(/\r?\n/u)
+      .map((line) => line.trim().replace(/\\/g, '/'))
+      .filter((line) => /\.[cm]?tsx?$/u.test(line))
+  );
+}
+
+function selectedFileNames(config: ts.ParsedCommandLine): string[] {
+  if (process.env.PJC_IMPORTS_CHANGED_ONLY !== '1') {
+    return config.fileNames;
+  }
+
+  const changedFiles = changedTypeScriptFiles();
+  if (!changedFiles) {
+    return config.fileNames;
+  }
+
+  return config.fileNames.filter((fileName) => changedFiles.has(relativePosixPath(compilerRoot, fileName)));
+}
+
 export async function runImportOrganizer(options: { check: boolean }): Promise<number> {
   const config = loadProjectConfig();
+  const fileNames = selectedFileNames(config);
+  if (fileNames.length === 0) {
+    console.log('No TypeScript import targets selected.');
+    return 0;
+  }
+
   const files = new Map<string, { version: number; content: string }>(
-    await Promise.all(config.fileNames.map(async (fileName): Promise<[string, { version: number; content: string }]> => [
+    await Promise.all(fileNames.map(async (fileName): Promise<[string, { version: number; content: string }]> => [
       fileName,
       {
         version: 0,
@@ -75,7 +112,7 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
     ]))
   );
   const host: ts.LanguageServiceHost = {
-    getScriptFileNames: () => [...files.keys()],
+    getScriptFileNames: () => config.fileNames,
     getScriptVersion: (fileName) => `${files.get(fileName)?.version ?? 0}`,
     getScriptSnapshot: (fileName) => {
       const file = files.get(fileName);
@@ -97,7 +134,12 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
   const service = ts.createLanguageService(host);
   const changedFiles: string[] = [];
 
-  for (const [fileName, file] of files) {
+  for (const fileName of fileNames) {
+    const file = files.get(fileName);
+    if (!file) {
+      continue;
+    }
+
     const edits = service
       .organizeImports(
         { type: 'file', fileName, mode: ts.OrganizeImportsMode.All },
