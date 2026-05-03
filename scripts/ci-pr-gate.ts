@@ -1,6 +1,6 @@
-import { runCiFastGate } from './ci-fast-gate.ts';
-import { runContractFreeze, runChangedTests } from '../platform/dev-runner/test-runner.ts';
+import { runChangedTests, runContractFreeze } from '../platform/dev-runner/test-runner.ts';
 import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
+import { runCiFastGate } from './ci-fast-gate.ts';
 
 type GateStep = {
   id: string;
