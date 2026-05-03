@@ -28,11 +28,6 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
           fetch-depth: 2
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -119,11 +114,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
