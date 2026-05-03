@@ -21,11 +21,6 @@ env:
   PJC_CHANGED_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^1' }}
   PJC_CHANGED_TESTS_BASE: HEAD^1
 
-# Contract-visible commands kept here so contract-freeze can validate the public CI surface
-# without making the PR fast lane re-run full-lane work:
-# bun run platform -- verify --json --compact
-# bun run imports:check
-
 jobs:
   compiler-ci:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
