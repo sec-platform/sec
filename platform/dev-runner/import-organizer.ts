@@ -112,7 +112,7 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
     ]))
   );
   const host: ts.LanguageServiceHost = {
-    getScriptFileNames: () => config.fileNames,
+    getScriptFileNames: () => fileNames,
     getScriptVersion: (fileName) => `${files.get(fileName)?.version ?? 0}`,
     getScriptSnapshot: (fileName) => {
       const file = files.get(fileName);
