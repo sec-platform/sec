@@ -45,8 +45,12 @@ function slowTestArgs(args: string[]): string[] {
 }
 
 async function gitChangedFiles(): Promise<string[] | null> {
+  const baseRef = process.env.PJC_CHANGED_BASE;
+  const trackedArgs = baseRef
+    ? ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD']
+    : ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'];
   const [tracked, untracked] = await Promise.all([
-    runCommand('git', ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'], { cwd: compilerRoot }),
+    runCommand('git', trackedArgs, { cwd: compilerRoot }),
     runCommand('git', ['ls-files', '--others', '--exclude-standard'], { cwd: compilerRoot })
   ]);
   if (tracked.code !== 0 || untracked.code !== 0) {
