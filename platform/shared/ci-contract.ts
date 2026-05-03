@@ -25,6 +25,10 @@ export type CiContract = {
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
+  prFastLaneCommandCount: number;
+  prFastLaneCommands: string[];
+  fullLaneCommandCount: number;
+  fullLaneCommands: string[];
   verifyCommandCount: number;
   verifyCommands: string[];
   qualityCommandCount: number;
@@ -38,6 +42,30 @@ export type CiContract = {
   stepCount: number;
   steps: CiContractStep[];
 };
+
+const prFastLaneCommands = [
+  'bun install --frozen-lockfile',
+  'bun run imports:organize',
+  'bun scripts/ci-pr-gate.ts'
+];
+
+const fullLaneCommands = [
+  'bun install --frozen-lockfile',
+  'bun run imports:organize',
+  'bun run typecheck',
+  platformCommand('test', 'budget', '--json', '--compact'),
+  'bun run test:contract-freeze',
+  'bun run test:slow',
+  platformCommand('benchmark', 'suite', '--json', '--compact'),
+  platformCommand('deps', 'warmup'),
+  platformCommand('resolve'),
+  platformCommand('compose'),
+  platformCommand('adapt'),
+  platformCommand('verify', '--lane', 'all', '--json', '--compact'),
+  platformCommand('lock'),
+  platformCommand('explain'),
+  platformCommand('reference', 'check', '--json', '--compact')
+];
 
 const ciArtifactPurposes: Record<CiArtifactKind, string> = {
   governance: 'Emit upload paths for governance artifacts.',
@@ -177,6 +205,10 @@ export function buildCiContract(): CiContract {
     command: platformCommand('contract', 'ci', '--json'),
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    prFastLaneCommandCount: prFastLaneCommands.length,
+    prFastLaneCommands: [...prFastLaneCommands],
+    fullLaneCommandCount: fullLaneCommands.length,
+    fullLaneCommands: [...fullLaneCommands],
     verifyCommandCount: verifyCommands.length,
     verifyCommands,
     qualityCommandCount: qualityCommands.length,
@@ -202,6 +234,10 @@ export function formatCiContract(contract: CiContract): string {
     `Command: ${contract.command}`,
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
+    `PR fast lane command count: ${contract.prFastLaneCommandCount}`,
+    `PR fast lane commands: ${contract.prFastLaneCommands.join(', ')}`,
+    `Full lane command count: ${contract.fullLaneCommandCount}`,
+    `Full lane commands: ${contract.fullLaneCommands.join(', ')}`,
     `Verify command count: ${contract.verifyCommandCount}`,
     `Verify commands: ${contract.verifyCommands.join(', ')}`,
     `Quality command count: ${contract.qualityCommandCount}`,
