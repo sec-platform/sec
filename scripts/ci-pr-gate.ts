@@ -1,5 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { runChangedTests, runContractFreeze } from '../platform/dev-runner/test-runner.ts';
+import {
+  getContractFreezeTargets,
+  type ContractFreezeTarget
+} from '../platform/shared/contract-freeze-contract.ts';
 import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
 import { runCiFastGate } from './ci-fast-gate.ts';
 
@@ -13,16 +17,32 @@ type GateResult = {
   code: number;
 };
 
-const contractImpactPatterns = [
+type ContractFreezeSelection = {
+  files: string[];
+  targets: ContractFreezeTarget[];
+  full: boolean;
+};
+
+const broadContractImpactPatterns = [
   /^package\.json$/,
   /^bun\.lock$/,
   /^README\.md$/,
   /^docs\//,
   /^platform\/cli\//,
-  /^platform\/dev-runner/,
-  /^platform\/shared\/(benchmark-contract|contract-freeze-contract|error-protocol|error-protocol-contract|reference-check|test-budget-contract)\.ts$/,
-  /^tests\/contract\//,
-  /^tests\/integration\/(project-runtime|review)\.test\.ts$/
+  /^platform\/dev-runner\.ts$/,
+  /^platform\/dev-runner\/(test-runner|typecheck-runner)\.ts$/,
+  /^platform\/shared\/(contract-freeze-contract|test-budget-contract)\.ts$/
+];
+
+const targetedContractImpactPatterns: Array<{ pattern: RegExp; file: string }> = [
+  { pattern: /^tests\/contract\/usage\.test\.ts$/, file: 'tests/contract/usage.test.ts' },
+  { pattern: /^tests\/contract\/environment\.test\.ts$/, file: 'tests/contract/environment.test.ts' },
+  { pattern: /^tests\/contract\/reference\.test\.ts$/, file: 'tests/contract/reference.test.ts' },
+  { pattern: /^tests\/contract\/benchmark-budget\.test\.ts$/, file: 'tests/contract/benchmark-budget.test.ts' },
+  { pattern: /^tests\/contract\/contracts\.test\.ts$/, file: 'tests/contract/contracts.test.ts' },
+  { pattern: /^tests\/integration\/review\.test\.ts$/, file: 'tests/integration/review.test.ts' },
+  { pattern: /^tests\/integration\/project-runtime\.test\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
+  { pattern: /^platform\/dev-runner\/import-organizer\.ts$/, file: 'tests/contract/usage.test.ts' }
 ];
 
 function changedFiles(): string[] | null {
@@ -40,41 +60,74 @@ function changedFiles(): string[] | null {
     .filter(Boolean);
 }
 
-function contractFreezeNeeded(): boolean {
+function selectContractFreezeTargets(files: string[]): ContractFreezeSelection | null {
+  if (files.some((file) => broadContractImpactPatterns.some((pattern) => pattern.test(file)))) {
+    return { files, targets: getContractFreezeTargets(), full: true };
+  }
+
+  const targetFiles = new Set<string>();
+  for (const file of files) {
+    for (const mapping of targetedContractImpactPatterns) {
+      if (mapping.pattern.test(file)) {
+        targetFiles.add(mapping.file);
+      }
+    }
+  }
+
+  if (targetFiles.size === 0) {
+    return null;
+  }
+
+  const targets = getContractFreezeTargets().filter((target) => targetFiles.has(target.file));
+  return { files, targets, full: false };
+}
+
+function contractFreezeSelection(): ContractFreezeSelection | null | 'unknown' {
   const files = changedFiles();
   if (!files) {
     console.log('CI PR gate: changed file detection failed; keeping contract-freeze enabled.');
-    return true;
+    return 'unknown';
   }
 
-  const matched = files.filter((file) => contractImpactPatterns.some((pattern) => pattern.test(file)));
-  if (matched.length === 0) {
-    console.log('CI PR gate: contract-freeze skipped; no contract-impact files changed.');
-    return false;
-  }
-
-  console.log(`CI PR gate: contract-freeze enabled for ${matched.join(', ')}`);
-  return true;
+  return selectContractFreezeTargets(files);
 }
 
+const selection = contractFreezeSelection();
 const readonlySteps: GateStep[] = [
   {
     id: 'typecheck',
     run: () => runTypecheck()
   },
-  ...(contractFreezeNeeded()
+  ...(selection === 'unknown'
     ? [
         {
           id: 'contract-freeze',
           run: () => runContractFreeze()
         }
       ]
-    : []),
+    : selection
+      ? [
+          {
+            id: 'contract-freeze',
+            run: () => {
+              const targetFiles = selection.targets.map((target) => target.file).join(', ');
+              console.log(
+                `CI PR gate: contract-freeze ${selection.full ? 'full' : 'targeted'} for ${targetFiles}`
+              );
+              return runContractFreeze(selection.targets);
+            }
+          }
+        ]
+      : []),
   {
     id: 'test:changed',
     run: () => runChangedTests()
   }
 ];
+
+if (!selection) {
+  console.log('CI PR gate: contract-freeze skipped; no contract-impact files changed.');
+}
 
 async function runGateStep(step: GateStep): Promise<GateResult> {
   console.log(`CI PR gate: ${step.id}`);
