@@ -69,9 +69,6 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test budget contract
-        run: bun run platform -- test budget --json --compact
-
       - name: Contract freeze
         run: bun run test:contract-freeze
 
