@@ -44,8 +44,12 @@ function slowTestArgs(args: string[]): string[] {
   return ['test', ...args];
 }
 
+function changedTestsBaseRef(): string | undefined {
+  return process.env.PJC_CHANGED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE;
+}
+
 async function gitChangedFiles(): Promise<string[] | null> {
-  const baseRef = process.env.PJC_CHANGED_BASE;
+  const baseRef = changedTestsBaseRef();
   const trackedArgs = baseRef
     ? ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD']
     : ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'];
@@ -65,7 +69,9 @@ function sourceFileChanged(file: string): boolean {
 }
 
 function allowSlowChangedNotice(): boolean {
-  return process.env.PJC_CHANGED_TESTS_ALLOW_SLOW_NOTICE === '1' || process.env.PJC_CHANGED_BASE !== undefined;
+  return process.env.PJC_CHANGED_TESTS_ALLOW_SLOW_NOTICE === '1'
+    || process.env.PJC_CHANGED_TESTS_BASE !== undefined
+    || process.env.PJC_CHANGED_BASE !== undefined;
 }
 
 type DependencyContext = {
