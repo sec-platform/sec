@@ -15,7 +15,7 @@ import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../helpers/cli-helpers.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
-const expectedTestBudgetLocalDefault = 'bun run check:changed runs changed/affected fast tests and skips broad source fallback unless PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1; use test:all or check:full for slow runtime gates';
+const expectedTestBudgetLocalDefault = 'bun run check:changed runs changed/affected fast tests and skips broad source fallback unless PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:all, or check:full for slow runtime gates';
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();
@@ -156,7 +156,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     'Test budget default lane: fast',
     'Lane all; nextBuild=true; playwright=true; command=bun run platform -- verify --lane all',
     'Slow test files: 23',
-    'tests/e2e/end-to-end.slow.test.ts'
+    'tests/e2e/end-to-end.slow.test.ts',
+    'Slow suites:',
+    'Slow suite upgrade; owner=platform/compiler/upgrade',
+    'Slow suite pipeline; owner=platform/compiler/pipeline'
   ]);
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
@@ -175,6 +178,21 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
       'tests/e2e/policy.slow.test.ts',
       'tests/e2e/registry.slow.test.ts',
       'tests/e2e/pipeline.slow.test.ts'
+    ]),
+    slowSuiteCount: expect.any(Number),
+    slowSuites: expect.arrayContaining([
+      expect.objectContaining({
+        id: 'upgrade',
+        owner: 'platform/compiler/upgrade',
+        timeoutMs: 120000,
+        files: expect.arrayContaining(['tests/e2e/dry-run-plan.slow.test.ts'])
+      }),
+      expect.objectContaining({
+        id: 'pipeline',
+        owner: 'platform/compiler/pipeline',
+        timeoutMs: 120000,
+        files: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts', 'tests/e2e/pipeline.slow.test.ts'])
+      })
     ]),
     lanes: [
       {
@@ -210,6 +228,9 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         'Slow lane count: 1',
         'Slow lanes: all',
         'Slow test files: 23',
+        'Slow suites:',
+        'Slow suite upgrade; owner=platform/compiler/upgrade',
+        'Slow suite pipeline; owner=platform/compiler/pipeline',
         'tests/e2e/end-to-end.slow.test.ts',
         `Local default: ${expectedTestBudgetLocalDefault}`,
         'Lane fast; nextBuild=false; playwright=false'
@@ -223,6 +244,11 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         slowLaneIds: ['all'],
         slowTestFileCount: 23,
         slowTestFiles: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts']),
+        slowSuiteCount: expect.any(Number),
+        slowSuites: expect.arrayContaining([
+          expect.objectContaining({ id: 'upgrade', owner: 'platform/compiler/upgrade' }),
+          expect.objectContaining({ id: 'pipeline', owner: 'platform/compiler/pipeline' })
+        ]),
         lanes: expect.arrayContaining([
           expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
         ])
@@ -234,7 +260,12 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         slowLaneCount: 1,
         slowLaneIds: ['all'],
         slowTestFileCount: 23,
-        slowTestFiles: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts'])
+        slowTestFiles: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts']),
+        slowSuiteCount: expect.any(Number),
+        slowSuites: expect.arrayContaining([
+          expect.objectContaining({ id: 'upgrade' }),
+          expect.objectContaining({ id: 'pipeline' })
+        ])
       }
     });
   });

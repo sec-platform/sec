@@ -5,7 +5,14 @@ import { pathExists } from '../shared/fs.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
-import { getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isSlowTestFile } from '../shared/test-budget-contract.ts';
+import {
+  getFastTestFilesSync,
+  getSlowTestFilesSync,
+  isFastTestFile,
+  isSlowTestFile,
+  slowTestSuiteFiles,
+  slowTestSuiteIds
+} from '../shared/test-budget-contract.ts';
 import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
@@ -49,8 +56,11 @@ function slowTestArgs(args: string[]): string[] {
 
   const [first, second, ...rest] = args;
   if (first === '--suite' && second) {
-    const suiteTests = slowTests.filter((file) => file.includes(`/${second}.slow.test.ts`) || file.endsWith(`${second}.slow.test.ts`));
-    return ['test', ...(suiteTests.length > 0 ? suiteTests : slowTests), ...rest];
+    const suiteTests = slowTestSuiteFiles(second);
+    if (suiteTests.length === 0) {
+      throw new Error(`Unknown slow test suite "${second}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
+    }
+    return ['test', ...suiteTests, ...rest];
   }
 
   return ['test', ...args];
@@ -220,7 +230,12 @@ export async function runFastTests(args: string[] = []): Promise<number> {
 export async function runSlowTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   await withTestDependencies(async ({ binPath }) => {
-    exitCode = await runDevCommand('bun', slowTestArgs(args), pathEnv(binPath));
+    try {
+      exitCode = await runDevCommand('bun', slowTestArgs(args), pathEnv(binPath));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      exitCode = 1;
+    }
   });
   return exitCode;
 }
