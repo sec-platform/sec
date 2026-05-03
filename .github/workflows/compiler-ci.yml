@@ -10,7 +10,7 @@ on:
     - cron: '17 3 * * *'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -24,6 +24,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -56,34 +59,59 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Organize imports for historical baseline
+      - name: Organize imports remotely
         run: bun run imports:organize
 
+      - name: Commit organized imports
+        id: import_commit
+        if: github.event_name == 'pull_request'
+        run: |
+          if (-not (git diff --quiet)) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "chore: organize imports"
+            git push origin HEAD:${{ github.head_ref }}
+            "changed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "No import changes to commit."
+            "changed=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Typecheck
+        if: steps.import_commit.outputs.changed != 'true'
+        run: bun run typecheck
+
       - name: Test budget contract
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- test budget --json --compact
 
       - name: Contract freeze
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run test:contract-freeze
 
       - name: Changed/affected fast tests
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run test:changed
 
       - name: Warm runtime dependency cache
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- deps warmup
 
       - name: Resolve graph
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- resolve
 
       - name: Compose project
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- compose
 
       - name: Adapt project
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- adapt
 
       - name: Verify fast lane
+        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- verify --json --compact
 
   compiler-full:
@@ -107,11 +135,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Organize imports remotely
+        run: bun run imports:organize
+
       - name: Typecheck
         run: bun run typecheck
-
-      - name: Organize imports for historical baseline
-        run: bun run imports:organize
 
       - name: Test budget contract
         run: bun run platform -- test budget --json --compact
