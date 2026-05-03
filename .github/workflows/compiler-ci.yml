@@ -38,6 +38,34 @@ jobs:
         with:
           bun-version: 1.3.6
 
+      - name: Trim architecture dev dependencies
+        if: github.event_name == 'pull_request'
+        run: |
+          $package = Get-Content package.json | ConvertFrom-Json
+          $devDependencyNames = @($package.devDependencies.PSObject.Properties.Name)
+          $toolDependencies = @('@jscpd/html-reporter', 'dependency-cruiser', 'jscpd')
+          $present = @($toolDependencies | Where-Object { $devDependencyNames -contains $_ })
+          if ($present.Count -eq 0) {
+            Write-Host "Architecture tooling is already on-demand."
+            exit 0
+          }
+
+          bun remove @present
+          git update-index --refresh
+          git diff --quiet
+          $diffExit = $LASTEXITCODE
+          if ($diffExit -eq 0) {
+            Write-Host "No dependency trim changes to commit."
+          } elseif ($diffExit -eq 1) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json bun.lock
+            git commit -m "chore: move architecture tooling to on-demand workflow"
+            git push origin HEAD:${{ github.head_ref }}
+          } else {
+            exit $diffExit
+          }
+
       - name: Cache runtime dependencies
         uses: actions/cache@v4
         with:
