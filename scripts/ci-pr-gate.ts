@@ -45,6 +45,17 @@ const targetedContractImpactPatterns: Array<{ pattern: RegExp; file: string }> =
   { pattern: /^platform\/dev-runner\/import-organizer\.ts$/, file: 'tests/contract/usage.test.ts' }
 ];
 
+const workspaceImpactPatterns = [
+  /^package\.json$/,
+  /^bun\.lock$/,
+  /^project\//,
+  /^source\//,
+  /^platform\/(compiler|orchestrator|policies|shared|templates)\//,
+  /^platform\/orchestrator\.ts$/,
+  /^tests\/(runtime|fixtures|integration\/project-runtime\.test\.ts)/,
+  /^scripts\/ci-fast-gate\.ts$/
+];
+
 function changedFiles(): string[] | null {
   const baseRef = process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
   const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
@@ -59,6 +70,8 @@ function changedFiles(): string[] | null {
     .map((line) => line.trim().replace(/\\/g, '/'))
     .filter(Boolean);
 }
+
+const files = changedFiles();
 
 function selectContractFreezeTargets(files: string[]): ContractFreezeSelection | null {
   if (files.some((file) => broadContractImpactPatterns.some((pattern) => pattern.test(file)))) {
@@ -83,13 +96,28 @@ function selectContractFreezeTargets(files: string[]): ContractFreezeSelection |
 }
 
 function contractFreezeSelection(): ContractFreezeSelection | null | 'unknown' {
-  const files = changedFiles();
   if (!files) {
     console.log('CI PR gate: changed file detection failed; keeping contract-freeze enabled.');
     return 'unknown';
   }
 
   return selectContractFreezeTargets(files);
+}
+
+function fastWorkspaceGateNeeded(): boolean {
+  if (!files) {
+    console.log('CI PR gate: changed file detection failed; keeping fast workspace gate enabled.');
+    return true;
+  }
+
+  const matched = files.filter((file) => workspaceImpactPatterns.some((pattern) => pattern.test(file)));
+  if (matched.length === 0) {
+    console.log('CI PR gate: fast workspace gate skipped; no workspace-impact files changed.');
+    return false;
+  }
+
+  console.log(`CI PR gate: fast workspace gate enabled for ${matched.join(', ')}`);
+  return true;
 }
 
 const selection = contractFreezeSelection();
@@ -142,11 +170,13 @@ if (failedReadonlyStep) {
   process.exit(failedReadonlyStep.code);
 }
 
-const fastWorkspaceResult = await runGateStep({
-  id: 'fast-workspace-gate',
-  run: () => runCiFastGate()
-});
-if (fastWorkspaceResult.code !== 0) {
-  console.error(`CI PR gate failed at ${fastWorkspaceResult.id} with exit code ${fastWorkspaceResult.code}`);
-  process.exit(fastWorkspaceResult.code);
+if (fastWorkspaceGateNeeded()) {
+  const fastWorkspaceResult = await runGateStep({
+    id: 'fast-workspace-gate',
+    run: () => runCiFastGate()
+  });
+  if (fastWorkspaceResult.code !== 0) {
+    console.error(`CI PR gate failed at ${fastWorkspaceResult.id} with exit code ${fastWorkspaceResult.code}`);
+    process.exit(fastWorkspaceResult.code);
+  }
 }
