@@ -2,7 +2,7 @@ import path from 'node:path';
 import { listFilesRecursive } from '../../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { pathEnvKey, runCommand } from '../../shared/process.ts';
-import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
+import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
@@ -127,7 +127,6 @@ export async function runRuntimeVerification(
     (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'acceptance'))).filter((file) => file.endsWith('.spec.ts'))
   );
 
-  await timed('shared deps warmup', emitTiming, () => ensureSharedDepsReady());
   await timed('project deps materialize', emitTiming, () => ensureProjectDependencies(projectRoot, { skipSharedDepsWarmup: true }));
 
   const envPathKey = pathEnvKey();
