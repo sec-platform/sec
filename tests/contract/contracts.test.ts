@@ -163,12 +163,19 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       'bun run platform -- verify --json --compact',
       'bun run platform -- verify --lane all --json --compact'
     ],
-    qualityCommandCount: 6,
+    qualityCommandCount: 13,
     qualityCommands: [
       'bun run typecheck',
       'bun run imports:check',
       'bun run platform -- test budget --json --compact',
       'bun run test:contract-freeze',
+      'bun run test:slow -- --suite upgrade',
+      'bun run test:slow -- --suite runtime',
+      'bun run test:slow -- --suite pipeline',
+      'bun run test:slow -- --suite repair',
+      'bun run test:slow -- --suite registry',
+      'bun run test:slow -- --suite explain',
+      'bun run test:slow -- --suite other',
       'bun run platform -- benchmark suite --json --compact',
       'bun run platform -- reference check --json --compact'
     ],
@@ -184,7 +191,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
     artifactUploadCommands: CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand),
     artifactPathCount: expectedCiArtifactPaths.length,
     artifactPaths: expectedCiArtifactPaths,
-    stepCount: 17,
+    stepCount: 24,
     steps: expect.arrayContaining([
       expect.objectContaining({
         id: 'pr-fast-verify',
@@ -278,8 +285,8 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         'CI contract active',
         'Verify command count: 2',
         'Verify commands: bun run platform -- verify --json --compact, bun run platform -- verify --lane all --json --compact',
-        'Quality command count: 6',
-        'Quality commands: bun run typecheck, bun run imports:check, bun run platform -- test budget --json --compact, bun run test:contract-freeze, bun run platform -- benchmark suite --json --compact, bun run platform -- reference check --json --compact',
+        'Quality command count: 13',
+        'Quality commands: bun run typecheck, bun run imports:check, bun run platform -- test budget --json --compact, bun run test:contract-freeze, bun run test:slow -- --suite upgrade, bun run test:slow -- --suite runtime, bun run test:slow -- --suite pipeline, bun run test:slow -- --suite repair, bun run test:slow -- --suite registry, bun run test:slow -- --suite explain, bun run test:slow -- --suite other, bun run platform -- benchmark suite --json --compact, bun run platform -- reference check --json --compact',
         'Diagnostic command count: 5',
         'Diagnostic commands: bun run platform -- review summary --json --compact, bun run platform -- review matrix --json --compact, bun run platform -- review diagnostics --json --compact, bun run platform -- explain --json --compact, bun run platform -- demo checklist --json --compact',
         'Artifact upload command count: 4',
@@ -306,15 +313,22 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           'bun run platform -- verify --json --compact',
           'bun run platform -- verify --lane all --json --compact'
         ],
-        qualityCommandCount: 6,
-        qualityCommands: [
+        qualityCommandCount: 13,
+        qualityCommands: expect.arrayContaining([
           'bun run typecheck',
           'bun run imports:check',
           'bun run platform -- test budget --json --compact',
           'bun run test:contract-freeze',
+          'bun run test:slow -- --suite upgrade',
+          'bun run test:slow -- --suite runtime',
+          'bun run test:slow -- --suite pipeline',
+          'bun run test:slow -- --suite repair',
+          'bun run test:slow -- --suite registry',
+          'bun run test:slow -- --suite explain',
+          'bun run test:slow -- --suite other',
           'bun run platform -- benchmark suite --json --compact',
           'bun run platform -- reference check --json --compact'
-        ],
+        ]),
         diagnosticCommandCount: 5,
         diagnosticCommands: [
           'bun run platform -- review summary --json --compact',
@@ -330,11 +344,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           CI_ARTIFACT_FILES.verificationReport,
           ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
         ]),
-        stepCount: 17,
+        stepCount: 24,
         steps: expect.arrayContaining([
           expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
           expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
           expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
+          expect.objectContaining({ id: 'slow-e2e-upgrade', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
@@ -348,15 +363,22 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           'bun run platform -- verify --json --compact',
           'bun run platform -- verify --lane all --json --compact'
         ],
-        qualityCommandCount: 6,
-        qualityCommands: [
+        qualityCommandCount: 13,
+        qualityCommands: expect.arrayContaining([
           'bun run typecheck',
           'bun run imports:check',
           'bun run platform -- test budget --json --compact',
           'bun run test:contract-freeze',
+          'bun run test:slow -- --suite upgrade',
+          'bun run test:slow -- --suite runtime',
+          'bun run test:slow -- --suite pipeline',
+          'bun run test:slow -- --suite repair',
+          'bun run test:slow -- --suite registry',
+          'bun run test:slow -- --suite explain',
+          'bun run test:slow -- --suite other',
           'bun run platform -- benchmark suite --json --compact',
           'bun run platform -- reference check --json --compact'
-        ],
+        ]),
         diagnosticCommandCount: 5,
         diagnosticCommands: [
           'bun run platform -- review summary --json --compact',
@@ -371,6 +393,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
           expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
           expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
           expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
+          expect.objectContaining({ id: 'slow-e2e-upgrade', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })

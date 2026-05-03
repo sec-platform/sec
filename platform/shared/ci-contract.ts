@@ -49,13 +49,23 @@ const prFastLaneCommands = [
   'bun scripts/ci-pr-gate.ts'
 ];
 
+const fullSlowSuiteCommands = [
+  'bun run test:slow -- --suite upgrade',
+  'bun run test:slow -- --suite runtime',
+  'bun run test:slow -- --suite pipeline',
+  'bun run test:slow -- --suite repair',
+  'bun run test:slow -- --suite registry',
+  'bun run test:slow -- --suite explain',
+  'bun run test:slow -- --suite other'
+];
+
 const fullLaneCommands = [
   'bun install --frozen-lockfile',
   'bun run imports:organize',
   'bun run typecheck',
   platformCommand('test', 'budget', '--json', '--compact'),
   'bun run test:contract-freeze',
-  'bun run test:slow',
+  ...fullSlowSuiteCommands,
   platformCommand('benchmark', 'suite', '--json', '--compact'),
   platformCommand('deps', 'warmup'),
   platformCommand('resolve'),
@@ -129,6 +139,16 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     purpose: 'Run the contract freeze suite declared by platform contract freeze.',
     produces: []
   },
+  ...fullSlowSuiteCommands.map((command) => {
+    const suiteId = command.split('--suite ')[1];
+    return {
+      id: `slow-e2e-${suiteId}`,
+      phase: 'quality' as const,
+      command,
+      purpose: 'Run one slow e2e suite in full/manual/scheduled validation.',
+      produces: []
+    };
+  }),
   {
     id: 'benchmark-task-suite',
     phase: 'quality',

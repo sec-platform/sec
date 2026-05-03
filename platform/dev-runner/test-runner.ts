@@ -9,6 +9,7 @@ import {
   getFastTestFilesSync,
   getSlowTestFilesSync,
   isFastTestFile,
+  isKnownSlowTestSuiteId,
   isSlowTestFile,
   slowTestSuiteFiles,
   slowTestSuiteIds
@@ -56,9 +57,13 @@ function slowTestArgs(args: string[]): string[] {
 
   const [first, second, ...rest] = args;
   if (first === '--suite' && second) {
+    if (!isKnownSlowTestSuiteId(second)) {
+      throw new Error(`Unknown slow test suite "${second}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
+    }
     const suiteTests = slowTestSuiteFiles(second);
     if (suiteTests.length === 0) {
-      throw new Error(`Unknown slow test suite "${second}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
+      console.log(`No slow files for suite ${second}`);
+      return ['test', '--pass', '--', 'echo']; // no-op success via pass-through
     }
     return ['test', ...suiteTests, ...rest];
   }

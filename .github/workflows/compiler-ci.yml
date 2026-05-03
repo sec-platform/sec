@@ -112,8 +112,26 @@ jobs:
       - name: Contract freeze
         run: bun run test:contract-freeze
 
-      - name: Slow e2e suite
-        run: bun run test:slow
+      - name: Slow e2e suite upgrade
+        run: bun run test:slow -- --suite upgrade
+
+      - name: Slow e2e suite runtime
+        run: bun run test:slow -- --suite runtime
+
+      - name: Slow e2e suite pipeline
+        run: bun run test:slow -- --suite pipeline
+
+      - name: Slow e2e suite repair
+        run: bun run test:slow -- --suite repair
+
+      - name: Slow e2e suite registry
+        run: bun run test:slow -- --suite registry
+
+      - name: Slow e2e suite explain
+        run: bun run test:slow -- --suite explain
+
+      - name: Slow e2e suite other
+        run: bun run test:slow -- --suite other
 
       - name: Benchmark task suite contract
         run: bun run platform -- benchmark suite --json --compact
