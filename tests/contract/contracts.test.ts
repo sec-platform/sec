@@ -35,6 +35,7 @@ const expectedCiArtifactPaths = [
 
 const expectedContractFreezeTargetFiles = [
   'tests/contract/benchmark-budget.test.ts',
+  'tests/contract/ci-lanes.test.ts',
   'tests/contract/contracts.test.ts',
   'tests/contract/environment.test.ts',
   'tests/contract/reference.test.ts',
@@ -60,6 +61,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(formatted).toContain('Command: bun run platform -- contract freeze --json');
   expect(formatted).toContain(`Target files: ${expectedContractFreezeTargetFiles.length}`);
   expect(formatted).toContain('Target tests/contract/contracts.test.ts; command=bun test tests/contract/contracts.test.ts --test-name-pattern');
+  expect(formatted).toContain('Target tests/contract/ci-lanes.test.ts; command=bun test tests/contract/ci-lanes.test.ts --test-name-pattern');
 
   const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
   expect(runnerInvocations).toHaveLength(1);
@@ -78,6 +80,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     runnerPattern
   ]);
   expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
+  expect(runnerPattern).toContain('CI contract separates PR fast lane commands from full lane commands');
   expect(runnerPattern).toContain('contract freeze contract documents runner wiring');
   expect(runnerPattern).not.toContain('v0.1 pipeline runs end to end in a temporary workspace');
   expect(JSON.stringify(contract)).not.toContain('\n');
@@ -95,6 +98,11 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         file: 'tests/contract/contracts.test.ts',
         command: expect.stringContaining('bun test tests/contract/contracts.test.ts --test-name-pattern'),
         testNamePattern: expect.stringContaining('CLI exposes contract freeze target list as text and JSON contracts')
+      }),
+      expect.objectContaining({
+        file: 'tests/contract/ci-lanes.test.ts',
+        command: expect.stringContaining('bun test tests/contract/ci-lanes.test.ts --test-name-pattern'),
+        testNamePattern: expect.stringContaining('CI contract separates PR fast lane commands from full lane commands')
       }),
       expect.objectContaining({
         file: 'tests/integration/project-runtime.test.ts',
@@ -117,7 +125,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         'Runner command: bun run test:contract-freeze',
         `Target files: ${expectedContractFreezeTargetFiles.length}`,
         `Target file list: ${expectedContractFreezeTargetFiles.join(', ')}`,
-        'Target tests/contract/contracts.test.ts; command=bun test tests/contract/contracts.test.ts --test-name-pattern'
+        'Target tests/contract/contracts.test.ts; command=bun test tests/contract/contracts.test.ts --test-name-pattern',
+        'Target tests/contract/ci-lanes.test.ts; command=bun test tests/contract/ci-lanes.test.ts --test-name-pattern'
       ],
       json: {
         status: 'active',
