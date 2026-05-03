@@ -275,7 +275,7 @@ test('CLI emits blocked repair JSON for CI consumers', async () => {
       requiresVerification: false,
       tasks: []
     });
-    expect(repairPlan.blockers.length).toBeGreaterThan(0);
+    expect(repairPlan.blockers?.length ?? 0).toBeGreaterThan(0);
     expect(repairPlan.blockers?.[0]).toMatchObject({
       blockerId: 'repair_blocker_no_slot_tasks',
       boundary: 'slot'
