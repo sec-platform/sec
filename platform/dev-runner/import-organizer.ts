@@ -65,7 +65,8 @@ function applyTextChanges(source: string, changes: readonly ts.TextChange[]): st
 }
 
 function changedTypeScriptFiles(): Set<string> | null {
-  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD^1', 'HEAD'], {
+  const baseRef = process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
+  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
     cwd: compilerRoot,
     encoding: 'utf8'
   });
