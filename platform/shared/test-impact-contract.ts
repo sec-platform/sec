@@ -1,4 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { uniqueSorted } from './collections.ts';
+import { compilerRoot, posixPath } from './paths.ts';
+import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
 
 export type TestImpactRule = {
   sourcePattern: RegExp;
@@ -125,10 +130,93 @@ function addAll(target: Set<string>, values: string[]): void {
   }
 }
 
+function normalizeRepoPath(value: string): string {
+  return posixPath(path.normalize(value)).replace(/^\.\//, '');
+}
+
+function importCandidates(testFile: string, specifier: string): string[] {
+  if (!specifier.startsWith('.')) {
+    return [];
+  }
+
+  const base = normalizeRepoPath(path.join(path.dirname(testFile), specifier));
+  const ext = path.extname(base);
+  if (ext) {
+    return [base];
+  }
+
+  return [
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.js`,
+    `${base}.jsx`,
+    normalizeRepoPath(path.join(base, 'index.ts')),
+    normalizeRepoPath(path.join(base, 'index.tsx'))
+  ];
+}
+
+function importSpecifiers(source: string): string[] {
+  const specifiers = new Set<string>();
+  const patterns = [
+    /import\s+[^'";]+\s+from\s+['"]([^'"]+)['"]/g,
+    /import\s+['"]([^'"]+)['"]/g,
+    /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /export\s+[^'";]+\s+from\s+['"]([^'"]+)['"]/g
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1];
+      if (specifier) {
+        specifiers.add(specifier);
+      }
+    }
+  }
+
+  return [...specifiers];
+}
+
+function readTestSource(testFile: string): string | null {
+  try {
+    return fs.readFileSync(path.join(compilerRoot, testFile), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function testsReferencingSources(files: string[]): string[] {
+  const sourceFiles = new Set(files.map(normalizeRepoPath));
+  const matchedTests = new Set<string>();
+
+  for (const testFile of getTestFilesSync()) {
+    const source = readTestSource(testFile);
+    if (!source) {
+      continue;
+    }
+
+    for (const specifier of importSpecifiers(source)) {
+      for (const candidate of importCandidates(testFile, specifier)) {
+        if (sourceFiles.has(candidate)) {
+          matchedTests.add(testFile);
+        }
+      }
+    }
+  }
+
+  return uniqueSorted([...matchedTests]);
+}
+
 export function selectTestsForSources(files: string[]): TestImpactSelection {
   const fast = new Set<string>();
   const slow = new Set<string>();
   const owners = new Set<string>();
+
+  const referencedTests = testsReferencingSources(files);
+  if (referencedTests.length > 0) {
+    owners.add('auto-reference');
+    addAll(fast, referencedTests.filter(isFastTestFile));
+    addAll(slow, referencedTests.filter(isSlowTestFile));
+  }
 
   for (const file of files) {
     for (const rule of testImpactRules) {
