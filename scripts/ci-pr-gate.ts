@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { runChangedTests, runContractFreeze } from '../platform/dev-runner/test-runner.ts';
+import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
 import {
   getContractFreezeTargets,
   type ContractFreezeTarget
 } from '../platform/shared/contract-freeze-contract.ts';
-import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
 import { runCiFastGate } from './ci-fast-gate.ts';
 
 type GateStep = {
