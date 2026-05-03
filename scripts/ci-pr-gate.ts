@@ -120,6 +120,20 @@ function fastWorkspaceGateNeeded(): boolean {
   return true;
 }
 
+async function runChangedTestsWithLatestCommitBase(): Promise<number> {
+  const previousBase = process.env.PJC_CHANGED_TESTS_BASE;
+  process.env.PJC_CHANGED_TESTS_BASE = previousBase ?? 'HEAD^1';
+  try {
+    return await runChangedTests();
+  } finally {
+    if (previousBase === undefined) {
+      delete process.env.PJC_CHANGED_TESTS_BASE;
+    } else {
+      process.env.PJC_CHANGED_TESTS_BASE = previousBase;
+    }
+  }
+}
+
 const selection = contractFreezeSelection();
 const readonlySteps: GateStep[] = [
   {
@@ -149,7 +163,7 @@ const readonlySteps: GateStep[] = [
       : []),
   {
     id: 'test:changed',
-    run: () => runChangedTests()
+    run: () => runChangedTestsWithLatestCommitBase()
   }
 ];
 
