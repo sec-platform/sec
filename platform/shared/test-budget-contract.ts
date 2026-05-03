@@ -75,7 +75,7 @@ export async function buildTestBudgetContract(): Promise<TestBudgetContract> {
     slowTestFileCount: slowFiles.length,
     slowTestFiles: slowFiles,
     lanes,
-    localDefault: 'bun run check:changed runs changed fast tests and falls back to the fast suite for source changes; use test:all or check:full for slow runtime gates',
+    localDefault: 'bun run check:changed runs changed/affected fast tests and skips broad source fallback unless PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1; use test:all or check:full for slow runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
 }

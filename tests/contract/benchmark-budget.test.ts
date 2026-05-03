@@ -15,6 +15,8 @@ import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../helpers/cli-helpers.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
 
+const expectedTestBudgetLocalDefault = 'bun run check:changed runs changed/affected fast tests and skips broad source fallback unless PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1; use test:all or check:full for slow runtime gates';
+
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();
   const formatted = formatBenchmarkTaskSuiteContract(contract);
@@ -194,7 +196,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         command: 'bun run platform -- verify --lane all'
       }
     ],
-    localDefault: 'bun run check:changed runs changed fast tests and falls back to the fast suite for source changes; use test:all or check:full for slow runtime gates',
+    localDefault: expectedTestBudgetLocalDefault,
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   });
 
@@ -209,6 +211,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         'Slow lanes: all',
         'Slow test files: 23',
         'tests/e2e/end-to-end.slow.test.ts',
+        `Local default: ${expectedTestBudgetLocalDefault}`,
         'Lane fast; nextBuild=false; playwright=false'
       ],
       json: {

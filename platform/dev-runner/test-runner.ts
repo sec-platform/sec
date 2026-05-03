@@ -10,7 +10,15 @@ import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-im
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 
+function hasExplicitFastTestFiles(args: string[]): boolean {
+  return args.some(isFastTestFile);
+}
+
 function fastTestArgs(args: string[]): string[] {
+  if (hasExplicitFastTestFiles(args)) {
+    return ['test', ...args];
+  }
+
   const slowExcludeArgs = getSlowTestFilesSync()
     .flatMap((file) => ['--exclude', `./${file}`]);
   return ['test', ...slowExcludeArgs, ...args];
@@ -74,6 +82,10 @@ function allowSlowChangedNotice(): boolean {
   return process.env.PJC_CHANGED_TESTS_ALLOW_SLOW_NOTICE === '1'
     || process.env.PJC_CHANGED_TESTS_BASE !== undefined
     || process.env.PJC_CHANGED_BASE !== undefined;
+}
+
+function allowFullFastFallback(): boolean {
+  return process.env.PJC_CHANGED_TESTS_FULL_FAST_FALLBACK === '1';
 }
 
 type DependencyContext = {
@@ -163,7 +175,12 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
     return code;
   }
   if (selection.sourceChanged) {
-    console.log('No affected fast tests matched source changes; running the fast test suite.');
+    if (!allowFullFastFallback()) {
+      console.log('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR fast lane. Full/manual/scheduled validation covers unmapped changes.');
+      return 0;
+    }
+
+    console.log('No affected fast tests matched source changes; running the fast test suite because PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1.');
     const code = await runFastTests();
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
