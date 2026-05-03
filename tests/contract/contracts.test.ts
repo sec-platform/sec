@@ -383,16 +383,20 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
 test('GitHub compiler CI workflow covers CI command contract gates', async () => {
   const workflow = await readCompilerFile('.github/workflows/compiler-ci.yml');
   const contract = buildCiContract();
-  const requiredWorkflowCommands = [
-    ...contract.verifyCommands,
-    ...contract.qualityCommands
-  ];
-  const missingCommands = requiredWorkflowCommands.filter((command) => {
-    const directCliCommand = command.replace('bun run platform -- ', 'node ./platform/cli/index.ts ');
-    return !workflow.includes(command) && !workflow.includes(directCliCommand);
-  });
 
-  expect(missingCommands).toEqual([]);
+  const missingPrFastLaneCommands = contract.prFastLaneCommands.filter(
+    (command) => !workflow.includes(command)
+  );
+
+  const missingFullLaneCommands = contract.fullLaneCommands.filter(
+    (command) => !workflow.includes(command)
+  );
+
+  expect(missingPrFastLaneCommands).toEqual([]);
+  expect(missingFullLaneCommands).toEqual([]);
+
+  expect(workflow).not.toContain('# bun run platform -- verify --json --compact');
+  expect(workflow).not.toContain('# bun run imports:check');
 });
 
 test('CLI exposes error protocol as text and JSON contracts', async () => {
