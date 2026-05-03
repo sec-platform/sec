@@ -15,6 +15,12 @@ export type TestImpactSelection = {
 
 export const testImpactRules: TestImpactRule[] = [
   {
+    owner: 'test-impact',
+    sourcePattern: /^platform\/shared\/test-impact-contract\.ts$/,
+    fast: ['tests/integration/project-runtime.test.ts', 'tests/contract/benchmark-budget.test.ts'],
+    slow: []
+  },
+  {
     owner: 'test-budget',
     sourcePattern: /^platform\/shared\/test-budget-contract\.ts$/,
     fast: ['tests/contract/benchmark-budget.test.ts'],
