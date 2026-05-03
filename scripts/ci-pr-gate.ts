@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { runChangedTests, runContractFreeze } from '../platform/dev-runner/test-runner.ts';
 import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
 import { runCiFastGate } from './ci-fast-gate.ts';
@@ -12,15 +13,62 @@ type GateResult = {
   code: number;
 };
 
+const contractImpactPatterns = [
+  /^package\.json$/,
+  /^bun\.lock$/,
+  /^README\.md$/,
+  /^docs\//,
+  /^platform\/cli\//,
+  /^platform\/dev-runner/,
+  /^platform\/shared\/(benchmark-contract|contract-freeze-contract|error-protocol|error-protocol-contract|reference-check|test-budget-contract)\.ts$/,
+  /^tests\/contract\//,
+  /^tests\/integration\/(project-runtime|review)\.test\.ts$/
+];
+
+function changedFiles(): string[] | null {
+  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD^1', 'HEAD'], {
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+
+  return result.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim().replace(/\\/g, '/'))
+    .filter(Boolean);
+}
+
+function contractFreezeNeeded(): boolean {
+  const files = changedFiles();
+  if (!files) {
+    console.log('CI PR gate: changed file detection failed; keeping contract-freeze enabled.');
+    return true;
+  }
+
+  const matched = files.filter((file) => contractImpactPatterns.some((pattern) => pattern.test(file)));
+  if (matched.length === 0) {
+    console.log('CI PR gate: contract-freeze skipped; no contract-impact files changed.');
+    return false;
+  }
+
+  console.log(`CI PR gate: contract-freeze enabled for ${matched.join(', ')}`);
+  return true;
+}
+
 const readonlySteps: GateStep[] = [
   {
     id: 'typecheck',
     run: () => runTypecheck()
   },
-  {
-    id: 'contract-freeze',
-    run: () => runContractFreeze()
-  },
+  ...(contractFreezeNeeded()
+    ? [
+        {
+          id: 'contract-freeze',
+          run: () => runContractFreeze()
+        }
+      ]
+    : []),
   {
     id: 'test:changed',
     run: () => runChangedTests()
