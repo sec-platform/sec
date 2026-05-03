@@ -204,16 +204,20 @@ Avoid exposing every internal runner command in `package.json`. Complex orchestr
 
 ## CI logging rules
 
-Every gate should identify itself before running:
+Every gate must identify itself before running and report its duration:
 
 ```text
-CI PR gate: typecheck
-CI PR gate: contract-freeze
-CI PR gate: test:changed
-CI PR gate: fast-workspace-gate
+CI PR gate: typecheck started
+CI PR gate: typecheck finished with exit code 0 in 1.23s
+CI PR gate: contract-freeze started
+CI PR gate: contract-freeze finished with exit code 0 in 4.56s
+CI PR gate: test:changed started
+CI PR gate: test:changed finished with exit code 0 in 0.78s
+CI PR gate: fast-workspace-gate started
+CI PR gate: fast-workspace-gate finished with exit code 0 in 2.34s
 ```
 
-Long-running gates should have bounded timeouts. Failures should identify the gate and selector reason.
+GitHub Actions logs should group each gate with `::group::` / `::endgroup::`, so failures can be opened directly at the responsible gate. Failures should include gate id, exit code, duration, and selector reason when available.
 
 ## Large-change operating mode
 
