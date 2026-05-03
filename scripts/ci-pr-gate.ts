@@ -26,7 +26,8 @@ const contractImpactPatterns = [
 ];
 
 function changedFiles(): string[] | null {
-  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD^1', 'HEAD'], {
+  const baseRef = process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
+  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
     encoding: 'utf8'
   });
   if (result.status !== 0) {
