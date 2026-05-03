@@ -49,9 +49,23 @@ test('expanded official block set composes and verifies as one project', async (
   }>(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'));
   expect(postgresContract.provider).toBe('postgres');
   expect(postgresContract.persistenceMode).toBe('contract-only');
-  expect(postgresContract.tables.map((table) => table.name)).toHaveLength(0);
-  expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toHaveLength(0);
-  expect(postgresContract.tables.find((table) => table.name === 'tickets')?.columns).toHaveLength(0);
+  expect(postgresContract.tables.map((table) => table.name)).toEqual(
+    expect.arrayContaining([
+      'audit_events',
+      'email_notifications',
+      'file_uploads',
+      'ticket_comments',
+      'ticket_worklogs',
+      'tickets',
+      'worklog_entries'
+    ])
+  );
+  expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toEqual(
+    expect.arrayContaining(['id', 'recipient', 'subject', 'status'])
+  );
+  expect(postgresContract.tables.find((table) => table.name === 'tickets')?.columns).toEqual(
+    expect.arrayContaining(['id', 'title', 'status', 'priority', 'createdAt'])
+  );
 
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<typeof resolvedLock>(lockPath);
