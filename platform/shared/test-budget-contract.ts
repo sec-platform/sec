@@ -152,8 +152,14 @@ export async function getSlowTestSuites(): Promise<SlowTestSuite[]> {
   return getSlowTestSuitesSync();
 }
 
+const ALL_KNOWN_SLOW_SUITE_IDS = [...slowTestSuiteDefinitions.map((d) => d.id), 'other'];
+
+export function isKnownSlowTestSuiteId(suiteId: string): boolean {
+  return ALL_KNOWN_SLOW_SUITE_IDS.includes(suiteId);
+}
+
 export function slowTestSuiteIds(): string[] {
-  return getSlowTestSuitesSync().map((suite) => suite.id);
+  return [...ALL_KNOWN_SLOW_SUITE_IDS];
 }
 
 export function slowTestSuiteFiles(suiteId: string): string[] {

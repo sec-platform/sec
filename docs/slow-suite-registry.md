@@ -66,6 +66,22 @@ Full/manual/scheduled lane:
   may shard by suite id later
 ```
 
+## Full lane sharding
+
+Full validation runs slow e2e by suite id:
+
+```text
+bun run test:slow -- --suite upgrade
+bun run test:slow -- --suite runtime
+bun run test:slow -- --suite pipeline
+bun run test:slow -- --suite repair
+bun run test:slow -- --suite registry
+bun run test:slow -- --suite explain
+bun run test:slow -- --suite other
+```
+
+This is intentionally sequential before matrix parallelization. The first goal is diagnosability and stable ownership, not maximum parallel speed.
+
 ## Failure policy
 
 Slow failures should be classified as either a real implementation regression or a stale expectation after an intended behavior change. Do not delete slow tests to make CI green. Update the assertion only when the new observable behavior is the intended contract.

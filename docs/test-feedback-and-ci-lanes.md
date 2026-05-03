@@ -74,7 +74,7 @@ Full lane:
   Windows runner
   full typecheck
   full contract-freeze
-  slow e2e
+  slow e2e by suite (upgrade, runtime, pipeline, repair, registry, explain, other)
   benchmark contract
   runtime dependency warmup when needed
   resolve / compose / adapt
@@ -83,7 +83,7 @@ Full lane:
   reference check
 ```
 
-Full lane runs through `workflow_dispatch` and schedule. It may be slower, but it must remain complete.
+Full lane runs through `workflow_dispatch` and schedule. Each slow suite runs as a separate step for diagnosability and stable ownership. See [slow-suite-registry.md](slow-suite-registry.md) for suite ids and full lane sharding details.
 
 ## Diff base rules
 

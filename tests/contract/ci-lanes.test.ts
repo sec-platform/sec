@@ -16,7 +16,13 @@ test('CI contract separates PR fast lane commands from full lane commands', () =
     'bun run typecheck',
     'bun run platform -- test budget --json --compact',
     'bun run test:contract-freeze',
-    'bun run test:slow',
+    'bun run test:slow -- --suite upgrade',
+    'bun run test:slow -- --suite runtime',
+    'bun run test:slow -- --suite pipeline',
+    'bun run test:slow -- --suite repair',
+    'bun run test:slow -- --suite registry',
+    'bun run test:slow -- --suite explain',
+    'bun run test:slow -- --suite other',
     'bun run platform -- benchmark suite --json --compact',
     'bun run platform -- deps warmup',
     'bun run platform -- resolve',
@@ -45,7 +51,8 @@ test('CI full lane contract keeps complete validation coverage', () => {
 
   expect(contract.fullLaneCommands).toContain('bun run typecheck');
   expect(contract.fullLaneCommands).toContain('bun run test:contract-freeze');
-  expect(contract.fullLaneCommands).toContain('bun run test:slow');
+  expect(contract.fullLaneCommands).toContain('bun run test:slow -- --suite upgrade');
+  expect(contract.fullLaneCommands).toContain('bun run test:slow -- --suite other');
   expect(contract.fullLaneCommands).toContain('bun run platform -- verify --lane all --json --compact');
   expect(contract.fullLaneCommands).toContain('bun run platform -- reference check --json --compact');
 });
@@ -55,6 +62,6 @@ test('CI contract text exposes lane command split for workflow audits', () => {
 
   expect(formatted).toContain('PR fast lane command count: 3');
   expect(formatted).toContain('PR fast lane commands: bun install --frozen-lockfile, bun run imports:organize, bun scripts/ci-pr-gate.ts');
-  expect(formatted).toContain('Full lane command count: 15');
+  expect(formatted).toContain('Full lane command count: 21');
   expect(formatted).toContain('Full lane commands: bun install --frozen-lockfile, bun run imports:organize, bun run typecheck');
 });
