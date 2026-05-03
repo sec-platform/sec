@@ -21,6 +21,12 @@ export const testImpactRules: TestImpactRule[] = [
     slow: []
   },
   {
+    owner: 'ci-contract',
+    sourcePattern: /^platform\/shared\/ci-contract\.ts$/,
+    fast: ['tests/contract/contracts.test.ts', 'tests/contract/ci-lanes.test.ts'],
+    slow: []
+  },
+  {
     owner: 'benchmark-contract',
     sourcePattern: /^platform\/shared\/benchmark-contract\.ts$/,
     fast: ['tests/contract/benchmark-budget.test.ts'],
