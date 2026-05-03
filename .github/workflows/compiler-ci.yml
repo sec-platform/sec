@@ -93,39 +93,30 @@ jobs:
           }
 
       - name: Typecheck
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run typecheck
 
       - name: Test budget contract
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- test budget --json --compact
 
       - name: Contract freeze
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run test:contract-freeze
 
       - name: Changed/affected fast tests
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run test:changed
 
       - name: Warm runtime dependency cache
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- deps warmup
 
       - name: Resolve graph
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- resolve
 
       - name: Compose project
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- compose
 
       - name: Adapt project
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- adapt
 
       - name: Verify fast lane
-        if: steps.import_commit.outputs.changed != 'true'
         run: bun run platform -- verify --json --compact
 
   compiler-full:
