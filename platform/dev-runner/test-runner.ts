@@ -5,7 +5,7 @@ import { pathExists } from '../shared/fs.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
-import { getSlowTestFilesSync, isFastTestFile, isSlowTestFile } from '../shared/test-budget-contract.ts';
+import { getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isSlowTestFile } from '../shared/test-budget-contract.ts';
 import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
@@ -14,14 +14,16 @@ function hasExplicitFastTestFiles(args: string[]): boolean {
   return args.some(isFastTestFile);
 }
 
+function hasBunTestOption(args: string[]): boolean {
+  return args.some((arg) => arg.startsWith('-'));
+}
+
 function fastTestArgs(args: string[]): string[] {
-  if (hasExplicitFastTestFiles(args)) {
+  if (hasExplicitFastTestFiles(args) || hasBunTestOption(args)) {
     return ['test', ...args];
   }
 
-  const slowExcludeArgs = getSlowTestFilesSync()
-    .flatMap((file) => ['--exclude', `./${file}`]);
-  return ['test', ...slowExcludeArgs, ...args];
+  return ['test', ...getFastTestFilesSync(), ...args];
 }
 
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
