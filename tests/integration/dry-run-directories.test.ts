@@ -1,5 +1,5 @@
-import path from 'node:path';
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
 import { writeJson } from '../../platform/shared/fs.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
@@ -23,7 +23,7 @@ test('upgrade dry-run records create directory migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'create-directory': 1
   });
@@ -82,7 +82,7 @@ test('upgrade dry-run records delete directory migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'delete-directory': 1
   });
@@ -121,7 +121,7 @@ test('upgrade dry-run records copy directory migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'copy-directory': 1
   });

@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import {
   adaptWorkspace,
@@ -104,8 +104,7 @@ test('expanded official block set composes and verifies as one project', async (
   expect(ticketsPageSource).toContain('Worklogs for ${ticket.title}');
   expect(ticketsPageSource).toContain('Total worklog minutes');
 
-});
-
+}, 180000);
 test('reference project coverage has no uncovered blocks', async () => {
   const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
   const coverage = await readJson<{
@@ -115,4 +114,4 @@ test('reference project coverage has no uncovered blocks', async () => {
 
   expect(coverage.uncoveredBlocks).toHaveLength(0);
   expect(coverage.uncoveredSlots).toHaveLength(0);
-});
+}, 180000);

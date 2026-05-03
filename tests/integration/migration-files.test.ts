@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { formatJsonFile, writeJson } from '../../platform/shared/fs.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';

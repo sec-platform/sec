@@ -1,10 +1,10 @@
 import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
 import { runImportOrganizer } from './dev-runner/import-organizer.ts';
-import { runChangedTests, runContractFreeze, runFastTests, runTests } from './dev-runner/test-runner.ts';
+import { runChangedTests, runContractFreeze, runFastTests, runSlowTests, runTests } from './dev-runner/test-runner.ts';
 import { runTypecheck } from './dev-runner/typecheck-runner.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:fast|test:changed|contract-freeze|imports:check|imports:organize|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:fast|test:changed|test:slow|contract-freeze|imports:check|imports:organize|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -38,7 +38,9 @@ async function main(): Promise<void> {
           ? await runFastTests(args)
           : target === 'test:changed'
             ? await runChangedTests(args)
-            : usage();
+            : target === 'test:slow'
+              ? await runSlowTests(args)
+              : usage();
 
   process.exitCode = code;
 }

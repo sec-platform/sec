@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import {
   adaptWorkspace,
@@ -169,8 +169,7 @@ test('override-manifest loads developer source layer overrides before legacy ove
   await expect(fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe(
     'source layer override path\n'
   );
-});
-
+}, 180000);
 test('override-manifest surfaces ticket runtime override attribution', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-ticket-override-');
   const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);

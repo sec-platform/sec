@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises';
 import { expect } from 'bun:test';
+import fs from 'node:fs/promises';
 
 export function expectContainsAll(haystack: string, needles: readonly string[]): void {
   const missing = needles.filter((n) => !haystack.includes(n));

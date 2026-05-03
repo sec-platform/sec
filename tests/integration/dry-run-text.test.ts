@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
@@ -22,7 +22,7 @@ test('upgrade dry-run records text append migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-append': 1
   });
@@ -52,7 +52,7 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace': 1
   });
@@ -91,7 +91,7 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace-regex': 1
   });

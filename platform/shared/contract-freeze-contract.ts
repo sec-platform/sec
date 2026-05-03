@@ -118,6 +118,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
   ];
 }
 
+
 export function buildContractFreezeRunnerInvocations(
   targets = getContractFreezeTargets()
 ): ContractFreezeRunnerInvocation[] {

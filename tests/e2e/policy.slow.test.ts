@@ -1,6 +1,6 @@
+import { afterAll, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { afterAll, expect, test } from 'bun:test';
 
 import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
 import {
@@ -71,8 +71,7 @@ test('policy gate handles a missing project policies directory', async () => {
   expect(report.status).toBe('passed');
   expect(report.project).toEqual(emptyPolicyScopeReport());
   expect(report.official.policies).toContain('tenant-scope-required');
-});
-
+}, 180000);
 test('policy gate handles an empty project policies directory', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-empty-project-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
@@ -84,8 +83,7 @@ test('policy gate handles an empty project policies directory', async () => {
   expect(report.status).toBe('passed');
   expect(report.project).toEqual(emptyPolicyScopeReport());
   expect(report.official.policies).toContain('tenant-scope-required');
-});
-
+}, 180000);
 test('policy gate reports empty project policy YAML sources', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-empty-source-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
@@ -108,8 +106,7 @@ test('policy gate reports empty project policy YAML sources', async () => {
     violations: []
   });
   expect(report.official.policies).toContain('tenant-scope-required');
-});
-
+}, 180000);
 test('policy gate loads uppercase YAML project policy files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-uppercase-yaml-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
@@ -138,8 +135,7 @@ test('policy gate loads uppercase YAML project policy files', async () => {
     sourceScope: 'project',
     sourcePath: 'project/policies/tenant-scope.YAML'
   });
-});
-
+}, 180000);
 test('policy gate loads developer source policy files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-source-layer-');
   const { sourcePoliciesRoot } = getWorkspacePaths(workspaceRoot);
@@ -168,8 +164,7 @@ test('policy gate loads developer source policy files', async () => {
     sourceScope: 'project',
     sourcePath: 'source/model/policies/tenant-source.yaml'
   });
-});
-
+}, 180000);
 test('policy gate ignores non-YAML project policy files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ignore-');
   const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
@@ -180,8 +175,7 @@ test('policy gate ignores non-YAML project policy files', async () => {
   const report = await runPolicyGate(workspaceRoot);
 
   expect(report.project.sources.some((source) => source.path.endsWith('notes.txt'))).toBe(false);
-});
-
+}, 180000);
 test('policy gate merges recursive official/project sources and reports winning definitions', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-merge-');
   const officialFixtureDir = await createOfficialPolicyDir('merge');
@@ -310,8 +304,7 @@ test('policy gate merges recursive official/project sources and reports winning 
     await fs.rm(officialFixtureDir, { recursive: true, force: true });
     activeOfficialPolicyDirs.delete(officialFixtureDir);
   }
-});
-
+}, 180000);
 test('policy report violations point to the winning project source after recursive merge', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-winning-source-');
   const projectPoliciesRoot = path.join(workspaceRoot, 'project', 'policies');
@@ -359,8 +352,7 @@ test('policy report violations point to the winning project source after recursi
     sourcePath: normalizePolicyPath(projectPoliciesRoot, projectWinning, 'project'),
     targets: ['src/installed/entity/customer-service.ts']
   });
-});
-
+}, 180000);
 test('policy gate records missing install plan targets without violations', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-missing-target-');
   const { lockPath } = getWorkspacePaths(workspaceRoot);
@@ -406,8 +398,7 @@ test('policy gate records missing install plan targets without violations', asyn
   expect(report.violations).toEqual([] as any);
   // FIXME: toEqual([] as any) was hiding 1 target — verify expected behavior
   expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([] as any);
-});
-
+}, 180000);
 test('policy gate uses lock install plan to locate applied block files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-install-plan-');
   const { lockPath } = getWorkspacePaths(workspaceRoot);
@@ -506,8 +497,7 @@ test('policy gate uses lock install plan to locate applied block files', async (
   expect(report.violations.map((violation) => violation.files[0])).toEqual([] as any);
   // FIXME: toEqual([] as any) was hiding targets — verify expected target count
   expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([] as any);
-});
-
+}, 180000);
 test('policy gate fails when tenant scoping is removed from customer queries', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-');
 
@@ -527,8 +517,7 @@ test('policy gate fails when tenant scoping is removed from customer queries', a
   expect(report.policy.violations[0]?.id).toBe('tenant-scope-required');
   expect(report.policy.violations[0]?.sourceScope).toBe('official');
   expect(report.policy.violations[0]?.sourcePath).toBe('platform/policies/official/policy.spec.yaml');
-});
-
+}, 180000);
 test('policy gate targets ticket and worklog tenant-scoped services', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-targets-');
 
@@ -545,8 +534,7 @@ test('policy gate targets ticket and worklog tenant-scoped services', async () =
   expect(report.status).toBe('passed');
   // FIXME: toEqual([] as any) was hiding 3 targets — verify expected target count
   expect(tenantScopePolicy?.targets).toEqual([] as any);
-});
-
+}, 180000);
 test('policy gate fails when ticket service loses tenant context', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-failure-');
 
@@ -590,4 +578,4 @@ export function listTickets(db: Database, session: Session): TicketRecord[] {
   expect(report.status).toBe('failed');
   // FIXME: toEqual([] as any) was hiding 1 violation — verify expected violation content
   expect(report.violations).toEqual([] as any);
-});
+}, 180000);

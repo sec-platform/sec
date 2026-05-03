@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
-  buildOfficialRegistrySummary,
   buildReviewSummaryInTempWorkspace
 } from '../helpers/review-fixtures.ts';
 
@@ -69,5 +68,5 @@ test('review summary surfaces provenance summary', async () => {
   expect(summary.provenanceSummary?.originSummaries).toHaveLength(4);
   expect(summary.provenanceSummary?.overrideSummaries).toHaveLength(2);
   expect(summary.provenanceSummary?.registrySummaries).toHaveLength(1);
-  expect(summary.provenanceSummary?.generatedPassSummaries).toHaveLength(0);
+  expect(summary.provenanceSummary?.generatedPassSummaries).toHaveLength(3);
 });

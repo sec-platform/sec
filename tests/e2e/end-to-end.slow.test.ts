@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import {
   adaptWorkspace,
@@ -167,10 +167,10 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   expect(reviewSummary.regressionRisks).toHaveLength(0);
   expect(reviewSummary.conflictHints).toHaveLength(0);
 
-  await expect(fs.access(sourceViewPath)).resolves.not.toThrow();
-  await expect(fs.access(slotRuleViewPath)).resolves.not.toThrow();
-  await expect(fs.access(graphViewPath)).resolves.not.toThrow();
-  await expect(fs.access(reviewViewPath)).resolves.not.toThrow();
+  await fs.access(sourceViewPath);
+  await fs.access(slotRuleViewPath);
+  await fs.access(graphViewPath);
+  await fs.access(reviewViewPath);
 
   const refreshedProvenance = await readJson<{
     artifacts: Array<{ path: string; generatedByPass?: string }>;

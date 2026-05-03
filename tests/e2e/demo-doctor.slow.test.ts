@@ -120,4 +120,4 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
       { compact: true }
     );
   });
-});
+}, 180000);

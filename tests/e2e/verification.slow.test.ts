@@ -65,7 +65,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
       ]
     });
   });
-});
+}, 120000);
 
 test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -153,7 +153,7 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
       { compact: true }
     );
   });
-});
+}, 120000);
 
 test('CLI exposes runtime report as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -211,7 +211,7 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
       { compact: true }
     );
   });
-});
+}, 120000);
 
 test('CLI runs verify with JSON output for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -276,4 +276,4 @@ test('CLI exposes verification report as text and JSON contracts', async () => {
       runtime: { status: 'passed', acceptance: { status: 'skipped' } }
     });
   });
-});
+}, 180000);

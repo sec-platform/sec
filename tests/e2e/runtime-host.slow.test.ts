@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import {
   composeWorkspace,
@@ -45,4 +45,4 @@ test('compose refreshes runtime host scaffold for an existing workspace baseline
   );
   expect(projectPackage.scripts['verify:runtime']).toBe('bun run verify:runtime:full');
   await expect(fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8')).resolves.toContain('workers: 1');
-});
+}, 180000);

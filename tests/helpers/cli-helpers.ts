@@ -1,11 +1,18 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-
-import { Command } from 'commander';
 import { expect } from 'bun:test';
+import { Command } from 'commander';
 
 import { registerCommands } from '../../platform/cli/register-commands.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { expectContainsAll } from './assertion-helpers.ts';
+
+function normalizeCliStderr(stderr: string): string {
+  return stderr
+    .split('\n')
+    .filter((line) => line.trim() !== '[ora] Multiple concurrent spinners detected. This may cause visual corruption. Use one spinner at a time.')
+    .join('\n')
+    .trimEnd();
+}
 
 export type CliResult = { code: number; stdout: string; stderr: string };
 
@@ -82,7 +89,7 @@ export async function expectCliSuccess(
 ): Promise<CliResult> {
   const result = await runCliInProcess(workspaceRoot, args);
   expect(result.code).toBe(0);
-  expect(result.stderr).toBe('');
+  expect(normalizeCliStderr(result.stderr)).toBe('');
   if (expectedStdout !== undefined) {
     expect(result.stdout).toBe(expectedStdout);
   }

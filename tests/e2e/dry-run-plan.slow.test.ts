@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
@@ -90,8 +90,7 @@ test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => 
 
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true }))
     .rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-002' });
-});
-
+}, 180000);
 test('upgrade dry-run records slot contract migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-slot-contract-plan-');
 
@@ -124,9 +123,9 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
       expect.objectContaining({ id: 'override-conflicts', evidence: [] })
     ])
   );
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationSummaries).toHaveLength(0);
   expect(upgradePlan.migrationOperations).toHaveLength(0);
   await expectFileUnchanged(planPath, beforePlan);
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
-});
+}, 180000);

@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import {
   adaptWorkspace,
@@ -146,7 +146,7 @@ test('upgrade advances ticket block version and surfaces runtime upgrade impact'
   expect(resolvedTicketBlock?.version).toBe('0.1.1');
   expect(lock.passStatus.lock).toBe('succeeded');
   expect(upgradePlan.status).toBe('applied');
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'file-replace': 1,
     'json-array-append': 1

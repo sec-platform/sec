@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { applyRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { buildTaskEnvelope } from '../../platform/compiler/synthesize/build-task-envelope.ts';
@@ -83,7 +83,8 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     expect(repairPlan.status).toBe('applied');
     expect(repairPlan.requiresVerification).toBe(true);
     expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
-    expect(repairPlan.tasks[0].allowedPaths).toHaveLength(0);
+    expect(repairPlan.tasks[0].allowedPaths).toHaveLength(1);
+    expect(repairPlan.tasks[0].allowedPaths).toContain('source/code/slots/customer_normalizer.ts');
     expect(writtenSource).toContain('// @generated task:fill_slot_customer_normalizer');
     expect(writtenSource).toContain('export function normalizeCustomerInput');
     expect(repairedLock.passStatus.repair).toBe('succeeded');
@@ -179,7 +180,7 @@ test('repair writes blocked plans before reporting non-repairable failures', asy
     expect(result.stderr).toContain('No eligible slot tasks are present in graph.lock.json');
     expect(persistedLock.passStatus.repair).toBe('failed');
     expect(persistedRepairPlan.status).toBe('blocked');
-    expect(persistedRepairPlan.blockers).toHaveLength(0);
+    expect(persistedRepairPlan.blockers).toHaveLength(1);
   });
 });
 

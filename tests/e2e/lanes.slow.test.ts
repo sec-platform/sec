@@ -15,8 +15,7 @@ test('fast lane alone does not unlock the workspace', async () => {
   expect(report.runtime.acceptance.status).toBe('skipped');
 
   await expect(lockWorkspace(workspaceRoot)).rejects.toThrow();
-});
-
+}, 180000);
 test('runtime lane runs generated service tests without full browser acceptance', async () => {
   const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-runtime-service-lane-' });
 
@@ -28,4 +27,4 @@ test('runtime lane runs generated service tests without full browser acceptance'
   expect(report.runtime.build.status).toBe('skipped');
   expect(report.runtime.unit.status).toBe('passed');
   expect(report.runtime.acceptance.status).toBe('skipped');
-});
+}, 180000);

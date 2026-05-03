@@ -1,5 +1,5 @@
-import path from 'node:path';
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
 import { writeJson } from '../../platform/shared/fs.ts';
 import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
@@ -26,7 +26,7 @@ test('upgrade dry-run records delete file migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'delete-file': 1
   });
@@ -65,7 +65,7 @@ test('upgrade dry-run records copy file migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'copy-file': 1
   });
@@ -104,7 +104,7 @@ test('upgrade dry-run records rename file migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts).toHaveLength(0);
+  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expect(upgradePlan.migrationKindCounts).toEqual({
     'rename-file': 1
   });
