@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-contract.ts';
+import { pathExists } from '../shared/fs.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
@@ -57,6 +58,36 @@ async function gitChangedFiles(): Promise<string[] | null> {
 
 function sourceFileChanged(file: string): boolean {
   return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
+}
+
+type DependencyContext = {
+  binPath: string;
+};
+
+async function rootDependencyContext(): Promise<DependencyContext | null> {
+  const rootNodeModules = path.join(compilerRoot, 'node_modules');
+  if (!(await pathExists(rootNodeModules))) {
+    return null;
+  }
+
+  return { binPath: path.join(rootNodeModules, '.bin') };
+}
+
+async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
+  const rootContext = await rootDependencyContext();
+  if (rootContext) {
+    return callback(rootContext);
+  }
+
+  const sharedDeps = await ensureSharedDepsReady();
+  const context = { binPath: path.join(sharedDeps.nodeModulesPath, '.bin') };
+  return withRootDependencyBridge(sharedDeps.nodeModulesPath, () => callback(context));
+}
+
+function pathEnv(binPath: string): NodeJS.ProcessEnv {
+  return {
+    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
+  };
 }
 
 interface ChangedTestSelection {
@@ -128,17 +159,11 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
 }
 
 export async function runTests(args: string[] = []): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const env = {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-  };
-
   let exitCode = 1;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
+  await withTestDependencies(async ({ binPath }) => {
     const invocations = args.length > 0 ? [['test', ...args]] : fullTestInvocations();
     for (const invocation of invocations) {
-      exitCode = await runDevCommand('bun', invocation, env);
+      exitCode = await runDevCommand('bun', invocation, pathEnv(binPath));
       if (exitCode !== 0) return;
     }
   });
@@ -146,43 +171,26 @@ export async function runTests(args: string[] = []): Promise<number> {
 }
 
 export async function runFastTests(args: string[] = []): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const env = {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-  };
-
   let exitCode = 1;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(env));
+  await withTestDependencies(async ({ binPath }) => {
+    exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(pathEnv(binPath)));
   });
   return exitCode;
 }
 
 export async function runSlowTests(args: string[] = []): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const env = {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-  };
-
   let exitCode = 1;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    exitCode = await runDevCommand('bun', slowTestArgs(args), env);
+  await withTestDependencies(async ({ binPath }) => {
+    exitCode = await runDevCommand('bun', slowTestArgs(args), pathEnv(binPath));
   });
   return exitCode;
 }
 
 export async function runContractFreeze(): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
   let exitCode = 0;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
+  await withTestDependencies(async ({ binPath }) => {
     for (const invocation of buildContractFreezeRunnerInvocations()) {
-      const env = {
-        [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-      };
-      exitCode = await runDevCommand('bun', invocation.args, env);
+      exitCode = await runDevCommand('bun', invocation.args, pathEnv(binPath));
       if (exitCode !== 0) {
         return;
       }
