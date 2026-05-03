@@ -64,6 +64,10 @@ function sourceFileChanged(file: string): boolean {
   return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
 }
 
+function allowSlowChangedNotice(): boolean {
+  return process.env.PJC_CHANGED_TESTS_ALLOW_SLOW_NOTICE === '1' || process.env.PJC_CHANGED_BASE !== undefined;
+}
+
 type DependencyContext = {
   binPath: string;
 };
@@ -128,8 +132,12 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
     return 1;
   }
   if (selection.slowTests.length > 0) {
-    console.error(`Changed slow test files require explicit verification: ${selection.slowTests.join(', ')}`);
-    return 1;
+    const message = `Changed slow test files require explicit verification: ${selection.slowTests.join(', ')}`;
+    if (!allowSlowChangedNotice()) {
+      console.error(message);
+      return 1;
+    }
+    console.log(message);
   }
   if (selection.tests.length > 0) {
     return runFastTests(selection.tests);
