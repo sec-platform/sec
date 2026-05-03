@@ -66,17 +66,8 @@ jobs:
             fi
           fi
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Contract freeze
-        run: bun run test:contract-freeze
-
-      - name: Changed/affected fast tests
-        run: bun run test:changed
-
-      - name: Fast workspace gate
-        run: bun scripts/ci-fast-gate.ts
+      - name: PR fast gate
+        run: bun scripts/ci-pr-gate.ts
 
   compiler-full:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
