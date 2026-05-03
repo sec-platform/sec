@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises';
 import { test } from 'bun:test';
+import fs from 'node:fs/promises';
 
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
 import { explainWorkspace } from '../../platform/orchestrator.ts';

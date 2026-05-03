@@ -12,9 +12,9 @@ import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import {
-    buildProjectOverview,
-    PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
-    type ProjectOverview
+  buildProjectOverview,
+  PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
+  type ProjectOverview
 } from '../../shared/project-overview.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';

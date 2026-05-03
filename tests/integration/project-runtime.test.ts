@@ -1,6 +1,6 @@
+import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
@@ -14,6 +14,8 @@ import {
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
+import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
+import { buildTestTimingContract } from '../../platform/shared/test-timing-contract.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { createWorkspace } from '../helpers/workspace-fixtures.ts';
@@ -94,11 +96,13 @@ describe('test budget and benchmark contracts', () => {
 
     expect(scripts.test).toBe('bun ./platform/dev-runner.ts test:fast');
     expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
+    expect(scripts['test:slow']).toBe('bun ./platform/dev-runner.ts test:slow');
     expect(scripts.check).toBe('bun run typecheck && bun run test');
     expect(scripts['check:full']).toBe('bun run typecheck && bun run test:all');
-    expect(scripts['imports:check']).toBe('bun run imports:organize && bun ./platform/dev-runner.ts imports:check');
+    expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['test:budget']).toBe('bun run platform -- test budget --json');
+    expect(scripts['test:architecture']).toBe('bun scripts/check-test-architecture.ts');
     expect(scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
     expect(scripts['test:benchmark-contract']).toBe('bun run platform -- benchmark suite --json');
     expect(scripts['reference:check']).toBe('bun run platform -- reference check');

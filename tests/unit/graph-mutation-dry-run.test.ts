@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { buildExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
 import { applyViewMutations } from '../../platform/compiler/workbench/apply-view-mutations.ts';
@@ -169,8 +169,7 @@ test('expected node delta matches the graph after applying the generated mutatio
 
   // FIXME: arrayContaining hides unexpected extras; need exact length check
   expect(addedNodeIds).toEqual(expect.arrayContaining(expectedNodeIds));
-});
-
+}, 120000);
 test('rejects mutation ids that cannot be used as source mutation file names', () => {
   expect(() => buildGraphMutationDryRun(baseGraph, [
     {

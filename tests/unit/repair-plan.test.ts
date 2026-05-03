@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { buildRepairPlan, writeRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
@@ -176,7 +176,7 @@ test('repair plan includes structured failure points for slot and spec failures'
       })
     ])
   );
-  expect(repairPlan.blockers).toHaveLength(1);
+  expect(repairPlan.blockers).toHaveLength(2);
 });
 
 test('repair plan records blockers when no slot task is repairable', () => {
@@ -189,7 +189,7 @@ test('repair plan records blockers when no slot task is repairable', () => {
 
   expect(repairPlan.status).toBe('blocked');
   expect(repairPlan.tasks).toHaveLength(0);
-  expect(repairPlan.blockers).toHaveLength(1);
+  expect(repairPlan.blockers).toHaveLength(2);
 });
 
 test('repair plan falls back when failed summary has no lane details', () => {

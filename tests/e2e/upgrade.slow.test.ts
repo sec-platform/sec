@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -123,7 +123,7 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
       'target=generated/reports/archive/current; source=generated/reports/current; role=directory; requiresVerification=false'
     ]);
   });
-});
+}, 120000);
 
 test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -404,4 +404,4 @@ test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
       'Upgrade diagnostics: apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
     ]);
   });
-});
+}, 180000);

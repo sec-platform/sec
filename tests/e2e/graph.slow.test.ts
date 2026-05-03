@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises';
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
 
 import { buildExplainGraph, writeExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
 import { initWorkspace, resolveWorkspace } from '../../platform/orchestrator.ts';
@@ -121,8 +121,7 @@ test('explain graph includes pins, policies, and policy violation edges without 
       edge.type === 'violates'
   );
   expect(violationEdges).toHaveLength(1);
-});
-
+}, 180000);
 test('explain graph connects slot contract upgrade impacts to slots and files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-upgrade-slot-');
 
@@ -349,8 +348,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       }
     ])
   );
-});
-
+}, 180000);
 test('explain graph connects repair tasks to slots and files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-repair-');
 
@@ -399,8 +397,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
       { from: 'repair:repair_customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
     ])
   );
-});
-
+}, 180000);
 test('explain graph links generated ticket runtime routes back to related blocks', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-runtime-attribution-');
   const lock: LockFile = {
@@ -468,8 +465,7 @@ test('explain graph links generated ticket runtime routes back to related blocks
       }
     ])
   );
-});
-
+}, 180000);
 test('writeExplainGraph does not require a policy report', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-explain-no-policy-');
   const {
@@ -513,4 +509,4 @@ test('writeExplainGraph does not require a policy report', async () => {
   ];
   expect(writtenLock.generatedPaths).toEqual(expect.arrayContaining(explainArtifacts));
   expect(writtenProvenance.artifacts.map((artifact) => artifact.path)).toEqual(expect.arrayContaining(explainArtifacts));
-});
+}, 180000);

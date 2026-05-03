@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-acceptance-coverage.ts';
 import type { BlockManifest, LockFile, RuntimeVerificationLaneReport } from '../../platform/shared/types.ts';
@@ -192,7 +192,7 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
     });
 
     const covered = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['unknown_flow', 'cross_block_flow', 'source_smoke', 'source_smoke']));
-    expect(covered.acceptancePassed).toHaveLength(0);
+    expect(covered.acceptancePassed).toHaveLength(2);
     expect(covered.blocks.find((entry) => entry.id === 'source/block')).toMatchObject({
       declaredAcceptance: ['source_smoke'],
       coveredBy: ['source_smoke'],

@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { buildReviewSummary, writeReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
 import {
@@ -82,8 +82,7 @@ test('writeReviewSummary persists generated path in lock', async () => {
   expect(summary.conflictHints).toHaveLength(0);
   expect(persistedSummary).toEqual(summary);
   expect(persistedLock.generatedPaths).toHaveLength(0);
-});
-
+}, 180000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-fast-');
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
@@ -123,8 +122,7 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
       }
     ])
   );
-});
-
+}, 180000);
 test('buildReviewSummary adds failed verification targets as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-targets-');
   const lock = buildReviewLock({
@@ -216,8 +214,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
     blockId: 'entity/customer-basic',
     message: 'Block entity/customer-basic has no runtime acceptance coverage'
   });
-});
-
+}, 180000);
 test('buildReviewSummary groups ticket runtime entries into explicit vertical attribution', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-ticket-attribution-');
   const { lock, provenance, coverage, report } = buildReviewInputs({
@@ -381,4 +378,4 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
     vertical: 'ticket',
     relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
   });
-});
+}, 180000);

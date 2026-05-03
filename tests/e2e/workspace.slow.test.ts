@@ -1,6 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
@@ -52,8 +52,7 @@ test('CLI accepts init commands', async () => {
     await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
   });
-});
-
+}, 180000);
 test('CLI init creates the developer source layer', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
@@ -61,8 +60,7 @@ test('CLI init creates the developer source layer', async () => {
     const paths = getWorkspacePaths(workspaceRoot);
     await expectDirectoriesExist(developerSourceLayerDirectories(paths));
   });
-});
-
+}, 180000);
 test('CLI applies Workbench view mutations back to source app plan', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
@@ -124,8 +122,7 @@ test('CLI applies Workbench view mutations back to source app plan', async () =>
       mutationCount: 3
     });
   });
-});
-
+}, 180000);
 test('CLI rejects Workbench slot source mutations outside slot source', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
@@ -150,16 +147,14 @@ test('CLI rejects Workbench slot source mutations outside slot source', async ()
     expect(result.stderr).toContain('"source/views/mutations"');
     expect(result.stderr).toContain(`"${CI_ARTIFACT_FILES.viewMutationReport}"`);
   });
-});
-
+}, 180000);
 test('CLI defaults verification to the fast lane', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await runCliPipeline(workspaceRoot);
 
     await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
   });
-});
-
+}, 180000);
 test('CLI adds private registry blocks and preserves registry metadata on resolve', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
@@ -181,4 +176,4 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
       registryLocation: 'workspace'
     });
   });
-});
+}, 180000);

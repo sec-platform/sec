@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises';
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
 
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {

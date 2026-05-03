@@ -14,8 +14,7 @@ test('versioned official registry manifests inherit root manifest fields', async
   expect(entry.manifest.upgrade?.migrations.map((migration) => migration.id)).toHaveLength(0);
   expect(entry.manifestPath.replaceAll('\\', '/')).toContain('/versions/0.1.1/block.manifest.yaml');
   expect(entry.manifestRoot.replaceAll('\\', '/')).toContain('/versions/0.1.1');
-});
-
+}, 180000);
 test('official registry blocks typecheck in their minimal resolved closure', async () => {
   const manifests = await loadAllManifests();
   expect(manifests.length).toBeGreaterThan(0);

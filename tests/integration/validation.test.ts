@@ -1,5 +1,5 @@
-import path from 'node:path';
 import { test } from 'bun:test';
+import path from 'node:path';
 
 import { writeJson } from '../../platform/shared/fs.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
