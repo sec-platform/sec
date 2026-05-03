@@ -27,6 +27,12 @@ export const testImpactRules: TestImpactRule[] = [
     slow: []
   },
   {
+    owner: 'dev-runner',
+    sourcePattern: /^platform\/dev-runner\/(test-runner|typecheck-runner)\.ts$/,
+    fast: ['tests/integration/project-runtime.test.ts', 'tests/contract/benchmark-budget.test.ts'],
+    slow: []
+  },
+  {
     owner: 'benchmark-contract',
     sourcePattern: /^platform\/shared\/benchmark-contract\.ts$/,
     fast: ['tests/contract/benchmark-budget.test.ts'],
