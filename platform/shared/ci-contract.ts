@@ -65,16 +65,16 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'organized-imports',
     phase: 'quality',
-    command: 'bun run imports:check',
-    purpose: 'Ensure TypeScript import declarations are normalized by the shared organizer.',
+    command: 'bun run imports:organize',
+    purpose: 'Normalize TypeScript import declarations automatically through the shared organizer.',
     produces: []
   },
   {
-    id: 'pr-fast-verify',
+    id: 'pr-fast-gate',
     phase: 'verify',
-    command: platformCommand('verify', '--json', '--compact'),
-    purpose: 'Run the default fast verification lane for pull requests.',
-    produces: [CI_ARTIFACT_FILES.verificationReport]
+    command: 'bun scripts/ci-pr-gate.ts',
+    purpose: 'Run the pull-request fast lane: typecheck, changed tests, targeted contract-freeze, and the fast workspace gate when affected.',
+    produces: []
   },
   {
     id: 'full-runtime-verify',
@@ -175,7 +175,7 @@ export function buildCiContract(): CiContract {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: CONTRACT_STATUS_ACTIVE,
     command: platformCommand('contract', 'ci', '--json'),
-    defaultGate: 'pr-fast-verify',
+    defaultGate: 'pr-fast-gate',
     fullRuntimeGate: 'full-runtime-verify',
     verifyCommandCount: verifyCommands.length,
     verifyCommands,
