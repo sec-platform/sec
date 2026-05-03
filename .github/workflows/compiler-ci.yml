@@ -86,6 +86,7 @@ jobs:
 
       - name: PR fast gate
         if: steps.import_commit.outputs.changed != 'true'
+        timeout-minutes: 4
         run: bun scripts/ci-pr-gate.ts
 
   compiler-full:
