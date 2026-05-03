@@ -25,23 +25,64 @@ export type TestBudgetContract = {
   fullRuntimeGate: string;
 };
 
+const TEST_FILE_GLOBS = [
+  'tests/**/*.test.ts',
+  'tests/**/*.spec.ts',
+  'tests/**/*.test.tsx',
+  'tests/**/*.spec.tsx'
+];
 const SLOW_TEST_GLOB = 'tests/e2e/**/*.slow.test.ts';
 const BUN_SLOW_TEST_EXCLUDE_PATTERN = `./${SLOW_TEST_GLOB}`;
 
+let cachedTestFiles: string[] | null = null;
+let cachedFastTestFiles: string[] | null = null;
 let cachedSlowTestFiles: string[] | null = null;
+
+function scanTestFilesSync(): string[] {
+  const files = new Set<string>();
+  for (const pattern of TEST_FILE_GLOBS) {
+    const glob = new Glob(pattern);
+    for (const file of glob.scanSync()) {
+      files.add(file.replaceAll('\\', '/'));
+    }
+  }
+  return [...files].sort();
+}
+
+export async function getTestFiles(): Promise<string[]> {
+  if (cachedTestFiles) return cachedTestFiles;
+  cachedTestFiles = scanTestFilesSync();
+  return cachedTestFiles;
+}
+
+export function getTestFilesSync(): string[] {
+  if (cachedTestFiles) return cachedTestFiles;
+  cachedTestFiles = scanTestFilesSync();
+  return cachedTestFiles;
+}
 
 export async function getSlowTestFiles(): Promise<string[]> {
   if (cachedSlowTestFiles) return cachedSlowTestFiles;
-  const glob = new Glob(SLOW_TEST_GLOB);
-  cachedSlowTestFiles = [...glob.scanSync()].map((file) => file.replaceAll('\\', '/')).sort();
+  cachedSlowTestFiles = getTestFilesSync().filter(isSlowTestFile);
   return cachedSlowTestFiles;
 }
 
 export function getSlowTestFilesSync(): string[] {
   if (cachedSlowTestFiles) return cachedSlowTestFiles;
-  const glob = new Glob(SLOW_TEST_GLOB);
-  cachedSlowTestFiles = [...glob.scanSync()].map((file) => file.replaceAll('\\', '/')).sort();
+  cachedSlowTestFiles = getTestFilesSync().filter(isSlowTestFile);
   return cachedSlowTestFiles;
+}
+
+export async function getFastTestFiles(): Promise<string[]> {
+  if (cachedFastTestFiles) return cachedFastTestFiles;
+  cachedFastTestFiles = getTestFilesSync().filter(isFastTestFile);
+  return cachedFastTestFiles;
+}
+
+export function getFastTestFilesSync(): string[] {
+  if (cachedFastTestFiles) return cachedFastTestFiles;
+  cachedFastTestFiles = getTestFilesSync().filter(isFastTestFile);
+  return cachedFastTestFiles;
 }
 
 export function slowTestExcludePattern(): string {
