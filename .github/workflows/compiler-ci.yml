@@ -19,6 +19,7 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   PJC_CHANGED_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^1' }}
+  PJC_CHANGED_TESTS_BASE: HEAD^1
 
 jobs:
   compiler-ci:
