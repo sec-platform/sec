@@ -4,8 +4,12 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../platform/orchestrator.ts';
+import { warmupDependencyEnvironment } from '../platform/shared/dependency-environment.ts';
 
 export async function runCiFastGate(workspaceRoot = process.cwd()): Promise<number> {
+  console.log('CI fast gate: warm runtime dependencies');
+  await warmupDependencyEnvironment(workspaceRoot);
+
   console.log('CI fast gate: resolve graph');
   await resolveWorkspace(workspaceRoot);
 
