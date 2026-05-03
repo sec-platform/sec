@@ -15,6 +15,7 @@ type GateStep = {
 type GateResult = {
   id: string;
   code: number;
+  durationMs: number;
 };
 
 type ContractFreezeSelection = {
@@ -40,6 +41,8 @@ const targetedContractImpactPatterns: Array<{ pattern: RegExp; file: string }> =
   { pattern: /^tests\/contract\/reference\.test\.ts$/, file: 'tests/contract/reference.test.ts' },
   { pattern: /^tests\/contract\/benchmark-budget\.test\.ts$/, file: 'tests/contract/benchmark-budget.test.ts' },
   { pattern: /^tests\/contract\/contracts\.test\.ts$/, file: 'tests/contract/contracts.test.ts' },
+  { pattern: /^tests\/contract\/ci-lanes\.test\.ts$/, file: 'tests/contract/ci-lanes.test.ts' },
+  { pattern: /^tests\/contract\/test-impact\.test\.ts$/, file: 'tests/contract/test-impact.test.ts' },
   { pattern: /^tests\/integration\/review\.test\.ts$/, file: 'tests/integration/review.test.ts' },
   { pattern: /^tests\/integration\/project-runtime\.test\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
   { pattern: /^platform\/dev-runner\/import-organizer\.ts$/, file: 'tests/contract/usage.test.ts' }
@@ -71,10 +74,30 @@ function changedFiles(): string[] | null {
     .filter(Boolean);
 }
 
+function formatDuration(durationMs: number): string {
+  return `${(durationMs / 1000).toFixed(2)}s`;
+}
+
+function groupStart(label: string): void {
+  console.log(`::group::${label}`);
+}
+
+function groupEnd(): void {
+  console.log('::endgroup::');
+}
+
 const files = changedFiles();
 
+if (files) {
+  console.log(`CI PR gate: PR-wide changed file count ${files.length}`);
+} else {
+  console.log('CI PR gate: PR-wide changed file detection failed.');
+}
+
 function selectContractFreezeTargets(files: string[]): ContractFreezeSelection | null {
-  if (files.some((file) => broadContractImpactPatterns.some((pattern) => pattern.test(file)))) {
+  const broadFiles = files.filter((file) => broadContractImpactPatterns.some((pattern) => pattern.test(file)));
+  if (broadFiles.length > 0) {
+    console.log(`CI PR gate: contract-freeze broad impact files: ${broadFiles.join(', ')}`);
     return { files, targets: getContractFreezeTargets(), full: true };
   }
 
@@ -172,15 +195,25 @@ if (!selection) {
 }
 
 async function runGateStep(step: GateStep): Promise<GateResult> {
-  console.log(`CI PR gate: ${step.id}`);
-  const code = await step.run();
-  return { id: step.id, code };
+  const startedAt = Date.now();
+  groupStart(`CI PR gate: ${step.id}`);
+  console.log(`CI PR gate: ${step.id} started`);
+  try {
+    const code = await step.run();
+    const durationMs = Date.now() - startedAt;
+    console.log(`CI PR gate: ${step.id} finished with exit code ${code} in ${formatDuration(durationMs)}`);
+    return { id: step.id, code, durationMs };
+  } finally {
+    groupEnd();
+  }
 }
 
 const readonlyResults = await Promise.all(readonlySteps.map(runGateStep));
 const failedReadonlyStep = readonlyResults.find((result) => result.code !== 0);
 if (failedReadonlyStep) {
-  console.error(`CI PR gate failed at ${failedReadonlyStep.id} with exit code ${failedReadonlyStep.code}`);
+  console.error(
+    `CI PR gate failed at ${failedReadonlyStep.id} with exit code ${failedReadonlyStep.code} after ${formatDuration(failedReadonlyStep.durationMs)}`
+  );
   process.exit(failedReadonlyStep.code);
 }
 
@@ -190,7 +223,12 @@ if (fastWorkspaceGateNeeded()) {
     run: () => runCiFastGate()
   });
   if (fastWorkspaceResult.code !== 0) {
-    console.error(`CI PR gate failed at ${fastWorkspaceResult.id} with exit code ${fastWorkspaceResult.code}`);
+    console.error(
+      `CI PR gate failed at ${fastWorkspaceResult.id} with exit code ${fastWorkspaceResult.code} after ${formatDuration(fastWorkspaceResult.durationMs)}`
+    );
     process.exit(fastWorkspaceResult.code);
   }
 }
+
+const totalReadonlyDuration = readonlyResults.reduce((total, result) => total + result.durationMs, 0);
+console.log(`CI PR gate: readonly gate cumulative time ${formatDuration(totalReadonlyDuration)}`);
