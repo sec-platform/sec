@@ -26,6 +26,7 @@ export type TestBudgetContract = {
 };
 
 const SLOW_TEST_GLOB = 'tests/e2e/**/*.slow.test.ts';
+const BUN_SLOW_TEST_EXCLUDE_PATTERN = `./${SLOW_TEST_GLOB}`;
 
 let cachedSlowTestFiles: string[] | null = null;
 
@@ -44,7 +45,7 @@ export function getSlowTestFilesSync(): string[] {
 }
 
 export function slowTestExcludePattern(): string {
-  return SLOW_TEST_GLOB;
+  return BUN_SLOW_TEST_EXCLUDE_PATTERN;
 }
 
 export function isTestFile(file: string): boolean {
