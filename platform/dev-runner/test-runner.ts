@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { uniqueSortedLines } from '../shared/collections.ts';
-import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-contract.ts';
+import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
 import { pathExists } from '../shared/fs.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
@@ -186,10 +186,10 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
   return exitCode;
 }
 
-export async function runContractFreeze(): Promise<number> {
+export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
   let exitCode = 0;
   await withTestDependencies(async ({ binPath }) => {
-    for (const invocation of buildContractFreezeRunnerInvocations()) {
+    for (const invocation of buildContractFreezeRunnerInvocations(targets)) {
       exitCode = await runDevCommand('bun', invocation.args, pathEnv(binPath));
       if (exitCode !== 0) {
         return;
