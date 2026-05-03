@@ -44,15 +44,6 @@ jobs:
             node_modules
           key: ${{ runner.os }}-root-deps-${{ hashFiles('bun.lock', 'package.json') }}
 
-      - name: Restore runtime dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            .shared-deps
-          key: ${{ runner.os }}-runtime-deps-${{ hashFiles('bun.lock', 'package.json', 'platform/shared/runtime-dependency-spec.ts') }}
-          restore-keys: |
-            ${{ runner.os }}-runtime-deps-
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
