@@ -133,11 +133,24 @@ always run full contract-freeze
 
 When a new contract test file is added, it must also be added to the contract-freeze target list. The target count and target file list are intentional contract assertions.
 
-## Test impact mapping
+## Test impact selection
 
-`test-impact-contract.ts` maps changed source owners to fast and slow coverage. Impact rules should be maintained as product contracts, not as incidental implementation details.
+`test-impact-contract.ts` selects affected tests in three layers. This avoids a central table that must hard-code every source file while still preserving explicit semantic ownership for cross-cutting features.
 
-Good impact rules:
+```text
+1. Changed test files:
+   run the changed fast test files directly;
+   changed slow tests produce a PR notice and are covered by full/manual/scheduled lanes.
+
+2. Automatic source references:
+   scan test files for relative imports and literal repository paths that point at changed source files;
+   run matching fast tests and report matching slow tests as notices.
+
+3. Semantic impact rules:
+   keep a small set of explicit rules only for cross-domain relationships that imports cannot express.
+```
+
+Good semantic rules:
 
 ```text
 platform/shared/ci-contract.ts -> CI contract tests
@@ -146,7 +159,7 @@ platform/compiler/upgrade/** -> upgrade integration tests plus slow upgrade noti
 platform/compiler/verify/** -> verification unit/integration tests plus slow verification notices
 ```
 
-A missing mapping must not expand PR fast lane into unrelated broad or slow coverage. It should produce a notice and rely on full validation.
+Rules should be product contracts, not incidental implementation details. A missing mapping must not expand PR fast lane into unrelated broad or slow coverage. It should produce a notice and rely on full validation.
 
 ## Slow e2e rules
 
