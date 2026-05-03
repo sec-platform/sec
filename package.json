@@ -31,11 +31,7 @@
     "clean:test-workspaces": "bun run dev -- clean-test-workspaces",
     "check": "bun run typecheck && bun run test",
     "check:changed": "bun run typecheck && bun run test:changed",
-    "check:full": "bun run typecheck && bun run test:all",
-    "jscpd": "jscpd platform/ scripts/ -o report/jscpd --reporters html,console --format typescript,javascript --ignore \"**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**\" --min-lines 5 --min-tokens 50 --absolute",
-    "depcruise": "depcruise platform/ --config .dependency-cruiser.json",
-    "arch:check": "bun run depcruise && bun run jscpd",
-    "discover": "bun scripts/discover-all.ts --json --output report/discover.json"
+    "check:full": "bun run typecheck && bun run test:all"
   },
   "dependencies": {
     "change-case": "^5.4.4",
