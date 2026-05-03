@@ -92,18 +92,24 @@ describe('test budget and benchmark contracts', () => {
   test('root package exposes budget and contract scripts', async () => {
     const { scripts } = await readCompilerPackageJson();
 
+    expect(scripts.platform).toBe('bun ./platform/cli/index.ts');
+    expect(scripts.dev).toBe('bun ./platform/dev-runner.ts');
+    expect(scripts.typecheck).toBe('bun ./platform/dev-runner.ts typecheck');
+
     expect(scripts.test).toBe('bun ./platform/dev-runner.ts test:fast');
-    expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
+    expect(scripts['test:changed']).toBe('bun ./platform/dev-runner.ts test:changed');
     expect(scripts['test:slow']).toBe('bun ./platform/dev-runner.ts test:slow');
-    expect(scripts.check).toBe('bun run typecheck && bun run test');
+    expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
+
+    expect(scripts.check).toBe('bun run check:fast');
+    expect(scripts['check:fast']).toBe('bun run typecheck && bun run test');
+    expect(scripts['check:changed']).toBe('bun run typecheck && bun run test:changed');
     expect(scripts['check:full']).toBe('bun run typecheck && bun run test:all');
-    expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
+
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
-    expect(scripts['test:budget']).toBe('bun run platform -- test budget --json');
-    expect(scripts['test:architecture']).toBe('bun scripts/check-test-architecture.ts');
-    expect(scripts['test:contract-freeze']).toBe('bun ./platform/dev-runner.ts contract-freeze');
-    expect(scripts['test:benchmark-contract']).toBe('bun run platform -- benchmark suite --json');
-    expect(scripts['reference:check']).toBe('bun run platform -- reference check');
+    expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
+
+    expect(scripts.format).toBeUndefined();
   });
 
   test('dev-runner does not expose contract subcommands directly', async () => {
