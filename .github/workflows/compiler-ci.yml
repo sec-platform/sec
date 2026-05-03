@@ -92,20 +92,8 @@ jobs:
       - name: Changed/affected fast tests
         run: bun run test:changed
 
-      - name: Warm runtime dependency cache
-        run: bun run platform -- deps warmup
-
-      - name: Resolve graph
-        run: bun run platform -- resolve
-
-      - name: Compose project
-        run: bun run platform -- compose
-
-      - name: Adapt project
-        run: bun run platform -- adapt
-
-      - name: Verify fast lane
-        run: bun run platform -- verify --json --compact
+      - name: Fast workspace gate
+        run: bun scripts/ci-fast-gate.ts
 
   compiler-full:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
