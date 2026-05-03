@@ -13,7 +13,8 @@
     "resolveJsonModule": true,
     "incremental": true,
     "types": [
-      "node"
+      "node",
+      "bun"
     ],
     "lib": [
       "DOM",
@@ -40,6 +41,7 @@
     "tests/**/*.ts",
     "tests/**/*.tsx",
     "custom/**/*.ts",
+    "bunfig.toml",
     "playwright.config.ts"
   ],
   "exclude": [

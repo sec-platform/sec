@@ -20,7 +20,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "test:fast": "node --test --experimental-test-isolation=none",
-    "test:unit": "bun test tests/runtime/unit/**/*.test.ts",
+    "test:unit": "bun test tests/runtime/unit",
     "test:acceptance": "playwright test --config playwright.config.ts",
     "verify:runtime:service": "bun run test:unit",
     "verify:runtime:full": "bun run build && bun run test:unit && bun run test:acceptance",
