@@ -39,14 +39,25 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Detect changed TypeScript files
+        id: changed_ts
+        run: |
+          if git diff --name-only --diff-filter=ACMR HEAD^1 HEAD | grep -E '\.[cm]?tsx?$' >/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changed TypeScript files."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Organize changed imports remotely
+        if: steps.changed_ts.outputs.changed == 'true'
         env:
           PJC_IMPORTS_CHANGED_ONLY: '1'
         run: bun run imports:organize
 
       - name: Commit organized imports
         id: import_commit
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.changed_ts.outputs.changed == 'true'
         run: |
           git update-index --refresh
           if git diff --quiet; then
