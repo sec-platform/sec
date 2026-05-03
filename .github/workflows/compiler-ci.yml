@@ -59,7 +59,7 @@ jobs:
         id: import_commit
         if: github.event_name == 'pull_request' && steps.changed_ts.outputs.changed == 'true'
         run: |
-          git update-index --refresh
+          git update-index --refresh || true
           if git diff --quiet; then
             echo "No import changes to commit."
             echo "changed=false" >> "$GITHUB_OUTPUT"
