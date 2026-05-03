@@ -14,8 +14,6 @@ import {
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
-import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
-import { buildTestTimingContract } from '../../platform/shared/test-timing-contract.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { createWorkspace } from '../helpers/workspace-fixtures.ts';

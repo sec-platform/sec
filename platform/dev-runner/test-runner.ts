@@ -4,8 +4,8 @@ import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
-import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { getSlowTestFilesSync, isFastTestFile, isSlowTestFile, slowTestExcludePattern } from '../shared/test-budget-contract.ts';
+import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 

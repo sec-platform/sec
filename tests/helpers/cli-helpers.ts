@@ -1,6 +1,6 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { expect } from 'bun:test';
 import { Command } from 'commander';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { registerCommands } from '../../platform/cli/register-commands.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
