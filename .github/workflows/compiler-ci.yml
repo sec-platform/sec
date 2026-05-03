@@ -50,7 +50,7 @@ jobs:
             exit 0
           }
 
-          bun remove @present
+          bun remove @($present)
           git update-index --refresh
           git diff --quiet
           $diffExit = $LASTEXITCODE
