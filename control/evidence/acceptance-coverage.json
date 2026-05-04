@@ -2,51 +2,8 @@
   "formatVersion": "1",
   "status": "passed",
   "acceptancePassed": [],
-  "blocks": [
-    {
-      "id": "auth/basic-session",
-      "declaredAcceptance": [
-        "user_can_login"
-      ],
-      "coveredBy": [],
-      "uncovered": true
-    },
-    {
-      "id": "tenant/basic-workspace",
-      "declaredAcceptance": [
-        "tenant_only_sees_own_customers"
-      ],
-      "coveredBy": [],
-      "uncovered": true
-    },
-    {
-      "id": "entity/customer-basic",
-      "declaredAcceptance": [
-        "tenant_only_sees_own_customers",
-        "user_can_create_customer",
-        "user_can_list_customers"
-      ],
-      "coveredBy": [],
-      "uncovered": true
-    }
-  ],
-  "slots": [
-    {
-      "id": "customer_normalizer",
-      "declaredAcceptance": [
-        "tenant_only_sees_own_customers",
-        "user_can_create_customer"
-      ],
-      "coveredBy": [],
-      "uncovered": true
-    }
-  ],
-  "uncoveredBlocks": [
-    "auth/basic-session",
-    "tenant/basic-workspace",
-    "entity/customer-basic"
-  ],
-  "uncoveredSlots": [
-    "customer_normalizer"
-  ]
+  "blocks": [],
+  "slots": [],
+  "uncoveredBlocks": [],
+  "uncoveredSlots": []
 }
