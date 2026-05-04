@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from './errors.ts';
 import { ensureDir, formatJsonFile, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
