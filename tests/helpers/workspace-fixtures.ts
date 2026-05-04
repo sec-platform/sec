@@ -2,13 +2,13 @@ import { afterAll } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-  adaptWorkspace,
-  addBlock,
-  composeWorkspace,
-  initWorkspace,
-  lockWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
+    adaptWorkspace,
+    addBlock,
+    composeWorkspace,
+    initWorkspace,
+    lockWorkspace,
+    resolveWorkspace,
+    verifyWorkspace
 } from '../../platform/orchestrator.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
@@ -93,7 +93,13 @@ async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
   await prepareWorkspacePipeline(stagingRoot, {}, kind);
   await fs.writeFile(path.join(stagingRoot, '.template-ready'), `${kind}\n`, 'utf8');
   await fs.rm(templateRoot, { recursive: true, force: true });
-  await fs.rename(stagingRoot, templateRoot);
+  try {
+    await fs.rename(stagingRoot, templateRoot);
+  } catch {
+    await fs.mkdir(templateRoot, { recursive: true });
+    await fs.cp(stagingRoot, templateRoot, { recursive: true });
+    await fs.rm(stagingRoot, { recursive: true, force: true });
+  }
   return templateRoot;
 }
 
