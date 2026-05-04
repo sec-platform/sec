@@ -91,7 +91,7 @@ jobs:
 
   compiler-pr-full:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'labeled')
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 20
     needs: compiler-ci
     steps:
