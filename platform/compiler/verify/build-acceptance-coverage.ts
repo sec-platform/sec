@@ -74,7 +74,7 @@ export async function buildAcceptanceCoverage(
   const runtimeAcceptancePassed = lock.acceptancePlan.filter((acceptanceId) => runtimeAccepted.has(acceptanceId));
   const acceptancePassed = runtimeAcceptancePassed.length > 0
     ? runtimeAcceptancePassed
-    : runtime.acceptance.status === 'skipped'
+    : runtime.acceptance.status === 'passed'
       ? [...lock.acceptancePlan]
       : [];
   const accepted = new Set(acceptancePassed);

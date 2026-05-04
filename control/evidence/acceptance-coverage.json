@@ -1,32 +1,23 @@
 {
   "formatVersion": "1",
   "status": "passed",
-  "acceptancePassed": [
-    "user_can_login",
-    "user_can_create_customer",
-    "user_can_list_customers",
-    "tenant_only_sees_own_customers"
-  ],
+  "acceptancePassed": [],
   "blocks": [
     {
       "id": "auth/basic-session",
       "declaredAcceptance": [
         "user_can_login"
       ],
-      "coveredBy": [
-        "user_can_login"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "tenant/basic-workspace",
       "declaredAcceptance": [
         "tenant_only_sees_own_customers"
       ],
-      "coveredBy": [
-        "tenant_only_sees_own_customers"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "entity/customer-basic",
@@ -35,12 +26,8 @@
         "user_can_create_customer",
         "user_can_list_customers"
       ],
-      "coveredBy": [
-        "tenant_only_sees_own_customers",
-        "user_can_create_customer",
-        "user_can_list_customers"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     }
   ],
   "slots": [
@@ -50,13 +37,16 @@
         "tenant_only_sees_own_customers",
         "user_can_create_customer"
       ],
-      "coveredBy": [
-        "tenant_only_sees_own_customers",
-        "user_can_create_customer"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     }
   ],
-  "uncoveredBlocks": [],
-  "uncoveredSlots": []
+  "uncoveredBlocks": [
+    "auth/basic-session",
+    "tenant/basic-workspace",
+    "entity/customer-basic"
+  ],
+  "uncoveredSlots": [
+    "customer_normalizer"
+  ]
 }

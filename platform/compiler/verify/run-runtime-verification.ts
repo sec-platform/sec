@@ -177,6 +177,7 @@ export async function runRuntimeVerification(
 
   if (runtimeAcceptanceFiles.length === 0) {
     lane.status = 'passed';
+    lane.acceptance = { status: 'passed', passed: [], failed: [], command: RUNTIME_VERIFICATION_COMMANDS.acceptance };
     return lane;
   }
 
