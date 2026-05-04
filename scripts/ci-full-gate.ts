@@ -1,28 +1,8 @@
 import { spawnSync } from 'node:child_process';
 
-import { runContractFreeze, runSlowTests } from '../platform/dev-runner/test-runner.ts';
-import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
-import {
-  getSlowTestSuitesSync
-} from '../platform/shared/test-budget-contract.ts';
-import { selectTestsForSources } from '../platform/shared/test-impact-contract.ts';
-import { runCiFastGate } from './ci-fast-gate.ts';
-
-type FullGateStep = {
+type GateStep = {
   id: string;
-  run: () => Promise<number>;
-};
-
-type FullGateResult = {
-  id: string;
-  code: number;
-  durationMs: number;
-};
-
-type SlowSuiteSelection = {
-  suiteIds: string[];
-  impactOwners: string[];
-  skippedSuiteIds: string[];
+  args: string[];
 };
 
 const broadImpactPatterns = [
@@ -31,6 +11,8 @@ const broadImpactPatterns = [
   /^platform\/orchestrator\.ts$/,
   /^platform\/compiler\/(parse|resolve|compose|adapt)\//
 ];
+
+const slowSuites = ['upgrade', 'runtime', 'pipeline', 'repair', 'registry', 'explain', 'other'];
 
 function changedFiles(): string[] | null {
   const baseRef = process.env.PJC_CHANGED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
@@ -47,6 +29,11 @@ function changedFiles(): string[] | null {
     .filter(Boolean);
 }
 
+function latestCommitHasBroadImpact(files: string[] | null): boolean {
+  if (!files) return true;
+  return files.some((file) => broadImpactPatterns.some((pattern) => pattern.test(file)));
+}
+
 function formatDuration(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(2)}s`;
 }
@@ -59,45 +46,18 @@ function groupEnd(): void {
   console.log('::endgroup::');
 }
 
-function selectSlowSuites(files: string[]): SlowSuiteSelection {
-  const impact = selectTestsForSources(files);
-  const impactedSlowFiles = new Set(impact.slow);
-
-  if (broadImpactPatterns.some((pattern) => files.some((file) => pattern.test(file)))) {
-    const allSuiteIds = getSlowTestSuitesSync().map((suite) => suite.id);
-    console.log(`CI full gate: broad impact detected; running all ${allSuiteIds.length} slow suites`);
-    return { suiteIds: allSuiteIds, impactOwners: ['broad-impact'], skippedSuiteIds: [] };
-  }
-
-  const suites = getSlowTestSuitesSync();
-  const selectedSuiteIds: string[] = [];
-  const skippedSuiteIds: string[] = [];
-
-  for (const suite of suites) {
-    const suiteHasImpact = suite.files.some((file) => impactedSlowFiles.has(file));
-    if (suiteHasImpact) {
-      selectedSuiteIds.push(suite.id);
-    } else {
-      skippedSuiteIds.push(suite.id);
-    }
-  }
-
-  return {
-    suiteIds: selectedSuiteIds,
-    impactOwners: impact.owners,
-    skippedSuiteIds
-  };
-}
-
-async function runGateStep(step: FullGateStep): Promise<FullGateResult> {
+function runBunStep(step: GateStep): number {
   const startedAt = Date.now();
   groupStart(`CI full gate: ${step.id}`);
   console.log(`CI full gate: ${step.id} started`);
   try {
-    const code = await step.run();
-    const durationMs = Date.now() - startedAt;
-    console.log(`CI full gate: ${step.id} finished with exit code ${code} in ${formatDuration(durationMs)}`);
-    return { id: step.id, code, durationMs };
+    const result = spawnSync('bun', step.args, {
+      env: process.env,
+      stdio: 'inherit'
+    });
+    const code = result.status ?? 1;
+    console.log(`CI full gate: ${step.id} finished with exit code ${code} in ${formatDuration(Date.now() - startedAt)}`);
+    return code;
   } finally {
     groupEnd();
   }
@@ -110,63 +70,27 @@ if (files) {
   console.log('CI full gate: changed file detection failed; running all slow suites.');
 }
 
-const fallbackSlowSelection: SlowSuiteSelection = {
-  suiteIds: getSlowTestSuitesSync().map((suite) => suite.id),
-  impactOwners: ['unknown'],
-  skippedSuiteIds: []
-};
-const slowSelection: SlowSuiteSelection = files ? selectSlowSuites(files) : fallbackSlowSelection;
+const selectedSlowSuites = latestCommitHasBroadImpact(files) ? slowSuites : [];
+console.log(`CI full gate: slow suites run [${selectedSlowSuites.join(', ')}]`);
+console.log(`CI full gate: slow suites skipped [${slowSuites.filter((suite) => !selectedSlowSuites.includes(suite)).join(', ')}]`);
 
-console.log(`CI full gate: selected slow suites [${slowSelection.suiteIds.join(', ')}]`);
-if (slowSelection.skippedSuiteIds.length > 0) {
-  console.log(`CI full gate: skipped slow suites [${slowSelection.skippedSuiteIds.join(', ')}] (no impact from changes)`);
-}
-console.log(`CI full gate: impact owners [${slowSelection.impactOwners.join(', ')}]`);
-
-const steps: FullGateStep[] = [
-  {
-    id: 'typecheck',
-    run: () => runTypecheck()
-  },
-  {
-    id: 'contract-freeze',
-    run: () => runContractFreeze()
-  }
+const steps: GateStep[] = [
+  { id: 'typecheck', args: ['run', 'typecheck'] },
+  { id: 'contract-freeze', args: ['run', 'test:contract-freeze'] },
+  ...selectedSlowSuites.map((suite) => ({
+    id: `slow-suite-${suite}`,
+    args: ['run', 'test:slow', '--', '--suite', suite]
+  })),
+  { id: 'fast-workspace-gate', args: ['scripts/ci-fast-gate.ts'] }
 ];
 
-for (const suiteId of slowSelection.suiteIds) {
-  steps.push({
-    id: `slow-suite-${suiteId}`,
-    run: () => runSlowTests(['--suite', suiteId])
-  });
-}
-
-steps.push({
-  id: 'fast-workspace-gate',
-  run: () => runCiFastGate()
-});
-
-const results: FullGateResult[] = [];
-let failed = false;
-
+const startedAt = Date.now();
 for (const step of steps) {
-  const result = await runGateStep(step);
-  results.push(result);
-  if (result.code !== 0) {
-    failed = true;
-    break;
+  const code = runBunStep(step);
+  if (code !== 0) {
+    console.error(`CI full gate failed at ${step.id} with exit code ${code}`);
+    process.exit(code);
   }
 }
 
-if (failed) {
-  const failedStep = results.find((r) => r.code !== 0)!;
-  console.error(
-    `CI full gate failed at ${failedStep.id} with exit code ${failedStep.code} after ${formatDuration(failedStep.durationMs)}`
-  );
-  process.exit(failedStep.code);
-}
-
-const totalDuration = results.reduce((total, result) => total + result.durationMs, 0);
-console.log(`CI full gate: total time ${formatDuration(totalDuration)}`);
-console.log(`CI full gate: slow suites run [${slowSelection.suiteIds.join(', ')}]`);
-console.log(`CI full gate: slow suites skipped [${slowSelection.skippedSuiteIds.join(', ')}]`);
+console.log(`CI full gate: total time ${formatDuration(Date.now() - startedAt)}`);
