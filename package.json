@@ -23,7 +23,6 @@
     "test:budget": "bun run platform -- test budget --json",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
     "test:benchmark-contract": "bun run platform -- benchmark suite --json",
-    "test:architecture": "bun scripts/check-test-architecture.ts",
     "reference:check": "bun run platform -- reference check",
     "imports:check": "bun ./platform/dev-runner.ts imports:check",
     "imports:organize": "bun ./platform/dev-runner.ts imports:organize",
