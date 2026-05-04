@@ -9,10 +9,10 @@ import { addGeneratedPaths, assertPassStatus } from '../../shared/lock-utils.ts'
 import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type {
-  FastVerificationLaneReport,
-  RuntimeVerificationLaneReport,
-  VerificationLane,
-  VerificationReport
+    FastVerificationLaneReport,
+    RuntimeVerificationLaneReport,
+    VerificationLane,
+    VerificationReport
 } from '../../shared/verification-types.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
@@ -288,8 +288,11 @@ export async function verifyProject(
       console.error('  passed:', runtimeLane.acceptance.passed);
       console.error('  failed:', runtimeLane.acceptance.failed);
       console.error('  command:', runtimeLane.acceptance.command);
+      if (runtimeLane.logs?.stdout) {
+        console.error('  stdout:', runtimeLane.logs.stdout.slice(0, 3000));
+      }
       if (runtimeLane.logs?.stderr) {
-        console.error('  stderr:', runtimeLane.logs.stderr.slice(0, 2000));
+        console.error('  stderr:', runtimeLane.logs.stderr.slice(0, 3000));
       }
     }
     throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', report);
