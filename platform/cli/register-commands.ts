@@ -446,7 +446,8 @@ export function registerCommands(program: Command): void {
       console.log(`Cleaned ${removed.length} dependency paths`);
     });
 
-  addJsonFlags(program.command('reference')).action(async (opts: Record<string, unknown>, cmd: Command) => {
+  const referenceCmd = program.command('reference').description('Reference workspace operations');
+  addJsonFlags(referenceCmd.command('check')).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
     const report = await buildReferenceCheckReport();
     printJsonOrText(report, output, formatReferenceCheck);
