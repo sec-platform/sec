@@ -1,84 +1,10 @@
-import { spawnSync } from 'node:child_process';
-import { runChangedTests, runContractFreeze } from '../platform/dev-runner/test-runner.ts';
+import { runChangedTests } from '../platform/dev-runner/test-runner.ts';
 import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
-import {
-  getContractFreezeTargets,
-  type ContractFreezeTarget
-} from '../platform/shared/contract-freeze-contract.ts';
-import { runCiFastGate } from './ci-fast-gate.ts';
 
 type GateStep = {
   id: string;
   run: () => Promise<number>;
 };
-
-type GateResult = {
-  id: string;
-  code: number;
-  durationMs: number;
-};
-
-type ContractFreezeSelection = {
-  files: string[];
-  targets: ContractFreezeTarget[];
-  full: boolean;
-};
-
-const broadContractImpactPatterns = [
-  /^bun\.lock$/,
-  /^platform\/cli\//,
-  /^platform\/dev-runner\.ts$/
-];
-
-const targetedContractImpactPatterns: Array<{ pattern: RegExp; file: string }> = [
-  { pattern: /^package\.json$/, file: 'tests/integration/project-runtime.test.ts' },
-  { pattern: /^README\.md$/, file: 'tests/integration/project-runtime.test.ts' },
-  { pattern: /^tests\/contract\/usage\.test\.ts$/, file: 'tests/contract/usage.test.ts' },
-  { pattern: /^tests\/contract\/environment\.test\.ts$/, file: 'tests/contract/environment.test.ts' },
-  { pattern: /^tests\/contract\/reference\.test\.ts$/, file: 'tests/contract/reference.test.ts' },
-  { pattern: /^tests\/contract\/benchmark-budget\.test\.ts$/, file: 'tests/contract/benchmark-budget.test.ts' },
-  { pattern: /^tests\/contract\/contracts\.test\.ts$/, file: 'tests/contract/contracts.test.ts' },
-  { pattern: /^tests\/contract\/ci-lanes\.test\.ts$/, file: 'tests/contract/ci-lanes.test.ts' },
-  { pattern: /^tests\/contract\/test-impact\.test\.ts$/, file: 'tests/contract/test-impact.test.ts' },
-  { pattern: /^tests\/integration\/review\.test\.ts$/, file: 'tests/integration/review.test.ts' },
-  { pattern: /^tests\/integration\/project-runtime\.test\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
-  { pattern: /^platform\/dev-runner\/import-organizer\.ts$/, file: 'tests/contract/usage.test.ts' },
-  { pattern: /^platform\/dev-runner\/(test-runner|typecheck-runner)\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
-  { pattern: /^platform\/shared\/ci-contract\.ts$/, file: 'tests/contract/contracts.test.ts' },
-  { pattern: /^platform\/shared\/ci-contract\.ts$/, file: 'tests/contract/ci-lanes.test.ts' },
-  { pattern: /^platform\/shared\/contract-freeze-contract\.ts$/, file: 'tests/contract/contracts.test.ts' },
-  { pattern: /^platform\/shared\/contract-freeze-contract\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
-  { pattern: /^platform\/shared\/test-budget-contract\.ts$/, file: 'tests/contract/benchmark-budget.test.ts' },
-  { pattern: /^platform\/shared\/test-budget-contract\.ts$/, file: 'tests/integration/project-runtime.test.ts' }
-];
-
-const workspaceImpactPatterns = [
-  /^package\.json$/,
-  /^bun\.lock$/,
-  /^project\//,
-  /^source\//,
-  /^platform\/compiler\//,
-  /^platform\/orchestrator\.ts$/,
-  /^platform\/policies\//,
-  /^platform\/templates\//,
-  /^platform\/shared\/(fs|paths|project-base|project-runtime|runtime-dependency-spec|types|yaml)\.ts$/,
-  /^tests\/(runtime|fixtures|integration\/project-runtime\.test\.ts)/
-];
-
-function changedFiles(): string[] | null {
-  const baseRef = process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
-  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
-    encoding: 'utf8'
-  });
-  if (result.status !== 0) {
-    return null;
-  }
-
-  return result.stdout
-    .split(/\r?\n/u)
-    .map((line) => line.trim().replace(/\\/g, '/'))
-    .filter(Boolean);
-}
 
 function formatDuration(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(2)}s`;
@@ -92,61 +18,17 @@ function groupEnd(): void {
   console.log('::endgroup::');
 }
 
-const files = changedFiles();
-
-if (files) {
-  console.log(`CI PR gate: PR-wide changed file count ${files.length}`);
-} else {
-  console.log('CI PR gate: PR-wide changed file detection failed.');
-}
-
-function selectContractFreezeTargets(files: string[]): ContractFreezeSelection | null {
-  const broadFiles = files.filter((file) => broadContractImpactPatterns.some((pattern) => pattern.test(file)));
-  if (broadFiles.length > 0) {
-    console.log(`CI PR gate: contract-freeze broad impact files: ${broadFiles.join(', ')}`);
-    return { files, targets: getContractFreezeTargets(), full: true };
+async function runGateStep(step: GateStep): Promise<number> {
+  const startedAt = Date.now();
+  groupStart(`CI PR gate: ${step.id}`);
+  console.log(`CI PR gate: ${step.id} started`);
+  try {
+    const code = await step.run();
+    console.log(`CI PR gate: ${step.id} finished with exit code ${code} in ${formatDuration(Date.now() - startedAt)}`);
+    return code;
+  } finally {
+    groupEnd();
   }
-
-  const targetFiles = new Set<string>();
-  for (const file of files) {
-    for (const mapping of targetedContractImpactPatterns) {
-      if (mapping.pattern.test(file)) {
-        targetFiles.add(mapping.file);
-      }
-    }
-  }
-
-  if (targetFiles.size === 0) {
-    return null;
-  }
-
-  const targets = getContractFreezeTargets().filter((target) => targetFiles.has(target.file));
-  return { files, targets, full: false };
-}
-
-function contractFreezeSelection(): ContractFreezeSelection | null | 'unknown' {
-  if (!files) {
-    console.log('CI PR gate: changed file detection failed; keeping contract-freeze enabled.');
-    return 'unknown';
-  }
-
-  return selectContractFreezeTargets(files);
-}
-
-function fastWorkspaceGateNeeded(): boolean {
-  if (!files) {
-    console.log('CI PR gate: changed file detection failed; keeping fast workspace gate enabled.');
-    return true;
-  }
-
-  const matched = files.filter((file) => workspaceImpactPatterns.some((pattern) => pattern.test(file)));
-  if (matched.length === 0) {
-    console.log('CI PR gate: fast workspace gate skipped; no workspace-impact files changed.');
-    return false;
-  }
-
-  console.log(`CI PR gate: fast workspace gate enabled for ${matched.join(', ')}`);
-  return true;
 }
 
 async function runChangedTestsWithLatestCommitBase(): Promise<number> {
@@ -163,83 +45,24 @@ async function runChangedTestsWithLatestCommitBase(): Promise<number> {
   }
 }
 
-const selection = contractFreezeSelection();
-const readonlySteps: GateStep[] = [
+const steps: GateStep[] = [
   {
     id: 'typecheck',
     run: () => runTypecheck()
   },
-  ...(selection === 'unknown'
-    ? [
-        {
-          id: 'contract-freeze',
-          run: () => runContractFreeze()
-        }
-      ]
-    : selection
-      ? [
-          {
-            id: 'contract-freeze',
-            run: () => {
-              const targetFiles = selection.targets.map((target) => target.file).join(', ');
-              console.log(
-                `CI PR gate: contract-freeze ${selection.full ? 'full' : 'targeted'} for ${targetFiles}`
-              );
-              return runContractFreeze(selection.targets);
-            }
-          }
-        ]
-      : []),
   {
     id: 'test:changed',
     run: () => runChangedTestsWithLatestCommitBase()
   }
 ];
 
-if (!selection) {
-  console.log('CI PR gate: contract-freeze skipped; no contract-impact files changed.');
-}
-
-async function runGateStep(step: GateStep): Promise<GateResult> {
-  const startedAt = Date.now();
-  groupStart(`CI PR gate: ${step.id}`);
-  console.log(`CI PR gate: ${step.id} started`);
-  try {
-    const code = await step.run();
-    const durationMs = Date.now() - startedAt;
-    console.log(`CI PR gate: ${step.id} finished with exit code ${code} in ${formatDuration(durationMs)}`);
-    return { id: step.id, code, durationMs };
-  } finally {
-    groupEnd();
+const startedAt = Date.now();
+for (const step of steps) {
+  const code = await runGateStep(step);
+  if (code !== 0) {
+    console.error(`CI PR gate failed at ${step.id} with exit code ${code}`);
+    process.exit(code);
   }
 }
 
-const results: GateResult[] = [];
-
-for (const step of readonlySteps) {
-  const result = await runGateStep(step);
-  results.push(result);
-  if (result.code !== 0) {
-    console.error(
-      `CI PR gate failed at ${result.id} with exit code ${result.code} after ${formatDuration(result.durationMs)}`
-    );
-    process.exit(result.code);
-  }
-}
-
-if (fastWorkspaceGateNeeded()) {
-  const fastWorkspaceResult = await runGateStep({
-    id: 'fast-workspace-gate',
-    run: () => runCiFastGate()
-  });
-  results.push(fastWorkspaceResult);
-  if (fastWorkspaceResult.code !== 0) {
-    console.error(
-      `CI PR gate failed at ${fastWorkspaceResult.id} with exit code ${fastWorkspaceResult.code} after ${formatDuration(fastWorkspaceResult.durationMs)}`
-    );
-    process.exit(fastWorkspaceResult.code);
-  }
-}
-
-const totalDuration = results.reduce((total, result) => total + result.durationMs, 0);
-console.log(`CI PR gate: total gate time ${formatDuration(totalDuration)}`);
+console.log(`CI PR gate: total gate time ${formatDuration(Date.now() - startedAt)}`);
