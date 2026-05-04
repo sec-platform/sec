@@ -110,9 +110,12 @@ if (files) {
   console.log('CI full gate: changed file detection failed; running all slow suites.');
 }
 
-const slowSelection = files
-  ? selectSlowSuites(files)
-  : { suiteIds: getSlowTestSuitesSync().map((s) => s.id), impactOwners: ['unknown'], skippedSuiteIds: [] };
+const fallbackSlowSelection: SlowSuiteSelection = {
+  suiteIds: getSlowTestSuitesSync().map((suite) => suite.id),
+  impactOwners: ['unknown'],
+  skippedSuiteIds: []
+};
+const slowSelection: SlowSuiteSelection = files ? selectSlowSuites(files) : fallbackSlowSelection;
 
 console.log(`CI full gate: selected slow suites [${slowSelection.suiteIds.join(', ')}]`);
 if (slowSelection.skippedSuiteIds.length > 0) {
