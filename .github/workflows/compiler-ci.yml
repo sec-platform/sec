@@ -86,7 +86,7 @@ jobs:
 
       - name: PR fast typecheck
         if: steps.import_commit.outputs.changed != 'true'
-        timeout-minutes: 2
+        timeout-minutes: 4
         run: bun run typecheck
 
       - name: PR fast contract freeze
