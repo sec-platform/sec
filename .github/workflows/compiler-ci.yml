@@ -2,6 +2,11 @@ name: compiler-ci
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
   push:
     branches:
       - main
@@ -23,7 +28,7 @@ env:
 
 jobs:
   compiler-ci:
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'labeled')
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -85,12 +90,15 @@ jobs:
         run: bun scripts/ci-pr-gate.ts
 
   compiler-full:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full')
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -113,49 +121,99 @@ jobs:
         run: bun run test:contract-freeze
 
       - name: Slow e2e suite upgrade
+        id: slow_upgrade
+        if: always()
+        continue-on-error: true
         run: bun run test:slow -- --suite upgrade
 
       - name: Slow e2e suite runtime
+        id: slow_runtime
+        if: always()
+        continue-on-error: true
         run: bun run test:slow -- --suite runtime
 
       - name: Slow e2e suite pipeline
+        id: slow_pipeline
+        if: always()
+        continue-on-error: true
         run: bun run test:slow -- --suite pipeline
 
       - name: Slow e2e suite repair
+        id: slow_repair
+        if: always()
+        continue-on-error: true
         run: bun run test:slow -- --suite repair
 
       - name: Slow e2e suite registry
+        id: slow_registry
+        if: always()
+        continue-on-error: true
         run: bun run test:slow -- --suite registry
 
       - name: Slow e2e suite explain
+        id: slow_explain
+        if: always()
+        continue-on-error: true
         run: bun run test:slow -- --suite explain
 
       - name: Slow e2e suite other
+        id: slow_other
+        if: always()
+        continue-on-error: true
         run: bun run test:slow -- --suite other
 
       - name: Benchmark task suite contract
+        if: always()
         run: bun run platform -- benchmark suite --json --compact
 
       - name: Warm runtime dependency cache
+        if: always()
         run: bun run platform -- deps warmup
 
       - name: Resolve graph
+        if: always()
         run: bun run platform -- resolve
 
       - name: Compose project
+        if: always()
         run: bun run platform -- compose
 
       - name: Adapt project
+        if: always()
         run: bun run platform -- adapt
 
       - name: Verify all lanes
+        if: always()
         run: bun run platform -- verify --lane all --json --compact
 
       - name: Lock project
+        if: always()
         run: bun run platform -- lock
 
       - name: Explain project
+        if: always()
         run: bun run platform -- explain
 
       - name: Reference drift check
+        if: always()
         run: bun run platform -- reference check --json --compact
+
+      - name: Full validation summary
+        if: always()
+        shell: pwsh
+        run: |
+          $failedSlowSuites = @()
+          if ('${{ steps.slow_upgrade.outcome }}' -eq 'failure') { $failedSlowSuites += 'upgrade' }
+          if ('${{ steps.slow_runtime.outcome }}' -eq 'failure') { $failedSlowSuites += 'runtime' }
+          if ('${{ steps.slow_pipeline.outcome }}' -eq 'failure') { $failedSlowSuites += 'pipeline' }
+          if ('${{ steps.slow_repair.outcome }}' -eq 'failure') { $failedSlowSuites += 'repair' }
+          if ('${{ steps.slow_registry.outcome }}' -eq 'failure') { $failedSlowSuites += 'registry' }
+          if ('${{ steps.slow_explain.outcome }}' -eq 'failure') { $failedSlowSuites += 'explain' }
+          if ('${{ steps.slow_other.outcome }}' -eq 'failure') { $failedSlowSuites += 'other' }
+
+          if ($failedSlowSuites.Count -gt 0) {
+            Write-Error "Slow e2e suites failed: $($failedSlowSuites -join ', ')"
+            exit 1
+          }
+
+          Write-Host 'Full validation summary passed.'

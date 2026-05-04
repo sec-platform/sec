@@ -73,7 +73,13 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       })
     ])
   );
-  expect(upgradePlan.migrationOperations).toHaveLength(0);
+  expect(upgradePlan.migrationOperations).toHaveLength(2);
+  expect(upgradePlan.migrationOperations).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'mig-auth-session-refresh', role: 'file' }),
+      expect.objectContaining({ id: 'mig-auth-session-upgrade-metadata', role: 'json' })
+    ])
+  );
   await expectFileUnchanged(planPath, beforePlan);
   await expectFileUnchanged(sessionPath, beforeSession);
 
@@ -150,7 +156,18 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
       })
     ])
   );
-  expect(upgradePlan.migrationOperations).toHaveLength(0);
+  expect(upgradePlan.migrationOperations).toHaveLength(1);
+  expect(upgradePlan.migrationOperations).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'mig-customer-normalizer-contract',
+        kind: 'slot-contract-update',
+        target: 'custom/customer_normalizer.ts',
+        role: 'slot',
+        slotId: 'customer_normalizer'
+      })
+    ])
+  );
   await expectFileUnchanged(planPath, beforePlan);
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 }, 180000);

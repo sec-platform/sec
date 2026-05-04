@@ -13,6 +13,7 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 - Dogfood the reference workspace with `bun run dogfood:reference`.
 - Refresh the reference workspace and governance artifacts with `bun run reference:refresh`.
 - Test feedback, CI lane, contract-freeze, and package script rules are documented in `docs/test-feedback-and-ci-lanes.md`.
+- Slow suite registry, suite IDs, and full lane sharding are documented in `docs/slow-suite-registry.md`.
 
 ## Developer Entry Model
 
