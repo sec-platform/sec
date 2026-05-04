@@ -84,10 +84,25 @@ jobs:
             fi
           fi
 
-      - name: PR fast gate
+      - name: PR fast typecheck
         if: steps.import_commit.outputs.changed != 'true'
-        timeout-minutes: 6
-        run: bun scripts/ci-pr-gate.ts
+        timeout-minutes: 2
+        run: bun run typecheck
+
+      - name: PR fast contract freeze
+        if: steps.import_commit.outputs.changed != 'true'
+        timeout-minutes: 3
+        run: bun run test:contract-freeze
+
+      - name: PR fast changed tests
+        if: steps.import_commit.outputs.changed != 'true'
+        timeout-minutes: 4
+        run: bun run test:changed
+
+      - name: PR fast workspace gate
+        if: steps.import_commit.outputs.changed != 'true'
+        timeout-minutes: 4
+        run: bun scripts/ci-fast-gate.ts
 
   compiler-pr-full:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'labeled')
