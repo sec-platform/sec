@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from './errors.ts';
 import { ensureDir, formatJsonFile, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
@@ -111,7 +112,7 @@ async function withInstallLock<T>(
   await ensureDir(path.dirname(lockPath));
 
   while (true) {
-    let handle: fs.FileHandle | null = null;
+    let handle: FileHandle | null = null;
 
     try {
       handle = await fs.open(lockPath, 'wx');
