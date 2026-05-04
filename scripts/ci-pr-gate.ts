@@ -57,10 +57,12 @@ const workspaceImpactPatterns = [
   /^bun\.lock$/,
   /^project\//,
   /^source\//,
-  /^platform\/(compiler|orchestrator|policies|shared|templates)\//,
+  /^platform\/compiler\//,
   /^platform\/orchestrator\.ts$/,
-  /^tests\/(runtime|fixtures|integration\/project-runtime\.test\.ts)/,
-  /^scripts\/ci-fast-gate\.ts$/
+  /^platform\/policies\//,
+  /^platform\/templates\//,
+  /^platform\/shared\/(fs|paths|project-base|project-runtime|runtime-dependency-spec|types|yaml)\.ts$/,
+  /^tests\/(runtime|fixtures|integration\/project-runtime\.test\.ts)/
 ];
 
 function changedFiles(): string[] | null {
