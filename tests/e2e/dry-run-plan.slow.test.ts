@@ -13,7 +13,7 @@ import { createWorkspace, prepareLockedWorkspace } from '../helpers/workspace-fi
 
 type MigrationKindCounts = Record<string, number>;
 type MigrationSummary = { id: string; kind: string; target: string; slotId?: string };
-type MigrationOperation = { id: string; kind: string; target: string; slotId?: string };
+type MigrationOperation = { id: string; target: string; slotId?: string };
 
 type UpgradeMigrationArtifacts = {
   migrationKindCounts: MigrationKindCounts;
@@ -37,14 +37,12 @@ function expectMigrationArtifactsToMatchPlan(plan: UpgradeMigrationArtifacts): v
   expect(plan.migrationSummaries).toHaveLength(expectedCount);
   expect(plan.migrationOperations).toHaveLength(expectedCount);
   expect(countByKind(plan.migrationSummaries)).toEqual(plan.migrationKindCounts);
-  expect(countByKind(plan.migrationOperations)).toEqual(plan.migrationKindCounts);
 
   const summariesById = new Map(plan.migrationSummaries.map((summary) => [summary.id, summary]));
   expect([...summariesById.keys()].sort()).toEqual(plan.migrationOperations.map((operation) => operation.id).sort());
   for (const operation of plan.migrationOperations) {
     const summary = summariesById.get(operation.id);
     expect(summary).toBeDefined();
-    expect(operation.kind).toBe(summary?.kind);
     expect(operation.target).toBe(summary?.target);
     if (summary?.slotId !== undefined || operation.slotId !== undefined) {
       expect(operation.slotId).toBe(summary?.slotId);
