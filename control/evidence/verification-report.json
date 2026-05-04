@@ -89,10 +89,8 @@
   "runtime": {
     "status": "passed",
     "build": {
-      "status": "passed",
-      "passed": [
-        "next build"
-      ],
+      "status": "skipped",
+      "passed": [],
       "failed": [],
       "command": "bun run build"
     },
@@ -105,25 +103,23 @@
       "command": "bun run test:unit"
     },
     "acceptance": {
-      "status": "passed",
-      "passed": [
-        "tests/runtime/acceptance/customer-flow.spec.ts"
-      ],
+      "status": "skipped",
+      "passed": [],
       "failed": [],
       "command": "bun run test:acceptance"
     },
     "logs": {
-      "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
-      "stderr": "$ next build --webpack\n$ bun test tests/runtime/unit\n\ntests\\runtime\\unit\\customer-runtime.test.ts:\n(pass) runtime customer service > creates a customer for tenant a and hides it from tenant b\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [80.00ms]\n$ playwright test --config playwright.config.ts\n"
+      "stdout": "runtime-unit:passed tests/runtime/unit/customer-runtime.test.ts\n",
+      "stderr": "$ bun test tests/runtime/unit\n\ntests\\runtime\\unit\\customer-runtime.test.ts:\n(pass) runtime customer service > creates a customer for tenant a and hides it from tenant b\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [72.00ms]\n"
     }
   },
   "summary": {
     "status": "passed",
-    "requestedLane": "all",
+    "requestedLane": "fast",
     "failedLanes": []
   },
   "logs": {
-    "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
-    "stderr": "$ next build --webpack\n$ bun test tests/runtime/unit\n\ntests\\runtime\\unit\\customer-runtime.test.ts:\n(pass) runtime customer service > creates a customer for tenant a and hides it from tenant b\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [80.00ms]\n$ playwright test --config playwright.config.ts\n"
+    "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\n",
+    "stderr": "$ bun test tests/runtime/unit\n\ntests\\runtime\\unit\\customer-runtime.test.ts:\n(pass) runtime customer service > creates a customer for tenant a and hides it from tenant b\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [72.00ms]\n"
   }
 }

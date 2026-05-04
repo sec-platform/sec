@@ -26,11 +26,12 @@ function manifest(id: string, acceptance: BlockManifest['acceptance']): BlockMan
 }
 
 function runtime(passed: string[]): RuntimeVerificationLaneReport {
+  const acceptancePassed = passed.length > 0;
   return {
-    status: 'passed',
+    status: acceptancePassed ? 'passed' : 'failed',
     build: { status: 'skipped', passed: [], failed: [], command: null },
     unit: { status: 'skipped', passed: [], failed: [], command: null },
-    acceptance: { status: 'passed', passed, failed: [], command: 'bun run test:acceptance' },
+    acceptance: { status: acceptancePassed ? 'passed' : 'failed', passed, failed: acceptancePassed ? [] : passed, command: 'bun run test:acceptance' },
     logs: emptyVerificationLogs()
   };
 }
@@ -211,10 +212,17 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
     expect(covered.uncoveredBlocks).toHaveLength(0);
     expect(covered.uncoveredSlots).toHaveLength(0);
 
-    // When no runtime tests pass, coverage falls back to the declared acceptance
-    // chain: all targets on the dependency chain are considered covered.
-    const fallback = await buildAcceptanceCoverage(workspaceRoot, lock, runtime([]));
-    expect(fallback.acceptancePassed).toHaveLength(0);
+    // When acceptance is skipped (no acceptance test files), coverage falls back
+    // to the declared acceptance chain: all targets are considered covered.
+    const skippedAcceptanceRuntime: RuntimeVerificationLaneReport = {
+      status: 'passed',
+      build: { status: 'passed', passed: ['next build'], failed: [], command: 'bun run build' },
+      unit: { status: 'passed', passed: ['tests/runtime/unit/example.test.ts'], failed: [], command: 'bun run test:unit' },
+      acceptance: { status: 'skipped', passed: [], failed: [], command: null },
+      logs: emptyVerificationLogs()
+    };
+    const fallback = await buildAcceptanceCoverage(workspaceRoot, lock, skippedAcceptanceRuntime);
+    expect(fallback.acceptancePassed).toHaveLength(6);
     expect(fallback.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
       coveredBy: ['chained_cross_block_flow', 'cross_block_flow', 'cycle_a', 'cycle_b', 'target_declared_only'],
       uncovered: false
