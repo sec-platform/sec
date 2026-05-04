@@ -112,13 +112,35 @@ test('upgrade advances an official block version and preserves a passing pipelin
       expect.objectContaining({ id: 'override-conflicts', status: 'passed', evidence: [] })
     ])
   );
-  expect(persistedUpgradePlan.impacts).toHaveLength(0);
+  expect(persistedUpgradePlan.impacts).toEqual(
+    expect.arrayContaining(['src/installed/auth/session.ts', 'upgrade.metadata.json'])
+  );
   expect(persistedUpgradePlan.migrationKindCounts).toEqual({
     'file-replace': 1,
     'json-array-append': 1
   });
-  expect(persistedUpgradePlan.migrationSummaries).toHaveLength(0);
-  expect(persistedUpgradePlan.migrationOperations).toHaveLength(0);
+  expect(persistedUpgradePlan.migrationSummaries).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'mig-auth-session-refresh',
+        kind: 'file-replace',
+        target: 'src/installed/auth/session.ts',
+        requiresVerification: true
+      }),
+      expect.objectContaining({
+        id: 'mig-auth-session-upgrade-metadata',
+        kind: 'json-array-append',
+        target: 'upgrade.metadata.json',
+        requiresVerification: false
+      })
+    ])
+  );
+  expect(persistedUpgradePlan.migrationOperations).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'mig-auth-session-refresh', role: 'file' }),
+      expect.objectContaining({ id: 'mig-auth-session-upgrade-metadata', role: 'json' })
+    ])
+  );
 
   const { reviewSummary } = await explainWorkspace(workspaceRoot);
   expectReviewConflictHint(reviewSummary, {
