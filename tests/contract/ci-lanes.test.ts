@@ -35,6 +35,16 @@ test('CI contract separates PR fast lane commands from full lane commands', () =
   ]);
 });
 
+test('CI contract defines PR full lane commands for impact-selected slow suites', () => {
+  const contract = buildCiContract();
+
+  expect(contract.prFullLaneCommands).toEqual([
+    'bun install --frozen-lockfile',
+    'bun scripts/ci-full-gate.ts'
+  ]);
+  expect(contract.prFullLaneCommandCount).toBe(2);
+});
+
 test('CI PR fast lane contract avoids full validation commands', () => {
   const contract = buildCiContract();
 
@@ -62,6 +72,8 @@ test('CI contract text exposes lane command split for workflow audits', () => {
 
   expect(formatted).toContain('PR fast lane command count: 3');
   expect(formatted).toContain('PR fast lane commands: bun install --frozen-lockfile, bun run imports:organize, bun scripts/ci-pr-gate.ts');
+  expect(formatted).toContain('PR full lane command count: 2');
+  expect(formatted).toContain('PR full lane commands: bun install --frozen-lockfile, bun scripts/ci-full-gate.ts');
   expect(formatted).toContain('Full lane command count: 21');
   expect(formatted).toContain('Full lane commands: bun install --frozen-lockfile, bun run imports:organize, bun run typecheck');
 });

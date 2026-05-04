@@ -27,6 +27,8 @@ export type CiContract = {
   fullRuntimeGate: string;
   prFastLaneCommandCount: number;
   prFastLaneCommands: string[];
+  prFullLaneCommandCount: number;
+  prFullLaneCommands: string[];
   fullLaneCommandCount: number;
   fullLaneCommands: string[];
   verifyCommandCount: number;
@@ -47,6 +49,11 @@ const prFastLaneCommands = [
   'bun install --frozen-lockfile',
   'bun run imports:organize',
   'bun scripts/ci-pr-gate.ts'
+];
+
+const prFullLaneCommands = [
+  'bun install --frozen-lockfile',
+  'bun scripts/ci-full-gate.ts'
 ];
 
 const fullSlowSuiteCommands = [
@@ -227,6 +234,8 @@ export function buildCiContract(): CiContract {
     fullRuntimeGate: 'full-runtime-verify',
     prFastLaneCommandCount: prFastLaneCommands.length,
     prFastLaneCommands: [...prFastLaneCommands],
+    prFullLaneCommandCount: prFullLaneCommands.length,
+    prFullLaneCommands: [...prFullLaneCommands],
     fullLaneCommandCount: fullLaneCommands.length,
     fullLaneCommands: [...fullLaneCommands],
     verifyCommandCount: verifyCommands.length,
@@ -256,6 +265,8 @@ export function formatCiContract(contract: CiContract): string {
     `Full runtime gate: ${contract.fullRuntimeGate}`,
     `PR fast lane command count: ${contract.prFastLaneCommandCount}`,
     `PR fast lane commands: ${contract.prFastLaneCommands.join(', ')}`,
+    `PR full lane command count: ${contract.prFullLaneCommandCount}`,
+    `PR full lane commands: ${contract.prFullLaneCommands.join(', ')}`,
     `Full lane command count: ${contract.fullLaneCommandCount}`,
     `Full lane commands: ${contract.fullLaneCommands.join(', ')}`,
     `Verify command count: ${contract.verifyCommandCount}`,
