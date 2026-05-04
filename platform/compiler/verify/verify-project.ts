@@ -9,10 +9,10 @@ import { addGeneratedPaths, assertPassStatus } from '../../shared/lock-utils.ts'
 import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import type {
-    FastVerificationLaneReport,
-    RuntimeVerificationLaneReport,
-    VerificationLane,
-    VerificationReport
+  FastVerificationLaneReport,
+  RuntimeVerificationLaneReport,
+  VerificationLane,
+  VerificationReport
 } from '../../shared/verification-types.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
