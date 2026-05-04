@@ -1,9 +1,8 @@
-import { runChangedTests } from '../platform/dev-runner/test-runner.ts';
-import { runTypecheck } from '../platform/dev-runner/typecheck-runner.ts';
+import { spawnSync } from 'node:child_process';
 
 type GateStep = {
   id: string;
-  run: () => Promise<number>;
+  run: () => number;
 };
 
 function formatDuration(durationMs: number): string {
@@ -18,12 +17,20 @@ function groupEnd(): void {
   console.log('::endgroup::');
 }
 
-async function runGateStep(step: GateStep): Promise<number> {
+function runCommand(command: string, args: string[]): number {
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    env: process.env
+  });
+  return result.status ?? 1;
+}
+
+function runGateStep(step: GateStep): number {
   const startedAt = Date.now();
   groupStart(`CI PR gate: ${step.id}`);
   console.log(`CI PR gate: ${step.id} started`);
   try {
-    const code = await step.run();
+    const code = step.run();
     console.log(`CI PR gate: ${step.id} finished with exit code ${code} in ${formatDuration(Date.now() - startedAt)}`);
     return code;
   } finally {
@@ -31,26 +38,16 @@ async function runGateStep(step: GateStep): Promise<number> {
   }
 }
 
-async function runChangedTestsWithLatestCommitBase(): Promise<number> {
-  console.log('CI PR gate: changed tests skipped in PR fast lane; full/manual validation covers changed-test selection.');
-  void runChangedTests;
-  return 0;
-}
-
 const steps: GateStep[] = [
   {
     id: 'typecheck',
-    run: () => runTypecheck()
-  },
-  {
-    id: 'test:changed',
-    run: () => runChangedTestsWithLatestCommitBase()
+    run: () => runCommand('bun', ['run', 'typecheck'])
   }
 ];
 
 const startedAt = Date.now();
 for (const step of steps) {
-  const code = await runGateStep(step);
+  const code = runGateStep(step);
   if (code !== 0) {
     console.error(`CI PR gate failed at ${step.id} with exit code ${code}`);
     process.exit(code);
