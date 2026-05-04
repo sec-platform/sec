@@ -49,10 +49,14 @@ function fullTestInvocations(): string[][] {
   ].filter(args => args.length > 0);
 }
 
-function slowTestArgs(args: string[]): string[] {
+type SlowTestArgSelection =
+  | { kind: 'run'; args: string[] }
+  | { kind: 'skip'; message: string };
+
+function slowTestArgSelection(args: string[]): SlowTestArgSelection {
   const slowTests = getSlowTestFilesSync();
   if (args.length === 0) {
-    return ['test', ...slowTests];
+    return { kind: 'run', args: ['test', ...slowTests] };
   }
 
   const [first, second, ...rest] = args;
@@ -62,13 +66,12 @@ function slowTestArgs(args: string[]): string[] {
     }
     const suiteTests = slowTestSuiteFiles(second);
     if (suiteTests.length === 0) {
-      console.log(`No slow files for suite ${second}`);
-      return ['test', '--pass', '--', 'echo']; // no-op success via pass-through
+      return { kind: 'skip', message: `No slow files for suite ${second}` };
     }
-    return ['test', ...suiteTests, ...rest];
+    return { kind: 'run', args: ['test', ...suiteTests, ...rest] };
   }
 
-  return ['test', ...args];
+  return { kind: 'run', args: ['test', ...args] };
 }
 
 function changedTestsBaseRef(): string | undefined {
@@ -236,7 +239,14 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   await withTestDependencies(async ({ binPath }) => {
     try {
-      exitCode = await runDevCommand('bun', slowTestArgs(args), pathEnv(binPath));
+      const selection = slowTestArgSelection(args);
+      if (selection.kind === 'skip') {
+        console.log(selection.message);
+        exitCode = 0;
+        return;
+      }
+
+      exitCode = await runDevCommand('bun', selection.args, pathEnv(binPath));
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       exitCode = 1;
