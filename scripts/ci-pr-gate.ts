@@ -208,13 +208,17 @@ async function runGateStep(step: GateStep): Promise<GateResult> {
   }
 }
 
-const readonlyResults = await Promise.all(readonlySteps.map(runGateStep));
-const failedReadonlyStep = readonlyResults.find((result) => result.code !== 0);
-if (failedReadonlyStep) {
-  console.error(
-    `CI PR gate failed at ${failedReadonlyStep.id} with exit code ${failedReadonlyStep.code} after ${formatDuration(failedReadonlyStep.durationMs)}`
-  );
-  process.exit(failedReadonlyStep.code);
+const results: GateResult[] = [];
+
+for (const step of readonlySteps) {
+  const result = await runGateStep(step);
+  results.push(result);
+  if (result.code !== 0) {
+    console.error(
+      `CI PR gate failed at ${result.id} with exit code ${result.code} after ${formatDuration(result.durationMs)}`
+    );
+    process.exit(result.code);
+  }
 }
 
 if (fastWorkspaceGateNeeded()) {
@@ -222,6 +226,7 @@ if (fastWorkspaceGateNeeded()) {
     id: 'fast-workspace-gate',
     run: () => runCiFastGate()
   });
+  results.push(fastWorkspaceResult);
   if (fastWorkspaceResult.code !== 0) {
     console.error(
       `CI PR gate failed at ${fastWorkspaceResult.id} with exit code ${fastWorkspaceResult.code} after ${formatDuration(fastWorkspaceResult.durationMs)}`
@@ -230,5 +235,5 @@ if (fastWorkspaceGateNeeded()) {
   }
 }
 
-const totalReadonlyDuration = readonlyResults.reduce((total, result) => total + result.durationMs, 0);
-console.log(`CI PR gate: readonly gate cumulative time ${formatDuration(totalReadonlyDuration)}`);
+const totalDuration = results.reduce((total, result) => total + result.durationMs, 0);
+console.log(`CI PR gate: total gate time ${formatDuration(totalDuration)}`);
