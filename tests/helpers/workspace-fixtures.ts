@@ -2,13 +2,13 @@ import { afterAll } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-    adaptWorkspace,
-    addBlock,
-    composeWorkspace,
-    initWorkspace,
-    lockWorkspace,
-    resolveWorkspace,
-    verifyWorkspace
+  adaptWorkspace,
+  addBlock,
+  composeWorkspace,
+  initWorkspace,
+  lockWorkspace,
+  resolveWorkspace,
+  verifyWorkspace
 } from '../../platform/orchestrator.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
