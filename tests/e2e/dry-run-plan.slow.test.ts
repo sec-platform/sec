@@ -11,6 +11,47 @@ import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { createWorkspace, prepareLockedWorkspace } from '../helpers/workspace-fixtures.ts';
 
+type MigrationKindCounts = Record<string, number>;
+type MigrationSummary = { id: string; kind: string; target: string; slotId?: string };
+type MigrationOperation = { id: string; kind: string; target: string; slotId?: string };
+
+type UpgradeMigrationArtifacts = {
+  migrationKindCounts: MigrationKindCounts;
+  migrationSummaries: MigrationSummary[];
+  migrationOperations: MigrationOperation[];
+};
+
+function countByKind(items: Array<{ kind: string }>): MigrationKindCounts {
+  return items.reduce<MigrationKindCounts>((counts, item) => {
+    counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function totalMigrationKinds(counts: MigrationKindCounts): number {
+  return Object.values(counts).reduce((total, count) => total + count, 0);
+}
+
+function expectMigrationArtifactsToMatchPlan(plan: UpgradeMigrationArtifacts): void {
+  const expectedCount = totalMigrationKinds(plan.migrationKindCounts);
+  expect(plan.migrationSummaries).toHaveLength(expectedCount);
+  expect(plan.migrationOperations).toHaveLength(expectedCount);
+  expect(countByKind(plan.migrationSummaries)).toEqual(plan.migrationKindCounts);
+  expect(countByKind(plan.migrationOperations)).toEqual(plan.migrationKindCounts);
+
+  const summariesById = new Map(plan.migrationSummaries.map((summary) => [summary.id, summary]));
+  expect([...summariesById.keys()].sort()).toEqual(plan.migrationOperations.map((operation) => operation.id).sort());
+  for (const operation of plan.migrationOperations) {
+    const summary = summariesById.get(operation.id);
+    expect(summary).toBeDefined();
+    expect(operation.kind).toBe(summary?.kind);
+    expect(operation.target).toBe(summary?.target);
+    if (summary?.slotId !== undefined || operation.slotId !== undefined) {
+      expect(operation.slotId).toBe(summary?.slotId);
+    }
+  }
+}
+
 test('upgrade dry-run writes a planned upgrade without changing project files', async () => {
   const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-dry-run-' });
 
@@ -57,8 +98,7 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       expect.objectContaining({ id: 'override-conflicts', status: 'passed' })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toHaveLength(0);
-  expect(upgradePlan.migrationOperations).toHaveLength(0);
+  expectMigrationArtifactsToMatchPlan(upgradePlan);
   await expectFileUnchanged(planPath, beforePlan);
   await expectFileUnchanged(sessionPath, beforeSession);
 
@@ -91,6 +131,7 @@ test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => 
   await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true }))
     .rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-002' });
 }, 180000);
+
 test('upgrade dry-run records slot contract migration impacts', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-slot-contract-plan-');
 
@@ -124,8 +165,7 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
     ])
   );
   expect(upgradePlan.impacts.length).toBeGreaterThan(0);
-  expect(upgradePlan.migrationSummaries).toHaveLength(0);
-  expect(upgradePlan.migrationOperations).toHaveLength(0);
+  expectMigrationArtifactsToMatchPlan(upgradePlan);
   await expectFileUnchanged(planPath, beforePlan);
   await expect(fs.readFile(upgradePlanPath, 'utf8')).resolves.toContain('mig-customer-normalizer-contract');
 }, 180000);
