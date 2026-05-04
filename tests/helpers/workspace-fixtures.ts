@@ -146,9 +146,11 @@ export async function cloneWorkspaceTemplate(
 ): Promise<string> {
   const templateRoot = await ensureTemplate(kind);
   const workspaceRoot = await createWorkspace(prefix);
-  await fs.cp(templateRoot, workspaceRoot, {
-    recursive: true,
-    filter: (source) => path.basename(source) !== '.template-ready'
+  await withTemplateLock(kind, async () => {
+    await fs.cp(templateRoot, workspaceRoot, {
+      recursive: true,
+      filter: (source) => path.basename(source) !== '.template-ready'
+    });
   });
   return workspaceRoot;
 }
