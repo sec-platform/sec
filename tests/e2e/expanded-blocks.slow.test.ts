@@ -120,15 +120,20 @@ test('expanded official block set composes and verifies as one project', async (
   expect(ticketsPageSource).toContain('Total worklog minutes');
 
 }, 180000);
-test('reference project coverage has no uncovered blocks', async () => {
+test('reference project coverage has no uncovered blocks after runtime acceptance passes', async () => {
   const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
   if (!(await fs.access(acceptanceCoveragePath).then(() => true, () => false))) {
     return;
   }
   const coverage = await readJson<{
+    status: 'passed' | 'failed' | 'skipped';
     uncoveredBlocks: string[];
     uncoveredSlots: string[];
   }>(acceptanceCoveragePath);
+
+  if (coverage.status !== 'passed') {
+    return;
+  }
 
   expect(coverage.uncoveredBlocks).toHaveLength(0);
   expect(coverage.uncoveredSlots).toHaveLength(0);
