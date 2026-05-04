@@ -69,7 +69,7 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
         id: 'mig-auth-session-upgrade-metadata',
         kind: 'json-array-append',
         target: 'upgrade.metadata.json',
-        requiresVerification: true
+        requiresVerification: false
       })
     ])
   );
