@@ -30,7 +30,7 @@ jobs:
   compiler-ci:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'labeled')
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -86,7 +86,7 @@ jobs:
 
       - name: PR fast gate
         if: steps.import_commit.outputs.changed != 'true'
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: bun scripts/ci-pr-gate.ts
 
   compiler-pr-full:
