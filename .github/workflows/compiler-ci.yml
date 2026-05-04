@@ -84,25 +84,10 @@ jobs:
             fi
           fi
 
-      - name: PR fast typecheck
+      - name: PR fast gate
         if: steps.import_commit.outputs.changed != 'true'
-        timeout-minutes: 8
-        run: bun run typecheck
-
-      - name: PR fast contract freeze
-        if: steps.import_commit.outputs.changed != 'true'
-        timeout-minutes: 3
-        run: bun run test:contract-freeze
-
-      - name: PR fast changed tests
-        if: steps.import_commit.outputs.changed != 'true'
-        timeout-minutes: 4
-        run: bun run test:changed
-
-      - name: PR fast workspace gate
-        if: steps.import_commit.outputs.changed != 'true'
-        timeout-minutes: 4
-        run: bun scripts/ci-fast-gate.ts
+        timeout-minutes: 12
+        run: bun scripts/ci-pr-gate.ts
 
   compiler-pr-full:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'labeled')
@@ -124,35 +109,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: PR full typecheck
-        run: bun run typecheck
-
-      - name: PR full contract freeze
-        run: bun run test:contract-freeze
-
-      - name: PR full slow e2e suite upgrade
-        run: bun run test:slow -- --suite upgrade
-
-      - name: PR full slow e2e suite runtime
-        run: bun run test:slow -- --suite runtime
-
-      - name: PR full slow e2e suite pipeline
-        run: bun run test:slow -- --suite pipeline
-
-      - name: PR full slow e2e suite repair
-        run: bun run test:slow -- --suite repair
-
-      - name: PR full slow e2e suite registry
-        run: bun run test:slow -- --suite registry
-
-      - name: PR full slow e2e suite explain
-        run: bun run test:slow -- --suite explain
-
-      - name: PR full slow e2e suite other
-        run: bun run test:slow -- --suite other
-
-      - name: PR full fast workspace gate
-        run: bun scripts/ci-fast-gate.ts
+      - name: PR full gate
+        run: bun scripts/ci-full-gate.ts
 
   compiler-full:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full')
