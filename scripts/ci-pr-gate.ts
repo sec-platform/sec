@@ -25,17 +25,14 @@ type ContractFreezeSelection = {
 };
 
 const broadContractImpactPatterns = [
-  /^package\.json$/,
   /^bun\.lock$/,
-  /^README\.md$/,
-  /^docs\//,
   /^platform\/cli\//,
-  /^platform\/dev-runner\.ts$/,
-  /^platform\/dev-runner\/(test-runner|typecheck-runner)\.ts$/,
-  /^platform\/shared\/(contract-freeze-contract|test-budget-contract)\.ts$/
+  /^platform\/dev-runner\.ts$/
 ];
 
 const targetedContractImpactPatterns: Array<{ pattern: RegExp; file: string }> = [
+  { pattern: /^package\.json$/, file: 'tests/integration/project-runtime.test.ts' },
+  { pattern: /^README\.md$/, file: 'tests/integration/project-runtime.test.ts' },
   { pattern: /^tests\/contract\/usage\.test\.ts$/, file: 'tests/contract/usage.test.ts' },
   { pattern: /^tests\/contract\/environment\.test\.ts$/, file: 'tests/contract/environment.test.ts' },
   { pattern: /^tests\/contract\/reference\.test\.ts$/, file: 'tests/contract/reference.test.ts' },
@@ -45,7 +42,14 @@ const targetedContractImpactPatterns: Array<{ pattern: RegExp; file: string }> =
   { pattern: /^tests\/contract\/test-impact\.test\.ts$/, file: 'tests/contract/test-impact.test.ts' },
   { pattern: /^tests\/integration\/review\.test\.ts$/, file: 'tests/integration/review.test.ts' },
   { pattern: /^tests\/integration\/project-runtime\.test\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
-  { pattern: /^platform\/dev-runner\/import-organizer\.ts$/, file: 'tests/contract/usage.test.ts' }
+  { pattern: /^platform\/dev-runner\/import-organizer\.ts$/, file: 'tests/contract/usage.test.ts' },
+  { pattern: /^platform\/dev-runner\/(test-runner|typecheck-runner)\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
+  { pattern: /^platform\/shared\/ci-contract\.ts$/, file: 'tests/contract/contracts.test.ts' },
+  { pattern: /^platform\/shared\/ci-contract\.ts$/, file: 'tests/contract/ci-lanes.test.ts' },
+  { pattern: /^platform\/shared\/contract-freeze-contract\.ts$/, file: 'tests/contract/contracts.test.ts' },
+  { pattern: /^platform\/shared\/contract-freeze-contract\.ts$/, file: 'tests/integration/project-runtime.test.ts' },
+  { pattern: /^platform\/shared\/test-budget-contract\.ts$/, file: 'tests/contract/benchmark-budget.test.ts' },
+  { pattern: /^platform\/shared\/test-budget-contract\.ts$/, file: 'tests/integration/project-runtime.test.ts' }
 ];
 
 const workspaceImpactPatterns = [
