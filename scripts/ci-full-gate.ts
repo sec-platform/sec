@@ -33,7 +33,7 @@ const broadImpactPatterns = [
 ];
 
 function changedFiles(): string[] | null {
-  const baseRef = process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
+  const baseRef = process.env.PJC_CHANGED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
   const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
     encoding: 'utf8'
   });
@@ -105,7 +105,7 @@ async function runGateStep(step: FullGateStep): Promise<FullGateResult> {
 
 const files = changedFiles();
 if (files) {
-  console.log(`CI full gate: changed file count ${files.length}`);
+  console.log(`CI full gate: latest-commit changed file count ${files.length}`);
 } else {
   console.log('CI full gate: changed file detection failed; running all slow suites.');
 }
