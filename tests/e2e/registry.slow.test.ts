@@ -6,12 +6,20 @@ import { validateResolvedTemplates } from '../../platform/compiler/verify/valida
 import { buildManifestValidationPlan } from '../helpers/plan-fixtures.ts';
 
 test('versioned official registry manifests inherit root manifest fields', async () => {
+  const rootEntry = await loadManifestById('ticket/basic');
   const entry = await loadManifestById('ticket/basic', { version: '0.1.1' });
 
   expect(entry.manifest.version).toBe('0.1.1');
-  expect(entry.manifest.requires).toHaveLength(0);
-  expect(entry.manifest.installs.map((install) => install.to)).toHaveLength(0);
-  expect(entry.manifest.upgrade?.migrations.map((migration) => migration.id)).toHaveLength(0);
+  expect(entry.manifest.requires).toEqual(rootEntry.manifest.requires);
+  expect(entry.manifest.installs.map((install) => install.to)).toEqual(
+    rootEntry.manifest.installs.map((install) => install.to)
+  );
+  expect(entry.manifest.pins).toEqual(rootEntry.manifest.pins);
+  expect(entry.manifest.acceptance).toEqual(rootEntry.manifest.acceptance);
+  expect(entry.manifest.upgrade?.migrations.map((migration) => migration.id)).toEqual([
+    'mig-ticket-service-refresh',
+    'mig-ticket-upgrade-metadata'
+  ]);
   expect(entry.manifestPath.replaceAll('\\', '/')).toContain('/versions/0.1.1/block.manifest.yaml');
   expect(entry.manifestRoot.replaceAll('\\', '/')).toContain('/versions/0.1.1');
 }, 180000);

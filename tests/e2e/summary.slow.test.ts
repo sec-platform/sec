@@ -81,7 +81,7 @@ test('writeReviewSummary persists generated path in lock', async () => {
   });
   expect(summary.conflictHints).toHaveLength(0);
   expect(persistedSummary).toEqual(summary);
-  expect(persistedLock.generatedPaths).toHaveLength(0);
+  expect(persistedLock.generatedPaths).toContain('control/evidence/review-summary.json');
 }, 180000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-fast-');
@@ -321,7 +321,17 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       }
     ])
   );
-  expect(summary.verticalSlices).toHaveLength(0);
+  expect(summary.verticalSlices).toEqual([
+    {
+      id: 'ticket',
+      runtimeEntries: [
+        'app/api/tickets/export/route.ts',
+        'app/api/tickets/summary/route.ts',
+        'app/api/tickets/summary/export/route.ts'
+      ],
+      relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+    }
+  ]);
   expect(summary.installImpacts).toHaveLength(0);
   expect(summary.installImpactSummary).toEqual({
     impactCount: 3,
