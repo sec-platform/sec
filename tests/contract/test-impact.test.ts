@@ -17,13 +17,22 @@ test('test impact selector includes tests that dynamically import changed source
   expect(selection.fast).toContain('tests/unit/test-runner.test.ts');
 });
 
-test('test impact selector keeps semantic CI contract coverage', () => {
+test('test impact selector uses auto-reference for CI contract coverage', () => {
   const selection = selectTestsForSources(['platform/shared/ci-contract.ts']);
 
-  expect(selection.owners).toContain('ci-contract');
-  expect(selection.fast).toContain('tests/contract/contracts.test.ts');
+  expect(selection.owners).toContain('auto-reference');
+  expect(selection.owners).not.toContain('ci-contract');
+  expect(selection.fast).toContain('tests/contract/ci-contract.test.ts');
   expect(selection.fast).toContain('tests/contract/ci-lanes.test.ts');
   expect(selection.slow).toEqual([]);
+});
+
+test('test impact selector uses auto-reference for test budget coverage', () => {
+  const selection = selectTestsForSources(['platform/shared/test-budget-contract.ts']);
+
+  expect(selection.owners).toContain('auto-reference');
+  expect(selection.owners).not.toContain('test-budget');
+  expect(selection.fast).toContain('tests/contract/benchmark-budget.test.ts');
 });
 
 test('test impact selector keeps slow coverage as notice-only selection', () => {

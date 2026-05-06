@@ -2,6 +2,8 @@ import { expect } from 'bun:test';
 
 import type { BenchmarkTaskSuiteContract } from '../../platform/shared/benchmark-contract.ts';
 import type { CiContract } from '../../platform/shared/ci-contract.ts';
+import type { ContractFreezeContract } from '../../platform/shared/contract-freeze-contract.ts';
+import type { ErrorProtocolContract } from '../../platform/shared/error-protocol-contract.ts';
 import type { TestBudgetContract } from '../../platform/shared/test-budget-contract.ts';
 
 type CountKey<T> = {
@@ -83,4 +85,22 @@ export function expectBenchmarkTaskSuiteSelfConsistent(contract: BenchmarkTaskSu
     expectListCount(task, 'artifactPathCount', 'artifactPaths');
     expectListCount(task, 'scoreFocusCount', 'scoreFocus');
   }
+}
+
+export function expectContractFreezeSelfConsistent(contract: ContractFreezeContract): void {
+  expectListCount(contract, 'targetFileCount', 'targetFiles');
+  expectListCount(contract, 'targetCount', 'targets');
+  expectSortedUnique(contract.targetFiles);
+  expect(new Set(contract.targets.map((target) => target.file)).size).toBe(contract.targetFiles.length);
+  expect(contract.targetFiles.some((file) => file.startsWith('tests/e2e/'))).toBe(false);
+  expect(contract.targetFiles.every((file) => file.endsWith('.test.ts'))).toBe(true);
+}
+
+export function expectErrorProtocolSelfConsistent(contract: ErrorProtocolContract): void {
+  expectListCount(contract, 'exampleCount', 'examples');
+  expectListCount(contract, 'issueTypeCount', 'issueTypes');
+  expectListCount(contract, 'artifactPathCount', 'artifactPaths');
+  expectSortedUnique(contract.issueTypes);
+  expectSortedUnique(contract.artifactPaths);
+  expect(new Set(contract.examples.flatMap((example) => example.output.suggestedActions)).size).toBe(contract.suggestedActionCount);
 }
