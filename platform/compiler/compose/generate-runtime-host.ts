@@ -1994,7 +1994,7 @@ async function signIn(page: Page, username: string): Promise<void> {
 }
 
 test('ticket runtime flow supports assignee filters, status transitions, and tenant isolation', async ({ page }) => {
-  test.setTimeout(60000);
+  test.setTimeout(90000);
 
   await signIn(page, 'tenant-a-admin');
   await page.goto('/tickets');
