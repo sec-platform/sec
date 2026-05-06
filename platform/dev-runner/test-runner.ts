@@ -1,16 +1,37 @@
 import path from 'node:path';
 import { uniqueSortedLines } from '../shared/collections.ts';
-import { buildContractFreezeRunnerInvocations } from '../shared/contract-freeze-contract.ts';
+import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
+import { pathExists } from '../shared/fs.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
-import { getSlowTestFilesSync, isFastTestFile, isSlowTestFile, slowTestExcludePattern } from '../shared/test-budget-contract.ts';
+import {
+  getFastTestFilesSync,
+  getSlowTestFilesSync,
+  isFastTestFile,
+  isKnownSlowTestSuiteId,
+  isSlowTestFile,
+  slowTestSuiteFiles,
+  slowTestSuiteIds
+} from '../shared/test-budget-contract.ts';
 import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 
+function hasExplicitFastTestFiles(args: string[]): boolean {
+  return args.some(isFastTestFile);
+}
+
+function hasBunTestOption(args: string[]): boolean {
+  return args.some((arg) => arg.startsWith('-'));
+}
+
 function fastTestArgs(args: string[]): string[] {
-  return ['test', '--exclude', slowTestExcludePattern(), ...args];
+  if (hasExplicitFastTestFiles(args) || hasBunTestOption(args)) {
+    return ['test', ...args];
+  }
+
+  return ['test', ...getFastTestFilesSync(), ...args];
 }
 
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -28,24 +49,42 @@ function fullTestInvocations(): string[][] {
   ].filter(args => args.length > 0);
 }
 
-function slowTestArgs(args: string[]): string[] {
+type SlowTestArgSelection =
+  | { kind: 'run'; args: string[] }
+  | { kind: 'skip'; message: string };
+
+function slowTestArgSelection(args: string[]): SlowTestArgSelection {
   const slowTests = getSlowTestFilesSync();
   if (args.length === 0) {
-    return ['test', ...slowTests];
+    return { kind: 'run', args: ['test', ...slowTests] };
   }
 
   const [first, second, ...rest] = args;
   if (first === '--suite' && second) {
-    const suiteTests = slowTests.filter((file) => file.includes(`/${second}.slow.test.ts`) || file.endsWith(`${second}.slow.test.ts`));
-    return ['test', ...(suiteTests.length > 0 ? suiteTests : slowTests), ...rest];
+    if (!isKnownSlowTestSuiteId(second)) {
+      throw new Error(`Unknown slow test suite "${second}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
+    }
+    const suiteTests = slowTestSuiteFiles(second);
+    if (suiteTests.length === 0) {
+      return { kind: 'skip', message: `No slow files for suite ${second}` };
+    }
+    return { kind: 'run', args: ['test', ...suiteTests, ...rest] };
   }
 
-  return ['test', ...args];
+  return { kind: 'run', args: ['test', ...args] };
+}
+
+function changedTestsBaseRef(): string | undefined {
+  return process.env.PJC_CHANGED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE;
 }
 
 async function gitChangedFiles(): Promise<string[] | null> {
+  const baseRef = changedTestsBaseRef();
+  const trackedArgs = baseRef
+    ? ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD']
+    : ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'];
   const [tracked, untracked] = await Promise.all([
-    runCommand('git', ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'], { cwd: compilerRoot }),
+    runCommand('git', trackedArgs, { cwd: compilerRoot }),
     runCommand('git', ['ls-files', '--others', '--exclude-standard'], { cwd: compilerRoot })
   ]);
   if (tracked.code !== 0 || untracked.code !== 0) {
@@ -57,6 +96,46 @@ async function gitChangedFiles(): Promise<string[] | null> {
 
 function sourceFileChanged(file: string): boolean {
   return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
+}
+
+function allowSlowChangedNotice(): boolean {
+  return process.env.PJC_CHANGED_TESTS_ALLOW_SLOW_NOTICE === '1'
+    || process.env.PJC_CHANGED_TESTS_BASE !== undefined
+    || process.env.PJC_CHANGED_BASE !== undefined;
+}
+
+function allowFullFastFallback(): boolean {
+  return process.env.PJC_CHANGED_TESTS_FULL_FAST_FALLBACK === '1';
+}
+
+type DependencyContext = {
+  binPath: string;
+};
+
+async function rootDependencyContext(): Promise<DependencyContext | null> {
+  const rootNodeModules = path.join(compilerRoot, 'node_modules');
+  if (!(await pathExists(rootNodeModules))) {
+    return null;
+  }
+
+  return { binPath: path.join(rootNodeModules, '.bin') };
+}
+
+async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
+  const rootContext = await rootDependencyContext();
+  if (rootContext) {
+    return callback(rootContext);
+  }
+
+  const sharedDeps = await ensureSharedDepsReady();
+  const context = { binPath: path.join(sharedDeps.nodeModulesPath, '.bin') };
+  return withRootDependencyBridge(sharedDeps.nodeModulesPath, () => callback(context));
+}
+
+function pathEnv(binPath: string): NodeJS.ProcessEnv {
+  return {
+    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
+  };
 }
 
 interface ChangedTestSelection {
@@ -93,8 +172,12 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
     return 1;
   }
   if (selection.slowTests.length > 0) {
-    console.error(`Changed slow test files require explicit verification: ${selection.slowTests.join(', ')}`);
-    return 1;
+    const message = `Changed slow test files require explicit verification: ${selection.slowTests.join(', ')}`;
+    if (!allowSlowChangedNotice()) {
+      console.error(message);
+      return 1;
+    }
+    console.log(message);
   }
   if (selection.tests.length > 0) {
     return runFastTests(selection.tests);
@@ -112,7 +195,12 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
     return code;
   }
   if (selection.sourceChanged) {
-    console.log('No affected fast tests matched source changes; running the fast test suite.');
+    if (!allowFullFastFallback()) {
+      console.log('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR fast lane. Full/manual/scheduled validation covers unmapped changes.');
+      return 0;
+    }
+
+    console.log('No affected fast tests matched source changes; running the fast test suite because PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1.');
     const code = await runFastTests();
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
@@ -128,17 +216,11 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
 }
 
 export async function runTests(args: string[] = []): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const env = {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-  };
-
   let exitCode = 1;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
+  await withTestDependencies(async ({ binPath }) => {
     const invocations = args.length > 0 ? [['test', ...args]] : fullTestInvocations();
     for (const invocation of invocations) {
-      exitCode = await runDevCommand('bun', invocation, env);
+      exitCode = await runDevCommand('bun', invocation, pathEnv(binPath));
       if (exitCode !== 0) return;
     }
   });
@@ -146,43 +228,38 @@ export async function runTests(args: string[] = []): Promise<number> {
 }
 
 export async function runFastTests(args: string[] = []): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const env = {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-  };
-
   let exitCode = 1;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(env));
+  await withTestDependencies(async ({ binPath }) => {
+    exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(pathEnv(binPath)));
   });
   return exitCode;
 }
 
 export async function runSlowTests(args: string[] = []): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
-  const env = {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-  };
-
   let exitCode = 1;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    exitCode = await runDevCommand('bun', slowTestArgs(args), env);
+  await withTestDependencies(async ({ binPath }) => {
+    try {
+      const selection = slowTestArgSelection(args);
+      if (selection.kind === 'skip') {
+        console.log(selection.message);
+        exitCode = 0;
+        return;
+      }
+
+      exitCode = await runDevCommand('bun', selection.args, pathEnv(binPath));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      exitCode = 1;
+    }
   });
   return exitCode;
 }
 
-export async function runContractFreeze(): Promise<number> {
-  const sharedDeps = await ensureSharedDepsReady();
-  const binPath = path.join(sharedDeps.nodeModulesPath, '.bin');
+export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
   let exitCode = 0;
-  await withRootDependencyBridge(sharedDeps.nodeModulesPath, async () => {
-    for (const invocation of buildContractFreezeRunnerInvocations()) {
-      const env = {
-        [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
-      };
-      exitCode = await runDevCommand('bun', invocation.args, env);
+  await withTestDependencies(async ({ binPath }) => {
+    for (const invocation of buildContractFreezeRunnerInvocations(targets)) {
+      exitCode = await runDevCommand('bun', invocation.args, pathEnv(binPath));
       if (exitCode !== 0) {
         return;
       }

@@ -12,6 +12,8 @@ This repository packages the engineering compiler, its CLI, and the reference pr
 - Run the full product closed loop with `bun run demo:closed-loop`.
 - Dogfood the reference workspace with `bun run dogfood:reference`.
 - Refresh the reference workspace and governance artifacts with `bun run reference:refresh`.
+- Test feedback, CI lane, contract-freeze, and package script rules are documented in `docs/test-feedback-and-ci-lanes.md`.
+- Slow suite registry, suite IDs, and full lane sharding are documented in `docs/slow-suite-registry.md`.
 
 ## Developer Entry Model
 
@@ -151,10 +153,14 @@ Workbench and IDE integrations must preserve this boundary:
 
 ## Common Commands
 
-- `bun run check`: TypeScript typecheck plus the fast local test suite
-- `bun run check:full`: TypeScript typecheck plus the full Vitest regression
-- `bun run test`: run the fast local Vitest suite directly
-- `bun run test:all`: run the full Vitest regression, including slow integration/runtime/E2E contract files
+- `bun run check`: alias for `bun run check:fast`
+- `bun run check:fast`: TypeScript typecheck plus the fast local Bun test suite
+- `bun run check:changed`: TypeScript typecheck plus changed/affected Bun tests for tight feedback
+- `bun run check:full`: TypeScript typecheck plus the full Bun regression
+- `bun run test`: run the fast local Bun test suite directly
+- `bun run test:changed`: run changed/affected Bun tests without typecheck
+- `bun run test:slow`: run slow e2e coverage explicitly
+- `bun run test:all`: run the full Bun regression, including slow integration/runtime/E2E contract files
 - `bun run test:budget`: print the formal fast/runtime/all lane slow-test JSON contract through `platform test budget`, including runner command, lane count, slow lane count, and slow lane IDs
 - `bun run test:contract-freeze`: run the CLI/script/governance contract freeze suite through the runner command declared by `platform contract freeze`
 - `bun run test:benchmark-contract`: print the formal benchmark/task-suite JSON contract through `platform benchmark suite`

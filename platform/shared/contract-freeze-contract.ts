@@ -88,6 +88,15 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
+      'tests/contract/ci-lanes.test.ts',
+      [
+        'CI contract separates PR fast lane commands from full lane commands',
+        'CI PR fast lane contract avoids full validation commands',
+        'CI full lane contract keeps complete validation coverage',
+        'CI contract text exposes lane command split for workflow audits'
+      ].join('|')
+    ),
+    contractFreezeTarget(
       'tests/contract/contracts.test.ts',
       [
         'CLI exposes contract freeze target list as text and JSON contracts',

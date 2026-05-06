@@ -81,7 +81,7 @@ test('writeReviewSummary persists generated path in lock', async () => {
   });
   expect(summary.conflictHints).toHaveLength(0);
   expect(persistedSummary).toEqual(summary);
-  expect(persistedLock.generatedPaths).toHaveLength(0);
+  expect(persistedLock.generatedPaths).toContain('control/evidence/review-summary.json');
 }, 180000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-fast-');
@@ -321,8 +321,46 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       }
     ])
   );
-  expect(summary.verticalSlices).toHaveLength(0);
-  expect(summary.installImpacts).toHaveLength(0);
+  expect(summary.verticalSlices).toEqual([
+    {
+      id: 'ticket',
+      runtimeEntries: [
+        'app/api/tickets/summary/export/route.ts',
+        'app/api/tickets/summary/route.ts',
+        'app/tickets/page.tsx'
+      ],
+      relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+    }
+  ]);
+  expect(summary.installImpacts).toEqual([
+    {
+      blockId: 'export/csv-basic',
+      actionKinds: ['copy'],
+      sourceRoots: ['export.csv-basic'],
+      targetPaths: ['app/api/tickets/export/route.ts'],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/api/tickets/export/route.ts']
+    },
+    {
+      blockId: 'reporting/ticket-summary',
+      actionKinds: ['copy'],
+      sourceRoots: ['reporting.ticket-summary'],
+      targetPaths: [
+        'app/api/tickets/summary/route.ts',
+        'src/installed/reporting/ticket-summary.ts'
+      ],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/api/tickets/summary/route.ts']
+    },
+    {
+      blockId: 'ticket/basic',
+      actionKinds: ['copy'],
+      sourceRoots: ['ticket.basic'],
+      targetPaths: ['app/tickets/page.tsx'],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/tickets/page.tsx']
+    }
+  ]);
   expect(summary.installImpactSummary).toEqual({
     impactCount: 3,
     blockCount: 3,

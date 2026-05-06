@@ -138,14 +138,6 @@
       "overrideStatus": "none"
     },
     {
-      "path": "control/evidence/review-summary.json",
-      "originType": "generated",
-      "originId": "control/evidence/review-summary.json",
-      "generatedByPass": "verify",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
       "path": "control/evidence/runtime-report.json",
       "originType": "generated",
       "originId": "control/evidence/runtime-report.json",
@@ -190,38 +182,6 @@
       "originType": "generated",
       "originId": "control/provenance/provenance.json",
       "generatedByPass": "lock",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "control/workbench/views/graph-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/graph-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "control/workbench/views/review-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/review-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "control/workbench/views/slot-rule-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/slot-rule-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none"
-    },
-    {
-      "path": "control/workbench/views/source-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/source-view.html",
-      "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none"
     },

@@ -139,7 +139,7 @@ function combineOverallStatus(values: readonly ProjectOverviewStatusValue[]): Pr
 function buildWorkspaceSummary(workspaceRoot: string): ProjectOverviewWorkspace {
   const paths = getWorkspacePaths(workspaceRoot);
   return {
-    root: paths.workspaceRoot.replaceAll('\\', '/'),
+    root: '.',
     sourceRoot: relativePosixPath(paths.workspaceRoot, paths.developerSourceRoot),
     projectRoot: relativePosixPath(paths.workspaceRoot, paths.projectRoot),
     controlRoot: relativePosixPath(paths.workspaceRoot, paths.controlRoot),

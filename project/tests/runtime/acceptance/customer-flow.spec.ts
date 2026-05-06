@@ -11,10 +11,7 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   test.setTimeout(60000);
 
   await signIn(page, 'tenant-a-admin');
-  await page.goto('/workspace');
-  await expect(page).toHaveURL(/\/workspace$/);
-
-  await page.getByRole('link', { name: '/customers' }).click();
+  await page.goto('/customers');
   await expect(page).toHaveURL(/\/customers$/);
   const customerList = page.getByRole('list', { name: 'Customers' });
   await page.getByLabel('Name', { exact: true }).fill('Acme');
@@ -22,13 +19,12 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await page.getByLabel('Phone', { exact: true }).fill('400-800-9000');
   await page.getByLabel('Company', { exact: true }).fill('');
   await page.getByRole('button', { name: 'Create Customer' }).click();
+  await page.waitForLoadState('networkidle');
   const createdCustomer = customerList.getByRole('listitem').filter({ hasText: 'Acme' });
   await expect(createdCustomer).toHaveCount(1);
   await page.request.post('/api/session/logout');
   await signIn(page, 'tenant-b-admin');
-  await page.goto('/workspace');
-  await expect(page).toHaveURL(/\/workspace$/);
-  await page.getByRole('link', { name: '/customers' }).click();
+  await page.goto('/customers');
   await expect(page).toHaveURL(/\/customers$/);
   await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);
 });

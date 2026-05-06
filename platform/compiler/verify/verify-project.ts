@@ -283,6 +283,18 @@ export async function verifyProject(
   ]);
 
   if (summary.status === 'failed') {
+    if (runtimeLane.acceptance?.status === 'failed') {
+      console.error('VERIFY-ACCEPTANCE-003: runtime acceptance failed');
+      console.error('  passed:', runtimeLane.acceptance.passed);
+      console.error('  failed:', runtimeLane.acceptance.failed);
+      console.error('  command:', runtimeLane.acceptance.command);
+      if (runtimeLane.logs?.stdout) {
+        console.error('  stdout:', runtimeLane.logs.stdout.slice(0, 3000));
+      }
+      if (runtimeLane.logs?.stderr) {
+        console.error('  stderr:', runtimeLane.logs.stderr.slice(0, 3000));
+      }
+    }
     throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', report);
   }
 

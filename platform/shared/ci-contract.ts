@@ -25,6 +25,12 @@ export type CiContract = {
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
+  prFastLaneCommandCount: number;
+  prFastLaneCommands: string[];
+  prFullLaneCommandCount: number;
+  prFullLaneCommands: string[];
+  fullLaneCommandCount: number;
+  fullLaneCommands: string[];
   verifyCommandCount: number;
   verifyCommands: string[];
   qualityCommandCount: number;
@@ -38,6 +44,45 @@ export type CiContract = {
   stepCount: number;
   steps: CiContractStep[];
 };
+
+const prFastLaneCommands = [
+  'bun install --frozen-lockfile',
+  'bun run imports:organize',
+  'bun scripts/ci-pr-gate.ts'
+];
+
+const prFullLaneCommands = [
+  'bun install --frozen-lockfile',
+  'bun scripts/ci-full-gate.ts'
+];
+
+const fullSlowSuiteCommands = [
+  'bun run test:slow -- --suite upgrade',
+  'bun run test:slow -- --suite runtime',
+  'bun run test:slow -- --suite pipeline',
+  'bun run test:slow -- --suite repair',
+  'bun run test:slow -- --suite registry',
+  'bun run test:slow -- --suite explain',
+  'bun run test:slow -- --suite other'
+];
+
+const fullLaneCommands = [
+  'bun install --frozen-lockfile',
+  'bun run imports:organize',
+  'bun run typecheck',
+  platformCommand('test', 'budget', '--json', '--compact'),
+  'bun run test:contract-freeze',
+  ...fullSlowSuiteCommands,
+  platformCommand('benchmark', 'suite', '--json', '--compact'),
+  platformCommand('deps', 'warmup'),
+  platformCommand('resolve'),
+  platformCommand('compose'),
+  platformCommand('adapt'),
+  platformCommand('verify', '--lane', 'all', '--json', '--compact'),
+  platformCommand('lock'),
+  platformCommand('explain'),
+  platformCommand('reference', 'check', '--json', '--compact')
+];
 
 const ciArtifactPurposes: Record<CiArtifactKind, string> = {
   governance: 'Emit upload paths for governance artifacts.',
@@ -101,6 +146,16 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     purpose: 'Run the contract freeze suite declared by platform contract freeze.',
     produces: []
   },
+  ...fullSlowSuiteCommands.map((command) => {
+    const suiteId = command.split('--suite ')[1];
+    return {
+      id: `slow-e2e-${suiteId}`,
+      phase: 'quality' as const,
+      command,
+      purpose: 'Run one slow e2e suite in full/manual/scheduled validation.',
+      produces: []
+    };
+  }),
   {
     id: 'benchmark-task-suite',
     phase: 'quality',
@@ -177,6 +232,12 @@ export function buildCiContract(): CiContract {
     command: platformCommand('contract', 'ci', '--json'),
     defaultGate: 'pr-fast-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    prFastLaneCommandCount: prFastLaneCommands.length,
+    prFastLaneCommands: [...prFastLaneCommands],
+    prFullLaneCommandCount: prFullLaneCommands.length,
+    prFullLaneCommands: [...prFullLaneCommands],
+    fullLaneCommandCount: fullLaneCommands.length,
+    fullLaneCommands: [...fullLaneCommands],
     verifyCommandCount: verifyCommands.length,
     verifyCommands,
     qualityCommandCount: qualityCommands.length,
@@ -202,6 +263,12 @@ export function formatCiContract(contract: CiContract): string {
     `Command: ${contract.command}`,
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
+    `PR fast lane command count: ${contract.prFastLaneCommandCount}`,
+    `PR fast lane commands: ${contract.prFastLaneCommands.join(', ')}`,
+    `PR full lane command count: ${contract.prFullLaneCommandCount}`,
+    `PR full lane commands: ${contract.prFullLaneCommands.join(', ')}`,
+    `Full lane command count: ${contract.fullLaneCommandCount}`,
+    `Full lane commands: ${contract.fullLaneCommands.join(', ')}`,
     `Verify command count: ${contract.verifyCommandCount}`,
     `Verify commands: ${contract.verifyCommands.join(', ')}`,
     `Quality command count: ${contract.qualityCommandCount}`,
