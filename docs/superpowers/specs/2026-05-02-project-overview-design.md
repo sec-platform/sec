@@ -232,7 +232,7 @@ Run at minimum:
 
 ```text
 bun run typecheck
-bun run test:changed
+bun run test:affected
 ```
 
 If artifact paths or Workbench view groups change, also run the relevant contract or reference checks.

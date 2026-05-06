@@ -14,10 +14,11 @@
     "demo:closed-loop": "bun run demo:quickstart && bun run platform -- verify --lane all && bun run platform -- artifacts --paths --kind governance && bun run platform -- explain --json --compact",
     "dogfood:reference": "bun run reference:refresh",
     "dogfood:governance": "bun run dogfood:reference && bun run platform -- artifacts --paths --json --kind governance",
-    "test": "bun ./platform/dev-runner.ts test:fast",
-    "test:all": "bun ./platform/dev-runner.ts test",
-    "test:changed": "bun ./platform/dev-runner.ts test:changed",
+    "test": "bun run test:fast",
+    "test:affected": "bun ./platform/dev-runner.ts test:affected",
+    "test:fast": "bun ./platform/dev-runner.ts test:fast",
     "test:slow": "bun ./platform/dev-runner.ts test:slow",
+    "test:full": "bun ./platform/dev-runner.ts test",
     "test:watch": "bun ./platform/dev-runner.ts test:fast --watch",
     "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
     "test:budget": "bun run platform -- test budget --json",
@@ -28,9 +29,9 @@
     "imports:organize": "bun ./platform/dev-runner.ts imports:organize",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "check": "bun run check:fast",
-    "check:fast": "bun run typecheck && bun run test",
-    "check:changed": "bun run typecheck && bun run test:changed",
-    "check:full": "bun run typecheck && bun run test:all"
+    "check:affected": "bun run typecheck && bun run test:affected",
+    "check:fast": "bun run typecheck && bun run test:fast",
+    "check:full": "bun run typecheck && bun run test:full"
   },
   "dependencies": {
     "change-case": "^5.4.4",
