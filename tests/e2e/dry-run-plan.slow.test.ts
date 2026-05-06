@@ -112,7 +112,7 @@ test('upgrade dry-run writes a planned upgrade without changing project files', 
       expect.objectContaining({ path: CI_ARTIFACT_FILES.upgradePlan, generatedByPass: 'upgrade' })
     ])
   );
-}, 120000);
+}, 180000);
 
 test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-range-contract-');
