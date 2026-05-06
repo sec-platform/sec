@@ -14,11 +14,11 @@ import {
 } from '../../platform/shared/test-budget-contract.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
   expectBenchmarkTaskSuiteSelfConsistent,
   expectTestBudgetSelfConsistent
 } from '../testkit/contracts.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const expectedTestBudgetLocalDefault = 'bun run check:affected runs affected fast tests and skips broad source fallback unless PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates';
 

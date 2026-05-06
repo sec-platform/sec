@@ -6,8 +6,8 @@ import {
   formatContractFreezeContract
 } from '../../platform/shared/contract-freeze-contract.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import { expectContractFreezeSelfConsistent } from '../testkit/contracts.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI exposes contract freeze target list as text and JSON contracts', async () => {
   const contract = buildContractFreezeContract();
