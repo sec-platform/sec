@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 
-import { expectCliText, expectCliUsageError } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { expectCliText, expectCliUsageError } from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI prints help for missing or unknown commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
