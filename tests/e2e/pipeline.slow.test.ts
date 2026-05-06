@@ -17,7 +17,7 @@ import {
   expectReviewConflictHint,
   expectReviewRegressionRisk
 } from '../helpers/graph-assertions.ts';
-import { prepareComposedWorkspace, prepareLockedWorkspace } from '../helpers/workspace-fixtures.ts';
+import { prepareAdaptedWorkspace, prepareComposedWorkspace } from '../helpers/workspace-fixtures.ts';
 
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
   const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-upgrade-' });
@@ -151,7 +151,7 @@ test('upgrade advances an official block version and preserves a passing pipelin
 }, 180000);
 
 test('upgrade advances ticket block version and surfaces runtime upgrade impact', async () => {
-  const workspaceRoot = await prepareLockedWorkspace({
+  const workspaceRoot = await prepareAdaptedWorkspace({
     prefix: 'engineering-compiler-ticket-upgrade-',
     blockIds: ['ticket/basic']
   });
