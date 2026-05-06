@@ -90,10 +90,12 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
     contractFreezeTarget(
       'tests/contract/ci-lanes.test.ts',
       [
-        'CI contract separates PR fast lane commands from full lane commands',
-        'CI PR fast lane contract avoids full validation commands',
-        'CI full lane contract keeps complete validation coverage',
-        'CI contract text exposes lane command split for workflow audits'
+        'CI contract separates PR quick lane commands from release full lane commands',
+        'CI contract command counts match their command arrays',
+        'CI contract text exposes lane command split for workflow audits',
+        'CI PR risk gate selects slow suites from the test impact contract',
+        'CI PR risk gate keeps repository-wide changes on all slow suites',
+        'CI PR risk gate skips slow suites when no source or slow test impact exists'
       ].join('|')
     ),
     contractFreezeTarget(
