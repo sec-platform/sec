@@ -22,6 +22,5 @@ describe('runtime customer service', () => {
 
     expect(created.company).toBe('Unknown');
     expect(listCustomers(database, tenantA)).toHaveLength(1);
-    expect(listCustomers(database, tenantB)).toHaveLength(0);
-  });
+    expect(listCustomers(database, tenantB)).toHaveLength(0);  });
 });

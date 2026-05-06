@@ -114,7 +114,7 @@
     },
     "logs": {
       "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
-      "stderr": "$ next build --webpack\n$ vitest run --config vitest.config.ts\n$ playwright test --config playwright.config.ts\n"
+      "stderr": ""
     }
   },
   "summary": {
@@ -124,6 +124,6 @@
   },
   "logs": {
     "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
-    "stderr": "$ next build --webpack\n$ vitest run --config vitest.config.ts\n$ playwright test --config playwright.config.ts\n"
+    "stderr": ""
   }
 }

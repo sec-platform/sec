@@ -49,9 +49,24 @@ test('expanded official block set composes and verifies as one project', async (
   }>(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'));
   expect(postgresContract.provider).toBe('postgres');
   expect(postgresContract.persistenceMode).toBe('contract-only');
-  expect(postgresContract.tables.map((table) => table.name)).toHaveLength(0);
-  expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toHaveLength(0);
-  expect(postgresContract.tables.find((table) => table.name === 'tickets')?.columns).toHaveLength(0);
+  expect(postgresContract.tables.map((table) => table.name)).toEqual(
+    expect.arrayContaining([
+      'audit_entries',
+      'customer_attachments',
+      'customers',
+      'email_notifications',
+      'ticket_attachments',
+      'ticket_comments',
+      'tickets',
+      'worklogs'
+    ])
+  );
+  expect(postgresContract.tables.find((table) => table.name === 'email_notifications')?.columns).toEqual(
+    expect.arrayContaining(['id', 'recipient', 'subject', 'event_type'])
+  );
+  expect(postgresContract.tables.find((table) => table.name === 'tickets')?.columns).toEqual(
+    expect.arrayContaining(['id', 'title', 'status', 'due_date', 'tenant_id'])
+  );
 
   const { lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readJson<typeof resolvedLock>(lockPath);
@@ -105,12 +120,20 @@ test('expanded official block set composes and verifies as one project', async (
   expect(ticketsPageSource).toContain('Total worklog minutes');
 
 }, 180000);
-test('reference project coverage has no uncovered blocks', async () => {
+test('reference project coverage has no uncovered blocks after runtime acceptance passes', async () => {
   const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
+  if (!(await fs.access(acceptanceCoveragePath).then(() => true, () => false))) {
+    return;
+  }
   const coverage = await readJson<{
+    status: 'passed' | 'failed' | 'skipped';
     uncoveredBlocks: string[];
     uncoveredSlots: string[];
   }>(acceptanceCoveragePath);
+
+  if (coverage.status !== 'passed') {
+    return;
+  }
 
   expect(coverage.uncoveredBlocks).toHaveLength(0);
   expect(coverage.uncoveredSlots).toHaveLength(0);

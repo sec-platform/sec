@@ -461,7 +461,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
   expect(overview).toMatchObject({
     formatVersion: '1',
     workspace: {
-      root: 'D:/workspace',
+      root: '.',
       sourceRoot: 'source',
       projectRoot: 'project',
       controlRoot: 'control',

@@ -93,7 +93,13 @@ async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
   await prepareWorkspacePipeline(stagingRoot, {}, kind);
   await fs.writeFile(path.join(stagingRoot, '.template-ready'), `${kind}\n`, 'utf8');
   await fs.rm(templateRoot, { recursive: true, force: true });
-  await fs.rename(stagingRoot, templateRoot);
+  try {
+    await fs.rename(stagingRoot, templateRoot);
+  } catch {
+    await fs.mkdir(templateRoot, { recursive: true });
+    await fs.cp(stagingRoot, templateRoot, { recursive: true });
+    await fs.rm(stagingRoot, { recursive: true, force: true });
+  }
   return templateRoot;
 }
 
@@ -146,9 +152,11 @@ export async function cloneWorkspaceTemplate(
 ): Promise<string> {
   const templateRoot = await ensureTemplate(kind);
   const workspaceRoot = await createWorkspace(prefix);
-  await fs.cp(templateRoot, workspaceRoot, {
-    recursive: true,
-    filter: (source) => path.basename(source) !== '.template-ready'
+  await withTemplateLock(kind, async () => {
+    await fs.cp(templateRoot, workspaceRoot, {
+      recursive: true,
+      filter: (source) => path.basename(source) !== '.template-ready'
+    });
   });
   return workspaceRoot;
 }

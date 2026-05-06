@@ -1,3 +1,4 @@
+import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from './errors.ts';
@@ -111,7 +112,7 @@ async function withInstallLock<T>(
   await ensureDir(path.dirname(lockPath));
 
   while (true) {
-    let handle: fs.FileHandle | null = null;
+    let handle: FileHandle | null = null;
 
     try {
       handle = await fs.open(lockPath, 'wx');
@@ -268,6 +269,19 @@ export async function ensureProjectDependencies(
 
   if (await pathExists(nodeModulesPath)) {
     await fs.rm(nodeModulesPath, { recursive: true, force: true });
+  }
+
+  if (options.skipSharedDepsWarmup === true && options.preferSharedCopy !== false) {
+    const compilerNodeModules = path.join(compilerRoot, 'node_modules');
+    if (await hasInstalledRuntimeDeps(compilerNodeModules)) {
+      await fs.symlink(compilerNodeModules, nodeModulesPath, 'junction');
+      await writeRuntimeDepsStamp(stampPath, {
+        manifestHash: runtimeSpec.manifestHash,
+        packageManager: 'bun',
+        installedAt: (options.now ?? (() => new Date().toISOString()))()
+      });
+      return;
+    }
   }
 
   if (options.preferSharedCopy !== false) {

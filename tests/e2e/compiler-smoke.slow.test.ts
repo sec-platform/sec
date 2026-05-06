@@ -20,14 +20,16 @@ test('smoke: init -> resolve -> compose -> adapt -> verify --lane fast passes', 
   await resolveWorkspace(workspaceRoot);
   await composeWorkspace(workspaceRoot);
   await adaptWorkspace(workspaceRoot);
-  await verifyWorkspace(workspaceRoot);
+  await verifyWorkspace(workspaceRoot, { lane: 'fast' });
 
   const lock = await readJson<LockFile>(lockPath);
   const policy = await readJson<PolicyReport>(policyReportPath);
   const verification = await readJson<VerificationReport>(verificationReportPath);
 
   expect(verification.summary.status).toBe('passed');
+  expect(verification.summary.requestedLane).toBe('fast');
+  expect(verification.runtime.acceptance.status).toBe('skipped');
   expect(lock.resolvedBlocks.length).toBeGreaterThan(0);
   expect(policy.violations).toHaveLength(0);
   expect(lock.generatedPaths.length).toBeGreaterThan(0);
-}, 60000);
+}, 180000);

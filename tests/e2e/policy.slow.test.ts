@@ -394,10 +394,10 @@ test('policy gate records missing install plan targets without violations', asyn
   const report = await runPolicyGate(workspaceRoot);
 
   expect(report.status).toBe('passed');
-  // FIXME: toEqual([] as any) was hiding 1 violation — verify expected behavior
-  expect(report.violations).toEqual([] as any);
-  // FIXME: toEqual([] as any) was hiding 1 target — verify expected behavior
-  expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([] as any);
+  expect(report.violations).toEqual([]);
+  expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([
+    'src/installed/alt/missing-query.ts'
+  ]);
 }, 180000);
 test('policy gate uses lock install plan to locate applied block files', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-install-plan-');
@@ -493,10 +493,14 @@ test('policy gate uses lock install plan to locate applied block files', async (
   const report = await runPolicyGate(workspaceRoot);
 
   expect(report.status).toBe('failed');
-  // FIXME: toEqual([] as any) was hiding 2 files — verify expected violation count
-  expect(report.violations.map((violation) => violation.files[0])).toEqual([] as any);
-  // FIXME: toEqual([] as any) was hiding targets — verify expected target count
-  expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([] as any);
+  expect(report.violations.map((violation) => violation.files[0])).toEqual([
+    'src/installed/alt/alpha-query.ts',
+    'src/installed/alt/zeta-query.ts'
+  ]);
+  expect(report.merged.policies.find((policy) => policy.id === 'tenant-scope-required')?.targets).toEqual([
+    'src/installed/alt/alpha-query.ts',
+    'src/installed/alt/zeta-query.ts'
+  ]);
 }, 180000);
 test('policy gate fails when tenant scoping is removed from customer queries', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-');
@@ -532,8 +536,11 @@ test('policy gate targets ticket and worklog tenant-scoped services', async () =
   const tenantScopePolicy = report.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
 
   expect(report.status).toBe('passed');
-  // FIXME: toEqual([] as any) was hiding 3 targets — verify expected target count
-  expect(tenantScopePolicy?.targets).toEqual([] as any);
+  expect(tenantScopePolicy?.targets).toEqual([
+    'src/installed/entity/customer-service.ts',
+    'src/installed/ticket/ticket-service.ts',
+    'src/installed/worklog/worklog-service.ts'
+  ]);
 }, 180000);
 test('policy gate fails when ticket service loses tenant context', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-failure-');
@@ -576,6 +583,16 @@ export function listTickets(db: Database, session: Session): TicketRecord[] {
   const report = await runPolicyGate(workspaceRoot);
 
   expect(report.status).toBe('failed');
-  // FIXME: toEqual([] as any) was hiding 1 violation — verify expected violation content
-  expect(report.violations).toEqual([] as any);
+  expect(report.violations).toEqual([
+    {
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['entity/customer-basic', 'ticket/basic', 'worklog/basic'],
+      rule: 'tenant_context_must_flow_to_query',
+      files: ['src/installed/ticket/ticket-service.ts'],
+      message: 'Tenant-scoped queries must derive tenant context and filter by tenantId.',
+      sourceScope: 'official',
+      sourcePath: 'platform/policies/official/policy.spec.yaml'
+    }
+  ]);
 }, 180000);

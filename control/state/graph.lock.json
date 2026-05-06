@@ -184,6 +184,7 @@
     "control/graph/explain-graph.mmd",
     "control/provenance/provenance.json",
     "control/workbench/views/graph-view.html",
+    "control/workbench/views/overview-view.html",
     "control/workbench/views/review-view.html",
     "control/workbench/views/slot-rule-view.html",
     "control/workbench/views/source-view.html",

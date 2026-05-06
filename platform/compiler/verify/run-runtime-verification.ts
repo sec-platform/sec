@@ -2,7 +2,7 @@ import path from 'node:path';
 import { listFilesRecursive } from '../../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { pathEnvKey, runCommand } from '../../shared/process.ts';
-import { ensureProjectDependencies, ensureSharedDepsReady } from '../../shared/project-runtime.ts';
+import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
@@ -67,6 +67,10 @@ function normalizeStatus(code: number): VerificationStatus {
   return code === 0 ? 'passed' : 'failed';
 }
 
+export function normalizeRuntimeVerificationLog(value: string): string {
+  return value.replace(/\[[0-9]+(?:\.[0-9]+)?(?:ms|s)\]/g, '[duration]');
+}
+
 function appendCommandOutput(
   logs: RuntimeVerificationLaneReport['logs'],
   result: {
@@ -77,7 +81,9 @@ function appendCommandOutput(
   passedSummary: string
 ): void {
   logs.stdout += result.code === 0 ? `${passedSummary}\n` : result.stdout;
-  logs.stderr += result.stderr;
+  if (result.code !== 0) {
+    logs.stderr += normalizeRuntimeVerificationLog(result.stderr);
+  }
 }
 
 function relativeFiles(rootDir: string, files: string[]): string[] {
@@ -127,7 +133,6 @@ export async function runRuntimeVerification(
     (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'acceptance'))).filter((file) => file.endsWith('.spec.ts'))
   );
 
-  await timed('shared deps warmup', emitTiming, () => ensureSharedDepsReady());
   await timed('project deps materialize', emitTiming, () => ensureProjectDependencies(projectRoot, { skipSharedDepsWarmup: true }));
 
   const envPathKey = pathEnvKey();
@@ -178,6 +183,7 @@ export async function runRuntimeVerification(
 
   if (runtimeAcceptanceFiles.length === 0) {
     lane.status = 'passed';
+    lane.acceptance = { status: 'passed', passed: [], failed: [], command: RUNTIME_VERIFICATION_COMMANDS.acceptance };
     return lane;
   }
 

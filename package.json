@@ -7,7 +7,6 @@
   "scripts": {
     "platform": "bun ./platform/cli/index.ts",
     "dev": "bun ./platform/dev-runner.ts",
-    "format": "bun ./platform/dev-runner.ts imports:organize",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
     "reference:refresh": "bun run platform -- resolve && bun run platform -- compose && bun run platform -- adapt && bun run platform -- verify --lane all && bun run platform -- lock && bun run platform -- explain",
     "demo:quickstart": "bun run platform -- init --reset && bun run reference:refresh",
@@ -24,12 +23,12 @@
     "test:budget": "bun run platform -- test budget --json",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
     "test:benchmark-contract": "bun run platform -- benchmark suite --json",
-    "test:architecture": "bun scripts/check-test-architecture.ts",
     "reference:check": "bun run platform -- reference check",
     "imports:check": "bun ./platform/dev-runner.ts imports:check",
     "imports:organize": "bun ./platform/dev-runner.ts imports:organize",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
-    "check": "bun run typecheck && bun run test",
+    "check": "bun run check:fast",
+    "check:fast": "bun run typecheck && bun run test",
     "check:changed": "bun run typecheck && bun run test:changed",
     "check:full": "bun run typecheck && bun run test:all"
   },
