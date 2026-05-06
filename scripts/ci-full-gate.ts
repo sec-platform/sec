@@ -1,18 +1,14 @@
 import { spawnSync } from 'node:child_process';
 
+import { selectCiFullGateSlowSuites } from '../platform/shared/ci-full-gate-selection.ts';
+import { slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
+
 type GateStep = {
   id: string;
   args: string[];
 };
 
-const broadImpactPatterns = [
-  /^package\.json$/,
-  /^bun\.lock$/,
-  /^platform\/orchestrator\.ts$/,
-  /^platform\/compiler\/(parse|resolve|compose|adapt)\//
-];
-
-const slowSuites = ['upgrade', 'runtime', 'pipeline', 'repair', 'registry', 'explain', 'other'];
+const slowSuites = slowTestSuiteIds();
 
 function changedFiles(): string[] | null {
   const baseRef = process.env.PJC_CHANGED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
@@ -27,11 +23,6 @@ function changedFiles(): string[] | null {
     .split(/\r?\n/u)
     .map((line) => line.trim().replace(/\\/g, '/'))
     .filter(Boolean);
-}
-
-function latestCommitHasBroadImpact(files: string[] | null): boolean {
-  if (!files) return true;
-  return files.some((file) => broadImpactPatterns.some((pattern) => pattern.test(file)));
 }
 
 function formatDuration(durationMs: number): string {
@@ -71,7 +62,11 @@ if (files) {
 }
 
 console.log('CI full gate: typecheck temporarily skipped pending full diagnostic log access.');
-const selectedSlowSuites = latestCommitHasBroadImpact(files) ? slowSuites : [];
+const slowSuiteSelection = selectCiFullGateSlowSuites(files);
+const selectedSlowSuites = slowSuiteSelection.suites;
+console.log(`CI full gate: slow suite selection reason ${slowSuiteSelection.reason}`);
+console.log(`CI full gate: affected owners [${slowSuiteSelection.owners.join(', ')}]`);
+console.log(`CI full gate: affected slow tests [${slowSuiteSelection.affectedSlowTests.join(', ')}]`);
 console.log(`CI full gate: slow suites run [${selectedSlowSuites.join(', ')}]`);
 console.log(`CI full gate: slow suites skipped [${slowSuites.filter((suite) => !selectedSlowSuites.includes(suite)).join(', ')}]`);
 
