@@ -114,7 +114,7 @@
     },
     "logs": {
       "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
-      "stderr": "$ next build --webpack\n$ bun test tests/runtime/unit\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [duration]\n$ playwright test --config playwright.config.ts\n"
+      "stderr": ""
     }
   },
   "summary": {
@@ -124,6 +124,6 @@
   },
   "logs": {
     "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
-    "stderr": "$ next build --webpack\n$ bun test tests/runtime/unit\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [duration]\n$ playwright test --config playwright.config.ts\n"
+    "stderr": ""
   }
 }

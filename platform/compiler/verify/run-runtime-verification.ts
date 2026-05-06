@@ -81,7 +81,9 @@ function appendCommandOutput(
   passedSummary: string
 ): void {
   logs.stdout += result.code === 0 ? `${passedSummary}\n` : result.stdout;
-  logs.stderr += normalizeRuntimeVerificationLog(result.stderr);
+  if (result.code !== 0) {
+    logs.stderr += normalizeRuntimeVerificationLog(result.stderr);
+  }
 }
 
 function relativeFiles(rootDir: string, files: string[]): string[] {
