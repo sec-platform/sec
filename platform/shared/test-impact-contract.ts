@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { Node, Project, SyntaxKind } from 'ts-morph';
+
 import { uniqueSorted } from './collections.ts';
 import { compilerRoot, posixPath } from './paths.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
@@ -155,25 +157,48 @@ function importCandidates(testFile: string, specifier: string): string[] {
   ];
 }
 
-function importSpecifiers(source: string): string[] {
-  const specifiers = new Set<string>();
-  const patterns = [
-    /import\s+[^'";]+\s+from\s+['"]([^'"]+)['"]/g,
-    /import\s+['"]([^'"]+)['"]/g,
-    /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-    /export\s+[^'";]+\s+from\s+['"]([^'"]+)['"]/g
-  ];
+const importParserProject = new Project({ skipAddingFilesFromTsConfig: true, useInMemoryFileSystem: true });
 
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1];
+function literalValue(node: Node | undefined): string | null {
+  if (!node) {
+    return null;
+  }
+  if (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)) {
+    return node.getLiteralValue();
+  }
+  return null;
+}
+
+function importSpecifiers(source: string, testFile: string): string[] {
+  const specifiers = new Set<string>();
+  const sourceFile = importParserProject.createSourceFile(testFile, source, { overwrite: true });
+
+  try {
+    for (const declaration of sourceFile.getImportDeclarations()) {
+      specifiers.add(declaration.getModuleSpecifierValue());
+    }
+
+    for (const declaration of sourceFile.getExportDeclarations()) {
+      const specifier = declaration.getModuleSpecifierValue();
       if (specifier) {
         specifiers.add(specifier);
       }
     }
-  }
 
-  return [...specifiers];
+    for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      if (call.getExpression().getKind() !== SyntaxKind.ImportKeyword) {
+        continue;
+      }
+      const specifier = literalValue(call.getArguments()[0]);
+      if (specifier) {
+        specifiers.add(specifier);
+      }
+    }
+
+    return [...specifiers];
+  } finally {
+    sourceFile.forget();
+  }
 }
 
 function readTestSource(testFile: string): string | null {
@@ -194,7 +219,7 @@ function testsReferencingSources(files: string[]): string[] {
       continue;
     }
 
-    for (const specifier of importSpecifiers(source)) {
+    for (const specifier of importSpecifiers(source, testFile)) {
       for (const candidate of importCandidates(testFile, specifier)) {
         if (sourceFiles.has(candidate)) {
           matchedTests.add(testFile);
