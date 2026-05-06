@@ -1,28 +1,29 @@
 # Test feedback and CI lane principles
 
-This document is the source of truth for local test feedback, PR fast validation, full validation, package script boundaries, and test contract ownership.
+This document is the source of truth for local test feedback, PR quick validation, PR risk validation, release/full validation, package script boundaries, and test contract ownership.
 
 ## Goals
 
-Local development should give fast feedback after a small edit without requiring developers to understand every package script or internal runner command. Pull requests should report useful failures quickly, avoid unrelated slow coverage, and keep logs mapped to a specific gate. Full validation should remain complete and preserve final correctness.
+Local development should give fast feedback after a small edit without requiring developers to understand every package script or internal runner command. Pull requests should report useful failures quickly, avoid unrelated slow coverage in the first response, and keep logs mapped to a specific gate. Release/full validation should remain complete and preserve final correctness.
 
 The target model is:
 
 ```text
 local development:
   edit code -> fast feedback
-  changed tests and affected tests selected automatically
+  affected tests selected automatically
   imports organized without manual cleanup
 
 PR / GitHub Actions:
-  small changes receive fast feedback
+  small changes receive quick feedback
   stale runs yield to newer commits
   import organization is automatic
-  slow e2e and unrelated full contracts do not block the fast lane
+  slow e2e and unrelated full contracts do not block the quick lane
+  risk-selected gates run after the quick lane
   failures identify the responsible gate
 
-full validation:
-  manual or scheduled lane keeps Windows, slow e2e, full contract-freeze,
+release/full validation:
+  manual or scheduled lane runs Linux preflight, slow-suite matrix,
   full verify, reference drift, and benchmark contracts
 ```
 
@@ -33,57 +34,70 @@ full validation:
 Use local commands for tight feedback:
 
 ```text
-bun run check:changed
-bun run test:changed
+bun run check:affected
+bun run test:affected
 bun run imports:organize
 bun run imports:check
 ```
 
-`test:changed` uses a changed-tests base. In CI this defaults to `HEAD^1`; locally it may fall back to the provided changed base. It must not require developers to manually enumerate test files.
+`test:affected` uses an affected-tests base. In CI this defaults to `HEAD^1`; locally it may fall back to the provided diff base. It must not require developers to manually enumerate test files.
 
-### PR fast lane
+### PR quick lane
 
-The PR fast lane is optimized for signal speed, not exhaustive coverage:
+The PR quick lane is optimized for signal speed, not exhaustive coverage:
 
 ```text
-PR fast lane:
+PR quick lane:
   Ubuntu runner
   bun install --frozen-lockfile
   changed-only import organizer
-  PR fast gate
-  PR-wide contract/workspace selectors
-  latest-commit changed-tests selector
+  bun scripts/ci-pr-quick.ts
+    typecheck
+    test:affected
+  latest-commit affected-tests selector
 ```
 
-The PR fast lane must not run slow e2e by default. If a changed source maps only to slow coverage, the lane emits a notice and full/manual/scheduled validation owns the slow run.
+The PR quick lane must not run slow e2e by default. If a changed source maps only to slow coverage, the lane emits a notice and release/full validation owns the slow run.
 
-The PR fast lane must not use broad fast-suite fallback unless explicitly requested with:
+The PR quick lane must not use broad fast-suite fallback unless explicitly requested with:
 
 ```text
-PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1
+PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1
 ```
 
 Unmapped source changes should produce a clear notice instead of expanding into unrelated slow or broad validation.
 
-### Full lane
+### PR risk lane
 
-The full lane is the correctness backstop:
+The PR risk lane runs after the quick lane and owns broader PR-impact checks without becoming release/full validation:
 
 ```text
-Full lane:
-  Windows runner
-  full typecheck
-  full contract-freeze
-  slow e2e by suite (upgrade, runtime, pipeline, repair, registry, explain, other)
-  benchmark contract
-  runtime dependency warmup when needed
-  resolve / compose / adapt
-  verify --lane all
-  lock / explain
-  reference check
+PR risk lane:
+  Ubuntu runner
+  bun install --frozen-lockfile
+  bun scripts/ci-pr-risk.ts
+    contract-freeze
+    impact-selected slow suite or slow test files
+    workspace-fast
 ```
 
-Full lane runs through `workflow_dispatch` and schedule. Each slow suite runs as a separate step for diagnosability and stable ownership. See [slow-suite-registry.md](slow-suite-registry.md) for suite ids and full lane sharding details.
+The PR risk lane uses the PR-wide diff base for contract/workspace risk. It must not unconditionally run every slow suite or `verify --lane all`.
+
+### Release/full lane
+
+The release/full lane is the correctness backstop:
+
+```text
+release/full lane:
+  Ubuntu runner
+  preflight: imports organize, typecheck, test budget, contract-freeze
+  slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other
+  workspace: benchmark contract, deps warmup, resolve, compose, adapt,
+             verify --lane all, lock, explain, reference check
+  summary: fail if any preflight, slow-suite, or workspace job failed
+```
+
+Release/full validation runs through `workflow_dispatch`, schedule, or the PR `run-full` label. Slow suites run in a matrix for wall-clock speed while keeping stable suite ownership. See [slow-suite-registry.md](slow-suite-registry.md) for suite IDs and release/full lane sharding details.
 
 ## Diff base rules
 
@@ -94,12 +108,12 @@ PJC_CHANGED_BASE:
   PR-wide base for contract-freeze and workspace risk selectors.
   This prevents early contract-impact commits from being lost.
 
-PJC_CHANGED_TESTS_BASE:
-  latest-commit base for changed-tests feedback.
+PJC_AFFECTED_TESTS_BASE:
+  latest-commit base for affected-tests feedback.
   This prevents a large PR diff from expanding every small follow-up commit into many unrelated tests.
 ```
 
-Never use only `HEAD^1..HEAD` for contract/workspace risk. Never use the entire PR diff as the default changed-tests base.
+Never use only `HEAD^1..HEAD` for contract/workspace risk. Never use the entire PR diff as the default affected-tests base.
 
 ## Contract-freeze rules
 
@@ -125,7 +139,7 @@ changed narrow contract test -> targeted contract-freeze
 no contract-impact files -> skip contract-freeze
 ```
 
-Full lane behavior:
+Release/full lane behavior:
 
 ```text
 always run full contract-freeze
@@ -139,8 +153,8 @@ When a new contract test file is added, it must also be added to the contract-fr
 
 ```text
 1. Changed test files:
-   run the changed fast test files directly;
-   changed slow tests produce a PR notice and are covered by full/manual/scheduled lanes.
+   run changed fast test files directly;
+   changed slow tests produce a PR notice and are covered by release/full lanes.
 
 2. Automatic source references:
    scan test files for relative imports and literal repository paths that point at changed source files;
@@ -159,11 +173,11 @@ platform/compiler/upgrade/** -> upgrade integration tests plus slow upgrade noti
 platform/compiler/verify/** -> verification unit/integration tests plus slow verification notices
 ```
 
-Rules should be product contracts, not incidental implementation details. A missing mapping must not expand PR fast lane into unrelated broad or slow coverage. It should produce a notice and rely on full validation.
+Rules should be product contracts, not incidental implementation details. A missing mapping must not expand PR quick lane into unrelated broad or slow coverage. It should produce a notice and rely on release/full validation.
 
 ## Slow e2e rules
 
-Slow e2e tests are valuable. They are not PR fast lane defaults.
+Slow e2e tests are valuable. They are not PR quick lane defaults.
 
 Slow e2e failures should be triaged as either:
 
@@ -172,7 +186,7 @@ real implementation regression -> fix implementation
 stale expectation after intended behavior change -> update assertion to the new observable contract
 ```
 
-Do not delete slow tests merely to make CI green. Do not move slow e2e into PR fast lane.
+Do not delete slow tests merely to make CI green. Do not move slow e2e into PR quick lane.
 
 ## Package script boundary
 
@@ -185,16 +199,17 @@ Recommended package script shape:
   "platform": "bun ./platform/cli/index.ts",
   "dev": "bun ./platform/dev-runner.ts",
   "typecheck": "bun ./platform/dev-runner.ts typecheck",
-  "test": "bun ./platform/dev-runner.ts test:fast",
-  "test:changed": "bun ./platform/dev-runner.ts test:changed",
+  "test": "bun run test:fast",
+  "test:affected": "bun ./platform/dev-runner.ts test:affected",
+  "test:fast": "bun ./platform/dev-runner.ts test:fast",
   "test:slow": "bun ./platform/dev-runner.ts test:slow",
-  "test:all": "bun ./platform/dev-runner.ts test",
+  "test:full": "bun ./platform/dev-runner.ts test",
   "test:watch": "bun ./platform/dev-runner.ts test:fast --watch",
   "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
   "check": "bun run check:fast",
-  "check:fast": "bun run typecheck && bun run test",
-  "check:changed": "bun run typecheck && bun run test:changed",
-  "check:full": "bun run typecheck && bun run test:all",
+  "check:affected": "bun run typecheck && bun run test:affected",
+  "check:fast": "bun run typecheck && bun run test:fast",
+  "check:full": "bun run typecheck && bun run test:full",
   "imports:organize": "bun ./platform/dev-runner.ts imports:organize",
   "imports:check": "bun ./platform/dev-runner.ts imports:check"
 }
@@ -207,14 +222,14 @@ Avoid exposing every internal runner command in `package.json`. Complex orchestr
 Every gate must identify itself before running and report its duration:
 
 ```text
-CI PR gate: typecheck started
-CI PR gate: typecheck finished with exit code 0 in 1.23s
-CI PR gate: contract-freeze started
-CI PR gate: contract-freeze finished with exit code 0 in 4.56s
-CI PR gate: test:changed started
-CI PR gate: test:changed finished with exit code 0 in 0.78s
-CI PR gate: fast-workspace-gate started
-CI PR gate: fast-workspace-gate finished with exit code 0 in 2.34s
+CI PR quick: typecheck started
+CI PR quick: typecheck finished with exit code 0 in 1.23s
+CI PR quick: affected-tests started
+CI PR quick: affected-tests finished with exit code 0 in 0.78s
+CI PR risk: contract-freeze started
+CI PR risk: contract-freeze finished with exit code 0 in 4.56s
+CI PR risk: workspace-fast started
+CI PR risk: workspace-fast finished with exit code 0 in 2.34s
 ```
 
 GitHub Actions logs should group each gate with `::group::` / `::endgroup::`, so failures can be opened directly at the responsible gate. Failures should include gate id, exit code, duration, and selector reason when available.
@@ -238,5 +253,6 @@ bun run typecheck
 bun test tests/contract/contracts.test.ts --test-name-pattern "CLI exposes contract freeze target list as text and JSON contracts"
 bun test tests/contract/ci-lanes.test.ts
 bun test tests/integration/project-runtime.test.ts --test-name-pattern "fast test runner excludes slow files and skips runtime deps setup"
-bun scripts/ci-pr-gate.ts
+bun scripts/ci-pr-quick.ts
+bun scripts/ci-pr-risk.ts
 ```

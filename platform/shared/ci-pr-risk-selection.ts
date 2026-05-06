@@ -2,7 +2,7 @@ import { uniqueSorted } from './collections.ts';
 import { getSlowTestSuitesSync, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds } from './test-budget-contract.ts';
 import { selectTestsForSources } from './test-impact-contract.ts';
 
-type CiFullGateSlowSuiteSelection = {
+type CiPrRiskSlowSuiteSelection = {
   suites: string[];
   slowTests: string[];
   affectedSlowTests: string[];
@@ -33,7 +33,7 @@ function suitesForSlowTests(slowTests: string[]): string[] {
   );
 }
 
-export function selectCiFullGateSlowSuites(files: string[] | null): CiFullGateSlowSuiteSelection {
+export function selectCiPrRiskSlowSuites(files: string[] | null): CiPrRiskSlowSuiteSelection {
   if (!files) {
     return { suites: allSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: [], reason: 'all' };
   }

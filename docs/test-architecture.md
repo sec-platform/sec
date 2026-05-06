@@ -18,22 +18,22 @@ This repository uses a tiered test model designed for fast local feedback, stabl
 4. `imports:check` is non-mutating. Use `imports:organize` to fix files locally.
 5. CI installs use `bun install --frozen-lockfile`.
 6. Slow e2e tests have explicit timeouts and are never part of `contract-freeze`.
-7. `test:changed` uses `platform/shared/test-impact-contract.ts` to select affected fast/integration tests and only reports slow impact.
+7. `test:affected` uses `platform/shared/test-impact-contract.ts` to select affected fast/integration tests and only reports slow impact.
 8. `test:slow` is the explicit slow runner; use `--suite <name>` for targeted full-runtime suites.
 9. Golden helpers live in `tests/helpers/golden-helpers.ts` and should be used only for stable protocol JSON, not timestamps or raw stdout.
 10. Scenario and semantic matcher helpers should reduce repeated workspace setup and hardcoded object assertions.
-11. CI separates PR fast gates from scheduled/release full gates.
+11. CI separates PR quick, PR risk, and scheduled/release full gates.
 
 ## Commands
 
 - `bun run test`: fast lane.
-- `bun run test:changed`: changed/affected fast feedback.
+- `bun run test:affected`: affected fast feedback.
 - `bun run test:contract-freeze`: fast protocol freeze.
 - `bun run test:slow`: slow e2e only.
-- `bun run test:all`: fast + slow.
+- `bun run test:full`: fast + slow.
 - `bun run check`: local PR gate.
 - `bun run check:full`: release/full gate.
 
 ## Ownership map
 
-`platform/shared/test-impact-contract.ts` is the source of truth for source-to-test ownership. Add new source domains there before adding broad fallback behavior to `test:changed`.
+`platform/shared/test-impact-contract.ts` is the source of truth for source-to-test ownership. Add new source domains there before adding broad fallback behavior to `test:affected`.

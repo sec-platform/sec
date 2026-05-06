@@ -1,4 +1,4 @@
-name: compiler-ci
+name: compiler-validation
 
 on:
   pull_request:
@@ -24,10 +24,10 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   PJC_CHANGED_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^1' }}
-  PJC_CHANGED_TESTS_BASE: HEAD^1
+  PJC_AFFECTED_TESTS_BASE: HEAD^1
 
 jobs:
-  compiler-ci:
+  compiler-pr-quick:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'labeled')
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -84,16 +84,16 @@ jobs:
             fi
           fi
 
-      - name: PR fast gate
+      - name: PR quick gate
         if: steps.import_commit.outputs.changed != 'true'
         timeout-minutes: 12
-        run: bun scripts/ci-pr-gate.ts
+        run: bun scripts/ci-pr-quick.ts
 
-  compiler-pr-full:
+  compiler-pr-risk:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'labeled')
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: compiler-ci
+    needs: compiler-pr-quick
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -109,10 +109,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: PR full gate
-        run: bun scripts/ci-full-gate.ts
+      - name: PR risk gate
+        run: bun scripts/ci-pr-risk.ts
 
-  compiler-full-preflight:
+  compiler-release-preflight:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -143,11 +143,11 @@ jobs:
       - name: Contract freeze
         run: bun run test:contract-freeze
 
-  compiler-full-slow:
+  compiler-release-slow:
     if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
-    needs: compiler-full-preflight
+    needs: compiler-release-preflight
     strategy:
       fail-fast: false
       matrix:
@@ -170,11 +170,11 @@ jobs:
       - name: Slow e2e suite
         run: bun run test:slow -- --suite ${{ matrix.suite }}
 
-  compiler-full-workspace:
+  compiler-release-workspace:
     if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
-    needs: compiler-full-preflight
+    needs: compiler-release-preflight
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -226,22 +226,22 @@ jobs:
         if: always()
         run: bun run platform -- reference check --json --compact
 
-  compiler-full:
+  compiler-release-full:
     if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs:
-      - compiler-full-preflight
-      - compiler-full-slow
-      - compiler-full-workspace
+      - compiler-release-preflight
+      - compiler-release-slow
+      - compiler-release-workspace
     steps:
       - name: Full validation summary
         shell: pwsh
         run: |
           $failedJobs = @()
-          if ('${{ needs.compiler-full-preflight.result }}' -ne 'success') { $failedJobs += 'preflight' }
-          if ('${{ needs.compiler-full-slow.result }}' -ne 'success') { $failedJobs += 'slow suites' }
-          if ('${{ needs.compiler-full-workspace.result }}' -ne 'success') { $failedJobs += 'workspace' }
+          if ('${{ needs.compiler-release-preflight.result }}' -ne 'success') { $failedJobs += 'preflight' }
+          if ('${{ needs.compiler-release-slow.result }}' -ne 'success') { $failedJobs += 'slow suites' }
+          if ('${{ needs.compiler-release-workspace.result }}' -ne 'success') { $failedJobs += 'workspace' }
 
           if ($failedJobs.Count -gt 0) {
             Write-Error "Full validation failed: $($failedJobs -join ', ')"
