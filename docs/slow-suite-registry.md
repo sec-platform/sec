@@ -1,6 +1,6 @@
 # Slow suite registry
 
-Slow e2e tests are valuable full-validation coverage. They are not PR fast-lane defaults.
+Slow e2e tests are valuable release/full validation coverage. They are not PR quick lane defaults.
 
 The slow lane uses a suite registry instead of ad hoc filename filtering. Each suite has a stable id, owner, timeout budget, and file list derived from the discovered slow test files.
 
@@ -57,13 +57,13 @@ other:
 ## Lane ownership
 
 ```text
-PR fast lane:
+PR quick lane:
   report affected slow files or suites as notices
   do not run slow e2e by default
 
-Full/manual/scheduled lane:
+Release/full lane:
   run slow suites for real
-  may shard by suite id later
+  shard by suite id through the CI matrix
 ```
 
 ## Full lane sharding
