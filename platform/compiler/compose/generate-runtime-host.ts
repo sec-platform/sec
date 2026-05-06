@@ -2000,15 +2000,18 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByLabel('Ticket assignee').fill('support-owner');
   await page.getByLabel('Ticket description').fill('Customer cannot finish setup');
   await page.getByLabel('Ticket due date').fill('2026-04-20');
+  const createTicketResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/tickets' && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Create Ticket' }).click();
-  await page.waitForLoadState('networkidle');${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
+  expect((await createTicketResponse).ok()).toBe(true);${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
   const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
   await expect(createdTicket).toContainText('open');${attachmentAssertions}${worklogAssertions}
 
   await page.getByLabel('Ticket title').fill('Prepare renewal checklist');
   await page.getByLabel('Ticket assignee').fill('renewal-owner');
   await page.getByLabel('Ticket due date').fill('2026-05-01');
+  const createRenewalTicketResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/tickets' && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Create Ticket' }).click();
+  expect((await createRenewalTicketResponse).ok()).toBe(true);
   await expect(ticketItems).toHaveCount(2);
 
   await page.getByLabel('Assignee filter').selectOption('support-owner');
