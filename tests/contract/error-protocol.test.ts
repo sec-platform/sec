@@ -6,8 +6,8 @@ import {
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import { expectErrorProtocolSelfConsistent } from '../testkit/contracts.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI exposes error protocol as text and JSON contracts', async () => {
   const contract = buildErrorProtocolContract();

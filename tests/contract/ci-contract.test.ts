@@ -8,15 +8,15 @@ import {
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { buildCiContract, formatCiContract } from '../../platform/shared/ci-contract.ts';
 import { slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
-import { expectCliVariants } from '../testkit/cli.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { expectCliVariants } from '../testkit/cli.ts';
 import {
   expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
   expectFullLaneCoversSlowSuites,
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI exposes CI command contract as text and JSON contracts', async () => {
   const contract = buildCiContract();
