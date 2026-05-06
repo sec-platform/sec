@@ -112,10 +112,10 @@ jobs:
       - name: PR full gate
         run: bun scripts/ci-full-gate.ts
 
-  compiler-full:
+  compiler-full-preflight:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full')
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -143,47 +143,52 @@ jobs:
       - name: Contract freeze
         run: bun run test:contract-freeze
 
-      - name: Slow e2e suite upgrade
-        id: slow_upgrade
-        if: always()
-        continue-on-error: true
-        run: bun run test:slow -- --suite upgrade
+  compiler-full-slow:
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: compiler-full-preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [upgrade, runtime, pipeline, repair, registry, explain, other]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
-      - name: Slow e2e suite runtime
-        id: slow_runtime
-        if: always()
-        continue-on-error: true
-        run: bun run test:slow -- --suite runtime
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
 
-      - name: Slow e2e suite pipeline
-        id: slow_pipeline
-        if: always()
-        continue-on-error: true
-        run: bun run test:slow -- --suite pipeline
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Slow e2e suite repair
-        id: slow_repair
-        if: always()
-        continue-on-error: true
-        run: bun run test:slow -- --suite repair
+      - name: Slow e2e suite
+        run: bun run test:slow -- --suite ${{ matrix.suite }}
 
-      - name: Slow e2e suite registry
-        id: slow_registry
-        if: always()
-        continue-on-error: true
-        run: bun run test:slow -- --suite registry
+  compiler-full-workspace:
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: compiler-full-preflight
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
-      - name: Slow e2e suite explain
-        id: slow_explain
-        if: always()
-        continue-on-error: true
-        run: bun run test:slow -- --suite explain
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
 
-      - name: Slow e2e suite other
-        id: slow_other
-        if: always()
-        continue-on-error: true
-        run: bun run test:slow -- --suite other
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Benchmark task suite contract
         if: always()
@@ -221,21 +226,25 @@ jobs:
         if: always()
         run: bun run platform -- reference check --json --compact
 
+  compiler-full:
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - compiler-full-preflight
+      - compiler-full-slow
+      - compiler-full-workspace
+    steps:
       - name: Full validation summary
-        if: always()
         shell: pwsh
         run: |
-          $failedSlowSuites = @()
-          if ('${{ steps.slow_upgrade.outcome }}' -eq 'failure') { $failedSlowSuites += 'upgrade' }
-          if ('${{ steps.slow_runtime.outcome }}' -eq 'failure') { $failedSlowSuites += 'runtime' }
-          if ('${{ steps.slow_pipeline.outcome }}' -eq 'failure') { $failedSlowSuites += 'pipeline' }
-          if ('${{ steps.slow_repair.outcome }}' -eq 'failure') { $failedSlowSuites += 'repair' }
-          if ('${{ steps.slow_registry.outcome }}' -eq 'failure') { $failedSlowSuites += 'registry' }
-          if ('${{ steps.slow_explain.outcome }}' -eq 'failure') { $failedSlowSuites += 'explain' }
-          if ('${{ steps.slow_other.outcome }}' -eq 'failure') { $failedSlowSuites += 'other' }
+          $failedJobs = @()
+          if ('${{ needs.compiler-full-preflight.result }}' -ne 'success') { $failedJobs += 'preflight' }
+          if ('${{ needs.compiler-full-slow.result }}' -ne 'success') { $failedJobs += 'slow suites' }
+          if ('${{ needs.compiler-full-workspace.result }}' -ne 'success') { $failedJobs += 'workspace' }
 
-          if ($failedSlowSuites.Count -gt 0) {
-            Write-Error "Slow e2e suites failed: $($failedSlowSuites -join ', ')"
+          if ($failedJobs.Count -gt 0) {
+            Write-Error "Full validation failed: $($failedJobs -join ', ')"
             exit 1
           }
 
