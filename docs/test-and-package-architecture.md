@@ -11,7 +11,9 @@ The project optimizes for four engineering properties:
 3. **Explicit contracts**: external CLI/JSON/error/CI behavior is frozen through contract-derived invariants.
 4. **Small public command surface**: `package.json` should expose daily commands only; internal maintenance commands belong in `platform` or `dev-runner`.
 
-## Test architecture: final 11-part design
+## Test architecture: final 4/4/5/3 design
+
+`docs/test-architecture.md` is the authoritative compact model: 4 entry flows, 4 test layers, 5 fact sources, 3 thin testkit primitives, and 0 new test libraries. This document keeps the package-script policy and detailed migration context aligned to that model.
 
 ### 1. Contract-derived standards
 
@@ -153,7 +155,7 @@ expectSortedUnique(contract.targetFiles);
 expectNoPathPrefix(contract.targetFiles, 'tests/e2e/');
 ```
 
-The goal is to reduce test code volume by moving repeated patterns into `tests/helpers/*`.
+The goal is to reduce test code volume by moving repeated contract, CLI, and workspace execution patterns into the three thin `tests/testkit/*` primitives instead of growing a broad helper framework.
 
 ### 7. CI lanes
 
@@ -228,15 +230,11 @@ During the transition, PR CI may run remote `imports:organize` and commit format
 
 ### 10. Test code volume reduction
 
-Repeated test boilerplate should be collapsed into helpers for:
+Repeated test boilerplate should be collapsed into the three testkit primitives:
 
-- CLI text / JSON / compact JSON variants
-- workspace scenario setup
-- artifact readback
-- repair plan semantics
-- upgrade plan semantics
-- coverage/provenance summaries
-- contract invariant checks
+- `tests/testkit/contracts.ts` for contract invariant checks
+- `tests/testkit/cli.ts` for CLI text / JSON / compact JSON variants
+- `tests/testkit/workspace.ts` for workspace scenario setup, artifact paths, and report parsing
 
 A healthy target is that most contract/integration tests read as:
 
