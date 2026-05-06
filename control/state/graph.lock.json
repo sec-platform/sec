@@ -142,14 +142,19 @@
       "kind": "adapter",
       "inputType": "CustomerInput",
       "outputType": "NormalizedCustomerInput",
-      "status": "filled",
+      "status": "verified",
       "writableZones": [
         "source/code/slots/customer_normalizer.ts",
         "custom/"
       ],
       "provenanceHints": {
         "generator": "mock-local-synthesizer",
-        "verifiedBy": []
+        "verifiedBy": [
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/unit/customer-normalizer.test.ts"
+        ]
       }
     }
   ],
@@ -171,8 +176,18 @@
     "control/evidence/block-usage-map.json",
     "control/evidence/install-manifest.json",
     "control/evidence/policy-report.json",
+    "control/evidence/review-summary.json",
     "control/evidence/runtime-report.json",
     "control/evidence/verification-report.json",
+    "control/graph/explain-graph.dot",
+    "control/graph/explain-graph.json",
+    "control/graph/explain-graph.mmd",
+    "control/provenance/provenance.json",
+    "control/workbench/views/graph-view.html",
+    "control/workbench/views/overview-view.html",
+    "control/workbench/views/review-view.html",
+    "control/workbench/views/slot-rule-view.html",
+    "control/workbench/views/source-view.html",
     "generated/routes.ts",
     "lib/session.ts",
     "lib/store.ts",
@@ -195,9 +210,9 @@
     "resolve": "succeeded",
     "compose": "succeeded",
     "adapt": "succeeded",
-    "verify": "pending",
+    "verify": "succeeded",
     "repair": "skipped",
-    "lock": "pending",
-    "emit": "pending"
+    "lock": "succeeded",
+    "emit": "succeeded"
   }
 }
