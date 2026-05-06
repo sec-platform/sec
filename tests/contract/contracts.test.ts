@@ -292,17 +292,25 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
 test('GitHub compiler CI workflow covers CI command contract gates', async () => {
   const workflow = await readCompilerFile('.github/workflows/compiler-ci.yml');
   const contract = buildCiContract();
+  const slowSuiteIds = slowTestSuiteIds();
+  const slowSuiteCommands = slowSuiteIds.map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
+  const fullLaneCommandsMaterializedInWorkflow = contract.fullLaneCommands.filter(
+    (command) => !slowSuiteCommands.includes(command)
+  );
 
   const missingPrFastLaneCommands = contract.prFastLaneCommands.filter(
     (command) => !workflow.includes(command)
   );
 
-  const missingFullLaneCommands = contract.fullLaneCommands.filter(
+  const missingFullLaneCommands = fullLaneCommandsMaterializedInWorkflow.filter(
     (command) => !workflow.includes(command)
   );
 
   expect(missingPrFastLaneCommands).toEqual([]);
   expect(missingFullLaneCommands).toEqual([]);
+  expect(contract.fullLaneCommands).toEqual(expect.arrayContaining(slowSuiteCommands));
+  expect(workflow).toContain(`suite: [${slowSuiteIds.join(', ')}]`);
+  expect(workflow).toContain('bun run test:slow -- --suite ${{ matrix.suite }}');
 
   expect(workflow).not.toContain('# bun run platform -- verify --json --compact');
   expect(workflow).not.toContain('# bun run imports:check');
