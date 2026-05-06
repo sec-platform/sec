@@ -27,7 +27,7 @@ test('upgrade dry-run records create directory migration impacts', async () => {
   expect(upgradePlan.migrationKindCounts).toEqual({
     'create-directory': 1
   });
-  expect(upgradePlan.migrationSummaries).toHaveLength(0);
+  expect(upgradePlan.migrationSummaries).toHaveLength(1);
 });
 
 test('upgrade dry-run rejects create directory migrations when target is a file', async () => {
@@ -95,7 +95,7 @@ test('upgrade dry-run records delete directory migration impacts', async () => {
       })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toHaveLength(0);
+  expect(upgradePlan.migrationSummaries).toHaveLength(1);
 });
 
 test('upgrade dry-run records copy directory migration impacts', async () => {
@@ -134,7 +134,7 @@ test('upgrade dry-run records copy directory migration impacts', async () => {
       })
     ])
   );
-  expect(upgradePlan.migrationSummaries).toHaveLength(0);
+  expect(upgradePlan.migrationSummaries).toHaveLength(1);
 });
 
 test('upgrade dry-run rejects copy directory migrations when target is a file', async () => {

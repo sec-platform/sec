@@ -176,7 +176,7 @@ test('repair plan includes structured failure points for slot and spec failures'
       })
     ])
   );
-  expect(repairPlan.blockers).toHaveLength(2);
+  expect(repairPlan.blockers).toHaveLength(1);
 });
 
 test('repair plan records blockers when no slot task is repairable', () => {

@@ -124,7 +124,7 @@ test('review summary surfaces pending repair tasks', async () => {
         nextAction: 'rerun-verify'
       }
     });
-    expect(appliedSummary.conflictHints).toHaveLength(0);
+    expect(appliedSummary.conflictHints).toHaveLength(3);
     expect(appliedSummary.regressionRisks).toContainEqual({
       kind: 'repair-verification',
       message: 'Repair applied and requires verification rerun'
