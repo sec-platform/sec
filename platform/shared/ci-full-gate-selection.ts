@@ -12,7 +12,9 @@ type CiFullGateSlowSuiteSelection = {
 const ALL_SLOW_SUITE_PATTERNS = [
   /^package\.json$/,
   /^bun\.lock$/,
-  /^platform\/orchestrator\.ts$/
+  /^platform\/orchestrator\.ts$/,
+  /^tests\/helpers\//,
+  /^tests\/setup\//
 ];
 
 function sourceFileChanged(file: string): boolean {
