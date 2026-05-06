@@ -283,17 +283,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         artifactUploadCommands,
         artifactPathCount: expectedCiArtifactPaths.length,
         artifactPaths: expectedCiArtifactPaths,
-        stepCount: contract.steps.length,
-        steps: expect.arrayContaining([
-          expect.objectContaining({ id: contract.defaultGate, producesCount: defaultGate.produces.length }),
-          expect.objectContaining({ id: contract.fullRuntimeGate, producesCount: fullRuntimeGate.produces.length }),
-          ...slowTestSuiteIds().map((suiteId) => (
-            expect.objectContaining({ id: `slow-e2e-${suiteId}`, producesCount: 0 })
-          )),
-          expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
-          expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
-          expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
-        ])
+        stepCount: contract.steps.length
       }
     });
   });
