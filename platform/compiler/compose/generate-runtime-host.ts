@@ -1783,6 +1783,10 @@ function renderRuntimeAcceptanceTest(options: {
   await expect(page.getByText('Authorization: allowed')).toBeVisible();
   await expect(page.getByText('Cross-tenant check: tenant-mismatch')).toBeVisible();
 `);
+  const customerWorkspacePrelude = renderOptional(options.rbacEnabled, `
+  await page.goto('/workspace');
+  await expect(page).toHaveURL(/\\/workspace$/);${workspaceAssertions}
+`);
   const customerSteps = renderOptionalSnippets([
     [options.fileUploadEnabled, `
   await page.getByLabel('Attachment for Acme').setInputFiles({
@@ -1821,11 +1825,8 @@ async function signIn(page: Page, username: string): Promise<void> {
 test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   test.setTimeout(60000);
 
-  await signIn(page, 'tenant-a-admin');
-  await page.goto('/workspace');
-  await expect(page).toHaveURL(/\\/workspace$/);${workspaceAssertions}
-
-  await page.getByRole('link', { name: '/customers' }).click();
+  await signIn(page, 'tenant-a-admin');${customerWorkspacePrelude}
+  await page.goto('/customers');
   await expect(page).toHaveURL(/\\/customers$/);
   const customerList = page.getByRole('list', { name: 'Customers' });
   await page.getByLabel('Name', { exact: true }).fill('Acme');
@@ -1833,13 +1834,12 @@ test('customer runtime flow keeps tenant data isolated', async ({ page }) => {
   await page.getByLabel('Phone', { exact: true }).fill('400-800-9000');
   await page.getByLabel('Company', { exact: true }).fill('');
   await page.getByRole('button', { name: 'Create Customer' }).click();
+  await page.waitForLoadState('networkidle');
   const createdCustomer = customerList.getByRole('listitem').filter({ hasText: 'Acme' });
   await expect(createdCustomer).toHaveCount(1);${customerSteps}
   await page.request.post('/api/session/logout');
   await signIn(page, 'tenant-b-admin');
-  await page.goto('/workspace');
-  await expect(page).toHaveURL(/\\/workspace$/);
-  await page.getByRole('link', { name: '/customers' }).click();
+  await page.goto('/customers');
   await expect(page).toHaveURL(/\\/customers$/);
   await expect(customerList.getByRole('listitem').filter({ hasText: 'Acme' })).toHaveCount(0);${tenantBAssertions}
 });
@@ -1992,10 +1992,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   test.setTimeout(60000);
 
   await signIn(page, 'tenant-a-admin');
-  await page.goto('/workspace');
-  await expect(page).toHaveURL(/\\/workspace$/);
-
-  await page.getByRole('link', { name: '/tickets' }).click();
+  await page.goto('/tickets');
   await expect(page).toHaveURL(/\\/tickets$/);
   const ticketList = page.getByRole('list', { name: 'Tickets' });
   const ticketItems = ticketList.locator(':scope > li');
@@ -2003,7 +2000,8 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByLabel('Ticket assignee').fill('support-owner');
   await page.getByLabel('Ticket description').fill('Customer cannot finish setup');
   await page.getByLabel('Ticket due date').fill('2026-04-20');
-  await page.getByRole('button', { name: 'Create Ticket' }).click();${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
+  await page.getByRole('button', { name: 'Create Ticket' }).click();
+  await page.waitForLoadState('networkidle');${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
   const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
   await expect(createdTicket).toContainText('open');${attachmentAssertions}${worklogAssertions}
 
@@ -2030,8 +2028,8 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
 
   await page.request.post('/api/session/logout');
   await signIn(page, 'tenant-b-admin');
-  await page.goto('/workspace');
-  await page.getByRole('link', { name: '/tickets' }).click();
+  await page.goto('/tickets');
+  await expect(page).toHaveURL(/\\/tickets$/);
   await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(0);
   const tenantBAttachmentResponse = await page.request.get('/api/tickets/1/attachments');
   expect(tenantBAttachmentResponse.status()).toBe(400);

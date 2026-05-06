@@ -42,10 +42,12 @@ function expectMigrationArtifactsToMatchPlan(plan: UpgradeMigrationArtifacts): v
   expect([...summariesById.keys()].sort()).toEqual(plan.migrationOperations.map((operation) => operation.id).sort());
   for (const operation of plan.migrationOperations) {
     const summary = summariesById.get(operation.id);
-    expect(summary).toBeDefined();
-    expect(operation.target).toBe(summary?.target);
-    if (summary?.slotId !== undefined || operation.slotId !== undefined) {
-      expect(operation.slotId).toBe(summary?.slotId);
+    if (!summary) {
+      throw new Error(`Missing migration summary for ${operation.id}`);
+    }
+    expect(operation.target).toBe(summary.target);
+    if (summary.slotId !== undefined || operation.slotId !== undefined) {
+      expect(operation.slotId).toBe(summary.slotId);
     }
   }
 }
