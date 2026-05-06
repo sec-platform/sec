@@ -90,8 +90,8 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
     contractFreezeTarget(
       'tests/contract/ci-lanes.test.ts',
       [
-        'CI contract separates PR quick lane commands from release full lane commands',
-        'CI contract command counts match their command arrays',
+        'CI contract keeps PR lanes fast and full lane complete',
+        'CI contract counts and produced paths are self-consistent',
         'CI contract text exposes lane command split for workflow audits',
         'CI PR risk gate selects slow suites from the test impact contract',
         'CI PR risk gate keeps repository-wide changes on all slow suites',
@@ -99,12 +99,19 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
-      'tests/contract/contracts.test.ts',
+      'tests/contract/contract-freeze.test.ts',
+      'CLI exposes contract freeze target list as text and JSON contracts'
+    ),
+    contractFreezeTarget(
+      'tests/contract/ci-contract.test.ts',
       [
-        'CLI exposes contract freeze target list as text and JSON contracts',
         'CLI exposes CI command contract as text and JSON contracts',
-        'CLI exposes error protocol as text and JSON contracts'
+        'GitHub compiler CI workflow covers CI command contract gates'
       ].join('|')
+    ),
+    contractFreezeTarget(
+      'tests/contract/error-protocol.test.ts',
+      'CLI exposes error protocol as text and JSON contracts'
     ),
     contractFreezeTarget(
       'tests/integration/review.test.ts',
