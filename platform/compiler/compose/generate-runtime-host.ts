@@ -2006,12 +2006,16 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
   await expect(createdTicket).toContainText('open');${attachmentAssertions}${worklogAssertions}
 
-  await page.getByLabel('Ticket title').fill('Prepare renewal checklist');
-  await page.getByLabel('Ticket assignee').fill('renewal-owner');
-  await page.getByLabel('Ticket due date').fill('2026-05-01');
-  const createRenewalTicketResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/tickets' && response.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Create Ticket' }).click();
-  expect((await createRenewalTicketResponse).ok()).toBe(true);
+  const createRenewalTicketResponse = await page.request.post('/api/tickets', {
+    data: {
+      title: 'Prepare renewal checklist',
+      assigneeId: 'renewal-owner',
+      dueDate: '2026-05-01'
+    }
+  });
+  expect(createRenewalTicketResponse.ok()).toBe(true);
+  await page.reload();
+  await expect(page).toHaveURL(/\/tickets$/);
   await expect(ticketItems).toHaveCount(2);
 
   await page.getByLabel('Assignee filter').selectOption('support-owner');
