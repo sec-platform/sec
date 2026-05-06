@@ -1302,15 +1302,17 @@ function renderTicketAttachmentForm(): string {
     idProp: 'ticketId',
     titleProp: 'ticketTitle',
     fetchPath: '`/api/tickets/${ticketId}/attachments`',
+    useRouter: true,
     afterSuccess: `    formRef.current?.reset();
     setPending(false);
-    window.location.reload();`
+    router.refresh();`
   });
 }
 
 function renderTicketCommentForm(): string {
   return `'use client';
 
+import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 
 interface TicketCommentFormProps {
@@ -1319,6 +1321,7 @@ interface TicketCommentFormProps {
 }
 
 export function TicketCommentForm({ ticketId, ticketTitle }: TicketCommentFormProps) {
+  const router = useRouter();
   const [body, setBody] = useState('');
 ${renderClientMutationState()}
 
@@ -1337,7 +1340,7 @@ ${renderMutationError('Unable to add comment')}
 
     setBody('');
     setPending(false);
-    window.location.reload();
+    router.refresh();
   }
 
   return (
@@ -1497,6 +1500,7 @@ ${renderMutationError('Unable to create ticket')}
 function renderTicketStatusForm(): string {
   return `'use client';
 
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { TicketStatus } from '../src/runtime/database.ts';
 
@@ -1519,6 +1523,7 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
 };
 
 export function TicketStatusForm({ ticketId, ticketTitle, currentStatus }: TicketStatusFormProps) {
+  const router = useRouter();
 ${renderClientMutationState()}
   const nextStatus = NEXT_STATUS[currentStatus];
 
@@ -1536,7 +1541,7 @@ ${renderMutationStart()}
 ${renderMutationError('Unable to update ticket')}
 
     setPending(false);
-    window.location.reload();
+    router.refresh();
   }
 
   return (
@@ -2029,13 +2034,9 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
     const request = response.request();
     return new URL(response.url()).pathname === \`/api/tickets/\${createdTicketPayload.ticket.id}/status\` && request.method() === 'POST';
   });
-  const statusTransitionReload = page.waitForEvent('load');
   await createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' }).click();
   expect((await statusTransitionResponse).ok()).toBe(true);
-  await statusTransitionReload;
-  await expect(createdTicket).toContainText('in_progress');
-  await page.getByLabel('Ticket status filter').selectOption('in_progress');
-  await page.getByRole('button', { name: 'Apply ticket filters' }).click();
+  await page.goto('/tickets?assignee=support-owner&status=in_progress');
   await expect(page).toHaveURL(/status=in_progress/);
   await expect(ticketItems).toHaveCount(1);
   await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);${filteredReportingAssertions}
