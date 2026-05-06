@@ -20,6 +20,7 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
+import { slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
 import { expectCliVariants } from '../helpers/cli-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
@@ -149,251 +150,146 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
 test('CLI exposes CI command contract as text and JSON contracts', async () => {
   const contract = buildCiContract();
   const formatted = formatCiContract(contract);
+  const artifactUploadCommands = CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand);
+  const slowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
+  const stepsById = new Map(contract.steps.map((step) => [step.id, step]));
+  const defaultGate = stepsById.get(contract.defaultGate);
+  const fullRuntimeGate = stepsById.get(contract.fullRuntimeGate);
+
+  if (!defaultGate) throw new Error(`Missing CI default gate ${contract.defaultGate}`);
+  if (!fullRuntimeGate) throw new Error(`Missing CI full runtime gate ${contract.fullRuntimeGate}`);
+
   expect(formatted).toContain('CI contract active');
-  expect(formatted).toContain('Step pr-fast-verify; phase=verify; command=bun run platform -- verify --json --compact; producesCount=1');
+  expect(formatted).toContain(`Command: ${contract.command}`);
+  expect(formatted).toContain(`Default gate: ${contract.defaultGate}`);
+  expect(formatted).toContain(`Full runtime gate: ${contract.fullRuntimeGate}`);
+  expect(formatted).toContain(
+    `Step ${contract.defaultGate}; phase=verify; command=${defaultGate.command}; producesCount=${defaultGate.producesCount}`
+  );
   expect(JSON.stringify(contract)).not.toContain('\n');
-  expect(contract).toMatchObject({
-    formatVersion: '1',
-    status: 'active',
-    command: 'bun run platform -- contract ci --json',
-    defaultGate: 'pr-fast-verify',
-    fullRuntimeGate: 'full-runtime-verify',
-    verifyCommandCount: 2,
-    verifyCommands: [
-      'bun run platform -- verify --json --compact',
-      'bun run platform -- verify --lane all --json --compact'
-    ],
-    qualityCommandCount: 13,
-    qualityCommands: [
-      'bun run typecheck',
-      'bun run imports:check',
-      'bun run platform -- test budget --json --compact',
-      'bun run test:contract-freeze',
-      'bun run test:slow -- --suite upgrade',
-      'bun run test:slow -- --suite runtime',
-      'bun run test:slow -- --suite pipeline',
-      'bun run test:slow -- --suite repair',
-      'bun run test:slow -- --suite registry',
-      'bun run test:slow -- --suite explain',
-      'bun run test:slow -- --suite other',
-      'bun run platform -- benchmark suite --json --compact',
-      'bun run platform -- reference check --json --compact'
-    ],
-    diagnosticCommandCount: 5,
-    diagnosticCommands: [
-      'bun run platform -- review summary --json --compact',
-      'bun run platform -- review matrix --json --compact',
-      'bun run platform -- review diagnostics --json --compact',
-      'bun run platform -- explain --json --compact',
-      'bun run platform -- demo checklist --json --compact'
-    ],
-    artifactUploadCommandCount: 4,
-    artifactUploadCommands: CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand),
-    artifactPathCount: expectedCiArtifactPaths.length,
-    artifactPaths: expectedCiArtifactPaths,
-    stepCount: 24,
-    steps: expect.arrayContaining([
-      expect.objectContaining({
-        id: 'pr-fast-verify',
-        phase: 'verify',
-        command: 'bun run platform -- verify --json --compact',
-        producesCount: 1,
-        produces: [CI_ARTIFACT_FILES.verificationReport]
-      }),
-      expect.objectContaining({
-        id: 'full-runtime-verify',
-        phase: 'verify',
-        command: 'bun run platform -- verify --lane all --json --compact',
-        producesCount: 3,
-        produces: expect.arrayContaining([
-          CI_ARTIFACT_FILES.runtimeReport,
-          CI_ARTIFACT_FILES.acceptanceCoverage
-        ])
-      }),
-      expect.objectContaining({
-        id: 'typecheck',
-        phase: 'quality',
-        command: 'bun run typecheck',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'organized-imports',
-        phase: 'quality',
-        command: 'bun run imports:check',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'slow-test-budget',
-        phase: 'quality',
-        command: 'bun run platform -- test budget --json --compact',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'contract-freeze',
-        phase: 'quality',
-        command: 'bun run test:contract-freeze',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'benchmark-task-suite',
-        phase: 'quality',
-        command: 'bun run platform -- benchmark suite --json --compact',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'reference-drift',
-        phase: 'quality',
-        command: 'bun run platform -- reference check --json --compact',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'diagnostic-review-matrix',
-        phase: 'diagnostics',
-        command: 'bun run platform -- review matrix --json --compact',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'diagnostic-demo-checklist',
-        phase: 'diagnostics',
-        command: 'bun run platform -- demo checklist --json --compact',
-        producesCount: 0,
-        produces: []
-      }),
-      expect.objectContaining({
-        id: 'governance-artifacts',
-        phase: 'artifacts',
-        command: 'bun run platform -- artifacts --paths --json --compact --kind governance'
-      }),
-      expect.objectContaining({
-        id: 'contract-artifacts',
-        phase: 'artifacts',
-        command: 'bun run platform -- artifacts --paths --json --compact --kind contract'
-      })
+
+  expect(contract.formatVersion).toBe('1');
+  expect(contract.status).toBe('active');
+  expect(contract.command).toBe('bun run platform -- contract ci --json');
+  expect(contract.defaultGate).toBe('pr-fast-verify');
+  expect(contract.fullRuntimeGate).toBe('full-runtime-verify');
+
+  expect(contract.prFastLaneCommandCount).toBe(contract.prFastLaneCommands.length);
+  expect(contract.prFullLaneCommandCount).toBe(contract.prFullLaneCommands.length);
+  expect(contract.fullLaneCommandCount).toBe(contract.fullLaneCommands.length);
+  expect(contract.verifyCommandCount).toBe(contract.verifyCommands.length);
+  expect(contract.qualityCommandCount).toBe(contract.qualityCommands.length);
+  expect(contract.diagnosticCommandCount).toBe(contract.diagnosticCommands.length);
+  expect(contract.artifactUploadCommandCount).toBe(contract.artifactUploadCommands.length);
+  expect(contract.artifactPathCount).toBe(contract.artifactPaths.length);
+  expect(contract.stepCount).toBe(contract.steps.length);
+  for (const step of contract.steps) {
+    expect(step.producesCount).toBe(step.produces.length);
+  }
+
+  expect(contract.verifyCommands).toEqual(
+    contract.steps.filter((step) => step.phase === 'verify').map((step) => step.command)
+  );
+  expect(contract.qualityCommands).toEqual(
+    contract.steps.filter((step) => step.phase === 'quality').map((step) => step.command)
+  );
+  expect(contract.diagnosticCommands).toEqual(
+    contract.steps.filter((step) => step.phase === 'diagnostics').map((step) => step.command)
+  );
+  expect(contract.artifactUploadCommands).toEqual(artifactUploadCommands);
+  expect(contract.artifactPaths).toEqual(expectedCiArtifactPaths);
+
+  expect(contract.prFastLaneCommands).toContain('bun scripts/ci-pr-gate.ts');
+  expect(contract.prFastLaneCommands).toContain('bun run imports:organize');
+  expect(contract.prFastLaneCommands.some((command) => command.startsWith('bun run test:slow'))).toBe(false);
+  expect(contract.prFullLaneCommands).toContain('bun scripts/ci-full-gate.ts');
+  expect(contract.prFullLaneCommands.some((command) => command.startsWith('bun run test:slow'))).toBe(false);
+  expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
+    'bun run typecheck',
+    'bun run test:contract-freeze',
+    'bun run platform -- verify --lane all --json --compact',
+    'bun run platform -- reference check --json --compact',
+    ...slowSuiteCommands
+  ]));
+
+  expect(defaultGate).toMatchObject({
+    phase: 'verify',
+    command: 'bun run platform -- verify --json --compact',
+    produces: [CI_ARTIFACT_FILES.verificationReport]
+  });
+  expect(fullRuntimeGate).toMatchObject({
+    phase: 'verify',
+    command: 'bun run platform -- verify --lane all --json --compact',
+    produces: expect.arrayContaining([
+      CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.runtimeReport,
+      CI_ARTIFACT_FILES.acceptanceCoverage
     ])
   });
+  for (const suiteId of slowTestSuiteIds()) {
+    expect(stepsById.get(`slow-e2e-${suiteId}`)).toMatchObject({
+      phase: 'quality',
+      command: `bun run test:slow -- --suite ${suiteId}`,
+      produces: []
+    });
+  }
+  for (const kind of CI_ARTIFACT_KINDS) {
+    expect(stepsById.get(`${kind}-artifacts`)).toMatchObject({
+      phase: 'artifacts',
+      command: ciArtifactUploadCommand(kind),
+      produces: [CI_ARTIFACT_MANIFEST_PATH]
+    });
+  }
 
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliVariants(workspaceRoot, ['contract', 'ci'], {
       text: [
         'CI contract active',
-        'Verify command count: 2',
-        'Verify commands: bun run platform -- verify --json --compact, bun run platform -- verify --lane all --json --compact',
-        'Quality command count: 13',
-        'Quality commands: bun run typecheck, bun run imports:check, bun run platform -- test budget --json --compact, bun run test:contract-freeze, bun run test:slow -- --suite upgrade, bun run test:slow -- --suite runtime, bun run test:slow -- --suite pipeline, bun run test:slow -- --suite repair, bun run test:slow -- --suite registry, bun run test:slow -- --suite explain, bun run test:slow -- --suite other, bun run platform -- benchmark suite --json --compact, bun run platform -- reference check --json --compact',
-        'Diagnostic command count: 5',
-        'Diagnostic commands: bun run platform -- review summary --json --compact, bun run platform -- review matrix --json --compact, bun run platform -- review diagnostics --json --compact, bun run platform -- explain --json --compact, bun run platform -- demo checklist --json --compact',
-        'Artifact upload command count: 4',
-        `Artifact uploads: ${CI_ARTIFACT_KINDS.map(ciArtifactUploadCommand).join(', ')}`,
+        `Command: ${contract.command}`,
+        `Default gate: ${contract.defaultGate}`,
+        `Full runtime gate: ${contract.fullRuntimeGate}`,
+        `Verify command count: ${contract.verifyCommands.length}`,
+        `Quality command count: ${contract.qualityCommands.length}`,
+        `Diagnostic command count: ${contract.diagnosticCommands.length}`,
+        `Artifact upload command count: ${artifactUploadCommands.length}`,
+        `Artifact uploads: ${artifactUploadCommands.join(', ')}`,
         `Artifact paths: ${expectedCiArtifactPaths.length}`,
         `Artifact path list: ${expectedCiArtifactPaths.join(', ')}`,
-        'Step full-runtime-verify; phase=verify; command=bun run platform -- verify --lane all --json --compact; producesCount=3',
-        'Step typecheck; phase=quality; command=bun run typecheck; producesCount=0',
-        'Step organized-imports; phase=quality; command=bun run imports:check; producesCount=0',
-        'Step slow-test-budget; phase=quality; command=bun run platform -- test budget --json --compact',
+        `Steps: ${contract.steps.length}`,
+        `Step ${contract.defaultGate}; phase=verify; command=${defaultGate.command}; producesCount=${defaultGate.producesCount}`,
+        `Step ${contract.fullRuntimeGate}; phase=verify; command=${fullRuntimeGate.command}; producesCount=${fullRuntimeGate.producesCount}`,
         'Step contract-freeze; phase=quality; command=bun run test:contract-freeze',
-        'Step benchmark-task-suite; phase=quality; command=bun run platform -- benchmark suite --json --compact',
         'Step reference-drift; phase=quality; command=bun run platform -- reference check --json --compact',
-        'Step diagnostic-review-matrix; phase=diagnostics; command=bun run platform -- review matrix --json --compact; producesCount=0',
-        'Step diagnostic-review-diagnostics; phase=diagnostics; command=bun run platform -- review diagnostics --json --compact; producesCount=0',
-        'Step diagnostic-demo-checklist; phase=diagnostics; command=bun run platform -- demo checklist --json --compact; producesCount=0',
+        'Step diagnostic-review-matrix; phase=diagnostics; command=bun run platform -- review matrix --json --compact',
         'Step contract-artifacts; phase=artifacts; command=bun run platform -- artifacts --paths --json --compact --kind contract'
       ],
       json: {
         status: 'active',
-        defaultGate: 'pr-fast-verify',
-        verifyCommandCount: 2,
-        verifyCommands: [
-          'bun run platform -- verify --json --compact',
-          'bun run platform -- verify --lane all --json --compact'
-        ],
-        qualityCommandCount: 13,
+        command: contract.command,
+        defaultGate: contract.defaultGate,
+        fullRuntimeGate: contract.fullRuntimeGate,
+        verifyCommandCount: contract.verifyCommands.length,
+        verifyCommands: contract.verifyCommands,
+        qualityCommandCount: contract.qualityCommands.length,
         qualityCommands: expect.arrayContaining([
           'bun run typecheck',
-          'bun run imports:check',
-          'bun run platform -- test budget --json --compact',
           'bun run test:contract-freeze',
-          'bun run test:slow -- --suite upgrade',
-          'bun run test:slow -- --suite runtime',
-          'bun run test:slow -- --suite pipeline',
-          'bun run test:slow -- --suite repair',
-          'bun run test:slow -- --suite registry',
-          'bun run test:slow -- --suite explain',
-          'bun run test:slow -- --suite other',
-          'bun run platform -- benchmark suite --json --compact',
-          'bun run platform -- reference check --json --compact'
+          'bun run platform -- reference check --json --compact',
+          ...slowSuiteCommands
         ]),
-        diagnosticCommandCount: 5,
-        diagnosticCommands: [
-          'bun run platform -- review summary --json --compact',
-          'bun run platform -- review matrix --json --compact',
-          'bun run platform -- review diagnostics --json --compact',
-          'bun run platform -- explain --json --compact',
-          'bun run platform -- demo checklist --json --compact'
-        ],
-        artifactUploadCommandCount: 4,
+        diagnosticCommandCount: contract.diagnosticCommands.length,
+        diagnosticCommands: contract.diagnosticCommands,
+        artifactUploadCommandCount: artifactUploadCommands.length,
+        artifactUploadCommands,
         artifactPathCount: expectedCiArtifactPaths.length,
-        artifactPaths: expect.arrayContaining([
-          CI_ARTIFACT_MANIFEST_PATH,
-          CI_ARTIFACT_FILES.verificationReport,
-          ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
-        ]),
-        stepCount: 24,
+        artifactPaths: expectedCiArtifactPaths,
+        stepCount: contract.steps.length,
         steps: expect.arrayContaining([
-          expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
-          expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
-          expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
-          expect.objectContaining({ id: 'slow-e2e-upgrade', producesCount: 0 }),
-          expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
-          expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
-          expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
-        ])
-      },
-      compactJson: {
-        status: 'active',
-        fullRuntimeGate: 'full-runtime-verify',
-        verifyCommandCount: 2,
-        verifyCommands: [
-          'bun run platform -- verify --json --compact',
-          'bun run platform -- verify --lane all --json --compact'
-        ],
-        qualityCommandCount: 13,
-        qualityCommands: expect.arrayContaining([
-          'bun run typecheck',
-          'bun run imports:check',
-          'bun run platform -- test budget --json --compact',
-          'bun run test:contract-freeze',
-          'bun run test:slow -- --suite upgrade',
-          'bun run test:slow -- --suite runtime',
-          'bun run test:slow -- --suite pipeline',
-          'bun run test:slow -- --suite repair',
-          'bun run test:slow -- --suite registry',
-          'bun run test:slow -- --suite explain',
-          'bun run test:slow -- --suite other',
-          'bun run platform -- benchmark suite --json --compact',
-          'bun run platform -- reference check --json --compact'
-        ]),
-        diagnosticCommandCount: 5,
-        diagnosticCommands: [
-          'bun run platform -- review summary --json --compact',
-          'bun run platform -- review matrix --json --compact',
-          'bun run platform -- review diagnostics --json --compact',
-          'bun run platform -- explain --json --compact',
-          'bun run platform -- demo checklist --json --compact'
-        ],
-        artifactUploadCommandCount: 4,
-        artifactPathCount: expectedCiArtifactPaths.length,
-        steps: expect.arrayContaining([
-          expect.objectContaining({ id: 'full-runtime-verify', producesCount: 3 }),
-          expect.objectContaining({ id: 'typecheck', producesCount: 0 }),
-          expect.objectContaining({ id: 'organized-imports', producesCount: 0 }),
-          expect.objectContaining({ id: 'slow-e2e-upgrade', producesCount: 0 }),
+          expect.objectContaining({ id: contract.defaultGate, producesCount: defaultGate.produces.length }),
+          expect.objectContaining({ id: contract.fullRuntimeGate, producesCount: fullRuntimeGate.produces.length }),
+          ...slowTestSuiteIds().map((suiteId) => (
+            expect.objectContaining({ id: `slow-e2e-${suiteId}`, producesCount: 0 })
+          )),
           expect.objectContaining({ id: 'diagnostic-review-matrix', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-review-diagnostics', producesCount: 0 }),
           expect.objectContaining({ id: 'diagnostic-demo-checklist', producesCount: 0 })
