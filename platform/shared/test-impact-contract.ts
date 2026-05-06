@@ -28,27 +28,9 @@ export const testImpactRules: TestImpactRule[] = [
     slow: []
   },
   {
-    owner: 'test-budget',
-    sourcePattern: /^platform\/shared\/test-budget-contract\.ts$/,
-    fast: ['tests/contract/benchmark-budget.test.ts'],
-    slow: []
-  },
-  {
-    owner: 'ci-contract',
-    sourcePattern: /^platform\/shared\/ci-contract\.ts$/,
-    fast: ['tests/contract/contracts.test.ts', 'tests/contract/ci-lanes.test.ts'],
-    slow: []
-  },
-  {
     owner: 'dev-runner',
     sourcePattern: /^platform\/dev-runner\/(test-runner|typecheck-runner)\.ts$/,
     fast: ['tests/integration/project-runtime.test.ts', 'tests/contract/benchmark-budget.test.ts'],
-    slow: []
-  },
-  {
-    owner: 'benchmark-contract',
-    sourcePattern: /^platform\/shared\/benchmark-contract\.ts$/,
-    fast: ['tests/contract/benchmark-budget.test.ts'],
     slow: []
   },
   {
@@ -104,8 +86,10 @@ export const testImpactRules: TestImpactRule[] = [
     sourcePattern: /^platform\/cli\//,
     fast: [
       'tests/contract/benchmark-budget.test.ts',
-      'tests/contract/contracts.test.ts',
+      'tests/contract/ci-contract.test.ts',
+      'tests/contract/contract-freeze.test.ts',
       'tests/contract/environment.test.ts',
+      'tests/contract/error-protocol.test.ts',
       'tests/contract/reference.test.ts',
       'tests/contract/usage.test.ts',
       'tests/integration/review.test.ts'

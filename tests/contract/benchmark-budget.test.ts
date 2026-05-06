@@ -13,8 +13,8 @@ import {
   isTestFile
 } from '../../platform/shared/test-budget-contract.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
-import { expectCliVariants } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { expectCliVariants } from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
   expectBenchmarkTaskSuiteSelfConsistent,
   expectTestBudgetSelfConsistent

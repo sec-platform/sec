@@ -16,7 +16,7 @@ import {
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 import { installRuntimeDeps } from './project-runtime-fixtures.ts';
 
 type RuntimePackageJson = {
@@ -387,13 +387,21 @@ describe('project and shared runtime manifests', () => {
 });
 
 describe('project base', () => {
-  test('keeps Playwright traces and serializes runtime acceptance', async () => {
+  test('keeps Playwright as the runtime full browser smoke', async () => {
     const workspaceRoot = await createWorkspace('engineering-compiler-runtime-trace-');
 
     await ensureProjectBase(workspaceRoot);
 
-    const { projectRoot } = getWorkspacePaths(workspaceRoot);
+    const runtimeSpec = await loadRuntimeDependencySpec();
+    const { projectPackagePath, projectRoot } = getWorkspacePaths(workspaceRoot);
+    const projectPackage = await readJson<RuntimePackageJson & { scripts: Record<string, string> }>(projectPackagePath);
     const playwrightConfig = await fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8');
+
+    expect(runtimeSpec.devDependencies['@playwright/test']).toBeDefined();
+    expect(projectPackage.devDependencies['@playwright/test']).toBe(runtimeSpec.devDependencies['@playwright/test']);
+    expect(projectPackage.scripts['test:acceptance']).toBe('playwright test --config playwright.config.ts');
+    expect(projectPackage.scripts['verify:runtime:full']).toBe('bun run build && bun run test:unit && bun run test:acceptance');
+    expect(projectPackage.scripts['test:fast']).not.toContain('playwright');
     expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
     expect(playwrightConfig).toContain('workers: 1');
   });
