@@ -587,7 +587,7 @@ export function listTickets(db: Database, session: Session): TicketRecord[] {
     {
       id: 'tenant-scope-required',
       severity: 'error',
-      appliesTo: ['entity/customer-basic', 'ticket/basic'],
+      appliesTo: ['entity/customer-basic', 'ticket/basic', 'worklog/basic'],
       rule: 'tenant_context_must_flow_to_query',
       files: ['src/installed/ticket/ticket-service.ts'],
       message: 'Tenant-scoped queries must derive tenant context and filter by tenantId.',

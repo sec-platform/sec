@@ -325,9 +325,9 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
     {
       id: 'ticket',
       runtimeEntries: [
-        'app/api/tickets/export/route.ts',
+        'app/api/tickets/summary/export/route.ts',
         'app/api/tickets/summary/route.ts',
-        'app/api/tickets/summary/export/route.ts'
+        'app/tickets/page.tsx'
       ],
       relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
     }
