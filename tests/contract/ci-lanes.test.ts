@@ -111,6 +111,12 @@ test('CI PR full gate keeps repository-wide changes on all slow suites', () => {
     owners: ['all-slow-suites'],
     reason: 'all'
   });
+  expect(selectCiFullGateSlowSuites(['tests/helpers/workspace-fixtures.ts'])).toEqual({
+    suites: slowTestSuiteIds(),
+    affectedSlowTests: [],
+    owners: ['all-slow-suites'],
+    reason: 'all'
+  });
 });
 
 test('CI PR full gate skips slow suites when no source or slow test impact exists', () => {
