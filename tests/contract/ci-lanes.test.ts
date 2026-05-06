@@ -3,40 +3,23 @@ import { expect, test } from 'bun:test';
 import { buildCiContract, formatCiContract } from '../../platform/shared/ci-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
+import {
+  expectCiContractSelfConsistent,
+  expectFullLaneCoversCorrectnessBackstop,
+  expectFullLaneCoversSlowSuites,
+  expectPrFastLaneBoundary
+} from '../testkit/contracts.ts';
 
-test('CI contract separates PR quick lane commands from release full lane commands', () => {
+test('CI contract keeps PR lanes fast and full lane complete', () => {
   const contract = buildCiContract();
 
-  expect(contract.prQuickLaneCommands).toContain('bun scripts/ci-pr-quick.ts');
-  expect(contract.prQuickLaneCommands).toContain('bun run imports:organize');
-  expect(contract.prQuickLaneCommands).not.toContain('bun run imports:check');
-  expect(contract.prQuickLaneCommands).not.toContain('bun run platform -- verify --json --compact');
-  expect(contract.prQuickLaneCommands).not.toContain('bun run platform -- verify --lane all --json --compact');
-  expect(contract.prQuickLaneCommands).not.toContain('bun run test:slow');
-
-  expect(contract.prRiskLaneCommands).toContain('bun scripts/ci-pr-risk.ts');
-  expect(contract.prRiskLaneCommands).not.toContain('bun run test:slow');
-  expect(contract.prRiskLaneCommands).not.toContain('bun run platform -- verify --lane all --json --compact');
-
-  expect(contract.fullLaneCommands).toEqual(
-    expect.arrayContaining([
-      'bun run typecheck',
-      'bun run test:contract-freeze',
-      'bun run platform -- verify --lane all --json --compact',
-      'bun run platform -- reference check --json --compact'
-    ])
-  );
-  for (const suiteId of slowTestSuiteIds()) {
-    expect(contract.fullLaneCommands).toContain(`bun run test:slow -- --suite ${suiteId}`);
-  }
+  expectPrFastLaneBoundary(contract);
+  expectFullLaneCoversCorrectnessBackstop(contract);
+  expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds());
 });
 
-test('CI contract command counts match their command arrays', () => {
-  const contract = buildCiContract();
-
-  expect(contract.prQuickLaneCommandCount).toBe(contract.prQuickLaneCommands.length);
-  expect(contract.prRiskLaneCommandCount).toBe(contract.prRiskLaneCommands.length);
-  expect(contract.fullLaneCommandCount).toBe(contract.fullLaneCommands.length);
+test('CI contract counts and produced paths are self-consistent', () => {
+  expectCiContractSelfConsistent(buildCiContract());
 });
 
 test('CI contract text exposes lane command split for workflow audits', () => {
