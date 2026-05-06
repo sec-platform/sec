@@ -10,6 +10,13 @@ test('test impact selector includes tests that directly import changed sources',
   expect(selection.slow).not.toContain('tests/contract/test-impact.test.ts');
 });
 
+test('test impact selector includes tests that dynamically import changed sources', () => {
+  const selection = selectTestsForSources(['platform/dev-runner/test-runner.ts']);
+
+  expect(selection.owners).toContain('auto-reference');
+  expect(selection.fast).toContain('tests/unit/test-runner.test.ts');
+});
+
 test('test impact selector keeps semantic CI contract coverage', () => {
   const selection = selectTestsForSources(['platform/shared/ci-contract.ts']);
 
