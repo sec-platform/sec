@@ -332,7 +332,35 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
     }
   ]);
-  expect(summary.installImpacts).toHaveLength(0);
+  expect(summary.installImpacts).toEqual([
+    {
+      blockId: 'export/csv-basic',
+      actionKinds: ['copy'],
+      sourceRoots: ['export.csv-basic'],
+      targetPaths: ['app/api/tickets/export/route.ts'],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/api/tickets/export/route.ts']
+    },
+    {
+      blockId: 'reporting/ticket-summary',
+      actionKinds: ['copy'],
+      sourceRoots: ['reporting.ticket-summary'],
+      targetPaths: [
+        'app/api/tickets/summary/route.ts',
+        'src/installed/reporting/ticket-summary.ts'
+      ],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/api/tickets/summary/route.ts']
+    },
+    {
+      blockId: 'ticket/basic',
+      actionKinds: ['copy'],
+      sourceRoots: ['ticket.basic'],
+      targetPaths: ['app/tickets/page.tsx'],
+      verticals: ['ticket'],
+      runtimeEntries: ['app/tickets/page.tsx']
+    }
+  ]);
   expect(summary.installImpactSummary).toEqual({
     impactCount: 3,
     blockCount: 3,
