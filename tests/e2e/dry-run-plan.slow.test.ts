@@ -9,7 +9,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
-import { createWorkspace, prepareLockedWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace, prepareAdaptedWorkspace } from '../helpers/workspace-fixtures.ts';
 
 type MigrationKindCounts = Record<string, number>;
 type MigrationSummary = { id: string; kind: string; target: string; slotId?: string };
@@ -53,7 +53,7 @@ function expectMigrationArtifactsToMatchPlan(plan: UpgradeMigrationArtifacts): v
 }
 
 test('upgrade dry-run writes a planned upgrade without changing project files', async () => {
-  const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-dry-run-' });
+  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-upgrade-dry-run-' });
 
   const { lockPath, planPath, provenancePath } = getWorkspacePaths(workspaceRoot);
   const sessionPath = path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts');
