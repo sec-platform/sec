@@ -47,7 +47,7 @@ Exact numbers are allowed only for intentionally stable protocol values, for exa
 
 ### 2. Affected test graph
 
-`test:changed` should select tests through `platform/shared/test-impact-contract.ts` instead of falling back to the whole fast suite for every source edit.
+`test:affected` should select tests through `platform/shared/test-impact-contract.ts` instead of falling back to the whole fast suite for every source edit.
 
 The impact graph maps source ownership to fast and slow coverage:
 
@@ -70,7 +70,7 @@ Rules:
 - changed fast test files run directly
 - changed slow test files require explicit slow verification
 - source changes run affected fast/integration tests
-- affected slow tests are reported as release/full-gate follow-up, not silently pulled into PR fast feedback
+- affected slow tests are reported as release/full-gate follow-up, not silently pulled into PR quick feedback
 
 ### 3. Slow runner isolation
 
@@ -155,41 +155,40 @@ expectNoPathPrefix(contract.targetFiles, 'tests/e2e/');
 
 The goal is to reduce test code volume by moving repeated patterns into `tests/helpers/*`.
 
-### 7. Four-lane CI
+### 7. CI lanes
 
 CI is split by purpose:
 
 | Lane | Trigger | Purpose |
 |---|---|---|
-| PR fast | pull_request / push | fast correctness and contract safety |
-| affected | pull_request / push | changed-source feedback |
-| full | workflow_dispatch / schedule | slow e2e, full runtime, release confidence |
-| maintenance | manual / bot | formatting, import organization, dependency hygiene |
+| PR quick | pull_request / push | typecheck plus affected fast feedback |
+| PR risk | pull_request / push | contract-freeze, impact-selected slow coverage, and workspace fast verification |
+| release/full | workflow_dispatch / schedule / `run-full` label | slow e2e matrix, full runtime, release confidence |
+| maintenance | manual / bot | import organization and dependency hygiene |
 
-PR fast gate should cover:
+PR quick gate should cover:
 
 ```text
 install
-remote import organization
+changed-only remote import organization
 typecheck
-test budget
-contract-freeze
-test:changed
-resolve
-compose
-adapt
-verify fast lane
+test:affected
 ```
 
-Full gate should cover:
+PR risk gate should cover:
 
 ```text
-test:slow
-benchmark contract
-verify --lane all
-lock
-explain
-reference check
+contract-freeze
+impact-selected test:slow suite or file
+workspace-fast: resolve / compose / adapt / verify fast lane
+```
+
+Release/full gate should cover:
+
+```text
+preflight: imports organize, typecheck, test budget, contract-freeze
+slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other
+workspace: benchmark contract, verify --lane all, lock, explain, reference check
 ```
 
 ### 8. Flaky and timing governance
@@ -258,21 +257,18 @@ instead of duplicating dozens of setup and assertion lines.
 
 ## Current package script state
 
-The current PR still exposes many scripts because legacy tests and docs treat these names as public contracts:
+The package surface exposes daily developer commands plus a small set of contract/demo/reference entry points that are exercised by docs or CI:
 
-- `demo:*`
-- `dogfood:*`
-- `reference:*`
-- `test:budget`
-- `test:contract-freeze`
-- `test:benchmark-contract`
-- `reference:check`
-- `depcruise:*`
-- `jscpd`
-- `preflight`
-- `mcp:cleanup`
+- `platform`
+- `dev`
+- `typecheck`
+- `test`, `test:affected`, `test:fast`, `test:slow`, `test:full`
+- `check`, `check:affected`, `check:fast`, `check:full`
+- `demo:*`, `dogfood:*`, `reference:*`
+- `test:budget`, `test:contract-freeze`, `test:benchmark-contract`, `reference:check`
+- `imports:*`, `clean:test-workspaces`
 
-This is transitional. It keeps compatibility while the test architecture refactor lands.
+Deprecated script aliases should be deleted rather than preserved unless they are external user-facing API.
 
 ## Target package script surface
 
@@ -282,15 +278,16 @@ The target public scripts are:
 {
   "platform": "bun ./platform/cli/index.ts",
   "dev": "bun ./platform/dev-runner.ts",
-  "typecheck": "bun run dev -- typecheck",
-  "format": "bun run dev -- imports:organize",
-  "test": "bun run dev -- test:fast",
-  "test:changed": "bun run dev -- test:changed",
-  "test:slow": "bun run dev -- test:slow",
-  "test:all": "bun run dev -- test",
-  "check": "bun run format && bun run typecheck && bun run test",
-  "check:changed": "bun run format && bun run typecheck && bun run test:changed",
-  "check:full": "bun run format && bun run typecheck && bun run test:all"
+  "typecheck": "bun ./platform/dev-runner.ts typecheck",
+  "test": "bun run test:fast",
+  "test:affected": "bun ./platform/dev-runner.ts test:affected",
+  "test:fast": "bun ./platform/dev-runner.ts test:fast",
+  "test:slow": "bun ./platform/dev-runner.ts test:slow",
+  "test:full": "bun ./platform/dev-runner.ts test",
+  "check": "bun run check:fast",
+  "check:affected": "bun run typecheck && bun run test:affected",
+  "check:fast": "bun run typecheck && bun run test:fast",
+  "check:full": "bun run typecheck && bun run test:full"
 }
 ```
 
@@ -307,7 +304,7 @@ bun ./platform/dev-runner.ts clean-test-workspaces
 
 ## Package script testing policy
 
-Tests should not hardcode every package script string. They should verify only the public surface and critical aliases.
+Tests should not hardcode every package script string. They should verify only the public surface and critical commands.
 
 Preferred pattern:
 
@@ -316,13 +313,14 @@ expect(Object.keys(scripts)).toEqual(expect.arrayContaining([
   'platform',
   'dev',
   'typecheck',
-  'format',
   'test',
-  'test:changed',
+  'test:affected',
+  'test:fast',
   'test:slow',
-  'test:all',
+  'test:full',
   'check',
-  'check:changed',
+  'check:affected',
+  'check:fast',
   'check:full'
 ]));
 ```

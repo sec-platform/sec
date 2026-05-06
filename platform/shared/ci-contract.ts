@@ -25,10 +25,10 @@ export type CiContract = {
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
-  prFastLaneCommandCount: number;
-  prFastLaneCommands: string[];
-  prFullLaneCommandCount: number;
-  prFullLaneCommands: string[];
+  prQuickLaneCommandCount: number;
+  prQuickLaneCommands: string[];
+  prRiskLaneCommandCount: number;
+  prRiskLaneCommands: string[];
   fullLaneCommandCount: number;
   fullLaneCommands: string[];
   verifyCommandCount: number;
@@ -45,15 +45,15 @@ export type CiContract = {
   steps: CiContractStep[];
 };
 
-const prFastLaneCommands = [
+const prQuickLaneCommands = [
   'bun install --frozen-lockfile',
   'bun run imports:organize',
-  'bun scripts/ci-pr-gate.ts'
+  'bun scripts/ci-pr-quick.ts'
 ];
 
-const prFullLaneCommands = [
+const prRiskLaneCommands = [
   'bun install --frozen-lockfile',
-  'bun scripts/ci-full-gate.ts'
+  'bun scripts/ci-pr-risk.ts'
 ];
 
 const fullSlowSuiteCommands = [
@@ -115,10 +115,10 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     produces: []
   },
   {
-    id: 'pr-fast-verify',
+    id: 'fast-runtime-verify',
     phase: 'verify',
     command: platformCommand('verify', '--json', '--compact'),
-    purpose: 'Run the default fast verification lane for pull requests.',
+    purpose: 'Run the default fast runtime verification lane.',
     produces: [CI_ARTIFACT_FILES.verificationReport]
   },
   {
@@ -230,12 +230,12 @@ export function buildCiContract(): CiContract {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: CONTRACT_STATUS_ACTIVE,
     command: platformCommand('contract', 'ci', '--json'),
-    defaultGate: 'pr-fast-verify',
+    defaultGate: 'fast-runtime-verify',
     fullRuntimeGate: 'full-runtime-verify',
-    prFastLaneCommandCount: prFastLaneCommands.length,
-    prFastLaneCommands: [...prFastLaneCommands],
-    prFullLaneCommandCount: prFullLaneCommands.length,
-    prFullLaneCommands: [...prFullLaneCommands],
+    prQuickLaneCommandCount: prQuickLaneCommands.length,
+    prQuickLaneCommands: [...prQuickLaneCommands],
+    prRiskLaneCommandCount: prRiskLaneCommands.length,
+    prRiskLaneCommands: [...prRiskLaneCommands],
     fullLaneCommandCount: fullLaneCommands.length,
     fullLaneCommands: [...fullLaneCommands],
     verifyCommandCount: verifyCommands.length,
@@ -263,10 +263,10 @@ export function formatCiContract(contract: CiContract): string {
     `Command: ${contract.command}`,
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
-    `PR fast lane command count: ${contract.prFastLaneCommandCount}`,
-    `PR fast lane commands: ${contract.prFastLaneCommands.join(', ')}`,
-    `PR full lane command count: ${contract.prFullLaneCommandCount}`,
-    `PR full lane commands: ${contract.prFullLaneCommands.join(', ')}`,
+    `PR quick lane command count: ${contract.prQuickLaneCommandCount}`,
+    `PR quick lane commands: ${contract.prQuickLaneCommands.join(', ')}`,
+    `PR risk lane command count: ${contract.prRiskLaneCommandCount}`,
+    `PR risk lane commands: ${contract.prRiskLaneCommands.join(', ')}`,
     `Full lane command count: ${contract.fullLaneCommandCount}`,
     `Full lane commands: ${contract.fullLaneCommands.join(', ')}`,
     `Verify command count: ${contract.verifyCommandCount}`,
