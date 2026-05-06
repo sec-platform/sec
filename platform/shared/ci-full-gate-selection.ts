@@ -1,9 +1,10 @@
 import { uniqueSorted } from './collections.ts';
-import { getSlowTestSuitesSync, isSlowTestFile, slowTestSuiteIds } from './test-budget-contract.ts';
+import { getSlowTestSuitesSync, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds } from './test-budget-contract.ts';
 import { selectTestsForSources } from './test-impact-contract.ts';
 
 type CiFullGateSlowSuiteSelection = {
   suites: string[];
+  slowTests: string[];
   affectedSlowTests: string[];
   owners: string[];
   reason: 'all' | 'impact' | 'none';
@@ -34,23 +35,27 @@ function suitesForSlowTests(slowTests: string[]): string[] {
 
 export function selectCiFullGateSlowSuites(files: string[] | null): CiFullGateSlowSuiteSelection {
   if (!files) {
-    return { suites: allSlowSuiteIds(), affectedSlowTests: [], owners: [], reason: 'all' };
+    return { suites: allSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: [], reason: 'all' };
   }
 
   if (files.some((file) => ALL_SLOW_SUITE_PATTERNS.some((pattern) => pattern.test(file)))) {
-    return { suites: allSlowSuiteIds(), affectedSlowTests: [], owners: ['all-slow-suites'], reason: 'all' };
+    return { suites: allSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: ['all-slow-suites'], reason: 'all' };
   }
 
   const directlyChangedSlowTests = files.filter(isSlowTestFile);
   const sourceFiles = files.filter(sourceFileChanged);
   const impact = selectTestsForSources(sourceFiles);
   const affectedSlowTests = uniqueSorted([...directlyChangedSlowTests, ...impact.slow]);
-  const suites = suitesForSlowTests(affectedSlowTests);
+  const suites = suitesForSlowTests(impact.slow);
+  const slowTests = uniqueSorted(
+    directlyChangedSlowTests.filter((file) => !suites.some((suite) => slowTestSuiteFiles(suite).includes(file)))
+  );
 
   return {
     suites,
+    slowTests,
     affectedSlowTests,
     owners: impact.owners,
-    reason: suites.length > 0 ? 'impact' : 'none'
+    reason: suites.length > 0 || slowTests.length > 0 ? 'impact' : 'none'
   };
 }
