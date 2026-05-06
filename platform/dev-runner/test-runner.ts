@@ -74,12 +74,12 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
   return { kind: 'run', args: ['test', ...args] };
 }
 
-function changedTestsBaseRef(): string | undefined {
-  return process.env.PJC_CHANGED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE;
+function affectedTestsBaseRef(): string | undefined {
+  return process.env.PJC_AFFECTED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE;
 }
 
 async function gitChangedFiles(): Promise<string[] | null> {
-  const baseRef = changedTestsBaseRef();
+  const baseRef = affectedTestsBaseRef();
   const trackedArgs = baseRef
     ? ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD']
     : ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'];
@@ -98,14 +98,14 @@ function sourceFileChanged(file: string): boolean {
   return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
 }
 
-function allowSlowChangedNotice(): boolean {
-  return process.env.PJC_CHANGED_TESTS_ALLOW_SLOW_NOTICE === '1'
-    || process.env.PJC_CHANGED_TESTS_BASE !== undefined
+function allowSlowAffectedNotice(): boolean {
+  return process.env.PJC_AFFECTED_TESTS_ALLOW_SLOW_NOTICE === '1'
+    || process.env.PJC_AFFECTED_TESTS_BASE !== undefined
     || process.env.PJC_CHANGED_BASE !== undefined;
 }
 
 function allowFullFastFallback(): boolean {
-  return process.env.PJC_CHANGED_TESTS_FULL_FAST_FALLBACK === '1';
+  return process.env.PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK === '1';
 }
 
 type DependencyContext = {
@@ -138,7 +138,7 @@ function pathEnv(binPath: string): NodeJS.ProcessEnv {
   };
 }
 
-interface ChangedTestSelection {
+interface AffectedTestSelection {
   tests: string[];
   slowTests: string[];
   affectedTests: string[];
@@ -147,7 +147,7 @@ interface ChangedTestSelection {
   sourceChanged: boolean;
 }
 
-async function changedTestSelection(): Promise<ChangedTestSelection | null> {
+async function affectedTestSelection(): Promise<AffectedTestSelection | null> {
   const files = await gitChangedFiles();
   if (!files) return null;
   const sourceFiles = files.filter(sourceFileChanged);
@@ -162,18 +162,18 @@ async function changedTestSelection(): Promise<ChangedTestSelection | null> {
   };
 }
 
-export async function runChangedTests(args: string[] = []): Promise<number> {
+export async function runAffectedTests(args: string[] = []): Promise<number> {
   if (args.length > 0) {
     return runTests(args);
   }
-  const selection = await changedTestSelection();
+  const selection = await affectedTestSelection();
   if (!selection) {
-    console.error('Failed to detect changed test files.');
+    console.error('Failed to detect affected test files.');
     return 1;
   }
   if (selection.slowTests.length > 0) {
-    const message = `Changed slow test files require explicit verification: ${selection.slowTests.join(', ')}`;
-    if (!allowSlowChangedNotice()) {
+    const message = `Slow test files require explicit verification: ${selection.slowTests.join(', ')}`;
+    if (!allowSlowAffectedNotice()) {
       console.error(message);
       return 1;
     }
@@ -196,11 +196,11 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
   }
   if (selection.sourceChanged) {
     if (!allowFullFastFallback()) {
-      console.log('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR fast lane. Full/manual/scheduled validation covers unmapped changes.');
+      console.log('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR quick lane. Full/manual/scheduled validation covers unmapped changes.');
       return 0;
     }
 
-    console.log('No affected fast tests matched source changes; running the fast test suite because PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1.');
+    console.log('No affected fast tests matched source changes; running the fast test suite because PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
     const code = await runFastTests();
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
@@ -211,7 +211,7 @@ export async function runChangedTests(args: string[] = []): Promise<number> {
     }
     return code;
   }
-  console.log('No changed fast test files detected.');
+  console.log('No affected fast test files detected.');
   return 0;
 }
 

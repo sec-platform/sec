@@ -1432,17 +1432,17 @@ bun run typecheck
 
 Expected: PASS.
 
-- [ ] **Step 2: Run changed tests**
+- [ ] **Step 2: Run affected tests**
 
 Run:
 
 ```powershell
-bun run test:changed
+bun run test:affected
 ```
 
 Expected: PASS.
 
-- [ ] **Step 3: Run focused contract/view tests if changed tests did not include them**
+- [ ] **Step 3: Run focused contract/view tests if affected tests did not include them**
 
 Run:
 
@@ -1482,7 +1482,7 @@ git commit -m "fix: stabilize project overview contract"
 Report in Chinese:
 
 ```text
-已完成 Project Overview：新增 shared overview builder、platform overview CLI、Workbench overview-view.html、artifact path wiring 和文档同步。验证：bun run typecheck、bun run test:changed、focused overview/view tests 均通过。
+已完成 Project Overview：新增 shared overview builder、platform overview CLI、Workbench overview-view.html、artifact path wiring 和文档同步。验证：bun run typecheck、bun run test:affected、focused overview/view tests 均通过。
 ```
 
 ## Self-review

@@ -81,7 +81,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     runnerPattern
   ]);
   expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
-  expect(runnerPattern).toContain('CI contract separates PR fast lane commands from full lane commands');
+  expect(runnerPattern).toContain('CI contract separates PR quick lane commands from release full lane commands');
   expect(runnerPattern).toContain('contract freeze contract documents runner wiring');
   expect(runnerPattern).not.toContain('v0.1 pipeline runs end to end in a temporary workspace');
   expect(JSON.stringify(contract)).not.toContain('\n');
@@ -103,7 +103,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
       expect.objectContaining({
         file: 'tests/contract/ci-lanes.test.ts',
         command: expect.stringContaining('bun test tests/contract/ci-lanes.test.ts --test-name-pattern'),
-        testNamePattern: expect.stringContaining('CI contract separates PR fast lane commands from full lane commands')
+        testNamePattern: expect.stringContaining('CI contract separates PR quick lane commands from release full lane commands')
       }),
       expect.objectContaining({
         file: 'tests/integration/project-runtime.test.ts',
@@ -171,11 +171,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
   expect(contract.formatVersion).toBe('1');
   expect(contract.status).toBe('active');
   expect(contract.command).toBe('bun run platform -- contract ci --json');
-  expect(contract.defaultGate).toBe('pr-fast-verify');
+  expect(contract.defaultGate).toBe('fast-runtime-verify');
   expect(contract.fullRuntimeGate).toBe('full-runtime-verify');
 
-  expect(contract.prFastLaneCommandCount).toBe(contract.prFastLaneCommands.length);
-  expect(contract.prFullLaneCommandCount).toBe(contract.prFullLaneCommands.length);
+  expect(contract.prQuickLaneCommandCount).toBe(contract.prQuickLaneCommands.length);
+  expect(contract.prRiskLaneCommandCount).toBe(contract.prRiskLaneCommands.length);
   expect(contract.fullLaneCommandCount).toBe(contract.fullLaneCommands.length);
   expect(contract.verifyCommandCount).toBe(contract.verifyCommands.length);
   expect(contract.qualityCommandCount).toBe(contract.qualityCommands.length);
@@ -199,11 +199,11 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
   expect(contract.artifactUploadCommands).toEqual(artifactUploadCommands);
   expect(contract.artifactPaths).toEqual(expectedCiArtifactPaths);
 
-  expect(contract.prFastLaneCommands).toContain('bun scripts/ci-pr-gate.ts');
-  expect(contract.prFastLaneCommands).toContain('bun run imports:organize');
-  expect(contract.prFastLaneCommands.some((command) => command.startsWith('bun run test:slow'))).toBe(false);
-  expect(contract.prFullLaneCommands).toContain('bun scripts/ci-full-gate.ts');
-  expect(contract.prFullLaneCommands.some((command) => command.startsWith('bun run test:slow'))).toBe(false);
+  expect(contract.prQuickLaneCommands).toContain('bun scripts/ci-pr-quick.ts');
+  expect(contract.prQuickLaneCommands).toContain('bun run imports:organize');
+  expect(contract.prQuickLaneCommands.some((command) => command.startsWith('bun run test:slow'))).toBe(false);
+  expect(contract.prRiskLaneCommands).toContain('bun scripts/ci-pr-risk.ts');
+  expect(contract.prRiskLaneCommands.some((command) => command.startsWith('bun run test:slow'))).toBe(false);
   expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
     'bun run typecheck',
     'bun run test:contract-freeze',
@@ -290,7 +290,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
 });
 
 test('GitHub compiler CI workflow covers CI command contract gates', async () => {
-  const workflow = await readCompilerFile('.github/workflows/compiler-ci.yml');
+  const workflow = await readCompilerFile('.github/workflows/compiler-validation.yml');
   const contract = buildCiContract();
   const slowSuiteIds = slowTestSuiteIds();
   const slowSuiteCommands = slowSuiteIds.map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
@@ -298,16 +298,21 @@ test('GitHub compiler CI workflow covers CI command contract gates', async () =>
     (command) => !slowSuiteCommands.includes(command)
   );
 
-  const missingPrFastLaneCommands = contract.prFastLaneCommands.filter(
+  const missingPrQuickLaneCommands = contract.prQuickLaneCommands.filter(
     (command) => !workflow.includes(command)
   );
 
-  const missingFullLaneCommands = fullLaneCommandsMaterializedInWorkflow.filter(
+  const missingPrRiskLaneCommands = contract.prRiskLaneCommands.filter(
     (command) => !workflow.includes(command)
   );
 
-  expect(missingPrFastLaneCommands).toEqual([]);
-  expect(missingFullLaneCommands).toEqual([]);
+  const missingReleaseLaneCommands = fullLaneCommandsMaterializedInWorkflow.filter(
+    (command) => !workflow.includes(command)
+  );
+
+  expect(missingPrQuickLaneCommands).toEqual([]);
+  expect(missingPrRiskLaneCommands).toEqual([]);
+  expect(missingReleaseLaneCommands).toEqual([]);
   expect(contract.fullLaneCommands).toEqual(expect.arrayContaining(slowSuiteCommands));
   expect(workflow).toContain(`suite: [${slowSuiteIds.join(', ')}]`);
   expect(workflow).toContain('bun run test:slow -- --suite ${{ matrix.suite }}');

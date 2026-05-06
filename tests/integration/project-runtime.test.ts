@@ -96,15 +96,16 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts.dev).toBe('bun ./platform/dev-runner.ts');
     expect(scripts.typecheck).toBe('bun ./platform/dev-runner.ts typecheck');
 
-    expect(scripts.test).toBe('bun ./platform/dev-runner.ts test:fast');
-    expect(scripts['test:changed']).toBe('bun ./platform/dev-runner.ts test:changed');
+    expect(scripts.test).toBe('bun run test:fast');
+    expect(scripts['test:affected']).toBe('bun ./platform/dev-runner.ts test:affected');
+    expect(scripts['test:fast']).toBe('bun ./platform/dev-runner.ts test:fast');
     expect(scripts['test:slow']).toBe('bun ./platform/dev-runner.ts test:slow');
-    expect(scripts['test:all']).toBe('bun ./platform/dev-runner.ts test');
+    expect(scripts['test:full']).toBe('bun ./platform/dev-runner.ts test');
 
     expect(scripts.check).toBe('bun run check:fast');
-    expect(scripts['check:fast']).toBe('bun run typecheck && bun run test');
-    expect(scripts['check:changed']).toBe('bun run typecheck && bun run test:changed');
-    expect(scripts['check:full']).toBe('bun run typecheck && bun run test:all');
+    expect(scripts['check:affected']).toBe('bun run typecheck && bun run test:affected');
+    expect(scripts['check:fast']).toBe('bun run typecheck && bun run test:fast');
+    expect(scripts['check:full']).toBe('bun run typecheck && bun run test:full');
 
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');

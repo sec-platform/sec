@@ -30,12 +30,12 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
   }
 }));
 
-const { runChangedTests, runFastTests } = await import('../../platform/dev-runner/test-runner.ts');
+const { runAffectedTests, runFastTests } = await import('../../platform/dev-runner/test-runner.ts');
 
 beforeEach(() => {
   commandCalls.length = 0;
   devCommandCalls.length = 0;
-  delete process.env.PJC_CHANGED_TESTS_FULL_FAST_FALLBACK;
+  delete process.env.PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
 });
 
 test('targeted fast tests run only the requested fast files', async () => {
@@ -47,7 +47,7 @@ test('targeted fast tests run only the requested fast files', async () => {
   ]);
 });
 
-test('changed tests skip broad fast-suite fallback for unmapped source changes by default', async () => {
+test('affected tests skip broad fast-suite fallback for unmapped source changes by default', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -55,18 +55,18 @@ test('changed tests skip broad fast-suite fallback for unmapped source changes b
   };
 
   try {
-    const code = await runChangedTests();
+    const code = await runAffectedTests();
 
     expect(code).toBe(0);
     expect(devCommandCalls).toEqual([]);
-    expect(logs).toContain('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR fast lane. Full/manual/scheduled validation covers unmapped changes.');
+    expect(logs).toContain('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR quick lane. Full/manual/scheduled validation covers unmapped changes.');
   } finally {
     console.log = originalLog;
   }
 });
 
-test('changed tests allow broad fast-suite fallback when explicitly enabled', async () => {
-  process.env.PJC_CHANGED_TESTS_FULL_FAST_FALLBACK = '1';
+test('affected tests allow broad fast-suite fallback when explicitly enabled', async () => {
+  process.env.PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK = '1';
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -74,13 +74,13 @@ test('changed tests allow broad fast-suite fallback when explicitly enabled', as
   };
 
   try {
-    const code = await runChangedTests();
+    const code = await runAffectedTests();
 
     expect(code).toBe(0);
     expect(devCommandCalls).toHaveLength(1);
     expect(devCommandCalls[0]?.command).toBe('bun');
     expect(devCommandCalls[0]?.args[0]).toBe('test');
-    expect(logs).toContain('No affected fast tests matched source changes; running the fast test suite because PJC_CHANGED_TESTS_FULL_FAST_FALLBACK=1.');
+    expect(logs).toContain('No affected fast tests matched source changes; running the fast test suite because PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
   } finally {
     console.log = originalLog;
   }
