@@ -1855,8 +1855,8 @@ function renderTicketRuntimeAcceptanceTest(options: {
 }): string {
   const auditAssertions = renderOptional(options.auditEnabled, `
   const ticketAuditList = page.getByRole('list', { name: 'Ticket audit entries' });
-  await expect(ticketAuditList.getByRole('listitem').filter({ hasText: 'ticket.created ticket 1' })).toHaveCount(1);
-  await expect(ticketAuditList.getByRole('listitem').filter({ hasText: 'ticket.status_transitioned ticket 1' })).toHaveCount(1);
+  await expect(ticketAuditList.getByRole('listitem').filter({ hasText: \`ticket.created ticket \${createdTicketPayload.ticket.id}\` })).toHaveCount(1);
+  await expect(ticketAuditList.getByRole('listitem').filter({ hasText: \`ticket.status_transitioned ticket \${createdTicketPayload.ticket.id}\` })).toHaveCount(1);
 `);
   const notificationAssertions = renderOptional(options.notifyEmailEnabled, `
   const ticketNotificationList = page.getByRole('list', { name: 'Ticket notifications' });
@@ -1879,22 +1879,22 @@ function renderTicketRuntimeAcceptanceTest(options: {
   });
   await createdTicket.getByRole('button', { name: 'Upload attachment for Escalate onboarding issue' }).click();
   await expect(createdTicket).toContainText('incident.txt');
-  const attachmentResponse = await page.request.get('/api/tickets/1/attachments');
+  const attachmentResponse = await page.request.get(\`/api/tickets/\${createdTicketPayload.ticket.id}/attachments\`);
   expect(attachmentResponse.ok()).toBe(true);
   const attachmentPayload = await attachmentResponse.json() as {
     attachments: Array<{ ticketId: number; fileName: string }>;
   };
   expect(attachmentPayload.attachments).toEqual([
-    expect.objectContaining({ ticketId: 1, fileName: 'incident.txt' })
+    expect.objectContaining({ ticketId: createdTicketPayload.ticket.id, fileName: 'incident.txt' })
   ]);
   await createdTicket.getByLabel('Comment for Escalate onboarding issue').fill('Customer approved the workaround');
   await createdTicket.getByRole('button', { name: 'Add comment for Escalate onboarding issue' }).click();
   await expect(createdTicket).toContainText('Customer approved the workaround');
-  const commentResponse = await page.request.get('/api/tickets/1/comments');
+  const commentResponse = await page.request.get(\`/api/tickets/\${createdTicketPayload.ticket.id}/comments\`);
   expect(commentResponse.ok()).toBe(true);
 `;
   const worklogAssertions = renderOptional(options.worklogEnabled, `
-  const expectedWorklogResponse = page.waitForResponse((response) => response.url().includes('/api/tickets/1/worklogs') && response.request().method() === 'POST');
+  const expectedWorklogResponse = page.waitForResponse((response) => response.url().includes(\`/api/tickets/\${createdTicketPayload.ticket.id}/worklogs\`) && response.request().method() === 'POST');
   await createdTicket.getByLabel('Worklog minutes for Escalate onboarding issue').fill('45');
   await createdTicket.getByLabel('Worklog note for Escalate onboarding issue').fill('Investigated customer setup logs');
   await createdTicket.getByRole('button', { name: 'Add worklog for Escalate onboarding issue' }).click();
@@ -1902,7 +1902,7 @@ function renderTicketRuntimeAcceptanceTest(options: {
   expect(createdWorklogResponse.ok()).toBe(true);
   await expect(createdTicket).toContainText('Total worklog minutes: 45');
   await expect(createdTicket).toContainText('45m by user-tenant-a-admin: Investigated customer setup logs');
-  const worklogResponse = await page.request.get('/api/tickets/1/worklogs');
+  const worklogResponse = await page.request.get(\`/api/tickets/\${createdTicketPayload.ticket.id}/worklogs\`);
   expect(worklogResponse.ok()).toBe(true);
   const worklogPayload = await worklogResponse.json() as {
     totalMinutes: number;
@@ -1910,11 +1910,11 @@ function renderTicketRuntimeAcceptanceTest(options: {
   };
   expect(worklogPayload.totalMinutes).toBe(45);
   expect(worklogPayload.worklogs).toEqual([
-    expect.objectContaining({ ticketId: 1, minutes: 45, note: 'Investigated customer setup logs' })
+    expect.objectContaining({ ticketId: createdTicketPayload.ticket.id, minutes: 45, note: 'Investigated customer setup logs' })
   ]);
 `);
   const tenantBWorklogAssertion = renderOptional(options.worklogEnabled, `
-  const tenantBWorklogResponse = await page.request.get('/api/tickets/1/worklogs');
+  const tenantBWorklogResponse = await page.request.get(\`/api/tickets/\${createdTicketPayload.ticket.id}/worklogs\`);
   expect(tenantBWorklogResponse.status()).toBe(400);`);
   const summaryExportAssertions = renderOptional(options.ticketReportingEnabled && options.exportCsvEnabled, `
   const summaryCsvLink = page.getByRole('link', { name: 'Export ticket summary CSV' });
@@ -2002,7 +2002,9 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.getByLabel('Ticket due date').fill('2026-04-20');
   const createTicketResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/tickets' && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Create Ticket' }).click();
-  expect((await createTicketResponse).ok()).toBe(true);${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
+  const createdTicketResponse = await createTicketResponse;
+  expect(createdTicketResponse.ok()).toBe(true);
+  const createdTicketPayload = await createdTicketResponse.json() as { ticket: { id: number } };${notificationAssertions}${exportCsvAssertions}${reportingAssertions}
   const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
   await expect(createdTicket).toContainText('open');${attachmentAssertions}${worklogAssertions}
 
@@ -2014,7 +2016,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
     }
   });
   expect(createRenewalTicketResponse.ok()).toBe(true);
-  await page.reload();
+  await page.goto('/tickets');
   await expect(page).toHaveURL(/\\/tickets$/);
   await expect(ticketItems).toHaveCount(2);
 
@@ -2025,7 +2027,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
 
   const statusTransitionResponse = page.waitForResponse((response) => {
     const request = response.request();
-    return new URL(response.url()).pathname === '/api/tickets/1/status' && request.method() === 'POST';
+    return new URL(response.url()).pathname === \`/api/tickets/\${createdTicketPayload.ticket.id}/status\` && request.method() === 'POST';
   });
   const statusTransitionReload = page.waitForEvent('load');
   await createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' }).click();
@@ -2045,9 +2047,9 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await page.goto('/tickets');
   await expect(page).toHaveURL(/\\/tickets$/);
   await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(0);
-  const tenantBAttachmentResponse = await page.request.get('/api/tickets/1/attachments');
+  const tenantBAttachmentResponse = await page.request.get(\`/api/tickets/\${createdTicketPayload.ticket.id}/attachments\`);
   expect(tenantBAttachmentResponse.status()).toBe(400);
-  const tenantBCommentResponse = await page.request.get('/api/tickets/1/comments');
+  const tenantBCommentResponse = await page.request.get(\`/api/tickets/\${createdTicketPayload.ticket.id}/comments\`);
   expect(tenantBCommentResponse.status()).toBe(400);${tenantBWorklogAssertion}
 });
 `;
