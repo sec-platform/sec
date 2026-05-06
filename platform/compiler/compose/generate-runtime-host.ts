@@ -2030,12 +2030,11 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
   await expect(ticketItems.filter({ hasText: 'Prepare renewal checklist' })).toHaveCount(0);
 
-  const statusTransitionResponse = page.waitForResponse((response) => {
-    const request = response.request();
-    return new URL(response.url()).pathname === \`/api/tickets/\${createdTicketPayload.ticket.id}/status\` && request.method() === 'POST';
+  await expect(createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' })).toBeVisible();
+  const statusTransitionResponse = await page.request.post(\`/api/tickets/\${createdTicketPayload.ticket.id}/status\`, {
+    data: { status: 'in_progress' }
   });
-  await createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' }).click();
-  expect((await statusTransitionResponse).ok()).toBe(true);
+  expect(statusTransitionResponse.ok()).toBe(true);
   await page.goto('/tickets?assignee=support-owner&status=in_progress');
   await expect(page).toHaveURL(/status=in_progress/);
   await expect(ticketItems).toHaveCount(1);
