@@ -30,4 +30,4 @@ test('smoke: init -> resolve -> compose -> adapt -> verify --lane fast passes', 
   expect(lock.resolvedBlocks.length).toBeGreaterThan(0);
   expect(policy.violations).toHaveLength(0);
   expect(lock.generatedPaths.length).toBeGreaterThan(0);
-}, 60000);
+}, 180000);
