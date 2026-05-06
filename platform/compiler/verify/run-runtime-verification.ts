@@ -67,6 +67,10 @@ function normalizeStatus(code: number): VerificationStatus {
   return code === 0 ? 'passed' : 'failed';
 }
 
+export function normalizeRuntimeVerificationLog(value: string): string {
+  return value.replace(/\[[0-9]+(?:\.[0-9]+)?(?:ms|s)\]/g, '[duration]');
+}
+
 function appendCommandOutput(
   logs: RuntimeVerificationLaneReport['logs'],
   result: {
@@ -77,7 +81,7 @@ function appendCommandOutput(
   passedSummary: string
 ): void {
   logs.stdout += result.code === 0 ? `${passedSummary}\n` : result.stdout;
-  logs.stderr += result.stderr;
+  logs.stderr += normalizeRuntimeVerificationLog(result.stderr);
 }
 
 function relativeFiles(rootDir: string, files: string[]): string[] {
