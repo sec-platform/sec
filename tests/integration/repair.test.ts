@@ -84,7 +84,7 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     expect(repairPlan.requiresVerification).toBe(true);
     expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
     expect(repairPlan.tasks[0].allowedPaths).toHaveLength(1);
-    expect(repairPlan.tasks[0].allowedPaths).toContain('source/code/slots/customer_normalizer.ts');
+    expect(repairPlan.tasks[0].allowedPaths).toContain('custom/customer_normalizer.ts');
     expect(writtenSource).toContain('// @generated task:fill_slot_customer_normalizer');
     expect(writtenSource).toContain('export function normalizeCustomerInput');
     expect(repairedLock.passStatus.repair).toBe('succeeded');

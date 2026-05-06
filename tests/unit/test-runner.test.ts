@@ -1,10 +1,18 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
+import fs from 'node:fs/promises';
 
 const commandCalls: { command: string; args: string[] }[] = [];
 const devCommandCalls: { command: string; args: string[] }[] = [];
 
 mock.module('../../platform/shared/fs.ts', () => ({
-  pathExists: async () => true
+  pathExists: async (targetPath: string) => {
+    try {
+      await fs.access(targetPath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }));
 
 mock.module('../../platform/shared/process.ts', () => ({
