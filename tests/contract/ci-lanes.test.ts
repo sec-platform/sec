@@ -83,17 +83,26 @@ test('CI contract text exposes lane command split for workflow audits', () => {
 test('CI PR full gate selects slow suites from the test impact contract', () => {
   expect(selectCiFullGateSlowSuites(['platform/compiler/compose/generate-runtime-host.ts'])).toMatchObject({
     suites: ['pipeline'],
+    slowTests: [],
     owners: ['pipeline'],
     reason: 'impact'
   });
   expect(selectCiFullGateSlowSuites(['platform/compiler/verify/run-runtime-verification.ts'])).toMatchObject({
     suites: ['runtime'],
+    slowTests: [],
     owners: ['verify'],
     reason: 'impact'
   });
   expect(selectCiFullGateSlowSuites(['tests/e2e/dry-run-plan.slow.test.ts'])).toMatchObject({
-    suites: ['upgrade'],
+    suites: [],
+    slowTests: ['tests/e2e/dry-run-plan.slow.test.ts'],
     affectedSlowTests: ['tests/e2e/dry-run-plan.slow.test.ts'],
+    reason: 'impact'
+  });
+  expect(selectCiFullGateSlowSuites(['tests/e2e/compiler-smoke.slow.test.ts'])).toMatchObject({
+    suites: [],
+    slowTests: ['tests/e2e/compiler-smoke.slow.test.ts'],
+    affectedSlowTests: ['tests/e2e/compiler-smoke.slow.test.ts'],
     reason: 'impact'
   });
 });
@@ -101,18 +110,21 @@ test('CI PR full gate selects slow suites from the test impact contract', () => 
 test('CI PR full gate keeps repository-wide changes on all slow suites', () => {
   expect(selectCiFullGateSlowSuites(null)).toEqual({
     suites: slowTestSuiteIds(),
+    slowTests: [],
     affectedSlowTests: [],
     owners: [],
     reason: 'all'
   });
   expect(selectCiFullGateSlowSuites(['package.json'])).toEqual({
     suites: slowTestSuiteIds(),
+    slowTests: [],
     affectedSlowTests: [],
     owners: ['all-slow-suites'],
     reason: 'all'
   });
   expect(selectCiFullGateSlowSuites(['tests/helpers/workspace-fixtures.ts'])).toEqual({
     suites: slowTestSuiteIds(),
+    slowTests: [],
     affectedSlowTests: [],
     owners: ['all-slow-suites'],
     reason: 'all'
@@ -122,6 +134,7 @@ test('CI PR full gate keeps repository-wide changes on all slow suites', () => {
 test('CI PR full gate skips slow suites when no source or slow test impact exists', () => {
   expect(selectCiFullGateSlowSuites(['docs/usage.md'])).toEqual({
     suites: [],
+    slowTests: [],
     affectedSlowTests: [],
     owners: [],
     reason: 'none'

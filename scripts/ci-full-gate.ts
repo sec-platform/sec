@@ -37,6 +37,10 @@ function groupEnd(): void {
   console.log('::endgroup::');
 }
 
+function slowTestStepId(file: string): string {
+  return file.replace(/[^a-z0-9]+/giu, '-').replace(/^-|-$/g, '').toLowerCase();
+}
+
 function runBunStep(step: GateStep): number {
   const startedAt = Date.now();
   groupStart(`CI full gate: ${step.id}`);
@@ -64,10 +68,12 @@ if (files) {
 console.log('CI full gate: typecheck temporarily skipped pending full diagnostic log access.');
 const slowSuiteSelection = selectCiFullGateSlowSuites(files);
 const selectedSlowSuites = slowSuiteSelection.suites;
+const selectedSlowTests = slowSuiteSelection.slowTests;
 console.log(`CI full gate: slow suite selection reason ${slowSuiteSelection.reason}`);
 console.log(`CI full gate: affected owners [${slowSuiteSelection.owners.join(', ')}]`);
 console.log(`CI full gate: affected slow tests [${slowSuiteSelection.affectedSlowTests.join(', ')}]`);
 console.log(`CI full gate: slow suites run [${selectedSlowSuites.join(', ')}]`);
+console.log(`CI full gate: slow test files run [${selectedSlowTests.join(', ')}]`);
 console.log(`CI full gate: slow suites skipped [${slowSuites.filter((suite) => !selectedSlowSuites.includes(suite)).join(', ')}]`);
 
 const steps: GateStep[] = [
@@ -75,6 +81,10 @@ const steps: GateStep[] = [
   ...selectedSlowSuites.map((suite) => ({
     id: `slow-suite-${suite}`,
     args: ['run', 'test:slow', '--', '--suite', suite]
+  })),
+  ...selectedSlowTests.map((file) => ({
+    id: `slow-test-${slowTestStepId(file)}`,
+    args: ['run', 'test:slow', '--', file]
   })),
   { id: 'fast-workspace-gate', args: ['scripts/ci-fast-gate.ts'] }
 ];
