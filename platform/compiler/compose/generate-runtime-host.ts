@@ -2015,7 +2015,7 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   });
   expect(createRenewalTicketResponse.ok()).toBe(true);
   await page.reload();
-  await expect(page).toHaveURL(/\/tickets$/);
+  await expect(page).toHaveURL(/\\/tickets$/);
   await expect(ticketItems).toHaveCount(2);
 
   await page.getByLabel('Assignee filter').selectOption('support-owner');
