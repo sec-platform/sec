@@ -51,7 +51,9 @@ const forbiddenActiveDocFragments = [
   '`imports:check` 在 typecheck 之后检查 TypeScript import baseline',
   'changed slow test files require explicit slow verification',
   'future `scenario()` helpers',
-  'slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other'
+  'slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other',
+  'Recommended package script shape',
+  '"test:affected": "bun ./platform/dev-runner.ts test:affected"'
 ];
 
 async function pathExists(relativePath: string): Promise<boolean> {

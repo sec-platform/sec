@@ -189,30 +189,9 @@ Do not delete slow tests merely to make CI green. Do not move slow e2e into PR q
 
 ## Package script boundary
 
-Package scripts are human entry points. They should stay small and memorable.
+Package scripts are human entry points. Keep the canonical values in `package.json` and guard the public surface through `tests/contract/test-architecture.test.ts`; do not copy the full script object into docs or tests.
 
-Recommended package script shape:
-
-```json
-{
-  "platform": "bun ./platform/cli/index.ts",
-  "dev": "bun ./platform/dev-runner.ts",
-  "typecheck": "bun ./platform/dev-runner.ts typecheck",
-  "test": "bun run test:fast",
-  "test:affected": "bun ./platform/dev-runner.ts test:affected",
-  "test:fast": "bun ./platform/dev-runner.ts test:fast",
-  "test:slow": "bun ./platform/dev-runner.ts test:slow",
-  "test:full": "bun ./platform/dev-runner.ts test",
-  "check": "bun run check:fast",
-  "check:affected": "bun run typecheck && bun run test:affected",
-  "check:fast": "bun run typecheck && bun run test:fast",
-  "check:full": "bun run typecheck && bun run test:full",
-  "imports:organize": "bun ./platform/dev-runner.ts imports:organize",
-  "imports:check": "bun ./platform/dev-runner.ts imports:check"
-}
-```
-
-Avoid exposing every internal runner command in `package.json`. Complex orchestration belongs in `platform/dev-runner`, CI workflows, and docs.
+The stable human entry families are `platform`, `dev`, `typecheck`, `test:*`, `check:*`, and `imports:*`. Complex orchestration belongs in `platform/dev-runner`, CI workflows, and contract builders under `platform/shared`.
 
 ## CI logging rules
 
