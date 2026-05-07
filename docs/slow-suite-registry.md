@@ -10,11 +10,8 @@ The slow lane uses a suite registry instead of ad hoc filename filtering. Each s
 bun run test:slow
   Run every slow e2e file.
 
-bun run test:slow -- --suite upgrade
-  Run only the upgrade slow suite.
-
-bun run test:slow -- --suite runtime
-  Run only the runtime slow suite.
+bun run test:slow -- --suite <suite-id>
+  Run one suite from the suite registry.
 
 bun run test:slow -- --suite not-a-suite
   Fail fast and print available suite ids.
@@ -22,37 +19,15 @@ bun run test:slow -- --suite not-a-suite
 
 Unknown suite ids must never silently fall back to the full slow suite.
 
-## Current suite model
+## Suite fact source
+
+`platform/shared/test-budget-contract.ts` owns suite IDs, owners, timeout budgets, and file membership. Inspect the current materialized suite model with:
 
 ```text
-upgrade:
-  owner: platform/compiler/upgrade
-  examples: upgrade, dry-run-plan
-
-runtime:
-  owner: platform/shared/runtime-dependencies
-  examples: runtime-host, verification
-
-pipeline:
-  owner: platform/compiler/pipeline
-  examples: pipeline, end-to-end, expanded-blocks
-
-repair:
-  owner: platform/compiler/repair
-  examples: repair
-
-registry:
-  owner: platform/registry
-  examples: registry, private-registry
-
-explain:
-  owner: platform/compiler/explain
-  examples: explain, provenance
-
-other:
-  owner: unmapped-slow-e2e
-  purpose: safety bucket for newly added slow files that do not yet match a named suite
+bun run platform -- test budget --json --compact
 ```
+
+Docs, workflow YAML, and tests must not copy the suite ID list. They should call `slowTestSuiteIds()`, `getSlowTestSuitesSync()`, or assert against the materialized test budget contract.
 
 ## Lane ownership
 
