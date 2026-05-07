@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Fast lane | typecheck + 快速单元测试 + 快速验收 + policy gate | 默认本地验证 |
 | Runtime lane | runtime service/unit 测试 | CI PR 推送到此层 |
-| All lane | Next build + Vitest 全量 + Playwright acceptance + browser | 完整循环 |
+| All lane | Next build + Bun/Node tests + Playwright acceptance + browser | 完整循环 |
 
 当前已实现：`verify --lane fast|runtime|all --json [--compact]`，输出 `control/evidence/verification-report.json`。
 
