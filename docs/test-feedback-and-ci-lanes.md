@@ -56,7 +56,7 @@ PR quick lane:
   latest-commit affected-tests selector
 ```
 
-The PR quick lane must not run slow e2e by default. If a changed source maps only to slow coverage, the lane emits a notice and release/full validation owns the slow run.
+The PR quick lane must not run slow e2e by default. If a changed source maps only to slow coverage, the lane emits a notice; PR risk owns impact-selected slow verification and release/full remains the final backstop.
 
 The PR quick lane must not use broad fast-suite fallback unless explicitly requested with:
 
@@ -153,7 +153,7 @@ When a new contract test file is added, it must also be added to the contract-fr
 ```text
 1. Changed test files:
    run changed fast test files directly;
-   changed slow tests produce a PR notice and are covered by release/full lanes.
+   changed slow tests produce a PR notice and are covered by PR risk or release/full lanes.
 
 2. Automatic source references:
    scan test files for relative imports and literal repository paths that point at changed source files;

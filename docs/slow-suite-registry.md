@@ -61,6 +61,9 @@ PR quick lane:
   report affected slow files or suites as notices
   do not run slow e2e by default
 
+PR risk lane:
+  run impact-selected slow suites or directly changed slow files
+
 Release/full lane:
   run slow suites for real
   shard by suite id through the CI matrix
@@ -68,19 +71,13 @@ Release/full lane:
 
 ## Full lane sharding
 
-Full validation runs slow e2e by suite id:
+Full validation runs slow e2e by suite id. The suite ID list is derived from `platform/shared/test-budget-contract.ts` through `slowTestSuiteIds()` rather than copied into CI YAML or tests.
 
 ```text
-bun run test:slow -- --suite upgrade
-bun run test:slow -- --suite runtime
-bun run test:slow -- --suite pipeline
-bun run test:slow -- --suite repair
-bun run test:slow -- --suite registry
-bun run test:slow -- --suite explain
-bun run test:slow -- --suite other
+bun run test:slow -- --suite <suite-id>
 ```
 
-This is intentionally sequential before matrix parallelization. The first goal is diagnosability and stable ownership, not maximum parallel speed.
+The release/full CI matrix parallelizes those suite IDs for wall-clock speed while preserving diagnosability and stable ownership.
 
 ## Failure policy
 

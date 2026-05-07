@@ -48,7 +48,10 @@ const forbiddenActiveDocFragments = [
   'tests/helpers/workspace-fixtures.ts',
   'fast/runtime/all 三 lane',
   'PR/push → fast lane，schedule/manual → all lane',
-  '`imports:check` 在 typecheck 之后检查 TypeScript import baseline'
+  '`imports:check` 在 typecheck 之后检查 TypeScript import baseline',
+  'changed slow test files require explicit slow verification',
+  'future `scenario()` helpers',
+  'slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other'
 ];
 
 async function pathExists(relativePath: string): Promise<boolean> {
