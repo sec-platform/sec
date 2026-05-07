@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type ConfigRewriteUpdate = { path: string[]; value?: unknown; operation?: 'set' | 'delete' };
 

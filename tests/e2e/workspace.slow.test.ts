@@ -9,9 +9,9 @@ import type {
   PlanFile
 } from '../../platform/shared/types.ts';
 import { readYaml } from '../../platform/shared/yaml.ts';
-import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, runCliPipeline } from '../helpers/cli-helpers.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, runCliPipeline } from '../testkit/cli.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type ViewMutationReportSnapshot = {
   formatVersion: string;

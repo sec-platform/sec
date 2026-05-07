@@ -9,7 +9,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { buildCustomerNormalizerLock, buildCustomerNormalizerPlan } from '../helpers/repair-fixtures.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const plan = buildCustomerNormalizerPlan();
 const lock = buildCustomerNormalizerLock({

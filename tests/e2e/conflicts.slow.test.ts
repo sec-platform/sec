@@ -6,7 +6,7 @@ import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { prepareLockedWorkspace } from '../helpers/workspace-fixtures.ts';
+import { prepareLockedWorkspace } from '../testkit/workspace.ts';
 
 test('upgrade is blocked when a manual override conflicts with impacted files', async () => {
   const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-conflict-' });

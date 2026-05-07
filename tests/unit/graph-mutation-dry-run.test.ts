@@ -14,7 +14,7 @@ import type { ExplainGraph } from '../../platform/shared/explain-types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { AcceptanceCoverageReport, ProvenanceFile } from '../../platform/shared/types.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 const baseGraph: ExplainGraph = {
   nodes: [

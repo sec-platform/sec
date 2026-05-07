@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI emits explain JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
