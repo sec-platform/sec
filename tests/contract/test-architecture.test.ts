@@ -34,6 +34,18 @@ const forbiddenPackageTestAliases = [
   'check:lite',
   'check:pr'
 ];
+const activeDocsWithIntentionalForbiddenExamples = new Set([
+  'docs/test-architecture.md'
+]);
+const forbiddenActiveDocFragments = [
+  "from 'vitest'",
+  'from "vitest"',
+  'tests/overview/',
+  'tests/cli/',
+  'tests/pipeline/',
+  'tests/helpers/cli-helpers.ts',
+  'tests/helpers/workspace-fixtures.ts'
+];
 
 async function pathExists(relativePath: string): Promise<boolean> {
   try {
@@ -44,7 +56,7 @@ async function pathExists(relativePath: string): Promise<boolean> {
   }
 }
 
-async function listTypeScriptFiles(relativeRoot: string): Promise<string[]> {
+async function listFiles(relativeRoot: string, extension: string): Promise<string[]> {
   const root = path.join(repoRoot, relativeRoot);
   const files: string[] = [];
 
@@ -53,7 +65,7 @@ async function listTypeScriptFiles(relativeRoot: string): Promise<string[]> {
       const entryPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         await visit(entryPath);
-      } else if (entry.name.endsWith('.ts')) {
+      } else if (entry.name.endsWith(extension)) {
         files.push(posixPath(path.relative(repoRoot, entryPath)));
       }
     }
@@ -61,6 +73,14 @@ async function listTypeScriptFiles(relativeRoot: string): Promise<string[]> {
 
   await visit(root);
   return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function listTypeScriptFiles(relativeRoot: string): Promise<string[]> {
+  return listFiles(relativeRoot, '.ts');
+}
+
+async function listMarkdownFiles(relativeRoot: string): Promise<string[]> {
+  return listFiles(relativeRoot, '.md');
 }
 
 test('test architecture exposes only canonical testkit primitives', async () => {
@@ -100,4 +120,22 @@ test('root package exposes only canonical test entry scripts', async () => {
   for (const scriptName of forbiddenPackageTestAliases) {
     expect(packageJson.scripts[scriptName]).toBeUndefined();
   }
+});
+
+test('active docs do not reintroduce legacy test architecture examples', async () => {
+  const offenders: string[] = [];
+
+  for (const file of await listMarkdownFiles('docs')) {
+    if (file.startsWith('docs/archive/') || activeDocsWithIntentionalForbiddenExamples.has(file)) {
+      continue;
+    }
+    const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
+    for (const fragment of forbiddenActiveDocFragments) {
+      if (source.includes(fragment)) {
+        offenders.push(`${file} -> ${fragment}`);
+      }
+    }
+  }
+
+  expect(offenders).toEqual([]);
 });
