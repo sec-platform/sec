@@ -99,6 +99,13 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
+      'tests/contract/test-architecture.test.ts',
+      [
+        'test architecture exposes only canonical testkit primitives',
+        'test sources do not import legacy test helper aliases'
+      ].join('|')
+    ),
+    contractFreezeTarget(
       'tests/contract/contract-freeze.test.ts',
       'CLI exposes contract freeze target list as text and JSON contracts'
     ),

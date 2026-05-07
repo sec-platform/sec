@@ -9,7 +9,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
-import { createWorkspace, prepareAdaptedWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 type MigrationKindCounts = Record<string, number>;
 type MigrationSummary = { id: string; kind: string; target: string; slotId?: string };

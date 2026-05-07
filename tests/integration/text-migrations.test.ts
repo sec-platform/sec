@@ -9,7 +9,7 @@ import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 test('upgrade rejects text append migrations when target is a directory', async () => {
   const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({

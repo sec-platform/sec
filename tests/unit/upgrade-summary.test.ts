@@ -8,7 +8,7 @@ import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixt
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
 import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type ReviewSummary = Awaited<ReturnType<typeof buildReviewSummaryFromInputs>>;
 type UpgradeDiagnosticsOptions = NonNullable<Parameters<typeof buildUpgradeDiagnostics>[0]>;

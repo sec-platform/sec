@@ -6,7 +6,7 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { createWorkspace } from './workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 export type ScenarioWorkspace = {
   root: string;

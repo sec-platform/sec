@@ -18,7 +18,7 @@ import {
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');

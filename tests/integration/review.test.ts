@@ -8,8 +8,8 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   ReviewSummary
 } from '../../platform/shared/types.ts';
-import { expectCliVariants } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { expectCliVariants } from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI exposes review summary as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

@@ -9,7 +9,7 @@ import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 test('delete directory migrations remove project directories recursively', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-delete-directory-apply-');

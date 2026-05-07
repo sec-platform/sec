@@ -7,17 +7,17 @@ import type {
   RepairPlan
 } from '../../platform/shared/types.ts';
 import {
+  writeFailedFastUnitVerification,
+  writePassingVerificationState
+} from '../helpers/verification-fixtures.ts';
+import {
   expectCliJson,
   expectCliSuccess,
   expectCliText,
   runCliInProcess as runCli,
   runCliPipeline
-} from '../helpers/cli-helpers.ts';
-import {
-  writeFailedFastUnitVerification,
-  writePassingVerificationState
-} from '../helpers/verification-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+} from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI emits repair dry-run JSON for CI consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

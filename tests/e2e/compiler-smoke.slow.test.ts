@@ -10,7 +10,7 @@ import {
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PolicyReport, VerificationReport } from '../../platform/shared/types.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 test('smoke: init -> resolve -> compose -> adapt -> verify --lane fast passes', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-smoke-');

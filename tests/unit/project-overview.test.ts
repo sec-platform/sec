@@ -17,7 +17,7 @@ import type {
   ReviewSummary,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('buildProjectOverviewFromWorkspace reports missing required artifacts with recovery command', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
