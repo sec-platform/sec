@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { globby } from 'globby';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Project, SyntaxKind } from 'ts-morph';
 
@@ -130,13 +130,15 @@ async function discover(): Promise<DiscoveryReport> {
 const report = await discover();
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
+const outFile = args.includes('--output') ? args[args.indexOf('--output') + 1] : undefined;
 
-if (asJson) {
+if (outFile) {
+  mkdirSync(dirname(outFile), { recursive: true });
+  writeFileSync(outFile, JSON.stringify(report, null, 2));
+}
+
+if (asJson && !outFile) {
   console.log(JSON.stringify(report, null, 2));
-  if (args.includes('--output')) {
-    const outFile = args[args.indexOf('--output') + 1];
-    if (outFile) writeFileSync(outFile, JSON.stringify(report, null, 2));
-  }
 } else {
   console.log(`Scanned ${report.filesScanned} files`);
   console.log(`Duplicate groups: ${report.duplicates.length}`);
@@ -144,4 +146,7 @@ if (asJson) {
     console.log(`  - ${g.hash.slice(0, 8)} : ${g.count} occurrences (first: ${g.functions[0].file}:${g.functions[0].line})`);
   }
   console.log(`Call relations captured: ${report.calls.length}`);
+  if (outFile) {
+    console.log(`Report written: ${outFile}`);
+  }
 }

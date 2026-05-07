@@ -97,7 +97,7 @@ Context Packet 是 task envelope 在执行时的只读上下文投影，不是�
 
 允许暴露的投影字段包括：`task`、`affectedGraph`、`blocks`、`pins`、`policies`、`writableAnchors`、`readonlyAnchors`、`cannotModify`、`mustPreserve`、`verification`、`provenance`、`issueClassification`、`runtimeEvidence`。
 
-权限仍只由 `allowedPaths`、`forbiddenOperations`、task kind、phase 和 zone 决定；Context Packet 不能扩大写入范围，也不能把外部 provider evidence 提升为 authoring truth。Graph-It-Live/MCP、trace、IDE graph 或其他工具结果只能作为 `runtimeEvidence` / evidence reference 进入投影。
+权限仍只由 `allowedPaths`、`forbiddenOperations`、task kind、phase 和 zone 决定；Context Packet 不能扩大写入范围，也不能把外部 provider evidence 提升为 authoring truth。Graph-It-Live/MCP、GitNexus-like、Graphify-like、trace、IDE graph 或其他工具结果只能作为 `runtimeEvidence` / evidence reference 进入投影。
 
 ### 源码下钻规则
 

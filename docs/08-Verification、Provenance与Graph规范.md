@@ -134,7 +134,7 @@ Engineering Semantic Diff 是 review 语义合同，不是单独的新事实源�
 
 ## 8. 质量、架构与语义模式 evidence 预留
 
-`jscpd`、`dependency-cruiser`、`scripts/discover-all.ts`、Graph-It-Live/MCP、未来 trace 或 IDE graph 工具可以作为 evidence provider 接入治理面，但不能替代 `source/app.yaml`、block manifest、contracts、graph lock、provenance、review summary 等事实源。
+`jscpd`、`dependency-cruiser`、`scripts/discover-all.ts`、Graph-It-Live/MCP、GitNexus-like repo graph provider、Graphify-like knowledge graph provider、未来 trace 或 IDE graph 工具可以作为 evidence provider 接入治理面，但不能替代 `source/app.yaml`、block manifest、contracts、graph lock、provenance、review summary 等事实源。
 
 预留 evidence / overlay 类型：
 

@@ -242,12 +242,14 @@ generate-ticket
 
 | 层 | 角色 | 当前候选 | 规则 |
 | --- | --- | --- | --- |
-| Evidence collection | 采集源码、依赖、重复、IDE 实时图证据 | `jscpd`、`dependency-cruiser`、`scripts/discover-all.ts`、Graph-It-Live/MCP | 只产出 evidence，不直接决定平台 contract |
+| Evidence collection | 采集源码、依赖、重复、IDE 实时图、外部 repo/knowledge graph 证据 | `jscpd`、`dependency-cruiser`、`scripts/discover-all.ts`、Graph-It-Live/MCP、GitNexus-like、Graphify-like provider | 只产出 evidence，不直接决定平台 contract |
 | Canonical graph | 归一为工程语义图 | Engineering IR、Explain Graph、Review Summary、Provenance | 平台主事实归一层 |
 | Projection | 面向人和 AI 的投影视图 | Mermaid、DOT、HTML Workbench、IDE/VSCode adapter | 只能由 canonical graph 或 evidence overlay 派生 |
 | Operation | 可审计操作层 | Workbench mutation、AI task envelope | 只通过结构化 mutation 回写 `source/**` |
 
 Graph-It-Live 这类 VSCode/MCP 工具适合作为 IDE 实时探索和 AI 上下文工具，但不能成为平台事实源。它的 file graph、symbol view、call graph、MCP 工具结果只能作为可选 evidence/overlay 接入；CI、contract freeze、Workbench 主图仍以平台治理产物为准。
+
+GitNexus-like provider 的定位是 repo query graph：call chain、execution flow、impact、dependency cluster 等只读索引结果。Graphify-like provider 的定位是 code/docs/diagram knowledge graph：`graph.json`、`graph.html`、report 类输出只能作为外部知识图 evidence。两者都必须经 provider adapter 归一为 draft evidence 或 overlay；不得直接覆盖 Explain Graph，不得驱动 Workbench mutation，也不得把 MCP/agent 查询结果升级为 authoring truth。
 
 ### 10.2 L1/L2/L3 质量图层
 
@@ -321,7 +323,7 @@ policies: [tenant_scope_required]
 | 2 | 只读 Graph View | 在 `write-local-views` 增加 graph template；通用抽取 `ExplainGraph` 节点/边/类型明细，并用覆盖矩阵显式覆盖 app/block/capability/pin/slot/file/acceptance/policy/repair/upgrade；`issue` 作为 review overlay 展示 policy violation、failure point、repair blocker、upgrade diagnostic | `control/workbench/views/graph-view.html` | local view 内容断言 + coverage matrix + issue overlay + reference refresh |
 | 3 | 只读 Review View | 聚合 review summary、verification chain、acceptance coverage、policy violation、provenance priority files、repair readiness、upgrade readiness、artifact missing diagnostics | `control/workbench/views/review-view.html` | review summary fixture + view 内容断言 + artifact/view contract + reference refresh |
 | 4 | 工具 evidence contract 草案 | 定义 code-quality / architecture-boundary / semantic-pattern report 类型，但不加入 stable artifact | shared types + inspect/build 纯函数 | 类型检查 + schema/contract 单测 |
-| 5 | L1/L2 evidence 接入 | 将 jscpd/discover/depcruise 输出归一为 evidence；保留工具原始报告路径 | `control/evidence/*-report.json`（实现后再稳定） | fixture 转换测试 + preflight 文档化 |
+| 5 | L1/L2 evidence 接入 | 将 jscpd/discover/depcruise 输出归一为 evidence；保留工具原始报告路径；GitNexus-like/Graphify-like 先作为 optional provider adapter 入口，不进入 stable artifact | `control/evidence/*-report.json`（实现后再稳定） | fixture 转换测试 + preflight 文档化 |
 | 6 | L3 Engineering Pattern Graph | 识别 read/validate/build/write、query/guard/map/return、build/write artifact 等 PJC 工程模式 | `semantic-pattern-report.json` + overlay | 低置信 suggestion 测试，不自动重构 |
 | 7 | Graph mutation dry-run | 图操作先生成 mutation 和 expected graph delta，不直接写 source | `source/views/mutations/*.json` + dry-run report | apply 前后 graph delta 测试 |
 | 8 | Typed semantic port | 扩展 pin/flow 的 kind、scope、producer/consumer、verifiedBy、policy 语义 | manifest/contract schema 更新 | resolve/graph/acceptance coverage 测试 |
@@ -332,7 +334,7 @@ Review View 不能成为第二套 review schema：它只从 `review-summary.json
 
 L3 Engineering Pattern Graph 当前只输出 `stableArtifact: false` 的低置信 suggestion 和 file overlay edge；`autoRefactor` 必须保持 `false`，直到 CLI、Workbench、contract freeze 与回滚协议全部稳定后才能进入自动 mutation。
 
-实现纪律：新增产物先保持 optional；只有 CLI inspect、contract freeze、artifact manifest、reference refresh、Workbench view、测试全部对齐后，才能升级为 stable artifact。Graph-It-Live/MCP、CodeQL/CPG、SonarQube/Fallow 等外部能力只能先接入 evidence/overlay，不得绕过平台 graph builder 或 mutation apply。
+实现纪律：新增产物先保持 optional；只有 CLI inspect、contract freeze、artifact manifest、reference refresh、Workbench view、测试全部对齐后，才能升级为 stable artifact。Graph-It-Live/MCP、GitNexus-like、Graphify-like、CodeQL/CPG、SonarQube/Fallow 等外部能力只能先接入 evidence/overlay，不得绕过平台 graph builder 或 mutation apply。
 
 ## 11. 阶段路线
 
@@ -342,7 +344,7 @@ L3 Engineering Pattern Graph 当前只输出 `stableArtifact: false` 的低置�
 - 输出 `explain-graph.json`、`review-summary.json`、`provenance.json`。
 - 增加 Mermaid/DOT 导出。
 - 增加只读 `graph-view.html` 与 `review-view.html`。
-- 将 `jscpd`、`dependency-cruiser`、`discover-all.ts`、Graph-It-Live/MCP 等工具定位为 evidence provider，先文档化边界，不直接扩展 stable artifact。
+- 将 `jscpd`、`dependency-cruiser`、`discover-all.ts`、Graph-It-Live/MCP、GitNexus-like、Graphify-like provider 定位为 evidence provider，先文档化边界，不直接扩展 stable artifact。
 
 ### v0.3
 

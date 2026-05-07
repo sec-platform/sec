@@ -112,7 +112,28 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
 
+    expect(scripts.depcruise).toBe('bunx --bun dependency-cruiser@17.3.10 "platform/**/*.ts" --config .dependency-cruiser.json');
+    expect(scripts.jscpd).toBe('bunx --bun jscpd@4.0.9 platform/ scripts/ -o report/jscpd --reporters html,console,json --format typescript,javascript --ignore "**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**" --min-lines 5 --min-tokens 50 --absolute');
+    expect(scripts.discover).toBe('bun scripts/discover-all.ts --json --output report/discover.json');
+    expect(scripts['arch:check']).toBe('bun run depcruise && bun run jscpd');
+    expect(scripts.preflight).toBe('bun run depcruise && bun run jscpd && bun run discover');
+
     expect(scripts.format).toBeUndefined();
+  });
+
+  test('architecture tools workflow delegates to canonical package scripts', async () => {
+    const workflow = await readCompilerFile('.github/workflows/architecture-tools.yml');
+
+    expectContainsAll(workflow, [
+      'run: bun install --frozen-lockfile',
+      'run: bun run depcruise',
+      'run: bun run jscpd',
+      'run: bun run discover'
+    ]);
+    expectContainsNone(workflow, [
+      'run: bunx --bun dependency-cruiser@17.3.10',
+      'run: bunx --bun jscpd@4.0.9'
+    ]);
   });
 
   test('dev-runner does not expose contract subcommands directly', async () => {
@@ -237,7 +258,7 @@ describe('error protocol and developer contracts', () => {
 
     expectContainsAll(routeMap, [
       '`init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain`',
-      'fast/runtime/all',
+      'affected/fast/slow/full',
       'reference drift',
       'benchmark',
       'contract freeze',
