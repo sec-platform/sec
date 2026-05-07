@@ -1,26 +1,15 @@
 import { expect, test } from 'bun:test';
 
-import {
-  adaptWorkspace,
-  composeWorkspace,
-  initWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
-} from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PolicyReport, VerificationReport } from '../../platform/shared/types.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { expectWorkspaceVerifies, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 test('smoke: init -> resolve -> compose -> adapt -> verify --lane fast passes', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-smoke-');
+  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-smoke-' });
   const { lockPath, policyReportPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
 
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
-  await verifyWorkspace(workspaceRoot, { lane: 'fast' });
+  await expectWorkspaceVerifies(workspaceRoot, { lane: 'fast' });
 
   const lock = await readJson<LockFile>(lockPath);
   const policy = await readJson<PolicyReport>(policyReportPath);

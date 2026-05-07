@@ -88,6 +88,17 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       ].join('|')
     ),
     contractFreezeTarget(
+      'tests/contract/test-impact.test.ts',
+      [
+        'test impact selector includes tests that directly import changed sources',
+        'test impact selector includes tests that dynamically import changed sources',
+        'test impact selector uses auto-reference for CI contract coverage',
+        'test impact selector uses auto-reference for test budget coverage',
+        'test impact selector keeps slow coverage as notice-only selection',
+        'test impact selector does not invent broad fallback for unmapped sources'
+      ].join('|')
+    ),
+    contractFreezeTarget(
       'tests/contract/ci-lanes.test.ts',
       [
         'CI contract keeps PR lanes fast and full lane complete',
@@ -103,6 +114,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       [
         'test architecture exposes only canonical testkit primitives',
         'test sources do not import legacy test helper aliases',
+        'testkit primitives do not depend on helper-layer fixtures',
         'root package exposes only canonical test entry scripts',
         'active docs do not reintroduce legacy test architecture examples'
       ].join('|')

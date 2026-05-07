@@ -12,7 +12,8 @@ const canonicalTestkitFiles = [
 ];
 const legacyAliasFiles = [
   ['tests', 'helpers', 'cli-helpers.ts'].join('/'),
-  ['tests', 'helpers', 'workspace-fixtures.ts'].join('/')
+  ['tests', 'helpers', 'workspace-fixtures.ts'].join('/'),
+  ['tests', 'helpers', 'scenario.ts'].join('/')
 ];
 const legacyImportSpecifiers = [
   ['..', 'helpers', 'cli-helpers.ts'].join('/'),
@@ -44,7 +45,15 @@ const forbiddenActiveDocFragments = [
   'tests/cli/',
   'tests/pipeline/',
   'tests/helpers/cli-helpers.ts',
-  'tests/helpers/workspace-fixtures.ts'
+  'tests/helpers/workspace-fixtures.ts',
+  'fast/runtime/all 三 lane',
+  'PR/push → fast lane，schedule/manual → all lane',
+  '`imports:check` 在 typecheck 之后检查 TypeScript import baseline',
+  'changed slow test files require explicit slow verification',
+  'future `scenario()` helpers',
+  'slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other',
+  'Recommended package script shape',
+  '"test:affected": "bun ./platform/dev-runner.ts test:affected"'
 ];
 
 async function pathExists(relativePath: string): Promise<boolean> {
@@ -85,7 +94,20 @@ async function listMarkdownFiles(relativeRoot: string): Promise<string[]> {
 
 test('test architecture exposes only canonical testkit primitives', async () => {
   await expect(Promise.all(canonicalTestkitFiles.map(pathExists))).resolves.toEqual([true, true, true]);
-  await expect(Promise.all(legacyAliasFiles.map(pathExists))).resolves.toEqual([false, false]);
+  await expect(Promise.all(legacyAliasFiles.map(pathExists))).resolves.toEqual([false, false, false]);
+});
+
+test('testkit primitives do not depend on helper-layer fixtures', async () => {
+  const offenders: string[] = [];
+
+  for (const file of canonicalTestkitFiles) {
+    const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
+    if (source.includes("'../helpers/") || source.includes('"../helpers/')) {
+      offenders.push(file);
+    }
+  }
+
+  expect(offenders).toEqual([]);
 });
 
 test('test sources do not import legacy test helper aliases', async () => {

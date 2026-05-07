@@ -3,21 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
-import {
-  adaptWorkspace,
-  addBlock,
-  composeWorkspace,
-  initWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
-} from '../../platform/orchestrator.ts';
+import { verifyWorkspace } from '../../platform/orchestrator.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { buildOfficialCopyInstallStep, buildOfficialInstallStep } from '../helpers/lock-fixtures.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { createWorkspace, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 const activeOfficialPolicyDirs = new Set<string>();
 const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');
@@ -503,12 +496,8 @@ test('policy gate uses lock install plan to locate applied block files', async (
   ]);
 }, 180000);
 test('policy gate fails when tenant scoping is removed from customer queries', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-');
+  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-policy-' });
 
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
   await writeCustomerService(workspaceRoot, false);
 
   await expect(verifyWorkspace(workspaceRoot)).rejects.toThrow();
@@ -523,14 +512,10 @@ test('policy gate fails when tenant scoping is removed from customer queries', a
   expect(report.policy.violations[0]?.sourcePath).toBe('platform/policies/official/policy.spec.yaml');
 }, 180000);
 test('policy gate targets ticket and worklog tenant-scoped services', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-targets-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await addBlock(workspaceRoot, 'ticket/basic');
-  await addBlock(workspaceRoot, 'worklog/basic');
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareAdaptedWorkspace({
+    prefix: 'engineering-compiler-policy-ticket-targets-',
+    blockIds: ['ticket/basic', 'worklog/basic']
+  });
 
   const report = await runPolicyGate(workspaceRoot);
   const tenantScopePolicy = report.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
@@ -543,13 +528,10 @@ test('policy gate targets ticket and worklog tenant-scoped services', async () =
   ]);
 }, 180000);
 test('policy gate fails when ticket service loses tenant context', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-ticket-failure-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await addBlock(workspaceRoot, 'ticket/basic');
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareAdaptedWorkspace({
+    prefix: 'engineering-compiler-policy-ticket-failure-',
+    blockIds: ['ticket/basic']
+  });
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   await fs.writeFile(

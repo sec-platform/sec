@@ -37,10 +37,9 @@ Use local commands for tight feedback:
 bun run check:affected
 bun run test:affected
 bun run imports:organize
-bun run imports:check
 ```
 
-`test:affected` uses an affected-tests base. In CI this defaults to `HEAD^1`; locally it may fall back to the provided diff base. It must not require developers to manually enumerate test files.
+`test:affected` uses an affected-tests base. In CI this defaults to `HEAD^1`; locally it may fall back to the provided diff base. It must not require developers to manually enumerate test files. Local affected/fast validation does not require `imports:check` as a prerequisite; PR quick organizes changed imports remotely before running tests.
 
 ### PR quick lane
 
@@ -57,7 +56,7 @@ PR quick lane:
   latest-commit affected-tests selector
 ```
 
-The PR quick lane must not run slow e2e by default. If a changed source maps only to slow coverage, the lane emits a notice and release/full validation owns the slow run.
+The PR quick lane must not run slow e2e by default. If a changed source maps only to slow coverage, the lane emits a notice; PR risk owns impact-selected slow verification and release/full remains the final backstop.
 
 The PR quick lane must not use broad fast-suite fallback unless explicitly requested with:
 
@@ -91,7 +90,7 @@ The release/full lane is the correctness backstop:
 release/full lane:
   Ubuntu runner
   preflight: imports organize, typecheck, test budget, contract-freeze
-  slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other
+  slow-suite matrix: derive suite IDs from the slow-suite registry
   workspace: benchmark contract, deps warmup, resolve, compose, adapt,
              verify --lane all, lock, explain, reference check
   summary: fail if any preflight, slow-suite, or workspace job failed
@@ -154,7 +153,7 @@ When a new contract test file is added, it must also be added to the contract-fr
 ```text
 1. Changed test files:
    run changed fast test files directly;
-   changed slow tests produce a PR notice and are covered by release/full lanes.
+   changed slow tests produce a PR notice and are covered by PR risk or release/full lanes.
 
 2. Automatic source references:
    scan test files for relative imports and literal repository paths that point at changed source files;
@@ -190,30 +189,9 @@ Do not delete slow tests merely to make CI green. Do not move slow e2e into PR q
 
 ## Package script boundary
 
-Package scripts are human entry points. They should stay small and memorable.
+Package scripts are human entry points. Keep the canonical values in `package.json` and guard the public surface through `tests/contract/test-architecture.test.ts`; do not copy the full script object into docs or tests.
 
-Recommended package script shape:
-
-```json
-{
-  "platform": "bun ./platform/cli/index.ts",
-  "dev": "bun ./platform/dev-runner.ts",
-  "typecheck": "bun ./platform/dev-runner.ts typecheck",
-  "test": "bun run test:fast",
-  "test:affected": "bun ./platform/dev-runner.ts test:affected",
-  "test:fast": "bun ./platform/dev-runner.ts test:fast",
-  "test:slow": "bun ./platform/dev-runner.ts test:slow",
-  "test:full": "bun ./platform/dev-runner.ts test",
-  "check": "bun run check:fast",
-  "check:affected": "bun run typecheck && bun run test:affected",
-  "check:fast": "bun run typecheck && bun run test:fast",
-  "check:full": "bun run typecheck && bun run test:full",
-  "imports:organize": "bun ./platform/dev-runner.ts imports:organize",
-  "imports:check": "bun ./platform/dev-runner.ts imports:check"
-}
-```
-
-Avoid exposing every internal runner command in `package.json`. Complex orchestration belongs in `platform/dev-runner`, CI workflows, and docs.
+The stable human entry families are `platform`, `dev`, `typecheck`, `test:*`, `check:*`, and `imports:*`. Complex orchestration belongs in `platform/dev-runner`, CI workflows, and contract builders under `platform/shared`.
 
 ## CI logging rules
 
