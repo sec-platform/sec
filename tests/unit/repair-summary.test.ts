@@ -6,7 +6,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { buildRepairBlocker, buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildPassingReviewReport, buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

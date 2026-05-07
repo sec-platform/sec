@@ -7,8 +7,8 @@ import {
   expectCliText,
   runCliInProcess,
   runCliPipeline
-} from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+} from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI exposes project overview as text summary and reports missing governance artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

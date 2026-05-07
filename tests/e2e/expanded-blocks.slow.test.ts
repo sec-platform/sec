@@ -12,7 +12,7 @@ import {
 } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 test('expanded official block set composes and verifies as one project', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-expanded-');

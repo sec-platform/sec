@@ -6,7 +6,7 @@ import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-ac
 import type { BlockManifest, LockFile, RuntimeVerificationLaneReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { emptyVerificationLogs } from '../helpers/verification-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function manifest(id: string, acceptance: BlockManifest['acceptance']): BlockManifest {
   return {

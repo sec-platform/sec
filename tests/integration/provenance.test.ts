@@ -7,7 +7,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile } from '../../platform/shared/types.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
 import { buildPassingReviewReport, buildRuntimeVerificationReport } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('buildProvenance sorts and deduplicates slot verification hints', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
