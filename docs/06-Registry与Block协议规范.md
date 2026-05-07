@@ -110,6 +110,12 @@ Pin/slot 是工程编译器的接口类型系统。约束必须稳定，但不�
 | `outputType` | 否 | 输出 TS 类型 |
 | `writableZones` | 是 | 允许写入的目录范围 |
 
+### Opaque Module 与 private block 回收
+
+`source/code/opaque/**/module.yaml` 是开发事实源中的开放实现边界，不属于 registry block。它可以作为旧项目迁移或复杂业务逻辑的临时容器，但不能被其他 block 作为稳定依赖引用。
+
+当 opaque module 需要复用、升级或被平台治理时，必须回收为 private block：补齐 `block.manifest.yaml`、pins/slots、acceptance、policy、provenance，并按需要迁移到 `contracts/**` 或 `generators/**`。回收前不得绕过 registry trust、version、upgrade 和 rollback 规则。
+
 ## 7. 安装协议
 
 支持动作：`copy`（递归复制）、`merge-prisma`（智能合并去重）。

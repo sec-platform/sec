@@ -88,6 +88,23 @@ Edge 类型：`connects_to`、`depends_on`、`originates_from`、`provides`、`v
 
 Review Summary 是 Review Workbench 的主数据源之一。它必须优先回答人类 review 问题：哪些 block/slot/entity/operation 发生变化、哪些文件由哪些合约或 generator 产生、哪些 acceptance/policy 失败、哪些路径需要人工决策。
 
+### Engineering Semantic Diff
+
+Engineering Semantic Diff 是 review 语义合同，不是单独的新事实源。它从 lock、Engineering IR / Explain Graph、provenance、verification、acceptance coverage、policy report、repair/upgrade plan 派生，用于把 review 从代码行差异提升为工程语义差异。
+
+最小 diff 维度：
+
+| 维度 | 必须回答的问题 |
+| --- | --- |
+| capability / block | 能力、block、版本、来源或 trust level 是否变化 |
+| pin / slot / contract | 连接、类型、slot 边界、语义合约或 generator 是否变化 |
+| policy / acceptance | policy 约束、验收覆盖、失败链是否变化 |
+| provenance / artifact | 生成路径、人工 override、未验证 artifact 是否变化 |
+| runtime / upgrade | runtime evidence、migration、rollback、override conflict 是否变化 |
+| risk | 是否引入 failure point、regression risk、conflict hint 或人工决策点 |
+
+在独立 stable artifact 落地前，Semantic Diff 应作为 `review-summary.json` 和 Workbench Review View 的派生 section；不得新增第二套 review schema，也不得绕过 `review-summary.json`、provenance 或 explain graph 直接从源码 diff 推断平台结论。
+
 ## 7. 治理产物清单
 
 | 产物 | 路径 |

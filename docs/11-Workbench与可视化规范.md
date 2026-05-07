@@ -328,7 +328,7 @@ policies: [tenant_scope_required]
 
 Graph View 的通用抽取不能降低信息覆盖：页面必须包含 coverage matrix，逐项列出所有 canonical `ExplainGraph` node type（app/block/capability/pin/slot/file/acceptance/policy/override/repair/upgrade）的来源、展示位置和计数；原计划里的 `issue` 不作为伪造 node type，而作为 review overlay 汇总 policy violation、failure point、repair blocker 和 upgrade diagnostic。任何后续删减都必须先更新本 coverage contract 和对应测试。
 
-Review View 不能成为第二套 review schema：它只从 `review-summary.json` 及现有 verification、coverage、policy、provenance、repair、upgrade、artifact evidence 派生人类 review 优先级，必须展示 dashboard、verification chain、coverage、policy violation、priority files、repair/upgrade readiness 和 missing artifact diagnostics。
+Review View 不能成为第二套 review schema：它只从 `review-summary.json` 及现有 verification、coverage、policy、provenance、repair、upgrade、artifact evidence 派生人类 review 优先级，必须展示 dashboard、Engineering Semantic Diff、verification chain、coverage、policy violation、priority files、repair/upgrade readiness 和 missing artifact diagnostics。
 
 L3 Engineering Pattern Graph 当前只输出 `stableArtifact: false` 的低置信 suggestion 和 file overlay edge；`autoRefactor` 必须保持 `false`，直到 CLI、Workbench、contract freeze 与回滚协议全部稳定后才能进入自动 mutation。
 

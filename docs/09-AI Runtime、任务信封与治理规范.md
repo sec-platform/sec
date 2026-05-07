@@ -91,6 +91,14 @@ expectedOutput:
 5. 相关类型签名与测试
 6. 目标文件骨架
 
+### Context Packet 投影
+
+Context Packet 是 task envelope 在执行时的只读上下文投影，不是新的事实源、持久化 artifact 或独立状态机。它由 task envelope、lock、manifest、acceptance、verification、provenance、explain graph、runtime evidence 和必要源码骨架组装。
+
+允许暴露的投影字段包括：`task`、`affectedGraph`、`blocks`、`pins`、`policies`、`writableAnchors`、`readonlyAnchors`、`cannotModify`、`mustPreserve`、`verification`、`provenance`、`issueClassification`、`runtimeEvidence`。
+
+权限仍只由 `allowedPaths`、`forbiddenOperations`、task kind、phase 和 zone 决定；Context Packet 不能扩大写入范围，也不能把外部 provider evidence 提升为 authoring truth。Graph-It-Live/MCP、trace、IDE graph 或其他工具结果只能作为 `runtimeEvidence` / evidence reference 进入投影。
+
 ### 源码下钻规则
 
 只有结构化上下文不足时才下钻源码。范围从 `targetFile`、`requiredSymbols`、`testsToPass` 推导，禁止扩大到整仓。
