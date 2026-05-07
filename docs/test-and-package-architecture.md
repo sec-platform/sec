@@ -70,9 +70,9 @@ The impact graph maps source ownership to fast and slow coverage:
 Rules:
 
 - changed fast test files run directly
-- changed slow test files require explicit slow verification
+- changed slow test files produce a quick-lane notice and are selected by PR risk or release/full validation
 - source changes run affected fast/integration tests
-- affected slow tests are reported as release/full-gate follow-up, not silently pulled into PR quick feedback
+- affected slow tests are reported as PR risk or release/full follow-up, not silently pulled into PR quick feedback
 
 ### 3. Slow runner isolation
 
@@ -80,8 +80,8 @@ Slow e2e tests are not regular fast tests. They are isolated behind explicit com
 
 ```bash
 bun run test:slow
-bun ./platform/dev-runner.ts test:slow --suite upgrade
-bun ./platform/dev-runner.ts test:slow --suite runtime-host
+bun run test:slow -- --suite upgrade
+bun run test:slow -- --suite runtime
 ```
 
 Slow tests are any tests under:
@@ -111,7 +111,7 @@ Test setup should use the lightest possible fixture level:
 | integration | cached/default workspace fixture when possible |
 | slow e2e | real pipeline workspace |
 
-Existing workspace template caching should remain an implementation detail behind helper APIs. Tests should prefer helper-level intentions such as `createWorkspace`, `withTempWorkspace`, or future `scenario()` helpers instead of manually recreating full pipelines.
+Existing workspace template caching should remain an implementation detail behind helper APIs. Tests should prefer the three thin testkit primitives, for example `withTempWorkspace`, `prepareResolvedWorkspace`, `prepareComposedWorkspace`, or `prepareAdaptedWorkspace`, instead of manually recreating full pipelines.
 
 ### 5. Golden snapshot foundation
 
@@ -136,15 +136,12 @@ Disallowed golden content:
 
 Golden helpers should normalize JSON recursively before comparison.
 
-### 6. Scenario and semantic matcher DSL
+### 6. Workspace setup and semantic matchers
 
-Tests should not repeatedly reimplement setup and object assertions. Prefer helper primitives:
+Tests should not repeatedly reimplement setup and object assertions. Prefer explicit testkit primitives:
 
 ```ts
-const workspace = await scenario('upgrade-')
-  .then((scenario) => scenario.resolved())
-  .then((scenario) => scenario.composed())
-  .then((scenario) => scenario.adapted());
+const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'upgrade-' });
 ```
 
 Semantic assertion helpers should replace brittle object mirroring:
@@ -189,7 +186,7 @@ Release/full gate should cover:
 
 ```text
 preflight: imports organize, typecheck, test budget, contract-freeze
-slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other
+slow-suite matrix: derive suite IDs from the slow-suite registry
 workspace: benchmark contract, verify --lane all, lock, explain, reference check
 ```
 
