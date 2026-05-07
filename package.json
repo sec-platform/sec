@@ -19,8 +19,6 @@
     "test:fast": "bun ./platform/dev-runner.ts test:fast",
     "test:slow": "bun ./platform/dev-runner.ts test:slow",
     "test:full": "bun ./platform/dev-runner.ts test",
-    "test:watch": "bun ./platform/dev-runner.ts test:fast --watch",
-    "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
     "test:budget": "bun run platform -- test budget --json",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
     "test:benchmark-contract": "bun run platform -- benchmark suite --json",
