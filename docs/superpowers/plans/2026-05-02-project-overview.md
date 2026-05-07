@@ -44,10 +44,10 @@ Use the approved design in `docs/superpowers/specs/2026-05-02-project-overview-d
   Adds Overview as the first navigation item.
 
 - Add tests:
-  - `tests/overview/project-overview.test.ts`
-  - `tests/cli/overview.test.ts`
-  - update `tests/pipeline/local-views.test.ts`
-  - update `tests/cli/artifacts.test.ts`
+  - `tests/unit/project-overview.test.ts`
+  - `tests/integration/overview.test.ts`
+  - update `tests/e2e/local-views.slow.test.ts`
+  - update `tests/e2e/artifacts.slow.test.ts`
 
 - Update docs:
   - `README.md`
@@ -59,14 +59,14 @@ Use the approved design in `docs/superpowers/specs/2026-05-02-project-overview-d
 
 **Files:**
 - Create: `platform/shared/project-overview.ts`
-- Test: `tests/overview/project-overview.test.ts`
+- Test: `tests/unit/project-overview.test.ts`
 
 - [ ] **Step 1: Write the failing builder test**
 
-Create `tests/overview/project-overview.test.ts`:
+Create `tests/unit/project-overview.test.ts`:
 
 ```ts
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { buildProjectOverview, formatProjectOverview } from '../../platform/shared/project-overview.ts';
@@ -437,7 +437,7 @@ test('builds high-signal project overview for developers and AI agents', () => {
 Run:
 
 ```powershell
-bun test tests/overview/project-overview.test.ts
+bun test tests/unit/project-overview.test.ts
 ```
 
 Expected: FAIL because `platform/shared/project-overview.ts` and `CI_ARTIFACT_FILES.overviewView` do not exist.
@@ -834,7 +834,7 @@ export function formatProjectOverview(overview: ProjectOverview): string {
 Run:
 
 ```powershell
-bun test tests/overview/project-overview.test.ts
+bun test tests/unit/project-overview.test.ts
 ```
 
 Expected: FAIL only on type mismatches or the missing `CI_ARTIFACT_FILES.overviewView` constant. If it fails for fixture shape, adjust the fixture to match current shared types, not the implementation contract.
@@ -844,7 +844,7 @@ Expected: FAIL only on type mismatches or the missing `CI_ARTIFACT_FILES.overvie
 Run:
 
 ```powershell
-git add -- platform/shared/project-overview.ts tests/overview/project-overview.test.ts
+git add -- platform/shared/project-overview.ts tests/unit/project-overview.test.ts
 git commit -m "feat: add project overview builder"
 ```
 
@@ -856,11 +856,11 @@ Expected: commit succeeds only if tests for this task pass after Task 2 path wir
 - Modify: `platform/shared/workspace-types.ts`
 - Modify: `platform/shared/paths.ts`
 - Modify: `platform/shared/ci-artifact-contract.ts`
-- Test: `tests/cli/artifacts.test.ts`
+- Test: `tests/e2e/artifacts.slow.test.ts`
 
 - [ ] **Step 1: Write failing artifact path assertions**
 
-In `tests/cli/artifacts.test.ts`, extend the existing manifest assertion around the view artifacts to include overview:
+In `tests/e2e/artifacts.slow.test.ts`, extend the existing manifest assertion around the view artifacts to include overview:
 
 ```ts
 expect(manifest.artifacts).toEqual(
@@ -886,7 +886,7 @@ expect(viewUploadPaths).toContain(CI_ARTIFACT_FILES.overviewView);
 Run:
 
 ```powershell
-bun test tests/cli/artifacts.test.ts
+bun test tests/e2e/artifacts.slow.test.ts
 ```
 
 Expected: FAIL because `CI_ARTIFACT_FILES.overviewView` does not exist.
@@ -937,7 +937,7 @@ Then include it first in `CI_ARTIFACT_PATHS.view`:
 Run:
 
 ```powershell
-bun test tests/cli/artifacts.test.ts
+bun test tests/e2e/artifacts.slow.test.ts
 ```
 
 Expected: FAIL until Workbench generation writes `overview-view.html`. This failure is acceptable before Task 4, but all type errors must be fixed.
@@ -947,7 +947,7 @@ Expected: FAIL until Workbench generation writes `overview-view.html`. This fail
 Run:
 
 ```powershell
-git add -- platform/shared/workspace-types.ts platform/shared/paths.ts platform/shared/ci-artifact-contract.ts tests/cli/artifacts.test.ts
+git add -- platform/shared/workspace-types.ts platform/shared/paths.ts platform/shared/ci-artifact-contract.ts tests/e2e/artifacts.slow.test.ts
 git commit -m "feat: register project overview view artifact"
 ```
 
@@ -1032,7 +1032,7 @@ If the second test cannot use `expectCliJson` for failures, use `runCliInProcess
 Run:
 
 ```powershell
-bun test tests/cli/overview.test.ts
+bun test tests/integration/overview.test.ts
 ```
 
 Expected: FAIL because the `overview` command is not registered.
@@ -1062,7 +1062,7 @@ Add the command near `explain` and `artifacts`:
 Run:
 
 ```powershell
-bun test tests/cli/overview.test.ts
+bun test tests/integration/overview.test.ts
 ```
 
 Expected: PASS after Task 1 and Task 2 compile. If missing artifact error formatting differs, assert the actual `EXPLAIN-BLOCKED-004` message and the recovery text.
@@ -1072,7 +1072,7 @@ Expected: PASS after Task 1 and Task 2 compile. If missing artifact error format
 Run:
 
 ```powershell
-git add -- platform/cli/register-commands.ts tests/cli/overview.test.ts
+git add -- platform/cli/register-commands.ts tests/integration/overview.test.ts
 git commit -m "feat: add project overview cli"
 ```
 
@@ -1084,11 +1084,11 @@ Expected: commit succeeds.
 - Modify: `platform/compiler/emit/write-local-views.ts`
 - Modify: `platform/compiler/emit/templates/layout.ejs`
 - Create: `platform/compiler/emit/templates/overview-view.ejs`
-- Test: `tests/pipeline/local-views.test.ts`
+- Test: `tests/e2e/local-views.slow.test.ts`
 
 - [ ] **Step 1: Write failing local view assertions**
 
-In `tests/pipeline/local-views.test.ts`, include `overviewViewPath` from `getWorkspacePaths`:
+In `tests/e2e/local-views.slow.test.ts`, include `overviewViewPath` from `getWorkspacePaths`:
 
 ```ts
 const {
@@ -1140,7 +1140,7 @@ expectContainsAll(reviewView, ['href="overview-view.html"']);
 Run:
 
 ```powershell
-bun test tests/pipeline/local-views.test.ts
+bun test tests/e2e/local-views.slow.test.ts
 ```
 
 Expected: FAIL because `overview-view.html` is not written.
@@ -1315,7 +1315,7 @@ Create `platform/compiler/emit/templates/overview-view.ejs`:
 Run:
 
 ```powershell
-bun test tests/pipeline/local-views.test.ts tests/cli/artifacts.test.ts
+bun test tests/e2e/local-views.slow.test.ts tests/e2e/artifacts.slow.test.ts
 ```
 
 Expected: PASS.
@@ -1325,7 +1325,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-git add -- platform/compiler/emit/write-local-views.ts platform/compiler/emit/templates/layout.ejs platform/compiler/emit/templates/overview-view.ejs tests/pipeline/local-views.test.ts
+git add -- platform/compiler/emit/write-local-views.ts platform/compiler/emit/templates/layout.ejs platform/compiler/emit/templates/overview-view.ejs tests/e2e/local-views.slow.test.ts
 git commit -m "feat: add project overview workbench view"
 ```
 
@@ -1401,7 +1401,7 @@ Overview View 是进入 Workbench 的默认只读入口；它只聚合已有治�
 Run:
 
 ```powershell
-bun test tests/cli/overview.test.ts tests/pipeline/local-views.test.ts tests/cli/artifacts.test.ts
+bun test tests/integration/overview.test.ts tests/e2e/local-views.slow.test.ts tests/e2e/artifacts.slow.test.ts
 ```
 
 Expected: PASS.
@@ -1447,7 +1447,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-bun test tests/overview/project-overview.test.ts tests/cli/overview.test.ts tests/pipeline/local-views.test.ts tests/cli/artifacts.test.ts
+bun test tests/unit/project-overview.test.ts tests/integration/overview.test.ts tests/e2e/local-views.slow.test.ts tests/e2e/artifacts.slow.test.ts
 ```
 
 Expected: PASS.

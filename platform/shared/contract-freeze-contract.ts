@@ -103,7 +103,8 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       [
         'test architecture exposes only canonical testkit primitives',
         'test sources do not import legacy test helper aliases',
-        'root package exposes only canonical test entry scripts'
+        'root package exposes only canonical test entry scripts',
+        'active docs do not reintroduce legacy test architecture examples'
       ].join('|')
     ),
     contractFreezeTarget(
