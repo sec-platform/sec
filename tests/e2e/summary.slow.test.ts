@@ -3,13 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildReviewSummary, writeReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
-import {
-  adaptWorkspace,
-  composeWorkspace,
-  initWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
-} from '../../platform/orchestrator.ts';
+import { verifyWorkspace } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -31,7 +25,7 @@ import {
   buildReviewProvenance,
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { createWorkspace, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;
@@ -84,13 +78,8 @@ test('writeReviewSummary persists generated path in lock', async () => {
   expect(persistedLock.generatedPaths).toContain('control/evidence/review-summary.json');
 }, 180000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-review-fast-');
+  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-review-fast-' });
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
 
   await fs.writeFile(
     path.join(projectRoot, 'src', 'installed', 'entity', 'customer-service.ts'),

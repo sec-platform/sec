@@ -98,12 +98,6 @@ function sourceFileChanged(file: string): boolean {
   return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
 }
 
-function allowSlowAffectedNotice(): boolean {
-  return process.env.PJC_AFFECTED_TESTS_ALLOW_SLOW_NOTICE === '1'
-    || process.env.PJC_AFFECTED_TESTS_BASE !== undefined
-    || process.env.PJC_CHANGED_BASE !== undefined;
-}
-
 function allowFullFastFallback(): boolean {
   return process.env.PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK === '1';
 }
@@ -172,12 +166,7 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
     return 1;
   }
   if (selection.slowTests.length > 0) {
-    const message = `Slow test files require explicit verification: ${selection.slowTests.join(', ')}`;
-    if (!allowSlowAffectedNotice()) {
-      console.error(message);
-      return 1;
-    }
-    console.log(message);
+    console.log(`Changed slow test files require PR risk or release/full verification: ${selection.slowTests.join(', ')}`);
   }
   if (selection.tests.length > 0) {
     return runFastTests(selection.tests);

@@ -4,36 +4,34 @@ import path from 'node:path';
 
 import {
   adaptWorkspace,
-  addBlock,
-  composeWorkspace,
-  initWorkspace,
-  resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import type { LockFile } from '../../platform/shared/types.ts';
+import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('expanded official block set composes and verifies as one project', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-expanded-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await addBlock(workspaceRoot, 'rbac/basic');
-  await addBlock(workspaceRoot, 'audit/basic');
-  await addBlock(workspaceRoot, 'export/csv-basic');
-  await addBlock(workspaceRoot, 'file/upload');
-  await addBlock(workspaceRoot, 'notify/email-basic');
-  await addBlock(workspaceRoot, 'table/filter-search');
-  await addBlock(workspaceRoot, 'infra/postgres');
-  await addBlock(workspaceRoot, 'ticket/basic');
-  await addBlock(workspaceRoot, 'reporting/ticket-summary');
-  await addBlock(workspaceRoot, 'worklog/basic');
-
-  const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-expanded-',
+    blockIds: [
+      'rbac/basic',
+      'audit/basic',
+      'export/csv-basic',
+      'file/upload',
+      'notify/email-basic',
+      'table/filter-search',
+      'infra/postgres',
+      'ticket/basic',
+      'reporting/ticket-summary',
+      'worklog/basic'
+    ]
+  });
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const resolvedLock = await readJson<LockFile>(lockPath);
   expect(resolvedLock.resolvedBlocks.length).toBe(13);
   expect(resolvedLock.slotTasks).toHaveLength(1);
 
-  await composeWorkspace(workspaceRoot);
   const storeSource = await fs.readFile(path.join(workspaceRoot, 'project', 'lib', 'store.ts'), 'utf8');
   expect(storeSource).toContain("createRuntimeStore('postgres-contract')");
   await adaptWorkspace(workspaceRoot);
@@ -68,8 +66,7 @@ test('expanded official block set composes and verifies as one project', async (
     expect.arrayContaining(['id', 'title', 'status', 'due_date', 'tenant_id'])
   );
 
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<typeof resolvedLock>(lockPath);
+  const lock = await readJson<LockFile>(lockPath);
   expect(lock.passStatus.verify).toBe('pending');
   expect(lock.resolvedBlocks.some((block) => block.id === 'rbac/basic')).toBe(true);
   expect(lock.resolvedBlocks.some((block) => block.id === 'audit/basic')).toBe(true);

@@ -25,7 +25,8 @@ import {
   expectCliJson,
   expectCliSuccess,
   expectCliText,
-  runCliInProcess as runCli
+  runCliInProcess as runCli,
+  runCliPipeline
 } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -111,9 +112,7 @@ function expectArtifactPathsPayload(payload: ArtifactPathsPayload, expected: Exp
 
 test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
-    await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 3 blocks\n');
-    await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');
+    await runCliPipeline(workspaceRoot, { target: 'composed' });
 
     await expectCliText(workspaceRoot, ['install', 'manifest'], [
       'Install manifest 7 steps',
