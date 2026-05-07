@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
 import { buildExplainGraph, writeExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
-import { initWorkspace, resolveWorkspace } from '../../platform/orchestrator.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
@@ -21,7 +20,7 @@ import type {
 import { expectGraphEdge, expectGraphNode, expectNoGraphNode } from '../helpers/graph-assertions.ts';
 import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { createWorkspace, prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {
@@ -36,10 +35,9 @@ function emptyCoverage(): AcceptanceCoverageReport {
 }
 
 test('explain graph includes pins, policies, and policy violation edges without runtime verification', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-explain-graph-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  const { lock } = await resolveWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-graph-' });
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lock = await readJson<LockFile>(lockPath);
   const provenance: ProvenanceFile = {
     formatVersion: '1',
     artifacts: [
@@ -123,10 +121,9 @@ test('explain graph includes pins, policies, and policy violation edges without 
   expect(violationEdges).toHaveLength(1);
 }, 180000);
 test('explain graph connects slot contract upgrade impacts to slots and files', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-explain-upgrade-slot-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  const { lock } = await resolveWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-upgrade-slot-' });
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lock = await readJson<LockFile>(lockPath);
   const upgradePlan: UpgradePlan = {
     formatVersion: '1',
     blockId: 'entity/customer-basic',
@@ -350,10 +347,9 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
   );
 }, 180000);
 test('explain graph connects repair tasks to slots and files', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-explain-repair-');
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  const { lock } = await resolveWorkspace(workspaceRoot);
+  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-repair-' });
+  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lock = await readJson<LockFile>(lockPath);
   const repairPlan: RepairPlan = {
     formatVersion: '1',
     status: 'pending',
@@ -477,7 +473,7 @@ test('explain graph links generated ticket runtime routes back to related blocks
   );
 }, 180000);
 test('writeExplainGraph does not require a policy report', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-explain-no-policy-');
+  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-no-policy-' });
   const {
     acceptanceCoveragePath,
     explainGraphDotPath,
@@ -487,8 +483,7 @@ test('writeExplainGraph does not require a policy report', async () => {
     policyReportPath,
     provenancePath
   } = getWorkspacePaths(workspaceRoot);
-  await initWorkspace(workspaceRoot, { reset: true });
-  const { lock } = await resolveWorkspace(workspaceRoot);
+  const lock = await readJson<LockFile>(lockPath);
   const provenance: ProvenanceFile = {
     formatVersion: '1',
     artifacts: []

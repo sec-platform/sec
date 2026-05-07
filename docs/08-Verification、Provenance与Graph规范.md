@@ -4,15 +4,18 @@
 
 ## 1. Verification 层级
 
-| 层级 | 组件 | 说明 |
+仓库测试架构的开发者入口固定为 affected / fast / slow / full 四类，具体口径见 `docs/test-architecture.md`。
+
+| 入口 | 组件 | 说明 |
 | --- | --- | --- |
-| Fast lane | typecheck + 快速单元测试 + 快速验收 + policy gate | 默认本地验证 |
-| Runtime lane | runtime service/unit 测试 | CI PR 推送到此层 |
-| All lane | Next build + Bun/Node tests + Playwright acceptance + browser | 完整循环 |
+| affected | typecheck + affected fast tests | 本地与 PR quick 的变更反馈入口 |
+| fast | typecheck + full fast tests | 不含 slow e2e / Playwright 的快速回归入口 |
+| slow | impact-selected slow suites / slow files | PR risk 与人工风险验证入口 |
+| full | release preflight + slow-suite matrix + workspace correctness backstop | schedule/manual/full label 的完整循环 |
 
-当前已实现：`verify --lane fast|runtime|all --json [--compact]`，输出 `control/evidence/verification-report.json`。
+生成项目 verification 仍由平台命令 `verify --lane fast|runtime|all --json [--compact]` 输出 `control/evidence/verification-report.json`；其中 Playwright 只属于 runtime full / all 边界，不进入 affected 或 fast 入口。
 
-CI 质量门禁由 `platform/shared/ci-contract.ts` 统一声明；`imports:check` 在 typecheck 之后检查 TypeScript import baseline，漂移时本地运行 `imports:organize` 修复，定时 full CI 复用同一门禁。
+CI 质量门禁由 `platform/shared/ci-contract.ts` 统一声明；PR quick 与 release preflight 通过 `imports:organize` 收敛 TypeScript import baseline。本地可按需运行 `imports:check` 审计漂移，但 affected/fast 验证不以前者为前置条件。
 
 ## 2. Acceptance
 

@@ -31,7 +31,7 @@
 | CLI 主链 | done | `init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain` |
 | 官方块 | done | 13 个块覆盖 auth/tenant/entity/rbac/audit/export/file/notify/table/infra |
 | Slot 合成 | done | `customer_normalizer` 通过 task envelope 限定写入边界 |
-| Verification | done | fast/runtime/all 三 lane；typecheck + Bun/Node tests + Playwright + policy gate |
+| Verification | done | affected/fast/slow/full 四入口；typecheck + Bun/Node tests + Playwright runtime full smoke + policy gate |
 | Acceptance coverage | done | 块/slot 覆盖映射，依赖满足判断 |
 | Provenance | done | `control/provenance/provenance.json`，包含 block/slot/generated/override 追踪 |
 | Explain graph | done | 58 节点 / 67 边，多类型节点和归因边 |
@@ -69,7 +69,7 @@
 - 本地推荐布局：根 `node_modules`（编译器自身）、`.shared-deps/node_modules`（生成项目运行时共享）、`project/node_modules`（默认链接）。
 - `platform doctor` 检查 workspace 四根、依赖环境、缓存。
 - `platform deps status|warmup|relink|clean` 管理依赖环境。
-- CI：PR/push → fast lane，schedule/manual → all lane。
+- CI：PR quick → affected/fast feedback，PR risk → impact-selected slow/workspace checks，schedule/manual/full label → full correctness backstop。
 
 ## 全局决策框架
 

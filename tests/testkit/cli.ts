@@ -4,7 +4,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { registerCommands } from '../../platform/cli/register-commands.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
-import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 
 function normalizeCliStderr(stderr: string): string {
   return stderr
@@ -12,6 +11,12 @@ function normalizeCliStderr(stderr: string): string {
     .filter((line) => line.trim() !== '[ora] Multiple concurrent spinners detected. This may cause visual corruption. Use one spinner at a time.')
     .join('\n')
     .trimEnd();
+}
+
+function expectContainsAll(source: string, fragments: readonly string[]): void {
+  for (const fragment of fragments) {
+    expect(source).toContain(fragment);
+  }
 }
 
 export type CliResult = { code: number; stdout: string; stderr: string };
@@ -162,13 +167,15 @@ export async function expectCliVariants<TJson = unknown, TCompactJson = unknown>
 
 export async function runCliPipeline(
   workspaceRoot: string,
-  options: { init?: boolean; verifyLane?: 'fast' | 'all'; lock?: boolean; explain?: boolean } = {}
+  options: { init?: boolean; target?: 'composed' | 'adapted'; verifyLane?: 'fast' | 'all'; lock?: boolean; explain?: boolean } = {}
 ): Promise<void> {
   if (options.init !== false) {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
   }
   await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 3 blocks\n');
   await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');
+  if (options.target === 'composed') return;
+
   await expectCliSuccess(workspaceRoot, ['adapt'], 'Adapted slots\n');
   if (options.verifyLane) {
     const verification = await expectCliSuccess(workspaceRoot, ['verify', '--lane', options.verifyLane]);

@@ -9,6 +9,7 @@ import type { CiArtifactKind } from './ci-artifact-types.ts';
 import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 import { platformCommand } from './platform-command.ts';
+import { slowTestSuiteIds } from './test-budget-contract.ts';
 
 export type CiContractStep = {
   id: string;
@@ -56,15 +57,7 @@ const prRiskLaneCommands = [
   'bun scripts/ci-pr-risk.ts'
 ];
 
-const fullSlowSuiteCommands = [
-  'bun run test:slow -- --suite upgrade',
-  'bun run test:slow -- --suite runtime',
-  'bun run test:slow -- --suite pipeline',
-  'bun run test:slow -- --suite repair',
-  'bun run test:slow -- --suite registry',
-  'bun run test:slow -- --suite explain',
-  'bun run test:slow -- --suite other'
-];
+const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
 
 const fullLaneCommands = [
   'bun install --frozen-lockfile',
@@ -136,7 +129,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     id: 'slow-test-budget',
     phase: 'quality',
     command: platformCommand('test', 'budget', '--json', '--compact'),
-    purpose: 'Expose the fast/runtime/all slow-test lane budget before selecting CI gates.',
+    purpose: 'Expose the slow-suite budget before selecting CI gates.',
     produces: []
   },
   {

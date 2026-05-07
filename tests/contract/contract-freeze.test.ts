@@ -19,7 +19,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/ci-contract.test.ts',
     'tests/contract/contract-freeze.test.ts',
     'tests/contract/error-protocol.test.ts',
-    'tests/contract/test-architecture.test.ts'
+    'tests/contract/test-architecture.test.ts',
+    'tests/contract/test-impact.test.ts'
   ]));
   expect(contract.targetFiles).not.toContain('tests/contract/contracts.test.ts');
   expect(contract.targets.every((target) => target.testNamePattern)).toBe(true);
@@ -47,8 +48,10 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
   expect(runnerPattern).toContain('CI contract keeps PR lanes fast and full lane complete');
   expect(runnerPattern).toContain('test architecture exposes only canonical testkit primitives');
+  expect(runnerPattern).toContain('testkit primitives do not depend on helper-layer fixtures');
   expect(runnerPattern).toContain('root package exposes only canonical test entry scripts');
   expect(runnerPattern).toContain('active docs do not reintroduce legacy test architecture examples');
+  expect(runnerPattern).toContain('test impact selector uses auto-reference for CI contract coverage');
   expect(runnerPattern).not.toContain('v0.1 pipeline runs end to end in a temporary workspace');
   expect(JSON.stringify(contract)).not.toContain('\n');
 
