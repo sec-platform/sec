@@ -12,7 +12,7 @@ import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { expectCliText, runCliInProcess as runCli } from '../helpers/cli-helpers.ts';
+import { expectCliText, runCliInProcess as runCli } from '../testkit/cli.ts';
 import {
   buildCustomerNormalizerLock,
   buildCustomerNormalizerPlan,
@@ -20,7 +20,7 @@ import {
   buildRepairTask
 } from '../helpers/repair-fixtures.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function plan(): PlanFile {
   return buildCustomerNormalizerPlan({

@@ -246,13 +246,13 @@ For large file rewrites, prefer local patches instead of remote whole-file repla
 5. inspect CI logs
 ```
 
-Recommended local checks for CI/test lane work:
+Recommended verification for CI/test lane work is remote-first:
 
 ```text
-bun run typecheck
-bun test tests/contract/contracts.test.ts --test-name-pattern "CLI exposes contract freeze target list as text and JSON contracts"
-bun test tests/contract/ci-lanes.test.ts
-bun test tests/integration/project-runtime.test.ts --test-name-pattern "fast test runner excludes slow files and skips runtime deps setup"
-bun scripts/ci-pr-quick.ts
-bun scripts/ci-pr-risk.ts
+1. push the PR branch
+2. inspect GitHub `compiler-validation` / PR checks
+3. read failed remote logs before changing code
+4. run local targeted repro only when remote logs are insufficient for root cause
 ```
+
+Do not keep documentation pointers to deleted contract files; contract freeze targets are listed by `platform/shared/contract-freeze-contract.ts`.

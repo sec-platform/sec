@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { lockWorkspace, verifyWorkspace } from '../../platform/orchestrator.ts';
-import { prepareAdaptedWorkspace } from '../helpers/workspace-fixtures.ts';
+import { prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 test('fast lane alone does not unlock the workspace', async () => {
   const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-fast-lane-' });

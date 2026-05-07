@@ -9,7 +9,7 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import { emptyVerificationLogs } from './verification-fixtures.ts';
-import { withTempWorkspace } from './workspace-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 export function buildOfficialRegistrySummary(paths: string[]): ReviewProvenanceRegistrySummary {
   return {

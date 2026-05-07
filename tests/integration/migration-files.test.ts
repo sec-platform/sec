@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { formatJsonFile, writeJson } from '../../platform/shared/fs.ts';
 import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
-import { createWorkspace } from '../helpers/workspace-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 import {
   configRewrite,
   copyDirectory,
