@@ -6,7 +6,7 @@
 
 **Architecture:** Add `platform/shared/project-overview.ts` as the single overview aggregation source. CLI and Workbench read existing governance artifacts, call the shared builder, and render text/JSON or HTML without duplicating review logic.
 
-**Tech Stack:** TypeScript, Bun, Commander, Vitest, EJS templates, existing platform shared helpers.
+**Tech Stack:** TypeScript, Bun, Commander, Bun test, EJS templates, existing platform shared helpers.
 
 ---
 
@@ -958,18 +958,18 @@ Expected: commit succeeds after Task 4 writes the page.
 **Files:**
 - Modify: `platform/cli/register-commands.ts`
 - Modify: `platform/cli/formatters.ts` only if needed
-- Test: `tests/cli/overview.test.ts`
+- Test: `tests/integration/overview.test.ts`
 
 - [ ] **Step 1: Write the failing CLI test**
 
-Create `tests/cli/overview.test.ts`:
+Create or update `tests/integration/overview.test.ts`:
 
 ```ts
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../helpers/cli-helpers.ts';
-import { withTempWorkspace } from '../helpers/workspace-fixtures.ts';
+import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI emits project overview text and JSON for AI handoff', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -1025,7 +1025,7 @@ test('CLI overview reports missing governance artifacts with recovery guidance',
 });
 ```
 
-If the second test cannot use `expectCliJson` for failures, use `runCliInProcess` exported from `tests/helpers/cli-helpers.ts`; if it is not exported, add a small local helper matching other CLI failure tests.
+If the second test cannot use `expectCliJson` for failures, use `runCliInProcess` exported from `tests/testkit/cli.ts`; do not add another local CLI runner.
 
 - [ ] **Step 2: Run the failing CLI test**
 

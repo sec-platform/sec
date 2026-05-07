@@ -11,13 +11,28 @@ const canonicalTestkitFiles = [
   'tests/testkit/workspace.ts'
 ];
 const legacyAliasFiles = [
-  'tests/helpers/cli-helpers.ts',
-  'tests/helpers/workspace-fixtures.ts'
+  ['tests', 'helpers', 'cli-helpers.ts'].join('/'),
+  ['tests', 'helpers', 'workspace-fixtures.ts'].join('/')
 ];
 const legacyImportSpecifiers = [
   ['..', 'helpers', 'cli-helpers.ts'].join('/'),
   ['..', 'helpers', 'workspace-fixtures.ts'].join('/'),
   ['.', 'workspace-fixtures.ts'].join('/')
+];
+const canonicalPackageTestScripts = ['test', 'test:affected', 'test:fast', 'test:slow', 'test:full'];
+const forbiddenPackageTestAliases = [
+  'test:changed',
+  'test:all',
+  'test:quick',
+  'test:ci',
+  'test:smoke',
+  'test:runtime-full',
+  'test:workspace',
+  'test:watch',
+  'test:coverage',
+  'check:changed',
+  'check:lite',
+  'check:pr'
 ];
 
 async function pathExists(relativePath: string): Promise<boolean> {
@@ -69,4 +84,20 @@ test('test sources do not import legacy test helper aliases', async () => {
   }
 
   expect(offenders).toEqual([]);
+});
+
+test('root package exposes only canonical test entry scripts', async () => {
+  const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+
+  expect(Object.keys(packageJson.scripts).filter((name) => name === 'test' || name.startsWith('test:')).sort()).toEqual([
+    ...canonicalPackageTestScripts,
+    'test:benchmark-contract',
+    'test:budget',
+    'test:contract-freeze'
+  ].sort());
+  for (const scriptName of forbiddenPackageTestAliases) {
+    expect(packageJson.scripts[scriptName]).toBeUndefined();
+  }
 });

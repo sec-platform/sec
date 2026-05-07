@@ -204,8 +204,6 @@ Recommended package script shape:
   "test:fast": "bun ./platform/dev-runner.ts test:fast",
   "test:slow": "bun ./platform/dev-runner.ts test:slow",
   "test:full": "bun ./platform/dev-runner.ts test",
-  "test:watch": "bun ./platform/dev-runner.ts test:fast --watch",
-  "test:coverage": "bun ./platform/dev-runner.ts test --coverage",
   "check": "bun run check:fast",
   "check:affected": "bun run typecheck && bun run test:affected",
   "check:fast": "bun run typecheck && bun run test:fast",
