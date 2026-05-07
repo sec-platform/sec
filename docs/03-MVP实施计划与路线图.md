@@ -31,7 +31,7 @@
 | CLI 主链 | done | `init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain` |
 | 官方块 | done | 13 个块覆盖 auth/tenant/entity/rbac/audit/export/file/notify/table/infra |
 | Slot 合成 | done | `customer_normalizer` 通过 task envelope 限定写入边界 |
-| Verification | done | fast/runtime/all 三 lane；typecheck + Vitest + Playwright + policy gate |
+| Verification | done | fast/runtime/all 三 lane；typecheck + Bun/Node tests + Playwright + policy gate |
 | Acceptance coverage | done | 块/slot 覆盖映射，依赖满足判断 |
 | Provenance | done | `control/provenance/provenance.json`，包含 block/slot/generated/override 追踪 |
 | Explain graph | done | 58 节点 / 67 边，多类型节点和归因边 |

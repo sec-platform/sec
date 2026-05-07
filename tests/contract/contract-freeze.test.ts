@@ -47,6 +47,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
   expect(runnerPattern).toContain('CI contract keeps PR lanes fast and full lane complete');
   expect(runnerPattern).toContain('test architecture exposes only canonical testkit primitives');
+  expect(runnerPattern).toContain('root package exposes only canonical test entry scripts');
   expect(runnerPattern).not.toContain('v0.1 pipeline runs end to end in a temporary workspace');
   expect(JSON.stringify(contract)).not.toContain('\n');
 

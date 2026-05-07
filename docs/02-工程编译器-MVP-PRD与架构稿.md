@@ -36,8 +36,8 @@
 ## 技术栈分层
 
 - 编译器本体：TypeScript + Node.js + ESM + CLI-first + 文件系统驱动
-- 生成项目目标栈：`nextjs-ts-prisma-sqlite`（Next.js + TS + React + Tailwind + Prisma + SQLite + Vitest + Playwright）
-- Bun 是可选本地执行/测试加速路径，非主规范运行时
+- 生成项目目标栈：`nextjs-ts-prisma-sqlite`（Next.js + TS + React + Tailwind + Prisma + SQLite + Bun/Node tests + Playwright）
+- Bun 是仓库脚本与测试入口的固定执行器；生成运行时的浏览器验收边界由 Playwright 承担
 - 详见 `05` §0、§0.1
 
 ## 版本边界
