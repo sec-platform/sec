@@ -19,8 +19,14 @@ jobs:
         with:
           bun-version: 1.3.6
 
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
       - name: Run dependency graph check
-        run: bunx --bun dependency-cruiser@17.3.10 platform/ --config .dependency-cruiser.json
+        run: bun run depcruise
 
       - name: Run duplicate code scan
-        run: bunx --bun jscpd@4.0.9 platform/ scripts/ -o report/jscpd --reporters html,console --format typescript,javascript --ignore "**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**" --min-lines 5 --min-tokens 50 --absolute
+        run: bun run jscpd
+
+      - name: Run structural discovery scan
+        run: bun run discover
