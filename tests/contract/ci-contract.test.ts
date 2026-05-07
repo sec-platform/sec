@@ -154,7 +154,9 @@ test('GitHub compiler CI workflow covers CI command contract gates', async () =>
   expect(missingPrRiskLaneCommands).toEqual([]);
   expect(missingReleaseLaneCommands).toEqual([]);
   expect(contract.fullLaneCommands).toEqual(expect.arrayContaining(slowSuiteCommands));
-  expect(workflow).toContain(`suite: [${slowSuiteIds.join(', ')}]`);
+  expect(workflow).toContain("import { slowTestSuiteIds } from './platform/shared/test-budget-contract.ts'");
+  expect(workflow).toContain('suite: ${{ fromJSON(needs.compiler-release-slow-matrix.outputs.suites) }}');
+  expect(workflow).not.toContain(`suite: [${slowSuiteIds.join(', ')}]`);
   expect(workflow).toContain('bun run test:slow -- --suite ${{ matrix.suite }}');
 
   expect(workflow).not.toContain('# bun run platform -- verify --json --compact');

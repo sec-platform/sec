@@ -4,12 +4,8 @@ import path from 'node:path';
 
 import {
   adaptWorkspace,
-  addBlock,
-  composeWorkspace,
   explainWorkspace,
-  initWorkspace,
   lockWorkspace,
-  resolveWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
@@ -21,15 +17,11 @@ import {
   expectReviewConflictHint,
   expectReviewRegressionRisk
 } from '../helpers/graph-assertions.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('override-manifest can replace a generated file and surface override provenance', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-override-');
+  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-override-' });
   const { overrideManifestPath, projectRoot, provenancePath, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
 
   await writeYaml(overrideManifestPath, {
     overrides: [
@@ -117,12 +109,8 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
 }, 120000);
 
 test('override-manifest loads developer source layer overrides before legacy overrides', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-source-override-');
+  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-source-override-' });
   const { overrideManifestPath, legacyOverrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
 
   await writeYaml(legacyOverrideManifestPath, {
     overrides: [
@@ -171,15 +159,11 @@ test('override-manifest loads developer source layer overrides before legacy ove
   );
 }, 180000);
 test('override-manifest surfaces ticket runtime override attribution', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-ticket-override-');
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-ticket-override-',
+    blockIds: ['ticket/basic', 'reporting/ticket-summary', 'worklog/basic']
+  });
   const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
-
-  await initWorkspace(workspaceRoot, { reset: true });
-  await addBlock(workspaceRoot, 'ticket/basic');
-  await addBlock(workspaceRoot, 'reporting/ticket-summary');
-  await addBlock(workspaceRoot, 'worklog/basic');
-  await resolveWorkspace(workspaceRoot);
-  await composeWorkspace(workspaceRoot);
 
   const ticketSummaryExportPath = path.join(projectRoot, 'app', 'api', 'tickets', 'summary', 'export', 'route.ts');
   await expect(fs.readFile(ticketSummaryExportPath, 'utf8')).rejects.toThrow();

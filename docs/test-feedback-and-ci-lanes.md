@@ -37,10 +37,9 @@ Use local commands for tight feedback:
 bun run check:affected
 bun run test:affected
 bun run imports:organize
-bun run imports:check
 ```
 
-`test:affected` uses an affected-tests base. In CI this defaults to `HEAD^1`; locally it may fall back to the provided diff base. It must not require developers to manually enumerate test files.
+`test:affected` uses an affected-tests base. In CI this defaults to `HEAD^1`; locally it may fall back to the provided diff base. It must not require developers to manually enumerate test files. Local affected/fast validation does not require `imports:check` as a prerequisite; PR quick organizes changed imports remotely before running tests.
 
 ### PR quick lane
 
@@ -91,7 +90,7 @@ The release/full lane is the correctness backstop:
 release/full lane:
   Ubuntu runner
   preflight: imports organize, typecheck, test budget, contract-freeze
-  slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other
+  slow-suite matrix: derive suite IDs from the slow-suite registry
   workspace: benchmark contract, deps warmup, resolve, compose, adapt,
              verify --lane all, lock, explain, reference check
   summary: fail if any preflight, slow-suite, or workspace job failed
