@@ -8,8 +8,8 @@ import type {
   ReviewSummary,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { emptyVerificationLogs } from './verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
+import { emptyVerificationLogs } from './verification-fixtures.ts';
 
 export function buildOfficialRegistrySummary(paths: string[]): ReviewProvenanceRegistrySummary {
   return {

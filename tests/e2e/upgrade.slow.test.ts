@@ -10,6 +10,7 @@ import type {
   UpgradePlan
 } from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
+import { writePassingVerificationState } from '../helpers/verification-fixtures.ts';
 import {
   expectCliJson,
   expectCliSuccess,
@@ -17,7 +18,6 @@ import {
   runCliInProcess as runCli,
   runCliPipeline
 } from '../testkit/cli.ts';
-import { writePassingVerificationState } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
