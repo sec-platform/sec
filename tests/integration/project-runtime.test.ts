@@ -117,6 +117,7 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts.discover).toBe('bun scripts/discover-all.ts --json --output report/discover.json');
     expect(scripts['gitnexus:analyze']).toBe('gitnexus analyze --skip-agents-md --no-stats');
     expect(scripts['gitnexus:status']).toBe('gitnexus status');
+    expect(scripts['gitnexus:mcp']).toBe('gitnexus mcp');
     expect(scripts.graphify).toBe('uvx --from graphifyy==0.7.10 graphify');
     expect(scripts['graphify:update']).toBe('uvx --from graphifyy==0.7.10 graphify update .');
     expect(scripts['graphify:extract']).toBe('uvx --from graphifyy==0.7.10 graphify extract . --out report/graphify --no-cluster');
@@ -137,6 +138,21 @@ describe('test budget and benchmark contracts', () => {
     const gitignore = await readCompilerFile('.gitignore');
 
     expectContainsAll(gitignore, ['.gitnexus/', 'graphify-out/']);
+  });
+
+  test('MCP config exposes Graph-It-Live and GitNexus servers', async () => {
+    const mcpConfig = JSON.parse(await readCompilerFile('.mcp.json')) as {
+      mcpServers: Record<string, { command: string; args: string[] }>;
+    };
+
+    expect(mcpConfig.mcpServers['graph-it-live']).toMatchObject({
+      command: 'npx',
+      args: ['-y', '@magic5644/graph-it-live', 'serve', '--workspace', '.']
+    });
+    expect(mcpConfig.mcpServers.gitnexus).toEqual({
+      command: 'bun',
+      args: ['run', 'gitnexus:mcp']
+    });
   });
 
   test('architecture tools workflow delegates to canonical package scripts', async () => {

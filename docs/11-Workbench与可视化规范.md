@@ -249,7 +249,7 @@ generate-ticket
 
 Graph-It-Live 这类 VSCode/MCP 工具适合作为 IDE 实时探索和 AI 上下文工具，但不能成为平台事实源。它的 file graph、symbol view、call graph、MCP 工具结果只能作为可选 evidence/overlay 接入；CI、contract freeze、Workbench 主图仍以平台治理产物为准。
 
-GitNexus provider 的定位是 repo query graph：call chain、execution flow、impact、dependency cluster 等只读索引结果；当前以 npm devDependency `gitnexus@1.6.3` 安装，许可证为 PolyForm-Noncommercial-1.0.0，因此只能作为开发期 evidence provider 使用，`gitnexus:analyze` 必须保持 `--skip-agents-md --no-stats`，不得让外部工具改写 agent 指令文件或输出 volatile stats。Graphify provider 的定位是 code/docs/diagram knowledge graph：`graph.json`、`graph.html`、report 类输出只能作为外部知识图 evidence；当前以 PyPI `graphifyy==0.7.10` 通过 `uvx` 固定版本执行，不能误用 npm 上的随机图包 `graphify`。两者都必须经 provider adapter 归一为 draft evidence 或 overlay；不得直接覆盖 Explain Graph，不得驱动 Workbench mutation，也不得把 MCP/agent 查询结果升级为 authoring truth。
+GitNexus provider 的定位是 repo query graph：call chain、execution flow、impact、dependency cluster 等只读索引结果；当前以 npm devDependency `gitnexus@1.6.3` 安装，许可证为 PolyForm-Noncommercial-1.0.0，因此只能作为开发期 evidence provider 使用，`gitnexus:analyze` 必须保持 `--skip-agents-md --no-stats`，不得让外部工具改写 agent 指令文件或输出 volatile stats；`gitnexus:mcp` 只作为 `.mcp.json` 暴露的只读 MCP 查询入口。Graphify provider 的定位是 code/docs/diagram knowledge graph：`graph.json`、`graph.html`、report 类输出只能作为外部知识图 evidence；当前以 PyPI `graphifyy==0.7.10` 通过 `uvx` 固定版本执行，不能误用 npm 上的随机图包 `graphify`。两者都必须经 provider adapter 归一为 draft evidence 或 overlay；不得直接覆盖 Explain Graph，不得驱动 Workbench mutation，也不得把 MCP/agent 查询结果升级为 authoring truth。
 
 ### 10.2 L1/L2/L3 质量图层
 

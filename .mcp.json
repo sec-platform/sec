@@ -9,6 +9,13 @@
         "--workspace",
         "."
       ]
+    },
+    "gitnexus": {
+      "command": "bun",
+      "args": [
+        "run",
+        "gitnexus:mcp"
+      ]
     }
   }
 }
