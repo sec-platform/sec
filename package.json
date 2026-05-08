@@ -28,6 +28,11 @@
     "depcruise": "bunx --bun dependency-cruiser@17.3.10 \"platform/**/*.ts\" --config .dependency-cruiser.json",
     "jscpd": "bunx --bun jscpd@4.0.9 platform/ scripts/ -o report/jscpd --reporters html,console,json --format typescript,javascript --ignore \"**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**\" --min-lines 5 --min-tokens 50 --absolute",
     "discover": "bun scripts/discover-all.ts --json --output report/discover.json",
+    "gitnexus:analyze": "gitnexus analyze --skip-agents-md --no-stats",
+    "gitnexus:status": "gitnexus status",
+    "graphify": "uvx --from graphifyy==0.7.10 graphify",
+    "graphify:update": "uvx --from graphifyy==0.7.10 graphify update .",
+    "graphify:extract": "uvx --from graphifyy==0.7.10 graphify extract . --out report/graphify --no-cluster",
     "arch:check": "bun run depcruise && bun run jscpd",
     "preflight": "bun run depcruise && bun run jscpd && bun run discover",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
@@ -63,7 +68,14 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/semver": "^7.7.1",
+    "gitnexus": "1.6.3",
     "ts-morph": "^28.0.0",
     "typescript": "^6.0.3"
-  }
+  },
+  "trustedDependencies": [
+    "@ladybugdb/core",
+    "gitnexus",
+    "onnxruntime-node",
+    "protobufjs"
+  ]
 }

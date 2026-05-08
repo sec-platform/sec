@@ -90,7 +90,7 @@ describe('root package scripts', () => {
 
 describe('test budget and benchmark contracts', () => {
   test('root package exposes budget and contract scripts', async () => {
-    const { scripts } = await readCompilerPackageJson();
+    const { scripts, devDependencies, trustedDependencies } = await readCompilerPackageJson();
 
     expect(scripts.platform).toBe('bun ./platform/cli/index.ts');
     expect(scripts.dev).toBe('bun ./platform/dev-runner.ts');
@@ -115,10 +115,28 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts.depcruise).toBe('bunx --bun dependency-cruiser@17.3.10 "platform/**/*.ts" --config .dependency-cruiser.json');
     expect(scripts.jscpd).toBe('bunx --bun jscpd@4.0.9 platform/ scripts/ -o report/jscpd --reporters html,console,json --format typescript,javascript --ignore "**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**" --min-lines 5 --min-tokens 50 --absolute');
     expect(scripts.discover).toBe('bun scripts/discover-all.ts --json --output report/discover.json');
+    expect(scripts['gitnexus:analyze']).toBe('gitnexus analyze --skip-agents-md --no-stats');
+    expect(scripts['gitnexus:status']).toBe('gitnexus status');
+    expect(scripts.graphify).toBe('uvx --from graphifyy==0.7.10 graphify');
+    expect(scripts['graphify:update']).toBe('uvx --from graphifyy==0.7.10 graphify update .');
+    expect(scripts['graphify:extract']).toBe('uvx --from graphifyy==0.7.10 graphify extract . --out report/graphify --no-cluster');
+    expect(devDependencies?.gitnexus).toBe('1.6.3');
+    expect(trustedDependencies).toEqual(expect.arrayContaining([
+      '@ladybugdb/core',
+      'gitnexus',
+      'onnxruntime-node',
+      'protobufjs'
+    ]));
     expect(scripts['arch:check']).toBe('bun run depcruise && bun run jscpd');
     expect(scripts.preflight).toBe('bun run depcruise && bun run jscpd && bun run discover');
 
     expect(scripts.format).toBeUndefined();
+  });
+
+  test('external graph provider caches stay out of version control', async () => {
+    const gitignore = await readCompilerFile('.gitignore');
+
+    expectContainsAll(gitignore, ['.gitnexus/', 'graphify-out/']);
   });
 
   test('architecture tools workflow delegates to canonical package scripts', async () => {

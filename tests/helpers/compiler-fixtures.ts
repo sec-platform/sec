@@ -20,6 +20,7 @@ interface CompilerPackage {
   scripts: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  trustedDependencies?: string[];
 }
 
 let cachedRootPackage: CompilerPackage | null = null;
