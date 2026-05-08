@@ -30,6 +30,7 @@
     "discover": "bun scripts/discover-all.ts --json --output report/discover.json",
     "gitnexus:analyze": "gitnexus analyze --skip-agents-md --no-stats",
     "gitnexus:status": "gitnexus status",
+    "gitnexus:mcp": "gitnexus mcp",
     "graphify": "uvx --from graphifyy==0.7.10 graphify",
     "graphify:update": "uvx --from graphifyy==0.7.10 graphify update .",
     "graphify:extract": "uvx --from graphifyy==0.7.10 graphify extract . --out report/graphify --no-cluster",
