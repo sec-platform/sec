@@ -29,6 +29,8 @@ playwright-report/
 project/.runtime-deps.stamp.json
 .tmp/
 report/
+.gitnexus/
+graphify-out/
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 .VSCodeCounter/
