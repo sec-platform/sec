@@ -61,7 +61,7 @@ The PR quick lane must not run slow e2e by default. If a changed source maps onl
 The PR quick lane must not use broad fast-suite fallback unless explicitly requested with:
 
 ```text
-PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1
+SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1
 ```
 
 Unmapped source changes should produce a clear notice instead of expanding into unrelated slow or broad validation.
@@ -103,11 +103,11 @@ Release/full validation runs through `workflow_dispatch`, schedule, or the PR `r
 Use separate diff bases for separate responsibilities:
 
 ```text
-PJC_CHANGED_BASE:
+SEC_CHANGED_BASE:
   PR-wide base for contract-freeze and workspace risk selectors.
   This prevents early contract-impact commits from being lost.
 
-PJC_AFFECTED_TESTS_BASE:
+SEC_AFFECTED_TESTS_BASE:
   latest-commit base for affected-tests feedback.
   This prevents a large PR diff from expanding every small follow-up commit into many unrelated tests.
 ```

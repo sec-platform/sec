@@ -378,7 +378,7 @@ test('builds high-signal project overview for developers and AI agents', () => {
       sourceRoot: 'source',
       projectRoot: 'project',
       controlRoot: 'control',
-      localStateRoot: '.pjc'
+      localStateRoot: '.sec'
     },
     status: {
       overall: 'attention',
@@ -985,7 +985,7 @@ test('CLI emits project overview text and JSON for AI handoff', async () => {
     }>(workspaceRoot, ['overview'], {
       text: [
         'Project overview',
-        'Workspace: source/project/control/.pjc ready',
+        'Workspace: source/project/control/.sec ready',
         'Verification: passed; policy: passed; coverage: passed;',
         'Graph:',
         'blocks=',

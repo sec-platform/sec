@@ -187,10 +187,10 @@ describe('test budget and benchmark contracts', () => {
     expectContainsAll(testRunnerSource, [
       'getSlowTestFiles',
       'fastTestArgs',
-      'PJC_SKIP_RUNTIME_DEPS_SETUP'
+      'SEC_SKIP_RUNTIME_DEPS_SETUP'
     ]);
     expectContainsAll(setupSource, [
-      "process.env.PJC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
+      "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
       'ensureSharedDepsReady'
     ]);
   });

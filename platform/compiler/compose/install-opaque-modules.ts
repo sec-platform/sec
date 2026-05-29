@@ -65,7 +65,7 @@ export async function installOpaqueModules(workspaceRoot: string, projectRoot: s
   }
 
   // Differentiate development vs build mode
-  const isBuildMode = process.env.NODE_ENV === 'production' || process.env.PJC_BUILD_MODE === 'true' || process.env.BUILD_MODE === 'true';
+  const isBuildMode = process.env.NODE_ENV === 'production' || process.env.SEC_BUILD_MODE === 'true' || process.env.BUILD_MODE === 'true';
   const generatedPaths: string[] = [];
 
   for (const entry of moduleEntries) {

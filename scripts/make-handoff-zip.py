@@ -142,7 +142,7 @@ def main() -> int:
     recent_log = run_git(["log", "--oneline", "--decorate", "-20"])
 
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    archive_name = f"pjc-{safe_name(branch)}-{short_sha}-{timestamp}.zip"
+    archive_name = f"sec-{safe_name(branch)}-{short_sha}-{timestamp}.zip"
 
     OUTPUT_DIR.mkdir(exist_ok=True)
     archive_path = OUTPUT_DIR / archive_name

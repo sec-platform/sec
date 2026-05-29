@@ -23,8 +23,8 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  PJC_CHANGED_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^1' }}
-  PJC_AFFECTED_TESTS_BASE: HEAD^1
+  SEC_CHANGED_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^1' }}
+  SEC_AFFECTED_TESTS_BASE: HEAD^1
 
 jobs:
   compiler-pr-quick:
@@ -59,7 +59,7 @@ jobs:
       - name: Organize changed imports remotely
         if: steps.changed_ts.outputs.changed == 'true'
         env:
-          PJC_IMPORTS_CHANGED_ONLY: '1'
+          SEC_IMPORTS_CHANGED_ONLY: '1'
         run: bun run imports:organize
 
       - name: Commit organized imports

@@ -11,7 +11,7 @@ type GateStep = {
 const slowSuites = slowTestSuiteIds();
 
 function changedFiles(): string[] | null {
-  const baseRef = process.env.PJC_AFFECTED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
+  const baseRef = process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE ?? 'HEAD^1';
   const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
     encoding: 'utf8'
   });

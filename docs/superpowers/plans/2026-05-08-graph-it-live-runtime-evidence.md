@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a read-only Context Packet `runtimeEvidence` projection so Graph-It-Live can accelerate PJC development, review, and navigation without becoming a canonical graph or write-authority.
+**Goal:** Add a read-only Context Packet `runtimeEvidence` projection so Graph-It-Live can accelerate SEC development, review, and navigation without becoming a canonical graph or write-authority.
 
 **Architecture:** Add provider-neutral `RuntimeEvidence` and minimal `ContextPacket` contracts under `platform/shared`, then add a synthesize-layer builder that copies task envelope write bounds without deriving permissions from evidence. Add a Graph-It-Live adapter that normalizes externally obtained MCP/raw results into runtime evidence and a summary/inspect surface that Overview/Workbench can consume as read-only navigation input.
 

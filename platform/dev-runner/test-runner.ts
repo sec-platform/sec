@@ -37,7 +37,7 @@ function fastTestArgs(args: string[]): string[] {
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
     ...env,
-    PJC_SKIP_RUNTIME_DEPS_SETUP: '1'
+    SEC_SKIP_RUNTIME_DEPS_SETUP: '1'
   };
 }
 
@@ -75,7 +75,7 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
 }
 
 function affectedTestsBaseRef(): string | undefined {
-  return process.env.PJC_AFFECTED_TESTS_BASE ?? process.env.PJC_CHANGED_BASE;
+  return process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE;
 }
 
 async function gitChangedFiles(): Promise<string[] | null> {
@@ -99,7 +99,7 @@ function sourceFileChanged(file: string): boolean {
 }
 
 function allowFullFastFallback(): boolean {
-  return process.env.PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK === '1';
+  return process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK === '1';
 }
 
 type DependencyContext = {
@@ -189,7 +189,7 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
       return 0;
     }
 
-    console.log('No affected fast tests matched source changes; running the fast test suite because PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
+    console.log('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
     const code = await runFastTests();
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({

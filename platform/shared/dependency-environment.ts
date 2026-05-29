@@ -169,7 +169,7 @@ async function workspaceRootsDoctorCheck(paths: ReturnType<typeof getWorkspacePa
     { id: 'source', path: paths.developerSourceRoot },
     { id: 'project', path: paths.projectRoot },
     { id: 'control', path: paths.controlRoot },
-    { id: '.pjc', path: paths.localStateRoot }
+    { id: '.sec', path: paths.localStateRoot }
   ];
   const missingRoots = (await Promise.all(
     roots.map(async (root) => ({
@@ -184,7 +184,7 @@ async function workspaceRootsDoctorCheck(paths: ReturnType<typeof getWorkspacePa
     id: 'workspace-roots',
     status: missingRoots.length === 0 ? 'ok' : 'warn',
     message: missingRoots.length === 0
-      ? 'Workspace roots exist: source, project, control, .pjc.'
+      ? 'Workspace roots exist: source, project, control, .sec.'
       : `Workspace roots missing: ${missingRoots.join(', ')}; run platform init.`
   };
 }

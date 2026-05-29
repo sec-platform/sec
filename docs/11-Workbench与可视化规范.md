@@ -324,7 +324,7 @@ policies: [tenant_scope_required]
 | 3 | 只读 Review View | 聚合 review summary、verification chain、acceptance coverage、policy violation、provenance priority files、repair readiness、upgrade readiness、artifact missing diagnostics | `control/workbench/views/review-view.html` | review summary fixture + view 内容断言 + artifact/view contract + reference refresh |
 | 4 | 工具 evidence contract 草案 | 定义 code-quality / architecture-boundary / semantic-pattern report 类型，但不加入 stable artifact | shared types + inspect/build 纯函数 | 类型检查 + schema/contract 单测 |
 | 5 | L1/L2 evidence 接入 | 将 jscpd/discover/depcruise 输出归一为 evidence；保留工具原始报告路径；GitNexus/Graphify 先作为 optional provider adapter 入口，不进入 stable artifact | `control/evidence/*-report.json`（实现后再稳定） | fixture 转换测试 + preflight 文档化 |
-| 6 | L3 Engineering Pattern Graph | 识别 read/validate/build/write、query/guard/map/return、build/write artifact 等 PJC 工程模式 | `semantic-pattern-report.json` + overlay | 低置信 suggestion 测试，不自动重构 |
+| 6 | L3 Engineering Pattern Graph | 识别 read/validate/build/write、query/guard/map/return、build/write artifact 等 SEC 工程模式 | `semantic-pattern-report.json` + overlay | 低置信 suggestion 测试，不自动重构 |
 | 7 | Graph mutation dry-run | 图操作先生成 mutation 和 expected graph delta，不直接写 source | `source/views/mutations/*.json` + dry-run report | apply 前后 graph delta 测试 |
 | 8 | Typed semantic port | 扩展 pin/flow 的 kind、scope、producer/consumer、verifiedBy、policy 语义 | manifest/contract schema 更新 | resolve/graph/acceptance coverage 测试 |
 
