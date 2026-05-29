@@ -55,6 +55,26 @@ expectedOutput:
   language: typescript
 ```
 
+除了上述 YAML 格式，任务信封在编译器内部以及向 MCP/子模型传递时，采用如下 JSON Schema 物理表征：
+
+```json
+{
+  "taskId": "task_normalize_customer_001",
+  "targetSlot": "source/code/slots/customer_normalizer.ts",
+  "signature": "export function normalizeCustomerInput(input: CustomerInput): CustomerOutput",
+  "context": {
+    "dependencyTypes": "interface CustomerInput { name: string; email: string; phone?: string; }",
+    "allowedImports": ["lodash-es", "change-case"],
+    "forbiddenOperations": ["fs-write", "network-fetch", "direct-db-query"]
+  },
+  "verificationRules": {
+    "typecheckRequired": true,
+    "policyRules": ["tenant-isolation-enforcement"]
+  }
+}
+```
+
+
 ## 3. Envelope 字段表
 
 | 字段 | 必填 | 说明 |
@@ -113,3 +133,10 @@ Context Packet 是 task envelope 在执行时的只读上下文投影，不是�
 ## 7. Governance 审计
 
 每次 AI task 记录：`taskId`、`phase`、`modelId`、`startedAt`、`finishedAt`、`allowedPaths`、`result`、`testsRun`、`verificationStatus`。
+
+## 8. 结构化修复反馈环 (Repair Feedback Loop)
+
+当子模型或 Agent 填充 Slot 代码后，如果后验验证阶段（`se verify`）失败，编译系统不会抛出杂乱无章的原始控制台输出，而是将其转换为结构化的 `repair-plan.json` 反馈环以引导下一次精准修补：
+1. **结构化归因**：编译系统的错误处理器自动将 TypeScript 编译器诊断信息和 Playwright/E2E 错误进行提取与定位，归因到具体的符号（如特定函数）和 AST 节点。
+2. **生成修复信封**：将 `repair-plan.json` 反馈包（包含出错的堆栈摘要、目标 AST 节点源码切片、违背的 Policy 规则条目、以及推荐的修复策略建议）封装进新的任务信封。
+3. **精准二次修改**：子模型/Agent 在沙盒中仅针对信封内指定的 `allowedPaths` 内的错误节点进行修改，在限定范围内执行修复，直到通过 Playwright 端到端断言，以此阻断全局越权修改导致的“错误蔓延”。

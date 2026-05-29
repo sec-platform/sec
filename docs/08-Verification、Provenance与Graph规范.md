@@ -15,6 +15,15 @@
 
 生成项目 verification 仍由平台命令 `verify --lane fast|runtime|all --json [--compact]` 输出 `control/evidence/verification-report.json`；其中 Playwright 只属于 runtime full / all 边界，不进入 affected 或 fast 入口。
 
+### 1.1 Playwright 混合运行时验收机制
+
+在无头浏览器中运行 Playwright 验收测试时，为了在大规模测试中兼顾调试效率与 SCM 存储开销，系统执行混合验收方案：
+1. **像素级视觉防退化 (Visual Regression)**：测试成功通过时，Playwright 只保留特定页面或组件的关键 Baseline 像素截图，通过 `expect(page).toHaveScreenshot()` 自动检测 UI 样式破损和折行冲突。
+2. **故障 Trace ZIP 诊断**：测试失败时，Playwright 不生成大体积视频，而是保存 HTML Trace ZIP 归档并解压到本地临时目录。本地 Review 工作台在 iframe 中内嵌官方的 Trace UI，供开发者和 AI 交互式审查 DOM、控制台报错和网络请求。
+3. **录像演示仅用于终审**：仅在终审评审阶段（Review Sign-off）为通过的用例生成 WebM 录制视频，方便架构师和人类审核员进行体感走通，避免在大规模测试中生成视频并污染 Git 仓库。
+4. **调试会话挂载**：在 AI 修复沙盒或本地验证中，支持配置 `--interactive-debugger` 或 `--head` 参数，通过 CDP 端口允许开发者在真浏览器中实时监控并操纵执行流。
+5. **Block 级独立容差**：允许在 `block.manifest.yaml` 中通过 `visualVerification` 自定义配置私有的像素容差阈值（如 `maxDiffPixels` 或 `maxDiffPixelRatio`），兼顾高动态组件与强业务界面的差异。
+
 CI 质量门禁由 `platform/shared/ci-contract.ts` 统一声明；PR quick 与 release preflight 通过 `imports:organize` 收敛 TypeScript import baseline。本地可按需运行 `imports:check` 审计漂移，但 affected/fast 验证不以前者为前置条件。
 
 ## 2. Acceptance
@@ -83,7 +92,75 @@ Severity：`info` / `warn` / `error` / `blocker`。`error` 或 `blocker` 失败�
 
 最终形态下，Explain Graph 必须能容纳 Engineering IR 节点：`entity`、`operation`、`view`、`event`、`permission`、`generator`。这些节点用于说明语义合约如何被降级为文件、测试、策略与验收，而不是只展示文件复制关系。
 
-Edge 类型：`connects_to`、`depends_on`、`originates_from`、`provides`、`verified_by`、`writes_to`。语义合约扩展边类型预留：`declares`、`lowers_to`、`generates`、`enforces`、`renders`。
+### 5.1 Engineering IR (工程中间表示) 标准 Schema 规规约
+
+为了支持多维图结构表达，并方便与外部可视化工具及知识库连通，我们将 Engineering IR 标准化为**基于邻接表的有向属性图 (Property DAG)**，其标准的 JSON Schema 设计如下：
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EngineeringIR",
+  "type": "object",
+  "required": ["formatVersion", "appId", "nodes", "edges"],
+  "properties": {
+    "formatVersion": { "type": "string", "const": "1" },
+    "appId": { "type": "string" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "label", "metadata"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "app", "block", "capability", "pin", "slot", 
+              "entity", "operation", "policy", "view", "event", 
+              "permission", "generator", "file", "acceptance", "issue"
+            ]
+          },
+          "label": { "type": "string" },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "sourcePath": { "type": "string" },
+              "signature": { "type": "string" },
+              "owner": { "type": "string" },
+              "status": { "type": "string" },
+              "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] }
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "relation"],
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "depends_on", "provides", "connects_to", "originates_from", 
+              "writes_to", "verified_by", "declares", "lowers_to", 
+              "generates", "enforces", "renders"
+            ]
+          },
+          "metadata": { "type": "object" }
+        }
+      }
+    }
+  }
+}
+```
+
+Edge 类型：`connects_to`、`depends_on`、`originates_from`、`provides`、`verified_by`、`writes_to`。语义合约扩展边类型预留：`declares`（声明）、`lowers_to`（编译降级）、`generates`（代码生成）、`enforces`（策略强制）、`renders`（界面渲染）。
+
+在 Review 工作台的可视化图谱上，当检测到开发者手写的 Override 自定义逻辑时，相关节点需标为**橘色 (Orange)** 以警示 AI 避免改写。此外，Explain Graph 会同时绘制 Policy 规约关联的 `Audited By` 有向边，以及升级迁移历史的轨迹。
 
 ## 6. Review Summary
 
@@ -148,3 +225,11 @@ Engineering Semantic Diff 是 review 语义合同，不是单独的新事实源�
 | Semantic pattern overlay | `control/graph/semantic-pattern-overlay.json` | 将 L3 pattern 映射为 review suggestion 或 generator/block 候选 | 已定义 draft overlay，不属于当前 stable artifact |
 
 实现这些路径时必须同步 contract freeze、artifact manifest、CLI compact contract 和 Workbench view；实现前不得把它们加入当前治理产物必需清单。
+
+## 9. 带外门禁 (Compiler Gates) 与 SCM 约束
+
+为了防止 AI 编写助手（如 Claude Code、Cursor）或人类开发人员绕过编译器直接改写生成的物理代码，编译链在本地 `se verify` 和 CI 阶段强制实施带外硬拦截：
+1. **SCM 物理隔离 (Gitignore)**：项目的根目录 `.gitignore` 必须将 `project/` 整体忽略。禁止在版本控制中提交生成的项目源码，使 Git 库中仅包含纯粹的开发层 `source/` 和控制面配置。
+2. **物理只读锁 (File-system Readonly Lock)**：在 `se compose --lock` 运行后，除了已声明为 Writable Zones 的插槽文件外，编译器通过操作系统文件系统属性将 `project/**` 内的文件全部设为 **只读 (Read-only)**，在物理层拦截任何外部直接编辑。
+3. **代码漂移门禁 (Reference Drift Gate)**：在 `se verify` 运行期间，验证器逐一比对 `project/` 文件与 `control/provenance/provenance.json` 记录的签名哈希。一旦在只读 Zone 检测到任何非预期修改，抛出 **`ERROR-DRIFT-001`** 并中断发布/部署。
+4. **合约冻结门禁 (Contract Freeze Gate)**：在 CI 合约审查流水线中，静态分析器对比生成代码的符号签名与已冻结的契约。如果在没有进行 Semver 版本变更的情况下接口签名发生了变化，即使测试通过，编译门禁依然予以强行拦截。

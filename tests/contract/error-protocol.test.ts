@@ -25,12 +25,13 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
     artifactPaths: [
       CI_ARTIFACT_FILES.reviewSummary,
       CI_ARTIFACT_FILES.verificationReport,
+      CI_ARTIFACT_FILES.provenance,
       CI_ARTIFACT_FILES.repairPlan,
       CI_ARTIFACT_FILES.upgradeDiagnostics,
       CI_ARTIFACT_FILES.upgradePlan,
       CI_ARTIFACT_FILES.viewMutationReport,
       'source/views/mutations'
-    ],
+    ].sort(),
     examples: expect.arrayContaining([
       expect.objectContaining({
         id: 'usage-error',
@@ -88,6 +89,15 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           suggestedActions: ['inspect-workbench-mutations', 'run-platform-workbench-mutations-apply'],
           artifactPaths: ['source/views/mutations', CI_ARTIFACT_FILES.viewMutationReport]
         })
+      }),
+      expect.objectContaining({
+        id: 'drift-error',
+        output: expect.objectContaining({
+          recoverable: false,
+          issueType: 'spec',
+          suggestedActions: ['run-platform-compose', 'run-platform-adapt', 'revert-local-project-changes'],
+          artifactPaths: [CI_ARTIFACT_FILES.provenance]
+        })
       })
     ])
   });
@@ -101,7 +111,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         `Artifact path list: ${contract.artifactPaths.join(', ')}`,
         'Example repair-plan-error; code=REPAIR-BLOCKED-001',
         'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
-        'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002'
+        'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002',
+        'Example drift-error; code=ERROR-DRIFT-001'
       ],
       json: {
         status: 'active',

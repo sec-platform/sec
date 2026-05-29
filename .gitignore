@@ -1,9 +1,9 @@
 # Dependencies
 node_modules/
-project/package-lock.json
-project/bun.lock
+project/
 __pycache__/
 *.pyc
+
 .venv/
 venv/
 

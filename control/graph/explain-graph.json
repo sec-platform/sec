@@ -666,7 +666,8 @@
         "originId": "app/api/customers/route.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "f6a395ee7d11282a3c32fb85c43461f6af0d49297fb101da84de0503fb4df11e"
       },
       {
         "path": "app/api/session/current/route.ts",
@@ -674,7 +675,8 @@
         "originId": "app/api/session/current/route.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "41b5716db55eb55e9692340dcdfee37dcdd43ca55cce7d1badf4d43ead21f7be"
       },
       {
         "path": "app/api/session/login/route.ts",
@@ -682,7 +684,8 @@
         "originId": "app/api/session/login/route.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "4ad69071b53a165627d583827b2621d5a1bdfd6734dbf32187dbce1327adde2e"
       },
       {
         "path": "app/api/session/logout/route.ts",
@@ -690,7 +693,8 @@
         "originId": "app/api/session/logout/route.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "a43398df373b5b1d5c7833e50c7dc6bfda0e1715bfb32f38f9db0ee247b60ca1"
       },
       {
         "path": "app/customers/page.tsx",
@@ -698,7 +702,8 @@
         "originId": "app/customers/page.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "430bf1e45807d84a24f6fff541c93da75dca6f77a9d62429357bc3108d330521"
       },
       {
         "path": "app/globals.css",
@@ -706,7 +711,8 @@
         "originId": "app/globals.css",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "f284c8e96c964f0eedc8feb72a2d70079213148c4fa2914d6c7a1d75d6c45c4b"
       },
       {
         "path": "app/layout.tsx",
@@ -714,7 +720,8 @@
         "originId": "app/layout.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "4093fde3a0782989f4c3ee9a2fc51f2e5b6aeb9d1cf18cbde915931a73dba247"
       },
       {
         "path": "app/login/page.tsx",
@@ -722,7 +729,8 @@
         "originId": "app/login/page.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "39c95a6f7ea3e74c756444d8d8979bdf65d22c2c8de68dccdd7fe5bd0e86e508"
       },
       {
         "path": "app/page.tsx",
@@ -730,7 +738,8 @@
         "originId": "app/page.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "217eeae5935af77bef4a8fb9bd17ac93aaac6ffd945ea0d9dc0c62f89e98d41a"
       },
       {
         "path": "app/workspace/page.tsx",
@@ -738,7 +747,8 @@
         "originId": "app/workspace/page.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "4a2748e626b698598e5a1da9cf083cee107d854b9f672b7b94baa699fcca0cf7"
       },
       {
         "path": "components/customer-form.tsx",
@@ -746,7 +756,8 @@
         "originId": "components/customer-form.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "49618f6b9d9e582874135d1d022c07d53fdf7fcdd1f0746cb6cbde8a7c3095db"
       },
       {
         "path": "components/login-form.tsx",
@@ -754,7 +765,8 @@
         "originId": "components/login-form.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "499fd88b84c51f5bf4ab4ab19af6166ef994b1463c03961b9aaac82b7bc950a4"
       },
       {
         "path": "components/logout-button.tsx",
@@ -762,7 +774,8 @@
         "originId": "components/logout-button.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "6c57a0c0c4931d7b4380f5eae75e758cfd17b79ef8b283bc28b78d7142b8691f"
       },
       {
         "path": "control/evidence/acceptance-coverage.json",
@@ -770,7 +783,8 @@
         "originId": "control/evidence/acceptance-coverage.json",
         "generatedByPass": "verify",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "7ad15fe73f1771ba1015cf08c3487db13a394aa25d2525f47d2ca0f5ddc9a5b7"
       },
       {
         "path": "control/evidence/block-usage-map.json",
@@ -778,7 +792,8 @@
         "originId": "control/evidence/block-usage-map.json",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "adfaf295be397e491c83ad4a778ec688e6739be07852c7c7b1f41f324eff5c47"
       },
       {
         "path": "control/evidence/install-manifest.json",
@@ -786,7 +801,8 @@
         "originId": "control/evidence/install-manifest.json",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "7695a577007b1a421645b7fbf7a606783b59cc1995da57af947fc11b77877d5e"
       },
       {
         "path": "control/evidence/policy-report.json",
@@ -794,7 +810,8 @@
         "originId": "control/evidence/policy-report.json",
         "generatedByPass": "verify",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "cc542a996093e9b86a13f774eb18d53f047af0878966f59e4a7f6ee6b1c1e4b6"
       },
       {
         "path": "control/evidence/runtime-report.json",
@@ -802,7 +819,8 @@
         "originId": "control/evidence/runtime-report.json",
         "generatedByPass": "verify",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "33a12e1969d9dc968a3e76dab4a356e0b1d1af869ee54d15dc21577bc43dc4d1"
       },
       {
         "path": "control/evidence/verification-report.json",
@@ -810,7 +828,8 @@
         "originId": "control/evidence/verification-report.json",
         "generatedByPass": "verify",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "c54bcc198c192a8aea7e878af13eb5c3f0e6a08eb2bc1b4cd54edd38bb40733e"
       },
       {
         "path": "control/graph/explain-graph.dot",
@@ -818,7 +837,8 @@
         "originId": "control/graph/explain-graph.dot",
         "generatedByPass": "explain",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "632ddd8470607559fe73fe868735f9037bc982186eb0c15e1cc1ecf4ae00ce41"
       },
       {
         "path": "control/graph/explain-graph.json",
@@ -826,7 +846,8 @@
         "originId": "control/graph/explain-graph.json",
         "generatedByPass": "explain",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "91b3aaa8c4b64b0b05a46c84578119e768f28576cd370c6150657e7a199edfb9"
       },
       {
         "path": "control/graph/explain-graph.mmd",
@@ -834,7 +855,8 @@
         "originId": "control/graph/explain-graph.mmd",
         "generatedByPass": "explain",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "855726102c00413168703e4c3be2956aabbddd65ba5458d0e13167334727e629"
       },
       {
         "path": "control/provenance/provenance.json",
@@ -842,7 +864,8 @@
         "originId": "control/provenance/provenance.json",
         "generatedByPass": "lock",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "3f2b29b2ee575076d8a660ca6da664f4518cc760fdf8e8851f5f5ffdd0c71be1"
       },
       {
         "path": "custom/customer_normalizer.ts",
@@ -859,7 +882,8 @@
           "tests/runtime/unit/customer-runtime.test.ts",
           "tests/unit/customer-normalizer.test.ts"
         ],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "3a02059902faa9201206432c95fcc3e2543173fbae9b93d878333e73be2923dd"
       },
       {
         "path": "generated/routes.ts",
@@ -867,7 +891,8 @@
         "originId": "generated/routes.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "9253cd53ba0feb3dcbf7f917ac7b782cf4782226ef3db5cb1488a5271b6d669f"
       },
       {
         "path": "lib/session.ts",
@@ -875,7 +900,8 @@
         "originId": "lib/session.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "a095b299822d95614852ff81963e02738d2210cc1b262f9684042613dd125247"
       },
       {
         "path": "lib/store.ts",
@@ -883,7 +909,8 @@
         "originId": "lib/store.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "1bcc6cf1fad8387c72e1d90c30e51a0f060180504d7ec97474b2efca0333c738"
       },
       {
         "path": "next-env.d.ts",
@@ -891,7 +918,8 @@
         "originId": "next-env.d.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "7ad303e40d4fddf44f156129e397511953a71481c5cfd86b1862649aaaf240cc"
       },
       {
         "path": "next.config.mjs",
@@ -899,7 +927,8 @@
         "originId": "next.config.mjs",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "a9efcd4551ec4d9101da830e825a669befa315c4577d1bbf05b49683cf0454a0"
       },
       {
         "path": "package.json",
@@ -907,7 +936,8 @@
         "originId": "package.json",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "0495f12527dae6570b1934ac8591d6c82f907e74b9609d6c1e383be0ed78d12c"
       },
       {
         "path": "prisma/schema.prisma",
@@ -923,7 +953,8 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/unit/customer-normalizer.test.ts"
         ],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "b55ab1f9b863ac761f9f81f5341ed39eca40e20057eda91070cb4da4faeec5a3"
       },
       {
         "path": "source/code/slots/customer_normalizer.ts",
@@ -940,7 +971,8 @@
           "tests/runtime/unit/customer-runtime.test.ts",
           "tests/unit/customer-normalizer.test.ts"
         ],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "614b7d912abd4f28b4dddb3f583a606c78a1b151f81a02733ab3672ce12016e3"
       },
       {
         "path": "src/installed/auth/session.ts",
@@ -953,7 +985,8 @@
         "registryPath": "platform/registry/official",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "b46a8bd583a502456f269f682ac1ddc6cf0f9aac13b4fcb13bf25c449371725f"
       },
       {
         "path": "src/installed/entity/customer-service.ts",
@@ -969,7 +1002,8 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/unit/customer-normalizer.test.ts"
         ],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "49ef2fe3b5553895bf036959032a26aae9ac628ff9ca5b68452d1f2f1897d914"
       },
       {
         "path": "src/installed/tenant/context.ts",
@@ -982,7 +1016,8 @@
         "registryPath": "platform/registry/official",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "88010a9157dee88a28742be9dc3528aed26980594bdb05621bda8c6f405e3a98"
       },
       {
         "path": "tests/acceptance/customer-flow.test.ts",
@@ -998,7 +1033,8 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/unit/customer-normalizer.test.ts"
         ],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "1cbf4989bbae79d15a2bee35935763d149cef5c4457523b0b1fe3ea9ba675e8e"
       },
       {
         "path": "tests/runtime/acceptance/customer-flow.spec.ts",
@@ -1006,7 +1042,8 @@
         "originId": "tests/runtime/acceptance/customer-flow.spec.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "e0ee7ea05b043d510b26a8cda2c66bb6ffe54f4d41e37f16da9dc1a625620a46"
       },
       {
         "path": "tests/runtime/unit/customer-runtime.test.ts",
@@ -1014,7 +1051,8 @@
         "originId": "tests/runtime/unit/customer-runtime.test.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "b76e323e16df30318faff43a57752c6bfe53f8321d9f278092702839c33442af"
       },
       {
         "path": "tests/shared/tenant-runtime-fixture.ts",
@@ -1027,7 +1065,8 @@
         "registryPath": "platform/registry/official",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "3d91c1a5bba5bc1b44943c34da8a9cfc00ff1cbea2e776f13f011c1c0a9457db"
       },
       {
         "path": "tests/unit/customer-normalizer.test.ts",
@@ -1043,7 +1082,8 @@
           "tests/acceptance/customer-flow.test.ts",
           "tests/unit/customer-normalizer.test.ts"
         ],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "18f158586f2dbe575a351795160969486716d77feffc92ee22f4b42f67c53873"
       },
       {
         "path": "tsconfig.json",
@@ -1051,7 +1091,8 @@
         "originId": "tsconfig.json",
         "generatedByPass": "compose",
         "verifiedBy": [],
-        "overrideStatus": "none"
+        "overrideStatus": "none",
+        "hash": "c2eb7ddbd0c32aaed4b2ee1feb34a459dcca69027f33caa813b21505d768f45e"
       }
     ],
     "coverage": {

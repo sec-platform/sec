@@ -94,6 +94,11 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
     message: 'rename.sourcePath must stay under source/code/slots/**'
   },
   {
+    id: 'drift-error',
+    code: 'ERROR-DRIFT-001',
+    message: 'Reference drift detected: Read-only project file modified: app/page.tsx'
+  },
+  {
     id: 'kernel-error',
     code: 'KERNEL-FAILED',
     message: 'Kernel failure'
