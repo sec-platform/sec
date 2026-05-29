@@ -172,7 +172,7 @@ Text output should be short and actionable:
 
 ```text
 Project overview passed
-Workspace: source/project/control/.pjc ready
+Workspace: source/project/control/.sec ready
 Verification: passed; policy: passed; coverage: passed; artifacts: passed
 Graph: 58 nodes / 67 edges; blocks=13; slots=1
 Risks: failures=0; regressions=0; conflicts=0; missingArtifacts=0

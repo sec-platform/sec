@@ -33,7 +33,7 @@ Default workspace contract:
 - `source/blocks/private/**`: workspace-private block drafts; preferred before the compatibility private registry
 - `project/**`: generated runnable target; inspectable and debuggable, but not the default authoring surface
 - `control/**`: control plane for state, evidence, graph, provenance, workflow, Workbench projections, audit, and CI upload manifests
-- `.pjc/**`: local cache, temporary indexes, previews, and AI session state; safe to recreate
+- `.sec/**`: local cache, temporary indexes, previews, and AI session state; safe to recreate
 - Compatibility inputs: `project/custom/**`, `project/overrides/**`, `project/policies/**`, and `platform/registry/private/**`
 
 Internal implementation surface:
@@ -139,7 +139,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `source/`: checked-in developer authoring source and project intent
 - `project/`: generated runnable reference target and runtime-compatible materialized files
 - `control/`: checked-in control-plane state, evidence, provenance, graph, workflow, Workbench views, audit, and CI artifact manifests
-- `.pjc/`: local cache, previews, indexes, test workspaces, and AI session state
+- `.sec/`: local cache, previews, indexes, test workspaces, and AI session state
 - `tests/`: pipeline, registry, and repair coverage
 - `docs/`: design notes, implementation specs, and rollout material
 
@@ -217,7 +217,7 @@ Workbench and IDE integrations must preserve this boundary:
 - `workbench mutations apply` writes `control/workflow/view-mutation-report.json` after applying structured edits from `source/views/mutations/*.json` to `source/app.yaml`.
 - Governance contract freeze currently covers: `control/state/graph.lock.json`, `control/provenance/provenance.json`, `control/evidence/verification-report.json`, `control/evidence/runtime-report.json`, `control/evidence/policy-report.json`, `control/evidence/acceptance-coverage.json`, `control/graph/explain-graph.json`, and `control/evidence/review-summary.json`.
 - CI restores a complete governance view from stable `control/**` paths plus runtime contract artifacts that remain under `project/generated/**`; artifact manifests expose upload group counts and missing reason type counts for upload planning.
-- `.shared-deps/` and `.pjc/**` are local caches used to warm dependencies and hold temporary compiler/Workbench/AI state; they are intentionally not shipped governance artifacts.
+- `.shared-deps/` and `.sec/**` are local caches used to warm dependencies and hold temporary compiler/Workbench/AI state; they are intentionally not shipped governance artifacts.
 - `infra/postgres` currently ships a contract-only Postgres path. It emits `project/generated/postgres-contract.json` because that file is a generated runtime contract consumed by the target project, not a control-plane evidence artifact.
 
 When working in Codex web, start from the repo root. Most tasks either touch `platform/` or validate behavior through `tests/`.

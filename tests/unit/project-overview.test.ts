@@ -465,7 +465,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       sourceRoot: 'source',
       projectRoot: 'project',
       controlRoot: 'control',
-      localStateRoot: '.pjc'
+      localStateRoot: '.sec'
     },
     status: {
       overall: 'attention',

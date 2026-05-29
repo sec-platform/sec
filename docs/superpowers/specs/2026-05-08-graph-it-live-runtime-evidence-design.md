@@ -2,9 +2,9 @@
 
 ## 目标
 
-把 Graph-It-Live 用作 PJC 开发加速工具：在 AI 或开发者动手前提供代码上下文、在 review 前提示风险文件、在 Overview / Workbench 中提供只读导航线索。
+把 Graph-It-Live 用作 SEC 开发加速工具：在 AI 或开发者动手前提供代码上下文、在 review 前提示风险文件、在 Overview / Workbench 中提供只读导航线索。
 
-第一版进入 `Context Packet` 的 `runtimeEvidence` 投影层，不进入 PJC canonical graph，不成为 stable artifact，不驱动 Workbench mutation。
+第一版进入 `Context Packet` 的 `runtimeEvidence` 投影层，不进入 SEC canonical graph，不成为 stable artifact，不驱动 Workbench mutation。
 
 ## 明确不做
 
@@ -34,7 +34,7 @@ TaskEnvelope
 → ContextPacket { task, writeBounds, runtimeEvidence }
 ```
 
-Graph-It-Live 查询仍由开发者或 AI 通过外部 MCP 获取；平台第一版只接收 raw result 并归一成通用 `RuntimeEvidence`。这样既能加速当前项目开发，又不会把外部工具升级为 PJC 的事实源。
+Graph-It-Live 查询仍由开发者或 AI 通过外部 MCP 获取；平台第一版只接收 raw result 并归一成通用 `RuntimeEvidence`。这样既能加速当前项目开发，又不会把外部工具升级为 SEC 的事实源。
 
 ## 核心数据结构
 
@@ -265,7 +265,7 @@ bun run check:fast
 
 ## 成功标准
 
-- PJC 能构造带 Graph-It-Live runtime evidence 的 Context Packet。
+- SEC 能构造带 Graph-It-Live runtime evidence 的 Context Packet。
 - Runtime evidence 能覆盖开发前定位、review 风险扫描、Workbench/Overview 辅助导航三种用途。
 - 测试证明 Graph-It-Live related files 不会扩大 allowed paths。
 - 测试证明 runtime evidence 保持 `stableArtifact: false`。

@@ -6,7 +6,7 @@ import { emptyOverrideManifest, type OverrideApplyPhase, type OverrideEntry, typ
 import { readOptionalYaml } from '../../shared/yaml.ts';
 
 const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
-const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/', 'control/', 'source/', '.pjc/'];
+const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/', 'control/', 'source/', '.sec/'];
 const BLOCKED_OVERRIDE_TARGETS = new Set(['app.plan.yaml', 'graph.lock.json', 'provenance.json', 'package.json', 'tsconfig.json']);
 
 function normalizeOverrideEntry(entry: Partial<OverrideEntry>): OverrideEntry {

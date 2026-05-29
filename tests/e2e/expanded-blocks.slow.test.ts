@@ -33,7 +33,7 @@ test('expanded official block set composes and verifies as one project', async (
   expect(resolvedLock.slotTasks).toHaveLength(1);
 
   const storeSource = await fs.readFile(path.join(workspaceRoot, 'project', 'lib', 'store.ts'), 'utf8');
-  expect(storeSource).toContain("createRuntimeStore('postgres-contract')");
+  expect(storeSource).toContain('createRuntimeStore("postgres-contract")');
   await adaptWorkspace(workspaceRoot);
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');

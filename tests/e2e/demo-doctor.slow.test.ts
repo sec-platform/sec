@@ -76,7 +76,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
         'Checks: 6',
         'node-version',
         'workspace-roots',
-        'Workspace roots missing: source, project, control, .pjc; run platform init.',
+        'Workspace roots missing: source, project, control, .sec; run platform init.',
         'runtime-dependencies'
       ],
       json: {
@@ -88,7 +88,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
           expect.objectContaining({
             id: 'workspace-roots',
             status: 'warn',
-            message: 'Workspace roots missing: source, project, control, .pjc; run platform init.'
+            message: 'Workspace roots missing: source, project, control, .sec; run platform init.'
           }),
           expect.objectContaining({ id: 'runtime-dependencies' })
         ]),
@@ -113,7 +113,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
           expect.objectContaining({
             id: 'workspace-roots',
             status: 'ok',
-            message: 'Workspace roots exist: source, project, control, .pjc.'
+            message: 'Workspace roots exist: source, project, control, .sec.'
           })
         ])
       },

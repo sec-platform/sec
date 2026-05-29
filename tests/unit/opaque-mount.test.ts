@@ -36,10 +36,10 @@ describe('installOpaqueModules', () => {
 
       // Set environment variables to simulate dev mode
       const oldNodeEnv = process.env.NODE_ENV;
-      const oldPjcBuild = process.env.PJC_BUILD_MODE;
+      const oldSecBuild = process.env.SEC_BUILD_MODE;
       const oldBuild = process.env.BUILD_MODE;
       delete process.env.NODE_ENV;
-      delete process.env.PJC_BUILD_MODE;
+      delete process.env.SEC_BUILD_MODE;
       delete process.env.BUILD_MODE;
 
       try {
@@ -52,7 +52,7 @@ describe('installOpaqueModules', () => {
         expect(packageJson.dependencies['opaque-test-mod']).toContain('link:');
       } finally {
         process.env.NODE_ENV = oldNodeEnv;
-        process.env.PJC_BUILD_MODE = oldPjcBuild;
+        process.env.SEC_BUILD_MODE = oldSecBuild;
         process.env.BUILD_MODE = oldBuild;
       }
     });
@@ -73,8 +73,8 @@ describe('installOpaqueModules', () => {
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";', 'utf8');
 
       // Set environment variables to simulate build mode
-      const oldPjcBuild = process.env.PJC_BUILD_MODE;
-      process.env.PJC_BUILD_MODE = 'true';
+      const oldSecBuild = process.env.SEC_BUILD_MODE;
+      process.env.SEC_BUILD_MODE = 'true';
 
       try {
         const result = await installOpaqueModules(workspaceRoot, projectRoot);
@@ -91,7 +91,7 @@ describe('installOpaqueModules', () => {
         const packageJson = await readJson<any>(projectPackagePath);
         expect(packageJson.dependencies['opaque-test-mod']).toBe('link:src/installed/opaque-test-mod');
       } finally {
-        process.env.PJC_BUILD_MODE = oldPjcBuild;
+        process.env.SEC_BUILD_MODE = oldSecBuild;
       }
     });
   });

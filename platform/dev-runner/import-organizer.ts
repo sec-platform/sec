@@ -65,7 +65,7 @@ function applyTextChanges(source: string, changes: readonly ts.TextChange[]): st
 }
 
 function changedTypeScriptFiles(): Set<string> | null {
-  const baseRef = process.env.PJC_CHANGED_BASE ?? 'HEAD^1';
+  const baseRef = process.env.SEC_CHANGED_BASE ?? 'HEAD^1';
   const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
     cwd: compilerRoot,
     encoding: 'utf8'
@@ -83,7 +83,7 @@ function changedTypeScriptFiles(): Set<string> | null {
 }
 
 function selectedFileNames(config: ts.ParsedCommandLine): string[] {
-  if (process.env.PJC_IMPORTS_CHANGED_ONLY !== '1') {
+  if (process.env.SEC_IMPORTS_CHANGED_ONLY !== '1') {
     return config.fileNames;
   }
 

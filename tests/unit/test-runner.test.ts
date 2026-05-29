@@ -45,7 +45,7 @@ beforeEach(() => {
   commandCalls.length = 0;
   devCommandCalls.length = 0;
   changedFiles = ['platform/unmapped-source.ts'];
-  delete process.env.PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
+  delete process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
 });
 
 test('targeted fast tests run only the requested fast files', async () => {
@@ -103,7 +103,7 @@ test('affected tests treat changed slow files as notice-only quick-lane input', 
 });
 
 test('affected tests allow broad fast-suite fallback when explicitly enabled', async () => {
-  process.env.PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK = '1';
+  process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK = '1';
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -117,7 +117,7 @@ test('affected tests allow broad fast-suite fallback when explicitly enabled', a
     expect(devCommandCalls).toHaveLength(1);
     expect(devCommandCalls[0]?.command).toBe('bun');
     expect(devCommandCalls[0]?.args[0]).toBe('test');
-    expect(logs).toContain('No affected fast tests matched source changes; running the fast test suite because PJC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
+    expect(logs).toContain('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
   } finally {
     console.log = originalLog;
   }
