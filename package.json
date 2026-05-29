@@ -5,13 +5,13 @@
   "type": "module",
   "packageManager": "bun@1.3.6",
   "bin": {
-    "se": "./platform/cli/index.ts",
-    "pjc": "./platform/cli/index.ts"
+    "se": "./dist/index.js",
+    "pjc": "./dist/index.js"
   },
   "scripts": {
     "platform": "bun ./platform/cli/index.ts",
+    "build:release": "bun ./scripts/build-release.ts",
     "publish:public": "bun ./scripts/publish-public.ts",
-    "package": "bun ./scripts/build.ts",
     "dev": "bun ./platform/dev-runner.ts",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
     "reference:refresh": "bun run platform -- resolve && bun run platform -- compose && bun run platform -- adapt && bun run platform -- verify --lane all && bun run platform -- lock && bun run platform -- explain",
