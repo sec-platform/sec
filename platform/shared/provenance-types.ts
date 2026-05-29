@@ -20,6 +20,7 @@ export interface ProvenanceArtifact {
   generatorTaskId?: string;
   verifiedBy: string[];
   overrideStatus: OverrideStatus;
+  hash?: string;
 }
 
 export interface ProvenanceFile {

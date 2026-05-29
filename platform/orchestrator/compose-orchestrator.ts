@@ -8,7 +8,8 @@ import { resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
 
 export async function composeWorkspace(
-  workspaceRoot = process.cwd()
+  workspaceRoot = process.cwd(),
+  options?: { lock?: boolean }
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   if (!(await pathExists(readableLockPath))) {
@@ -16,7 +17,7 @@ export async function composeWorkspace(
   }
   const plan = await loadWorkspacePlan(workspaceRoot);
   const lock = await readLockFile(workspaceRoot);
-  await composeProject(workspaceRoot, lock);
+  await composeProject(workspaceRoot, lock, { lockFiles: !!options?.lock });
   return { plan, lock };
 }
 

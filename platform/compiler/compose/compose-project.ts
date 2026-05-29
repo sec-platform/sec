@@ -10,6 +10,16 @@ import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
 import { defaultInstallRegistry } from './install-strategies.ts';
+import { mergePrismaTemplate } from './merge-prisma-template.ts';
+import { installOpaqueModules } from './install-opaque-modules.ts';
+import { mergeTailwindTheme } from './merge-tailwind-theme.ts';
+import { mapCustomRoutes } from './map-custom-routes.ts';
+import { formatOutputFiles } from './format-output-files.ts';
+import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
+
+
+
+
 
 async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
   const routeEntries = await Promise.all(
@@ -36,13 +46,24 @@ function renderSlotSkeleton(task: SlotTask): string {
   return `// @generated slot-id:${task.id} block:${task.block}\n${importLine}export function ${task.symbol}(${signature} {\n  throw new Error('Not implemented');\n}\n`;
 }
 
-export async function composeProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
+export async function composeProject(
+  workspaceRoot: string,
+  lock: LockFile,
+  options?: { lockFiles?: boolean }
+): Promise<LockFile> {
   const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
+
+  // Make sure existing files are writable so compiler can overwrite them
+  await setProjectReadOnlyLock(projectRoot, true);
 
   await ensureProjectBase(workspaceRoot);
 
   const installContext = { workspaceRoot, projectRoot, lock };
   await defaultInstallRegistry.executeAll(lock.installPlan, installContext);
+  await mergePrismaTemplate(workspaceRoot, projectRoot);
+  const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, projectRoot);
+  const tailwindGeneratedPaths = await mergeTailwindTheme(workspaceRoot, projectRoot);
+  const customRoutesGeneratedPaths = await mapCustomRoutes(workspaceRoot, projectRoot);
 
   const installManifest: Array<InstallPlanStep & { status: 'installed' }> = lock.installPlan.map((step) => ({
     ...step,
@@ -84,13 +105,24 @@ export async function composeProject(workspaceRoot: string, lock: LockFile): Pro
     ...runtimeScaffoldPaths,
     'generated/routes.ts',
     CI_ARTIFACT_FILES.blockUsageMap,
-    CI_ARTIFACT_FILES.installManifest
+    CI_ARTIFACT_FILES.installManifest,
+    ...opaqueGeneratedPaths,
+    ...tailwindGeneratedPaths,
+    ...customRoutesGeneratedPaths
   ]);
 
   await applyOverrides(workspaceRoot, 'compose');
 
+  await formatOutputFiles(projectRoot, lock.generatedPaths);
+
   await writeJson(installManifestPath, installManifest);
   lock.passStatus.compose = 'succeeded';
+
+  if (options?.lockFiles) {
+    const slotTargets = lock.slotTasks.map((t) => t.target);
+    await setProjectReadOnlyLock(projectRoot, false, slotTargets);
+  }
+
   await saveLock(workspaceRoot, lock);
   return lock;
 }

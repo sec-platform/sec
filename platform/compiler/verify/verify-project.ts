@@ -18,6 +18,8 @@ import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import { typecheckProject } from './typecheck-project.ts';
+import { checkReferenceDrift } from './check-drift.ts';
+
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;
@@ -249,6 +251,8 @@ export async function verifyProject(
   } = getWorkspacePaths(workspaceRoot);
 
   assertPassStatus(lock, 'adapt', 'succeeded', new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify'));
+
+  await checkReferenceDrift(workspaceRoot);
 
   const fastResult =
     lane === 'runtime' ? { lane: createSkippedFastLane(), failure: null } : await runFastVerification(workspaceRoot, projectRoot);

@@ -267,8 +267,9 @@ export function registerCommands(program: Command): void {
 
   program.command('compose')
     .description('Compose project')
-    .action(async () => {
-      await withSpinner('Composing project', () => composeWorkspace(process.cwd()));
+    .option('--lock', 'Lock project files as read-only')
+    .action(async (opts: Record<string, unknown>) => {
+      await withSpinner('Composing project', () => composeWorkspace(process.cwd(), { lock: !!opts.lock }));
       console.log('Composed project');
     });
 

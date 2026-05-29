@@ -1,4 +1,4 @@
-﻿# 工程编译器 PRD 与架构总稿
+# 工程编译器 PRD 与架构总稿
 
 > 权威边界：产品定位、架构分层和版本边界以本文为准。实现字段、schema 与协议以 `05-11` 为准。
 
@@ -11,6 +11,10 @@
 - 系统的权威输入是工程规格、块接口、连接关系、slot 描述和验收要求；最终源码是可审查、可部署、可修改的编译产物。
 - 这套产品不是"让 AI 多写代码"，而是"把 AI 收束为编译链中的受限综合 pass"。
 - 当前开发必须以最终形态为目标：v0.x 可以采用文件装载型 block 作为过渡，但所有实现都必须能演进到语义合约型 block、Engineering IR、可解释 Review Workbench。
+- **轻量化本地化产品形态**：SpecEngineer 拒绝采用重度云端 SaaS 平台架构，而是通过轻量化的“本地编译器 + 本地 Sidecar”模式运作：
+  1. **本地命令行 CLI 编译器 (`@spec-engineer/cli`)**：作为主执行入口，直接运行在开发者本地或 CI Runner 容器中。
+  2. **本地 Review 工作台 (Local Workbench)**：运行 `se workbench` 在本地 `127.0.0.1` 启动 Web UI，直接以本地的 `explain-graph.json` 和 `provenance.json` 为数据源，进行双向回写和失败 Trace 审计，不上传代码至云端。
+  3. **本地 MCP 服务 (Local MCP Server)**：启动本地 `spec-engineer mcp` 后端，为 Claude Code 或 Cursor 等外部 AI 编程助手提供只读的代码结构感知、任务信封和沙盒指令代理。
 - 终局五层架构：Authoring Layer（规格/图/slot/规则/验收）→ Semantic Contract Layer（block 语义合约、capability、pin、policy、view/entity/operation IR）→ Compilation Layer（解析/对齐/求解/装配/综合/验证/修复/发射）→ Artifact Layer（源码/测试/lock/provenance）→ Review/Platform Layer（Workbench、registry、升级、治理、观测、托管）
 
 ### 核心问题

@@ -12,6 +12,9 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;
@@ -89,6 +92,15 @@ async function readVerificationReport(workspaceRoot: string): Promise<Verificati
   return readOptionalJson<VerificationReport>(verificationReportPath);
 }
 
+async function calculateFileHash(absolutePath: string): Promise<string | undefined> {
+  try {
+    const content = await fs.readFile(absolutePath);
+    return createHash('sha256').update(content).digest('hex');
+  } catch {
+    return undefined;
+  }
+}
+
 export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
   const artifacts = new Map<string, ProvenanceArtifact>();
   const blockVerificationMap = buildBlockVerificationMap(lock, await readVerificationReport(workspaceRoot));
@@ -146,6 +158,17 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
       verifiedBy: existing?.verifiedBy ?? [],
       overrideStatus: entry.source
     });
+  }
+
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  for (const [artPath, artifact] of artifacts.entries()) {
+    const absPath = artPath.startsWith('source/') || artPath.startsWith('control/')
+      ? path.join(workspaceRoot, artPath)
+      : path.join(projectRoot, artPath);
+    const hash = await calculateFileHash(absPath);
+    if (hash) {
+      artifact.hash = hash;
+    }
   }
 
   return {
