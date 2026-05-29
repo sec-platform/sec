@@ -11,6 +11,7 @@
   "scripts": {
     "platform": "bun ./platform/cli/index.ts",
     "publish:public": "bun ./scripts/publish-public.ts",
+    "package": "bun ./scripts/build.ts",
     "dev": "bun ./platform/dev-runner.ts",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
     "reference:refresh": "bun run platform -- resolve && bun run platform -- compose && bun run platform -- adapt && bun run platform -- verify --lane all && bun run platform -- lock && bun run platform -- explain",
