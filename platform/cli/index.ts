@@ -7,8 +7,8 @@ import { registerCommands } from './register-commands.ts';
 
 const program = new Command();
 program
-  .name('platform')
-  .description('Engineering compiler CLI')
+  .name('se')
+  .description('SpecEngineer Compiler CLI')
   .version('0.1.0');
 
 registerCommands(program);

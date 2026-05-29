@@ -4,8 +4,13 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.6",
+  "bin": {
+    "se": "./platform/cli/index.ts",
+    "pjc": "./platform/cli/index.ts"
+  },
   "scripts": {
     "platform": "bun ./platform/cli/index.ts",
+    "publish:public": "bun ./scripts/publish-public.ts",
     "dev": "bun ./platform/dev-runner.ts",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
     "reference:refresh": "bun run platform -- resolve && bun run platform -- compose && bun run platform -- adapt && bun run platform -- verify --lane all && bun run platform -- lock && bun run platform -- explain",
