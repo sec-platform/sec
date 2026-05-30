@@ -1801,6 +1801,14 @@
     const container = document.getElementById('network-canvas');
     const data = { nodes: visNodes, edges: visEdges };
     const options = {
+      edges: {
+        smooth: {
+          enabled: true,
+          type: 'cubicBezier',
+          forceDirection: 'horizontal',
+          roundness: 0.65
+        }
+      },
       physics: {
         enabled: activeTab === 'audit-graph',
         forceAtlas2Based: {
