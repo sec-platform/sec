@@ -215,6 +215,18 @@ function validateSlotContractMigrationEntry({
   }
 }
 
+function validateDbExpandContractMigrationEntry({
+  entry,
+  entryPath
+}: MigrationEntryValidationContext<'db-expand-contract'>): void {
+  ensureMigrationString(entry.entity, 'entity', entryPath);
+  ensureMigrationString(entry.expandField, 'expandField', entryPath);
+  ensureMigrationString(entry.contractField, 'contractField', entryPath);
+  if (entry.copyJobCode !== undefined) {
+    ensureMigrationString(entry.copyJobCode, 'copyJobCode', entryPath);
+  }
+}
+
 function unsupportedMigrationKindError(entry: { kind: string }): CompilerError {
   return new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${entry.kind}"`);
 }
@@ -707,6 +719,62 @@ async function applyTextReplaceMigration(context: TextReplaceMigrationContext): 
   );
 }
 
+async function applyDbExpandContractMigration(context: MigrationApplyContext<'db-expand-contract'>): Promise<void> {
+  const { entry, targetPath, projectRoot } = context;
+  await statFileMigrationTarget(targetPath, entry.target, entry.kind);
+  let content = await fs.readFile(targetPath, 'utf8');
+
+  const modelStart = content.indexOf(`model ${entry.entity} {`);
+  if (modelStart === -1) {
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-031',
+      `Target database model "${entry.entity}" not found in schema "${entry.target}"`
+    );
+  }
+  const modelEnd = content.indexOf('}', modelStart);
+  if (modelEnd === -1) {
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-031',
+      `Invalid schema structure for model "${entry.entity}" in "${entry.target}"`
+    );
+  }
+
+  const modelContent = content.substring(modelStart, modelEnd);
+  let updatedModelContent = modelContent;
+  if (!modelContent.includes(entry.expandField)) {
+    updatedModelContent = modelContent.trim() + `\n  ${entry.expandField}\n`;
+  }
+
+  if (entry.contractField) {
+    const lines = updatedModelContent.split('\n');
+    const updatedLines = lines.map(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith(entry.contractField) || trimmed.startsWith(`${entry.contractField} `)) {
+        return `  // [Contracted Old Field]: ${line.trim()}`;
+      }
+      return line;
+    });
+    updatedModelContent = updatedLines.join('\n');
+  }
+
+  content = content.substring(0, modelStart) + updatedModelContent + content.substring(modelEnd);
+  await fs.writeFile(targetPath, content, 'utf8');
+
+  if (entry.copyJobCode) {
+    const jobDir = path.join(projectRoot, 'src', 'jobs', 'db-migrations');
+    await ensureDir(jobDir);
+    const jobFile = path.join(jobDir, `${entry.id}.ts`);
+    const jobContent = `// @generated-db-migration-job migration-id:${entry.id}
+export async function runMigrationJob(prisma: any): Promise<void> {
+  console.log('[Migration Job ${entry.id}] Starting copy process for entity ${entry.entity}...');
+  ${entry.copyJobCode}
+  console.log('[Migration Job ${entry.id}] Copy process completed successfully.');
+}
+`;
+    await fs.writeFile(jobFile, jobContent, 'utf8');
+  }
+}
+
 async function applyMigrationEntry(
   projectRoot: string,
   targetManifestRoot: string,
@@ -795,7 +863,8 @@ async function statFileMigrationTarget(
     | 'text-replace'
     | 'text-replace-regex'
     | 'text-append'
-    | 'slot-contract-update' = 'delete-file',
+    | 'slot-contract-update'
+    | 'db-expand-contract' = 'delete-file',
   options: { allowMissing?: boolean } = {}
 ): Promise<'file' | 'missing'> {
   const stats = await statOptionalMigrationPath(targetPath);
@@ -1113,6 +1182,15 @@ const migrationOperationSpecs = {
       ...(entry.inputType ? { inputType: entry.inputType } : {}),
       ...(entry.outputType ? { outputType: entry.outputType } : {}),
       ...(entry.writableZones ? { writableZones: [...entry.writableZones] } : {})
+    })
+  },
+  'db-expand-contract': {
+    validate: validateDbExpandContractMigrationEntry,
+    apply: applyDbExpandContractMigration,
+    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'prisma', {
+      entity: entry.entity,
+      expandField: entry.expandField,
+      contractField: entry.contractField
     })
   }
 } satisfies MigrationOperationSpecs;

@@ -212,6 +212,17 @@ export interface UpgradeSlotContractUpdateMigrationEntry {
   writableZones?: string[];
 }
 
+export interface UpgradeDbExpandContractMigrationEntry {
+  id: string;
+  kind: 'db-expand-contract';
+  reason: string;
+  target: string;
+  entity: string;
+  expandField: string;
+  contractField: string;
+  copyJobCode?: string;
+}
+
 export type UpgradeMigrationEntry =
   | UpgradeFileReplaceMigrationEntry
   | UpgradeCopyFileMigrationEntry
@@ -228,7 +239,8 @@ export type UpgradeMigrationEntry =
   | UpgradeDeleteFileMigrationEntry
   | UpgradeDeleteDirectoryMigrationEntry
   | UpgradeRenameFileMigrationEntry
-  | UpgradeSlotContractUpdateMigrationEntry;
+  | UpgradeSlotContractUpdateMigrationEntry
+  | UpgradeDbExpandContractMigrationEntry;
 
 export interface UpgradeConfig {
   from: string[];

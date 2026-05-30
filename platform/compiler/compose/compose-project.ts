@@ -17,6 +17,8 @@ import { mapCustomRoutes } from './map-custom-routes.ts';
 import { formatOutputFiles } from './format-output-files.ts';
 import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
 import { lowerToMicroservices } from './microservice-lower-pass.ts';
+import { applyPrefixSandboxing } from './frontend-stitching.ts';
+
 
 
 
@@ -130,7 +132,9 @@ export async function composeProject(
 
   const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
   const microservicePaths = await lowerToMicroservices(workspaceRoot, lock);
-  addGeneratedPaths(lock, [
+
+  // Apply Prefix Sandboxing Pass for visual aesthetic isolation
+  const initialGeneratedPaths = [
     ...runtimeScaffoldPaths,
     'generated/routes.ts',
     CI_ARTIFACT_FILES.blockUsageMap,
@@ -139,7 +143,14 @@ export async function composeProject(
     ...tailwindGeneratedPaths,
     ...customRoutesGeneratedPaths,
     ...microservicePaths
+  ];
+  const sandboxedPaths = await applyPrefixSandboxing(projectRoot, initialGeneratedPaths);
+
+  addGeneratedPaths(lock, [
+    ...initialGeneratedPaths,
+    ...sandboxedPaths
   ]);
+
 
   await applyOverrides(workspaceRoot, 'compose');
 
