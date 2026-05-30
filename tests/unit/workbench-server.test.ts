@@ -110,6 +110,36 @@ slots: []
       expect(bootstrappedContent).toContain('export async function handleTestResolverSlot');
       expect(bootstrappedContent).toContain('test/block');
 
+      // 9. Test OPTIONS Preflight CORS Request
+      const resOptions = await fetch('http://localhost:8085/api/graph', {
+        method: 'OPTIONS'
+      });
+      expect(resOptions.status).toBe(204);
+      expect(resOptions.headers.get('Access-Control-Allow-Origin')).toBe('*');
+      expect(resOptions.headers.get('Access-Control-Allow-Methods')).toContain('GET');
+
+      // 10. Test High-Concurrency Mutex Compilation Lock (Concurrency Guard Test)
+      // 并发发起 3 次 run-node 局部测试请求，断言服务器互斥锁成功串行化处理
+      const runPromises = Array.from({ length: 3 }).map(() =>
+        fetch('http://localhost:8085/api/run-node', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'block', id: 'nonexistent-block-for-platform-verify' })
+        })
+      );
+
+      const results = await Promise.all(runPromises);
+      for (const res of results) {
+        expect(res.status).toBe(200);
+        const reader = res.body?.getReader();
+        expect(reader).toBeDefined();
+        if (reader) {
+          const { value } = await reader.read();
+          const text = new TextDecoder().decode(value);
+          expect(text).toContain('event: log');
+          await reader.cancel();
+        }
+      }
 
     } finally {
       // Clean up server

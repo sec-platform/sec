@@ -464,7 +464,32 @@ Visual Spec Builder 采用 **“Node-Link” 拓扑映射模型**，在前端将
 
 ### 14.4 本地 HTTP 双向热编译服务 (Dynamic API Server)
 
-为了彻底打通双向实时同步编辑的闭环，在 `sec workbench --serve` 命令中内置启动一个 Bun 原生的轻量级 Web 服务器：
+为了彻底打通双向实时同步编辑的闭环，在 `sec workbench --serve` 命令中内置启动一个 Bun 原生的轻量级 Web 服务器。为了达到真正的工业级标准，该服务器遵循以下高可用、防泄漏与高安全设计规范：
+
+1. **并发编译排队互斥锁 (Async Build Mutex Queue)**：
+   - **痛点**：若多端或多 Agent 在同一时刻并发发起 `/api/compile` 或 `/api/run-node`，会产生多重子进程读写竞争，造成工作区文件哈希被撕裂或写死锁。
+   - **设计**：服务器内部引入一个高级异步互斥锁（Mutex）。所有对工作区的编译（`/api/compile`）和测试运行（`/api/run-node`）请求都必须强行在此锁内排队串行化执行，任何后续请求将被挂起进入队列，直至上一个进程释放，物理杜绝并发冲突。
+2. **防子进程泄漏与系统信号优雅清理 (Graceful Subprocess Cleansing)**：
+   - **痛点**：当服务器通过 `Bun.spawn` 派生测试或编译子进程时，如果在子进程完成前服务器突然接收到操作系统的强制关闭信号（如 `SIGINT`, `SIGTERM`），子进程会沦为系统的僵尸进程，造成严重的系统文件句柄与网络端口泄漏。
+   - **设计**：
+     - 服务器建立全局的 `activeProcesses` 进程追踪注册表，任何物理派生进程都必须在启动时注册并记录句柄，在其自然退出或 cancel 被触发时自动物理回收。
+     - 监听操作系统信号 `SIGINT` 和 `SIGTERM`。一旦捕捉到退出信号，在进程终止前自动执行优雅子进程清除（Graceful Cleanup），遍历并杀灭所有追踪的活跃测试与编译进程，实现系统资源 100% 零残留。
+3. **SSE (Server-Sent Events) 生命周期严格管理 (SSE Stream Safety)**：
+   - 在流的 `cancel()` 或流式关闭回调中，服务器必须立即安全地强行终止（`kill()`）其对应的子进程，并从活跃追踪列表中抹去，保证客户端网页中途关闭或断网时，后台无悬空孤儿进程。
+4. **CORS 预检与工业级 Security Header 安全防护**：
+   - 友好处理 OPTIONS 预检请求。
+   - 在 Response 中默认注入工业级安全防护 Headers：
+     - `X-Content-Type-Options: nosniff` (防 MIME 嗅探)
+     - `X-Frame-Options: DENY` (防点击劫持)
+     - `Referrer-Policy: strict-origin-when-cross-origin`
+     - `Access-Control-Allow-Origin: *` (跨源安全支持)
+5. **带有请求计时与高亮着色的 Traffic 日记录中间件 (Traffic Timing Logger)**：
+   - 每个 API 请求进出，均用高亮着色在控制台输出详细计时日志：
+     `[HTTP] [2026-05-30T...] 200 POST /api/compile - 812ms`
+     提供极佳的可观测性与问题排查手段。
+
+以下是历史参考细节：
+
 
 1. **静态资源路由**：
    - 直接伺服 `control/workbench/views/` 目录下的 HTML 文件。
