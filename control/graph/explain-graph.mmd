@@ -1,29 +1,58 @@
 flowchart TD
+  acceptance_agent_can_automatically_classify_ticket["agent_can_automatically_classify_ticket (acceptance)"]
+  acceptance_agent_can_be_registered["agent_can_be_registered (acceptance)"]
+  acceptance_assignee_can_filter_tickets["assignee_can_filter_tickets (acceptance)"]
   acceptance_tenant_only_sees_own_customers["tenant_only_sees_own_customers (acceptance)"]
+  acceptance_ticket_attachment_can_be_uploaded["ticket_attachment_can_be_uploaded (acceptance)"]
+  acceptance_ticket_can_be_created["ticket_can_be_created (acceptance)"]
+  acceptance_ticket_comment_can_be_added["ticket_comment_can_be_added (acceptance)"]
+  acceptance_ticket_status_can_transition["ticket_status_can_transition (acceptance)"]
   acceptance_user_can_create_customer["user_can_create_customer (acceptance)"]
   acceptance_user_can_list_customers["user_can_list_customers (acceptance)"]
   acceptance_user_can_login["user_can_login (acceptance)"]
   app_customer_admin["customer-admin (app)"]
+  block_agent_executor["agent/executor (block)"]
+  block_agent_harness["agent/harness (block)"]
   block_auth_basic_session["auth/basic-session (block)"]
+  block_comment_basic["comment/basic (block)"]
   block_entity_customer_basic["entity/customer-basic (block)"]
+  block_file_upload["file/upload (block)"]
   block_tenant_basic_workspace["tenant/basic-workspace (block)"]
+  block_ticket_basic["ticket/basic (block)"]
+  capability_agent_executor["agent/executor (capability)"]
+  capability_agent_harness["agent/harness (capability)"]
   capability_auth_session["auth/session (capability)"]
   capability_customer_read["customer/read (capability)"]
   capability_customer_write["customer/write (capability)"]
+  capability_file_upload["file/upload (capability)"]
   capability_tenant_context["tenant/context (capability)"]
+  capability_ticket_comment["ticket/comment (capability)"]
+  capability_ticket_read["ticket/read (capability)"]
+  capability_ticket_write["ticket/write (capability)"]
+  file_app_api_customers_customerId_attachments_route_ts["app/api/customers/[customerId]/attachments/route.ts (file)"]
   file_app_api_customers_route_ts["app/api/customers/route.ts (file)"]
   file_app_api_session_current_route_ts["app/api/session/current/route.ts (file)"]
   file_app_api_session_login_route_ts["app/api/session/login/route.ts (file)"]
   file_app_api_session_logout_route_ts["app/api/session/logout/route.ts (file)"]
+  file_app_api_tickets_ticketId_attachments_route_ts["app/api/tickets/[ticketId]/attachments/route.ts (file)"]
+  file_app_api_tickets_ticketId_comments_route_ts["app/api/tickets/[ticketId]/comments/route.ts (file)"]
+  file_app_api_tickets_ticketId_status_route_ts["app/api/tickets/[ticketId]/status/route.ts (file)"]
+  file_app_api_tickets_route_ts["app/api/tickets/route.ts (file)"]
   file_app_customers_page_tsx["app/customers/page.tsx (file)"]
   file_app_globals_css["app/globals.css (file)"]
   file_app_layout_tsx["app/layout.tsx (file)"]
   file_app_login_page_tsx["app/login/page.tsx (file)"]
   file_app_page_tsx["app/page.tsx (file)"]
+  file_app_tickets_page_tsx["app/tickets/page.tsx (file)"]
   file_app_workspace_page_tsx["app/workspace/page.tsx (file)"]
+  file_components_customer_attachment_form_tsx["components/customer-attachment-form.tsx (file)"]
   file_components_customer_form_tsx["components/customer-form.tsx (file)"]
   file_components_login_form_tsx["components/login-form.tsx (file)"]
   file_components_logout_button_tsx["components/logout-button.tsx (file)"]
+  file_components_ticket_attachment_form_tsx["components/ticket-attachment-form.tsx (file)"]
+  file_components_ticket_comment_form_tsx["components/ticket-comment-form.tsx (file)"]
+  file_components_ticket_form_tsx["components/ticket-form.tsx (file)"]
+  file_components_ticket_status_form_tsx["components/ticket-status-form.tsx (file)"]
   file_control_evidence_acceptance_coverage_json["control/evidence/acceptance-coverage.json (file)"]
   file_control_evidence_block_usage_map_json["control/evidence/block-usage-map.json (file)"]
   file_control_evidence_install_manifest_json["control/evidence/install-manifest.json (file)"]
@@ -35,6 +64,7 @@ flowchart TD
   file_control_graph_explain_graph_mmd["control/graph/explain-graph.mmd (file)"]
   file_control_provenance_provenance_json["control/provenance/provenance.json (file)"]
   file_custom_customer_normalizer_ts["custom/customer_normalizer.ts (file)"]
+  file_custom_ticket_comment_delegate_ts["custom/ticket_comment_delegate.ts (file)"]
   file_generated_routes_ts["generated/routes.ts (file)"]
   file_lib_session_ts["lib/session.ts (file)"]
   file_lib_store_ts["lib/store.ts (file)"]
@@ -43,29 +73,88 @@ flowchart TD
   file_package_json["package.json (file)"]
   file_prisma_schema_prisma["prisma/schema.prisma (file)"]
   file_source_code_slots_customer_normalizer_ts["source/code/slots/customer_normalizer.ts (file)"]
+  file_source_code_slots_ticket_comment_delegate_ts["source/code/slots/ticket_comment_delegate.ts (file)"]
+  file_src_installed_agent_executor_service_ts["src/installed/agent/executor-service.ts (file)"]
+  file_src_installed_agent_harness_service_ts["src/installed/agent/harness-service.ts (file)"]
   file_src_installed_auth_session_ts["src/installed/auth/session.ts (file)"]
+  file_src_installed_comment_comment_service_ts["src/installed/comment/comment-service.ts (file)"]
   file_src_installed_entity_customer_service_ts["src/installed/entity/customer-service.ts (file)"]
+  file_src_installed_file_customer_attachments_ts["src/installed/file/customer-attachments.ts (file)"]
   file_src_installed_tenant_context_ts["src/installed/tenant/context.ts (file)"]
+  file_src_installed_ticket_ticket_service_ts["src/installed/ticket/ticket-service.ts (file)"]
+  file_tests_acceptance_agent_classifier_flow_test_ts["tests/acceptance/agent-classifier-flow.test.ts (file)"]
+  file_tests_acceptance_comment_flow_test_ts["tests/acceptance/comment-flow.test.ts (file)"]
   file_tests_acceptance_customer_flow_test_ts["tests/acceptance/customer-flow.test.ts (file)"]
+  file_tests_acceptance_ticket_flow_test_ts["tests/acceptance/ticket-flow.test.ts (file)"]
   file_tests_runtime_acceptance_customer_flow_spec_ts["tests/runtime/acceptance/customer-flow.spec.ts (file)"]
+  file_tests_runtime_acceptance_ticket_flow_spec_ts["tests/runtime/acceptance/ticket-flow.spec.ts (file)"]
   file_tests_runtime_unit_customer_runtime_test_ts["tests/runtime/unit/customer-runtime.test.ts (file)"]
+  file_tests_runtime_unit_ticket_runtime_test_ts["tests/runtime/unit/ticket-runtime.test.ts (file)"]
   file_tests_shared_tenant_runtime_fixture_ts["tests/shared/tenant-runtime-fixture.ts (file)"]
+  file_tests_shared_ticket_service_suite_ts["tests/shared/ticket-service-suite.ts (file)"]
+  file_tests_unit_comment_service_test_ts["tests/unit/comment-service.test.ts (file)"]
+  file_tests_unit_customer_attachments_test_ts["tests/unit/customer-attachments.test.ts (file)"]
   file_tests_unit_customer_normalizer_test_ts["tests/unit/customer-normalizer.test.ts (file)"]
+  file_tests_unit_ticket_service_test_ts["tests/unit/ticket-service.test.ts (file)"]
   file_tsconfig_json["tsconfig.json (file)"]
+  pin_agent_executor_input_actor_identity["actor_identity (pin)"]
+  pin_agent_executor_input_ticket_created["ticket_created (pin)"]
+  pin_agent_executor_output_agent_executed["agent_executed (pin)"]
+  pin_agent_harness_input_tenant_context["tenant_context (pin)"]
+  pin_agent_harness_output_agent_registered["agent_registered (pin)"]
   pin_auth_basic_session_output_actor_identity["actor_identity (pin)"]
+  pin_comment_basic_input_actor_identity["actor_identity (pin)"]
+  pin_comment_basic_input_ticket_created["ticket_created (pin)"]
+  pin_comment_basic_output_comment_added["comment_added (pin)"]
   pin_entity_customer_basic_input_actor_identity["actor_identity (pin)"]
   pin_entity_customer_basic_input_tenant_context["tenant_context (pin)"]
   pin_entity_customer_basic_output_customer_created["customer_created (pin)"]
+  pin_file_upload_input_customer_created["customer_created (pin)"]
+  pin_file_upload_output_customer_attachment_uploaded["customer_attachment_uploaded (pin)"]
   pin_tenant_basic_workspace_input_actor_identity["actor_identity (pin)"]
   pin_tenant_basic_workspace_output_tenant_context["tenant_context (pin)"]
+  pin_ticket_basic_input_actor_identity["actor_identity (pin)"]
+  pin_ticket_basic_input_tenant_context["tenant_context (pin)"]
+  pin_ticket_basic_output_ticket_attachment_uploaded["ticket_attachment_uploaded (pin)"]
+  pin_ticket_basic_output_ticket_comment_added["ticket_comment_added (pin)"]
+  pin_ticket_basic_output_ticket_created["ticket_created (pin)"]
+  pin_ticket_basic_output_ticket_status_transitioned["ticket_status_transitioned (pin)"]
   policy_tenant_scope_required["tenant-scope-required (policy)"]
   slot_customer_normalizer["customer_normalizer (slot)"]
+  slot_ticket_comment_delegate["ticket_comment_delegate (slot)"]
+  app_customer_admin -- depends_on --> block_agent_executor
+  app_customer_admin -- depends_on --> block_agent_harness
   app_customer_admin -- depends_on --> block_auth_basic_session
+  app_customer_admin -- depends_on --> block_comment_basic
   app_customer_admin -- depends_on --> block_entity_customer_basic
+  app_customer_admin -- depends_on --> block_file_upload
   app_customer_admin -- depends_on --> block_tenant_basic_workspace
+  app_customer_admin -- depends_on --> block_ticket_basic
+  block_agent_executor -- depends_on --> capability_agent_harness
+  block_agent_executor -- depends_on --> capability_tenant_context
+  block_agent_executor -- depends_on --> capability_ticket_comment
+  block_agent_executor -- depends_on --> capability_ticket_write
+  block_agent_executor -- depends_on --> pin_agent_executor_input_actor_identity
+  block_agent_executor -- depends_on --> pin_agent_executor_input_ticket_created
+  block_agent_executor -- provides --> capability_agent_executor
+  block_agent_executor -- provides --> pin_agent_executor_output_agent_executed
+  block_agent_executor -- verified_by --> acceptance_agent_can_automatically_classify_ticket
+  block_agent_harness -- depends_on --> capability_tenant_context
+  block_agent_harness -- depends_on --> pin_agent_harness_input_tenant_context
+  block_agent_harness -- provides --> capability_agent_harness
+  block_agent_harness -- provides --> pin_agent_harness_output_agent_registered
+  block_agent_harness -- verified_by --> acceptance_agent_can_be_registered
   block_auth_basic_session -- provides --> capability_auth_session
   block_auth_basic_session -- provides --> pin_auth_basic_session_output_actor_identity
   block_auth_basic_session -- verified_by --> acceptance_user_can_login
+  block_comment_basic -- depends_on --> capability_auth_session
+  block_comment_basic -- depends_on --> capability_tenant_context
+  block_comment_basic -- depends_on --> capability_ticket_read
+  block_comment_basic -- depends_on --> pin_comment_basic_input_actor_identity
+  block_comment_basic -- depends_on --> pin_comment_basic_input_ticket_created
+  block_comment_basic -- provides --> capability_ticket_comment
+  block_comment_basic -- provides --> pin_comment_basic_output_comment_added
+  block_comment_basic -- verified_by --> acceptance_ticket_comment_can_be_added
   block_entity_customer_basic -- connects_to --> slot_customer_normalizer
   block_entity_customer_basic -- depends_on --> capability_auth_session
   block_entity_customer_basic -- depends_on --> capability_tenant_context
@@ -77,26 +166,64 @@ flowchart TD
   block_entity_customer_basic -- verified_by --> acceptance_tenant_only_sees_own_customers
   block_entity_customer_basic -- verified_by --> acceptance_user_can_create_customer
   block_entity_customer_basic -- verified_by --> acceptance_user_can_list_customers
+  block_entity_customer_basic -- writes_to --> file_app_api_customers_customerId_attachments_route_ts
   block_entity_customer_basic -- writes_to --> file_app_api_customers_route_ts
   block_entity_customer_basic -- writes_to --> file_app_customers_page_tsx
+  block_file_upload -- depends_on --> capability_customer_read
+  block_file_upload -- depends_on --> capability_customer_write
+  block_file_upload -- depends_on --> pin_file_upload_input_customer_created
+  block_file_upload -- provides --> capability_file_upload
+  block_file_upload -- provides --> pin_file_upload_output_customer_attachment_uploaded
   block_tenant_basic_workspace -- depends_on --> capability_auth_session
   block_tenant_basic_workspace -- depends_on --> pin_tenant_basic_workspace_input_actor_identity
   block_tenant_basic_workspace -- provides --> capability_tenant_context
   block_tenant_basic_workspace -- provides --> pin_tenant_basic_workspace_output_tenant_context
   block_tenant_basic_workspace -- verified_by --> acceptance_tenant_only_sees_own_customers
+  block_ticket_basic -- connects_to --> slot_ticket_comment_delegate
+  block_ticket_basic -- depends_on --> capability_auth_session
+  block_ticket_basic -- depends_on --> capability_tenant_context
+  block_ticket_basic -- depends_on --> pin_ticket_basic_input_actor_identity
+  block_ticket_basic -- depends_on --> pin_ticket_basic_input_tenant_context
+  block_ticket_basic -- provides --> capability_ticket_read
+  block_ticket_basic -- provides --> capability_ticket_write
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_attachment_uploaded
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_comment_added
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_created
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_status_transitioned
+  block_ticket_basic -- verified_by --> acceptance_assignee_can_filter_tickets
+  block_ticket_basic -- verified_by --> acceptance_ticket_attachment_can_be_uploaded
+  block_ticket_basic -- verified_by --> acceptance_ticket_can_be_created
+  block_ticket_basic -- verified_by --> acceptance_ticket_comment_can_be_added
+  block_ticket_basic -- verified_by --> acceptance_ticket_status_can_transition
+  block_ticket_basic -- writes_to --> file_app_api_tickets_ticketId_attachments_route_ts
+  block_ticket_basic -- writes_to --> file_app_api_tickets_ticketId_comments_route_ts
+  block_ticket_basic -- writes_to --> file_app_api_tickets_ticketId_status_route_ts
+  block_ticket_basic -- writes_to --> file_app_api_tickets_route_ts
+  block_ticket_basic -- writes_to --> file_app_tickets_page_tsx
+  file_app_api_customers_customerId_attachments_route_ts -- originates_from --> app_customer_admin
   file_app_api_customers_route_ts -- originates_from --> app_customer_admin
   file_app_api_session_current_route_ts -- originates_from --> app_customer_admin
   file_app_api_session_login_route_ts -- originates_from --> app_customer_admin
   file_app_api_session_logout_route_ts -- originates_from --> app_customer_admin
+  file_app_api_tickets_ticketId_attachments_route_ts -- originates_from --> app_customer_admin
+  file_app_api_tickets_ticketId_comments_route_ts -- originates_from --> app_customer_admin
+  file_app_api_tickets_ticketId_status_route_ts -- originates_from --> app_customer_admin
+  file_app_api_tickets_route_ts -- originates_from --> app_customer_admin
   file_app_customers_page_tsx -- originates_from --> app_customer_admin
   file_app_globals_css -- originates_from --> app_customer_admin
   file_app_layout_tsx -- originates_from --> app_customer_admin
   file_app_login_page_tsx -- originates_from --> app_customer_admin
   file_app_page_tsx -- originates_from --> app_customer_admin
+  file_app_tickets_page_tsx -- originates_from --> app_customer_admin
   file_app_workspace_page_tsx -- originates_from --> app_customer_admin
+  file_components_customer_attachment_form_tsx -- originates_from --> app_customer_admin
   file_components_customer_form_tsx -- originates_from --> app_customer_admin
   file_components_login_form_tsx -- originates_from --> app_customer_admin
   file_components_logout_button_tsx -- originates_from --> app_customer_admin
+  file_components_ticket_attachment_form_tsx -- originates_from --> app_customer_admin
+  file_components_ticket_comment_form_tsx -- originates_from --> app_customer_admin
+  file_components_ticket_form_tsx -- originates_from --> app_customer_admin
+  file_components_ticket_status_form_tsx -- originates_from --> app_customer_admin
   file_control_evidence_acceptance_coverage_json -- originates_from --> app_customer_admin
   file_control_evidence_block_usage_map_json -- originates_from --> app_customer_admin
   file_control_evidence_install_manifest_json -- originates_from --> app_customer_admin
@@ -108,25 +235,44 @@ flowchart TD
   file_control_graph_explain_graph_mmd -- originates_from --> app_customer_admin
   file_control_provenance_provenance_json -- originates_from --> app_customer_admin
   file_custom_customer_normalizer_ts -- originates_from --> slot_customer_normalizer
+  file_custom_ticket_comment_delegate_ts -- originates_from --> slot_ticket_comment_delegate
   file_generated_routes_ts -- originates_from --> app_customer_admin
   file_lib_session_ts -- originates_from --> app_customer_admin
   file_lib_store_ts -- originates_from --> app_customer_admin
   file_next_env_d_ts -- originates_from --> app_customer_admin
   file_next_config_mjs -- originates_from --> app_customer_admin
   file_package_json -- originates_from --> app_customer_admin
-  file_prisma_schema_prisma -- originates_from --> block_entity_customer_basic
+  file_prisma_schema_prisma -- originates_from --> block_comment_basic
   file_source_code_slots_customer_normalizer_ts -- connects_to --> file_custom_customer_normalizer_ts
   file_source_code_slots_customer_normalizer_ts -- originates_from --> slot_customer_normalizer
+  file_source_code_slots_ticket_comment_delegate_ts -- connects_to --> file_custom_ticket_comment_delegate_ts
+  file_source_code_slots_ticket_comment_delegate_ts -- originates_from --> slot_ticket_comment_delegate
+  file_src_installed_agent_executor_service_ts -- originates_from --> block_agent_executor
+  file_src_installed_agent_harness_service_ts -- originates_from --> block_agent_harness
   file_src_installed_auth_session_ts -- originates_from --> block_auth_basic_session
+  file_src_installed_comment_comment_service_ts -- originates_from --> block_comment_basic
   file_src_installed_entity_customer_service_ts -- originates_from --> block_entity_customer_basic
+  file_src_installed_file_customer_attachments_ts -- originates_from --> block_file_upload
   file_src_installed_tenant_context_ts -- originates_from --> block_tenant_basic_workspace
+  file_src_installed_ticket_ticket_service_ts -- originates_from --> block_ticket_basic
+  file_tests_acceptance_agent_classifier_flow_test_ts -- originates_from --> block_agent_executor
+  file_tests_acceptance_comment_flow_test_ts -- originates_from --> block_comment_basic
   file_tests_acceptance_customer_flow_test_ts -- originates_from --> block_entity_customer_basic
+  file_tests_acceptance_ticket_flow_test_ts -- originates_from --> block_ticket_basic
   file_tests_runtime_acceptance_customer_flow_spec_ts -- originates_from --> app_customer_admin
+  file_tests_runtime_acceptance_ticket_flow_spec_ts -- originates_from --> app_customer_admin
   file_tests_runtime_unit_customer_runtime_test_ts -- originates_from --> app_customer_admin
+  file_tests_runtime_unit_ticket_runtime_test_ts -- originates_from --> app_customer_admin
   file_tests_shared_tenant_runtime_fixture_ts -- originates_from --> block_tenant_basic_workspace
+  file_tests_shared_ticket_service_suite_ts -- originates_from --> block_ticket_basic
+  file_tests_unit_comment_service_test_ts -- originates_from --> block_comment_basic
+  file_tests_unit_customer_attachments_test_ts -- originates_from --> block_file_upload
   file_tests_unit_customer_normalizer_test_ts -- originates_from --> block_entity_customer_basic
+  file_tests_unit_ticket_service_test_ts -- originates_from --> block_ticket_basic
   file_tsconfig_json -- originates_from --> app_customer_admin
   policy_tenant_scope_required -- connects_to --> file_src_installed_entity_customer_service_ts
+  policy_tenant_scope_required -- connects_to --> file_src_installed_ticket_ticket_service_ts
   slot_customer_normalizer -- verified_by --> acceptance_tenant_only_sees_own_customers
   slot_customer_normalizer -- verified_by --> acceptance_user_can_create_customer
   slot_customer_normalizer -- writes_to --> file_source_code_slots_customer_normalizer_ts
+  slot_ticket_comment_delegate -- writes_to --> file_source_code_slots_ticket_comment_delegate_ts

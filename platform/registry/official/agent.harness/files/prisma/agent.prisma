@@ -1,0 +1,8 @@
+model AIAgent {
+  id           Int     @id @default(autoincrement())
+  tenantId     String
+  name         String
+  role         String
+  allowedZones String
+  isActive     Boolean @default(true)
+}

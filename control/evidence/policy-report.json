@@ -31,7 +31,8 @@
         "sourceScope": "official",
         "sourcePath": "platform/policies/official/policy.spec.yaml",
         "targets": [
-          "src/installed/entity/customer-service.ts"
+          "src/installed/entity/customer-service.ts",
+          "src/installed/ticket/ticket-service.ts"
         ]
       }
     ]

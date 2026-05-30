@@ -21,6 +21,10 @@ function parseRules(description: string): {
 }
 
 export function synthesizeSlotSource(envelope: TaskEnvelope): string {
+  if (envelope.mockTemplate) {
+    return envelope.mockTemplate;
+  }
+
   const rules = parseRules(envelope.inputContracts.description);
   const steps: string[] = [];
 

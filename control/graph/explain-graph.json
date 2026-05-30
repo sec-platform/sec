@@ -1,9 +1,44 @@
 {
   "nodes": [
     {
+      "id": "acceptance:agent_can_automatically_classify_ticket",
+      "type": "acceptance",
+      "label": "agent_can_automatically_classify_ticket"
+    },
+    {
+      "id": "acceptance:agent_can_be_registered",
+      "type": "acceptance",
+      "label": "agent_can_be_registered"
+    },
+    {
+      "id": "acceptance:assignee_can_filter_tickets",
+      "type": "acceptance",
+      "label": "assignee_can_filter_tickets"
+    },
+    {
       "id": "acceptance:tenant_only_sees_own_customers",
       "type": "acceptance",
       "label": "tenant_only_sees_own_customers"
+    },
+    {
+      "id": "acceptance:ticket_attachment_can_be_uploaded",
+      "type": "acceptance",
+      "label": "ticket_attachment_can_be_uploaded"
+    },
+    {
+      "id": "acceptance:ticket_can_be_created",
+      "type": "acceptance",
+      "label": "ticket_can_be_created"
+    },
+    {
+      "id": "acceptance:ticket_comment_can_be_added",
+      "type": "acceptance",
+      "label": "ticket_comment_can_be_added"
+    },
+    {
+      "id": "acceptance:ticket_status_can_transition",
+      "type": "acceptance",
+      "label": "ticket_status_can_transition"
     },
     {
       "id": "acceptance:user_can_create_customer",
@@ -26,9 +61,24 @@
       "label": "customer-admin"
     },
     {
+      "id": "block:agent/executor",
+      "type": "block",
+      "label": "agent/executor"
+    },
+    {
+      "id": "block:agent/harness",
+      "type": "block",
+      "label": "agent/harness"
+    },
+    {
       "id": "block:auth/basic-session",
       "type": "block",
       "label": "auth/basic-session"
+    },
+    {
+      "id": "block:comment/basic",
+      "type": "block",
+      "label": "comment/basic"
     },
     {
       "id": "block:entity/customer-basic",
@@ -36,9 +86,29 @@
       "label": "entity/customer-basic"
     },
     {
+      "id": "block:file/upload",
+      "type": "block",
+      "label": "file/upload"
+    },
+    {
       "id": "block:tenant/basic-workspace",
       "type": "block",
       "label": "tenant/basic-workspace"
+    },
+    {
+      "id": "block:ticket/basic",
+      "type": "block",
+      "label": "ticket/basic"
+    },
+    {
+      "id": "capability:agent/executor",
+      "type": "capability",
+      "label": "agent/executor"
+    },
+    {
+      "id": "capability:agent/harness",
+      "type": "capability",
+      "label": "agent/harness"
     },
     {
       "id": "capability:auth/session",
@@ -56,9 +126,34 @@
       "label": "customer/write"
     },
     {
+      "id": "capability:file/upload",
+      "type": "capability",
+      "label": "file/upload"
+    },
+    {
       "id": "capability:tenant/context",
       "type": "capability",
       "label": "tenant/context"
+    },
+    {
+      "id": "capability:ticket/comment",
+      "type": "capability",
+      "label": "ticket/comment"
+    },
+    {
+      "id": "capability:ticket/read",
+      "type": "capability",
+      "label": "ticket/read"
+    },
+    {
+      "id": "capability:ticket/write",
+      "type": "capability",
+      "label": "ticket/write"
+    },
+    {
+      "id": "file:app/api/customers/[customerId]/attachments/route.ts",
+      "type": "file",
+      "label": "app/api/customers/[customerId]/attachments/route.ts"
     },
     {
       "id": "file:app/api/customers/route.ts",
@@ -79,6 +174,26 @@
       "id": "file:app/api/session/logout/route.ts",
       "type": "file",
       "label": "app/api/session/logout/route.ts"
+    },
+    {
+      "id": "file:app/api/tickets/[ticketId]/attachments/route.ts",
+      "type": "file",
+      "label": "app/api/tickets/[ticketId]/attachments/route.ts"
+    },
+    {
+      "id": "file:app/api/tickets/[ticketId]/comments/route.ts",
+      "type": "file",
+      "label": "app/api/tickets/[ticketId]/comments/route.ts"
+    },
+    {
+      "id": "file:app/api/tickets/[ticketId]/status/route.ts",
+      "type": "file",
+      "label": "app/api/tickets/[ticketId]/status/route.ts"
+    },
+    {
+      "id": "file:app/api/tickets/route.ts",
+      "type": "file",
+      "label": "app/api/tickets/route.ts"
     },
     {
       "id": "file:app/customers/page.tsx",
@@ -106,9 +221,19 @@
       "label": "app/page.tsx"
     },
     {
+      "id": "file:app/tickets/page.tsx",
+      "type": "file",
+      "label": "app/tickets/page.tsx"
+    },
+    {
       "id": "file:app/workspace/page.tsx",
       "type": "file",
       "label": "app/workspace/page.tsx"
+    },
+    {
+      "id": "file:components/customer-attachment-form.tsx",
+      "type": "file",
+      "label": "components/customer-attachment-form.tsx"
     },
     {
       "id": "file:components/customer-form.tsx",
@@ -124,6 +249,26 @@
       "id": "file:components/logout-button.tsx",
       "type": "file",
       "label": "components/logout-button.tsx"
+    },
+    {
+      "id": "file:components/ticket-attachment-form.tsx",
+      "type": "file",
+      "label": "components/ticket-attachment-form.tsx"
+    },
+    {
+      "id": "file:components/ticket-comment-form.tsx",
+      "type": "file",
+      "label": "components/ticket-comment-form.tsx"
+    },
+    {
+      "id": "file:components/ticket-form.tsx",
+      "type": "file",
+      "label": "components/ticket-form.tsx"
+    },
+    {
+      "id": "file:components/ticket-status-form.tsx",
+      "type": "file",
+      "label": "components/ticket-status-form.tsx"
     },
     {
       "id": "file:control/evidence/acceptance-coverage.json",
@@ -181,6 +326,11 @@
       "label": "custom/customer_normalizer.ts"
     },
     {
+      "id": "file:custom/ticket_comment_delegate.ts",
+      "type": "file",
+      "label": "custom/ticket_comment_delegate.ts"
+    },
+    {
       "id": "file:generated/routes.ts",
       "type": "file",
       "label": "generated/routes.ts"
@@ -221,9 +371,29 @@
       "label": "source/code/slots/customer_normalizer.ts"
     },
     {
+      "id": "file:source/code/slots/ticket_comment_delegate.ts",
+      "type": "file",
+      "label": "source/code/slots/ticket_comment_delegate.ts"
+    },
+    {
+      "id": "file:src/installed/agent/executor-service.ts",
+      "type": "file",
+      "label": "src/installed/agent/executor-service.ts"
+    },
+    {
+      "id": "file:src/installed/agent/harness-service.ts",
+      "type": "file",
+      "label": "src/installed/agent/harness-service.ts"
+    },
+    {
       "id": "file:src/installed/auth/session.ts",
       "type": "file",
       "label": "src/installed/auth/session.ts"
+    },
+    {
+      "id": "file:src/installed/comment/comment-service.ts",
+      "type": "file",
+      "label": "src/installed/comment/comment-service.ts"
     },
     {
       "id": "file:src/installed/entity/customer-service.ts",
@@ -231,9 +401,29 @@
       "label": "src/installed/entity/customer-service.ts"
     },
     {
+      "id": "file:src/installed/file/customer-attachments.ts",
+      "type": "file",
+      "label": "src/installed/file/customer-attachments.ts"
+    },
+    {
       "id": "file:src/installed/tenant/context.ts",
       "type": "file",
       "label": "src/installed/tenant/context.ts"
+    },
+    {
+      "id": "file:src/installed/ticket/ticket-service.ts",
+      "type": "file",
+      "label": "src/installed/ticket/ticket-service.ts"
+    },
+    {
+      "id": "file:tests/acceptance/agent-classifier-flow.test.ts",
+      "type": "file",
+      "label": "tests/acceptance/agent-classifier-flow.test.ts"
+    },
+    {
+      "id": "file:tests/acceptance/comment-flow.test.ts",
+      "type": "file",
+      "label": "tests/acceptance/comment-flow.test.ts"
     },
     {
       "id": "file:tests/acceptance/customer-flow.test.ts",
@@ -241,9 +431,19 @@
       "label": "tests/acceptance/customer-flow.test.ts"
     },
     {
+      "id": "file:tests/acceptance/ticket-flow.test.ts",
+      "type": "file",
+      "label": "tests/acceptance/ticket-flow.test.ts"
+    },
+    {
       "id": "file:tests/runtime/acceptance/customer-flow.spec.ts",
       "type": "file",
       "label": "tests/runtime/acceptance/customer-flow.spec.ts"
+    },
+    {
+      "id": "file:tests/runtime/acceptance/ticket-flow.spec.ts",
+      "type": "file",
+      "label": "tests/runtime/acceptance/ticket-flow.spec.ts"
     },
     {
       "id": "file:tests/runtime/unit/customer-runtime.test.ts",
@@ -251,9 +451,29 @@
       "label": "tests/runtime/unit/customer-runtime.test.ts"
     },
     {
+      "id": "file:tests/runtime/unit/ticket-runtime.test.ts",
+      "type": "file",
+      "label": "tests/runtime/unit/ticket-runtime.test.ts"
+    },
+    {
       "id": "file:tests/shared/tenant-runtime-fixture.ts",
       "type": "file",
       "label": "tests/shared/tenant-runtime-fixture.ts"
+    },
+    {
+      "id": "file:tests/shared/ticket-service-suite.ts",
+      "type": "file",
+      "label": "tests/shared/ticket-service-suite.ts"
+    },
+    {
+      "id": "file:tests/unit/comment-service.test.ts",
+      "type": "file",
+      "label": "tests/unit/comment-service.test.ts"
+    },
+    {
+      "id": "file:tests/unit/customer-attachments.test.ts",
+      "type": "file",
+      "label": "tests/unit/customer-attachments.test.ts"
     },
     {
       "id": "file:tests/unit/customer-normalizer.test.ts",
@@ -261,14 +481,59 @@
       "label": "tests/unit/customer-normalizer.test.ts"
     },
     {
+      "id": "file:tests/unit/ticket-service.test.ts",
+      "type": "file",
+      "label": "tests/unit/ticket-service.test.ts"
+    },
+    {
       "id": "file:tsconfig.json",
       "type": "file",
       "label": "tsconfig.json"
     },
     {
+      "id": "pin:agent/executor:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:agent/executor:input:ticket_created",
+      "type": "pin",
+      "label": "ticket_created"
+    },
+    {
+      "id": "pin:agent/executor:output:agent_executed",
+      "type": "pin",
+      "label": "agent_executed"
+    },
+    {
+      "id": "pin:agent/harness:input:tenant_context",
+      "type": "pin",
+      "label": "tenant_context"
+    },
+    {
+      "id": "pin:agent/harness:output:agent_registered",
+      "type": "pin",
+      "label": "agent_registered"
+    },
+    {
       "id": "pin:auth/basic-session:output:actor_identity",
       "type": "pin",
       "label": "actor_identity"
+    },
+    {
+      "id": "pin:comment/basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:comment/basic:input:ticket_created",
+      "type": "pin",
+      "label": "ticket_created"
+    },
+    {
+      "id": "pin:comment/basic:output:comment_added",
+      "type": "pin",
+      "label": "comment_added"
     },
     {
       "id": "pin:entity/customer-basic:input:actor_identity",
@@ -286,6 +551,16 @@
       "label": "customer_created"
     },
     {
+      "id": "pin:file/upload:input:customer_created",
+      "type": "pin",
+      "label": "customer_created"
+    },
+    {
+      "id": "pin:file/upload:output:customer_attachment_uploaded",
+      "type": "pin",
+      "label": "customer_attachment_uploaded"
+    },
+    {
       "id": "pin:tenant/basic-workspace:input:actor_identity",
       "type": "pin",
       "label": "actor_identity"
@@ -296,6 +571,36 @@
       "label": "tenant_context"
     },
     {
+      "id": "pin:ticket/basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity"
+    },
+    {
+      "id": "pin:ticket/basic:input:tenant_context",
+      "type": "pin",
+      "label": "tenant_context"
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_attachment_uploaded",
+      "type": "pin",
+      "label": "ticket_attachment_uploaded"
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_comment_added",
+      "type": "pin",
+      "label": "ticket_comment_added"
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_created",
+      "type": "pin",
+      "label": "ticket_created"
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_status_transitioned",
+      "type": "pin",
+      "label": "ticket_status_transitioned"
+    },
+    {
       "id": "policy:tenant-scope-required",
       "type": "policy",
       "label": "tenant-scope-required"
@@ -304,12 +609,32 @@
       "id": "slot:customer_normalizer",
       "type": "slot",
       "label": "customer_normalizer"
+    },
+    {
+      "id": "slot:ticket_comment_delegate",
+      "type": "slot",
+      "label": "ticket_comment_delegate"
     }
   ],
   "edges": [
     {
       "from": "app:customer-admin",
+      "to": "block:agent/executor",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
+      "to": "block:agent/harness",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
       "to": "block:auth/basic-session",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
+      "to": "block:comment/basic",
       "type": "depends_on"
     },
     {
@@ -319,8 +644,88 @@
     },
     {
       "from": "app:customer-admin",
+      "to": "block:file/upload",
+      "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
       "to": "block:tenant/basic-workspace",
       "type": "depends_on"
+    },
+    {
+      "from": "app:customer-admin",
+      "to": "block:ticket/basic",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "capability:agent/harness",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "capability:tenant/context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "capability:ticket/comment",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "capability:ticket/write",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "pin:agent/executor:input:actor_identity",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "pin:agent/executor:input:ticket_created",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "capability:agent/executor",
+      "type": "provides"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "pin:agent/executor:output:agent_executed",
+      "type": "provides"
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "acceptance:agent_can_automatically_classify_ticket",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:agent/harness",
+      "to": "capability:tenant/context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/harness",
+      "to": "pin:agent/harness:input:tenant_context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:agent/harness",
+      "to": "capability:agent/harness",
+      "type": "provides"
+    },
+    {
+      "from": "block:agent/harness",
+      "to": "pin:agent/harness:output:agent_registered",
+      "type": "provides"
+    },
+    {
+      "from": "block:agent/harness",
+      "to": "acceptance:agent_can_be_registered",
+      "type": "verified_by"
     },
     {
       "from": "block:auth/basic-session",
@@ -335,6 +740,46 @@
     {
       "from": "block:auth/basic-session",
       "to": "acceptance:user_can_login",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "capability:auth/session",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "capability:tenant/context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "capability:ticket/read",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "pin:comment/basic:input:actor_identity",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "pin:comment/basic:input:ticket_created",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "capability:ticket/comment",
+      "type": "provides"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "pin:comment/basic:output:comment_added",
+      "type": "provides"
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "acceptance:ticket_comment_can_be_added",
       "type": "verified_by"
     },
     {
@@ -394,6 +839,11 @@
     },
     {
       "from": "block:entity/customer-basic",
+      "to": "file:app/api/customers/[customerId]/attachments/route.ts",
+      "type": "writes_to"
+    },
+    {
+      "from": "block:entity/customer-basic",
       "to": "file:app/api/customers/route.ts",
       "type": "writes_to"
     },
@@ -401,6 +851,31 @@
       "from": "block:entity/customer-basic",
       "to": "file:app/customers/page.tsx",
       "type": "writes_to"
+    },
+    {
+      "from": "block:file/upload",
+      "to": "capability:customer/read",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:file/upload",
+      "to": "capability:customer/write",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:file/upload",
+      "to": "pin:file/upload:input:customer_created",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:file/upload",
+      "to": "capability:file/upload",
+      "type": "provides"
+    },
+    {
+      "from": "block:file/upload",
+      "to": "pin:file/upload:output:customer_attachment_uploaded",
+      "type": "provides"
     },
     {
       "from": "block:tenant/basic-workspace",
@@ -428,6 +903,116 @@
       "type": "verified_by"
     },
     {
+      "from": "block:ticket/basic",
+      "to": "slot:ticket_comment_delegate",
+      "type": "connects_to"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "capability:auth/session",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "capability:tenant/context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:input:actor_identity",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:input:tenant_context",
+      "type": "depends_on"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "capability:ticket/read",
+      "type": "provides"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "capability:ticket/write",
+      "type": "provides"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_attachment_uploaded",
+      "type": "provides"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_comment_added",
+      "type": "provides"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_created",
+      "type": "provides"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_status_transitioned",
+      "type": "provides"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "acceptance:assignee_can_filter_tickets",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "acceptance:ticket_attachment_can_be_uploaded",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "acceptance:ticket_can_be_created",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "acceptance:ticket_comment_can_be_added",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "acceptance:ticket_status_can_transition",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "file:app/api/tickets/[ticketId]/attachments/route.ts",
+      "type": "writes_to"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "file:app/api/tickets/[ticketId]/comments/route.ts",
+      "type": "writes_to"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "file:app/api/tickets/[ticketId]/status/route.ts",
+      "type": "writes_to"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "file:app/api/tickets/route.ts",
+      "type": "writes_to"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "file:app/tickets/page.tsx",
+      "type": "writes_to"
+    },
+    {
+      "from": "file:app/api/customers/[customerId]/attachments/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:app/api/customers/route.ts",
       "to": "app:customer-admin",
       "type": "originates_from"
@@ -444,6 +1029,26 @@
     },
     {
       "from": "file:app/api/session/logout/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/api/tickets/[ticketId]/attachments/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/api/tickets/[ticketId]/comments/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/api/tickets/[ticketId]/status/route.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:app/api/tickets/route.ts",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -473,7 +1078,17 @@
       "type": "originates_from"
     },
     {
+      "from": "file:app/tickets/page.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:app/workspace/page.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/customer-attachment-form.tsx",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -489,6 +1104,26 @@
     },
     {
       "from": "file:components/logout-button.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/ticket-attachment-form.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/ticket-comment-form.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/ticket-form.tsx",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:components/ticket-status-form.tsx",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -548,6 +1183,11 @@
       "type": "originates_from"
     },
     {
+      "from": "file:custom/ticket_comment_delegate.ts",
+      "to": "slot:ticket_comment_delegate",
+      "type": "originates_from"
+    },
+    {
       "from": "file:generated/routes.ts",
       "to": "app:customer-admin",
       "type": "originates_from"
@@ -579,7 +1219,7 @@
     },
     {
       "from": "file:prisma/schema.prisma",
-      "to": "block:entity/customer-basic",
+      "to": "block:comment/basic",
       "type": "originates_from"
     },
     {
@@ -593,8 +1233,33 @@
       "type": "originates_from"
     },
     {
+      "from": "file:source/code/slots/ticket_comment_delegate.ts",
+      "to": "file:custom/ticket_comment_delegate.ts",
+      "type": "connects_to"
+    },
+    {
+      "from": "file:source/code/slots/ticket_comment_delegate.ts",
+      "to": "slot:ticket_comment_delegate",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/agent/executor-service.ts",
+      "to": "block:agent/executor",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/agent/harness-service.ts",
+      "to": "block:agent/harness",
+      "type": "originates_from"
+    },
+    {
       "from": "file:src/installed/auth/session.ts",
       "to": "block:auth/basic-session",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/comment/comment-service.ts",
+      "to": "block:comment/basic",
       "type": "originates_from"
     },
     {
@@ -603,8 +1268,28 @@
       "type": "originates_from"
     },
     {
+      "from": "file:src/installed/file/customer-attachments.ts",
+      "to": "block:file/upload",
+      "type": "originates_from"
+    },
+    {
       "from": "file:src/installed/tenant/context.ts",
       "to": "block:tenant/basic-workspace",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:src/installed/ticket/ticket-service.ts",
+      "to": "block:ticket/basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/acceptance/agent-classifier-flow.test.ts",
+      "to": "block:agent/executor",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/acceptance/comment-flow.test.ts",
+      "to": "block:comment/basic",
       "type": "originates_from"
     },
     {
@@ -613,7 +1298,17 @@
       "type": "originates_from"
     },
     {
+      "from": "file:tests/acceptance/ticket-flow.test.ts",
+      "to": "block:ticket/basic",
+      "type": "originates_from"
+    },
+    {
       "from": "file:tests/runtime/acceptance/customer-flow.spec.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/runtime/acceptance/ticket-flow.spec.ts",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -623,13 +1318,38 @@
       "type": "originates_from"
     },
     {
+      "from": "file:tests/runtime/unit/ticket-runtime.test.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:tests/shared/tenant-runtime-fixture.ts",
       "to": "block:tenant/basic-workspace",
       "type": "originates_from"
     },
     {
+      "from": "file:tests/shared/ticket-service-suite.ts",
+      "to": "block:ticket/basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/comment-service.test.ts",
+      "to": "block:comment/basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/customer-attachments.test.ts",
+      "to": "block:file/upload",
+      "type": "originates_from"
+    },
+    {
       "from": "file:tests/unit/customer-normalizer.test.ts",
       "to": "block:entity/customer-basic",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:tests/unit/ticket-service.test.ts",
+      "to": "block:ticket/basic",
       "type": "originates_from"
     },
     {
@@ -640,6 +1360,11 @@
     {
       "from": "policy:tenant-scope-required",
       "to": "file:src/installed/entity/customer-service.ts",
+      "type": "connects_to"
+    },
+    {
+      "from": "policy:tenant-scope-required",
+      "to": "file:src/installed/ticket/ticket-service.ts",
       "type": "connects_to"
     },
     {
@@ -656,10 +1381,24 @@
       "from": "slot:customer_normalizer",
       "to": "file:source/code/slots/customer_normalizer.ts",
       "type": "writes_to"
+    },
+    {
+      "from": "slot:ticket_comment_delegate",
+      "to": "file:source/code/slots/ticket_comment_delegate.ts",
+      "type": "writes_to"
     }
   ],
   "overlays": {
     "provenance": [
+      {
+        "path": "app/api/customers/[customerId]/attachments/route.ts",
+        "originType": "generated",
+        "originId": "app/api/customers/[customerId]/attachments/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "95f20862bad89dbf8920ed61cf78a859251d7d432d62b5acc04d371f43665bda"
+      },
       {
         "path": "app/api/customers/route.ts",
         "originType": "generated",
@@ -667,7 +1406,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "f6a395ee7d11282a3c32fb85c43461f6af0d49297fb101da84de0503fb4df11e"
+        "hash": "7326bb9d18fd068ff3d207a77a8e9819f65d03f42e8256dd39b92d6b5fb71c80"
       },
       {
         "path": "app/api/session/current/route.ts",
@@ -697,13 +1436,49 @@
         "hash": "a43398df373b5b1d5c7833e50c7dc6bfda0e1715bfb32f38f9db0ee247b60ca1"
       },
       {
+        "path": "app/api/tickets/[ticketId]/attachments/route.ts",
+        "originType": "generated",
+        "originId": "app/api/tickets/[ticketId]/attachments/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "a73eadb5c96b6167c5ddff29f301564eab37f87f68dd62246b4408309ce2728f"
+      },
+      {
+        "path": "app/api/tickets/[ticketId]/comments/route.ts",
+        "originType": "generated",
+        "originId": "app/api/tickets/[ticketId]/comments/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "414877019d3f46ff4e6000d0bf351c28882ad95ba0b39a1c1b9203a15bbc0e10"
+      },
+      {
+        "path": "app/api/tickets/[ticketId]/status/route.ts",
+        "originType": "generated",
+        "originId": "app/api/tickets/[ticketId]/status/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "85793d66314359cdb442690a2d78c59be1975a363103749d1522bb5d10c52435"
+      },
+      {
+        "path": "app/api/tickets/route.ts",
+        "originType": "generated",
+        "originId": "app/api/tickets/route.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "df49116e52f7eeca6dde5604445c30e74fc612543cf2032f32ae823f92b51dc3"
+      },
+      {
         "path": "app/customers/page.tsx",
         "originType": "generated",
         "originId": "app/customers/page.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "430bf1e45807d84a24f6fff541c93da75dca6f77a9d62429357bc3108d330521"
+        "hash": "8cae00ab1def512eedb1ea6fff56358b848c695b8b385a1e24e9acb85a96ce54"
       },
       {
         "path": "app/globals.css",
@@ -721,7 +1496,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "4093fde3a0782989f4c3ee9a2fc51f2e5b6aeb9d1cf18cbde915931a73dba247"
+        "hash": "923ac38e1d841ac7a518ac6a3811ac6fd4f27c5860263cd715308c99e90057da"
       },
       {
         "path": "app/login/page.tsx",
@@ -742,13 +1517,31 @@
         "hash": "217eeae5935af77bef4a8fb9bd17ac93aaac6ffd945ea0d9dc0c62f89e98d41a"
       },
       {
+        "path": "app/tickets/page.tsx",
+        "originType": "generated",
+        "originId": "app/tickets/page.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "bbc68c82dc2caa59e7a9af9888aab95257b259fb2fe8f04741713cdb95a1f95c"
+      },
+      {
         "path": "app/workspace/page.tsx",
         "originType": "generated",
         "originId": "app/workspace/page.tsx",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "4a2748e626b698598e5a1da9cf083cee107d854b9f672b7b94baa699fcca0cf7"
+        "hash": "97dea79cc750eb80f1ad4351c0ea36b142163fef4dbb807f15c6cf20604bd897"
+      },
+      {
+        "path": "components/customer-attachment-form.tsx",
+        "originType": "generated",
+        "originId": "components/customer-attachment-form.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "dce0d95a6f871e38eeeca1556a2b0e79d0504337f7d437c64cad0273fc7879cf"
       },
       {
         "path": "components/customer-form.tsx",
@@ -778,13 +1571,49 @@
         "hash": "6c57a0c0c4931d7b4380f5eae75e758cfd17b79ef8b283bc28b78d7142b8691f"
       },
       {
+        "path": "components/ticket-attachment-form.tsx",
+        "originType": "generated",
+        "originId": "components/ticket-attachment-form.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "a57120ec0703f9e2dd34ea561f047e2f0fa6e2b5b008b9fc6375081e67d9e10f"
+      },
+      {
+        "path": "components/ticket-comment-form.tsx",
+        "originType": "generated",
+        "originId": "components/ticket-comment-form.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "70ee552ace0b4d578dad9a2cd93689c0d2aa8c7d856d1c5a61887cc939b9e321"
+      },
+      {
+        "path": "components/ticket-form.tsx",
+        "originType": "generated",
+        "originId": "components/ticket-form.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "bbacc942d8dcd16cbee3e87b9b68fedfb2bbf3ddad2ec8b4bb83e4bffff412d1"
+      },
+      {
+        "path": "components/ticket-status-form.tsx",
+        "originType": "generated",
+        "originId": "components/ticket-status-form.tsx",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "3b7b3a26c0e7f2ba7a6586d21a2bfca3ff601c14981e0061d25a9452613cd837"
+      },
+      {
         "path": "control/evidence/acceptance-coverage.json",
         "originType": "generated",
         "originId": "control/evidence/acceptance-coverage.json",
         "generatedByPass": "verify",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "7ad15fe73f1771ba1015cf08c3487db13a394aa25d2525f47d2ca0f5ddc9a5b7"
+        "hash": "1902fd37d74388eb442373dcee2ac6600dd1be8caa0ec00bcf431b05802597ed"
       },
       {
         "path": "control/evidence/block-usage-map.json",
@@ -793,7 +1622,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "adfaf295be397e491c83ad4a778ec688e6739be07852c7c7b1f41f324eff5c47"
+        "hash": "cb1b1c8d59ae5bbad26b7f672fbc5dc3d82d1c6b763488cfa4438c0c55aa74ea"
       },
       {
         "path": "control/evidence/install-manifest.json",
@@ -802,7 +1631,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "7695a577007b1a421645b7fbf7a606783b59cc1995da57af947fc11b77877d5e"
+        "hash": "0f1a8fc16402b085a7398203f82c140f42ca528297d9c6cd8c46ec9e9e090e42"
       },
       {
         "path": "control/evidence/policy-report.json",
@@ -811,7 +1640,7 @@
         "generatedByPass": "verify",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "cc542a996093e9b86a13f774eb18d53f047af0878966f59e4a7f6ee6b1c1e4b6"
+        "hash": "fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"
       },
       {
         "path": "control/evidence/runtime-report.json",
@@ -820,7 +1649,7 @@
         "generatedByPass": "verify",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "33a12e1969d9dc968a3e76dab4a356e0b1d1af869ee54d15dc21577bc43dc4d1"
+        "hash": "6ce96b03ec6816c64655a1466677d4a630a9956738122e2a131a97d705b55f87"
       },
       {
         "path": "control/evidence/verification-report.json",
@@ -829,7 +1658,7 @@
         "generatedByPass": "verify",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "c54bcc198c192a8aea7e878af13eb5c3f0e6a08eb2bc1b4cd54edd38bb40733e"
+        "hash": "6646e73fe06e5c60aeff3b04d8e68cefc529dc94fe3a94110124bd682d420700"
       },
       {
         "path": "control/graph/explain-graph.dot",
@@ -838,7 +1667,7 @@
         "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "632ddd8470607559fe73fe868735f9037bc982186eb0c15e1cc1ecf4ae00ce41"
+        "hash": "d7941d42953420a83fafc1f810830d7dfd264589bcdf0507b766198ec9b9571e"
       },
       {
         "path": "control/graph/explain-graph.json",
@@ -847,7 +1676,7 @@
         "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "91b3aaa8c4b64b0b05a46c84578119e768f28576cd370c6150657e7a199edfb9"
+        "hash": "da6de5327fa7285a981871fe0273cc5231317aaade13ee8448b19c4c05f1ed3a"
       },
       {
         "path": "control/graph/explain-graph.mmd",
@@ -856,7 +1685,7 @@
         "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "855726102c00413168703e4c3be2956aabbddd65ba5458d0e13167334727e629"
+        "hash": "bada40428d82bfa0c08c552363522cc636bd97c67987bf460b4ee0c947717c73"
       },
       {
         "path": "control/provenance/provenance.json",
@@ -865,7 +1694,7 @@
         "generatedByPass": "lock",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "3f2b29b2ee575076d8a660ca6da664f4518cc760fdf8e8851f5f5ffdd0c71be1"
+        "hash": "22efcd566cdc78f16385b41d7cb762c8558d995444e814ede5d5b61fbb6c1655"
       },
       {
         "path": "custom/customer_normalizer.ts",
@@ -877,13 +1706,47 @@
         "generatedByPass": "adapt",
         "generatorTaskId": "fill_slot_customer_normalizer",
         "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/unit/customer-normalizer.test.ts"
+          "tests/runtime/unit/ticket-runtime.test.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
         "hash": "3a02059902faa9201206432c95fcc3e2543173fbae9b93d878333e73be2923dd"
+      },
+      {
+        "path": "custom/ticket_comment_delegate.ts",
+        "originType": "slot",
+        "originId": "ticket_comment_delegate",
+        "sourceBlock": "ticket/basic",
+        "sourcePath": "source/code/slots/ticket_comment_delegate.ts",
+        "runtimeTarget": "custom/ticket_comment_delegate.ts",
+        "generatedByPass": "adapt",
+        "generatorTaskId": "fill_slot_ticket_comment_delegate",
+        "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/runtime/unit/ticket-runtime.test.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "7045e6af8742233991c3eb75e2d13e77c2b92a66d0a14730fa8706fb6da007a2"
       },
       {
         "path": "generated/routes.ts",
@@ -892,7 +1755,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "9253cd53ba0feb3dcbf7f917ac7b782cf4782226ef3db5cb1488a5271b6d669f"
+        "hash": "34bc7230f5f6cc7d65bb5887261ce11a5df010b6234a3b7115fb9e09865a63ba"
       },
       {
         "path": "lib/session.ts",
@@ -942,19 +1805,19 @@
       {
         "path": "prisma/schema.prisma",
         "originType": "block",
-        "originId": "entity/customer-basic",
-        "sourceBlock": "entity/customer-basic",
+        "originId": "comment/basic",
+        "sourceBlock": "comment/basic",
         "registrySourceId": "official",
         "registryKind": "official",
         "registryLocation": "compiler",
         "registryPath": "platform/registry/official",
         "generatedByPass": "compose",
         "verifiedBy": [
-          "tests/acceptance/customer-flow.test.ts",
-          "tests/unit/customer-normalizer.test.ts"
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/unit/comment-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "b55ab1f9b863ac761f9f81f5341ed39eca40e20057eda91070cb4da4faeec5a3"
+        "hash": "8fbfc077b34fc6a1c36d8beb5fb394b774e8a6e34d6aa8c9417cee335aa36742"
       },
       {
         "path": "source/code/slots/customer_normalizer.ts",
@@ -966,13 +1829,77 @@
         "generatedByPass": "adapt",
         "generatorTaskId": "fill_slot_customer_normalizer",
         "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/unit/customer-normalizer.test.ts"
+          "tests/runtime/unit/ticket-runtime.test.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
         "hash": "614b7d912abd4f28b4dddb3f583a606c78a1b151f81a02733ab3672ce12016e3"
+      },
+      {
+        "path": "source/code/slots/ticket_comment_delegate.ts",
+        "originType": "slot",
+        "originId": "ticket_comment_delegate",
+        "sourceBlock": "ticket/basic",
+        "sourcePath": "source/code/slots/ticket_comment_delegate.ts",
+        "runtimeTarget": "custom/ticket_comment_delegate.ts",
+        "generatedByPass": "adapt",
+        "generatorTaskId": "fill_slot_ticket_comment_delegate",
+        "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/runtime/unit/ticket-runtime.test.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "ca9a14c6399b773bdd56597b691b38f5ae240a6ffee44b0e90d7b2a0401ff35d"
+      },
+      {
+        "path": "src/installed/agent/executor-service.ts",
+        "originType": "block",
+        "originId": "agent/executor",
+        "sourceBlock": "agent/executor",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "9cebfcbc38f4e512286e90c0b852323f19a427afab7dd17855a64612baa45974"
+      },
+      {
+        "path": "src/installed/agent/harness-service.ts",
+        "originType": "block",
+        "originId": "agent/harness",
+        "sourceBlock": "agent/harness",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "79774f73cb0f53118e28351a2cafc177898649c691302c26346992b2566389eb"
       },
       {
         "path": "src/installed/auth/session.ts",
@@ -987,6 +1914,23 @@
         "verifiedBy": [],
         "overrideStatus": "none",
         "hash": "b46a8bd583a502456f269f682ac1ddc6cf0f9aac13b4fcb13bf25c449371725f"
+      },
+      {
+        "path": "src/installed/comment/comment-service.ts",
+        "originType": "block",
+        "originId": "comment/basic",
+        "sourceBlock": "comment/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/unit/comment-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "e46974bdf5082b52cb994636952653d7f1bf01973d9bdba0ad6a63b3914a27b7"
       },
       {
         "path": "src/installed/entity/customer-service.ts",
@@ -1006,6 +1950,22 @@
         "hash": "49ef2fe3b5553895bf036959032a26aae9ac628ff9ca5b68452d1f2f1897d914"
       },
       {
+        "path": "src/installed/file/customer-attachments.ts",
+        "originType": "block",
+        "originId": "file/upload",
+        "sourceBlock": "file/upload",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/unit/customer-attachments.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "8066a2fbb4d8582aa664dcdef2822507b73f1cba93996c21f6dfb4229a935a73"
+      },
+      {
         "path": "src/installed/tenant/context.ts",
         "originType": "block",
         "originId": "tenant/basic-workspace",
@@ -1018,6 +1978,56 @@
         "verifiedBy": [],
         "overrideStatus": "none",
         "hash": "88010a9157dee88a28742be9dc3528aed26980594bdb05621bda8c6f405e3a98"
+      },
+      {
+        "path": "src/installed/ticket/ticket-service.ts",
+        "originType": "block",
+        "originId": "ticket/basic",
+        "sourceBlock": "ticket/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "ed8f0591bb4ce6948f63e3c6f5e0435b8f191ce577e1878e23ba93b575717dd1"
+      },
+      {
+        "path": "tests/acceptance/agent-classifier-flow.test.ts",
+        "originType": "block",
+        "originId": "agent/executor",
+        "sourceBlock": "agent/executor",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "506cf94368a6616c2b97a0648f28560c0cb52f6d3d585364df43687223a5d11c"
+      },
+      {
+        "path": "tests/acceptance/comment-flow.test.ts",
+        "originType": "block",
+        "originId": "comment/basic",
+        "sourceBlock": "comment/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/unit/comment-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "95bdaae63ceb7b8d79f42f0985ab87fa8809fa2fbd905d8f170cbafc9690a367"
       },
       {
         "path": "tests/acceptance/customer-flow.test.ts",
@@ -1037,13 +2047,39 @@
         "hash": "1cbf4989bbae79d15a2bee35935763d149cef5c4457523b0b1fe3ea9ba675e8e"
       },
       {
+        "path": "tests/acceptance/ticket-flow.test.ts",
+        "originType": "block",
+        "originId": "ticket/basic",
+        "sourceBlock": "ticket/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "0cefdb727fbcec37b87c2048ade4ae905bb9a8f443d25aa9d9e6e67c57021546"
+      },
+      {
         "path": "tests/runtime/acceptance/customer-flow.spec.ts",
         "originType": "generated",
         "originId": "tests/runtime/acceptance/customer-flow.spec.ts",
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "e0ee7ea05b043d510b26a8cda2c66bb6ffe54f4d41e37f16da9dc1a625620a46"
+        "hash": "01fe03a98e3464cc16cab1729ebcc7c7b112c0b010841209e201aa6929f360ec"
+      },
+      {
+        "path": "tests/runtime/acceptance/ticket-flow.spec.ts",
+        "originType": "generated",
+        "originId": "tests/runtime/acceptance/ticket-flow.spec.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "1fc4fc1602d0903cdbd88556e08f322ab51d134bfdda1190a643f928b7ba8538"
       },
       {
         "path": "tests/runtime/unit/customer-runtime.test.ts",
@@ -1052,7 +2088,16 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "b76e323e16df30318faff43a57752c6bfe53f8321d9f278092702839c33442af"
+        "hash": "5cfefb02e316859c8bff1705d5c24123cbab55bd7e9390e3c60900d81c88c18e"
+      },
+      {
+        "path": "tests/runtime/unit/ticket-runtime.test.ts",
+        "originType": "generated",
+        "originId": "tests/runtime/unit/ticket-runtime.test.ts",
+        "generatedByPass": "compose",
+        "verifiedBy": [],
+        "overrideStatus": "none",
+        "hash": "809b121d6808b0457c67248ca1a734478e500cf82a3fb90fbc007f12eb64d0c0"
       },
       {
         "path": "tests/shared/tenant-runtime-fixture.ts",
@@ -1067,6 +2112,56 @@
         "verifiedBy": [],
         "overrideStatus": "none",
         "hash": "3d91c1a5bba5bc1b44943c34da8a9cfc00ff1cbea2e776f13f011c1c0a9457db"
+      },
+      {
+        "path": "tests/shared/ticket-service-suite.ts",
+        "originType": "block",
+        "originId": "ticket/basic",
+        "sourceBlock": "ticket/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "f48da33b70c8af291a6399f0d142efb2a1253734cdbe6749c925baf59f832ae8"
+      },
+      {
+        "path": "tests/unit/comment-service.test.ts",
+        "originType": "block",
+        "originId": "comment/basic",
+        "sourceBlock": "comment/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/unit/comment-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "b7becb64319f779e972ebd8614bdb4e046211ee15381a7c815b7711332235017"
+      },
+      {
+        "path": "tests/unit/customer-attachments.test.ts",
+        "originType": "block",
+        "originId": "file/upload",
+        "sourceBlock": "file/upload",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/unit/customer-attachments.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "be94b72c8079147ddb4296c9c0d44acd523f18f9f4a493afc5934b0713c205aa"
       },
       {
         "path": "tests/unit/customer-normalizer.test.ts",
@@ -1084,6 +2179,23 @@
         ],
         "overrideStatus": "none",
         "hash": "18f158586f2dbe575a351795160969486716d77feffc92ee22f4b42f67c53873"
+      },
+      {
+        "path": "tests/unit/ticket-service.test.ts",
+        "originType": "block",
+        "originId": "ticket/basic",
+        "sourceBlock": "ticket/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "generatedByPass": "compose",
+        "verifiedBy": [
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "a1df0d924681207943a7a43494e5f666bc99d38e4b4a58646f5729034eb9e1e3"
       },
       {
         "path": "tsconfig.json",
@@ -1110,11 +2222,43 @@
           ]
         },
         {
+          "id": "agent/harness",
+          "coveredBy": [
+            "agent_can_be_registered"
+          ]
+        },
+        {
           "id": "entity/customer-basic",
           "coveredBy": [
             "tenant_only_sees_own_customers",
             "user_can_create_customer",
             "user_can_list_customers"
+          ]
+        },
+        {
+          "id": "file/upload",
+          "coveredBy": []
+        },
+        {
+          "id": "ticket/basic",
+          "coveredBy": [
+            "assignee_can_filter_tickets",
+            "ticket_attachment_can_be_uploaded",
+            "ticket_can_be_created",
+            "ticket_comment_can_be_added",
+            "ticket_status_can_transition"
+          ]
+        },
+        {
+          "id": "comment/basic",
+          "coveredBy": [
+            "ticket_comment_can_be_added"
+          ]
+        },
+        {
+          "id": "agent/executor",
+          "coveredBy": [
+            "agent_can_automatically_classify_ticket"
           ]
         }
       ],
@@ -1125,6 +2269,10 @@
             "tenant_only_sees_own_customers",
             "user_can_create_customer"
           ]
+        },
+        {
+          "id": "ticket_comment_delegate",
+          "coveredBy": []
         }
       ]
     }

@@ -3,7 +3,7 @@
   "app": {
     "name": "customer-admin",
     "stack": "nextjs-ts-prisma-sqlite",
-    "mode": "single-tenant"
+    "mode": "multi-tenant"
   },
   "resolvedBlocks": [
     {
@@ -11,7 +11,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 1,
-      "manifestPath": "block.manifest.yaml",
+      "manifestPath": "platform/registry/official/auth.basic-session/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -22,7 +22,18 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 2,
-      "manifestPath": "block.manifest.yaml",
+      "manifestPath": "platform/registry/official/tenant.basic-workspace/block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "agent/harness",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 3,
+      "manifestPath": "platform/registry/official/agent.harness/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -32,8 +43,52 @@
       "id": "entity/customer-basic",
       "version": "0.1.0",
       "kind": "capability",
-      "installOrder": 3,
-      "manifestPath": "block.manifest.yaml",
+      "installOrder": 4,
+      "manifestPath": "platform/registry/official/entity.customer-basic/block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "file/upload",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 5,
+      "manifestPath": "platform/registry/official/file.upload/block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "ticket/basic",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 6,
+      "manifestPath": "platform/registry/official/ticket.basic/block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "comment/basic",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 7,
+      "manifestPath": "platform/registry/official/comment.basic/block.manifest.yaml",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official"
+    },
+    {
+      "id": "agent/executor",
+      "version": "0.1.0",
+      "kind": "capability",
+      "installOrder": 8,
+      "manifestPath": "platform/registry/official/agent.executor/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -41,10 +96,16 @@
     }
   ],
   "resolvedCapabilities": [
+    "agent/executor",
+    "agent/harness",
     "auth/session",
     "customer/read",
     "customer/write",
-    "tenant/context"
+    "file/upload",
+    "tenant/context",
+    "ticket/comment",
+    "ticket/read",
+    "ticket/write"
   ],
   "installPlan": [
     {
@@ -84,7 +145,31 @@
       "to": "tests/shared/tenant-runtime-fixture.ts"
     },
     {
-      "stepId": "entity/customer-basic:4",
+      "stepId": "agent/harness:4",
+      "blockId": "agent/harness",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "agent.harness",
+      "action": "merge-prisma",
+      "from": "files/prisma/agent.prisma",
+      "to": "prisma/schema.prisma"
+    },
+    {
+      "stepId": "agent/harness:5",
+      "blockId": "agent/harness",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "agent.harness",
+      "action": "copy",
+      "from": "files/src/installed/agent/harness-service.ts",
+      "to": "src/installed/agent/harness-service.ts"
+    },
+    {
+      "stepId": "entity/customer-basic:6",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -96,7 +181,7 @@
       "to": "src/installed/entity/customer-service.ts"
     },
     {
-      "stepId": "entity/customer-basic:5",
+      "stepId": "entity/customer-basic:7",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -108,7 +193,7 @@
       "to": "prisma/schema.prisma"
     },
     {
-      "stepId": "entity/customer-basic:6",
+      "stepId": "entity/customer-basic:8",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -120,7 +205,7 @@
       "to": "tests/unit/customer-normalizer.test.ts"
     },
     {
-      "stepId": "entity/customer-basic:7",
+      "stepId": "entity/customer-basic:9",
       "blockId": "entity/customer-basic",
       "registrySourceId": "official",
       "registryKind": "official",
@@ -130,6 +215,162 @@
       "action": "copy",
       "from": "files/tests/acceptance/customer-flow.test.ts",
       "to": "tests/acceptance/customer-flow.test.ts"
+    },
+    {
+      "stepId": "file/upload:10",
+      "blockId": "file/upload",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "file.upload",
+      "action": "copy",
+      "from": "files/src/installed/file/customer-attachments.ts",
+      "to": "src/installed/file/customer-attachments.ts"
+    },
+    {
+      "stepId": "file/upload:11",
+      "blockId": "file/upload",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "file.upload",
+      "action": "copy",
+      "from": "files/tests/unit/customer-attachments.test.ts",
+      "to": "tests/unit/customer-attachments.test.ts"
+    },
+    {
+      "stepId": "ticket/basic:12",
+      "blockId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "ticket.basic",
+      "action": "copy",
+      "from": "files/src/installed/ticket/ticket-service.ts",
+      "to": "src/installed/ticket/ticket-service.ts"
+    },
+    {
+      "stepId": "ticket/basic:13",
+      "blockId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "ticket.basic",
+      "action": "merge-prisma",
+      "from": "files/prisma/ticket.prisma",
+      "to": "prisma/schema.prisma"
+    },
+    {
+      "stepId": "ticket/basic:14",
+      "blockId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "ticket.basic",
+      "action": "copy",
+      "from": "files/tests/shared/ticket-service-suite.ts",
+      "to": "tests/shared/ticket-service-suite.ts"
+    },
+    {
+      "stepId": "ticket/basic:15",
+      "blockId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "ticket.basic",
+      "action": "copy",
+      "from": "files/tests/unit/ticket-service.test.ts",
+      "to": "tests/unit/ticket-service.test.ts"
+    },
+    {
+      "stepId": "ticket/basic:16",
+      "blockId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "ticket.basic",
+      "action": "copy",
+      "from": "files/tests/acceptance/ticket-flow.test.ts",
+      "to": "tests/acceptance/ticket-flow.test.ts"
+    },
+    {
+      "stepId": "comment/basic:17",
+      "blockId": "comment/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "comment.basic",
+      "action": "copy",
+      "from": "files/src/installed/comment/comment-service.ts",
+      "to": "src/installed/comment/comment-service.ts"
+    },
+    {
+      "stepId": "comment/basic:18",
+      "blockId": "comment/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "comment.basic",
+      "action": "merge-prisma",
+      "from": "files/prisma/comment.prisma",
+      "to": "prisma/schema.prisma"
+    },
+    {
+      "stepId": "comment/basic:19",
+      "blockId": "comment/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "comment.basic",
+      "action": "copy",
+      "from": "files/tests/unit/comment-service.test.ts",
+      "to": "tests/unit/comment-service.test.ts"
+    },
+    {
+      "stepId": "comment/basic:20",
+      "blockId": "comment/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "comment.basic",
+      "action": "copy",
+      "from": "files/tests/acceptance/comment-flow.test.ts",
+      "to": "tests/acceptance/comment-flow.test.ts"
+    },
+    {
+      "stepId": "agent/executor:21",
+      "blockId": "agent/executor",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "agent.executor",
+      "action": "copy",
+      "from": "files/src/installed/agent/executor-service.ts",
+      "to": "src/installed/agent/executor-service.ts"
+    },
+    {
+      "stepId": "agent/executor:22",
+      "blockId": "agent/executor",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "sourceRoot": "agent.executor",
+      "action": "copy",
+      "from": "files/tests/acceptance/agent-classifier-flow.test.ts",
+      "to": "tests/acceptance/agent-classifier-flow.test.ts"
     }
   ],
   "slotTasks": [
@@ -150,28 +391,125 @@
       "provenanceHints": {
         "generator": "mock-local-synthesizer",
         "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/unit/customer-normalizer.test.ts"
+          "tests/runtime/unit/ticket-runtime.test.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
         ]
       }
+    },
+    {
+      "id": "ticket_comment_delegate",
+      "block": "ticket/basic",
+      "target": "custom/ticket_comment_delegate.ts",
+      "sourcePath": "source/code/slots/ticket_comment_delegate.ts",
+      "symbol": "addTicketCommentDelegate",
+      "kind": "adapter",
+      "inputType": "TicketCommentInput",
+      "outputType": "TicketCommentRecord",
+      "status": "verified",
+      "writableZones": [
+        "source/code/slots/ticket_comment_delegate.ts",
+        "custom/"
+      ],
+      "provenanceHints": {
+        "generator": "mock-local-synthesizer",
+        "verifiedBy": [
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
+          "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/runtime/unit/ticket-runtime.test.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ]
+      },
+      "exports": [
+        {
+          "symbol": "addTicketCommentDelegate",
+          "params": [
+            {
+              "name": "db",
+              "type": "Database",
+              "importFrom": "../src/runtime/database.ts"
+            },
+            {
+              "name": "session",
+              "type": "Session",
+              "importFrom": "../src/installed/auth/session.ts"
+            },
+            {
+              "name": "input",
+              "type": "TicketCommentInput",
+              "importFrom": "../src/runtime/database.ts"
+            }
+          ],
+          "outputType": "TicketCommentRecord",
+          "outputImportFrom": "../src/runtime/database.ts"
+        },
+        {
+          "symbol": "listTicketCommentsDelegate",
+          "params": [
+            {
+              "name": "db",
+              "type": "Database",
+              "importFrom": "../src/runtime/database.ts"
+            },
+            {
+              "name": "session",
+              "type": "Session",
+              "importFrom": "../src/installed/auth/session.ts"
+            },
+            {
+              "name": "ticketId",
+              "type": "number"
+            }
+          ],
+          "outputType": "TicketCommentRecord[]",
+          "outputImportFrom": "../src/runtime/database.ts"
+        }
+      ],
+      "mockTemplate": "import type { Database, TicketCommentInput, TicketCommentRecord } from '../src/runtime/database.ts';\nimport type { Session } from '../src/installed/auth/session.ts';\n\nexport function addTicketCommentDelegate(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {\n  return {\n    id: 1,\n    tenantId: 'mock-tenant',\n    ticketId: input.ticketId,\n    body: input.body || '',\n    authorId: session.userId,\n    createdAt: new Date(0).toISOString()\n  };\n}\n\nexport function listTicketCommentsDelegate(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {\n  return [];\n}\n"
     }
   ],
   "generatedPaths": [
+    "app/api/customers/[customerId]/attachments/route.ts",
     "app/api/customers/route.ts",
     "app/api/session/current/route.ts",
     "app/api/session/login/route.ts",
     "app/api/session/logout/route.ts",
+    "app/api/tickets/[ticketId]/attachments/route.ts",
+    "app/api/tickets/[ticketId]/comments/route.ts",
+    "app/api/tickets/[ticketId]/status/route.ts",
+    "app/api/tickets/route.ts",
     "app/customers/page.tsx",
     "app/globals.css",
     "app/layout.tsx",
     "app/login/page.tsx",
     "app/page.tsx",
+    "app/tickets/page.tsx",
     "app/workspace/page.tsx",
+    "components/customer-attachment-form.tsx",
     "components/customer-form.tsx",
     "components/login-form.tsx",
     "components/logout-button.tsx",
+    "components/ticket-attachment-form.tsx",
+    "components/ticket-comment-form.tsx",
+    "components/ticket-form.tsx",
+    "components/ticket-status-form.tsx",
     "control/evidence/acceptance-coverage.json",
     "control/evidence/block-usage-map.json",
     "control/evidence/install-manifest.json",
@@ -195,14 +533,23 @@
     "next.config.mjs",
     "package.json",
     "tests/runtime/acceptance/customer-flow.spec.ts",
+    "tests/runtime/acceptance/ticket-flow.spec.ts",
     "tests/runtime/unit/customer-runtime.test.ts",
+    "tests/runtime/unit/ticket-runtime.test.ts",
     "tsconfig.json"
   ],
   "acceptancePlan": [
     "user_can_login",
     "user_can_create_customer",
     "user_can_list_customers",
-    "tenant_only_sees_own_customers"
+    "tenant_only_sees_own_customers",
+    "ticket_can_be_created",
+    "ticket_status_can_transition",
+    "assignee_can_filter_tickets",
+    "ticket_attachment_can_be_uploaded",
+    "ticket_comment_can_be_added",
+    "agent_can_be_registered",
+    "agent_can_automatically_classify_ticket"
   ],
   "passStatus": {
     "parse": "succeeded",

@@ -35,6 +35,33 @@ async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<
 }
 
 function renderSlotSkeleton(task: SlotTask): string {
+  if (task.exports && task.exports.length > 0) {
+    const imports = new Map<string, Set<string>>();
+    for (const exp of task.exports) {
+      for (const p of exp.params) {
+        if (p.importFrom) {
+          if (!imports.has(p.importFrom)) imports.set(p.importFrom, new Set());
+          imports.get(p.importFrom)!.add(p.type);
+        }
+      }
+      if (exp.outputImportFrom && exp.outputType) {
+        const baseType = exp.outputType.replace(/\[\]$/, '');
+        if (!imports.has(exp.outputImportFrom)) imports.set(exp.outputImportFrom, new Set());
+        imports.get(exp.outputImportFrom)!.add(baseType);
+      }
+    }
+    const importLines = Array.from(imports.entries()).map(([src, types]) => {
+      return `import type { ${Array.from(types).join(', ')} } from '${src}';`;
+    }).join('\n');
+
+    const funcLines = task.exports.map((exp) => {
+      const paramStr = exp.params.map(p => `${p.name}: ${p.type}`).join(', ');
+      return `export function ${exp.symbol}(${paramStr}): ${exp.outputType} {\n  throw new Error('Not implemented');\n}`;
+    }).join('\n\n');
+
+    return `// @generated slot-id:${task.id} block:${task.block}\n${importLines}\n\n${funcLines}\n`;
+  }
+
   const importLine =
     task.inputType && task.outputType
       ? `import type { ${task.inputType}, ${task.outputType} } from '../src/runtime/database.ts';\n\n`

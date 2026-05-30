@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import pkg from '../package.json';
+import pkg from '../package.json' with { type: 'json' };
 
 const DIST_DIR = path.resolve(process.cwd(), 'dist');
 

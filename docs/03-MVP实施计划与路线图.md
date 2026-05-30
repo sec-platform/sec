@@ -89,7 +89,7 @@
 
 ### 阶段 C：v0.2 工程可持续化（active）
 
-目标：从"闭环能跑"升级到"工程可持续"。13 个官方块 + provenance + explain + repair + upgrade + policy gate 已具备。当前重点：升级引擎 17 种 migration 类型完善、repair 结构化归因、explain graph 多类型归因边、Ticket SaaS 纵切面落地。
+目标：从"闭环能跑"升级到"工程可持续"。16 个官方块 + provenance + explain + repair + upgrade + policy gate 已具备。当前重点：升级引擎 17 种 migration 类型完善、repair 结构化归因、explain graph 多类型归因边、Ticket SaaS 纵切面落地。
 
 退出条件：ticket vertical 主链路闭环通过；升级/repair/explain 三项对非专家可审查；私有 registry 基础通路稳定。
 

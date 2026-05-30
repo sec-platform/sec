@@ -1,0 +1,30 @@
+import { NextResponse } from 'next/server';
+import type { TicketStatus } from '../../../../src/runtime/database.ts';
+import { summarizeTickets } from '../../../../src/installed/reporting/ticket-summary.ts';
+import { listTicketsWithFilters, type TicketFilters } from '../../../../src/installed/ticket/ticket-service.ts';
+import { getCurrentSession } from '../../../../lib/session.ts';
+import { getDatabase } from '../../../../lib/store.ts';
+
+function readTicketFilters(request: Request): TicketFilters {
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const status = url.searchParams.get('status');
+  return {
+    ...(assigneeId ? { assigneeId } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
+  };
+}
+
+export async function GET(request: Request) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const tickets = listTicketsWithFilters(getDatabase(), session, readTicketFilters(request));
+    return NextResponse.json({ summary: summarizeTickets(tickets) });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid request' }, { status: 400 });
+  }
+}

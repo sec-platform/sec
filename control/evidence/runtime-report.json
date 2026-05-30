@@ -11,7 +11,8 @@
   "unit": {
     "status": "passed",
     "passed": [
-      "tests/runtime/unit/customer-runtime.test.ts"
+      "tests/runtime/unit/customer-runtime.test.ts",
+      "tests/runtime/unit/ticket-runtime.test.ts"
     ],
     "failed": [],
     "command": "bun run test:unit"
@@ -19,13 +20,14 @@
   "acceptance": {
     "status": "passed",
     "passed": [
-      "tests/runtime/acceptance/customer-flow.spec.ts"
+      "tests/runtime/acceptance/customer-flow.spec.ts",
+      "tests/runtime/acceptance/ticket-flow.spec.ts"
     ],
     "failed": [],
     "command": "bun run test:acceptance"
   },
   "logs": {
-    "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
+    "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts,tests/runtime/unit/ticket-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts,tests/runtime/acceptance/ticket-flow.spec.ts\n",
     "stderr": ""
   }
 }

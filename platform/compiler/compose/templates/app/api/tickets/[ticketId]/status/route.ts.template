@@ -1,0 +1,41 @@
+import { NextResponse } from 'next/server';
+import type { TicketStatus } from '../../../../../src/runtime/database.ts';
+import { transitionTicketStatus } from '../../../../../src/installed/ticket/ticket-service.ts';
+/*#IF auditEnabled*/
+import { appendAuditEntry, createAuditEntry } from '../../../../../src/installed/audit/logger.ts';
+/*#ENDIF*/
+import { getCurrentSession } from '../../../../../lib/session.ts';
+import { getDatabase } from '../../../../../lib/store.ts';
+
+const STATUSES = new Set<TicketStatus>(['open', 'in_progress', 'closed']);
+
+interface TicketStatusRouteContext {
+  params: Promise<{ ticketId: string }>;
+}
+
+export async function POST(request: Request, context: TicketStatusRouteContext) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const params = await context.params;
+    const payload = await request.json() as { status?: string };
+    if (!STATUSES.has(payload.status as TicketStatus)) {
+      return NextResponse.json({ error: 'Invalid ticket status' }, { status: 400 });
+    }
+
+    const database = getDatabase();
+    const ticket = transitionTicketStatus(database, session, Number(params.ticketId), payload.status as TicketStatus);
+
+    /*#IF auditEnabled*/
+    const auditAction = ticket.status === 'closed' ? 'ticket.closed' : 'ticket.status_transitioned';
+    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, auditAction, 'ticket', String(ticket.id)));
+    /*#ENDIF*/
+
+    return NextResponse.json({ ticket });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid ticket status request' }, { status: 400 });
+  }
+}

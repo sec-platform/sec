@@ -1,0 +1,62 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import type { TicketStatus } from '../src/runtime/database.ts';
+
+interface TicketStatusFormProps {
+  ticketId: number;
+  ticketTitle: string;
+  currentStatus: TicketStatus;
+}
+
+const NEXT_STATUS: Record<TicketStatus, TicketStatus> = {
+  open: 'in_progress',
+  in_progress: 'closed',
+  closed: 'open'
+};
+
+const STATUS_LABEL: Record<TicketStatus, string> = {
+  open: 'Start progress',
+  in_progress: 'Close ticket',
+  closed: 'Reopen ticket'
+};
+
+export function TicketStatusForm({ ticketId, ticketTitle, currentStatus }: TicketStatusFormProps) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const nextStatus = NEXT_STATUS[currentStatus];
+
+  async function transitionStatus() {
+    setPending(true);
+    setError(null);
+
+    const response = await fetch(`/api/tickets/${ticketId}/status`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ status: nextStatus })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? 'Unable to update ticket');
+      setPending(false);
+      return;
+    }
+
+    setPending(false);
+    router.refresh();
+  }
+
+  return (
+    <div className="row" style={{ marginTop: 12 }}>
+      <button type="button" className="secondary" disabled={pending} onClick={transitionStatus}>
+        {pending ? 'Updating...' : `${STATUS_LABEL[currentStatus]} for ${ticketTitle}`}
+      </button>
+      {error ? <p role="alert">{error}</p> : null}
+    </div>
+  );
+}

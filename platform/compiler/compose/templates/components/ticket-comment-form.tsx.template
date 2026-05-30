@@ -1,0 +1,60 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { type FormEvent, useState } from 'react';
+
+interface TicketCommentFormProps {
+  ticketId: number;
+  ticketTitle: string;
+}
+
+export function TicketCommentForm({ ticketId, ticketTitle }: TicketCommentFormProps) {
+  const router = useRouter();
+  const [body, setBody] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+
+    const response = await fetch(`/api/tickets/${ticketId}/comments`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ body })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? 'Unable to add comment');
+      setPending(false);
+      return;
+    }
+
+    setBody('');
+    setPending(false);
+    router.refresh();
+  }
+
+  return (
+    <form className="stack" onSubmit={handleSubmit}>
+      <label>
+        Comment for {ticketTitle}
+        <textarea
+          aria-label={`Comment for ${ticketTitle}`}
+          name="body"
+          rows={3}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+        />
+      </label>
+      <div className="row">
+        <button type="submit" disabled={pending}>{pending ? 'Saving...' : `Add comment for ${ticketTitle}`}</button>
+      </div>
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
+  );
+}

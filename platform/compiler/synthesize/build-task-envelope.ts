@@ -53,6 +53,7 @@ export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask
     },
     lockSummary: {
       blocks: lock.resolvedBlocks.map((block) => block.id)
-    }
+    },
+    ...(task.mockTemplate ? { mockTemplate: task.mockTemplate } : {})
   };
 }

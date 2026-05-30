@@ -45,3 +45,25 @@ acceptance:
         - ticket/basic
         - worklog/basic
 routes: []
+uiHooks:
+  - targetPortal: ticket_list_item
+    component: TicketWorklogForm
+    importFrom: ../../components/ticket-worklog-form.tsx
+    dataBinder: |
+      const worklogsByTicket = new Map(tickets.map((ticket) => [ticket.id, listWorklogs(database, session, ticket.id)]));
+      const worklogMinutesByTicket = new Map(tickets.map((ticket) => [ticket.id, summarizeWorklogMinutes(database, session, ticket.id)]));
+    renderSnippet: |
+      <div className="stack" style={{ marginTop: 12 }}>
+                      <TicketWorklogForm ticketId={ticket.id} ticketTitle={ticket.title} />
+                      <div>Total worklog minutes: {worklogMinutesByTicket.get(ticket.id) ?? 0}</div>
+                      <ul className="clean" aria-label={`Worklogs for ${ticket.title}`}>
+                        {(worklogsByTicket.get(ticket.id) ?? []).map((worklog) => (
+                          <li key={worklog.id}>{worklog.minutes}m by {worklog.authorId}: {worklog.note || 'No note'}</li>
+                        ))}
+                        {(worklogsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No worklogs yet.</li> : null}
+                      </ul>
+                    </div>
+  - targetPortal: ticket_list_item
+    component: listWorklogs, summarizeWorklogMinutes
+    importFrom: ../../src/installed/worklog/worklog-service.ts
+

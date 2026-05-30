@@ -5,13 +5,19 @@
   "unit": {
     "status": "passed",
     "passed": [
-      "customer-normalizer.test.ts"
+      "comment-service.test.ts",
+      "customer-attachments.test.ts",
+      "customer-normalizer.test.ts",
+      "ticket-service.test.ts"
     ]
   },
   "acceptance": {
     "status": "passed",
     "passed": [
-      "customer-flow.test.ts"
+      "agent-classifier-flow.test.ts",
+      "comment-flow.test.ts",
+      "customer-flow.test.ts",
+      "ticket-flow.test.ts"
     ],
     "failed": []
   },
@@ -27,13 +33,19 @@
     "unit": {
       "status": "passed",
       "passed": [
-        "customer-normalizer.test.ts"
+        "comment-service.test.ts",
+        "customer-attachments.test.ts",
+        "customer-normalizer.test.ts",
+        "ticket-service.test.ts"
       ]
     },
     "acceptance": {
       "status": "passed",
       "passed": [
-        "customer-flow.test.ts"
+        "agent-classifier-flow.test.ts",
+        "comment-flow.test.ts",
+        "customer-flow.test.ts",
+        "ticket-flow.test.ts"
       ],
       "failed": []
     },
@@ -74,7 +86,8 @@
             "sourceScope": "official",
             "sourcePath": "platform/policies/official/policy.spec.yaml",
             "targets": [
-              "src/installed/entity/customer-service.ts"
+              "src/installed/entity/customer-service.ts",
+              "src/installed/ticket/ticket-service.ts"
             ]
           }
         ]
@@ -82,7 +95,7 @@
       "violations": []
     },
     "logs": {
-      "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed",
+      "stdout": "typecheck:passed unit:comment-service.test.ts,customer-attachments.test.ts,customer-normalizer.test.ts,ticket-service.test.ts acceptance:agent-classifier-flow.test.ts,comment-flow.test.ts,customer-flow.test.ts,ticket-flow.test.ts policy:passed",
       "stderr": ""
     }
   },
@@ -99,7 +112,8 @@
     "unit": {
       "status": "passed",
       "passed": [
-        "tests/runtime/unit/customer-runtime.test.ts"
+        "tests/runtime/unit/customer-runtime.test.ts",
+        "tests/runtime/unit/ticket-runtime.test.ts"
       ],
       "failed": [],
       "command": "bun run test:unit"
@@ -107,13 +121,14 @@
     "acceptance": {
       "status": "passed",
       "passed": [
-        "tests/runtime/acceptance/customer-flow.spec.ts"
+        "tests/runtime/acceptance/customer-flow.spec.ts",
+        "tests/runtime/acceptance/ticket-flow.spec.ts"
       ],
       "failed": [],
       "command": "bun run test:acceptance"
     },
     "logs": {
-      "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
+      "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts,tests/runtime/unit/ticket-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts,tests/runtime/acceptance/ticket-flow.spec.ts\n",
       "stderr": ""
     }
   },
@@ -123,7 +138,7 @@
     "failedLanes": []
   },
   "logs": {
-    "stdout": "typecheck:passed unit:customer-normalizer.test.ts acceptance:customer-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts\n",
+    "stdout": "typecheck:passed unit:comment-service.test.ts,customer-attachments.test.ts,customer-normalizer.test.ts,ticket-service.test.ts acceptance:agent-classifier-flow.test.ts,comment-flow.test.ts,customer-flow.test.ts,ticket-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts,tests/runtime/unit/ticket-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts,tests/runtime/acceptance/ticket-flow.spec.ts\n",
     "stderr": ""
   }
 }

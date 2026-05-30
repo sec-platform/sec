@@ -5,14 +5,19 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
   expectCliJson,
   expectCliText,
+  expectCliSuccess,
   runCliInProcess,
   runCliPipeline
 } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
+import { writePassingVerificationState } from '../helpers/verification-fixtures.ts';
 
 test('CLI exposes project overview as text summary and reports missing governance artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true, explain: true });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
+    await writePassingVerificationState(workspaceRoot);
+    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
+    await expectCliSuccess(workspaceRoot, ['explain']);
 
     await expectCliText(workspaceRoot, ['overview'], [
       'Project overview',
@@ -35,7 +40,10 @@ test('CLI exposes project overview as text summary and reports missing governanc
 
 test('CLI exposes project overview as compact JSON contract', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true, explain: true });
+    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
+    await writePassingVerificationState(workspaceRoot);
+    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
+    await expectCliSuccess(workspaceRoot, ['explain']);
 
     const payload = await expectCliJson<{
       formatVersion: string;

@@ -1,0 +1,117 @@
+import { beforeEach, describe, expect, it } from 'bun:test';
+import { login } from '../../../src/installed/auth/session.ts';
+import { addTicketAttachment, addTicketComment, createTicket, listTicketAttachments, listTicketComments, listTickets, listTicketsByAssignee, transitionTicketStatus } from '../../../src/installed/ticket/ticket-service.ts';
+/*#IF auditEnabled*/
+import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';
+/*#ENDIF*/
+/*#IF notifyEmailEnabled*/
+import { listEmailNotifications, recordTicketCreatedEmail } from '../../../src/installed/notify/email-outbox.ts';
+/*#ENDIF*/
+/*#IF exportCsvEnabled*/
+import { exportTicketsToCsv } from '../../../src/installed/export/customer-csv.ts';
+/*#ENDIF*/
+/*#IF ticketReportingEnabled*/
+import { summarizeTickets } from '../../../src/installed/reporting/ticket-summary.ts';
+import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-service.ts';
+/*#ENDIF*/
+/*#IF worklogEnabled*/
+import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../src/installed/worklog/worklog-service.ts';
+/*#ENDIF*/
+import { getDatabase, resetDatabase } from '../../../lib/store.ts';
+
+describe('runtime ticket service', () => {
+  beforeEach(() => {
+    resetDatabase();
+  });
+
+  it('creates, filters, transitions, and isolates tickets by tenant', () => {
+    const database = getDatabase();
+    const tenantA = login('tenant-a-admin', 'password');
+    const tenantB = login('tenant-b-admin', 'password');
+
+    const ticket = createTicket(database, tenantA, {
+      title: 'Escalate onboarding issue',
+      description: 'Customer cannot finish setup',
+      assigneeId: 'support-owner',
+      dueDate: '2026-04-20'
+    });
+    createTicket(database, tenantA, { title: 'Prepare renewal checklist', assigneeId: 'renewal-owner', dueDate: '2026-05-01' });
+    createTicket(database, tenantB, { title: 'Tenant B support ticket' });
+
+    expect(listTickets(database, tenantA)).toHaveLength(2);
+    expect(listTickets(database, tenantB)).toHaveLength(1);
+    expect(listTicketsByAssignee(database, tenantA, 'support-owner')).toEqual([ticket]);
+    const attachment = addTicketAttachment(database, tenantA, {
+      ticketId: ticket.id,
+      fileName: 'incident.txt',
+      contentType: 'text/plain',
+      size: 12,
+      contentText: 'triage notes'
+    });
+    expect(attachment.fileName).toBe('incident.txt');
+    expect(listTicketAttachments(database, tenantA, ticket.id)).toHaveLength(1);
+    expect(() => listTicketAttachments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
+    const comment = addTicketComment(database, tenantA, {
+      ticketId: ticket.id,
+      body: 'Customer is waiting for an update'
+    });
+    expect(comment.authorId).toBe('user-tenant-a-admin');
+    expect(listTicketComments(database, tenantA, ticket.id)).toHaveLength(1);
+    expect(() => listTicketComments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
+    expect(() => addTicketComment(database, tenantA, { ticketId: ticket.id, body: '   ' })).toThrow(/Ticket comment is required/);
+    expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');
+
+    /*#IF auditEnabled*/
+    const createdAuditEntry = createAuditEntry(tenantA, 'ticket.created', 'ticket', String(ticket.id));
+    database.auditEntries = appendAuditEntry(database.auditEntries, createdAuditEntry);
+    const transitionedAuditEntry = createAuditEntry(tenantA, 'ticket.status_transitioned', 'ticket', String(ticket.id));
+    database.auditEntries = appendAuditEntry(database.auditEntries, transitionedAuditEntry);
+    expect(database.auditEntries.map((entry) => entry.action)).toEqual(['ticket.created', 'ticket.status_transitioned']);
+    /*#ENDIF*/
+
+    /*#IF notifyEmailEnabled*/
+    const notification = recordTicketCreatedEmail(database, tenantA, ticket);
+    expect(notification.entity).toBe('ticket');
+    expect(notification.entityId).toBe(String(ticket.id));
+    expect(notification.eventType).toBe('ticket.created');
+    expect(listEmailNotifications(database, tenantA)).toHaveLength(1);
+    expect(listEmailNotifications(database, tenantB)).toHaveLength(0);
+    /*#ENDIF*/
+
+    /*#IF exportCsvEnabled*/
+    const csv = exportTicketsToCsv(listTickets(database, tenantA));
+    expect(csv).toContain('id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt');
+    expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,in_progress,support-owner,2026-04-20');
+    /*#ENDIF*/
+
+    /*#IF ticketReportingEnabled*/
+    const summary = summarizeTickets(listTickets(database, tenantA));
+    expect(summary.total).toBe(2);
+    expect(summary.byStatus.in_progress).toBe(1);
+    expect(summary.sla).toEqual({ overdue: 1, dueSoon: 1, unscheduled: 0 });
+    expect(summary.byAssignee).toEqual([
+      { assigneeId: 'renewal-owner', count: 1 },
+      { assigneeId: 'support-owner', count: 1 }
+    ]);
+    const filteredSummary = summarizeTickets(listTicketsWithFilters(database, tenantA, { status: 'in_progress' }));
+    expect(filteredSummary.total).toBe(1);
+    expect(filteredSummary.byStatus.in_progress).toBe(1);
+    expect(filteredSummary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
+    expect(filteredSummary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
+    /*#ENDIF*/
+
+    /*#IF worklogEnabled*/
+    const worklog = recordWorklog(database, tenantA, {
+      ticketId: ticket.id,
+      minutes: 45,
+      note: 'Investigated customer setup logs'
+    });
+    expect(worklog.authorId).toBe('user-tenant-a-admin');
+    expect(listWorklogs(database, tenantA, ticket.id)).toHaveLength(1);
+    expect(summarizeWorklogMinutes(database, tenantA, ticket.id)).toBe(45);
+    expect(() => listWorklogs(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
+    /*#ENDIF*/
+
+    expect(() => transitionTicketStatus(database, tenantB, ticket.id, 'closed')).toThrow(/Ticket is not available/);
+  });
+});

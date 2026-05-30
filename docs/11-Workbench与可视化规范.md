@@ -373,3 +373,27 @@ L3 Engineering Pattern Graph 当前只输出 `stableArtifact: false` 的低置�
 - 可视化是 review 操作面，不是装饰性图表。
 - LLVM/IR 思想的借鉴点是“中间表示与 pass 管线”，不是复制 LLVM 的通用机器码编译架构。
 - 当前开发必须避免短期模板拼装把长期架构锁死。
+
+## 13. 只读视图高级渲染升级实现记录 (v0.2 - 2026-05)
+
+在 v0.2 版本开发中，完成了对只读 Graph View 和 Review View 的高保真可视化增强：
+
+### 13.1 Graph View 增强
+1. **图形化 Coverage Matrix（覆盖率图表矩阵）**：
+   - 摒弃了单一的静态文本表格，引入了基于 CSS Grid 和线性渐变进度条（Progress Bars）的仪表盘式覆盖矩阵。
+   - 显式计算并直观展示了 Blocks 覆盖率（`coveredBlockCount / blockCount`）与 Slots 覆盖率（`coveredSlotCount / slotCount`）的百分比指标，配合动态状态颜色（100% 绿色、非 100% 黄橙色）。
+   - 聚合展示了 Acceptance 测试和 Policy 约束的数量概览。
+2. **Manual Override 警告与注册表**：
+   - 在 Graph Nodes 列表与 Node Type Detail 列表中，为被手动覆盖的节点与文件自动追加 `[Manual Override ⚠️]` 醒目标签。
+   - 新增 **Manual Override Registry** 专用卡片，集中罗列所有被 Manual Override 的文件目标、来源 Type 及对应的业务块，方便审查人员快速定位受开发人员直接干预的代码区。
+
+### 13.2 Review View 增强
+1. **CI 链摘要**：
+   - 直观地将 CI 运行状态与阶段详情整合展示，对 `passed`、`attention`、`failed` 提供色彩友好的卡片标签反馈。
+2. **Engineering Semantic Diff 聚合**：
+   - 新增 **Engineering Semantic Diff Aggregation** 模块，完整罗列了本次提交中涉及的所有语义变更源文件、Origin Type（如 generated, block, override 等）、Origin ID、以及其关联的能力块、受影响的垂直切片和运行时路由。
+   - 配合展示潜在的回归风险（Regression Risks）与冲突对齐提示（Conflict & Alignment Hints）。
+3. **缺失产物诊断 (Missing Artifact Diagnostics)**：
+   - 在 Missing Artifacts 列表下方物理植入了 **Missing Artifact Remediation Guide** 智能诊断引导。
+   - 当检测到有任何 stable 治理产物（如 `review-summary.json`, `graph.lock.json` 等）缺失时，提供针对性的 CLI 编译和验证修复步骤引导。
+

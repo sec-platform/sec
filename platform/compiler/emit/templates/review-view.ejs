@@ -144,6 +144,17 @@
     ['Missing Artifacts', String(artifactSummary.missingCount)],
     ['Missing Reason Types', String(artifactSummary.missingReasonTypeCount ?? countPositiveValues(Object.values(artifactSummary.missingReasonCounts ?? {})))]
   ] : [];
+
+  const changeSourceRows = (review.changeSources || []).map(function(source) {
+    return [
+      source.path,
+      source.originType,
+      source.originId || 'none',
+      formatList(source.relatedBlocks || []),
+      source.vertical || 'none',
+      source.runtimeKind || 'none'
+    ];
+  });
 %>
 <section class="card">
   <h1>Review View</h1>
@@ -172,6 +183,21 @@
   <%- subCard('Review File Priorities', dataTable(['Path','Reason'], reviewFileRows, 2, 'No priority files.')) %>
 </section>
 <section class="card">
+  <h2>Engineering Semantic Diff Aggregation</h2>
+  <p>Overview of modified semantic sources, generated targets, and their relationships across layers.</p>
+  <%- dataTable(['Path', 'Origin Type', 'Origin ID', 'Related Blocks', 'Vertical', 'Runtime Kind'], changeSourceRows, 6, 'No semantic source changes.') %>
+  
+  <% if (review.regressionRisks && review.regressionRisks.length > 0) { %>
+    <h3>Regression Risks</h3>
+    <%- dataTable(['Risk Kind', 'Message', 'Related Block/Slot'], review.regressionRisks.map(r => [r.kind, r.message, r.blockId || r.slotId || 'none']), 3, 'No regression risks.') %>
+  <% } %>
+
+  <% if (review.conflictHints && review.conflictHints.length > 0) { %>
+    <h3>Conflict & Alignment Hints</h3>
+    <%- dataTable(['Conflict Kind', 'Message', 'Related ID'], review.conflictHints.map(c => [c.kind, c.message, c.relatedId]), 3, 'No conflict hints.') %>
+  <% } %>
+</section>
+<section class="card">
   <h2>Repair Readiness</h2>
   <%- metricTable(repairRows) %>
   <%- subCard('Repair Blockers', dataTable(['Blocker','Boundary','Reason','Decision Required'], repairBlockerRows, 4, 'No repair blockers.')) %>
@@ -185,4 +211,18 @@
   <h2>Artifact Readiness</h2>
   <%- metricTable(artifactRows) %>
   <%- subCard('Missing Artifacts', dataTable(['Path','Reason','Declared By'], artifactSummary?.missing?.map(function(missing) { return [missing.path, missing.reason, missing.declaredBy]; }) ?? [], 3, 'No missing artifacts.')) %>
+  
+  <% if (artifactSummary?.missing && artifactSummary.missing.length > 0) { %>
+    <div style="background-color: rgba(239, 83, 80, 0.1); border-left: 4px solid #ef5350; padding: 12px; margin-top: 15px; border-radius: 4px;">
+      <h4 style="margin: 0 0 8px 0; color: #ef5350;">⚠️ Missing Artifact Remediation Guide</h4>
+      <p style="margin: 0; font-size: 14px; color: #b0bec5;">The compiler detected missing stable governance or workbench artifacts. Follow these steps to diagnose and repair:</p>
+      <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px; color: #cfd8dc; line-height: 1.5;">
+        <li>Verify if the missing file was declared in the <code>block.manifest.yaml</code> of the respective blocks but not generated.</li>
+        <li>Rerun verification using: <code>bun run verify</code> to re-evaluate the local environment and dependencies.</li>
+        <li>Inspect <code>control/evidence/review-summary.json</code> for any CI or building block failures that might block generation.</li>
+        <li>Rerun the explain command: <code>bun run explain</code> to force generation of visualization and workbench files.</li>
+      </ul>
+    </div>
+  <% } %>
 </section>
+

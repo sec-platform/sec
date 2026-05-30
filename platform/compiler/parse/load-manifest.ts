@@ -116,6 +116,8 @@ export function validateManifest(manifest: BlockManifest): void {
   manifest.slots ??= [];
   manifest.acceptance ??= [];
   manifest.routes ??= [];
+  manifest.uiPortals ??= [];
+  manifest.uiHooks ??= [];
   manifest.upgrade ??= {
     from: [],
     migrations: []
@@ -143,6 +145,18 @@ export function validateManifest(manifest: BlockManifest): void {
     }
     if (slot.writableZones?.some((zone) => !isSafeRelativePath(zone))) {
       throw new CompilerError('MANIFEST-SCHEMA-008', `Manifest "${manifest.id}" slot writableZones must stay inside the project tree`);
+    }
+  }
+
+  for (const portal of manifest.uiPortals) {
+    if (!portal.id) {
+      throw new CompilerError('MANIFEST-SCHEMA-009', `Manifest "${manifest.id}" UI Portals require an id`);
+    }
+  }
+
+  for (const hook of manifest.uiHooks) {
+    if (!hook.targetPortal || !hook.component || !hook.importFrom) {
+      throw new CompilerError('MANIFEST-SCHEMA-010', `Manifest "${manifest.id}" UI Hooks require targetPortal/component/importFrom`);
     }
   }
 }

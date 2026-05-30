@@ -9,8 +9,28 @@
       "installOrder": 2
     },
     {
-      "id": "entity/customer-basic",
+      "id": "agent/harness",
       "installOrder": 3
+    },
+    {
+      "id": "entity/customer-basic",
+      "installOrder": 4
+    },
+    {
+      "id": "file/upload",
+      "installOrder": 5
+    },
+    {
+      "id": "ticket/basic",
+      "installOrder": 6
+    },
+    {
+      "id": "comment/basic",
+      "installOrder": 7
+    },
+    {
+      "id": "agent/executor",
+      "installOrder": 8
     }
   ]
 }

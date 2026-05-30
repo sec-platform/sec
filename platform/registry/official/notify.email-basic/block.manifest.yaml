@@ -28,3 +28,41 @@ slots: []
 acceptance:
   - id: customer_creation_sends_email_notification
 routes: []
+uiHooks:
+  - targetPortal: customers_sections
+    component: listEmailNotifications
+    importFrom: ../../src/installed/notify/email-outbox.ts
+    dataBinder: |
+      const notifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'customer');
+    renderSnippet: |
+      <section className="card stack">
+              <h2>Customer Notifications</h2>
+              <ul className="clean" aria-label="Customer notifications">
+                {notifications.map((notification) => (
+                  <li key={notification.id}>
+                    <div><strong>{notification.subject}</strong></div>
+                    <div>{notification.recipient}</div>
+                  </li>
+                ))}
+                {notifications.length === 0 ? <li>No customer notifications yet.</li> : null}
+              </ul>
+            </section>
+  - targetPortal: tickets_sections
+    component: listEmailNotifications
+    importFrom: ../../src/installed/notify/email-outbox.ts
+    dataBinder: |
+      const ticketNotifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'ticket');
+    renderSnippet: |
+      <section className="card stack">
+              <h2>Ticket Notifications</h2>
+              <ul className="clean" aria-label="Ticket notifications">
+                {ticketNotifications.map((notification) => (
+                  <li key={notification.id}>
+                    <div><strong>{notification.subject}</strong></div>
+                    <div>{notification.recipient}</div>
+                  </li>
+                ))}
+                {ticketNotifications.length === 0 ? <li>No ticket notifications yet.</li> : null}
+              </ul>
+            </section>
+

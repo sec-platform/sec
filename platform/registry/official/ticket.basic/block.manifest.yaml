@@ -47,7 +47,59 @@ pins:
     - id: ticket_comment_added
       type: TicketCommentRecord
       required: true
-slots: []
+slots:
+  - id: ticket_comment_delegate
+    kind: adapter
+    target: custom/ticket_comment_delegate.ts
+    symbol: addTicketCommentDelegate
+    inputType: TicketCommentInput
+    outputType: TicketCommentRecord
+    writableZones:
+      - custom/
+    exports:
+      - symbol: addTicketCommentDelegate
+        params:
+          - name: db
+            type: Database
+            importFrom: ../src/runtime/database.ts
+          - name: session
+            type: Session
+            importFrom: ../src/installed/auth/session.ts
+          - name: input
+            type: TicketCommentInput
+            importFrom: ../src/runtime/database.ts
+        outputType: TicketCommentRecord
+        outputImportFrom: ../src/runtime/database.ts
+      - symbol: listTicketCommentsDelegate
+        params:
+          - name: db
+            type: Database
+            importFrom: ../src/runtime/database.ts
+          - name: session
+            type: Session
+            importFrom: ../src/installed/auth/session.ts
+          - name: ticketId
+            type: number
+        outputType: TicketCommentRecord[]
+        outputImportFrom: ../src/runtime/database.ts
+    mockTemplate: |
+      import type { Database, TicketCommentInput, TicketCommentRecord } from '../src/runtime/database.ts';
+      import type { Session } from '../src/installed/auth/session.ts';
+
+      export function addTicketCommentDelegate(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {
+        return {
+          id: 1,
+          tenantId: 'mock-tenant',
+          ticketId: input.ticketId,
+          body: input.body || '',
+          authorId: session.userId,
+          createdAt: new Date(0).toISOString()
+        };
+      }
+
+      export function listTicketCommentsDelegate(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {
+        return [];
+      }
 acceptance:
   - id: ticket_can_be_created
     dependsOn:
