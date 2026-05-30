@@ -54,12 +54,12 @@ describe('root package scripts', () => {
   test('demo scripts follow the documented platform chain', async () => {
     const { scripts } = await readCompilerPackageJson();
 
-    expect(scripts['demo:quickstart']).toBe('bun run platform -- init --reset && bun run reference:refresh');
+    expect(scripts['demo:quickstart']).toBe('bun run sec -- init --reset && bun run reference:refresh');
     expect(scripts['demo:governance']).toBe(
-      'bun run demo:quickstart && bun run platform -- artifacts --paths --kind governance'
+      'bun run demo:quickstart && bun run sec -- artifacts --paths --kind governance'
     );
     expect(scripts['demo:closed-loop']).toBe(
-      'bun run demo:quickstart && bun run platform -- verify --lane all && bun run platform -- artifacts --paths --kind governance && bun run platform -- explain --json --compact'
+      'bun run demo:quickstart && bun run sec -- verify --lane all && bun run sec -- artifacts --paths --kind governance && bun run sec -- explain --json --compact'
     );
   });
 
@@ -68,7 +68,7 @@ describe('root package scripts', () => {
 
     expect(scripts['dogfood:reference']).toBe('bun run reference:refresh');
     expect(scripts['dogfood:governance']).toBe(
-      'bun run dogfood:reference && bun run platform -- artifacts --paths --json --kind governance'
+      'bun run dogfood:reference && bun run sec -- artifacts --paths --json --kind governance'
     );
   });
 
@@ -77,12 +77,12 @@ describe('root package scripts', () => {
 
     expect(scripts['reference:refresh']).toBe(
       [
-        'bun run platform -- resolve',
-        'bun run platform -- compose',
-        'bun run platform -- adapt',
-        'bun run platform -- verify --lane all',
-        'bun run platform -- lock',
-        'bun run platform -- explain'
+        'bun run sec -- resolve',
+        'bun run sec -- compose',
+        'bun run sec -- adapt',
+        'bun run sec -- verify --lane all',
+        'bun run sec -- lock',
+        'bun run sec -- explain'
       ].join(' && ')
     );
   });
@@ -92,11 +92,11 @@ describe('test budget and benchmark contracts', () => {
   test('root package exposes budget and contract scripts', async () => {
     const { scripts, devDependencies, trustedDependencies } = await readCompilerPackageJson();
 
-    expect(scripts.platform).toBe('bun ./platform/cli/index.ts');
+    expect(scripts.sec).toBe('bun ./platform/cli/index.ts');
     expect(scripts.dev).toBe('bun ./platform/dev-runner.ts');
     expect(scripts.typecheck).toBe('bun ./platform/dev-runner.ts typecheck');
 
-    expect(scripts.test).toBe('bun run test:fast');
+    expect(scripts.test).toBe('bun ./platform/dev-runner.ts test:fast');
     expect(scripts['test:affected']).toBe('bun ./platform/dev-runner.ts test:affected');
     expect(scripts['test:fast']).toBe('bun ./platform/dev-runner.ts test:fast');
     expect(scripts['test:slow']).toBe('bun ./platform/dev-runner.ts test:slow');
@@ -281,9 +281,9 @@ describe('error protocol and developer contracts', () => {
     const { scripts } = await readCompilerPackageJson();
 
     expectContainsAll(scripts['demo:closed-loop'], [
-      'bun run platform -- verify --lane all',
-      'bun run platform -- artifacts --paths --kind governance',
-      'bun run platform -- explain --json --compact'
+      'bun run sec -- verify --lane all',
+      'bun run sec -- artifacts --paths --kind governance',
+      'bun run sec -- explain --json --compact'
     ]);
   });
 

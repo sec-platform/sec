@@ -1,0 +1,58 @@
+id: collaboration/enterprise-hub
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+requires:
+  - auth/basic-session
+  - tenant/basic-workspace
+provides:
+  - collaboration/workflow-engine
+  - collaboration/approval-flow
+conflicts: []
+installs:
+  - kind: merge-prisma
+    from: files/prisma/enterprise-hub.prisma
+    to: prisma/schema.prisma
+  - kind: copy
+    from: files/src/installed/collaboration/workflows.ts
+    to: src/installed/collaboration/workflows.ts
+pins:
+  inputs:
+    - id: actor_identity
+      type: Session
+      required: true
+    - id: tenant_context
+      type: TenantId
+      required: true
+  outputs:
+    - id: approval_event_dispatch
+      type: ApprovalRequest
+      required: false
+slots:
+  - id: on_workflow_approved
+    block: collaboration/enterprise-hub
+    kind: adapter
+    target: custom/on_workflow_approved.ts
+    symbol: handleApprovalApproval
+    inputType: ApprovalRequest
+    outputType: void
+    description: Callback executed dynamically when a workflow step is fully approved by all actors.
+  - id: on_workflow_rejected
+    block: collaboration/enterprise-hub
+    kind: adapter
+    target: custom/on_workflow_rejected.ts
+    symbol: handleApprovalRejection
+    inputType: ApprovalRequest
+    outputType: void
+    description: Callback executed dynamically when any actor rejects a workflow step.
+acceptance:
+  - id: workflow_approval_chain_flow
+    covers:
+      blocks:
+        - collaboration/enterprise-hub
+routes:
+  - path: /api/workflows
+    file: src/installed/collaboration/workflows.ts
+  - path: /api/approvals
+    file: src/installed/collaboration/workflows.ts

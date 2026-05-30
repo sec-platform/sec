@@ -57,9 +57,10 @@
 ### 下一步
 
 1. Work Tracking / Ticket SaaS 完整纵切面（`ticket/basic` + `comment/basic` + `worklog/basic` + `sla/basic`）
-2. CI 集成规范（reference drift gate + contract freeze gate + benchmark gate）
-3. 第二数据库（PostgreSQL）正式路线
-4. review assist（CI 自动评审摘要）
+2. 引入最终巨型对齐模板：**企业级智能协作与审批中枢 (Enterprise Business Process Hub)**，涵盖动态工作流、ABAC权限、SaaS 计费订阅及多角色 Agent Swarm，横向扩张成品 Project 规模，用于对齐和验证编译器装配的准确度。
+3. CI 集成规范（reference drift gate + contract freeze gate + benchmark gate）
+4. 第二数据库（PostgreSQL）正式路线
+5. review assist（CI 自动评审摘要）
 
 ## 开发者入口与依赖环境
 
@@ -95,7 +96,7 @@
 
 ### 阶段 D：v0.5 团队可用化（next）
 
-私有 registry 正式版本治理、review assist CI 集成、CI 团队口径（reference drift + contract freeze + benchmark gate）、Write-back patterns 文档化。退出条件：至少 2 个独立团队可各自维护私有 block 且不互相干扰。
+私有 registry 正式版本治理、Visual Spec Builder（可视化 spec 组装）首个可操作版本（提供给 AI 开发无需管脚的接口模式，但为人类用户提供比低代码更高级细致的图形化 spec 连接与验收界面，回写 source/views/mutations 并通过 compiler 生成 100% 纯净代码）、review assist CI 集成、CI 团队口径（reference drift + contract freeze + benchmark gate）、巨型企业协作中枢 Demo 缝合。退出条件：至少 2 个独立团队可各自维护私有 block 且不互相干扰，图形化 spec 组装可用。
 
 ### 阶段 E-J：平台化 → 长期研究线（later）
 

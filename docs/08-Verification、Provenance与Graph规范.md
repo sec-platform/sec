@@ -233,3 +233,37 @@ Engineering Semantic Diff 是 review 语义合同，不是单独的新事实源�
 2. **物理只读锁 (File-system Readonly Lock)**：在 `se compose --lock` 运行后，除了已声明为 Writable Zones 的插槽文件外，编译器通过操作系统文件系统属性将 `project/**` 内的文件全部设为 **只读 (Read-only)**，在物理层拦截任何外部直接编辑。
 3. **代码漂移门禁 (Reference Drift Gate)**：在 `se verify` 运行期间，验证器逐一比对 `project/` 文件与 `control/provenance/provenance.json` 记录的签名哈希。一旦在只读 Zone 检测到任何非预期修改，抛出 **`ERROR-DRIFT-001`** 并中断发布/部署。
 4. **合约冻结门禁 (Contract Freeze Gate)**：在 CI 合约审查流水线中，静态分析器对比生成代码的符号签名与已冻结的契约。如果在没有进行 Semver 版本变更的情况下接口签名发生了变化，即使测试通过，编译门禁依然予以强行拦截。
+
+
+## 10. Policy 冲突死锁与多属性妥协代数 (Policy Algebra) 规范
+
+当系统装配了 20 个以上的 Block 并且混合了复杂的企业级安全、通知与 ABAC 权限策略时，极易发生 **“策略死锁 (Policy Deadlock)”**（如 Block A 要求“全隔离加密存储附件”，Block B 要求“提供第三方直连公网分析链接”）。平台不允许将此冲突留到运行时坍塌，也不允许无章可循地手工硬编码，而是通过**策略代数 (Policy Algebra)** 进行编译期自治决策。
+
+### 10.1 多属性妥协代数定义
+
+策略代数将 Policy 视为图谱上的约束流属性，规定其交集（Intersection）、并集（Union）和优先级支配（Dominance）的运算规则：
+
+1. **强约束优先性 (Strict Enforcement Dominance)**：
+   - 严重级别为 `blocker` 或 `error` 的 Policy，对 `warn` 和 `info` 策略具有绝对的支配与吞噬权。如果 Block A 的 `blocker` 策略与 Block B 的 `warn` 策略冲突，编译器直接强制执行 Block A 策略，并降级 Block B 的局部展示。
+2. **策略交集运算与多属性合成 (Policy Multi-Attribute Composition)**：
+   - 当多个 Block 作用于同一个实体或 Slot 时，编译器会求出所有 active policies 的交集约束集。
+   - 示例：如果 `policy1` 规定“附件只读”，`policy2` 规定“附件仅在工作时间内可访问”，代数合成后为“附件在工作时间内只读，工作时间外不可访问”。一旦策略交集为空（如“必须加密”与“绝对明文”），代数计算直接返回 `Ø (空集)` 并标记为策略冲突死锁！
+
+### 10.2 编译期冲突死锁检测与妥协决策工作流
+
+1. **静态依赖死锁扫描**：
+   - 在 `se resolve` 阶段，编译器构建 Policy Subgraph，利用 DAG 环路检测与布尔逻辑求解器，扫描是否有任何实体或 Slot 同时挂载了两个互斥（Mutex）的策略属性。
+2. **生成结构化妥协冲突报告**：
+   - 一旦检测到死锁冲突，编译流水线抛出 **`POLICY-DEADLOCK-005`** 错误，并输出结构化的 `control/workflow/policy-deadlock-report.json`。
+   - 报告精确指明：冲突的两个策略 ID、它们挂载的业务实体/Slot 节点、对应的 Block 来源、以及推荐的优先级妥协路径。
+3. **安全签名介入 (Signature Gate Intervention)**：
+   - 开发者或高级系统 Pass 必须在 `source/patches/override-manifest.yaml` 中显式编写一条“策略妥协规则（Policy Exemption Rule）”，声明谁占主导地位，并签署人工 Review Signature：
+     ```yaml
+     policyExemptions:
+       - id: customer_attachment_conflict_resolution
+         resolveTo: A_dominates_B
+         reason: security_policy_override_for_compliance
+         approvedBySignature: "sha256-human-architect-signature"
+     ```
+   - 编译器重新 Compose 并校验该签名。一旦无误，以受控的方式自动缝合妥协后的逻辑代码，以此确保系统在复杂策略叠加下仍能维持 100% 架构纯净与零运行故障率！
+
