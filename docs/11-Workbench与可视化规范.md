@@ -491,6 +491,22 @@ Visual Spec Builder 采用 **“Node-Link” 拓扑映射模型**，在前端将
 2. **物理稳定全局冻结**：在 Vis.js 网络的 `stabilized` 事件中，遍历所有 Block 节点，自动获取其物理稳定坐标，并计算其 Provides/Requires 端口的绝对坐标（Provides 在右侧 +120px，Requires 在左侧 -120px，垂直按端口数量均分偏移），调用 `visNodes.update` 进行物理对准。对齐完成后，全局执行 `network.setOptions({ physics: false })`，彻底冻结所有节点的力学引擎，避免后续产生任何自发性漂移。
 3. **拖拽实时同步对齐**：监听画布的 `drag` 事件。当用户用鼠标拖拽或移动 Block 节点时，自动通过 `getPositions` 获取当前 Block 节点坐标，并高频微调其对应的所有 Provides/Requires 子引脚节点至最新对齐坐标，在用户拖拽体验上实现无缝粘滞跟随。
 
+### 14.7 芯片级物理管脚与 100% 全屏沉浸式工作台重塑 (v0.2.4 - 2026-05)
+
+为了彻底打碎旧有布局“小筐狭窄空间、大量扁平表格挤压、浮动大圆圈杂乱无章”等不够成熟的 UIUX 瓶颈，平台在 v0.2.4 中全面借鉴并超越 n8n、扣子(Coze) 等顶级低代码平台的 UIUX 设计，实施以下重大重塑：
+1. **芯片管脚贴合式渲染 (Chip-style Pin Ports)**：
+   - 抛弃原本悬浮在主卡片四周的大圆圈子节点（大乱炖图形），引脚（Provides & Requires）全部升级为**紧贴在 Block 芯片盒左右侧边缘的小巧触点**（Provides 在 `x = +75px` 处，Requires 在 `x = -75px` 处，垂直间距收窄为精致的 20px）。
+   - 引脚形状使用迷你圆点（`shape: 'dot', size: 6`），且引脚与 Block 主节点之间的辅助连线被设为极淡的虚无微光（`rgba(255, 255, 255, 0.1)`），在视觉上完全融为一体，完美呈现出“主芯片板卡、左右两侧精密伸出一排芯片管脚”的极致科技感。
+   - 所有管脚对齐连线直接从这些芯片左右边缘的迷你管脚点拉出，消除了 80% 的视觉冗余和长 label 干扰。
+2. **全屏沉浸式大视界 (Fullscreen Workspace Viewport)**：
+   - 彻底废除 700px 的固定高度小筐，将 Spec Builder 画布高宽重构为 **`100vh` 占满视窗的沉浸式全屏布局**，实现无限开阔的操作操作空间。
+   - **毛玻璃常驻/可折叠组件侧栏 (Immersive Collapsible Catalog)**：左侧 Block/Slot 列表改写为悬浮式的毛玻璃卡片（backdrop-filter），并提供一键折叠（Toggle Collapse）滑出动效。折叠后宽度仅为 40px，将 100% 的水平视野归还用户。
+   - **悬浮式玻璃态 Inspector 属性抽屉 (Floating Inspector Panel)**：右侧属性抽屉同样升级为悬浮在画布右上方的毛玻璃滑入板，随时可通过叉号折叠，杜绝任何物理空间挤压。
+3. **“滑出式底部多功能 review 控制台” (Slide-up Bottom Console Panel)**：
+   - 将原来堆死在画布下方、拉长视窗并挤占高度的 “Graph Coverage Matrix”, “Manual Override Registry”, “Summary Tables” 统一收纳进一个**高度可交互、支持滑出与缩回的底部控制台抽屉板 (Bottom Console Sheet)**。
+   - 底部控制台只在视区最下方露出一条高质感的玻璃态 Tab 菜单。点击任一 Tab（如覆盖率、人工覆盖审计、编译日志输出），面板便会如专业 IDE 终端一般优雅地向上滑出 350px，展示结构化表格，使用完毕一键缩回，真正实现了“需要时即时审查，开发时 100% 全屏清爽”。
+
+
 ## 15. 可组合前端的“视觉美学隔离与设计系统 Token 桥”
 
 当来自 16+ 个不同 Block（包括官方与私有）的 UI 组件（如 `LoginForm`、`CustomerAttachmentForm`、`AIAgentClassifierBadge`）通过 `uiHooks` 被拼缝注入到同一个页面 Portal 时，为了防止样式冲突、坍塌或视觉风格破裂，平台在前端实施严苛的**视觉隔离与设计 Token 桥接约束**：

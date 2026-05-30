@@ -235,37 +235,85 @@
     background: rgba(239, 68, 68, 0.35);
   }
 
+  /* 沉浸式全屏布局重塑 */
   .canvas-grid {
-    display: grid;
-    grid-template-columns: 280px 1fr;
-    gap: 20px;
-    height: 700px;
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 165px); /* 扣除 Header 和 Tab 的完美沉浸高度 */
+    min-height: 500px;
+    border-radius: 16px;
+    overflow: hidden;
   }
   .canvas-container {
+    width: 100%;
     height: 100%;
     border: 1px solid var(--border-color);
     border-radius: 16px;
-    background: #0b0f19;
+    background: #090d16;
     background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
     background-size: 24px 24px;
     position: relative;
-    box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.6);
+    box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.8);
     overflow: hidden;
   }
 
-  /* Node Sidebar style */
+  /* 悬浮可折叠 Catalog 侧栏样式 */
   .node-sidebar {
-    background: rgba(19, 25, 38, 0.7);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
-    padding: 20px;
-    backdrop-filter: blur(12px);
+    position: absolute;
+    left: 20px;
+    top: 20px;
+    bottom: 20px;
+    z-index: 10;
+    width: 290px;
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 16px;
+    backdrop-filter: blur(16px);
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
     overflow-y: auto;
-    height: 100%;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     box-sizing: border-box;
+  }
+  .node-sidebar.collapsed {
+    width: 48px;
+    padding: 12px 6px;
+    overflow: hidden;
+  }
+  .node-sidebar.collapsed > *:not(.sidebar-toggle-btn) {
+    opacity: 0;
+    pointer-events: none;
+    display: none !important;
+  }
+  
+  .sidebar-toggle-btn {
+    align-self: flex-end;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #00f2fe;
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .sidebar-toggle-btn:hover {
+    background: rgba(0, 242, 254, 0.15);
+    border-color: #00f2fe;
+  }
+  .node-sidebar.collapsed .sidebar-toggle-btn {
+    align-self: center;
+    transform: rotate(180deg);
+    width: 32px;
+    height: 32px;
   }
   .sidebar-section-title {
     font-family: 'Outfit', sans-serif;
@@ -321,27 +369,29 @@
     color: #00f2fe;
   }
 
-
-  /* Right sliding drawer sidebar */
+  /* 悬浮毛玻璃属性面板 */
   .sidebar-drawer {
-    position: fixed;
-    right: -420px;
-    top: 0;
-    width: 420px;
-    height: 100vh;
-    background: #0f172a;
-    border-left: 1px solid #1e293b;
-    z-index: 1000;
-    box-shadow: -15px 0 35px rgba(0,0,0,0.6);
+    position: absolute;
+    right: -400px;
+    top: 20px;
+    bottom: 20px;
+    width: 380px;
+    height: calc(100% - 40px);
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    z-index: 20;
+    box-shadow: -10px 10px 30px rgba(0,0,0,0.5);
     transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    padding: 24px;
+    padding: 20px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     color: #f8fafc;
+    backdrop-filter: blur(16px);
   }
   .sidebar-drawer.open {
-    right: 0;
+    right: 20px;
   }
   .drawer-header {
     display: flex;
@@ -367,6 +417,88 @@
   }
   .close-btn:hover {
     color: #ffffff;
+  }
+
+  /* 底部滑起式 IDE 状态控制台 */
+  .bottom-console-panel {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    bottom: -355px; /* 默认折叠，只露出 Tab Bar */
+    height: 390px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+    z-index: 30;
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+    transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(16px);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .bottom-console-panel.open {
+    bottom: 20px;
+  }
+  .console-tab-bar {
+    height: 35px;
+    background: rgba(30, 41, 59, 0.4);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 16px;
+    box-sizing: border-box;
+    cursor: pointer;
+    user-select: none;
+  }
+  .console-tabs {
+    display: flex;
+    gap: 8px;
+    height: 100%;
+    align-items: flex-end;
+  }
+  .console-tab {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    padding: 8px 14px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .console-tab:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .console-tab.active {
+    color: #00f2fe;
+    background: #0f172a;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .console-body {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  .console-close-indicator {
+    color: #94a3b8;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: transform 0.2s;
+  }
+  .console-close-indicator.active svg {
+    transform: rotate(180deg);
   }
   .drawer-body {
     flex-grow: 1;
@@ -619,11 +751,14 @@
 
   <div class="canvas-grid">
     <!-- Left Sidebar: Node Catalog -->
-    <div class="node-sidebar">
+    <div class="node-sidebar" id="node-sidebar">
+      <div class="sidebar-toggle-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle Sidebar (展开/折叠侧栏)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+      </div>
       <div>
         <div class="sidebar-section-title" data-key="sidebarBlocks">Available Blocks (能力块)</div>
         <input type="text" id="catalog-search" class="form-input" style="margin-bottom: 12px; font-size: 12px;" placeholder="🔍 Filter blocks..." oninput="filterCatalog()" />
-        <div style="display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:360px;" id="sidebar-blocks-list">
+        <div style="display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:300px;" id="sidebar-blocks-list">
           <!-- Dynamically Rendered -->
         </div>
         <div style="margin-top:12px; display:flex; gap:6px;">
@@ -646,18 +781,100 @@
 
     <!-- Graph view with drop zone -->
     <div id="network-canvas" class="canvas-container" ondragover="event.preventDefault()" ondrop="handleCanvasDrop(event)"></div>
-  </div>
 
-
-  <!-- Interactive drawer panels (hidden by default) -->
-  <div id="inspector-drawer" class="sidebar-drawer">
-    <div class="drawer-header">
-      <h3 id="inspector-title" data-key="inspectorTitle">Node Inspector</h3>
-      <button class="close-btn" onclick="closeDrawer()">&times;</button>
+    <!-- Interactive drawer panels (hidden by default) -->
+    <div id="inspector-drawer" class="sidebar-drawer">
+      <div class="drawer-header">
+        <h3 id="inspector-title" data-key="inspectorTitle">Node Inspector</h3>
+        <button class="close-btn" onclick="closeDrawer()">&times;</button>
+      </div>
+      <div class="drawer-body">
+        <div id="inspector-content">
+          <p style="color: var(--text-muted);">Select a node on the canvas to inspect details and perform mutations.</p>
+        </div>
+      </div>
     </div>
-    <div class="drawer-body">
-      <div id="inspector-content">
-        <p style="color: var(--text-muted);">Select a node on the canvas to inspect details and perform mutations.</p>
+
+    <!-- 滑起式底部 IDE Review 控制台 -->
+    <div class="bottom-console-panel" id="bottom-console-panel">
+      <div class="console-tab-bar" onclick="toggleBottomConsole()">
+        <div class="console-tabs">
+          <div class="console-tab active" id="tab-coverage" onclick="event.stopPropagation(); selectConsoleTab('coverage')">📊 Coverage Matrix (覆盖率)</div>
+          <div class="console-tab" id="tab-override" onclick="event.stopPropagation(); selectConsoleTab('override')">⚠️ Override Registry (人工接管审计)</div>
+          <div class="console-tab" id="tab-summary" onclick="event.stopPropagation(); selectConsoleTab('summary')">🗂️ Node/Edge Summary (节点边摘要)</div>
+        </div>
+        <div class="console-close-indicator" id="console-close-indicator">
+          <span id="console-close-text">Expand Bottom Dashboard (展开面板)</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:4px; transition: transform 0.2s;"><path d="M18 15l-6-6-6 6"/></svg>
+        </div>
+      </div>
+      <div class="console-body">
+        <!-- Tab 1: Coverage Matrix -->
+        <div id="console-content-coverage">
+          <%- dataTable(['Information','Source','Coverage','Count'], coverageRows, 4, 'No graph coverage.') %>
+          <div class="coverage-chart-container">
+            <div class="coverage-card">
+              <div class="coverage-title" data-key="covTitleBlocks">Blocks Coverage</div>
+              <div class="coverage-value" style="color: #10b981;"><%= covSummary ? covSummary.coveredBlockCount + ' / ' + covSummary.blockCount : '0 / 0' %></div>
+              <div class="progress-bg">
+                <div class="progress-fill" style="width: <%= blockPercent %>%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
+              </div>
+              <div class="progress-label">
+                <span data-key="covRatioLabel">Coverage Ratio</span>
+                <span><%= blockPercent %>%</span>
+              </div>
+            </div>
+
+            <div class="coverage-card">
+              <div class="coverage-title" data-key="covTitleSlots">Slots Coverage</div>
+              <div class="coverage-value" style="color: #00f2fe;"><%= covSummary ? covSummary.coveredSlotCount + ' / ' + covSummary.slotCount : '0 / 0' %></div>
+              <div class="progress-bg">
+                <div class="progress-fill" style="width: <%= slotPercent %>%; background: linear-gradient(90deg, #00f2fe, #38bdf8);"></div>
+              </div>
+              <div class="progress-label">
+                <span data-key="covRatioLabel">Coverage Ratio</span>
+                <span><%= slotPercent %>%</span>
+              </div>
+            </div>
+
+            <div class="coverage-card">
+              <div class="coverage-title" data-key="covTitleAcceptance">Acceptance Tests</div>
+              <div class="coverage-value" style="color: #8b5cf6;"><%= nodeTypeCounts.get('acceptance') ?? 0 %></div>
+              <div class="progress-bg">
+                <div class="progress-fill" style="width: 100%; background: #8b5cf6;"></div>
+              </div>
+              <div class="progress-label">
+                <span data-key="covAcceptanceLabel">Acceptance Nodes</span>
+                <span data-key="covActiveLabel">Active</span>
+              </div>
+            </div>
+
+            <div class="coverage-card">
+              <div class="coverage-title" data-key="covTitlePolicy">Policy Rules</div>
+              <div class="coverage-value" style="color: #f59e0b;"><%= nodeTypeCounts.get('policy') ?? 0 %></div>
+              <div class="progress-bg">
+                <div class="progress-fill" style="width: 100%; background: #f59e0b;"></div>
+              </div>
+              <div class="progress-label">
+                <span data-key="covPolicyLabel">Policy Constraints</span>
+                <span data-key="covEnforcedLabel">Enforced</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Manual Override Registry -->
+        <div id="console-content-override" style="display: none;">
+          <p style="color: var(--text-muted); font-size: 13px;" data-key="manualOverrideDesc">Tracked artifacts and nodes that have been manually overridden by developers.</p>
+          <%- dataTable(['Override Target', 'Origin Type', 'Source Block', 'Status'], manualOverrideRows, 4, 'No manual overrides detected in workspace.') %>
+        </div>
+
+        <!-- Tab 3: Traditional Summary -->
+        <div id="console-content-summary" style="display: none;">
+          <%- dataTable(['Type','Count'], nodeTypeRows, 2, 'No graph nodes.') %>
+          <div style="margin-top: 15px;"></div>
+          <%- dataTable(['Type','Count'], edgeTypeRows, 2, 'No graph edges.') %>
+        </div>
       </div>
     </div>
   </div>
@@ -675,78 +892,6 @@
     </div>
   </div>
 </div>
-
-<!-- Graph Coverage Matrix -->
-<section class="card" style="margin-top: 24px;">
-  <h2 data-key="coverageMatrixTitle">Graph Coverage Matrix</h2>
-  <%- dataTable(['Information','Source','Coverage','Count'], coverageRows, 4, 'No graph coverage.') %>
-
-  <h3 data-key="coverageChartsTitle" style="margin-top: 24px;">Coverage Dashboard Charts</h3>
-  <div class="coverage-chart-container">
-    <div class="coverage-card">
-      <div class="coverage-title" data-key="covTitleBlocks">Blocks Coverage</div>
-      <div class="coverage-value" style="color: #10b981;"><%= covSummary ? covSummary.coveredBlockCount + ' / ' + covSummary.blockCount : '0 / 0' %></div>
-      <div class="progress-bg">
-        <div class="progress-fill" style="width: <%= blockPercent %>%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
-      </div>
-      <div class="progress-label">
-        <span data-key="covRatioLabel">Coverage Ratio</span>
-        <span><%= blockPercent %>%</span>
-      </div>
-    </div>
-
-    <div class="coverage-card">
-      <div class="coverage-title" data-key="covTitleSlots">Slots Coverage</div>
-      <div class="coverage-value" style="color: #00f2fe;"><%= covSummary ? covSummary.coveredSlotCount + ' / ' + covSummary.slotCount : '0 / 0' %></div>
-      <div class="progress-bg">
-        <div class="progress-fill" style="width: <%= slotPercent %>%; background: linear-gradient(90deg, #00f2fe, #38bdf8);"></div>
-      </div>
-      <div class="progress-label">
-        <span data-key="covRatioLabel">Coverage Ratio</span>
-        <span><%= slotPercent %>%</span>
-      </div>
-    </div>
-
-    <div class="coverage-card">
-      <div class="coverage-title" data-key="covTitleAcceptance">Acceptance Tests</div>
-      <div class="coverage-value" style="color: #8b5cf6;"><%= nodeTypeCounts.get('acceptance') ?? 0 %></div>
-      <div class="progress-bg">
-        <div class="progress-fill" style="width: 100%; background: #8b5cf6;"></div>
-      </div>
-      <div class="progress-label">
-        <span data-key="covAcceptanceLabel">Acceptance Nodes</span>
-        <span data-key="covActiveLabel">Active</span>
-      </div>
-    </div>
-
-    <div class="coverage-card">
-      <div class="coverage-title" data-key="covTitlePolicy">Policy Rules</div>
-      <div class="coverage-value" style="color: #f59e0b;"><%= nodeTypeCounts.get('policy') ?? 0 %></div>
-      <div class="progress-bg">
-        <div class="progress-fill" style="width: 100%; background: #f59e0b;"></div>
-      </div>
-      <div class="progress-label">
-        <span data-key="covPolicyLabel">Policy Constraints</span>
-        <span data-key="covEnforcedLabel">Enforced</span>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Manual Override Registry -->
-<section class="card" style="margin-top: 24px;">
-  <h2 data-key="manualOverrideTitle">Manual Override Registry</h2>
-  <p style="color: var(--text-muted); font-size: 13px;" data-key="manualOverrideDesc">Tracked artifacts and nodes that have been manually overridden by developers.</p>
-  <%- dataTable(['Override Target', 'Origin Type', 'Source Block', 'Status'], manualOverrideRows, 4, 'No manual overrides detected in workspace.') %>
-</section>
-
-<!-- Traditional Node/Edge tables -->
-<section class="card" style="margin-top: 24px;">
-  <h2 data-key="summaryTitle">Node & Edge Summary</h2>
-  <%- dataTable(['Type','Count'], nodeTypeRows, 2, 'No graph nodes.') %>
-  <div style="margin-top: 15px;"></div>
-  <%- dataTable(['Type','Count'], edgeTypeRows, 2, 'No graph edges.') %>
-</section>
 
 <!-- E2E Test Hidden Containers -->
 <div id="e2e-test-markers" style="display: none;">
@@ -1041,8 +1186,8 @@
           if (visNodes && visNodes.get(portId)) {
             visNodes.update({
               id: portId,
-              x: x + 120,
-              y: y + (idx - (bDef.provides.length - 1) / 2) * 50
+              x: x + 85,
+              y: y + (idx - (bDef.provides.length - 1) / 2) * 20
             });
           }
         });
@@ -1053,8 +1198,8 @@
           if (visNodes && visNodes.get(portId)) {
             visNodes.update({
               id: portId,
-              x: x - 120,
-              y: y + (idx - (bDef.requires.length - 1) / 2) * 50
+              x: x - 85,
+              y: y + (idx - (bDef.requires.length - 1) / 2) * 20
             });
           }
         });
@@ -1140,21 +1285,22 @@
               try {
                 visNodes.add({
                   id: portId,
-                  label: `Provides:\n${prov}`,
-                  x: x + 120,
-                  y: y + (idx - (bDef.provides.length - 1)/2) * 50,
+                  label: prov,
+                  x: x + 85,
+                  y: y + (idx - (bDef.provides.length - 1)/2) * 20,
                   shape: 'dot',
-                  size: 10,
+                  size: 6,
                   color: { background: '#064e3b', border: '#10b981' },
-                  shadow: { enabled: true, color: '#10b981', size: 8, x: 0, y: 0 },
-                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' },
+                  shadow: { enabled: false },
+                  font: { color: '#34d399', size: 8, face: 'JetBrains Mono, monospace' },
                   physics: false
                 });
                 visEdges.add({
                   from: `block:${blockId}`,
                   to: portId,
-                  color: { color: '#047857' },
-                  dashes: true
+                  color: { color: 'rgba(255, 255, 255, 0.12)' },
+                  dashes: false,
+                  arrows: ''
                 });
               } catch (e) {}
             });
@@ -1166,21 +1312,22 @@
               try {
                 visNodes.add({
                   id: portId,
-                  label: `Requires:\n${req}`,
-                  x: x - 120,
-                  y: y + (idx - (bDef.requires.length - 1)/2) * 50,
+                  label: req,
+                  x: x - 85,
+                  y: y + (idx - (bDef.requires.length - 1)/2) * 20,
                   shape: 'dot',
-                  size: 10,
+                  size: 6,
                   color: { background: '#78350f', border: '#f59e0b' },
-                  shadow: { enabled: true, color: '#f59e0b', size: 8, x: 0, y: 0 },
-                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' },
+                  shadow: { enabled: false },
+                  font: { color: '#fbbf24', size: 8, face: 'JetBrains Mono, monospace' },
                   physics: false
                 });
                 visEdges.add({
                   from: portId,
                   to: `block:${blockId}`,
-                  color: { color: '#b45309' },
-                  dashes: true
+                  color: { color: 'rgba(255, 255, 255, 0.12)' },
+                  dashes: false,
+                  arrows: ''
                 });
               } catch (e) {}
             });
@@ -1348,6 +1495,29 @@
       // 2. SPEC Topology Builder viewport: High-Fidelity exploded compound port diagram
       const coreNodes = rawGraph.nodes.filter(n => n.type === 'app' || n.type === 'block' || n.type === 'slot');
       
+      // 智能语义网格排布计算 (Fluid Semantic Layout Engine)
+      const apps = coreNodes.filter(nd => nd.type === 'app');
+      const blocks = coreNodes.filter(nd => nd.type === 'block');
+      const slots = coreNodes.filter(nd => nd.type === 'slot');
+
+      apps.forEach((ap, i) => {
+        ap.x = -200;
+        ap.y = 200;
+      });
+
+      blocks.forEach((bl, i) => {
+        const col = Math.floor(i / 3); // 每列排 3 个
+        const row = i % 3;
+        bl.x = 80 + col * 260; // 横向间隔 260px
+        bl.y = 80 + row * 150; // 纵向间隔 150px
+      });
+
+      slots.forEach((sl, i) => {
+        const colNum = Math.ceil(blocks.length / 3);
+        sl.x = 80 + colNum * 260;
+        sl.y = 120 + i * 160;
+      });
+
       coreNodes.forEach(n => {
         const typeStyle = groupStyles[n.type] || { color: { background: '#1e293b', border: '#475569' }, shape: 'box' };
         const prefix = translationDict[currentLang][n.type] || n.type;
@@ -1370,12 +1540,26 @@
           glowCol = '#10b981';
           badgeText = ' ✅';
         }
+
+        let customShape = typeStyle.shape;
+        let customWidth = undefined;
+        let customHeight = undefined;
+        if (n.type === 'block') {
+          customShape = 'box';
+          customWidth = { minimum: 140, maximum: 160 };
+          customHeight = { minimum: 50, maximum: 50 };
+        }
         
         nodesArray.push({
           id: n.id,
           label: `${prefix}:\n${n.label}${badgeText}`,
           title: `Type: ${n.type}\nID: ${n.id}`,
           ...typeStyle,
+          shape: customShape,
+          widthConstraint: customWidth,
+          heightConstraint: customHeight,
+          x: n.x,
+          y: n.y,
           color: {
             ...typeStyle.color,
             border: borderCol,
@@ -1402,19 +1586,21 @@
                 const portId = `port-provides:${blockId}:${prov}`;
                 nodesArray.push({
                   id: portId,
-                  label: `Provides:\n${prov}`,
+                  label: prov,
                   shape: 'dot',
-                  size: 10,
+                  size: 6,
+                  x: n.x + 85,
+                  y: n.y + (idx - (bDef.provides.length - 1)/2) * 20,
                   color: { background: '#064e3b', border: '#10b981' },
-                  shadow: { enabled: true, color: '#10b981', size: 8, x: 0, y: 0 },
-                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' },
+                  shadow: { enabled: false },
+                  font: { color: '#34d399', size: 8, face: 'JetBrains Mono, monospace' },
                   physics: false
                 });
                 edgesArray.push({
                   from: n.id,
                   to: portId,
-                  color: { color: '#047857' },
-                  dashes: true
+                  color: { color: 'rgba(255, 255, 255, 0.12)' },
+                  arrows: ''
                 });
               });
             }
@@ -1500,6 +1686,7 @@
     const data = { nodes: visNodes, edges: visEdges };
     const options = {
       physics: {
+        enabled: activeTab === 'audit-graph',
         forceAtlas2Based: {
           gravitationalConstant: -35,
           centralGravity: 0.01,
@@ -2257,6 +2444,75 @@
       }
     }
   });
+
+  // === Spec Builder V2.1 Immersive UI Interactive Controls ===
+  
+  // 1. 折叠左侧组件侧栏
+  function toggleSidebar() {
+    const sidebar = document.getElementById('node-sidebar');
+    const toggleBtn = document.getElementById('sidebar-toggle-btn');
+    if (!sidebar) return;
+    
+    sidebar.classList.toggle('collapsed');
+    
+    // 更新折叠按钮箭头的方向
+    if (sidebar.classList.contains('collapsed')) {
+      toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>`;
+      toggleBtn.title = "Expand Sidebar (展开侧栏)";
+    } else {
+      toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>`;
+      toggleBtn.title = "Collapse Sidebar (折叠侧栏)";
+    }
+    
+    // 延迟触发 vis.Network 的 resize，确保画布高宽自动刷新并对齐
+    setTimeout(() => {
+      if (network) network.setSize("100%", "100%");
+    }, 310);
+  }
+
+  // 2. 展开/缩回底部 IDE Review 控制台
+  let isBottomConsoleOpen = false;
+  function toggleBottomConsole() {
+    const panel = document.getElementById('bottom-console-panel');
+    const indicator = document.getElementById('console-close-indicator');
+    const closeText = document.getElementById('console-close-text');
+    
+    if (!panel) return;
+    
+    isBottomConsoleOpen = !isBottomConsoleOpen;
+    panel.classList.toggle('open', isBottomConsoleOpen);
+    indicator.classList.toggle('active', isBottomConsoleOpen);
+    
+    if (isBottomConsoleOpen) {
+      closeText.textContent = "Minimize Console (最小化)";
+    } else {
+      closeText.textContent = "Expand Bottom Dashboard (展开面板)";
+    }
+  }
+
+  // 3. 在底部控制台切换不同的 Tab
+  function selectConsoleTab(tabId) {
+    // 切换 tabs 激活状态
+    document.querySelectorAll('.console-tab').forEach(tab => {
+      tab.classList.remove('active');
+    });
+    const activeTabEl = document.getElementById(`tab-${tabId}`);
+    if (activeTabEl) activeTabEl.classList.add('active');
+    
+    // 切换内容区域可见性
+    const contentIds = ['coverage', 'override', 'summary'];
+    contentIds.forEach(id => {
+      const container = document.getElementById(`console-content-${id}`);
+      if (container) {
+        container.style.display = (id === tabId) ? 'block' : 'none';
+      }
+    });
+    
+    // 确保底部面板自动打开
+    if (!isBottomConsoleOpen) {
+      toggleBottomConsole();
+    }
+  }
 
   // Initialize page translations and network layout with dynamic Blocks catalog scanning first
   applyTranslations();
