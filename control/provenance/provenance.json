@@ -254,15 +254,6 @@
       "hash": "fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"
     },
     {
-      "path": "control/evidence/review-summary.json",
-      "originType": "generated",
-      "originId": "control/evidence/review-summary.json",
-      "generatedByPass": "verify",
-      "verifiedBy": [],
-      "overrideStatus": "none",
-      "hash": "816b6d9547b511ad6122e34d3601db1081250224d6688de94252649846cca2a4"
-    },
-    {
       "path": "control/evidence/runtime-report.json",
       "originType": "generated",
       "originId": "control/evidence/runtime-report.json",
@@ -287,7 +278,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "77a89b3d16f5a45d21f6b7c1d72a67374eb1c69c2529c8ec892f4922fdb132c2"
+      "hash": "d7941d42953420a83fafc1f810830d7dfd264589bcdf0507b766198ec9b9571e"
     },
     {
       "path": "control/graph/explain-graph.json",
@@ -296,7 +287,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "cb343c819db8ffb5e8fcf13c34b3960279e7af1ab65a99d1d319ea66b28eb192"
+      "hash": "0402b759eb074596ed6bd45b19bd66fcd7ea87e73886db06332997cb75913805"
     },
     {
       "path": "control/graph/explain-graph.mmd",
@@ -305,7 +296,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "7a37fc560002a43a8c603acd1246820b3f39d4b163a7a3bf179b7cbe2eb8c57a"
+      "hash": "bada40428d82bfa0c08c552363522cc636bd97c67987bf460b4ee0c947717c73"
     },
     {
       "path": "control/provenance/provenance.json",
@@ -314,52 +305,7 @@
       "generatedByPass": "lock",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "f060fff342f2bafced50b3751b423abd017abf304812126435a27a0ed20e77af"
-    },
-    {
-      "path": "control/workbench/views/graph-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/graph-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none",
-      "hash": "b809a083dbd35b5ed252a941003fe3b2777ac132f8e28dcbef7fdda2b957985e"
-    },
-    {
-      "path": "control/workbench/views/overview-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/overview-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none",
-      "hash": "44a1438dbe7437f6652b7acde0a49a798bb6696b3071d06ffb85e1e2ebf72826"
-    },
-    {
-      "path": "control/workbench/views/review-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/review-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none",
-      "hash": "dd0a39439dc4304ecccf1c361accc75c60aa5b31ddbd643def3021537642518f"
-    },
-    {
-      "path": "control/workbench/views/slot-rule-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/slot-rule-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none",
-      "hash": "06ef93bd235e17154d3388d949214df30325d0b65eae8687a5ac542b819e2c79"
-    },
-    {
-      "path": "control/workbench/views/source-view.html",
-      "originType": "generated",
-      "originId": "control/workbench/views/source-view.html",
-      "generatedByPass": "explain",
-      "verifiedBy": [],
-      "overrideStatus": "none",
-      "hash": "e43d30b6021a785465f8654f8c91fdc17b082b35f4d215c4020f93f397040fee"
+      "hash": "175bd9be46291c3969a67b1e53f968a3ca5ce242b5178b16b6499b03cae06153"
     },
     {
       "path": "custom/customer_normalizer.ts",
