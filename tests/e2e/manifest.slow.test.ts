@@ -10,7 +10,7 @@ import {
 } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import {
   expectGraphEdge,
   expectGraphNode,
@@ -163,7 +163,17 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
     prefix: 'engineering-compiler-ticket-override-',
     blockIds: ['ticket/basic', 'reporting/ticket-summary', 'worklog/basic']
   });
-  const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
+  const { overrideManifestPath, projectRoot, sourceOverridesRoot, planPath } = getWorkspacePaths(workspaceRoot);
+
+  const plan = await readYaml<any>(planPath);
+  plan.slots.push({
+    id: 'ticket_comment_delegate',
+    block: 'ticket/basic',
+    kind: 'adapter',
+    target: 'custom/ticket_comment_delegate.ts',
+    symbol: 'addTicketCommentDelegate'
+  });
+  await writeYaml(planPath, plan);
 
   const ticketSummaryExportPath = path.join(projectRoot, 'app', 'api', 'tickets', 'summary', 'export', 'route.ts');
   await expect(fs.readFile(ticketSummaryExportPath, 'utf8')).rejects.toThrow();
@@ -193,7 +203,14 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
   await adaptWorkspace(workspaceRoot);
   await expect(fs.readFile(ticketPagePath, 'utf8')).resolves.toContain('Manual ticket runtime override active.');
 
-  const { report } = await verifyWorkspace(workspaceRoot);
+  let report: any;
+  try {
+    const res = await verifyWorkspace(workspaceRoot);
+    report = res.report;
+  } catch (e: any) {
+    console.error('VERIFY ERROR DETAILS:', JSON.stringify(e.details ?? e, null, 2));
+    throw e;
+  }
   expect(report.summary.status).toBe('passed');
 
   await lockWorkspace(workspaceRoot);
