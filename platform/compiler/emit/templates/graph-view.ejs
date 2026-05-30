@@ -249,13 +249,79 @@
     height: 100%;
     border: 1px solid var(--border-color);
     border-radius: 16px;
-    background: #090d16;
-    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
-    background-size: 24px 24px;
+    background: #080c14;
+    /* 极致工业级 CAD 精细双网格叠加背景：24px 极细微格 + 96px 坐标参考格与交叉发光点 */
+    background-image: 
+      linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+      linear-gradient(rgba(0, 242, 254, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 242, 254, 0.04) 1px, transparent 1px);
+    background-size: 24px 24px, 24px 24px, 96px 96px, 96px 96px;
     position: relative;
-    box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.8);
+    box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.85);
     overflow: hidden;
+    transition: box-shadow 0.15s ease;
   }
+
+  /* 红光抖动震荡动画 */
+  @keyframes shake-and-red-glow {
+    0%, 100% { transform: translate(0, 0); box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.85); border-color: var(--border-color); }
+    10%, 30%, 50%, 70%, 90% { transform: translate(-4px, 0); box-shadow: 0 0 40px rgba(239, 68, 68, 0.4), inset 0 4px 30px rgba(0, 0, 0, 0.85); border-color: #ef4444; }
+    20%, 40%, 60%, 80% { transform: translate(4px, 0); box-shadow: 0 0 40px rgba(239, 68, 68, 0.4), inset 0 4px 30px rgba(0, 0, 0, 0.85); border-color: #ef4444; }
+  }
+  .canvas-shaking {
+    animation: shake-and-red-glow 0.6s ease-in-out;
+  }
+
+  /* 浮动磨砂玻璃 Toast */
+  .neon-toast-container {
+    position: absolute;
+    top: 25px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+  }
+  .neon-toast {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #f87171;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.25), 0 0 15px rgba(239, 68, 68, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    pointer-events: auto;
+  }
+  .neon-toast.show {
+    opacity: 1;
+    transform: translateY(0) translateX(0);
+  }
+  .neon-toast-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #ef4444;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: bold;
+    box-shadow: 0 0 8px #ef4444;
+  }
+
 
   /* 悬浮可折叠 Catalog 侧栏样式 */
   .node-sidebar {
@@ -750,6 +816,9 @@
   </div>
 
   <div class="canvas-grid">
+    <!-- Neon Toast Container -->
+    <div class="neon-toast-container" id="neon-toast-container"></div>
+
     <!-- Left Sidebar: Node Catalog -->
     <div class="node-sidebar" id="node-sidebar">
       <div class="sidebar-toggle-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle Sidebar (展开/折叠侧栏)">
@@ -1541,6 +1610,53 @@
           badgeText = ' ✅';
         }
 
+        // Domain-Based premium visual theme mapping
+        let nodeBg = typeStyle.color.background;
+        let nodeHighlightBg = typeStyle.color.highlight.background;
+        let fontCol = '#ffffff';
+        
+        if (n.type === 'block') {
+          const blockId = n.id.replace('block:', '');
+          const domain = blockId.split('/')[0] || 'general';
+          
+          if (domain === 'auth') {
+            nodeBg = '#220b33'; // 优雅红紫
+            nodeHighlightBg = '#3c135c';
+            if (state === 'passed') {
+              borderCol = '#c084fc'; // 霓虹紫
+              glowCol = '#c084fc';
+            }
+          } else if (domain === 'agent') {
+            nodeBg = '#03202e'; // 未来极光青
+            nodeHighlightBg = '#083e54';
+            if (state === 'passed') {
+              borderCol = '#22d3ee'; // 极光蓝青
+              glowCol = '#22d3ee';
+            }
+          } else if (domain === 'tenant') {
+            nodeBg = '#2e1802'; // 琥珀深金
+            nodeHighlightBg = '#4d2906';
+            if (state === 'passed') {
+              borderCol = '#fbbf24'; // 琥珀橘金
+              glowCol = '#fbbf24';
+            }
+          } else if (domain === 'infra' || domain === 'general') {
+            nodeBg = '#0b0f19'; // 钛合金深灰蓝
+            nodeHighlightBg = '#161e2e';
+            if (state === 'passed') {
+              borderCol = '#94a3b8'; // 钢青蓝
+              glowCol = '#94a3b8';
+            }
+          }
+        } else if (n.type === 'slot') {
+          nodeBg = '#1a0c30'; // 插槽深邃紫
+          nodeHighlightBg = '#2d1252';
+          if (state === 'passed') {
+            borderCol = '#a855f7';
+            glowCol = '#a855f7';
+          }
+        }
+        
         let customShape = typeStyle.shape;
         let customWidth = undefined;
         let customHeight = undefined;
@@ -1561,19 +1677,19 @@
           x: n.x,
           y: n.y,
           color: {
-            ...typeStyle.color,
             border: borderCol,
-            highlight: { ...typeStyle.color.highlight, border: borderCol }
+            background: nodeBg,
+            highlight: { border: borderCol, background: nodeHighlightBg }
           },
           shadow: {
             enabled: glowCol !== 'rgba(0,0,0,0)',
             color: glowCol,
-            size: 14,
+            size: 16,
             x: 0,
             y: 0
           },
           margin: 10,
-          font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
+          font: { color: fontCol, size: 12, face: 'JetBrains Mono, monospace' }
         });
 
         // Spontaneous compound ports explosion physics mapping
@@ -1779,12 +1895,79 @@
     if (isWiringMode) {
       btn.className = 'btn btn-primary';
       text.textContent = currentLang === 'zh' ? '退出连线模式' : 'Disable Wiring';
+      
+      // 智能连接指引：为所有的 Block 卡片和 Slot 节点注入极光蓝青色呼吸霓虹大阴影
+      if (visNodes) {
+        const allIds = visNodes.getIds();
+        allIds.forEach(id => {
+          if (id.startsWith('block:') || id.startsWith('slot:')) {
+            visNodes.update({
+              id: id,
+              shadow: {
+                enabled: true,
+                color: '#00f2fe',
+                size: 26,
+                x: 0,
+                y: 0
+              }
+            });
+          }
+        });
+      }
+      
       network.addEdgeMode();
     } else {
       btn.className = 'btn btn-secondary';
       text.textContent = currentLang === 'zh' ? '启用连线模式' : 'Enable Wiring';
+      
+      // 退出连线模式，自动恢复各组件原本的专属 Domain / 状态霓虹色彩
+      if (visNodes) {
+        renderTopology();
+      }
+      
       network.disableEditMode();
     }
+  }
+
+  // 浮动玻璃 Toast 提示与红光画布抖动
+  function showNeonToast(message) {
+    const container = document.getElementById('neon-toast-container');
+    if (!container) return;
+    
+    const toast = document.createElement('div');
+    toast.className = 'neon-toast';
+    
+    const icon = document.createElement('div');
+    icon.className = 'neon-toast-icon';
+    icon.textContent = '!';
+    
+    const text = document.createElement('span');
+    text.textContent = message;
+    
+    toast.appendChild(icon);
+    toast.appendChild(text);
+    container.appendChild(toast);
+    
+    // 触发平滑滑入
+    toast.offsetHeight;
+    toast.classList.add('show');
+    
+    // 触发集成电路画布的红光高频抖动震荡
+    const canvas = document.getElementById('network-canvas');
+    if (canvas) {
+      canvas.classList.remove('canvas-shaking');
+      canvas.offsetHeight; // trigger reflow
+      canvas.classList.add('canvas-shaking');
+      setTimeout(() => {
+        canvas.classList.remove('canvas-shaking');
+      }, 600);
+    }
+    
+    // 3秒后自动淡出并移出 DOM
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 300);
+    }, 3200);
   }
 
   function handleAddEdge(fromId, toId, callback, edgeData) {
@@ -1799,16 +1982,23 @@
     let blockNode = null;
     let slotNode = null;
     
-    if (fromNode.type === 'block' && toNode.type === 'slot') {
+    const fromType = fromNode.type || fromId.split(':')[0];
+    const toType = toNode.type || toId.split(':')[0];
+    
+    if (fromType === 'block' && toType === 'slot') {
       blockNode = fromNode;
       slotNode = toNode;
-    } else if (fromNode.type === 'slot' && toNode.type === 'block') {
+    } else if (fromType === 'slot' && toType === 'block') {
       blockNode = toNode;
       slotNode = fromNode;
     }
     
     if (!blockNode || !slotNode) {
-      alert(currentLang === 'zh' ? '只允许在 Block 能力块与 Slot 插槽之间建立连线！' : 'Connections are only allowed between Block and Slot!');
+      const errorMsg = currentLang === 'zh' 
+        ? '【连接错误】电路短路！仅允许在 Slot 插槽与目标 Block 芯片卡片之间建立连线！' 
+        : '[Connection Blocked] Invalid topology link! Only connections between Slots and Blocks are allowed!';
+      
+      showNeonToast(errorMsg);
       callback(null);
       if (isWiringMode) {
         setTimeout(() => network.addEdgeMode(), 100);
@@ -1939,6 +2129,29 @@
     }
   }
 
+  // 异步获取物理 Slot 的自举源码并回显
+  async function loadSlotSourceCode(slotId) {
+    const container = document.getElementById('slot-source-preview-container');
+    const textarea = document.getElementById('slot-source-preview');
+    const badge = document.getElementById('preview-path-badge');
+    if (!container || !textarea) return;
+    
+    try {
+      const res = await fetch(`/api/slot-code?slotId=${slotId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.code) {
+          textarea.value = data.code;
+          if (badge) badge.textContent = `slots/${slotId}.ts`;
+          container.style.display = 'block';
+          return;
+        }
+      }
+    } catch (e) {}
+    
+    container.style.display = 'none';
+  }
+
   // Right Drawer Sidebar actions
   function openDrawer() {
     document.getElementById('inspector-drawer').classList.add('open');
@@ -1959,6 +2172,12 @@
 
     const titleVal = translationDict[currentLang][node.type] || node.type;
     document.getElementById('inspector-title').textContent = titleVal;
+
+    // 当选中的是 Slot 时，静默触发源码拉取预览
+    if (node.type === 'slot') {
+      const slotId = nodeId.replace('slot:', '');
+      setTimeout(() => loadSlotSourceCode(slotId), 50);
+    }
 
     const outgoing = rawGraph.edges.filter(e => e.from === nodeId);
     const incoming = rawGraph.edges.filter(e => e.to === nodeId);
@@ -2058,6 +2277,13 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 18l6-6-6-6M8 6L2 12l6 6"/></svg>
               Bootstrap Code (一键自举 Slot 源码)
             </button>
+            <div id="slot-source-preview-container" style="display:none; margin-top:16px; border-top:1px dashed #334155; padding-top:14px;">
+              <div style="font-weight:600; color:#c084fc; font-size:11px; text-transform:uppercase; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+                <span>Slot Source Preview (源码预览)</span>
+                <span id="preview-path-badge" style="font-size:9px; color:#94a3b8; font-family:monospace;"></span>
+              </div>
+              <textarea id="slot-source-preview" readonly style="background:#020617; border:1px solid #334155; border-radius:6px; font-family: 'JetBrains Mono', monospace; font-size:11px; color:#a78bfa; padding:10px; width:100%; height:180px; box-sizing:border-box; outline:none; resize:none; white-space:pre; overflow-x:auto;"></textarea>
+            </div>
           </div>
         </div>
       `;
@@ -2201,6 +2427,9 @@
         
         // 自动触发静态分析运行，并将分析结果流式显示在 Runner 控制台中！
         await runSingleNode('slot', slotId);
+        
+        // 自动拉取物理自举出的源码并展示在预览窗中！
+        await loadSlotSourceCode(slotId);
       } else {
         throw new Error(data.error || 'Failed to bootstrap file');
       }

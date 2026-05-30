@@ -199,6 +199,35 @@ export async function handle${symbolName}(input: any): Promise<any> {
         }
       }
 
+      // 2.5. 获取 Slot 物理源码
+      if (reqPath === '/api/slot-code') {
+        try {
+          const slotId = url.searchParams.get('slotId');
+          if (!slotId) {
+            const res = createResponse({ error: 'Missing slotId parameter' }, 400);
+            console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 400 Bad Request - ${Date.now() - startTime}ms\x1b[0m`);
+            return res;
+          }
+
+          const targetPath = path.join(workspaceRoot, 'source/code/slots', `${slotId}.ts`);
+          const exists = await fs.access(targetPath).then(() => true).catch(() => false);
+          if (!exists) {
+            const res = createResponse({ error: 'Slot code file not found', code: '' }, 404);
+            console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 404 Not Found - ${Date.now() - startTime}ms\x1b[0m`);
+            return res;
+          }
+
+          const codeContent = await fs.readFile(targetPath, 'utf8');
+          const res = createResponse({ code: codeContent });
+          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
+          return res;
+        } catch (e: any) {
+          const res = createResponse({ error: e.message || String(e) }, 500);
+          console.log(`\x1b[31m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 500 Internal Error - ${Date.now() - startTime}ms\x1b[0m`);
+          return res;
+        }
+      }
+
       // 3. 获取 Graph 依赖数据
       if (reqPath === '/api/graph') {
         try {
