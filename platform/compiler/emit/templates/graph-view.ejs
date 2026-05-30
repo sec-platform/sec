@@ -250,6 +250,7 @@
     background-size: 24px 24px;
     position: relative;
     box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
   }
 
   /* Node Sidebar style */
@@ -1030,6 +1031,37 @@
   let visEdges = null;
   let isWiringMode = false;
 
+  function updatePortsPosition(blockNodeId, x, y) {
+    const blockId = blockNodeId.replace('block:', '');
+    const bDef = blocksCatalog.find(b => b.id === blockId);
+    if (bDef) {
+      if (bDef.provides) {
+        bDef.provides.forEach((prov, idx) => {
+          const portId = `port-provides:${blockId}:${prov}`;
+          if (visNodes && visNodes.get(portId)) {
+            visNodes.update({
+              id: portId,
+              x: x + 120,
+              y: y + (idx - (bDef.provides.length - 1) / 2) * 50
+            });
+          }
+        });
+      }
+      if (bDef.requires) {
+        bDef.requires.forEach((req, idx) => {
+          const portId = `port-requires:${blockId}:${req}`;
+          if (visNodes && visNodes.get(portId)) {
+            visNodes.update({
+              id: portId,
+              x: x - 120,
+              y: y + (idx - (bDef.requires.length - 1) / 2) * 50
+            });
+          }
+        });
+      }
+    }
+  }
+
   // HTML5 Drag & Drop
   let draggedType = null;
   let draggedId = null;
@@ -1109,13 +1141,14 @@
                 visNodes.add({
                   id: portId,
                   label: `Provides:\n${prov}`,
-                  x: x + 100,
+                  x: x + 120,
                   y: y + (idx - (bDef.provides.length - 1)/2) * 50,
                   shape: 'dot',
                   size: 10,
                   color: { background: '#064e3b', border: '#10b981' },
                   shadow: { enabled: true, color: '#10b981', size: 8, x: 0, y: 0 },
-                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' }
+                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' },
+                  physics: false
                 });
                 visEdges.add({
                   from: `block:${blockId}`,
@@ -1134,13 +1167,14 @@
                 visNodes.add({
                   id: portId,
                   label: `Requires:\n${req}`,
-                  x: x - 100,
+                  x: x - 120,
                   y: y + (idx - (bDef.requires.length - 1)/2) * 50,
                   shape: 'dot',
                   size: 10,
                   color: { background: '#78350f', border: '#f59e0b' },
                   shadow: { enabled: true, color: '#f59e0b', size: 8, x: 0, y: 0 },
-                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' }
+                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' },
+                  physics: false
                 });
                 visEdges.add({
                   from: portId,
@@ -1373,7 +1407,8 @@
                   size: 10,
                   color: { background: '#064e3b', border: '#10b981' },
                   shadow: { enabled: true, color: '#10b981', size: 8, x: 0, y: 0 },
-                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' }
+                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' },
+                  physics: false
                 });
                 edgesArray.push({
                   from: n.id,
@@ -1393,7 +1428,8 @@
                   size: 10,
                   color: { background: '#78350f', border: '#f59e0b' },
                   shadow: { enabled: true, color: '#f59e0b', size: 8, x: 0, y: 0 },
-                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' }
+                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' },
+                  physics: false
                 });
                 edgesArray.push({
                   from: portId,
@@ -1494,6 +1530,36 @@
     };
 
     network = new vis.Network(container, data, options);
+
+    network.on("stabilized", function() {
+      console.log("[Topology] Stabilized. Locking physical engine & aligning port coordinates...");
+      if (!visNodes || activeTab !== 'spec-builder') return;
+      const blockIds = visNodes.getIds({
+        filter: function(item) {
+          return String(item).startsWith('block:');
+        }
+      });
+      const positions = network.getPositions(blockIds);
+      blockIds.forEach(blockNodeId => {
+        const pos = positions[blockNodeId];
+        if (pos) {
+          updatePortsPosition(blockNodeId, pos.x, pos.y);
+        }
+      });
+      network.setOptions({ physics: false });
+    });
+
+    network.on("drag", function(params) {
+      if (params.nodes.length > 0) {
+        const draggedId = params.nodes[0];
+        if (String(draggedId).startsWith('block:')) {
+          const pos = network.getPositions([draggedId])[draggedId];
+          if (pos) {
+            updatePortsPosition(draggedId, pos.x, pos.y);
+          }
+        }
+      }
+    });
 
     network.on("selectNode", function(params) {
       if (params.nodes.length > 0) {
