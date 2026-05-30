@@ -73,6 +73,43 @@ test('workbench server serves files and APIs correctly', async () => {
         await reader.cancel();
       }
 
+      // 7. Test GET /api/blocks-catalog (with dynamically created mock block)
+      const mockRegDir = path.join(workspaceRoot, 'platform/registry/official/test-mock-block');
+      await fs.mkdir(mockRegDir, { recursive: true });
+      const mockManifest = `
+id: test-mock-block
+version: 0.9.9
+requires: [auth]
+provides: [test-mock]
+slots: []
+`;
+      await fs.writeFile(path.join(mockRegDir, 'block.manifest.yaml'), mockManifest, 'utf8');
+
+      const resCatalog = await fetch('http://localhost:8085/api/blocks-catalog');
+      expect(resCatalog.status).toBe(200);
+      const jsonCatalog = await resCatalog.json();
+      expect(Array.isArray(jsonCatalog)).toBe(true);
+      const matchedBlock = jsonCatalog.find((b: any) => b.id === 'test-mock-block');
+      expect(matchedBlock).toBeDefined();
+      expect(matchedBlock.version).toBe('0.9.9');
+
+      // 8. Test POST /api/bootstrap-slot
+      const resBootstrap = await fetch('http://localhost:8085/api/bootstrap-slot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId: 'test_resolver_slot', block: 'test/block' })
+      });
+      expect(resBootstrap.status).toBe(200);
+      const jsonBootstrap = await resBootstrap.json();
+      expect(jsonBootstrap.status).toBe('success');
+      expect(jsonBootstrap.path).toBe('source/code/slots/test_resolver_slot.ts');
+
+      // Check physical file contents
+      const bootstrappedPath = path.join(workspaceRoot, 'source/code/slots/test_resolver_slot.ts');
+      const bootstrappedContent = await fs.readFile(bootstrappedPath, 'utf8');
+      expect(bootstrappedContent).toContain('export async function handleTestResolverSlot');
+      expect(bootstrappedContent).toContain('test/block');
+
 
     } finally {
       // Clean up server

@@ -1,6 +1,7 @@
 import { serve } from 'bun';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import YAML from 'yaml';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeJson } from '../shared/fs.ts';
 
@@ -25,6 +26,85 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
       const reqPath = url.pathname;
 
       // API Endpoints
+      if (reqPath === '/api/blocks-catalog') {
+        try {
+          const registryDir = path.join(workspaceRoot, 'platform/registry/official');
+          const entries = await fs.readdir(registryDir, { withFileTypes: true });
+          const catalog = [];
+          
+          for (const entry of entries) {
+            if (entry.isDirectory()) {
+              const manifestPath = path.join(registryDir, entry.name, 'block.manifest.yaml');
+              const exists = await fs.access(manifestPath).then(() => true).catch(() => false);
+              if (exists) {
+                const content = await fs.readFile(manifestPath, 'utf8');
+                const parsed = YAML.parse(content);
+                catalog.push(parsed);
+              }
+            }
+          }
+          
+          return new Response(JSON.stringify(catalog), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (e: any) {
+          return new Response(JSON.stringify({ error: e.message || String(e) }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      if (reqPath === '/api/bootstrap-slot' && req.method === 'POST') {
+        try {
+          const body = await req.json();
+          const { slotId, block } = body;
+          if (!slotId) {
+            return new Response(JSON.stringify({ error: 'Missing slotId' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          const slotsDir = path.join(workspaceRoot, 'source/code/slots');
+          await fs.mkdir(slotsDir, { recursive: true });
+          const targetPath = path.join(slotsDir, `${slotId}.ts`);
+
+          const exists = await fs.access(targetPath).then(() => true).catch(() => false);
+          if (!exists) {
+            const rawCamel = slotId.replace(/_([a-z])/g, (_: any, c: string) => c.toUpperCase());
+            const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
+            
+            const template = `/**
+ * SpecEngineer Auto-Bootstrapped Slot Handler
+ * Slot ID: ${slotId}
+ * Associated Block: ${block || 'none'}
+ */
+
+export async function handle${symbolName}(input: any): Promise<any> {
+  // TODO: Implement custom business logic for slot "${slotId}" here.
+  console.log("[Slot Handler ${slotId}] Received input:", input);
+  return {
+    status: "success",
+    timestamp: new Date().toISOString(),
+    processed: true
+  };
+}
+`;
+            await fs.writeFile(targetPath, template, 'utf8');
+          }
+
+          return new Response(JSON.stringify({ status: 'success', path: `source/code/slots/${slotId}.ts` }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (e: any) {
+          return new Response(JSON.stringify({ error: e.message || String(e) }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
       if (reqPath === '/api/graph') {
         try {
           const content = await fs.readFile(explainGraphPath, 'utf8');
