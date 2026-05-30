@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     await writeText(rpcRouteFile, rpcRouteContent);
     generatedPaths.push(`app/api/rpc/${dirName}/route.ts`);
 
-    // 2. 生成 RPC 客户端代理桩 (RPC Client Proxies)
+    // 2. 生成 RPC 客户端代理桩 (RPC Client Proxies)，注入熔断重试韧性机制
     const clientDir = path.join(projectRoot, 'src', 'rpc-clients');
     const clientFile = path.join(clientDir, `${dirName}-client.ts`);
     
@@ -67,21 +67,108 @@ export async function POST(request: Request) {
     const rpcClientContent = `// @generated-rpc-client block-id:${block.id}
 /**
  * 自动生成的分布式 RPC 客户端代理代理桩
- * 将原本的进程内本地方法调用优雅降级为受控的网络 RPC 调用
+ * 将原本的进程内本地方法调用优雅降级为受控的网络 RPC 调用。
+ * 注入了工业级的分布式韧性架构：指数退避重试 (Exponential Backoff) 与熔断器 (Circuit Breaker)。
  */
-export async function callRpc(method: string, params: any[]): Promise<any> {
-  const host = process.env[\`SERVICE_HOST_\${'${dirName.toUpperCase().replace(/\./g, '_')}'}\`] || '';
-  const response = await fetch(\`\${host}/api/rpc/${dirName}\`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method, params })
-  });
-  
-  const data = await response.json();
-  if (data.error) {
-    throw new Error(\`[RPC Error - ${block.id}]: \${data.error}\`);
+
+class CircuitBreaker {
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+  private failureThreshold = 3;
+  private cooldownPeriodMs = 5000;
+  private failureCount = 0;
+  private lastStateChanged = 0;
+
+  public checkCall(): void {
+    const now = Date.now();
+    if (this.state === 'OPEN') {
+      if (now - this.lastStateChanged > this.cooldownPeriodMs) {
+        this.state = 'HALF_OPEN';
+        this.lastStateChanged = now;
+      } else {
+        throw new Error('[Circuit Breaker] Service "${block.id}" is currently offline (Circuit Breaker OPEN). Fast-failing.');
+      }
+    }
   }
-  return data.result;
+
+  public recordSuccess(): void {
+    this.failureCount = 0;
+    this.state = 'CLOSED';
+  }
+
+  public recordFailure(): void {
+    this.failureCount++;
+    if (this.state === 'HALF_OPEN' || this.failureCount >= this.failureThreshold) {
+      this.state = 'OPEN';
+      this.lastStateChanged = Date.now();
+    }
+  }
+}
+
+const breaker = new CircuitBreaker();
+
+async function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function callRpc(
+  method: string, 
+  params: any[], 
+  options?: { fallback?: any; timeoutMs?: number }
+): Promise<any> {
+  const host = process.env[\`SERVICE_HOST_\${'${dirName.toUpperCase().replace(/\./g, '_')}'}\`] || '';
+  const timeout = options?.timeoutMs ?? 5000;
+  
+  try {
+    breaker.checkCall();
+  } catch (err: any) {
+    if (options && 'fallback' in options) {
+      return options.fallback;
+    }
+    throw err;
+  }
+
+  let lastError: any;
+  let currentDelay = 100;
+  const maxRetries = 3;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+
+      const response = await fetch(\`\${host}/api/rpc/${dirName}\`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, params }),
+        signal: controller.signal
+      });
+      clearTimeout(id);
+
+      if (!response.ok) {
+        throw new Error(\`HTTP status \${response.status}\`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      breaker.recordSuccess();
+      return data.result;
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await delay(currentDelay);
+        currentDelay *= 2;
+      }
+    }
+  }
+
+  breaker.recordFailure();
+  if (options && 'fallback' in options) {
+    return options.fallback;
+  }
+  throw new Error(\`[RPC Error - ${block.id}] Call failed after \${maxRetries + 1} attempts. Last error: \${lastError.message}\`);
 }
 `;
     await writeText(clientFile, rpcClientContent);

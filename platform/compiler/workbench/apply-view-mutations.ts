@@ -7,7 +7,16 @@ import type { AppMode, PlanFile } from '../../shared/plan-manifest-types.ts';
 import { writeYaml } from '../../shared/yaml.ts';
 import { loadPlan } from '../parse/load-plan.ts';
 
-export type ViewMutationKind = 'set-app-name' | 'set-app-mode' | 'add-acceptance' | 'set-slot-description' | 'set-slot-source-path';
+export type ViewMutationKind =
+  | 'set-app-name'
+  | 'set-app-mode'
+  | 'add-acceptance'
+  | 'set-slot-description'
+  | 'set-slot-source-path'
+  | 'add-block'
+  | 'remove-block'
+  | 'bind-slot'
+  | 'unbind-slot';
 
 export type ViewMutation =
   | {
@@ -36,6 +45,33 @@ export type ViewMutation =
       kind: 'set-slot-source-path';
       slotId: string;
       sourcePath: string;
+    }
+  | {
+      id: string;
+      kind: 'add-block';
+      blockId: string;
+      version: string;
+    }
+  | {
+      id: string;
+      kind: 'remove-block';
+      blockId: string;
+    }
+  | {
+      id: string;
+      kind: 'bind-slot';
+      slotId: string;
+      block: string;
+      slotKind: string;
+      target: string;
+      sourcePath: string;
+      symbol: string;
+      description?: string;
+    }
+  | {
+      id: string;
+      kind: 'unbind-slot';
+      slotId: string;
     };
 
 export interface ViewMutationFile {
@@ -128,6 +164,41 @@ function parseMutation(raw: unknown, sourcePath: string): ViewMutation {
       sourcePath: assertSlotSourcePath(raw.sourcePath, `${id}.sourcePath`)
     };
   }
+  if (kind === 'add-block') {
+    return {
+      id,
+      kind,
+      blockId: assertNonEmptyString(raw.blockId, `${id}.blockId`),
+      version: assertNonEmptyString(raw.version, `${id}.version`)
+    };
+  }
+  if (kind === 'remove-block') {
+    return {
+      id,
+      kind,
+      blockId: assertNonEmptyString(raw.blockId, `${id}.blockId`)
+    };
+  }
+  if (kind === 'bind-slot') {
+    return {
+      id,
+      kind,
+      slotId: assertNonEmptyString(raw.slotId, `${id}.slotId`),
+      block: assertNonEmptyString(raw.block, `${id}.block`),
+      slotKind: assertNonEmptyString(raw.slotKind, `${id}.slotKind`),
+      target: assertNonEmptyString(raw.target, `${id}.target`),
+      sourcePath: assertNonEmptyString(raw.sourcePath, `${id}.sourcePath`),
+      symbol: assertNonEmptyString(raw.symbol, `${id}.symbol`),
+      description: typeof raw.description === 'string' ? raw.description : undefined
+    };
+  }
+  if (kind === 'unbind-slot') {
+    return {
+      id,
+      kind,
+      slotId: assertNonEmptyString(raw.slotId, `${id}.slotId`)
+    };
+  }
 
   throw new CompilerError('WORKBENCH-MUTATION-004', `Unsupported Workbench mutation kind "${kind}"`);
 }
@@ -187,7 +258,74 @@ function applyMutation(plan: PlanFile, mutation: ViewMutation, sourcePath: strin
     return result(mutation, sourcePath, 'applied', `added acceptance ${mutation.acceptanceId}`);
   }
 
-  const slot = plan.slots.find((entry) => entry.id === mutation.slotId);
+  if (mutation.kind === 'add-block') {
+    if (!plan.blocks) {
+      plan.blocks = [];
+    }
+    if (plan.blocks.some((b) => b.id === mutation.blockId)) {
+      return result(mutation, sourcePath, 'skipped', `block ${mutation.blockId} already installed`);
+    }
+    plan.blocks.push({ id: mutation.blockId, version: mutation.version });
+    return result(mutation, sourcePath, 'applied', `installed block ${mutation.blockId}@${mutation.version}`);
+  }
+
+  if (mutation.kind === 'remove-block') {
+    if (!plan.blocks || !plan.blocks.some((b) => b.id === mutation.blockId)) {
+      return result(mutation, sourcePath, 'skipped', `block ${mutation.blockId} not installed`);
+    }
+    plan.blocks = plan.blocks.filter((b) => b.id !== mutation.blockId);
+    // 级联清除该 block 的所有 slots
+    if (plan.slots) {
+      plan.slots = plan.slots.filter((s) => s.block !== mutation.blockId);
+    }
+    return result(mutation, sourcePath, 'applied', `removed block ${mutation.blockId} and its slots`);
+  }
+
+  if (mutation.kind === 'bind-slot') {
+    if (!plan.slots) {
+      plan.slots = [];
+    }
+    const existingIndex = plan.slots.findIndex((s) => s.id === mutation.slotId);
+    const newSlot = {
+      id: mutation.slotId,
+      block: mutation.block,
+      kind: mutation.slotKind,
+      target: mutation.target,
+      sourcePath: mutation.sourcePath,
+      symbol: mutation.symbol,
+      ...(mutation.description ? { description: mutation.description } : {})
+    };
+
+    if (existingIndex !== -1) {
+      const existing = plan.slots[existingIndex];
+      const matches = 
+        existing.block === newSlot.block &&
+        existing.kind === newSlot.kind &&
+        existing.target === newSlot.target &&
+        existing.sourcePath === newSlot.sourcePath &&
+        existing.symbol === newSlot.symbol &&
+        existing.description === newSlot.description;
+      
+      if (matches) {
+        return result(mutation, sourcePath, 'skipped', `slot ${mutation.slotId} already bound with same config`);
+      }
+      plan.slots[existingIndex] = newSlot as any;
+      return result(mutation, sourcePath, 'applied', `updated slot ${mutation.slotId} binding`);
+    } else {
+      plan.slots.push(newSlot as any);
+      return result(mutation, sourcePath, 'applied', `bound slot ${mutation.slotId} to ${mutation.block}`);
+    }
+  }
+
+  if (mutation.kind === 'unbind-slot') {
+    if (!plan.slots || !plan.slots.some((s) => s.id === mutation.slotId)) {
+      return result(mutation, sourcePath, 'skipped', `slot ${mutation.slotId} not bound`);
+    }
+    plan.slots = plan.slots.filter((s) => s.id !== mutation.slotId);
+    return result(mutation, sourcePath, 'applied', `unbound slot ${mutation.slotId}`);
+  }
+
+  const slot = plan.slots?.find((entry) => entry.id === mutation.slotId);
   if (!slot) {
     throw new CompilerError('WORKBENCH-MUTATION-006', `Slot "${mutation.slotId}" does not exist in source/app.yaml`);
   }

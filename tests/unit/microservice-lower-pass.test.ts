@@ -77,6 +77,12 @@ describe('Microservice Lowering Compiler Pass', () => {
     expect(rpcContent).toContain('import * as service from');
     expect(clientContent).toContain('@generated-rpc-client');
     expect(clientContent).toContain('export async function callRpc');
+    expect(clientContent).toContain('class CircuitBreaker');
+    expect(clientContent).toContain('breaker.checkCall()');
+    expect(clientContent).toContain('breaker.recordSuccess()');
+    expect(clientContent).toContain('breaker.recordFailure()');
+    expect(clientContent).toContain('maxRetries = 3');
+    expect(clientContent).toContain("'fallback' in options");
     expect(dockerContent).toContain('@generated-dockerfile');
     expect(dockerContent).toContain('FROM bun:1.3.6-alpine');
   });
