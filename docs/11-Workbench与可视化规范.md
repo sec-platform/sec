@@ -484,6 +484,12 @@ Visual Spec Builder 采用 **“Node-Link” 拓扑映射模型**，在前端将
 3. **单节点流式验证调试器 (Single Node Runner)**：在 Drawer 属性检查面板下方集成 Runner Console 终端，通过 `POST /api/run-node` 发起流式验证，在后台对 slot 运行 AST 静态安全分析，或对 block 自动匹配 `tests/` 文件夹下的专属单元测试（模糊匹配），或增量执行 verify 快轨，实时把调试日志写回抽屉中。
 4. **霓虹状态感知特效 (Status Aura & Glows)**：融合 review 及 violations 数据判定节点状态（❌ Failed / ⚠️ Warning / ✅ Passed），并利用霓虹微光发光圈和徽章进行物理着色，未应用 mutations 节点亮警示黄，已通过验证节点亮青翠绿，出现违规或错误节点亮深红霓虹，提供极佳的图形直观度。
 
+### 14.6 拓扑引脚防逃逸物理锁定机制 (v0.2.3 - 2026-05)
+
+为了彻底根治 V2 原子化端口爆炸解构后，Provides 和 Requires 管脚节点由于 Vis.js 多体物理引擎（ForceAtlas2）多体排斥力导致的发散、逃逸振动，以及引发的“画布无限向下延伸”的恶性交互 Bug，平台特实施以下防逃逸物理锁定机制：
+1. **管脚节点物理冻结**：所有 Provides（Provides Port）与 Requires（Requires Port）的引脚节点在初始生成（`nodesArray.push`）和就地动态添加（`addNewNodeAt`）时，强制注入 `physics: false`，完全解耦其与全局力场的物理排斥关系。
+2. **物理稳定全局冻结**：在 Vis.js 网络的 `stabilized` 事件中，遍历所有 Block 节点，自动获取其物理稳定坐标，并计算其 Provides/Requires 端口的绝对坐标（Provides 在右侧 +120px，Requires 在左侧 -120px，垂直按端口数量均分偏移），调用 `visNodes.update` 进行物理对准。对齐完成后，全局执行 `network.setOptions({ physics: false })`，彻底冻结所有节点的力学引擎，避免后续产生任何自发性漂移。
+3. **拖拽实时同步对齐**：监听画布的 `drag` 事件。当用户用鼠标拖拽或移动 Block 节点时，自动通过 `getPositions` 获取当前 Block 节点坐标，并高频微调其对应的所有 Provides/Requires 子引脚节点至最新对齐坐标，在用户拖拽体验上实现无缝粘滞跟随。
 
 ## 15. 可组合前端的“视觉美学隔离与设计系统 Token 桥”
 
