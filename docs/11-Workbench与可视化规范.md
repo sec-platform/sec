@@ -456,7 +456,29 @@ Visual Spec Builder 采用 **“Node-Link” 拓扑映射模型**，在前端将
 2. **编译器极速重缝合 (Compiler Stitching Loop)**：
    - 回写成功后，平台自动并行触发 `compose` 与 `adapt` Pass，在 10s 内重新装配出完整的 Next.js 页面与 Prisma 模型。
    - 接着触发 affected verify，只对发生变动的 Slot 或 Block 跑 Playwright 验收。全部通过后，利用 `sec lock` 重新锁定哈希，生成全新的只读 `explain-graph.json`，并将最新图谱状态实时推送回前端界面渲染。
-   - 这一“双向闭环”确保了图形化开发和契约编译的绝对纯净与高度一致！
+   - 这一“双向闭环”确保了图形化开发和契约编译 of 绝对纯净与高度一致！
+
+### 14.4 本地 HTTP 双向热编译服务 (Dynamic API Server)
+
+为了彻底打通双向实时同步编辑的闭环，在 `sec workbench --serve` 命令中内置启动一个 Bun 原生的轻量级 Web 服务器：
+
+1. **静态资源路由**：
+   - 直接伺服 `control/workbench/views/` 目录下的 HTML 文件。
+   - 当请求 `/` 时，默认重定向或服务 `overview-view.html`。
+2. **数据交互 API**：
+   - `GET /api/graph`：直接读取并返回最新的 `control/graph/explain-graph.json`。
+   - `GET /api/review`：直接读取并返回最新的 `control/graph/review-summary.json`。
+   - `POST /api/mutations`：接收前端发送的 Mutations 列表，写入工作区 `source/views/mutations/graph-action.json`。
+   - `POST /api/compile`：依次触发以下编译管道 Pass：`resolve` -> `compose` -> `adapt` -> `verify` -> `lock` -> `explain`。支持将编译日志以 SSE (Server-Sent Events) 的形式实时流式传回前端。
+   - `POST /api/run-node`：接收前端对特定 block/slot 的单节点调试请求，自动在 `tests/` 目录下匹配其专属的 `.test.ts` 单元测试跑局部验证，或执行 Slot 静态 AST 安全审计，并以 SSE 流的形式实时返回流式日志，在流关闭时自动物理清理子进程句柄。
+
+### 14.5 低代码与 n8n 画布完美交互演进记录 (v0.2.2 - 2026-05)
+
+在 v0.2.2 版本中，完成了工作台画布交互的高保真大升级，综合低代码与 n8n 核心交互规范：
+1. **Node Sidebar 常驻组件目录**：在画布左侧设计了常驻的 Catalog 栏，划分 Blocks 与 Slots，用户可以双击列表项或用鼠标拖拽组件卡片进入画布，在指定坐标自动映射生成节点并追加 `add-block` mutation。
+2. **图形化连线绑定与键盘解绑**：开启 Vis.js 网络的编辑模式，鼠标画线在 Block 和 Slot 节点之间直接绑定管脚（Stitch Slots），触发快捷属性配置弹窗；选中连线/节点点击 Delete/Backspace 键直接物理抹除，回写 `unbind-slot` / `remove-block` mutations。
+3. **单节点流式验证调试器 (Single Node Runner)**：在 Drawer 属性检查面板下方集成 Runner Console 终端，通过 `POST /api/run-node` 发起流式验证，在后台对 slot 运行 AST 静态安全分析，或对 block 自动匹配 `tests/` 文件夹下的专属单元测试（模糊匹配），或增量执行 verify 快轨，实时把调试日志写回抽屉中。
+4. **霓虹状态感知特效 (Status Aura & Glows)**：融合 review 及 violations 数据判定节点状态（❌ Failed / ⚠️ Warning / ✅ Passed），并利用霓虹微光发光圈和徽章进行物理着色，未应用 mutations 节点亮警示黄，已通过验证节点亮青翠绿，出现违规或错误节点亮深红霓虹，提供极佳的图形直观度。
 
 
 ## 15. 可组合前端的“视觉美学隔离与设计系统 Token 桥”

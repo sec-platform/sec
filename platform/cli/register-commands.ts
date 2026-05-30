@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
 import { loadManifestById } from '../compiler/parse/load-manifest.ts';
 import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
-import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
+import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, startWorkbenchServer, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import {
   buildBenchmarkTaskSuiteContract,
@@ -399,8 +399,15 @@ export function registerCommands(program: Command): void {
 
   addJsonFlags(modeCommand(program.command('workbench')))
     .description('Workbench operations')
+    .option('--serve', 'Start dynamic workbench HTTP server')
+    .option('--port <number>', 'Port for workbench HTTP server', '8080')
     .action(async (opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
+      if (opts.serve) {
+        const port = parseInt(opts.port as string, 10) || 8080;
+        await startWorkbenchServer(process.cwd(), port);
+        return;
+      }
       const report = await applyWorkbenchMutations(process.cwd());
       printJsonOrText(report, output, (r) => {
         const lines = [

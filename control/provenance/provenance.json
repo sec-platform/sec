@@ -89,7 +89,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "8cae00ab1def512eedb1ea6fff56358b848c695b8b385a1e24e9acb85a96ce54"
+      "hash": "4c4886df0fa243a5967a9f3c6a954b4106e0b58691e5fffcdba2d4560b8d3959"
     },
     {
       "path": "app/globals.css",
@@ -98,7 +98,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "f284c8e96c964f0eedc8feb72a2d70079213148c4fa2914d6c7a1d75d6c45c4b"
+      "hash": "cd0d98fbb0e5d385552f519cfb5a974ce0511b9fd0de829ffd5d4180c0eab255"
     },
     {
       "path": "app/layout.tsx",
@@ -116,7 +116,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "39c95a6f7ea3e74c756444d8d8979bdf65d22c2c8de68dccdd7fe5bd0e86e508"
+      "hash": "d515c598a018a51b9dcfe199ffdcd55d1cdcd23b0859dfb237ce4cffc45ee07f"
     },
     {
       "path": "app/page.tsx",
@@ -134,7 +134,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "bbc68c82dc2caa59e7a9af9888aab95257b259fb2fe8f04741713cdb95a1f95c"
+      "hash": "f0721d48f42dc4c21a47acc8c33a04e44fe062ff28e04fef1be23d551032d383"
     },
     {
       "path": "app/workspace/page.tsx",
@@ -143,7 +143,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "97dea79cc750eb80f1ad4351c0ea36b142163fef4dbb807f15c6cf20604bd897"
+      "hash": "b9fb1475d3fbb6e8bbd187b0b0ff46599379eb86040a1dc8fbdb27a3b789dba2"
     },
     {
       "path": "components/customer-attachment-form.tsx",
@@ -152,7 +152,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "dce0d95a6f871e38eeeca1556a2b0e79d0504337f7d437c64cad0273fc7879cf"
+      "hash": "f723bc1c776c40291edcca8c20df573a5f9c7fd6814cf4cf5f444dc65f35928b"
     },
     {
       "path": "components/customer-form.tsx",
@@ -161,7 +161,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "49618f6b9d9e582874135d1d022c07d53fdf7fcdd1f0746cb6cbde8a7c3095db"
+      "hash": "64ac781b45e1b0969edb21b23c8c444be9186b8b159eaf22f0c3c85cbfd5b931"
     },
     {
       "path": "components/login-form.tsx",
@@ -170,7 +170,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "499fd88b84c51f5bf4ab4ab19af6166ef994b1463c03961b9aaac82b7bc950a4"
+      "hash": "54a7a4ca6b29003237d69aa8e16cd551ab28a768299ca0a0b045a3893bd30d5d"
     },
     {
       "path": "components/logout-button.tsx",
@@ -179,7 +179,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "6c57a0c0c4931d7b4380f5eae75e758cfd17b79ef8b283bc28b78d7142b8691f"
+      "hash": "e10eaa301de0a1d540e4c7fdd65896a2fd0e654d160a7b5c14d28c3081c3eb17"
     },
     {
       "path": "components/ticket-attachment-form.tsx",
@@ -188,7 +188,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "a57120ec0703f9e2dd34ea561f047e2f0fa6e2b5b008b9fc6375081e67d9e10f"
+      "hash": "86224f05ca555d5e5ad2d13613ee730dfd40d72cadd98873ba6090735ce56bef"
     },
     {
       "path": "components/ticket-comment-form.tsx",
@@ -197,7 +197,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "70ee552ace0b4d578dad9a2cd93689c0d2aa8c7d856d1c5a61887cc939b9e321"
+      "hash": "15800f544a801c82a2158ca19fc1acb67a384d524403a285e8ae5a248a62b60a"
     },
     {
       "path": "components/ticket-form.tsx",
@@ -206,7 +206,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "bbacc942d8dcd16cbee3e87b9b68fedfb2bbf3ddad2ec8b4bb83e4bffff412d1"
+      "hash": "927fb3e0a6770c5b4d21a6a80765fe38d641f60f8aed5a8c590d03dfbb8f880e"
     },
     {
       "path": "components/ticket-status-form.tsx",
@@ -215,7 +215,7 @@
       "generatedByPass": "compose",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "3b7b3a26c0e7f2ba7a6586d21a2bfca3ff601c14981e0061d25a9452613cd837"
+      "hash": "577beff3d47c962fad2b99ab64c404087e8627ba1bcdaf9e52ef758974daf353"
     },
     {
       "path": "control/evidence/acceptance-coverage.json",
@@ -287,7 +287,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "d7941d42953420a83fafc1f810830d7dfd264589bcdf0507b766198ec9b9571e"
+      "hash": "77a89b3d16f5a45d21f6b7c1d72a67374eb1c69c2529c8ec892f4922fdb132c2"
     },
     {
       "path": "control/graph/explain-graph.json",
@@ -296,7 +296,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "9c67e45437151a9b006443875827280473a5aae957fe3cfee588a0239de75dea"
+      "hash": "cb343c819db8ffb5e8fcf13c34b3960279e7af1ab65a99d1d319ea66b28eb192"
     },
     {
       "path": "control/graph/explain-graph.mmd",
@@ -305,7 +305,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "bada40428d82bfa0c08c552363522cc636bd97c67987bf460b4ee0c947717c73"
+      "hash": "7a37fc560002a43a8c603acd1246820b3f39d4b163a7a3bf179b7cbe2eb8c57a"
     },
     {
       "path": "control/provenance/provenance.json",
@@ -314,7 +314,7 @@
       "generatedByPass": "lock",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "554b1c4c36c42e364bd8b76ac6f98f6e003b9bd5d15bd24ffef1c963d648fb2e"
+      "hash": "f060fff342f2bafced50b3751b423abd017abf304812126435a27a0ed20e77af"
     },
     {
       "path": "control/workbench/views/graph-view.html",
@@ -323,7 +323,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "b9c31c5f941681b28d101aad24343a0fe24db040e4633c067f2323827de52fb9"
+      "hash": "b809a083dbd35b5ed252a941003fe3b2777ac132f8e28dcbef7fdda2b957985e"
     },
     {
       "path": "control/workbench/views/overview-view.html",
@@ -332,7 +332,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "e034ffb7d7d37dbb53c9c0439a290b6b018df082de6381032eadc32f872eb0d5"
+      "hash": "44a1438dbe7437f6652b7acde0a49a798bb6696b3071d06ffb85e1e2ebf72826"
     },
     {
       "path": "control/workbench/views/review-view.html",
@@ -341,7 +341,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "cc08749a6adf366dc38f44ce983f776acc599280b94be6e256a989c92a6c55dd"
+      "hash": "dd0a39439dc4304ecccf1c361accc75c60aa5b31ddbd643def3021537642518f"
     },
     {
       "path": "control/workbench/views/slot-rule-view.html",
@@ -350,7 +350,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "2dc9a6ad45f01cf8277e6824fa99d7fde36dd1d315617f17cf6009eadde543a4"
+      "hash": "06ef93bd235e17154d3388d949214df30325d0b65eae8687a5ac542b819e2c79"
     },
     {
       "path": "control/workbench/views/source-view.html",
@@ -359,7 +359,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "ba418238567d55ff83d82c7be29627a4465e7ac994c9feec1adaee5ce218bd9b"
+      "hash": "e43d30b6021a785465f8654f8c91fdc17b082b35f4d215c4020f93f397040fee"
     },
     {
       "path": "custom/customer_normalizer.ts",
@@ -411,7 +411,7 @@
         "tests/unit/ticket-service.test.ts"
       ],
       "overrideStatus": "none",
-      "hash": "7045e6af8742233991c3eb75e2d13e77c2b92a66d0a14730fa8706fb6da007a2"
+      "hash": "58e680dd98dab79bd43d248ba06b1d289dc67c3b21315661d2e7dce7c234953b"
     },
     {
       "path": "generated/routes.ts",
@@ -482,7 +482,7 @@
         "tests/unit/comment-service.test.ts"
       ],
       "overrideStatus": "none",
-      "hash": "8fbfc077b34fc6a1c36d8beb5fb394b774e8a6e34d6aa8c9417cee335aa36742"
+      "hash": "990ed3f9a1831b6eb6ab945122c3a0da4e8f6b767964ee84638eae370c1c1f3c"
     },
     {
       "path": "source/code/slots/customer_normalizer.ts",
@@ -534,7 +534,7 @@
         "tests/unit/ticket-service.test.ts"
       ],
       "overrideStatus": "none",
-      "hash": "ca9a14c6399b773bdd56597b691b38f5ae240a6ffee44b0e90d7b2a0401ff35d"
+      "hash": "1fdd0316f4e0eb669b80cc8120f055060598ab3b0fe82718ddcdf941fd0bd15b"
     },
     {
       "path": "src/installed/agent/executor-service.ts",

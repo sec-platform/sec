@@ -138,7 +138,7 @@ export class AttributionResolver {
     const related = new Set<string>();
 
     for (const block of lock.resolvedBlocks) {
-      const blockVertical = this.blockToVertical.get(block.id);
+      const blockVertical = this.blockToVertical.get(block.id) ?? this.detectVertical(block.id);
       if (vertical && blockVertical === vertical) {
         related.add(block.id);
       }

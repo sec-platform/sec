@@ -2,18 +2,156 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Overview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Overview - SpecEngineer Workbench</title>
+    <!-- Import Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <style>
-      body { font-family: Segoe UI, sans-serif; margin: 0; background: #f4f4ef; color: #17211f; }
-      main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 20px; }
-      .card { background: white; border: 1px solid #d7ddd5; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px rgba(23, 33, 31, 0.06); }
-      .view-nav { display: flex; gap: 12px; }
-      .view-nav a { color: #184c3d; font-weight: 600; text-decoration: none; }
-      .view-nav a[aria-current="page"] { text-decoration: underline; }
-      pre { overflow: auto; background: #0f1d19; color: #e6fff8; padding: 16px; border-radius: 12px; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4e8e2; vertical-align: top; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+      :root {
+        --bg-main: #090d16;
+        --bg-card: #131926;
+        --bg-input: #1b2336;
+        --border-color: #242f47;
+        --text-main: #f1f5f9;
+        --text-muted: #94a3b8;
+        --accent-blue: #00f2fe;
+        --accent-green: #10b981;
+        --accent-purple: #8b5cf6;
+        --accent-orange: #f59e0b;
+        --accent-red: #ef4444;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+        margin: 0;
+        background: var(--bg-main);
+        color: var(--text-main);
+        -webkit-font-smoothing: antialiased;
+        background-image: 
+          radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(0, 242, 254, 0.08) 0px, transparent 50%);
+        background-attachment: fixed;
+      }
+      main {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 40px 24px 80px;
+        display: grid;
+        gap: 28px;
+      }
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        position: relative;
+        overflow: hidden;
+      }
+      .card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--border-color), transparent);
+      }
+      h1, h2, h3, h4 {
+        font-family: 'Outfit', sans-serif;
+        color: #ffffff;
+        margin-top: 0;
+      }
+      h1 { font-size: 28px; font-weight: 700; }
+      h2 { font-size: 22px; font-weight: 600; margin-bottom: 16px; border-left: 4px solid var(--accent-blue); padding-left: 10px; }
+      h3 { font-size: 18px; font-weight: 600; }
+      
+      /* Navigation Bar styling */
+      .view-nav {
+        display: flex;
+        gap: 8px;
+        background: rgba(19, 25, 38, 0.7);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 6px;
+        backdrop-filter: blur(12px);
+        margin-bottom: 8px;
+        width: fit-content;
+      }
+      .view-nav a {
+        color: var(--text-muted);
+        font-weight: 500;
+        font-size: 14px;
+        text-decoration: none;
+        padding: 8px 16px;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+      }
+      .view-nav a:hover {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .view-nav a[aria-current="page"] {
+        color: #ffffff;
+        background: var(--bg-input);
+        box-shadow: 0 0 12px rgba(0, 242, 254, 0.2);
+        border: 1px solid rgba(0, 242, 254, 0.3);
+      }
+      pre {
+        overflow: auto;
+        background: #070a12;
+        color: #a5f3fc;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        font-size: 14px;
+      }
+      th {
+        font-family: 'Outfit', sans-serif;
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        background: rgba(0, 0, 0, 0.2);
+        padding: 12px 16px;
+        border-bottom: 2px solid var(--border-color);
+      }
+      td {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border-color);
+        vertical-align: middle;
+        color: var(--text-main);
+      }
+      tr:hover td {
+        background: rgba(255, 255, 255, 0.01);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+      /* Utility Badge Styles */
+      .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .badge-success { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+      .badge-attention { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); border: 1px solid rgba(245, 158, 11, 0.3); }
+      .badge-failed { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+      .badge-info { background: rgba(0, 242, 254, 0.15); color: var(--accent-blue); border: 1px solid rgba(0, 242, 254, 0.3); }
     </style>
   </head>
   <body>
@@ -39,7 +177,7 @@
   <section class="card"><h2>Workbench Views</h2><table><thead><tr><th>View</th><th>Path</th></tr></thead><tbody><tr><td>overview</td><td>control/workbench/views/overview-view.html</td></tr><tr><td>source</td><td>control/workbench/views/source-view.html</td></tr><tr><td>slot-rule</td><td>control/workbench/views/slot-rule-view.html</td></tr><tr><td>graph</td><td>control/workbench/views/graph-view.html</td></tr><tr><td>review</td><td>control/workbench/views/review-view.html</td></tr></tbody></table></section>
 </div>
 <div class="grid">
-  <section class="card"><h2>AI Handoff Context</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>App Name</td><td>customer-admin</td></tr><tr><td>Blocks</td><td>8</td></tr><tr><td>Slots</td><td>2</td></tr><tr><td>Graph Nodes</td><td>123</td></tr><tr><td>Graph Edges</td><td>154</td></tr><tr><td>Generated Paths</td><td>51</td></tr><tr><td>Unverified Artifacts</td><td>55</td></tr><tr><td>Priority Review Files</td><td>55</td></tr></tbody></table></section>
+  <section class="card"><h2>AI Handoff Context</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>App Name</td><td>customer-admin</td></tr><tr><td>Blocks</td><td>8</td></tr><tr><td>Slots</td><td>2</td></tr><tr><td>Graph Nodes</td><td>129</td></tr><tr><td>Graph Edges</td><td>160</td></tr><tr><td>Generated Paths</td><td>51</td></tr><tr><td>Unverified Artifacts</td><td>55</td></tr><tr><td>Priority Review Files</td><td>55</td></tr></tbody></table></section>
   <section class="card"><h2>Quality Evidence Availability</h2><table><thead><tr><th>Kind</th><th>Availability</th><th>Status</th><th>Diagnostics</th><th>Affected Files</th><th>Report Paths</th></tr></thead><tbody><tr><td>code-quality</td><td>unavailable</td><td>unavailable</td><td>0</td><td>0</td><td>control/evidence/code-quality-report.json</td></tr><tr><td>architecture-boundary</td><td>unavailable</td><td>unavailable</td><td>0</td><td>0</td><td>control/evidence/architecture-boundary-report.json</td></tr><tr><td>semantic-pattern</td><td>unavailable</td><td>unavailable</td><td>0</td><td>0</td><td>control/evidence/semantic-pattern-report.json</td></tr></tbody></table></section>
 </div>
 <section class="card">
@@ -80,3 +218,4 @@
     </main>
   </body>
 </html>
+

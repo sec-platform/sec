@@ -2,18 +2,156 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Graph View</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Graph View - SpecEngineer Workbench</title>
+    <!-- Import Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <style>
-      body { font-family: Segoe UI, sans-serif; margin: 0; background: #f4f4ef; color: #17211f; }
-      main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 20px; }
-      .card { background: white; border: 1px solid #d7ddd5; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px rgba(23, 33, 31, 0.06); }
-      .view-nav { display: flex; gap: 12px; }
-      .view-nav a { color: #184c3d; font-weight: 600; text-decoration: none; }
-      .view-nav a[aria-current="page"] { text-decoration: underline; }
-      pre { overflow: auto; background: #0f1d19; color: #e6fff8; padding: 16px; border-radius: 12px; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4e8e2; vertical-align: top; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+      :root {
+        --bg-main: #090d16;
+        --bg-card: #131926;
+        --bg-input: #1b2336;
+        --border-color: #242f47;
+        --text-main: #f1f5f9;
+        --text-muted: #94a3b8;
+        --accent-blue: #00f2fe;
+        --accent-green: #10b981;
+        --accent-purple: #8b5cf6;
+        --accent-orange: #f59e0b;
+        --accent-red: #ef4444;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+        margin: 0;
+        background: var(--bg-main);
+        color: var(--text-main);
+        -webkit-font-smoothing: antialiased;
+        background-image: 
+          radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(0, 242, 254, 0.08) 0px, transparent 50%);
+        background-attachment: fixed;
+      }
+      main {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 40px 24px 80px;
+        display: grid;
+        gap: 28px;
+      }
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        position: relative;
+        overflow: hidden;
+      }
+      .card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--border-color), transparent);
+      }
+      h1, h2, h3, h4 {
+        font-family: 'Outfit', sans-serif;
+        color: #ffffff;
+        margin-top: 0;
+      }
+      h1 { font-size: 28px; font-weight: 700; }
+      h2 { font-size: 22px; font-weight: 600; margin-bottom: 16px; border-left: 4px solid var(--accent-blue); padding-left: 10px; }
+      h3 { font-size: 18px; font-weight: 600; }
+      
+      /* Navigation Bar styling */
+      .view-nav {
+        display: flex;
+        gap: 8px;
+        background: rgba(19, 25, 38, 0.7);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 6px;
+        backdrop-filter: blur(12px);
+        margin-bottom: 8px;
+        width: fit-content;
+      }
+      .view-nav a {
+        color: var(--text-muted);
+        font-weight: 500;
+        font-size: 14px;
+        text-decoration: none;
+        padding: 8px 16px;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+      }
+      .view-nav a:hover {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .view-nav a[aria-current="page"] {
+        color: #ffffff;
+        background: var(--bg-input);
+        box-shadow: 0 0 12px rgba(0, 242, 254, 0.2);
+        border: 1px solid rgba(0, 242, 254, 0.3);
+      }
+      pre {
+        overflow: auto;
+        background: #070a12;
+        color: #a5f3fc;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        font-size: 14px;
+      }
+      th {
+        font-family: 'Outfit', sans-serif;
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        background: rgba(0, 0, 0, 0.2);
+        padding: 12px 16px;
+        border-bottom: 2px solid var(--border-color);
+      }
+      td {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border-color);
+        vertical-align: middle;
+        color: var(--text-main);
+      }
+      tr:hover td {
+        background: rgba(255, 255, 255, 0.01);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+      /* Utility Badge Styles */
+      .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .badge-success { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+      .badge-attention { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); border: 1px solid rgba(245, 158, 11, 0.3); }
+      .badge-failed { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+      .badge-info { background: rgba(0, 242, 254, 0.15); color: var(--accent-blue); border: 1px solid rgba(0, 242, 254, 0.3); }
     </style>
   </head>
   <body>
@@ -27,10 +165,377 @@
       </nav>
 
 
-<!-- Load Vis.js for Interactive Topology Canvas -->
+<!-- Load Vis.js Network -->
 <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 
 <style>
+  /* Custom Page Layout styles */
+  .workspace-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    position: relative;
+  }
+  .header-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(19, 25, 38, 0.7);
+    border: 1px solid var(--border-color);
+    padding: 16px 24px;
+    border-radius: 16px;
+    backdrop-filter: blur(12px);
+  }
+  .header-actions h1 {
+    margin: 0;
+    font-size: 24px;
+  }
+  .toolbar-btns {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .btn {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #00f2fe, #4facfe);
+    color: #090d16;
+    box-shadow: 0 0 15px rgba(0, 242, 254, 0.25);
+  }
+  .btn-primary:hover {
+    box-shadow: 0 0 25px rgba(0, 242, 254, 0.45);
+    transform: translateY(-1px);
+  }
+  .btn-secondary {
+    background: #242f47;
+    color: #ffffff;
+    border: 1px solid #334155;
+  }
+  .btn-secondary:hover {
+    background: #2e3b59;
+    transform: translateY(-1px);
+  }
+  .btn-danger {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+  }
+  .btn-danger:hover {
+    background: rgba(239, 68, 68, 0.35);
+  }
+
+  .canvas-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 20px;
+    height: 700px;
+  }
+  .canvas-container {
+    height: 100%;
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    background: #0b0f19;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
+    background-size: 24px 24px;
+    position: relative;
+    box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.6);
+  }
+
+  /* Node Sidebar style */
+  .node-sidebar {
+    background: rgba(19, 25, 38, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 20px;
+    backdrop-filter: blur(12px);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+    height: 100%;
+    box-sizing: border-box;
+  }
+  .sidebar-section-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #00f2fe;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+  }
+  .sidebar-node-item {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: grab;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    user-select: none;
+  }
+  .sidebar-node-item:active {
+    cursor: grabbing;
+  }
+  .sidebar-node-item:hover {
+    border-color: #00f2fe;
+    background: #24334a;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 242, 254, 0.15);
+  }
+  .sidebar-node-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #cbd5e1;
+    word-break: break-all;
+  }
+  .sidebar-node-add-btn {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+  }
+  .sidebar-node-add-btn:hover {
+    color: #00f2fe;
+  }
+
+
+  /* Right sliding drawer sidebar */
+  .sidebar-drawer {
+    position: fixed;
+    right: -420px;
+    top: 0;
+    width: 420px;
+    height: 100vh;
+    background: #0f172a;
+    border-left: 1px solid #1e293b;
+    z-index: 1000;
+    box-shadow: -15px 0 35px rgba(0,0,0,0.6);
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 24px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    color: #f8fafc;
+  }
+  .sidebar-drawer.open {
+    right: 0;
+  }
+  .drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #1e293b;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+  }
+  .drawer-header h3 {
+    margin: 0;
+    font-family: 'Outfit', sans-serif;
+    color: #00f2fe;
+    font-size: 18px;
+  }
+  .close-btn {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 28px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .close-btn:hover {
+    color: #ffffff;
+  }
+  .drawer-body {
+    flex-grow: 1;
+    overflow-y: auto;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .inspector-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .inspector-label {
+    font-weight: 600;
+    color: #94a3b8;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .inspector-value {
+    background: #1e293b;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: monospace;
+    word-break: break-all;
+    border: 1px solid #334155;
+  }
+
+  /* Form layouts */
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .form-group label {
+    font-weight: 500;
+    font-size: 12px;
+    color: #cbd5e1;
+  }
+  .form-select, .form-input {
+    background: #1b2336;
+    border: 1px solid var(--border-color);
+    color: #ffffff;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    box-sizing: border-box;
+    width: 100%;
+    outline: none;
+    transition: border 0.2s;
+  }
+  .form-select:focus, .form-input:focus {
+    border-color: #00f2fe;
+  }
+
+  /* Hot Compile Terminal Overlay styling */
+  .stitching-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(9, 13, 22, 0.96);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    gap: 24px;
+  }
+  .stitching-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .spinner-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .glow-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(0, 242, 254, 0.1);
+    border-radius: 50%;
+    border-top-color: #00f2fe;
+    animation: spin 1s linear infinite;
+    box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+  }
+  .spinner-text {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .terminal-screen {
+    width: 80%;
+    max-width: 850px;
+    height: 380px;
+    background: #020617;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #38bdf8;
+    padding: 20px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    text-align: left;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .terminal-line {
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .terminal-line.error { color: #f87171; }
+  .terminal-line.success { color: #4ade80; }
+  .terminal-line.info { color: #94a3b8; }
+
+  /* Grid of blocks available to add */
+  .blocks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .block-select-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .block-select-card:hover {
+    border-color: #00f2fe;
+    background: #24334a;
+  }
+  .block-select-card.selected {
+    border-color: #00f2fe;
+    background: rgba(0, 242, 254, 0.15);
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.25);
+  }
+  .block-select-name {
+    font-weight: 600;
+    font-size: 12px;
+    color: #ffffff;
+    word-break: break-all;
+  }
+  .block-select-ver {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+
   .coverage-chart-container {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -38,21 +543,21 @@
     margin: 20px 0;
   }
   .coverage-card {
-    background: #1e1e24;
-    border: 1px solid #333;
-    border-radius: 8px;
-    padding: 16px;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+    background: #131926;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     transition: transform 0.2s, box-shadow 0.2s;
   }
   .coverage-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
   }
   .coverage-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
-    color: #b0bec5;
+    color: var(--text-muted);
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -60,13 +565,12 @@
   .coverage-value {
     font-size: 28px;
     font-weight: 700;
-    color: #4fc3f7;
     margin-bottom: 12px;
   }
   .progress-bg {
-    background: #37474f;
+    background: #1e293b;
     border-radius: 6px;
-    height: 10px;
+    height: 8px;
     overflow: hidden;
   }
   .progress-fill {
@@ -77,188 +581,145 @@
   .progress-label {
     display: flex;
     justify-content: space-between;
-    font-size: 12px;
-    color: #90a4ae;
+    font-size: 11px;
+    color: var(--text-muted);
     margin-top: 6px;
-  }
-
-  /* Topology & Mutations Panel styles */
-  .canvas-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-  }
-  .lang-toggle-btn {
-    background: #184c3d;
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 16px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-  .lang-toggle-btn:hover {
-    background: #11352b;
-  }
-  .canvas-container {
-    height: 550px;
-    border: 1px solid #d7ddd5;
-    border-radius: 12px;
-    background: #0f1d19;
-    position: relative;
-    box-shadow: inset 0 4px 20px rgba(0,0,0,0.4);
-  }
-  .operator-section {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    margin-top: 20px;
-  }
-  .op-card {
-    background: #fbfbf9;
-    border: 1px solid #e2e7df;
-    border-radius: 12px;
-    padding: 16px;
-  }
-  .op-title {
-    font-weight: 700;
-    font-size: 16px;
-    margin-bottom: 12px;
-    color: #184c3d;
-  }
-  .form-group {
-    margin-bottom: 12px;
-  }
-  .form-group label {
-    display: block;
-    font-size: 13px;
-    margin-bottom: 4px;
-    color: #4a5553;
-  }
-  .form-select, .form-input {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #ccd2c8;
-    border-radius: 6px;
-    box-sizing: border-box;
-    font-size: 14px;
-  }
-  .form-btn {
-    background: #184c3d;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
-    width: 100%;
-  }
-  .form-btn:hover {
-    background: #11352b;
-  }
-  .exporter-textarea {
-    width: 100%;
-    height: 150px;
-    font-family: monospace;
-    font-size: 12px;
-    background: #091210;
-    color: #a4f4db;
-    border-radius: 6px;
-    padding: 8px;
-    border: 1px solid #0f2420;
-    box-sizing: border-box;
-    resize: none;
-  }
-  .exporter-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
   }
 </style>
 
-<!-- Language Translation Toggle -->
-<div class="canvas-header">
-  <h1 data-key="title">拓扑与可操作设计画布 (Topology SPEC Builder)</h1>
-  <button id="lang-btn" class="lang-toggle-btn">English</button>
-</div>
-
-<section class="card">
-  <p data-key="desc">这是一个展示服务、插槽与文件依赖拓扑的交互式画布。支持节点拖拽、连线编辑和导出 Mutation 并在本地重新 Stitch 编译。</p>
-  
-  <!-- Interactive Visual SPEC Builder Canvas -->
-  <div id="network-canvas" class="canvas-container"></div>
-  
-  <!-- Graphical Stitching Operator Controls -->
-  <div class="operator-section">
-    <div class="op-card">
-      <div class="op-title" data-key="opTitle">图形组装装配器 (Stitching Operator)</div>
-      
-      <!-- Action 1: Add Block -->
-      <div class="form-group" style="border-bottom: 1px solid #eee; padding-bottom: 12px;">
-        <label data-key="addBlockLabel">在画布中添加新 Block 依赖 (Add Capability Block)</label>
-        <div style="display: flex; gap: 8px; margin-top: 6px;">
-          <select id="new-block-select" class="form-select">
-            <option value="tenant/basic-workspace">tenant/basic-workspace (0.2.0)</option>
-            <option value="comment/basic">comment/basic (0.1.0)</option>
-            <option value="agent/executor">agent/executor (0.1.0)</option>
-            <option value="file/upload">file/upload (0.1.0)</option>
-            <option value="auth/basic-session">auth/basic-session (0.1.0)</option>
-          </select>
-          <button id="add-block-btn" class="form-btn" style="width: auto;" data-key="addBtn">添加 (Add)</button>
-        </div>
-      </div>
-
-      <!-- Action 2: Connect Pin -->
-      <div class="form-group">
-        <label data-key="bindSlotLabel">建立插槽管脚连接 (Connect & Bind Slot)</label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;">
-          <div>
-            <label style="font-size: 11px;" data-key="slotIdLabel">Slot ID</label>
-            <input id="slot-id-input" class="form-input" placeholder="new_slot_id" value="new_custom_slot" />
-          </div>
-          <div>
-            <label style="font-size: 11px;" data-key="blockIdLabel">Target Block</label>
-            <select id="slot-target-select" class="form-select">
-              <option value="ticket/basic">ticket/basic</option>
-              <option value="tenant/basic-workspace">tenant/basic-workspace</option>
-              <option value="auth/basic-session">auth/basic-session</option>
-            </select>
-          </div>
-        </div>
-        <button id="bind-slot-btn" class="form-btn" style="margin-top: 10px;" data-key="bindBtn">建立连线并绑定 (Bind)</button>
-      </div>
-    </div>
-
-    <!-- Exporter: Mutations JSON -->
-    <div class="op-card" style="display: flex; flex-direction: column;">
-      <div class="op-title" data-key="exporterTitle">Mutations 实时生成器 (Mutations Exporter)</div>
-      <textarea id="exporter-textarea" class="exporter-textarea" readonly></textarea>
-      <div class="exporter-actions">
-        <button id="copy-json-btn" class="form-btn" data-key="copyBtn">复制 Mutations JSON</button>
-        <button id="reset-op-btn" class="form-btn" style="background:#8c342f;" data-key="resetBtn">重置操作</button>
-      </div>
-      <p style="font-size: 11px; color:#666; margin-top:8px;" data-key="applyHint">
-        提示：将生成的 JSON 保存到 source/views/mutations/drag.json 中，并在命令行运行 "bun run platform -- workbench mutations apply" 即可完整应用于项目编译。
+<div class="workspace-layout">
+  <!-- Interactive Top Action toolbar -->
+  <div class="header-actions">
+    <div>
+      <h1 data-key="title">拓扑与可操作设计画布 (Topology SPEC Builder)</h1>
+      <p style="color: var(--text-muted); margin: 4px 0 0; font-size: 13px;" data-key="desc">
+        展示系统依赖拓扑与插槽绑定。支持节点拖拽、属性检查、添加Block、管脚连线绑定及一键实时热重载编译。
       </p>
     </div>
+    <div class="toolbar-btns">
+      <span class="badge badge-info" id="status-badge" style="padding: 6px 12px; font-size: 12px;">Workbench Ready</span>
+      <button class="btn btn-secondary" id="wiring-mode-btn" onclick="toggleWiringMode()" style="gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span id="wiring-mode-text" data-key="enableWiring">Enable Wiring (启用连线模式)</span>
+      </button>
+      <button class="btn btn-primary" id="recompile-btn" data-key="applyRecompileBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+        Apply & Recompile (应用并重新编译)
+      </button>
+      <button class="btn btn-secondary" id="lang-btn">English</button>
+    </div>
   </div>
-</section>
 
-<!-- Traditional Statistics and Information Card -->
-<section class="card">
+  <div class="canvas-grid">
+    <!-- Left Sidebar: Node Catalog -->
+    <div class="node-sidebar">
+      <div>
+        <div class="sidebar-section-title" data-key="sidebarBlocks">Available Blocks (能力块)</div>
+        <div style="display:flex; flex-direction:column; gap:8px;" id="sidebar-blocks-list">
+          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'tenant/basic-workspace')">
+            <span class="sidebar-node-name">tenant/basic-workspace</span>
+            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'tenant/basic-workspace')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'comment/basic')">
+            <span class="sidebar-node-name">comment/basic</span>
+            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'comment/basic')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'agent/executor')">
+            <span class="sidebar-node-name">agent/executor</span>
+            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'agent/executor')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'file/upload')">
+            <span class="sidebar-node-name">file/upload</span>
+            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'file/upload')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'auth/basic-session')">
+            <span class="sidebar-node-name">auth/basic-session</span>
+            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'auth/basic-session')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:6px;">
+          <input type="text" id="custom-block-name" class="form-input" style="padding:6px; font-size:11px;" placeholder="custom/block-name" />
+          <button class="btn btn-primary" style="padding:6px 10px; font-size:11px;" onclick="addCustomBlockFromSidebar()">Add</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="sidebar-section-title" data-key="sidebarSlots">Available Slots (插槽)</div>
+        <div style="display:flex; flex-direction:column; gap:8px;" id="sidebar-slots-list">
+          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'slot', 'ticket_resolver')">
+            <span class="sidebar-node-name">ticket_resolver</span>
+            <button class="sidebar-node-add-btn" onclick="quickAddNode('slot', 'ticket_resolver')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'slot', 'comment_hook')">
+            <span class="sidebar-node-name">comment_hook</span>
+            <button class="sidebar-node-add-btn" onclick="quickAddNode('slot', 'comment_hook')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:6px;">
+          <input type="text" id="custom-slot-name" class="form-input" style="padding:6px; font-size:11px;" placeholder="custom_slot_id" />
+          <button class="btn btn-primary" style="padding:6px 10px; font-size:11px;" onclick="addCustomSlotFromSidebar()">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Graph view with drop zone -->
+    <div id="network-canvas" class="canvas-container" ondragover="event.preventDefault()" ondrop="handleCanvasDrop(event)"></div>
+  </div>
+
+
+  <!-- Interactive drawer panels (hidden by default) -->
+  <div id="inspector-drawer" class="sidebar-drawer">
+    <div class="drawer-header">
+      <h3 id="inspector-title" data-key="inspectorTitle">Node Inspector</h3>
+      <button class="close-btn" onclick="closeDrawer()">&times;</button>
+    </div>
+    <div class="drawer-body">
+      <div id="inspector-content">
+        <p style="color: var(--text-muted);">Select a node on the canvas to inspect details and perform mutations.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Terminal log output screen overlay -->
+  <div id="stitching-overlay" class="stitching-overlay">
+    <div class="spinner-container">
+      <div class="glow-spinner"></div>
+      <div class="spinner-text" id="overlay-text">Stitching and Compiling Workspace...</div>
+    </div>
+    <div class="terminal-screen" id="terminal-screen"></div>
+    <div id="overlay-error-actions" style="display: none; gap: 12px; margin-top: 10px;">
+      <button class="btn btn-secondary" onclick="closeOverlay()">Close Console & Adjust</button>
+      <button class="btn btn-primary" onclick="retriggerCompile()">Retry Recompilation</button>
+    </div>
+  </div>
+</div>
+
+<!-- Graph Coverage Matrix -->
+<section class="card" style="margin-top: 24px;">
   <h2 data-key="coverageMatrixTitle">Graph Coverage Matrix</h2>
-  <table><thead><tr><th>Information</th><th>Source</th><th>Coverage</th><th>Count</th></tr></thead><tbody><tr><td>app</td><td>ExplainGraph node</td><td>node table + type detail</td><td>1</td></tr><tr><td>block</td><td>ExplainGraph node</td><td>node table + type detail</td><td>8</td></tr><tr><td>capability</td><td>ExplainGraph node</td><td>node table + type detail</td><td>10</td></tr><tr><td>pin</td><td>ExplainGraph node</td><td>node table + type detail</td><td>22</td></tr><tr><td>slot</td><td>ExplainGraph node</td><td>node table + type detail</td><td>2</td></tr><tr><td>file</td><td>ExplainGraph node</td><td>node table + type detail</td><td>68</td></tr><tr><td>acceptance</td><td>ExplainGraph node</td><td>node table + type detail</td><td>11</td></tr><tr><td>policy</td><td>ExplainGraph node</td><td>node table + type detail</td><td>1</td></tr><tr><td>override</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>repair</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>upgrade</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>issue</td><td>Review overlays</td><td>policy violations + failure points + repair blockers + upgrade diagnostics</td><td>0</td></tr></tbody></table>
+  <table><thead><tr><th>Information</th><th>Source</th><th>Coverage</th><th>Count</th></tr></thead><tbody><tr><td>app</td><td>ExplainGraph node</td><td>node table + type detail</td><td>1</td></tr><tr><td>block</td><td>ExplainGraph node</td><td>node table + type detail</td><td>8</td></tr><tr><td>capability</td><td>ExplainGraph node</td><td>node table + type detail</td><td>10</td></tr><tr><td>pin</td><td>ExplainGraph node</td><td>node table + type detail</td><td>22</td></tr><tr><td>slot</td><td>ExplainGraph node</td><td>node table + type detail</td><td>2</td></tr><tr><td>file</td><td>ExplainGraph node</td><td>node table + type detail</td><td>74</td></tr><tr><td>acceptance</td><td>ExplainGraph node</td><td>node table + type detail</td><td>11</td></tr><tr><td>policy</td><td>ExplainGraph node</td><td>node table + type detail</td><td>1</td></tr><tr><td>override</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>repair</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>upgrade</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>issue</td><td>Review overlays</td><td>policy violations + failure points + repair blockers + upgrade diagnostics</td><td>0</td></tr></tbody></table>
 
-  <h3 data-key="coverageChartsTitle">Coverage Dashboard Charts</h3>
+  <h3 data-key="coverageChartsTitle" style="margin-top: 24px;">Coverage Dashboard Charts</h3>
   <div class="coverage-chart-container">
     <div class="coverage-card">
       <div class="coverage-title" data-key="covTitleBlocks">Blocks Coverage</div>
-      <div class="coverage-value" style="color: #81c784;">7 / 8</div>
+      <div class="coverage-value" style="color: #10b981;">7 / 8</div>
       <div class="progress-bg">
-        <div class="progress-fill" style="width: 88%; background: linear-gradient(90deg, #66bb6a, #81c784);"></div>
+        <div class="progress-fill" style="width: 88%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
       </div>
       <div class="progress-label">
         <span data-key="covRatioLabel">Coverage Ratio</span>
@@ -268,9 +729,9 @@
 
     <div class="coverage-card">
       <div class="coverage-title" data-key="covTitleSlots">Slots Coverage</div>
-      <div class="coverage-value" style="color: #4fc3f7;">1 / 2</div>
+      <div class="coverage-value" style="color: #00f2fe;">1 / 2</div>
       <div class="progress-bg">
-        <div class="progress-fill" style="width: 50%; background: linear-gradient(90deg, #29b6f6, #4fc3f7);"></div>
+        <div class="progress-fill" style="width: 50%; background: linear-gradient(90deg, #00f2fe, #38bdf8);"></div>
       </div>
       <div class="progress-label">
         <span data-key="covRatioLabel">Coverage Ratio</span>
@@ -280,9 +741,9 @@
 
     <div class="coverage-card">
       <div class="coverage-title" data-key="covTitleAcceptance">Acceptance Tests</div>
-      <div class="coverage-value" style="color: #ba68c8;">11</div>
+      <div class="coverage-value" style="color: #8b5cf6;">11</div>
       <div class="progress-bg">
-        <div class="progress-fill" style="width: 100%; background: #ab47bc;"></div>
+        <div class="progress-fill" style="width: 100%; background: #8b5cf6;"></div>
       </div>
       <div class="progress-label">
         <span data-key="covAcceptanceLabel">Acceptance Nodes</span>
@@ -292,9 +753,9 @@
 
     <div class="coverage-card">
       <div class="coverage-title" data-key="covTitlePolicy">Policy Rules</div>
-      <div class="coverage-value" style="color: #ffb74d;">1</div>
+      <div class="coverage-value" style="color: #f59e0b;">1</div>
       <div class="progress-bg">
-        <div class="progress-fill" style="width: 100%; background: #ffa726;"></div>
+        <div class="progress-fill" style="width: 100%; background: #f59e0b;"></div>
       </div>
       <div class="progress-label">
         <span data-key="covPolicyLabel">Policy Constraints</span>
@@ -304,39 +765,31 @@
   </div>
 </section>
 
-<!-- Traditional Node/Edge tables for deep verification -->
-<section class="card">
+<!-- Manual Override Registry -->
+<section class="card" style="margin-top: 24px;">
   <h2 data-key="manualOverrideTitle">Manual Override Registry</h2>
-  <p data-key="manualOverrideDesc">Tracked artifacts and nodes that have been manually overridden by developers.</p>
+  <p style="color: var(--text-muted); font-size: 13px;" data-key="manualOverrideDesc">Tracked artifacts and nodes that have been manually overridden by developers.</p>
   <table><thead><tr><th>Override Target</th><th>Origin Type</th><th>Source Block</th><th>Status</th></tr></thead><tbody><tr><td colspan="4">No manual overrides detected in workspace.</td></tr></tbody></table>
 </section>
 
-<section class="card">
+<!-- Traditional Node/Edge tables -->
+<section class="card" style="margin-top: 24px;">
   <h2 data-key="summaryTitle">Node & Edge Summary</h2>
-  <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody><tr><td>acceptance</td><td>11</td></tr><tr><td>app</td><td>1</td></tr><tr><td>block</td><td>8</td></tr><tr><td>capability</td><td>10</td></tr><tr><td>file</td><td>68</td></tr><tr><td>pin</td><td>22</td></tr><tr><td>policy</td><td>1</td></tr><tr><td>slot</td><td>2</td></tr></tbody></table>
+  <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody><tr><td>acceptance</td><td>11</td></tr><tr><td>app</td><td>1</td></tr><tr><td>block</td><td>8</td></tr><tr><td>capability</td><td>10</td></tr><tr><td>file</td><td>74</td></tr><tr><td>pin</td><td>22</td></tr><tr><td>policy</td><td>1</td></tr><tr><td>slot</td><td>2</td></tr></tbody></table>
   <div style="margin-top: 15px;"></div>
-  <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody><tr><td>connects_to</td><td>6</td></tr><tr><td>depends_on</td><td>34</td></tr><tr><td>originates_from</td><td>68</td></tr><tr><td>provides</td><td>21</td></tr><tr><td>verified_by</td><td>15</td></tr><tr><td>writes_to</td><td>10</td></tr></tbody></table>
+  <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody><tr><td>connects_to</td><td>6</td></tr><tr><td>depends_on</td><td>34</td></tr><tr><td>originates_from</td><td>74</td></tr><tr><td>provides</td><td>21</td></tr><tr><td>verified_by</td><td>15</td></tr><tr><td>writes_to</td><td>10</td></tr></tbody></table>
 </section>
 
-<!-- Vis.js Dynamic Loader and Bilingual translation mechanism -->
+<!-- Dynamic Vis.js Loader and API Sync logic -->
 <script type="text/javascript">
-  const rawGraph = {"nodes":[{"id":"acceptance:agent_can_automatically_classify_ticket","type":"acceptance","label":"agent_can_automatically_classify_ticket"},{"id":"acceptance:agent_can_be_registered","type":"acceptance","label":"agent_can_be_registered"},{"id":"acceptance:assignee_can_filter_tickets","type":"acceptance","label":"assignee_can_filter_tickets"},{"id":"acceptance:tenant_only_sees_own_customers","type":"acceptance","label":"tenant_only_sees_own_customers"},{"id":"acceptance:ticket_attachment_can_be_uploaded","type":"acceptance","label":"ticket_attachment_can_be_uploaded"},{"id":"acceptance:ticket_can_be_created","type":"acceptance","label":"ticket_can_be_created"},{"id":"acceptance:ticket_comment_can_be_added","type":"acceptance","label":"ticket_comment_can_be_added"},{"id":"acceptance:ticket_status_can_transition","type":"acceptance","label":"ticket_status_can_transition"},{"id":"acceptance:user_can_create_customer","type":"acceptance","label":"user_can_create_customer"},{"id":"acceptance:user_can_list_customers","type":"acceptance","label":"user_can_list_customers"},{"id":"acceptance:user_can_login","type":"acceptance","label":"user_can_login"},{"id":"app:customer-admin","type":"app","label":"customer-admin"},{"id":"block:agent/executor","type":"block","label":"agent/executor"},{"id":"block:agent/harness","type":"block","label":"agent/harness"},{"id":"block:auth/basic-session","type":"block","label":"auth/basic-session"},{"id":"block:comment/basic","type":"block","label":"comment/basic"},{"id":"block:entity/customer-basic","type":"block","label":"entity/customer-basic"},{"id":"block:file/upload","type":"block","label":"file/upload"},{"id":"block:tenant/basic-workspace","type":"block","label":"tenant/basic-workspace"},{"id":"block:ticket/basic","type":"block","label":"ticket/basic"},{"id":"capability:agent/executor","type":"capability","label":"agent/executor"},{"id":"capability:agent/harness","type":"capability","label":"agent/harness"},{"id":"capability:auth/session","type":"capability","label":"auth/session"},{"id":"capability:customer/read","type":"capability","label":"customer/read"},{"id":"capability:customer/write","type":"capability","label":"customer/write"},{"id":"capability:file/upload","type":"capability","label":"file/upload"},{"id":"capability:tenant/context","type":"capability","label":"tenant/context"},{"id":"capability:ticket/comment","type":"capability","label":"ticket/comment"},{"id":"capability:ticket/read","type":"capability","label":"ticket/read"},{"id":"capability:ticket/write","type":"capability","label":"ticket/write"},{"id":"file:app/api/customers/[customerId]/attachments/route.ts","type":"file","label":"app/api/customers/[customerId]/attachments/route.ts"},{"id":"file:app/api/customers/route.ts","type":"file","label":"app/api/customers/route.ts"},{"id":"file:app/api/session/current/route.ts","type":"file","label":"app/api/session/current/route.ts"},{"id":"file:app/api/session/login/route.ts","type":"file","label":"app/api/session/login/route.ts"},{"id":"file:app/api/session/logout/route.ts","type":"file","label":"app/api/session/logout/route.ts"},{"id":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/attachments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/comments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/status/route.ts","type":"file","label":"app/api/tickets/[ticketId]/status/route.ts"},{"id":"file:app/api/tickets/route.ts","type":"file","label":"app/api/tickets/route.ts"},{"id":"file:app/customers/page.tsx","type":"file","label":"app/customers/page.tsx"},{"id":"file:app/globals.css","type":"file","label":"app/globals.css"},{"id":"file:app/layout.tsx","type":"file","label":"app/layout.tsx"},{"id":"file:app/login/page.tsx","type":"file","label":"app/login/page.tsx"},{"id":"file:app/page.tsx","type":"file","label":"app/page.tsx"},{"id":"file:app/tickets/page.tsx","type":"file","label":"app/tickets/page.tsx"},{"id":"file:app/workspace/page.tsx","type":"file","label":"app/workspace/page.tsx"},{"id":"file:components/customer-attachment-form.tsx","type":"file","label":"components/customer-attachment-form.tsx"},{"id":"file:components/customer-form.tsx","type":"file","label":"components/customer-form.tsx"},{"id":"file:components/login-form.tsx","type":"file","label":"components/login-form.tsx"},{"id":"file:components/logout-button.tsx","type":"file","label":"components/logout-button.tsx"},{"id":"file:components/ticket-attachment-form.tsx","type":"file","label":"components/ticket-attachment-form.tsx"},{"id":"file:components/ticket-comment-form.tsx","type":"file","label":"components/ticket-comment-form.tsx"},{"id":"file:components/ticket-form.tsx","type":"file","label":"components/ticket-form.tsx"},{"id":"file:components/ticket-status-form.tsx","type":"file","label":"components/ticket-status-form.tsx"},{"id":"file:control/evidence/acceptance-coverage.json","type":"file","label":"control/evidence/acceptance-coverage.json"},{"id":"file:control/evidence/block-usage-map.json","type":"file","label":"control/evidence/block-usage-map.json"},{"id":"file:control/evidence/install-manifest.json","type":"file","label":"control/evidence/install-manifest.json"},{"id":"file:control/evidence/policy-report.json","type":"file","label":"control/evidence/policy-report.json"},{"id":"file:control/evidence/runtime-report.json","type":"file","label":"control/evidence/runtime-report.json"},{"id":"file:control/evidence/verification-report.json","type":"file","label":"control/evidence/verification-report.json"},{"id":"file:control/graph/explain-graph.dot","type":"file","label":"control/graph/explain-graph.dot"},{"id":"file:control/graph/explain-graph.json","type":"file","label":"control/graph/explain-graph.json"},{"id":"file:control/graph/explain-graph.mmd","type":"file","label":"control/graph/explain-graph.mmd"},{"id":"file:control/provenance/provenance.json","type":"file","label":"control/provenance/provenance.json"},{"id":"file:custom/customer_normalizer.ts","type":"file","label":"custom/customer_normalizer.ts"},{"id":"file:custom/ticket_comment_delegate.ts","type":"file","label":"custom/ticket_comment_delegate.ts"},{"id":"file:generated/routes.ts","type":"file","label":"generated/routes.ts"},{"id":"file:lib/session.ts","type":"file","label":"lib/session.ts"},{"id":"file:lib/store.ts","type":"file","label":"lib/store.ts"},{"id":"file:next-env.d.ts","type":"file","label":"next-env.d.ts"},{"id":"file:next.config.mjs","type":"file","label":"next.config.mjs"},{"id":"file:package.json","type":"file","label":"package.json"},{"id":"file:prisma/schema.prisma","type":"file","label":"prisma/schema.prisma"},{"id":"file:source/code/slots/customer_normalizer.ts","type":"file","label":"source/code/slots/customer_normalizer.ts"},{"id":"file:source/code/slots/ticket_comment_delegate.ts","type":"file","label":"source/code/slots/ticket_comment_delegate.ts"},{"id":"file:src/installed/agent/executor-service.ts","type":"file","label":"src/installed/agent/executor-service.ts"},{"id":"file:src/installed/agent/harness-service.ts","type":"file","label":"src/installed/agent/harness-service.ts"},{"id":"file:src/installed/auth/session.ts","type":"file","label":"src/installed/auth/session.ts"},{"id":"file:src/installed/comment/comment-service.ts","type":"file","label":"src/installed/comment/comment-service.ts"},{"id":"file:src/installed/entity/customer-service.ts","type":"file","label":"src/installed/entity/customer-service.ts"},{"id":"file:src/installed/file/customer-attachments.ts","type":"file","label":"src/installed/file/customer-attachments.ts"},{"id":"file:src/installed/tenant/context.ts","type":"file","label":"src/installed/tenant/context.ts"},{"id":"file:src/installed/ticket/ticket-service.ts","type":"file","label":"src/installed/ticket/ticket-service.ts"},{"id":"file:tests/acceptance/agent-classifier-flow.test.ts","type":"file","label":"tests/acceptance/agent-classifier-flow.test.ts"},{"id":"file:tests/acceptance/comment-flow.test.ts","type":"file","label":"tests/acceptance/comment-flow.test.ts"},{"id":"file:tests/acceptance/customer-flow.test.ts","type":"file","label":"tests/acceptance/customer-flow.test.ts"},{"id":"file:tests/acceptance/ticket-flow.test.ts","type":"file","label":"tests/acceptance/ticket-flow.test.ts"},{"id":"file:tests/runtime/acceptance/customer-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/customer-flow.spec.ts"},{"id":"file:tests/runtime/acceptance/ticket-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/ticket-flow.spec.ts"},{"id":"file:tests/runtime/unit/customer-runtime.test.ts","type":"file","label":"tests/runtime/unit/customer-runtime.test.ts"},{"id":"file:tests/runtime/unit/ticket-runtime.test.ts","type":"file","label":"tests/runtime/unit/ticket-runtime.test.ts"},{"id":"file:tests/shared/tenant-runtime-fixture.ts","type":"file","label":"tests/shared/tenant-runtime-fixture.ts"},{"id":"file:tests/shared/ticket-service-suite.ts","type":"file","label":"tests/shared/ticket-service-suite.ts"},{"id":"file:tests/unit/comment-service.test.ts","type":"file","label":"tests/unit/comment-service.test.ts"},{"id":"file:tests/unit/customer-attachments.test.ts","type":"file","label":"tests/unit/customer-attachments.test.ts"},{"id":"file:tests/unit/customer-normalizer.test.ts","type":"file","label":"tests/unit/customer-normalizer.test.ts"},{"id":"file:tests/unit/ticket-service.test.ts","type":"file","label":"tests/unit/ticket-service.test.ts"},{"id":"file:tsconfig.json","type":"file","label":"tsconfig.json"},{"id":"pin:agent/executor:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:agent/executor:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:agent/executor:output:agent_executed","type":"pin","label":"agent_executed"},{"id":"pin:agent/harness:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:agent/harness:output:agent_registered","type":"pin","label":"agent_registered"},{"id":"pin:auth/basic-session:output:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:comment/basic:output:comment_added","type":"pin","label":"comment_added"},{"id":"pin:entity/customer-basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:entity/customer-basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:entity/customer-basic:output:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:input:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:output:customer_attachment_uploaded","type":"pin","label":"customer_attachment_uploaded"},{"id":"pin:tenant/basic-workspace:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:tenant/basic-workspace:output:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:ticket/basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"pin","label":"ticket_attachment_uploaded"},{"id":"pin:ticket/basic:output:ticket_comment_added","type":"pin","label":"ticket_comment_added"},{"id":"pin:ticket/basic:output:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:ticket/basic:output:ticket_status_transitioned","type":"pin","label":"ticket_status_transitioned"},{"id":"policy:tenant-scope-required","type":"policy","label":"tenant-scope-required"},{"id":"slot:customer_normalizer","type":"slot","label":"customer_normalizer"},{"id":"slot:ticket_comment_delegate","type":"slot","label":"ticket_comment_delegate"}],"edges":[{"from":"app:customer-admin","to":"block:agent/executor","type":"depends_on"},{"from":"app:customer-admin","to":"block:agent/harness","type":"depends_on"},{"from":"app:customer-admin","to":"block:auth/basic-session","type":"depends_on"},{"from":"app:customer-admin","to":"block:comment/basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:entity/customer-basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:file/upload","type":"depends_on"},{"from":"app:customer-admin","to":"block:tenant/basic-workspace","type":"depends_on"},{"from":"app:customer-admin","to":"block:ticket/basic","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/harness","type":"depends_on"},{"from":"block:agent/executor","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/comment","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/write","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:actor_identity","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:ticket_created","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/executor","type":"provides"},{"from":"block:agent/executor","to":"pin:agent/executor:output:agent_executed","type":"provides"},{"from":"block:agent/executor","to":"acceptance:agent_can_automatically_classify_ticket","type":"verified_by"},{"from":"block:agent/harness","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/harness","to":"pin:agent/harness:input:tenant_context","type":"depends_on"},{"from":"block:agent/harness","to":"capability:agent/harness","type":"provides"},{"from":"block:agent/harness","to":"pin:agent/harness:output:agent_registered","type":"provides"},{"from":"block:agent/harness","to":"acceptance:agent_can_be_registered","type":"verified_by"},{"from":"block:auth/basic-session","to":"capability:auth/session","type":"provides"},{"from":"block:auth/basic-session","to":"pin:auth/basic-session:output:actor_identity","type":"provides"},{"from":"block:auth/basic-session","to":"acceptance:user_can_login","type":"verified_by"},{"from":"block:comment/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:comment/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/read","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:actor_identity","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:ticket_created","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/comment","type":"provides"},{"from":"block:comment/basic","to":"pin:comment/basic:output:comment_added","type":"provides"},{"from":"block:comment/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:entity/customer-basic","to":"slot:customer_normalizer","type":"connects_to"},{"from":"block:entity/customer-basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:actor_identity","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:tenant_context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:customer/read","type":"provides"},{"from":"block:entity/customer-basic","to":"capability:customer/write","type":"provides"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:output:customer_created","type":"provides"},{"from":"block:entity/customer-basic","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_list_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/[customerId]/attachments/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/customers/page.tsx","type":"writes_to"},{"from":"block:file/upload","to":"capability:customer/read","type":"depends_on"},{"from":"block:file/upload","to":"capability:customer/write","type":"depends_on"},{"from":"block:file/upload","to":"pin:file/upload:input:customer_created","type":"depends_on"},{"from":"block:file/upload","to":"capability:file/upload","type":"provides"},{"from":"block:file/upload","to":"pin:file/upload:output:customer_attachment_uploaded","type":"provides"},{"from":"block:tenant/basic-workspace","to":"capability:auth/session","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:input:actor_identity","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"capability:tenant/context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:output:tenant_context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:ticket/basic","to":"slot:ticket_comment_delegate","type":"connects_to"},{"from":"block:ticket/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:actor_identity","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:tenant_context","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:ticket/read","type":"provides"},{"from":"block:ticket/basic","to":"capability:ticket/write","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_comment_added","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_created","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_status_transitioned","type":"provides"},{"from":"block:ticket/basic","to":"acceptance:assignee_can_filter_tickets","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_attachment_can_be_uploaded","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_can_be_created","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_status_can_transition","type":"verified_by"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/status/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/tickets/page.tsx","type":"writes_to"},{"from":"file:app/api/customers/[customerId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/customers/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/current/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/login/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/logout/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/comments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/status/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/customers/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/globals.css","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/layout.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/login/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/tickets/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/workspace/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/login-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/logout-button.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-comment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-status-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/acceptance-coverage.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/block-usage-map.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/install-manifest.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/policy-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/runtime-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/verification-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.dot","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.mmd","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/provenance/provenance.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:custom/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:custom/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:generated/routes.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/session.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/store.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next-env.d.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next.config.mjs","to":"app:customer-admin","type":"originates_from"},{"from":"file:package.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:prisma/schema.prisma","to":"block:comment/basic","type":"originates_from"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"file:custom/customer_normalizer.ts","type":"connects_to"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"file:custom/ticket_comment_delegate.ts","type":"connects_to"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:src/installed/agent/executor-service.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:src/installed/agent/harness-service.ts","to":"block:agent/harness","type":"originates_from"},{"from":"file:src/installed/auth/session.ts","to":"block:auth/basic-session","type":"originates_from"},{"from":"file:src/installed/comment/comment-service.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:src/installed/entity/customer-service.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:src/installed/file/customer-attachments.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:src/installed/tenant/context.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:src/installed/ticket/ticket-service.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/acceptance/agent-classifier-flow.test.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:tests/acceptance/comment-flow.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/acceptance/customer-flow.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/acceptance/ticket-flow.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/runtime/acceptance/customer-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/acceptance/ticket-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/customer-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/ticket-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/shared/tenant-runtime-fixture.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:tests/shared/ticket-service-suite.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/unit/comment-service.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/unit/customer-attachments.test.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:tests/unit/customer-normalizer.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/unit/ticket-service.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tsconfig.json","to":"app:customer-admin","type":"originates_from"},{"from":"policy:tenant-scope-required","to":"file:src/installed/entity/customer-service.ts","type":"connects_to"},{"from":"policy:tenant-scope-required","to":"file:src/installed/ticket/ticket-service.ts","type":"connects_to"},{"from":"slot:customer_normalizer","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"slot:customer_normalizer","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"slot:customer_normalizer","to":"file:source/code/slots/customer_normalizer.ts","type":"writes_to"},{"from":"slot:ticket_comment_delegate","to":"file:source/code/slots/ticket_comment_delegate.ts","type":"writes_to"}],"overlays":{"provenance":[{"path":"app/api/customers/[customerId]/attachments/route.ts","originType":"generated","originId":"app/api/customers/[customerId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"95f20862bad89dbf8920ed61cf78a859251d7d432d62b5acc04d371f43665bda"},{"path":"app/api/customers/route.ts","originType":"generated","originId":"app/api/customers/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7326bb9d18fd068ff3d207a77a8e9819f65d03f42e8256dd39b92d6b5fb71c80"},{"path":"app/api/session/current/route.ts","originType":"generated","originId":"app/api/session/current/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"41b5716db55eb55e9692340dcdfee37dcdd43ca55cce7d1badf4d43ead21f7be"},{"path":"app/api/session/login/route.ts","originType":"generated","originId":"app/api/session/login/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"4ad69071b53a165627d583827b2621d5a1bdfd6734dbf32187dbce1327adde2e"},{"path":"app/api/session/logout/route.ts","originType":"generated","originId":"app/api/session/logout/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a43398df373b5b1d5c7833e50c7dc6bfda0e1715bfb32f38f9db0ee247b60ca1"},{"path":"app/api/tickets/[ticketId]/attachments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a73eadb5c96b6167c5ddff29f301564eab37f87f68dd62246b4408309ce2728f"},{"path":"app/api/tickets/[ticketId]/comments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/comments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"414877019d3f46ff4e6000d0bf351c28882ad95ba0b39a1c1b9203a15bbc0e10"},{"path":"app/api/tickets/[ticketId]/status/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/status/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"85793d66314359cdb442690a2d78c59be1975a363103749d1522bb5d10c52435"},{"path":"app/api/tickets/route.ts","originType":"generated","originId":"app/api/tickets/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"df49116e52f7eeca6dde5604445c30e74fc612543cf2032f32ae823f92b51dc3"},{"path":"app/customers/page.tsx","originType":"generated","originId":"app/customers/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"8cae00ab1def512eedb1ea6fff56358b848c695b8b385a1e24e9acb85a96ce54"},{"path":"app/globals.css","originType":"generated","originId":"app/globals.css","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"f284c8e96c964f0eedc8feb72a2d70079213148c4fa2914d6c7a1d75d6c45c4b"},{"path":"app/layout.tsx","originType":"generated","originId":"app/layout.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"923ac38e1d841ac7a518ac6a3811ac6fd4f27c5860263cd715308c99e90057da"},{"path":"app/login/page.tsx","originType":"generated","originId":"app/login/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"39c95a6f7ea3e74c756444d8d8979bdf65d22c2c8de68dccdd7fe5bd0e86e508"},{"path":"app/page.tsx","originType":"generated","originId":"app/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"217eeae5935af77bef4a8fb9bd17ac93aaac6ffd945ea0d9dc0c62f89e98d41a"},{"path":"app/tickets/page.tsx","originType":"generated","originId":"app/tickets/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"bbc68c82dc2caa59e7a9af9888aab95257b259fb2fe8f04741713cdb95a1f95c"},{"path":"app/workspace/page.tsx","originType":"generated","originId":"app/workspace/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"97dea79cc750eb80f1ad4351c0ea36b142163fef4dbb807f15c6cf20604bd897"},{"path":"components/customer-attachment-form.tsx","originType":"generated","originId":"components/customer-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"dce0d95a6f871e38eeeca1556a2b0e79d0504337f7d437c64cad0273fc7879cf"},{"path":"components/customer-form.tsx","originType":"generated","originId":"components/customer-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"49618f6b9d9e582874135d1d022c07d53fdf7fcdd1f0746cb6cbde8a7c3095db"},{"path":"components/login-form.tsx","originType":"generated","originId":"components/login-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"499fd88b84c51f5bf4ab4ab19af6166ef994b1463c03961b9aaac82b7bc950a4"},{"path":"components/logout-button.tsx","originType":"generated","originId":"components/logout-button.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"6c57a0c0c4931d7b4380f5eae75e758cfd17b79ef8b283bc28b78d7142b8691f"},{"path":"components/ticket-attachment-form.tsx","originType":"generated","originId":"components/ticket-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a57120ec0703f9e2dd34ea561f047e2f0fa6e2b5b008b9fc6375081e67d9e10f"},{"path":"components/ticket-comment-form.tsx","originType":"generated","originId":"components/ticket-comment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"70ee552ace0b4d578dad9a2cd93689c0d2aa8c7d856d1c5a61887cc939b9e321"},{"path":"components/ticket-form.tsx","originType":"generated","originId":"components/ticket-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"bbacc942d8dcd16cbee3e87b9b68fedfb2bbf3ddad2ec8b4bb83e4bffff412d1"},{"path":"components/ticket-status-form.tsx","originType":"generated","originId":"components/ticket-status-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"3b7b3a26c0e7f2ba7a6586d21a2bfca3ff601c14981e0061d25a9452613cd837"},{"path":"control/evidence/acceptance-coverage.json","originType":"generated","originId":"control/evidence/acceptance-coverage.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"1902fd37d74388eb442373dcee2ac6600dd1be8caa0ec00bcf431b05802597ed"},{"path":"control/evidence/block-usage-map.json","originType":"generated","originId":"control/evidence/block-usage-map.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"cb1b1c8d59ae5bbad26b7f672fbc5dc3d82d1c6b763488cfa4438c0c55aa74ea"},{"path":"control/evidence/install-manifest.json","originType":"generated","originId":"control/evidence/install-manifest.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0f1a8fc16402b085a7398203f82c140f42ca528297d9c6cd8c46ec9e9e090e42"},{"path":"control/evidence/policy-report.json","originType":"generated","originId":"control/evidence/policy-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"},{"path":"control/evidence/runtime-report.json","originType":"generated","originId":"control/evidence/runtime-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6ce96b03ec6816c64655a1466677d4a630a9956738122e2a131a97d705b55f87"},{"path":"control/evidence/verification-report.json","originType":"generated","originId":"control/evidence/verification-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6646e73fe06e5c60aeff3b04d8e68cefc529dc94fe3a94110124bd682d420700"},{"path":"control/graph/explain-graph.dot","originType":"generated","originId":"control/graph/explain-graph.dot","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"d7941d42953420a83fafc1f810830d7dfd264589bcdf0507b766198ec9b9571e"},{"path":"control/graph/explain-graph.json","originType":"generated","originId":"control/graph/explain-graph.json","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"f85ee67beea6645e63f305011570435bec8aca2cfdd8c68dca1885003098c582"},{"path":"control/graph/explain-graph.mmd","originType":"generated","originId":"control/graph/explain-graph.mmd","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"bada40428d82bfa0c08c552363522cc636bd97c67987bf460b4ee0c947717c73"},{"path":"control/provenance/provenance.json","originType":"generated","originId":"control/provenance/provenance.json","generatedByPass":"lock","verifiedBy":[],"overrideStatus":"none","hash":"22efcd566cdc78f16385b41d7cb762c8558d995444e814ede5d5b61fbb6c1655"},{"path":"custom/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"3a02059902faa9201206432c95fcc3e2543173fbae9b93d878333e73be2923dd"},{"path":"custom/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"7045e6af8742233991c3eb75e2d13e77c2b92a66d0a14730fa8706fb6da007a2"},{"path":"generated/routes.ts","originType":"generated","originId":"generated/routes.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"34bc7230f5f6cc7d65bb5887261ce11a5df010b6234a3b7115fb9e09865a63ba"},{"path":"lib/session.ts","originType":"generated","originId":"lib/session.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a095b299822d95614852ff81963e02738d2210cc1b262f9684042613dd125247"},{"path":"lib/store.ts","originType":"generated","originId":"lib/store.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1bcc6cf1fad8387c72e1d90c30e51a0f060180504d7ec97474b2efca0333c738"},{"path":"next-env.d.ts","originType":"generated","originId":"next-env.d.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7ad303e40d4fddf44f156129e397511953a71481c5cfd86b1862649aaaf240cc"},{"path":"next.config.mjs","originType":"generated","originId":"next.config.mjs","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a9efcd4551ec4d9101da830e825a669befa315c4577d1bbf05b49683cf0454a0"},{"path":"package.json","originType":"generated","originId":"package.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0495f12527dae6570b1934ac8591d6c82f907e74b9609d6c1e383be0ed78d12c"},{"path":"prisma/schema.prisma","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"8fbfc077b34fc6a1c36d8beb5fb394b774e8a6e34d6aa8c9417cee335aa36742"},{"path":"source/code/slots/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"614b7d912abd4f28b4dddb3f583a606c78a1b151f81a02733ab3672ce12016e3"},{"path":"source/code/slots/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"ca9a14c6399b773bdd56597b691b38f5ae240a6ffee44b0e90d7b2a0401ff35d"},{"path":"src/installed/agent/executor-service.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"9cebfcbc38f4e512286e90c0b852323f19a427afab7dd17855a64612baa45974"},{"path":"src/installed/agent/harness-service.ts","originType":"block","originId":"agent/harness","sourceBlock":"agent/harness","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"79774f73cb0f53118e28351a2cafc177898649c691302c26346992b2566389eb"},{"path":"src/installed/auth/session.ts","originType":"block","originId":"auth/basic-session","sourceBlock":"auth/basic-session","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"b46a8bd583a502456f269f682ac1ddc6cf0f9aac13b4fcb13bf25c449371725f"},{"path":"src/installed/comment/comment-service.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"e46974bdf5082b52cb994636952653d7f1bf01973d9bdba0ad6a63b3914a27b7"},{"path":"src/installed/entity/customer-service.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"49ef2fe3b5553895bf036959032a26aae9ac628ff9ca5b68452d1f2f1897d914"},{"path":"src/installed/file/customer-attachments.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"8066a2fbb4d8582aa664dcdef2822507b73f1cba93996c21f6dfb4229a935a73"},{"path":"src/installed/tenant/context.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"88010a9157dee88a28742be9dc3528aed26980594bdb05621bda8c6f405e3a98"},{"path":"src/installed/ticket/ticket-service.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"ed8f0591bb4ce6948f63e3c6f5e0435b8f191ce577e1878e23ba93b575717dd1"},{"path":"tests/acceptance/agent-classifier-flow.test.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"506cf94368a6616c2b97a0648f28560c0cb52f6d3d585364df43687223a5d11c"},{"path":"tests/acceptance/comment-flow.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"95bdaae63ceb7b8d79f42f0985ab87fa8809fa2fbd905d8f170cbafc9690a367"},{"path":"tests/acceptance/customer-flow.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"1cbf4989bbae79d15a2bee35935763d149cef5c4457523b0b1fe3ea9ba675e8e"},{"path":"tests/acceptance/ticket-flow.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"0cefdb727fbcec37b87c2048ade4ae905bb9a8f443d25aa9d9e6e67c57021546"},{"path":"tests/runtime/acceptance/customer-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/customer-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"01fe03a98e3464cc16cab1729ebcc7c7b112c0b010841209e201aa6929f360ec"},{"path":"tests/runtime/acceptance/ticket-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/ticket-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1fc4fc1602d0903cdbd88556e08f322ab51d134bfdda1190a643f928b7ba8538"},{"path":"tests/runtime/unit/customer-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/customer-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"5cfefb02e316859c8bff1705d5c24123cbab55bd7e9390e3c60900d81c88c18e"},{"path":"tests/runtime/unit/ticket-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/ticket-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"809b121d6808b0457c67248ca1a734478e500cf82a3fb90fbc007f12eb64d0c0"},{"path":"tests/shared/tenant-runtime-fixture.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"3d91c1a5bba5bc1b44943c34da8a9cfc00ff1cbea2e776f13f011c1c0a9457db"},{"path":"tests/shared/ticket-service-suite.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"f48da33b70c8af291a6399f0d142efb2a1253734cdbe6749c925baf59f832ae8"},{"path":"tests/unit/comment-service.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"b7becb64319f779e972ebd8614bdb4e046211ee15381a7c815b7711332235017"},{"path":"tests/unit/customer-attachments.test.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"be94b72c8079147ddb4296c9c0d44acd523f18f9f4a493afc5934b0713c205aa"},{"path":"tests/unit/customer-normalizer.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"18f158586f2dbe575a351795160969486716d77feffc92ee22f4b42f67c53873"},{"path":"tests/unit/ticket-service.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"a1df0d924681207943a7a43494e5f666bc99d38e4b4a58646f5729034eb9e1e3"},{"path":"tsconfig.json","originType":"generated","originId":"tsconfig.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"c2eb7ddbd0c32aaed4b2ee1feb34a459dcca69027f33caa813b21505d768f45e"}],"coverage":{"blocks":[{"id":"auth/basic-session","coveredBy":["user_can_login"]},{"id":"tenant/basic-workspace","coveredBy":["tenant_only_sees_own_customers"]},{"id":"agent/harness","coveredBy":["agent_can_be_registered"]},{"id":"entity/customer-basic","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer","user_can_list_customers"]},{"id":"file/upload","coveredBy":[]},{"id":"ticket/basic","coveredBy":["assignee_can_filter_tickets","ticket_attachment_can_be_uploaded","ticket_can_be_created","ticket_comment_can_be_added","ticket_status_can_transition"]},{"id":"comment/basic","coveredBy":["ticket_comment_can_be_added"]},{"id":"agent/executor","coveredBy":["agent_can_automatically_classify_ticket"]}],"slots":[{"id":"customer_normalizer","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer"]},{"id":"ticket_comment_delegate","coveredBy":[]}]}}};
+  const rawGraph = {"nodes":[{"id":"acceptance:agent_can_automatically_classify_ticket","type":"acceptance","label":"agent_can_automatically_classify_ticket"},{"id":"acceptance:agent_can_be_registered","type":"acceptance","label":"agent_can_be_registered"},{"id":"acceptance:assignee_can_filter_tickets","type":"acceptance","label":"assignee_can_filter_tickets"},{"id":"acceptance:tenant_only_sees_own_customers","type":"acceptance","label":"tenant_only_sees_own_customers"},{"id":"acceptance:ticket_attachment_can_be_uploaded","type":"acceptance","label":"ticket_attachment_can_be_uploaded"},{"id":"acceptance:ticket_can_be_created","type":"acceptance","label":"ticket_can_be_created"},{"id":"acceptance:ticket_comment_can_be_added","type":"acceptance","label":"ticket_comment_can_be_added"},{"id":"acceptance:ticket_status_can_transition","type":"acceptance","label":"ticket_status_can_transition"},{"id":"acceptance:user_can_create_customer","type":"acceptance","label":"user_can_create_customer"},{"id":"acceptance:user_can_list_customers","type":"acceptance","label":"user_can_list_customers"},{"id":"acceptance:user_can_login","type":"acceptance","label":"user_can_login"},{"id":"app:customer-admin","type":"app","label":"customer-admin"},{"id":"block:agent/executor","type":"block","label":"agent/executor"},{"id":"block:agent/harness","type":"block","label":"agent/harness"},{"id":"block:auth/basic-session","type":"block","label":"auth/basic-session"},{"id":"block:comment/basic","type":"block","label":"comment/basic"},{"id":"block:entity/customer-basic","type":"block","label":"entity/customer-basic"},{"id":"block:file/upload","type":"block","label":"file/upload"},{"id":"block:tenant/basic-workspace","type":"block","label":"tenant/basic-workspace"},{"id":"block:ticket/basic","type":"block","label":"ticket/basic"},{"id":"capability:agent/executor","type":"capability","label":"agent/executor"},{"id":"capability:agent/harness","type":"capability","label":"agent/harness"},{"id":"capability:auth/session","type":"capability","label":"auth/session"},{"id":"capability:customer/read","type":"capability","label":"customer/read"},{"id":"capability:customer/write","type":"capability","label":"customer/write"},{"id":"capability:file/upload","type":"capability","label":"file/upload"},{"id":"capability:tenant/context","type":"capability","label":"tenant/context"},{"id":"capability:ticket/comment","type":"capability","label":"ticket/comment"},{"id":"capability:ticket/read","type":"capability","label":"ticket/read"},{"id":"capability:ticket/write","type":"capability","label":"ticket/write"},{"id":"file:app/api/customers/[customerId]/attachments/route.ts","type":"file","label":"app/api/customers/[customerId]/attachments/route.ts"},{"id":"file:app/api/customers/route.ts","type":"file","label":"app/api/customers/route.ts"},{"id":"file:app/api/session/current/route.ts","type":"file","label":"app/api/session/current/route.ts"},{"id":"file:app/api/session/login/route.ts","type":"file","label":"app/api/session/login/route.ts"},{"id":"file:app/api/session/logout/route.ts","type":"file","label":"app/api/session/logout/route.ts"},{"id":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/attachments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/comments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/status/route.ts","type":"file","label":"app/api/tickets/[ticketId]/status/route.ts"},{"id":"file:app/api/tickets/route.ts","type":"file","label":"app/api/tickets/route.ts"},{"id":"file:app/customers/page.tsx","type":"file","label":"app/customers/page.tsx"},{"id":"file:app/globals.css","type":"file","label":"app/globals.css"},{"id":"file:app/layout.tsx","type":"file","label":"app/layout.tsx"},{"id":"file:app/login/page.tsx","type":"file","label":"app/login/page.tsx"},{"id":"file:app/page.tsx","type":"file","label":"app/page.tsx"},{"id":"file:app/tickets/page.tsx","type":"file","label":"app/tickets/page.tsx"},{"id":"file:app/workspace/page.tsx","type":"file","label":"app/workspace/page.tsx"},{"id":"file:components/customer-attachment-form.tsx","type":"file","label":"components/customer-attachment-form.tsx"},{"id":"file:components/customer-form.tsx","type":"file","label":"components/customer-form.tsx"},{"id":"file:components/login-form.tsx","type":"file","label":"components/login-form.tsx"},{"id":"file:components/logout-button.tsx","type":"file","label":"components/logout-button.tsx"},{"id":"file:components/ticket-attachment-form.tsx","type":"file","label":"components/ticket-attachment-form.tsx"},{"id":"file:components/ticket-comment-form.tsx","type":"file","label":"components/ticket-comment-form.tsx"},{"id":"file:components/ticket-form.tsx","type":"file","label":"components/ticket-form.tsx"},{"id":"file:components/ticket-status-form.tsx","type":"file","label":"components/ticket-status-form.tsx"},{"id":"file:control/evidence/acceptance-coverage.json","type":"file","label":"control/evidence/acceptance-coverage.json"},{"id":"file:control/evidence/block-usage-map.json","type":"file","label":"control/evidence/block-usage-map.json"},{"id":"file:control/evidence/install-manifest.json","type":"file","label":"control/evidence/install-manifest.json"},{"id":"file:control/evidence/policy-report.json","type":"file","label":"control/evidence/policy-report.json"},{"id":"file:control/evidence/review-summary.json","type":"file","label":"control/evidence/review-summary.json"},{"id":"file:control/evidence/runtime-report.json","type":"file","label":"control/evidence/runtime-report.json"},{"id":"file:control/evidence/verification-report.json","type":"file","label":"control/evidence/verification-report.json"},{"id":"file:control/graph/explain-graph.dot","type":"file","label":"control/graph/explain-graph.dot"},{"id":"file:control/graph/explain-graph.json","type":"file","label":"control/graph/explain-graph.json"},{"id":"file:control/graph/explain-graph.mmd","type":"file","label":"control/graph/explain-graph.mmd"},{"id":"file:control/provenance/provenance.json","type":"file","label":"control/provenance/provenance.json"},{"id":"file:control/workbench/views/graph-view.html","type":"file","label":"control/workbench/views/graph-view.html"},{"id":"file:control/workbench/views/overview-view.html","type":"file","label":"control/workbench/views/overview-view.html"},{"id":"file:control/workbench/views/review-view.html","type":"file","label":"control/workbench/views/review-view.html"},{"id":"file:control/workbench/views/slot-rule-view.html","type":"file","label":"control/workbench/views/slot-rule-view.html"},{"id":"file:control/workbench/views/source-view.html","type":"file","label":"control/workbench/views/source-view.html"},{"id":"file:custom/customer_normalizer.ts","type":"file","label":"custom/customer_normalizer.ts"},{"id":"file:custom/ticket_comment_delegate.ts","type":"file","label":"custom/ticket_comment_delegate.ts"},{"id":"file:generated/routes.ts","type":"file","label":"generated/routes.ts"},{"id":"file:lib/session.ts","type":"file","label":"lib/session.ts"},{"id":"file:lib/store.ts","type":"file","label":"lib/store.ts"},{"id":"file:next-env.d.ts","type":"file","label":"next-env.d.ts"},{"id":"file:next.config.mjs","type":"file","label":"next.config.mjs"},{"id":"file:package.json","type":"file","label":"package.json"},{"id":"file:prisma/schema.prisma","type":"file","label":"prisma/schema.prisma"},{"id":"file:source/code/slots/customer_normalizer.ts","type":"file","label":"source/code/slots/customer_normalizer.ts"},{"id":"file:source/code/slots/ticket_comment_delegate.ts","type":"file","label":"source/code/slots/ticket_comment_delegate.ts"},{"id":"file:src/installed/agent/executor-service.ts","type":"file","label":"src/installed/agent/executor-service.ts"},{"id":"file:src/installed/agent/harness-service.ts","type":"file","label":"src/installed/agent/harness-service.ts"},{"id":"file:src/installed/auth/session.ts","type":"file","label":"src/installed/auth/session.ts"},{"id":"file:src/installed/comment/comment-service.ts","type":"file","label":"src/installed/comment/comment-service.ts"},{"id":"file:src/installed/entity/customer-service.ts","type":"file","label":"src/installed/entity/customer-service.ts"},{"id":"file:src/installed/file/customer-attachments.ts","type":"file","label":"src/installed/file/customer-attachments.ts"},{"id":"file:src/installed/tenant/context.ts","type":"file","label":"src/installed/tenant/context.ts"},{"id":"file:src/installed/ticket/ticket-service.ts","type":"file","label":"src/installed/ticket/ticket-service.ts"},{"id":"file:tests/acceptance/agent-classifier-flow.test.ts","type":"file","label":"tests/acceptance/agent-classifier-flow.test.ts"},{"id":"file:tests/acceptance/comment-flow.test.ts","type":"file","label":"tests/acceptance/comment-flow.test.ts"},{"id":"file:tests/acceptance/customer-flow.test.ts","type":"file","label":"tests/acceptance/customer-flow.test.ts"},{"id":"file:tests/acceptance/ticket-flow.test.ts","type":"file","label":"tests/acceptance/ticket-flow.test.ts"},{"id":"file:tests/runtime/acceptance/customer-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/customer-flow.spec.ts"},{"id":"file:tests/runtime/acceptance/ticket-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/ticket-flow.spec.ts"},{"id":"file:tests/runtime/unit/customer-runtime.test.ts","type":"file","label":"tests/runtime/unit/customer-runtime.test.ts"},{"id":"file:tests/runtime/unit/ticket-runtime.test.ts","type":"file","label":"tests/runtime/unit/ticket-runtime.test.ts"},{"id":"file:tests/shared/tenant-runtime-fixture.ts","type":"file","label":"tests/shared/tenant-runtime-fixture.ts"},{"id":"file:tests/shared/ticket-service-suite.ts","type":"file","label":"tests/shared/ticket-service-suite.ts"},{"id":"file:tests/unit/comment-service.test.ts","type":"file","label":"tests/unit/comment-service.test.ts"},{"id":"file:tests/unit/customer-attachments.test.ts","type":"file","label":"tests/unit/customer-attachments.test.ts"},{"id":"file:tests/unit/customer-normalizer.test.ts","type":"file","label":"tests/unit/customer-normalizer.test.ts"},{"id":"file:tests/unit/ticket-service.test.ts","type":"file","label":"tests/unit/ticket-service.test.ts"},{"id":"file:tsconfig.json","type":"file","label":"tsconfig.json"},{"id":"pin:agent/executor:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:agent/executor:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:agent/executor:output:agent_executed","type":"pin","label":"agent_executed"},{"id":"pin:agent/harness:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:agent/harness:output:agent_registered","type":"pin","label":"agent_registered"},{"id":"pin:auth/basic-session:output:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:comment/basic:output:comment_added","type":"pin","label":"comment_added"},{"id":"pin:entity/customer-basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:entity/customer-basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:entity/customer-basic:output:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:input:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:output:customer_attachment_uploaded","type":"pin","label":"customer_attachment_uploaded"},{"id":"pin:tenant/basic-workspace:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:tenant/basic-workspace:output:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:ticket/basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"pin","label":"ticket_attachment_uploaded"},{"id":"pin:ticket/basic:output:ticket_comment_added","type":"pin","label":"ticket_comment_added"},{"id":"pin:ticket/basic:output:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:ticket/basic:output:ticket_status_transitioned","type":"pin","label":"ticket_status_transitioned"},{"id":"policy:tenant-scope-required","type":"policy","label":"tenant-scope-required"},{"id":"slot:customer_normalizer","type":"slot","label":"customer_normalizer"},{"id":"slot:ticket_comment_delegate","type":"slot","label":"ticket_comment_delegate"}],"edges":[{"from":"app:customer-admin","to":"block:agent/executor","type":"depends_on"},{"from":"app:customer-admin","to":"block:agent/harness","type":"depends_on"},{"from":"app:customer-admin","to":"block:auth/basic-session","type":"depends_on"},{"from":"app:customer-admin","to":"block:comment/basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:entity/customer-basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:file/upload","type":"depends_on"},{"from":"app:customer-admin","to":"block:tenant/basic-workspace","type":"depends_on"},{"from":"app:customer-admin","to":"block:ticket/basic","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/harness","type":"depends_on"},{"from":"block:agent/executor","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/comment","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/write","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:actor_identity","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:ticket_created","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/executor","type":"provides"},{"from":"block:agent/executor","to":"pin:agent/executor:output:agent_executed","type":"provides"},{"from":"block:agent/executor","to":"acceptance:agent_can_automatically_classify_ticket","type":"verified_by"},{"from":"block:agent/harness","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/harness","to":"pin:agent/harness:input:tenant_context","type":"depends_on"},{"from":"block:agent/harness","to":"capability:agent/harness","type":"provides"},{"from":"block:agent/harness","to":"pin:agent/harness:output:agent_registered","type":"provides"},{"from":"block:agent/harness","to":"acceptance:agent_can_be_registered","type":"verified_by"},{"from":"block:auth/basic-session","to":"capability:auth/session","type":"provides"},{"from":"block:auth/basic-session","to":"pin:auth/basic-session:output:actor_identity","type":"provides"},{"from":"block:auth/basic-session","to":"acceptance:user_can_login","type":"verified_by"},{"from":"block:comment/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:comment/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/read","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:actor_identity","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:ticket_created","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/comment","type":"provides"},{"from":"block:comment/basic","to":"pin:comment/basic:output:comment_added","type":"provides"},{"from":"block:comment/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:entity/customer-basic","to":"slot:customer_normalizer","type":"connects_to"},{"from":"block:entity/customer-basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:actor_identity","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:tenant_context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:customer/read","type":"provides"},{"from":"block:entity/customer-basic","to":"capability:customer/write","type":"provides"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:output:customer_created","type":"provides"},{"from":"block:entity/customer-basic","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_list_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/[customerId]/attachments/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/customers/page.tsx","type":"writes_to"},{"from":"block:file/upload","to":"capability:customer/read","type":"depends_on"},{"from":"block:file/upload","to":"capability:customer/write","type":"depends_on"},{"from":"block:file/upload","to":"pin:file/upload:input:customer_created","type":"depends_on"},{"from":"block:file/upload","to":"capability:file/upload","type":"provides"},{"from":"block:file/upload","to":"pin:file/upload:output:customer_attachment_uploaded","type":"provides"},{"from":"block:tenant/basic-workspace","to":"capability:auth/session","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:input:actor_identity","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"capability:tenant/context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:output:tenant_context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:ticket/basic","to":"slot:ticket_comment_delegate","type":"connects_to"},{"from":"block:ticket/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:actor_identity","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:tenant_context","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:ticket/read","type":"provides"},{"from":"block:ticket/basic","to":"capability:ticket/write","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_comment_added","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_created","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_status_transitioned","type":"provides"},{"from":"block:ticket/basic","to":"acceptance:assignee_can_filter_tickets","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_attachment_can_be_uploaded","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_can_be_created","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_status_can_transition","type":"verified_by"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/status/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/tickets/page.tsx","type":"writes_to"},{"from":"file:app/api/customers/[customerId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/customers/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/current/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/login/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/logout/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/comments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/status/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/customers/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/globals.css","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/layout.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/login/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/tickets/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/workspace/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/login-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/logout-button.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-comment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-status-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/acceptance-coverage.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/block-usage-map.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/install-manifest.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/policy-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/review-summary.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/runtime-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/verification-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.dot","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.mmd","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/provenance/provenance.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/workbench/views/graph-view.html","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/workbench/views/overview-view.html","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/workbench/views/review-view.html","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/workbench/views/slot-rule-view.html","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/workbench/views/source-view.html","to":"app:customer-admin","type":"originates_from"},{"from":"file:custom/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:custom/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:generated/routes.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/session.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/store.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next-env.d.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next.config.mjs","to":"app:customer-admin","type":"originates_from"},{"from":"file:package.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:prisma/schema.prisma","to":"block:comment/basic","type":"originates_from"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"file:custom/customer_normalizer.ts","type":"connects_to"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"file:custom/ticket_comment_delegate.ts","type":"connects_to"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:src/installed/agent/executor-service.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:src/installed/agent/harness-service.ts","to":"block:agent/harness","type":"originates_from"},{"from":"file:src/installed/auth/session.ts","to":"block:auth/basic-session","type":"originates_from"},{"from":"file:src/installed/comment/comment-service.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:src/installed/entity/customer-service.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:src/installed/file/customer-attachments.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:src/installed/tenant/context.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:src/installed/ticket/ticket-service.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/acceptance/agent-classifier-flow.test.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:tests/acceptance/comment-flow.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/acceptance/customer-flow.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/acceptance/ticket-flow.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/runtime/acceptance/customer-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/acceptance/ticket-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/customer-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/ticket-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/shared/tenant-runtime-fixture.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:tests/shared/ticket-service-suite.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/unit/comment-service.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/unit/customer-attachments.test.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:tests/unit/customer-normalizer.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/unit/ticket-service.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tsconfig.json","to":"app:customer-admin","type":"originates_from"},{"from":"policy:tenant-scope-required","to":"file:src/installed/entity/customer-service.ts","type":"connects_to"},{"from":"policy:tenant-scope-required","to":"file:src/installed/ticket/ticket-service.ts","type":"connects_to"},{"from":"slot:customer_normalizer","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"slot:customer_normalizer","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"slot:customer_normalizer","to":"file:source/code/slots/customer_normalizer.ts","type":"writes_to"},{"from":"slot:ticket_comment_delegate","to":"file:source/code/slots/ticket_comment_delegate.ts","type":"writes_to"}],"overlays":{"provenance":[{"path":"app/api/customers/[customerId]/attachments/route.ts","originType":"generated","originId":"app/api/customers/[customerId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"95f20862bad89dbf8920ed61cf78a859251d7d432d62b5acc04d371f43665bda"},{"path":"app/api/customers/route.ts","originType":"generated","originId":"app/api/customers/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7326bb9d18fd068ff3d207a77a8e9819f65d03f42e8256dd39b92d6b5fb71c80"},{"path":"app/api/session/current/route.ts","originType":"generated","originId":"app/api/session/current/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"41b5716db55eb55e9692340dcdfee37dcdd43ca55cce7d1badf4d43ead21f7be"},{"path":"app/api/session/login/route.ts","originType":"generated","originId":"app/api/session/login/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"4ad69071b53a165627d583827b2621d5a1bdfd6734dbf32187dbce1327adde2e"},{"path":"app/api/session/logout/route.ts","originType":"generated","originId":"app/api/session/logout/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a43398df373b5b1d5c7833e50c7dc6bfda0e1715bfb32f38f9db0ee247b60ca1"},{"path":"app/api/tickets/[ticketId]/attachments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a73eadb5c96b6167c5ddff29f301564eab37f87f68dd62246b4408309ce2728f"},{"path":"app/api/tickets/[ticketId]/comments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/comments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"414877019d3f46ff4e6000d0bf351c28882ad95ba0b39a1c1b9203a15bbc0e10"},{"path":"app/api/tickets/[ticketId]/status/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/status/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"85793d66314359cdb442690a2d78c59be1975a363103749d1522bb5d10c52435"},{"path":"app/api/tickets/route.ts","originType":"generated","originId":"app/api/tickets/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"df49116e52f7eeca6dde5604445c30e74fc612543cf2032f32ae823f92b51dc3"},{"path":"app/customers/page.tsx","originType":"generated","originId":"app/customers/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"4c4886df0fa243a5967a9f3c6a954b4106e0b58691e5fffcdba2d4560b8d3959"},{"path":"app/globals.css","originType":"generated","originId":"app/globals.css","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"cd0d98fbb0e5d385552f519cfb5a974ce0511b9fd0de829ffd5d4180c0eab255"},{"path":"app/layout.tsx","originType":"generated","originId":"app/layout.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"923ac38e1d841ac7a518ac6a3811ac6fd4f27c5860263cd715308c99e90057da"},{"path":"app/login/page.tsx","originType":"generated","originId":"app/login/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"d515c598a018a51b9dcfe199ffdcd55d1cdcd23b0859dfb237ce4cffc45ee07f"},{"path":"app/page.tsx","originType":"generated","originId":"app/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"217eeae5935af77bef4a8fb9bd17ac93aaac6ffd945ea0d9dc0c62f89e98d41a"},{"path":"app/tickets/page.tsx","originType":"generated","originId":"app/tickets/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"f0721d48f42dc4c21a47acc8c33a04e44fe062ff28e04fef1be23d551032d383"},{"path":"app/workspace/page.tsx","originType":"generated","originId":"app/workspace/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"b9fb1475d3fbb6e8bbd187b0b0ff46599379eb86040a1dc8fbdb27a3b789dba2"},{"path":"components/customer-attachment-form.tsx","originType":"generated","originId":"components/customer-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"f723bc1c776c40291edcca8c20df573a5f9c7fd6814cf4cf5f444dc65f35928b"},{"path":"components/customer-form.tsx","originType":"generated","originId":"components/customer-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"64ac781b45e1b0969edb21b23c8c444be9186b8b159eaf22f0c3c85cbfd5b931"},{"path":"components/login-form.tsx","originType":"generated","originId":"components/login-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"54a7a4ca6b29003237d69aa8e16cd551ab28a768299ca0a0b045a3893bd30d5d"},{"path":"components/logout-button.tsx","originType":"generated","originId":"components/logout-button.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"e10eaa301de0a1d540e4c7fdd65896a2fd0e654d160a7b5c14d28c3081c3eb17"},{"path":"components/ticket-attachment-form.tsx","originType":"generated","originId":"components/ticket-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"86224f05ca555d5e5ad2d13613ee730dfd40d72cadd98873ba6090735ce56bef"},{"path":"components/ticket-comment-form.tsx","originType":"generated","originId":"components/ticket-comment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"15800f544a801c82a2158ca19fc1acb67a384d524403a285e8ae5a248a62b60a"},{"path":"components/ticket-form.tsx","originType":"generated","originId":"components/ticket-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"927fb3e0a6770c5b4d21a6a80765fe38d641f60f8aed5a8c590d03dfbb8f880e"},{"path":"components/ticket-status-form.tsx","originType":"generated","originId":"components/ticket-status-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"577beff3d47c962fad2b99ab64c404087e8627ba1bcdaf9e52ef758974daf353"},{"path":"control/evidence/acceptance-coverage.json","originType":"generated","originId":"control/evidence/acceptance-coverage.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"1902fd37d74388eb442373dcee2ac6600dd1be8caa0ec00bcf431b05802597ed"},{"path":"control/evidence/block-usage-map.json","originType":"generated","originId":"control/evidence/block-usage-map.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"cb1b1c8d59ae5bbad26b7f672fbc5dc3d82d1c6b763488cfa4438c0c55aa74ea"},{"path":"control/evidence/install-manifest.json","originType":"generated","originId":"control/evidence/install-manifest.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0f1a8fc16402b085a7398203f82c140f42ca528297d9c6cd8c46ec9e9e090e42"},{"path":"control/evidence/policy-report.json","originType":"generated","originId":"control/evidence/policy-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"},{"path":"control/evidence/review-summary.json","originType":"generated","originId":"control/evidence/review-summary.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"816b6d9547b511ad6122e34d3601db1081250224d6688de94252649846cca2a4"},{"path":"control/evidence/runtime-report.json","originType":"generated","originId":"control/evidence/runtime-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6ce96b03ec6816c64655a1466677d4a630a9956738122e2a131a97d705b55f87"},{"path":"control/evidence/verification-report.json","originType":"generated","originId":"control/evidence/verification-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6646e73fe06e5c60aeff3b04d8e68cefc529dc94fe3a94110124bd682d420700"},{"path":"control/graph/explain-graph.dot","originType":"generated","originId":"control/graph/explain-graph.dot","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"d7941d42953420a83fafc1f810830d7dfd264589bcdf0507b766198ec9b9571e"},{"path":"control/graph/explain-graph.json","originType":"generated","originId":"control/graph/explain-graph.json","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"1077a851bdb4f9651d6311bf47a6acc4ac90499cfb8a73078cf36c5d883629f7"},{"path":"control/graph/explain-graph.mmd","originType":"generated","originId":"control/graph/explain-graph.mmd","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"bada40428d82bfa0c08c552363522cc636bd97c67987bf460b4ee0c947717c73"},{"path":"control/provenance/provenance.json","originType":"generated","originId":"control/provenance/provenance.json","generatedByPass":"lock","verifiedBy":[],"overrideStatus":"none"},{"path":"control/workbench/views/graph-view.html","originType":"generated","originId":"control/workbench/views/graph-view.html","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"b809a083dbd35b5ed252a941003fe3b2777ac132f8e28dcbef7fdda2b957985e"},{"path":"control/workbench/views/overview-view.html","originType":"generated","originId":"control/workbench/views/overview-view.html","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"44a1438dbe7437f6652b7acde0a49a798bb6696b3071d06ffb85e1e2ebf72826"},{"path":"control/workbench/views/review-view.html","originType":"generated","originId":"control/workbench/views/review-view.html","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"dd0a39439dc4304ecccf1c361accc75c60aa5b31ddbd643def3021537642518f"},{"path":"control/workbench/views/slot-rule-view.html","originType":"generated","originId":"control/workbench/views/slot-rule-view.html","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"06ef93bd235e17154d3388d949214df30325d0b65eae8687a5ac542b819e2c79"},{"path":"control/workbench/views/source-view.html","originType":"generated","originId":"control/workbench/views/source-view.html","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"e43d30b6021a785465f8654f8c91fdc17b082b35f4d215c4020f93f397040fee"},{"path":"custom/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"3a02059902faa9201206432c95fcc3e2543173fbae9b93d878333e73be2923dd"},{"path":"custom/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"58e680dd98dab79bd43d248ba06b1d289dc67c3b21315661d2e7dce7c234953b"},{"path":"generated/routes.ts","originType":"generated","originId":"generated/routes.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"34bc7230f5f6cc7d65bb5887261ce11a5df010b6234a3b7115fb9e09865a63ba"},{"path":"lib/session.ts","originType":"generated","originId":"lib/session.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a095b299822d95614852ff81963e02738d2210cc1b262f9684042613dd125247"},{"path":"lib/store.ts","originType":"generated","originId":"lib/store.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1bcc6cf1fad8387c72e1d90c30e51a0f060180504d7ec97474b2efca0333c738"},{"path":"next-env.d.ts","originType":"generated","originId":"next-env.d.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7ad303e40d4fddf44f156129e397511953a71481c5cfd86b1862649aaaf240cc"},{"path":"next.config.mjs","originType":"generated","originId":"next.config.mjs","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a9efcd4551ec4d9101da830e825a669befa315c4577d1bbf05b49683cf0454a0"},{"path":"package.json","originType":"generated","originId":"package.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0495f12527dae6570b1934ac8591d6c82f907e74b9609d6c1e383be0ed78d12c"},{"path":"prisma/schema.prisma","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"990ed3f9a1831b6eb6ab945122c3a0da4e8f6b767964ee84638eae370c1c1f3c"},{"path":"source/code/slots/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"614b7d912abd4f28b4dddb3f583a606c78a1b151f81a02733ab3672ce12016e3"},{"path":"source/code/slots/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"1fdd0316f4e0eb669b80cc8120f055060598ab3b0fe82718ddcdf941fd0bd15b"},{"path":"src/installed/agent/executor-service.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"9cebfcbc38f4e512286e90c0b852323f19a427afab7dd17855a64612baa45974"},{"path":"src/installed/agent/harness-service.ts","originType":"block","originId":"agent/harness","sourceBlock":"agent/harness","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"79774f73cb0f53118e28351a2cafc177898649c691302c26346992b2566389eb"},{"path":"src/installed/auth/session.ts","originType":"block","originId":"auth/basic-session","sourceBlock":"auth/basic-session","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"b46a8bd583a502456f269f682ac1ddc6cf0f9aac13b4fcb13bf25c449371725f"},{"path":"src/installed/comment/comment-service.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"e46974bdf5082b52cb994636952653d7f1bf01973d9bdba0ad6a63b3914a27b7"},{"path":"src/installed/entity/customer-service.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"49ef2fe3b5553895bf036959032a26aae9ac628ff9ca5b68452d1f2f1897d914"},{"path":"src/installed/file/customer-attachments.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"8066a2fbb4d8582aa664dcdef2822507b73f1cba93996c21f6dfb4229a935a73"},{"path":"src/installed/tenant/context.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"88010a9157dee88a28742be9dc3528aed26980594bdb05621bda8c6f405e3a98"},{"path":"src/installed/ticket/ticket-service.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"ed8f0591bb4ce6948f63e3c6f5e0435b8f191ce577e1878e23ba93b575717dd1"},{"path":"tests/acceptance/agent-classifier-flow.test.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"506cf94368a6616c2b97a0648f28560c0cb52f6d3d585364df43687223a5d11c"},{"path":"tests/acceptance/comment-flow.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"95bdaae63ceb7b8d79f42f0985ab87fa8809fa2fbd905d8f170cbafc9690a367"},{"path":"tests/acceptance/customer-flow.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"1cbf4989bbae79d15a2bee35935763d149cef5c4457523b0b1fe3ea9ba675e8e"},{"path":"tests/acceptance/ticket-flow.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"0cefdb727fbcec37b87c2048ade4ae905bb9a8f443d25aa9d9e6e67c57021546"},{"path":"tests/runtime/acceptance/customer-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/customer-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"01fe03a98e3464cc16cab1729ebcc7c7b112c0b010841209e201aa6929f360ec"},{"path":"tests/runtime/acceptance/ticket-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/ticket-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1fc4fc1602d0903cdbd88556e08f322ab51d134bfdda1190a643f928b7ba8538"},{"path":"tests/runtime/unit/customer-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/customer-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"5cfefb02e316859c8bff1705d5c24123cbab55bd7e9390e3c60900d81c88c18e"},{"path":"tests/runtime/unit/ticket-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/ticket-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"809b121d6808b0457c67248ca1a734478e500cf82a3fb90fbc007f12eb64d0c0"},{"path":"tests/shared/tenant-runtime-fixture.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"3d91c1a5bba5bc1b44943c34da8a9cfc00ff1cbea2e776f13f011c1c0a9457db"},{"path":"tests/shared/ticket-service-suite.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"f48da33b70c8af291a6399f0d142efb2a1253734cdbe6749c925baf59f832ae8"},{"path":"tests/unit/comment-service.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"b7becb64319f779e972ebd8614bdb4e046211ee15381a7c815b7711332235017"},{"path":"tests/unit/customer-attachments.test.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"be94b72c8079147ddb4296c9c0d44acd523f18f9f4a493afc5934b0713c205aa"},{"path":"tests/unit/customer-normalizer.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"18f158586f2dbe575a351795160969486716d77feffc92ee22f4b42f67c53873"},{"path":"tests/unit/ticket-service.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"a1df0d924681207943a7a43494e5f666bc99d38e4b4a58646f5729034eb9e1e3"},{"path":"tsconfig.json","originType":"generated","originId":"tsconfig.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"c2eb7ddbd0c32aaed4b2ee1feb34a459dcca69027f33caa813b21505d768f45e"}],"coverage":{"blocks":[{"id":"auth/basic-session","coveredBy":["user_can_login"]},{"id":"tenant/basic-workspace","coveredBy":["tenant_only_sees_own_customers"]},{"id":"agent/harness","coveredBy":["agent_can_be_registered"]},{"id":"entity/customer-basic","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer","user_can_list_customers"]},{"id":"file/upload","coveredBy":[]},{"id":"ticket/basic","coveredBy":["assignee_can_filter_tickets","ticket_attachment_can_be_uploaded","ticket_can_be_created","ticket_comment_can_be_added","ticket_status_can_transition"]},{"id":"comment/basic","coveredBy":["ticket_comment_can_be_added"]},{"id":"agent/executor","coveredBy":["agent_can_automatically_classify_ticket"]}],"slots":[{"id":"customer_normalizer","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer"]},{"id":"ticket_comment_delegate","coveredBy":[]}]}}};
 
   const translationDict = {
     zh: {
-      title: "系统拓扑依赖设计画布 (Topology SPEC Builder)",
-      desc: "这是一个展示服务、插槽与文件依赖拓扑的交互式画布。支持节点拖拽、连线编辑和导出 Mutation 并在本地重新 Stitch 编译。",
-      opTitle: "图形组装装配器 (Stitching Operator)",
-      addBlockLabel: "在画布中添加新 Block 依赖 (Add Capability Block)",
-      addBtn: "添加新 Block",
-      bindSlotLabel: "建立插槽管脚连接 (Connect & Bind Slot)",
-      slotIdLabel: "插槽 ID",
-      blockIdLabel: "连接的目标 Block",
-      bindBtn: "建立连线并绑定",
-      exporterTitle: "Mutations 实时生成器 (Mutations Exporter)",
-      copyBtn: "复制 Mutations JSON",
-      resetBtn: "重置操作",
-      applyHint: "提示：将生成的 JSON 保存到 source/views/mutations/drag.json 中，并在命令行运行 \"bun run platform -- workbench mutations apply\" 即可完整应用于项目编译。",
+      title: "系统拓扑依赖设计工作台 (Topology SPEC Workbench)",
+      desc: "展示系统依赖拓扑与插槽绑定。支持节点拖拽、属性检查、添加Block、管脚连线绑定及一键实时热载重编译。",
+      applyRecompileBtn: "应用变更并编译",
+      inspectorTitle: "节点属性与配置 (Node Inspector)",
       coverageMatrixTitle: "架构覆盖率矩阵 (Graph Coverage Matrix)",
       coverageChartsTitle: "覆盖度仪表盘 (Coverage Dashboard)",
       covTitleBlocks: "能力块覆盖率",
@@ -351,31 +804,27 @@
       manualOverrideTitle: "人工接管审计 (Manual Override Registry)",
       manualOverrideDesc: "被开发人员物理手动覆盖的产物或配置文件。",
       summaryTitle: "拓扑节点与边摘要 (Summary)",
+      sidebarBlocks: "可用能力块 (Blocks Catalog)",
+      sidebarSlots: "可用插槽 (Slots Catalog)",
+      enableWiring: "启用连线绑定",
+      disableWiring: "退出连线模式",
+      runNodeTest: "节点运行与调试",
       
-      // 节点类型翻译
-      app: "主系统",
-      block: "能力块",
-      capability: "公共能力",
-      pin: "缝合引脚",
-      slot: "Slot 插槽",
-      file: "生成产物",
-      acceptance: "验收测试",
-      policy: "安全策略"
+      // Node types
+      app: "主系统 (Application)",
+      block: "能力块 (Block)",
+      capability: "能力 (Capability)",
+      pin: "引脚 (Pin)",
+      slot: "插槽 (Slot)",
+      file: "生成产物 (File)",
+      acceptance: "验收测试 (Acceptance)",
+      policy: "安全策略 (Policy)"
     },
     en: {
-      title: "Interactive SPEC Builder Canvas",
-      desc: "An interactive topology canvas displaying services, slots, and file attributions. Supports drag-and-drop actions and mutations exporting.",
-      opTitle: "Stitching Operator",
-      addBlockLabel: "Add Capability Block to Canvas",
-      addBtn: "Add Block",
-      bindSlotLabel: "Connect & Bind Slot Pin",
-      slotIdLabel: "Slot ID",
-      blockIdLabel: "Target Block Connection",
-      bindBtn: "Bind & Connect",
-      exporterTitle: "Mutations Exporter",
-      copyBtn: "Copy Mutations JSON",
-      resetBtn: "Reset Operations",
-      applyHint: "Tip: Save this generated JSON into source/views/mutations/drag.json, then run \"bun run platform -- workbench mutations apply\" to stitch and rebuild the codebase.",
+      title: "Topology SPEC Builder & Workbench",
+      desc: "View and edit system dependency topologies and slot bindings. Support drag, inspect, block addition, slot bindings and hot compilation.",
+      applyRecompileBtn: "Apply & Recompile",
+      inspectorTitle: "Node Inspector",
       coverageMatrixTitle: "Graph Coverage Matrix",
       coverageChartsTitle: "Coverage Dashboard Charts",
       covTitleBlocks: "Blocks Coverage",
@@ -390,6 +839,11 @@
       manualOverrideTitle: "Manual Override Registry",
       manualOverrideDesc: "Tracked artifacts and nodes that have been manually overridden by developers.",
       summaryTitle: "Node & Edge Summary",
+      sidebarBlocks: "Available Blocks",
+      sidebarSlots: "Available Slots",
+      enableWiring: "Enable Wiring Mode",
+      disableWiring: "Disable Wiring Mode",
+      runNodeTest: "Node Run & Debug",
       
       app: "Application",
       block: "Block",
@@ -402,7 +856,7 @@
     }
   };
 
-  let currentLang = 'en'; // 默认英文
+  let currentLang = 'zh'; // Default Chinese
   let mutationsList = [];
 
   function toggleLanguage() {
@@ -422,43 +876,252 @@
     });
   }
 
-  // Vis.js Graph colors mapping
+  const policyViolations = [];
+  const failurePoints = [];
+
+  // Vis.js Graph colors mapping with premium glows
   const groupStyles = {
-    app: { color: { background: '#ef5350', border: '#b71c1c' }, shape: 'dot' },
-    block: { color: { background: '#66bb6a', border: '#1b5e20' }, shape: 'diamond' },
-    capability: { color: { background: '#42a5f5', border: '#0d47a1' }, shape: 'ellipse' },
-    pin: { color: { background: '#ffca28', border: '#f57f17' }, shape: 'triangle' },
-    slot: { color: { background: '#ab47bc', border: '#4a148c' }, shape: 'star' },
-    file: { color: { background: '#78909c', border: '#263238' }, shape: 'box' },
-    acceptance: { color: { background: '#ec407a', border: '#880e4f' }, shape: 'hexagon' },
-    policy: { color: { background: '#ff9800', border: '#e65100' }, shape: 'database' }
+    app: { color: { background: '#1e293b', border: '#ef4444', highlight: { background: '#2d3748', border: '#f87171' } }, shape: 'box', borderWidth: 2 },
+    block: { color: { background: '#064e3b', border: '#10b981', highlight: { background: '#047857', border: '#34d399' } }, shape: 'box', borderWidth: 2 },
+    capability: { color: { background: '#1e3a8a', border: '#3b82f6', highlight: { background: '#1d4ed8', border: '#60a5fa' } }, shape: 'ellipse', borderWidth: 1 },
+    pin: { color: { background: '#78350f', border: '#f59e0b', highlight: { background: '#b45309', border: '#fbbf24' } }, shape: 'triangle', borderWidth: 1 },
+    slot: { color: { background: '#581c87', border: '#8b5cf6', highlight: { background: '#6b21a8', border: '#a78bfa' } }, shape: 'box', borderWidth: 2 },
+    file: { color: { background: '#0f172a', border: '#475569', highlight: { background: '#1e293b', border: '#64748b' } }, shape: 'box', borderWidth: 1 },
+    acceptance: { color: { background: '#831843', border: '#ec4899', highlight: { background: '#9d174d', border: '#f472b6' } }, shape: 'hexagon', borderWidth: 1 },
+    policy: { color: { background: '#7c2d12', border: '#ea580c', highlight: { background: '#9a3412', border: '#f97316' } }, shape: 'database', borderWidth: 1 }
   };
 
   let network = null;
   let visNodes = null;
   let visEdges = null;
+  let isWiringMode = false;
+
+  // HTML5 Drag & Drop
+  let draggedType = null;
+  let draggedId = null;
+
+  function handleDragStart(event, type, id) {
+    draggedType = type;
+    draggedId = id;
+    event.dataTransfer.setData("text/plain", id);
+  }
+
+  function handleCanvasDrop(event) {
+    event.preventDefault();
+    if (!draggedType || !draggedId) return;
+
+    const rect = document.getElementById('network-canvas').getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    const canvasPosition = network.DOMtoCanvas({ x: x, y: y });
+    addNewNodeAt(draggedType, draggedId, canvasPosition.x, canvasPosition.y);
+    
+    draggedType = null;
+    draggedId = null;
+  }
+
+  function quickAddNode(type, id) {
+    const viewPosition = network.getViewPosition();
+    addNewNodeAt(type, id, viewPosition.x, viewPosition.y);
+  }
+
+  function addNewNodeAt(type, id, x, y) {
+    if (type === 'block') {
+      const blockId = id;
+      const mutationId = `mut-block-add-${Date.now()}`;
+      
+      if (rawGraph.nodes.some(n => n.id === `block:${blockId}`) || mutationsList.some(m => m.kind === 'add-block' && m.blockId === blockId)) {
+        alert(currentLang === 'zh' ? '该组件已经在画布中！' : 'This Block is already in canvas!');
+        return;
+      }
+      
+      mutationsList.push({
+        id: mutationId,
+        kind: 'add-block',
+        blockId: blockId,
+        version: '0.1.0'
+      });
+      
+      if (visNodes) {
+        visNodes.add({
+          id: `block:${blockId}`,
+          label: `${translationDict[currentLang].block}:\n${blockId} ⚠️`,
+          x: x,
+          y: y,
+          ...groupStyles.block,
+          color: {
+            ...groupStyles.block.color,
+            border: '#f59e0b',
+            highlight: { border: '#f59e0b' }
+          },
+          shadow: {
+            enabled: true,
+            color: '#f59e0b',
+            size: 10,
+            x: 0,
+            y: 0
+          },
+          font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
+        });
+        
+        const appNode = rawGraph.nodes.find(n => n.type === 'app');
+        if (appNode) {
+          visEdges.add({
+            from: appNode.id,
+            to: `block:${blockId}`,
+            label: 'depends_on',
+            arrows: 'to',
+            color: { color: '#334155' }
+          });
+        }
+      }
+      updateMutationBadge();
+    } else if (type === 'slot') {
+      const slotId = id;
+      if (visNodes) {
+        if (visNodes.get(`slot:${slotId}`)) {
+          alert(currentLang === 'zh' ? '该插槽已在画布中！' : 'This Slot is already in canvas!');
+          return;
+        }
+        visNodes.add({
+          id: `slot:${slotId}`,
+          label: `${translationDict[currentLang].slot}:\n${slotId} ⚠️`,
+          x: x,
+          y: y,
+          ...groupStyles.slot,
+          color: {
+            ...groupStyles.slot.color,
+            border: '#f59e0b',
+            highlight: { border: '#f59e0b' }
+          },
+          shadow: {
+            enabled: true,
+            color: '#f59e0b',
+            size: 10,
+            x: 0,
+            y: 0
+          },
+          font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
+        });
+      }
+    }
+  }
+
+  function addCustomBlockFromSidebar() {
+    const input = document.getElementById('custom-block-name');
+    const val = input.value.trim();
+    if (!val) return;
+    quickAddNode('block', val);
+    input.value = '';
+  }
+
+  function addCustomSlotFromSidebar() {
+    const input = document.getElementById('custom-slot-name');
+    const val = input.value.trim();
+    if (!val) return;
+    quickAddNode('slot', val);
+    input.value = '';
+  }
+
+  function updateMutationBadge() {
+    const badge = document.getElementById('status-badge');
+    if (mutationsList.length > 0) {
+      badge.textContent = currentLang === 'zh' ? `待应用修改 (${mutationsList.length})` : `Pending mutations (${mutationsList.length})`;
+      badge.className = 'badge badge-attention';
+    } else {
+      badge.textContent = currentLang === 'zh' ? '工作台就绪' : 'Workbench Ready';
+      badge.className = 'badge badge-info';
+    }
+  }
+
+  function getNodeStatus(nodeId, type) {
+    const hasMutation = mutationsList.some(m => 
+      (m.kind === 'remove-block' && `block:${m.blockId}` === nodeId) ||
+      (m.kind === 'bind-slot' && `slot:${m.slotId}` === nodeId) ||
+      (m.kind === 'unbind-slot' && `slot:${m.slotId}` === nodeId)
+    );
+    if (hasMutation) return 'warning';
+
+    for (const v of policyViolations) {
+      if (v.appliesTo && v.appliesTo.includes(nodeId)) return 'failed';
+      if (v.files && v.files.some(f => nodeId.includes(f))) return 'failed';
+    }
+
+    for (const f of failurePoints) {
+      if (f.artifactPath && nodeId.includes(f.artifactPath)) return 'failed';
+      if (f.message && f.message.includes(nodeId)) return 'failed';
+    }
+
+    return 'passed';
+  }
 
   function renderTopology() {
     const nodesArray = rawGraph.nodes.map(n => {
-      const style = groupStyles[n.type] || { color: { background: '#9e9e9e', border: '#616161' }, shape: 'dot' };
+      const typeStyle = groupStyles[n.type] || { color: { background: '#1e293b', border: '#475569' }, shape: 'box' };
       const prefix = translationDict[currentLang][n.type] || n.type;
+      
+      const state = getNodeStatus(n.id, n.type);
+      
+      let borderCol = typeStyle.color.border;
+      let glowCol = 'rgba(0,0,0,0)';
+      let badgeText = '';
+      
+      if (state === 'failed') {
+        borderCol = '#ef4444';
+        glowCol = '#ef4444';
+        badgeText = ' ❌';
+      } else if (state === 'warning') {
+        borderCol = '#f59e0b';
+        glowCol = '#f59e0b';
+        badgeText = ' ⚠️';
+      } else if (state === 'passed') {
+        borderCol = '#10b981';
+        glowCol = '#10b981';
+        badgeText = ' ✅';
+      }
+      
       return {
         id: n.id,
-        label: `${prefix}:\n${n.label}`,
+        label: `${prefix}:\n${n.label}${badgeText}`,
         title: `Type: ${n.type}\nID: ${n.id}`,
-        ...style,
-        font: { color: '#ffffff', size: 12, face: 'monospace' }
+        ...typeStyle,
+        color: {
+          ...typeStyle.color,
+          border: borderCol,
+          highlight: {
+            ...typeStyle.color.highlight,
+            border: borderCol
+          }
+        },
+        shadow: {
+          enabled: glowCol !== 'rgba(0,0,0,0)',
+          color: glowCol,
+          size: 10,
+          x: 0,
+          y: 0
+        },
+        margin: 10,
+        font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
       };
     });
 
-    const edgesArray = rawGraph.edges.map(e => ({
-      from: e.from,
-      to: e.to,
-      label: e.type,
-      arrows: 'to',
-      font: { color: '#a4f4db', size: 10, strokeWidth: 0, face: 'monospace' },
-      color: { color: '#2b7561', highlight: '#4ef4c2' }
-    }));
+    const edgesArray = rawGraph.edges.map(e => {
+      const isConnection = e.type === 'connects_to';
+      return {
+        from: e.from,
+        to: e.to,
+        label: e.type,
+        arrows: 'to',
+        font: { color: '#94a3b8', size: 10, strokeWidth: 0, face: 'JetBrains Mono, monospace' },
+        color: {
+          color: isConnection ? '#8b5cf6' : '#334155',
+          highlight: '#00f2fe',
+          hover: '#00f2fe'
+        },
+        dashes: isConnection
+      };
+    });
 
     visNodes = new vis.DataSet(nodesArray);
     visEdges = new vis.DataSet(edgesArray);
@@ -468,69 +1131,152 @@
     const options = {
       physics: {
         forceAtlas2Based: {
-          gravitationalConstant: -26,
-          centralGravity: 0.005,
-          springLength: 130,
-          springConstant: 0.18
+          gravitationalConstant: -35,
+          centralGravity: 0.01,
+          springLength: 140,
+          springConstant: 0.12
         },
-        maxVelocity: 146,
+        maxVelocity: 80,
         solver: 'forceAtlas2Based',
         timestep: 0.35,
-        stabilization: { iterations: 150 }
+        stabilization: { iterations: 120 }
       },
       interaction: {
         hover: true,
-        tooltipDelay: 100
+        tooltipDelay: 150,
+        selectConnectedEdges: true,
+        keyboard: false
+      },
+      manipulation: {
+        enabled: false,
+        addEdge: function(edgeData, callback) {
+          if (edgeData.from === edgeData.to) {
+            callback(null);
+            return;
+          }
+          handleAddEdge(edgeData.from, edgeData.to, callback, edgeData);
+        }
       }
     };
 
     network = new vis.Network(container, data, options);
-  }
 
-  function updateMutationsExporter() {
-    const report = {
-      formatVersion: "1",
-      mutations: mutationsList
-    };
-    document.getElementById('exporter-textarea').value = JSON.stringify(report, null, 2);
-  }
-
-  // Bind graphical events for simulation
-  document.getElementById('add-block-btn').addEventListener('click', () => {
-    const selectEl = document.getElementById('new-block-select');
-    const blockId = selectEl.value;
-    const version = "0.1.0";
-    const mutationId = `mut-block-${Date.now()}`;
-
-    // Add operation
-    mutationsList.push({
-      id: mutationId,
-      kind: 'add-block',
-      blockId: blockId,
-      version: version
+    network.on("selectNode", function(params) {
+      if (params.nodes.length > 0) {
+        const nodeId = params.nodes[0];
+        inspectNode(nodeId);
+      }
     });
 
-    // Dynamically insert block into network graph
-    if (visNodes) {
-      visNodes.add({
-        id: `block:${blockId}`,
-        label: `${translationDict[currentLang].block}:\n${blockId}`,
-        ...groupStyles.block,
-        font: { color: '#ffffff', size: 12, face: 'monospace' }
-      });
+    network.on("deselectNode", function(params) {
+      closeDrawer();
+    });
+
+    network.on("doubleClick", function(params) {
+      if (params.nodes.length === 0 && params.edges.length === 0) {
+        const pointer = params.pointer.canvas;
+        const val = prompt(currentLang === 'zh' ? '双击空白处：请输入新建的 Block ID 或 Slot ID (Slot ID 请以 custom_ 开头):' : 'Double Click: Enter Block ID or Slot ID (Slot ID starts with "custom_"):');
+        if (val) {
+          const type = val.includes('/') || !val.includes('_') ? 'block' : 'slot';
+          addNewNodeAt(type, val, pointer.x, pointer.y);
+        }
+      }
+    });
+  }
+
+  function toggleWiringMode() {
+    isWiringMode = !isWiringMode;
+    const btn = document.getElementById('wiring-mode-btn');
+    const text = document.getElementById('wiring-mode-text');
+    
+    if (isWiringMode) {
+      btn.className = 'btn btn-primary';
+      text.textContent = currentLang === 'zh' ? '退出连线模式' : 'Disable Wiring';
+      network.addEdgeMode();
+    } else {
+      btn.className = 'btn btn-secondary';
+      text.textContent = currentLang === 'zh' ? '启用连线模式' : 'Enable Wiring';
+      network.disableEditMode();
     }
+  }
 
-    updateMutationsExporter();
-  });
+  function handleAddEdge(fromId, toId, callback, edgeData) {
+    const fromNode = rawGraph.nodes.find(n => n.id === fromId) || (visNodes.get(fromId) ? { id: fromId, type: fromId.split(':')[0] } : null);
+    const toNode = rawGraph.nodes.find(n => n.id === toId) || (visNodes.get(toId) ? { id: toId, type: toId.split(':')[0] } : null);
+    
+    if (!fromNode || !toNode) {
+      callback(null);
+      return;
+    }
+    
+    let blockNode = null;
+    let slotNode = null;
+    
+    if (fromNode.type === 'block' && toNode.type === 'slot') {
+      blockNode = fromNode;
+      slotNode = toNode;
+    } else if (fromNode.type === 'slot' && toNode.type === 'block') {
+      blockNode = toNode;
+      slotNode = fromNode;
+    }
+    
+    if (!blockNode || !slotNode) {
+      alert(currentLang === 'zh' ? '只允许在 Block 能力块与 Slot 插槽之间建立连线！' : 'Connections are only allowed between Block and Slot!');
+      callback(null);
+      if (isWiringMode) {
+        setTimeout(() => network.addEdgeMode(), 100);
+      }
+      return;
+    }
+    
+    const blockId = blockNode.id.replace('block:', '');
+    const slotId = slotNode.id.replace('slot:', '');
+    
+    openDrawer();
+    document.getElementById('inspector-title').textContent = currentLang === 'zh' ? '建立 Slot 绑定' : 'Bind Slot';
+    
+    const container = document.getElementById('inspector-content');
+    container.innerHTML = `
+      <div style="background: rgba(0, 242, 254, 0.1); border: 1px solid rgba(0, 242, 254, 0.3); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+        <strong style="color: #00f2fe;">${currentLang === 'zh' ? '检测到管脚连线！' : 'Pin Wire Detected!'}</strong>
+        <div style="font-size: 11px; margin-top: 4px; color: var(--text-muted);">
+          Block: ${blockId} ➜ Slot: ${slotId}
+        </div>
+      </div>
+      <div class="form-group">
+        <label>${currentLang === 'zh' ? '源文件路径' : 'Source File Path'}</label>
+        <input type="text" id="drag-bind-path" class="form-input" value="source/code/slots/${slotId}.ts" />
+      </div>
+      <div class="form-group">
+        <label>${currentLang === 'zh' ? '导出符号名' : 'Export Symbol'}</label>
+        <input type="text" id="drag-bind-symbol" class="form-input" value="handle${slotId.charAt(0).toUpperCase() + slotId.slice(1)}" />
+      </div>
+      <div class="form-group">
+        <label>${currentLang === 'zh' ? '绑定描述' : 'Description'}</label>
+        <input type="text" id="drag-bind-desc" class="form-input" placeholder="${currentLang === 'zh' ? '输入绑定逻辑说明' : 'Enter slot description'}" />
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-primary" style="flex: 1; justify-content: center;" onclick="confirmWiringBinding('${slotId}', '${blockId}', callback, edgeData)">
+          ${currentLang === 'zh' ? '确认绑定' : 'Confirm'}
+        </button>
+        <button class="btn btn-secondary" onclick="cancelWiringBinding(callback)">
+          ${currentLang === 'zh' ? '取消' : 'Cancel'}
+        </button>
+      </div>
+    `;
+  }
 
-  document.getElementById('bind-slot-btn').addEventListener('click', () => {
-    const slotId = document.getElementById('slot-id-input').value.trim();
-    const blockId = document.getElementById('slot-target-select').value;
-    const mutationId = `mut-slot-${Date.now()}`;
-
-    if (!slotId) return;
-
-    // Add binding
+  function confirmWiringBinding(slotId, blockId, callback, edgeData) {
+    const path = document.getElementById('drag-bind-path').value.trim();
+    const symbol = document.getElementById('drag-bind-symbol').value.trim();
+    const desc = document.getElementById('drag-bind-desc').value.trim();
+    
+    if (!path || !symbol) {
+      alert(currentLang === 'zh' ? '请填写完整绑定参数！' : 'Please fill out all fields!');
+      return;
+    }
+    
+    const mutationId = `mut-slot-bind-${Date.now()}`;
     mutationsList.push({
       id: mutationId,
       kind: 'bind-slot',
@@ -538,54 +1284,531 @@
       block: blockId,
       slotKind: 'adapter',
       target: `custom/${slotId}.ts`,
-      sourcePath: `source/code/slots/${slotId}.ts`,
-      symbol: `handle${slotId.charAt(0).toUpperCase() + slotId.slice(1)}`
+      sourcePath: path,
+      symbol: symbol,
+      ...(desc ? { description: desc } : {})
+    });
+    
+    edgeData.label = 'connects_to';
+    edgeData.arrows = 'to';
+    edgeData.color = { color: '#8b5cf6', highlight: '#00f2fe' };
+    edgeData.font = { color: '#94a3b8', size: 10, face: 'JetBrains Mono, monospace' };
+    edgeData.dashes = true;
+    
+    callback(edgeData);
+    updateMutationBadge();
+    
+    // 更新 Slot 节点状态为 warning 状态并加上霓虹特效
+    updateNodeVisualState(`slot:${slotId}`, 'warning');
+    updateNodeVisualState(`block:${blockId}`, 'warning');
+    
+    closeDrawer();
+    if (isWiringMode) {
+      setTimeout(() => network.addEdgeMode(), 100);
+    }
+  }
+
+  function cancelWiringBinding(callback) {
+    callback(null);
+    closeDrawer();
+    if (isWiringMode) {
+      setTimeout(() => network.addEdgeMode(), 100);
+    }
+  }
+
+  function handleKeyboardDelete() {
+    const selectedNodes = network.getSelectedNodes();
+    const selectedEdges = network.getSelectedEdges();
+    
+    if (selectedNodes.length > 0) {
+      const nodeId = selectedNodes[0];
+      const type = nodeId.split(':')[0];
+      if (type === 'block') {
+        const blockId = nodeId.replace('block:', '');
+        if (confirm(currentLang === 'zh' ? `确认卸载组件 ${blockId} 吗？` : `Are you sure you want to uninstall block ${blockId}?`)) {
+          uninstallBlock(blockId);
+        }
+      } else if (type === 'slot') {
+        const slotId = nodeId.replace('slot:', '');
+        if (confirm(currentLang === 'zh' ? `确认解除插槽 ${slotId} 的绑定吗？` : `Are you sure you want to unbind slot ${slotId}?`)) {
+          unbindSlot(slotId);
+        }
+      } else {
+        alert(currentLang === 'zh' ? '只允许在画布上直接删除能力块 (Block) 或解绑插槽 (Slot) 节点！' : 'Only Block uninstallation and Slot unbinding are supported for deletion!');
+      }
+    } else if (selectedEdges.length > 0) {
+      const edgeId = selectedEdges[0];
+      const edge = visEdges.get(edgeId);
+      if (edge && (edge.label === 'connects_to' || edge.dashes === true)) {
+        let slotNodeId = edge.to.startsWith('slot:') ? edge.to : edge.from;
+        const slotId = slotNodeId.replace('slot:', '');
+        if (confirm(currentLang === 'zh' ? `确认断开插槽 ${slotId} 的连接绑定吗？` : `Are you sure you want to disconnect slot ${slotId}?`)) {
+          unbindSlot(slotId);
+          visEdges.remove(edgeId);
+        }
+      } else {
+        alert(currentLang === 'zh' ? '只允许删除自定义插槽绑定 (connects_to) 连线！' : 'Only slot connection links (connects_to) can be disconnected!');
+      }
+    }
+  }
+
+  // Right Drawer Sidebar actions
+  function openDrawer() {
+    document.getElementById('inspector-drawer').classList.add('open');
+  }
+
+  function closeDrawer() {
+    document.getElementById('inspector-drawer').classList.remove('open');
+  }
+
+  function inspectNode(nodeId) {
+    const node = rawGraph.nodes.find(n => n.id === nodeId) || (visNodes.get(nodeId) ? { id: nodeId, type: nodeId.split(':')[0], label: nodeId.split(':')[1] } : null);
+    if (!node) return;
+
+    openDrawer();
+
+    const container = document.getElementById('inspector-content');
+    container.innerHTML = '';
+
+    const titleVal = translationDict[currentLang][node.type] || node.type;
+    document.getElementById('inspector-title').textContent = titleVal;
+
+    const outgoing = rawGraph.edges.filter(e => e.from === nodeId);
+    const incoming = rawGraph.edges.filter(e => e.to === nodeId);
+
+    let html = `
+      <div class="inspector-item">
+        <div class="inspector-label">Node Type</div>
+        <div class="inspector-value">${node.type}</div>
+      </div>
+      <div class="inspector-item">
+        <div class="inspector-label">Unique ID</div>
+        <div class="inspector-value">${node.id}</div>
+      </div>
+      <div class="inspector-item">
+        <div class="inspector-label">Label</div>
+        <div class="inspector-value" style="font-family: inherit;">${node.label}</div>
+      </div>
+    `;
+
+    if (outgoing.length > 0) {
+      html += `
+        <div class="inspector-item">
+          <div class="inspector-label">Depends On / Outgoing</div>
+          <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
+            ${outgoing.map(e => `<div class="badge badge-info" style="text-align:left;">➜ [${e.type}] ${e.to}</div>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    if (incoming.length > 0) {
+      html += `
+        <div class="inspector-item">
+          <div class="inspector-label">Referenced By / Incoming</div>
+          <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
+            ${incoming.map(e => `<div class="badge badge-success" style="text-align:left;">➜ [${e.type}] ${e.from}</div>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Specific Node Type Forms / Controls
+    if (node.type === 'block') {
+      const blockId = nodeId.startsWith('block:') ? nodeId.slice(6) : nodeId;
+      
+      html += `
+        <div style="border-top:1px solid #1e293b; padding-top:16px; margin-top:16px;">
+          <h4 style="color:#00f2fe; margin-bottom:12px;">Block Operations</h4>
+          <div class="form-group">
+            <button class="btn btn-danger" style="width:100%; justify-content:center;" onclick="uninstallBlock('${blockId}')">
+              Uninstall Block (卸载该组件)
+            </button>
+          </div>
+        </div>
+      `;
+    } else if (node.type === 'slot') {
+      const slotId = nodeId.startsWith('slot:') ? nodeId.slice(5) : nodeId;
+      
+      html += `
+        <div style="border-top:1px solid #1e293b; padding-top:16px; margin-top:16px;">
+          <h4 style="color:#00f2fe; margin-bottom:12px;">Slot Binding (配置管脚绑定)</h4>
+          <div class="form-group">
+            <label>Target Block Connection</label>
+            <select id="sidebar-slot-block" class="form-select">
+              ${rawGraph.nodes.filter(n => n.type === 'block').map(n => {
+                const bId = n.id.slice(6);
+                return `<option value="${bId}">${bId}</option>`;
+              }).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Source File Path</label>
+            <input type="text" id="sidebar-slot-path" class="form-input" value="source/code/slots/${slotId}.ts" />
+          </div>
+          <div class="form-group">
+            <label>Symbol / Handler Name</label>
+            <input type="text" id="sidebar-slot-symbol" class="form-input" value="handle${slotId.charAt(0).toUpperCase() + slotId.slice(1)}" />
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <input type="text" id="sidebar-slot-desc" class="form-input" placeholder="Configure slot behavior" />
+          </div>
+          <div style="display:flex; gap:8px; margin-top:14px;">
+            <button class="btn btn-primary" style="flex:1; justify-content:center;" onclick="bindSlotForm('${slotId}')">
+              Save Bind
+            </button>
+            <button class="btn btn-danger" onclick="unbindSlot('${slotId}')">
+              Unbind
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    // Node Debugging Run Terminal
+    if (node.type === 'block' || node.type === 'slot') {
+      const runId = node.id.replace('block:', '').replace('slot:', '');
+      html += `
+        <div style="border-top:1px solid #1e293b; padding-top:16px; margin-top:16px;">
+          <h4 style="color:#8b5cf6; margin-bottom:12px;" data-key="runNodeTest">Run & Debug (节点调试)</h4>
+          <button class="btn btn-primary" style="width:100%; justify-content:center; background: linear-gradient(135deg, #8b5cf6, #d946ef);" onclick="runSingleNode('${node.type}', '${runId}')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            Run Node Test / Verify
+          </button>
+          <div id="node-runner-console-container" style="display:none; margin-top:12px;">
+            <div style="font-weight:600; color:#94a3b8; font-size:11px; text-transform:uppercase; margin-bottom:6px;">Runner Console</div>
+            <div id="node-runner-console" style="background:#020617; border:1px solid #1e293b; border-radius:6px; font-family: 'JetBrains Mono', monospace; font-size:11px; color:#38bdf8; padding:10px; height:150px; overflow-y:auto; white-space:pre-wrap; box-sizing:border-box;"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+  }
+
+  // Mutations Operations Action triggers
+  function uninstallBlock(blockId) {
+    const mutationId = `mut-block-remove-${Date.now()}`;
+    mutationsList.push({
+      id: mutationId,
+      kind: 'remove-block',
+      blockId: blockId
+    });
+    
+    if (visNodes) {
+      try { visNodes.remove(`block:${blockId}`); } catch(e){}
+    }
+    
+    updateMutationBadge();
+    closeDrawer();
+  }
+
+  function bindSlotForm(slotId) {
+    const block = document.getElementById('sidebar-slot-block').value;
+    const path = document.getElementById('sidebar-slot-path').value.trim();
+    const symbol = document.getElementById('sidebar-slot-symbol').value.trim();
+    const desc = document.getElementById('sidebar-slot-desc').value.trim();
+    const mutationId = `mut-slot-bind-${Date.now()}`;
+
+    if (!path || !symbol) return;
+
+    mutationsList.push({
+      id: mutationId,
+      kind: 'bind-slot',
+      slotId: slotId,
+      block: block,
+      slotKind: 'adapter',
+      target: `custom/${slotId}.ts`,
+      sourcePath: path,
+      symbol: symbol,
+      ...(desc ? { description: desc } : {})
     });
 
-    // Dynamically insert slot and connect edge to block node
     if (visNodes && visEdges) {
-      const slotNodeId = `slot:${slotId}`;
-      if (!visNodes.get(slotNodeId)) {
-        visNodes.add({
-          id: slotNodeId,
-          label: `${translationDict[currentLang].slot}:\n${slotId}`,
-          ...groupStyles.slot,
-          font: { color: '#ffffff', size: 12, face: 'monospace' }
-        });
+      // 移除原有的边（如果有的话）
+      const existingEdges = visEdges.get({
+        filter: function(item) {
+          return item.to === `slot:${slotId}` && item.label === 'connects_to';
+        }
+      });
+      if (existingEdges.length > 0) {
+        visEdges.remove(existingEdges.map(e => e.id));
       }
       visEdges.add({
-        from: `block:${blockId}`,
-        to: slotNodeId,
+        from: `block:${block}`,
+        to: `slot:${slotId}`,
         label: 'connects_to',
         arrows: 'to',
-        color: { color: '#ab47bc' }
+        color: { color: '#8b5cf6' },
+        dashes: true
       });
     }
 
-    updateMutationsExporter();
-  });
+    updateNodeVisualState(`slot:${slotId}`, 'warning');
+    updateNodeVisualState(`block:${block}`, 'warning');
 
-  document.getElementById('reset-op-btn').addEventListener('click', () => {
-    mutationsList = [];
-    updateMutationsExporter();
-    renderTopology(); // Re-render to restore original state
-  });
+    updateMutationBadge();
+    closeDrawer();
+  }
 
-  document.getElementById('copy-json-btn').addEventListener('click', () => {
-    const textarea = document.getElementById('exporter-textarea');
-    textarea.select();
-    document.execCommand('copy');
-    alert(currentLang === 'zh' ? 'Mutations JSON 已经复制到剪贴板！' : 'Mutations JSON copied to clipboard!');
-  });
+  function unbindSlot(slotId) {
+    const mutationId = `mut-slot-unbind-${Date.now()}`;
+    mutationsList.push({
+      id: mutationId,
+      kind: 'unbind-slot',
+      slotId: slotId
+    });
 
+    if (visNodes && visEdges) {
+      const existingEdges = visEdges.get({
+        filter: function(item) {
+          return item.to === `slot:${slotId}` && item.label === 'connects_to';
+        }
+      });
+      if (existingEdges.length > 0) {
+        visEdges.remove(existingEdges.map(e => e.id));
+      }
+    }
+
+    updateNodeVisualState(`slot:${slotId}`, 'warning');
+    updateMutationBadge();
+    closeDrawer();
+  }
+
+  function updateNodeVisualState(nodeId, state) {
+    if (!visNodes) return;
+    
+    let borderCol = '#475569';
+    let glowCol = 'rgba(0,0,0,0)';
+    let badgeText = '';
+    
+    if (state === 'passed') {
+      borderCol = '#10b981';
+      glowCol = '#10b981';
+      badgeText = ' ✅';
+    } else if (state === 'failed') {
+      borderCol = '#ef4444';
+      glowCol = '#ef4444';
+      badgeText = ' ❌';
+    } else if (state === 'warning') {
+      borderCol = '#f59e0b';
+      glowCol = '#f59e0b';
+      badgeText = ' ⚠️';
+    }
+    
+    const nodeData = visNodes.get(nodeId);
+    if (nodeData) {
+      let cleanLabel = nodeData.label.replace(/ [✅❌⚠️]/g, '');
+      visNodes.update({
+        id: nodeId,
+        label: cleanLabel + badgeText,
+        color: {
+          border: borderCol,
+          highlight: { border: borderCol }
+        },
+        shadow: {
+          enabled: glowCol !== 'rgba(0,0,0,0)',
+          color: glowCol,
+          size: 12,
+          x: 0,
+          y: 0
+        }
+      });
+    }
+  }
+
+  async function runSingleNode(type, id) {
+    const consoleContainer = document.getElementById('node-runner-console-container');
+    const runnerConsole = document.getElementById('node-runner-console');
+    
+    consoleContainer.style.display = 'block';
+    runnerConsole.innerHTML = '';
+    
+    const divInit = document.createElement('div');
+    divInit.style.color = '#38bdf8';
+    divInit.textContent = `[Runner] Connecting to backend test runner for ${type} "${id}"...`;
+    runnerConsole.appendChild(divInit);
+    
+    try {
+      const res = await fetch('/api/run-node', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, id })
+      });
+      
+      if (!res.ok) {
+        throw new Error('Failed to contact test runner.');
+      }
+      
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            const span = document.createElement('div');
+            if (dataStr.startsWith('[ERROR]')) {
+              span.style.color = '#f87171';
+            } else if (dataStr.includes('successfully') || dataStr.includes('passed')) {
+              span.style.color = '#4ade80';
+            } else {
+              span.style.color = '#cbd5e1';
+            }
+            span.textContent = dataStr;
+            runnerConsole.appendChild(span);
+            runnerConsole.scrollTop = runnerConsole.scrollHeight;
+          } else if (line.includes('event: success')) {
+            updateNodeVisualState(type === 'block' ? `block:${id}` : `slot:${id}`, 'passed');
+          } else if (line.includes('event: failure')) {
+            updateNodeVisualState(type === 'block' ? `block:${id}` : `slot:${id}`, 'failed');
+          }
+        }
+      }
+    } catch(err) {
+      const span = document.createElement('div');
+      span.style.color = '#f87171';
+      span.textContent = `[ERROR] Runner error: ${err.message || err}`;
+      runnerConsole.appendChild(span);
+    }
+  }
+
+  // Hot compile execution via fetch SSE stream
+  function closeOverlay() {
+    document.getElementById('stitching-overlay').classList.remove('active');
+  }
+
+  function appendTerminalLine(text, type = 'info') {
+    const term = document.getElementById('terminal-screen');
+    const div = document.createElement('div');
+    div.className = `terminal-line ${type}`;
+    div.textContent = text;
+    term.appendChild(div);
+    term.scrollTop = term.scrollHeight;
+  }
+
+  async function triggerHotCompile() {
+    if (mutationsList.length === 0) {
+      alert(currentLang === 'zh' ? '当前没有待保存的图形修改！' : 'No graph mutations to compile!');
+      return;
+    }
+
+    const overlay = document.getElementById('stitching-overlay');
+    const term = document.getElementById('terminal-screen');
+    const overlayText = document.getElementById('overlay-text');
+    const errorActions = document.getElementById('overlay-error-actions');
+
+    term.innerHTML = '';
+    errorActions.style.display = 'none';
+    overlayText.textContent = 'Saving Mutations & Initiating Hot Compile...';
+    overlay.classList.add('active');
+
+    appendTerminalLine('POST /api/mutations - Saving active mutations...', 'info');
+
+    try {
+      const res = await fetch('/api/mutations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          formatVersion: "1",
+          mutations: mutationsList
+        })
+      });
+      if (!res.ok) {
+        throw new Error('Failed to save mutations to server.');
+      }
+      appendTerminalLine('SUCCESS: Mutations written to source/views/mutations/graph-action.json', 'success');
+    } catch(err) {
+      appendTerminalLine(`[ERROR] ${err.message || err}`, 'error');
+      overlayText.textContent = 'Mutation Sync Failed';
+      errorActions.style.display = 'flex';
+      return;
+    }
+
+    appendTerminalLine('POST /api/compile - Connecting to compiler engine progress stream...', 'info');
+    overlayText.textContent = 'Compiling & Stitching Project...';
+
+    try {
+      const response = await fetch('/api/compile', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error('Compile initialization endpoint failed.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr.startsWith('[ERROR]')) {
+              appendTerminalLine(dataStr, 'error');
+            } else if (dataStr.includes('successfully') || dataStr.includes('finished')) {
+              appendTerminalLine(dataStr, 'success');
+            } else {
+              appendTerminalLine(dataStr, 'info');
+            }
+          } else if (line.includes('event: success')) {
+            appendTerminalLine('SUCCESS: Redirection graph refreshed, reloading viewport in 1s...', 'success');
+            overlayText.textContent = 'Compile Success!';
+            setTimeout(() => {
+              location.reload();
+            }, 1000);
+          } else if (line.includes('event: failure')) {
+            appendTerminalLine('ERROR: Recompilation crashed. Please inspect logs above.', 'error');
+            overlayText.textContent = 'Compile Failed';
+            errorActions.style.display = 'flex';
+          }
+        }
+      }
+    } catch(err) {
+      appendTerminalLine(`[ERROR] ${err.message || err}`, 'error');
+      overlayText.textContent = 'Compile Failed';
+      errorActions.style.display = 'flex';
+    }
+  }
+
+  function retriggerCompile() {
+    triggerHotCompile();
+  }
+
+  document.getElementById('recompile-btn').addEventListener('click', triggerHotCompile);
   document.getElementById('lang-btn').addEventListener('click', toggleLanguage);
 
-  // Initialize
+  // 绑定全局键盘删除事件
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
+        handleKeyboardDelete();
+      }
+    }
+  });
+
+  // Initialize page translations and network layout
   applyTranslations();
   renderTopology();
-  updateMutationsExporter();
+</script>
+
 </script>
 
     </main>
   </body>
 </html>
+
