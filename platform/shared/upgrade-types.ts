@@ -1,6 +1,6 @@
 import type { UpgradeMigration } from './plan-manifest-types.ts';
 
-export type UpgradeMigrationOperationRole = 'file' | 'directory' | 'json' | 'text' | 'slot';
+export type UpgradeMigrationOperationRole = 'file' | 'directory' | 'json' | 'text' | 'slot' | 'prisma';
 
 export interface UpgradeMigrationOperation {
   id: string;
@@ -21,6 +21,9 @@ export interface UpgradeMigrationOperation {
   replacementLength?: number;
   pattern?: string;
   flags?: string;
+  entity?: string;
+  expandField?: string;
+  contractField?: string;
 }
 
 export interface UpgradeMigrationSummary {
