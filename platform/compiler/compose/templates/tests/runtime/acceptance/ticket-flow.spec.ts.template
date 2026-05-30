@@ -1,0 +1,205 @@
+import { expect, test, type Page } from '@playwright/test';
+
+async function signIn(page: Page, username: string): Promise<void> {
+  const response = await page.request.post('/api/session/login', {
+    data: { username, password: 'password' }
+  });
+  expect(response.ok()).toBe(true);
+}
+
+test('ticket runtime flow supports assignee filters, status transitions, and tenant isolation', async ({ page }) => {
+  test.setTimeout(90000);
+
+  await signIn(page, 'tenant-a-admin');
+  await page.goto('/tickets');
+  await expect(page).toHaveURL(/\/tickets$/);
+  const ticketList = page.getByRole('list', { name: 'Tickets' });
+  const ticketItems = ticketList.locator(':scope > li');
+  await page.getByLabel('Ticket title').fill('Escalate onboarding issue');
+  await page.getByLabel('Ticket assignee').fill('support-owner');
+  await page.getByLabel('Ticket description').fill('Customer cannot finish setup');
+  await page.getByLabel('Ticket due date').fill('2026-04-20');
+  const createTicketResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/tickets' && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Create Ticket' }).click();
+  const createdTicketResponse = await createTicketResponse;
+  expect(createdTicketResponse.ok()).toBe(true);
+  const createdTicketPayload = await createdTicketResponse.json() as { ticket: { id: number } };
+
+  /*#IF notifyEmailEnabled*/
+  const ticketNotificationList = page.getByRole('list', { name: 'Ticket notifications' });
+  await expect(ticketNotificationList.getByRole('listitem').filter({ hasText: 'Ticket created: Escalate onboarding issue' })).toHaveCount(1);
+  /*#ENDIF*/
+
+  /*#IF exportCsvEnabled*/
+  await expect(page.getByRole('link', { name: 'Export tickets CSV' })).toBeVisible();
+  const exportResponse = await page.request.get('/api/tickets/export');
+  expect(exportResponse.ok()).toBe(true);
+  expect(exportResponse.headers()['content-type']).toContain('text/csv');
+  const csv = await exportResponse.text();
+  expect(csv).toContain('id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt');
+  expect(csv).toContain('tenant-a,Escalate onboarding issue,Customer cannot finish setup,open,support-owner,2026-04-20');
+  /*#ENDIF*/
+
+  /*#IF ticketReportingEnabled*/
+  await expect(page.getByRole('heading', { name: 'Ticket Summary' })).toBeVisible();
+  const summaryJsonLink = page.getByRole('link', { name: 'View ticket summary JSON' });
+  await expect(summaryJsonLink).toBeVisible();
+  /*#IF exportCsvEnabled*/
+  const summaryCsvLink = page.getByRole('link', { name: 'Export ticket summary CSV' });
+  await expect(summaryCsvLink).toBeVisible();
+  /*#ENDIF*/
+  await expect(page.getByText('Total tickets: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('Open: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ticket SLA summary' }).getByText('Overdue: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Assignee summary' }).getByText('support-owner: 1')).toBeVisible();
+  const summaryResponse = await page.request.get('/api/tickets/summary');
+  expect(summaryResponse.ok()).toBe(true);
+  const summaryPayload = await summaryResponse.json() as {
+    summary: {
+      total: number;
+      byStatus: { open: number; in_progress: number; closed: number };
+      sla: { overdue: number; dueSoon: number; unscheduled: number };
+      byAssignee: Array<{ assigneeId: string; count: number }>;
+    };
+  };
+  expect(summaryPayload.summary.total).toBe(1);
+  expect(summaryPayload.summary.byStatus.open).toBe(1);
+  expect(summaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
+  expect(summaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
+  /*#IF exportCsvEnabled*/
+  const summaryExportResponse = await page.request.get('/api/tickets/summary/export');
+  expect(summaryExportResponse.ok()).toBe(true);
+  expect(summaryExportResponse.headers()['content-type']).toContain('text/csv');
+  const summaryCsv = await summaryExportResponse.text();
+  expect(summaryCsv).toContain('section,key,value');
+  expect(summaryCsv).toContain('total,tickets,1');
+  expect(summaryCsv).toContain('status,open,1');
+  expect(summaryCsv).toContain('sla,overdue,1');
+  expect(summaryCsv).toContain('assignee,support-owner,1');
+  /*#ENDIF*/
+  /*#ENDIF*/
+
+  const createdTicket = ticketItems.filter({ hasText: 'Escalate onboarding issue' });
+  await expect(createdTicket).toContainText('open');
+
+  await createdTicket.getByLabel('Attachment for Escalate onboarding issue').setInputFiles({
+    name: 'incident.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('triage notes')
+  });
+  await createdTicket.getByRole('button', { name: 'Upload attachment for Escalate onboarding issue' }).click();
+  await expect(createdTicket).toContainText('incident.txt');
+  const attachmentResponse = await page.request.get(`/api/tickets/${createdTicketPayload.ticket.id}/attachments`);
+  expect(attachmentResponse.ok()).toBe(true);
+  const attachmentPayload = await attachmentResponse.json() as {
+    attachments: Array<{ ticketId: number; fileName: string }>;
+  };
+  expect(attachmentPayload.attachments).toEqual([
+    expect.objectContaining({ ticketId: createdTicketPayload.ticket.id, fileName: 'incident.txt' })
+  ]);
+  await createdTicket.getByLabel('Comment for Escalate onboarding issue').fill('Customer approved the workaround');
+  await createdTicket.getByRole('button', { name: 'Add comment for Escalate onboarding issue' }).click();
+  await expect(createdTicket).toContainText('Customer approved the workaround');
+  const commentResponse = await page.request.get(`/api/tickets/${createdTicketPayload.ticket.id}/comments`);
+  expect(commentResponse.ok()).toBe(true);
+
+  /*#IF worklogEnabled*/
+  const expectedWorklogResponse = page.waitForResponse((response) => response.url().includes(`/api/tickets/${createdTicketPayload.ticket.id}/worklogs`) && response.request().method() === 'POST');
+  await createdTicket.getByLabel('Worklog minutes for Escalate onboarding issue').fill('45');
+  await createdTicket.getByLabel('Worklog note for Escalate onboarding issue').fill('Investigated customer setup logs');
+  await createdTicket.getByRole('button', { name: 'Add worklog for Escalate onboarding issue' }).click();
+  const createdWorklogResponse = await expectedWorklogResponse;
+  expect(createdWorklogResponse.ok()).toBe(true);
+  await expect(createdTicket).toContainText('Total worklog minutes: 45');
+  await expect(createdTicket).toContainText('45m by user-tenant-a-admin: Investigated customer setup logs');
+  const worklogResponse = await page.request.get(`/api/tickets/${createdTicketPayload.ticket.id}/worklogs`);
+  expect(worklogResponse.ok()).toBe(true);
+  const worklogPayload = await worklogResponse.json() as {
+    totalMinutes: number;
+    worklogs: Array<{ ticketId: number; minutes: number; note: string }>;
+  };
+  expect(worklogPayload.totalMinutes).toBe(45);
+  expect(worklogPayload.worklogs).toEqual([
+    expect.objectContaining({ ticketId: createdTicketPayload.ticket.id, minutes: 45, note: 'Investigated customer setup logs' })
+  ]);
+  /*#ENDIF*/
+
+  const createRenewalTicketResponse = await page.request.post('/api/tickets', {
+    data: {
+      title: 'Prepare renewal checklist',
+      assigneeId: 'renewal-owner',
+      dueDate: '2026-05-01'
+    }
+  });
+  expect(createRenewalTicketResponse.ok()).toBe(true);
+  await page.goto('/tickets');
+  await expect(page).toHaveURL(/\/tickets$/);
+  await expect(ticketItems).toHaveCount(2);
+
+  await page.getByLabel('Assignee filter').selectOption('support-owner');
+  await page.getByRole('button', { name: 'Apply ticket filters' }).click();
+  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
+  await expect(ticketItems.filter({ hasText: 'Prepare renewal checklist' })).toHaveCount(0);
+
+  await expect(createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' })).toBeVisible();
+  const statusTransitionResponse = await page.request.post(`/api/tickets/${createdTicketPayload.ticket.id}/status`, {
+    data: { status: 'in_progress' }
+  });
+  expect(statusTransitionResponse.ok()).toBe(true);
+  await page.goto('/tickets?assignee=support-owner&status=in_progress');
+  await expect(page).toHaveURL(/status=in_progress/);
+  await expect(ticketItems).toHaveCount(1);
+  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(1);
+
+  /*#IF ticketReportingEnabled*/
+  await expect(page.getByText('Total tickets: 1')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ticket status summary' }).getByText('In progress: 1')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View ticket summary JSON' })).toHaveAttribute('href', /status=in_progress/);
+  /*#IF exportCsvEnabled*/
+  await expect(page.getByRole('link', { name: 'Export ticket summary CSV' })).toHaveAttribute('href', /status=in_progress/);
+  const filteredSummaryExportResponse = await page.request.get('/api/tickets/summary/export?assigneeId=support-owner&status=in_progress');
+  expect(filteredSummaryExportResponse.ok()).toBe(true);
+  const filteredSummaryCsv = await filteredSummaryExportResponse.text();
+  expect(filteredSummaryCsv).toContain('status,in_progress,1');
+  expect(filteredSummaryCsv).toContain('sla,overdue,1');
+  expect(filteredSummaryCsv).toContain('assignee,support-owner,1');
+  /*#ENDIF*/
+  const filteredSummaryResponse = await page.request.get('/api/tickets/summary?assigneeId=support-owner&status=in_progress');
+  expect(filteredSummaryResponse.ok()).toBe(true);
+  const filteredSummaryPayload = await filteredSummaryResponse.json() as {
+    summary: {
+      total: number;
+      byStatus: { open: number; in_progress: number; closed: number };
+      sla: { overdue: number; dueSoon: number; unscheduled: number };
+      byAssignee: Array<{ assigneeId: string; count: number }>;
+    };
+  };
+  expect(filteredSummaryPayload.summary.total).toBe(1);
+  expect(filteredSummaryPayload.summary.byStatus.in_progress).toBe(1);
+  expect(filteredSummaryPayload.summary.sla).toEqual({ overdue: 1, dueSoon: 0, unscheduled: 0 });
+  expect(filteredSummaryPayload.summary.byAssignee).toEqual([{ assigneeId: 'support-owner', count: 1 }]);
+  /*#ENDIF*/
+
+  await expect(createdTicket).toContainText('in_progress');
+
+  /*#IF auditEnabled*/
+  const ticketAuditList = page.getByRole('list', { name: 'Ticket audit entries' });
+  await expect(ticketAuditList.getByRole('listitem').filter({ hasText: `ticket.created ticket ${createdTicketPayload.ticket.id}` })).toHaveCount(1);
+  await expect(ticketAuditList.getByRole('listitem').filter({ hasText: `ticket.status_transitioned ticket ${createdTicketPayload.ticket.id}` })).toHaveCount(1);
+  /*#ENDIF*/
+
+  await page.request.post('/api/session/logout');
+  await signIn(page, 'tenant-b-admin');
+  await page.goto('/tickets');
+  await expect(page).toHaveURL(/\/tickets$/);
+  await expect(ticketItems.filter({ hasText: 'Escalate onboarding issue' })).toHaveCount(0);
+  const tenantBAttachmentResponse = await page.request.get(`/api/tickets/${createdTicketPayload.ticket.id}/attachments`);
+  expect(tenantBAttachmentResponse.status()).toBe(400);
+  const tenantBCommentResponse = await page.request.get(`/api/tickets/${createdTicketPayload.ticket.id}/comments`);
+  expect(tenantBCommentResponse.status()).toBe(400);
+
+  /*#IF worklogEnabled*/
+  const tenantBWorklogResponse = await page.request.get(`/api/tickets/${createdTicketPayload.ticket.id}/worklogs`);
+  expect(tenantBWorklogResponse.status()).toBe(400);
+  /*#ENDIF*/
+});

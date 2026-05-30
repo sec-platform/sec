@@ -1,0 +1,50 @@
+import { NextResponse } from 'next/server';
+import type { TicketInput, TicketStatus } from '../../../src/runtime/database.ts';
+import { createTicket, listTicketsWithFilters, type TicketFilters } from '../../../src/installed/ticket/ticket-service.ts';
+/*#IF auditEnabled*/
+import { appendAuditEntry, createAuditEntry } from '../../../src/installed/audit/logger.ts';
+/*#ENDIF*/
+import { getCurrentSession } from '../../../lib/session.ts';
+import { getDatabase } from '../../../lib/store.ts';
+
+function readTicketFilters(request: Request): TicketFilters {
+  const url = new URL(request.url);
+  const assigneeId = url.searchParams.get('assigneeId');
+  const status = url.searchParams.get('status');
+  return {
+    ...(assigneeId ? { assigneeId } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status: status as TicketStatus } : {})
+  };
+}
+
+export async function GET(request: Request) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  const database = getDatabase();
+  const tickets = listTicketsWithFilters(database, session, readTicketFilters(request));
+  return NextResponse.json({ tickets });
+}
+
+export async function POST(request: Request) {
+  const session = await getCurrentSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthenticated session' }, { status: 401 });
+  }
+
+  try {
+    const database = getDatabase();
+    const payload = await request.json() as TicketInput;
+    const ticket = createTicket(database, session, payload);
+
+    /*#IF auditEnabled*/
+    database.auditEntries = appendAuditEntry(database.auditEntries, createAuditEntry(session, 'ticket.created', 'ticket', String(ticket.id)));
+    /*#ENDIF*/
+
+    return NextResponse.json({ ticket }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid payload' }, { status: 400 });
+  }
+}

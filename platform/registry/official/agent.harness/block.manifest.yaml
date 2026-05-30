@@ -1,0 +1,35 @@
+id: agent/harness
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - nextjs-ts-prisma-sqlite
+requires:
+  - tenant/context
+provides:
+  - agent/harness
+conflicts: []
+installs:
+  - kind: merge-prisma
+    from: files/prisma/agent.prisma
+    to: prisma/schema.prisma
+  - kind: copy
+    from: files/src/installed/agent/harness-service.ts
+    to: src/installed/agent/harness-service.ts
+pins:
+  inputs:
+    - id: tenant_context
+      type: TenantId
+      required: true
+  outputs:
+    - id: agent_registered
+      type: AIAgentRecord
+      required: true
+slots: []
+acceptance:
+  - id: agent_can_be_registered
+    dependsOn:
+      - tenant_only_sees_own_customers
+    covers:
+      blocks:
+        - agent/harness
+routes: []

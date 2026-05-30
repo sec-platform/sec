@@ -1,0 +1,30 @@
+/*#IF authEnabled*/
+import { redirect } from 'next/navigation';
+import { getCurrentSession } from '../lib/session.ts';
+
+export default async function HomePage() {
+  const session = await getCurrentSession();
+  redirect(session ? '/workspace' : '/login');
+}
+/*#ENDIF*/
+/*#IF !authEnabled*/
+import Link from 'next/link';
+import { routes } from '../generated/routes.ts';
+
+export default function HomePage() {
+  return (
+    <main className="stack">
+      <section className="card stack">
+        <h1>Runtime Host</h1>
+        <p>This generated host exposes the resolved block routes for local inspection.</p>
+        <nav className="row">
+          {routes.length === 0 ? <span>No routes published by the current block set.</span> : null}
+          {routes.map((route) => (
+            <Link key={route.path} href={route.path}>{route.path}</Link>
+          ))}
+        </nav>
+      </section>
+    </main>
+  );
+}
+/*#ENDIF*/

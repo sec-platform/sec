@@ -5,7 +5,14 @@
     "user_can_login",
     "user_can_create_customer",
     "user_can_list_customers",
-    "tenant_only_sees_own_customers"
+    "tenant_only_sees_own_customers",
+    "ticket_can_be_created",
+    "ticket_status_can_transition",
+    "assignee_can_filter_tickets",
+    "ticket_attachment_can_be_uploaded",
+    "ticket_comment_can_be_added",
+    "agent_can_be_registered",
+    "agent_can_automatically_classify_ticket"
   ],
   "blocks": [
     {
@@ -21,10 +28,21 @@
     {
       "id": "tenant/basic-workspace",
       "declaredAcceptance": [
-        "tenant_only_sees_own_customers"
+        "tenant_only_sees_own_customers",
+        "tenant_only_sees_own_tickets"
       ],
       "coveredBy": [
         "tenant_only_sees_own_customers"
+      ],
+      "uncovered": false
+    },
+    {
+      "id": "agent/harness",
+      "declaredAcceptance": [
+        "agent_can_be_registered"
+      ],
+      "coveredBy": [
+        "agent_can_be_registered"
       ],
       "uncovered": false
     },
@@ -41,6 +59,53 @@
         "user_can_list_customers"
       ],
       "uncovered": false
+    },
+    {
+      "id": "file/upload",
+      "declaredAcceptance": [
+        "customer_can_upload_attachment"
+      ],
+      "coveredBy": [],
+      "uncovered": true
+    },
+    {
+      "id": "ticket/basic",
+      "declaredAcceptance": [
+        "assignee_can_filter_tickets",
+        "tenant_only_sees_own_tickets",
+        "ticket_attachment_can_be_uploaded",
+        "ticket_can_be_created",
+        "ticket_comment_can_be_added",
+        "ticket_status_can_transition"
+      ],
+      "coveredBy": [
+        "assignee_can_filter_tickets",
+        "ticket_attachment_can_be_uploaded",
+        "ticket_can_be_created",
+        "ticket_comment_can_be_added",
+        "ticket_status_can_transition"
+      ],
+      "uncovered": false
+    },
+    {
+      "id": "comment/basic",
+      "declaredAcceptance": [
+        "ticket_comment_can_be_added"
+      ],
+      "coveredBy": [
+        "ticket_comment_can_be_added"
+      ],
+      "uncovered": false
+    },
+    {
+      "id": "agent/executor",
+      "declaredAcceptance": [
+        "agent_can_automatically_classify_ticket"
+      ],
+      "coveredBy": [
+        "agent_can_automatically_classify_ticket"
+      ],
+      "uncovered": false
     }
   ],
   "slots": [
@@ -55,8 +120,18 @@
         "user_can_create_customer"
       ],
       "uncovered": false
+    },
+    {
+      "id": "ticket_comment_delegate",
+      "declaredAcceptance": [],
+      "coveredBy": [],
+      "uncovered": true
     }
   ],
-  "uncoveredBlocks": [],
-  "uncoveredSlots": []
+  "uncoveredBlocks": [
+    "file/upload"
+  ],
+  "uncoveredSlots": [
+    "ticket_comment_delegate"
+  ]
 }

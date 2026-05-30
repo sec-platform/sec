@@ -1,4 +1,4 @@
-<%
+ <%
   function countRows(values) {
     const counts = new Map();
     for (const value of values) {
@@ -42,11 +42,15 @@
       )
     ]
   ]);
+  const overridePaths = new Set(provenance.artifacts.filter(function(a) { return a.overrideStatus === 'manual'; }).map(function(a) { return a.path; }));
   const nodeRows = graph.nodes.map(function(node) {
+    const rawId = node.id.startsWith('file:') ? node.id.slice(5) : node.id;
+    const isOverride = overridePaths.has(rawId) || node.type === 'override' || node.id.startsWith('override:');
+    const labelText = isOverride ? node.label + ' [Manual Override ⚠️]' : node.label;
     return [
       node.id,
       node.type,
-      node.label,
+      labelText,
       String(outgoingCounts.get(node.id) ?? 0),
       String(incomingCounts.get(node.id) ?? 0)
     ];
@@ -84,7 +88,88 @@
     const diagnostics = review.upgradeSummary.diagnostics;
     issueRows.push(['upgrade diagnostic', diagnostics.errorCode, diagnostics.failedCheck, diagnostics.message]);
   }
+
+  const overrideArtifacts = provenance.artifacts.filter(function(art) {
+    return art.overrideStatus === 'manual';
+  });
+  const manualOverrideRows = overrideArtifacts.map(function(art) {
+    return [
+      art.path,
+      art.originType,
+      art.sourceBlock || 'none',
+      'Manual Override ⚠️'
+    ];
+  });
+  const overrideNodes = graph.nodes.filter(function(node) {
+    return node.type === 'override';
+  });
+  for (const node of overrideNodes) {
+    if (!overrideArtifacts.some(art => art.path === node.id || art.originId === node.id)) {
+      manualOverrideRows.push([
+        node.id,
+        'override node',
+        node.label,
+        'Manual Override ⚠️'
+      ]);
+    }
+  }
+
+  const covSummary = review.coverageSummary;
+  const blockPercent = covSummary && covSummary.blockCount ? Math.round((covSummary.coveredBlockCount / covSummary.blockCount) * 100) : 0;
+  const slotPercent = covSummary && covSummary.slotCount ? Math.round((covSummary.coveredSlotCount / covSummary.slotCount) * 100) : 0;
 %>
+<style>
+  .coverage-chart-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+    margin: 20px 0;
+  }
+  .coverage-card {
+    background: #1e1e24;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .coverage-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.35);
+  }
+  .coverage-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #b0bec5;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .coverage-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #4fc3f7;
+    margin-bottom: 12px;
+  }
+  .progress-bg {
+    background: #37474f;
+    border-radius: 6px;
+    height: 10px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.6s ease;
+  }
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #90a4ae;
+    margin-top: 6px;
+  }
+</style>
 <section class="card">
   <h1>Graph View</h1>
   <p>Read-only projection of <code>control/graph/explain-graph.json</code>.</p>
@@ -93,6 +178,62 @@
 <section class="card">
   <h2>Graph Coverage Matrix</h2>
   <%- dataTable(['Information','Source','Coverage','Count'], coverageRows, 4, 'No graph coverage.') %>
+
+  <h3>Coverage Dashboard Charts</h3>
+  <div class="coverage-chart-container">
+    <div class="coverage-card">
+      <div class="coverage-title">Blocks Coverage</div>
+      <div class="coverage-value" style="color: #81c784;"><%= covSummary ? covSummary.coveredBlockCount + ' / ' + covSummary.blockCount : '0 / 0' %></div>
+      <div class="progress-bg">
+        <div class="progress-fill" style="width: <%= blockPercent %>%; background: linear-gradient(90deg, #66bb6a, #81c784);"></div>
+      </div>
+      <div class="progress-label">
+        <span>Coverage Ratio</span>
+        <span><%= blockPercent %>%</span>
+      </div>
+    </div>
+
+    <div class="coverage-card">
+      <div class="coverage-title">Slots Coverage</div>
+      <div class="coverage-value" style="color: #4fc3f7;"><%= covSummary ? covSummary.coveredSlotCount + ' / ' + covSummary.slotCount : '0 / 0' %></div>
+      <div class="progress-bg">
+        <div class="progress-fill" style="width: <%= slotPercent %>%; background: linear-gradient(90deg, #29b6f6, #4fc3f7);"></div>
+      </div>
+      <div class="progress-label">
+        <span>Coverage Ratio</span>
+        <span><%= slotPercent %>%</span>
+      </div>
+    </div>
+
+    <div class="coverage-card">
+      <div class="coverage-title">Acceptance Tests</div>
+      <div class="coverage-value" style="color: #ba68c8;"><%= nodeTypeCounts.get('acceptance') ?? 0 %></div>
+      <div class="progress-bg">
+        <div class="progress-fill" style="width: 100%; background: #ab47bc;"></div>
+      </div>
+      <div class="progress-label">
+        <span>Acceptance Nodes</span>
+        <span>Active</span>
+      </div>
+    </div>
+
+    <div class="coverage-card">
+      <div class="coverage-title">Policy Rules</div>
+      <div class="coverage-value" style="color: #ffb74d;"><%= nodeTypeCounts.get('policy') ?? 0 %></div>
+      <div class="progress-bg">
+        <div class="progress-fill" style="width: 100%; background: #ffa726;"></div>
+      </div>
+      <div class="progress-label">
+        <span>Policy Constraints</span>
+        <span>Enforced</span>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="card">
+  <h2>Manual Override Registry</h2>
+  <p>Tracked artifacts and nodes that have been manually overridden by developers.</p>
+  <%- dataTable(['Override Target', 'Origin Type', 'Source Block', 'Status'], manualOverrideRows, 4, 'No manual overrides detected in workspace.') %>
 </section>
 <section class="card">
   <h2>Node Type Summary</h2>
@@ -116,3 +257,4 @@
   <h2>Issue Overlay</h2>
   <%- dataTable(['Kind','ID','Source','Message'], issueRows, 4, 'No issue overlays.') %>
 </section>
+

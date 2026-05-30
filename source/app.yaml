@@ -2,7 +2,7 @@ app:
   name: customer-admin
   stack: nextjs-ts-prisma-sqlite
   packageManager: pnpm
-  mode: single-tenant
+  mode: multi-tenant
 registry:
   sources:
     - id: official
@@ -24,6 +24,16 @@ blocks:
     version: 0.1.0
   - id: entity/customer-basic
     version: 0.1.0
+  - id: ticket/basic
+    version: 0.1.0
+  - id: comment/basic
+    version: 0.1.0
+  - id: agent/harness
+    version: 0.1.0
+  - id: agent/executor
+    version: 0.1.0
+  - id: file/upload
+    version: 0.1.0
 slots:
   - id: customer_normalizer
     block: entity/customer-basic
@@ -33,8 +43,22 @@ slots:
     symbol: normalizeCustomerInput
     description: Name required; email lowercased; phone digits only; company
       defaults to Unknown.
+  - id: ticket_comment_delegate
+    block: ticket/basic
+    kind: adapter
+    target: custom/ticket_comment_delegate.ts
+    sourcePath: source/code/slots/ticket_comment_delegate.ts
+    symbol: addTicketCommentDelegate
 acceptance:
   - id: user_can_login
   - id: user_can_create_customer
   - id: user_can_list_customers
   - id: tenant_only_sees_own_customers
+  - id: ticket_can_be_created
+  - id: ticket_status_can_transition
+  - id: assignee_can_filter_tickets
+  - id: ticket_attachment_can_be_uploaded
+  - id: ticket_comment_can_be_added
+  - id: agent_can_be_registered
+  - id: agent_can_automatically_classify_ticket
+

@@ -34,3 +34,38 @@ acceptance:
         - ticket/basic
         - reporting/ticket-summary
 routes: []
+uiHooks:
+  - targetPortal: tickets_sections
+    component: summarizeTickets
+    importFrom: ../../src/installed/reporting/ticket-summary.ts
+    dataBinder: |
+      const ticketSummary = summarizeTickets(tickets);
+      const summaryExportHref = (typeof hasExportCsv !== 'undefined' && hasExportCsv) ? (queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export') : undefined;
+    renderSnippet: |
+      <section className="card stack">
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2>Ticket Summary</h2>
+                <div className="row">
+                  <a href={summaryHref}>View ticket summary JSON</a>
+                  {summaryExportHref && <a href={summaryExportHref}>Export ticket summary CSV</a>}
+                </div>
+              </div>
+              <p>Total tickets: {ticketSummary.total}</p>
+              <ul className="clean" aria-label="Ticket SLA summary">
+                <li>Overdue: {ticketSummary.sla.overdue}</li>
+                <li>Due soon: {ticketSummary.sla.dueSoon}</li>
+                <li>Unscheduled: {ticketSummary.sla.unscheduled}</li>
+              </ul>
+              <ul className="clean" aria-label="Ticket status summary">
+                <li>Open: {ticketSummary.byStatus.open}</li>
+                <li>In progress: {ticketSummary.byStatus.in_progress}</li>
+                <li>Closed: {ticketSummary.byStatus.closed}</li>
+              </ul>
+              <ul className="clean" aria-label="Assignee summary">
+                {ticketSummary.byAssignee.map((entry) => (
+                  <li key={entry.assigneeId}>{entry.assigneeId}: {entry.count}</li>
+                ))}
+                {ticketSummary.byAssignee.length === 0 ? <li>No assignee summary yet.</li> : null}
+              </ul>
+            </section>
+

@@ -1,4 +1,4 @@
-import type { ManifestKind, SlotKind } from './plan-manifest-types.ts';
+import type { ManifestKind, SlotKind, ManifestSlotExport } from './plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from './registry-types.ts';
 
 export type PassState = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
@@ -45,6 +45,8 @@ export interface SlotTask {
   status: 'pending' | 'generated' | 'filled' | 'verified' | 'failed';
   writableZones: string[];
   provenanceHints: SlotProvenanceHints;
+  exports?: ManifestSlotExport[];
+  mockTemplate?: string;
 }
 
 export interface PassStatus {

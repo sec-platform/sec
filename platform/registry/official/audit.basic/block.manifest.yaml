@@ -28,3 +28,41 @@ slots: []
 acceptance:
   - id: audit_entry_can_be_created
 routes: []
+uiHooks:
+  - targetPortal: customers_sections
+    component: getCurrentSession
+    importFrom: ../../lib/session.ts
+    dataBinder: |
+      const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'customer');
+    renderSnippet: |
+      <section className="card stack">
+              <h2>Customer Audit Trail</h2>
+              <ul className="clean" aria-label="Customer audit entries">
+                {auditEntries.map((entry) => (
+                  <li key={`${entry.action}:${entry.entityId}:${entry.occurredAt}`}>
+                    <div><strong>{entry.action}</strong> customer {entry.entityId}</div>
+                    <div>{entry.actorId} in {entry.tenantId}</div>
+                  </li>
+                ))}
+                {auditEntries.length === 0 ? <li>No customer audit entries yet.</li> : null}
+              </ul>
+            </section>
+  - targetPortal: tickets_sections
+    component: getCurrentSession
+    importFrom: ../../lib/session.ts
+    dataBinder: |
+      const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
+    renderSnippet: |
+      <section className="card stack">
+              <h2>Ticket Audit Trail</h2>
+              <ul className="clean" aria-label="Ticket audit entries">
+                {auditEntries.map((entry) => (
+                  <li key={`${entry.action}:${entry.entityId}:${entry.occurredAt}`}>
+                    <div><strong>{entry.action}</strong> ticket {entry.entityId}</div>
+                    <div>{entry.actorId} in {entry.tenantId}</div>
+                  </li>
+                ))}
+                {auditEntries.length === 0 ? <li>No ticket audit entries yet.</li> : null}
+              </ul>
+            </section>
+

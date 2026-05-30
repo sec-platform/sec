@@ -1,0 +1,72 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { type FormEvent, useState } from 'react';
+
+interface TicketWorklogFormProps {
+  ticketId: number;
+  ticketTitle: string;
+}
+
+export function TicketWorklogForm({ ticketId, ticketTitle }: TicketWorklogFormProps) {
+  const router = useRouter();
+  const [minutes, setMinutes] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+
+    const response = await fetch(`/api/tickets/${ticketId}/worklogs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ minutes: Number(minutes), note })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? 'Unable to record worklog');
+      setPending(false);
+      return;
+    }
+
+    setMinutes('');
+    setNote('');
+    setPending(false);
+    router.refresh();
+  }
+
+  return (
+    <form className="stack" onSubmit={handleSubmit}>
+      <div className="row">
+        <label style={{ flex: 1 }}>
+          Minutes for {ticketTitle}
+          <input
+            aria-label={`Worklog minutes for ${ticketTitle}`}
+            min="1"
+            type="number"
+            value={minutes}
+            onChange={(event) => setMinutes(event.target.value)}
+          />
+        </label>
+        <label style={{ flex: 2 }}>
+          Note
+          <input
+            aria-label={`Worklog note for ${ticketTitle}`}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+      </div>
+      <div className="row">
+        <button type="submit" disabled={pending}>{pending ? 'Saving...' : `Add worklog for ${ticketTitle}`}</button>
+      </div>
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
+  );
+}

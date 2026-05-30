@@ -43,13 +43,23 @@
         <td>tenant_only_sees_own_customers, user_can_create_customer</td>
       </tr>
       
+      
+      <tr>
+        <td>ticket_comment_delegate</td>
+        <td>ticket/basic</td>
+        <td>source/code/slots/ticket_comment_delegate.ts</td>
+        <td>custom/ticket_comment_delegate.ts</td>
+        <td>verified</td>
+        <td>none</td>
+      </tr>
+      
     </tbody>
   </table>
 </section>
 <section class="card">
   
 
-<h2>CI Summary</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>0</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>3</td></tr><tr><td>Impacted Slots</td><td>1</td></tr><tr><td>Runtime Entries</td><td>8</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Chain Attention Stages</td><td>1</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr></tbody></table>
+<h2>CI Summary</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>attention</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>2</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>8</td></tr><tr><td>Impacted Slots</td><td>2</td></tr><tr><td>Runtime Entries</td><td>14</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Chain Attention Stages</td><td>1</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr></tbody></table>
 
 
 
@@ -58,7 +68,7 @@
 
 
 
-<h3>E2E Chain Summary</h3><table><thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead><tbody><tr><td>verification</td><td>passed</td><td>lane=all; failed=none</td><td>ci=passed, failures=0</td></tr><tr><td>coverage</td><td>passed</td><td>blocks=3/3; slots=1/1</td><td>blocks=3/3, slots=1/1</td></tr><tr><td>artifacts</td><td>attention</td><td>total=0; missing=0</td><td>artifacts=missing</td></tr><tr><td>review</td><td>passed</td><td>review-summary=generated</td><td>review-summary=generated</td></tr></tbody></table>
+<h3>E2E Chain Summary</h3><table><thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead><tbody><tr><td>verification</td><td>passed</td><td>lane=all; failed=none</td><td>ci=attention, failures=0</td></tr><tr><td>coverage</td><td>passed</td><td>blocks=7/8; slots=1/2</td><td>blocks=7/8, slots=1/2</td></tr><tr><td>artifacts</td><td>attention</td><td>total=0; missing=0</td><td>artifacts=missing</td></tr><tr><td>review</td><td>passed</td><td>review-summary=generated</td><td>review-summary=generated</td></tr></tbody></table>
 
 </section>
 
@@ -83,7 +93,14 @@
     &quot;user_can_login&quot;,
     &quot;user_can_create_customer&quot;,
     &quot;user_can_list_customers&quot;,
-    &quot;tenant_only_sees_own_customers&quot;
+    &quot;tenant_only_sees_own_customers&quot;,
+    &quot;ticket_can_be_created&quot;,
+    &quot;ticket_status_can_transition&quot;,
+    &quot;assignee_can_filter_tickets&quot;,
+    &quot;ticket_attachment_can_be_uploaded&quot;,
+    &quot;ticket_comment_can_be_added&quot;,
+    &quot;agent_can_be_registered&quot;,
+    &quot;agent_can_automatically_classify_ticket&quot;
   ],
   &quot;blocks&quot;: [
     {
@@ -99,10 +116,21 @@
     {
       &quot;id&quot;: &quot;tenant/basic-workspace&quot;,
       &quot;declaredAcceptance&quot;: [
-        &quot;tenant_only_sees_own_customers&quot;
+        &quot;tenant_only_sees_own_customers&quot;,
+        &quot;tenant_only_sees_own_tickets&quot;
       ],
       &quot;coveredBy&quot;: [
         &quot;tenant_only_sees_own_customers&quot;
+      ],
+      &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;agent/harness&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;agent_can_be_registered&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;agent_can_be_registered&quot;
       ],
       &quot;uncovered&quot;: false
     },
@@ -119,6 +147,53 @@
         &quot;user_can_list_customers&quot;
       ],
       &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;file/upload&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;customer_can_upload_attachment&quot;
+      ],
+      &quot;coveredBy&quot;: [],
+      &quot;uncovered&quot;: true
+    },
+    {
+      &quot;id&quot;: &quot;ticket/basic&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;assignee_can_filter_tickets&quot;,
+        &quot;tenant_only_sees_own_tickets&quot;,
+        &quot;ticket_attachment_can_be_uploaded&quot;,
+        &quot;ticket_can_be_created&quot;,
+        &quot;ticket_comment_can_be_added&quot;,
+        &quot;ticket_status_can_transition&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;assignee_can_filter_tickets&quot;,
+        &quot;ticket_attachment_can_be_uploaded&quot;,
+        &quot;ticket_can_be_created&quot;,
+        &quot;ticket_comment_can_be_added&quot;,
+        &quot;ticket_status_can_transition&quot;
+      ],
+      &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;comment/basic&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;ticket_comment_can_be_added&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;ticket_comment_can_be_added&quot;
+      ],
+      &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;agent/executor&quot;,
+      &quot;declaredAcceptance&quot;: [
+        &quot;agent_can_automatically_classify_ticket&quot;
+      ],
+      &quot;coveredBy&quot;: [
+        &quot;agent_can_automatically_classify_ticket&quot;
+      ],
+      &quot;uncovered&quot;: false
     }
   ],
   &quot;slots&quot;: [
@@ -133,10 +208,20 @@
         &quot;user_can_create_customer&quot;
       ],
       &quot;uncovered&quot;: false
+    },
+    {
+      &quot;id&quot;: &quot;ticket_comment_delegate&quot;,
+      &quot;declaredAcceptance&quot;: [],
+      &quot;coveredBy&quot;: [],
+      &quot;uncovered&quot;: true
     }
   ],
-  &quot;uncoveredBlocks&quot;: [],
-  &quot;uncoveredSlots&quot;: []
+  &quot;uncoveredBlocks&quot;: [
+    &quot;file/upload&quot;
+  ],
+  &quot;uncoveredSlots&quot;: [
+    &quot;ticket_comment_delegate&quot;
+  ]
 }</pre></section>
 
 
@@ -146,7 +231,7 @@
 </section>
 <section class="card">
   <h2>Review Regression Risks</h2>
-  <table><thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead><tbody><tr><td colspan="4">No regression risks.</td></tr></tbody></table>
+  <table><thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead><tbody><tr><td>coverage-gap</td><td></td><td>ticket_comment_delegate</td><td>Slot ticket_comment_delegate has no runtime acceptance coverage</td></tr><tr><td>coverage-gap</td><td>file/upload</td><td></td><td>Block file/upload has no runtime acceptance coverage</td></tr></tbody></table>
 </section>
 <section class="card">
   <h2>Review Conflict Hints</h2>

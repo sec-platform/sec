@@ -36,4 +36,5 @@ export interface TaskEnvelope {
   lockSummary: {
     blocks: string[];
   };
+  mockTemplate?: string;
 }

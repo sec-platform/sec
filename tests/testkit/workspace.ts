@@ -81,7 +81,7 @@ async function prepareWorkspacePipeline(
   await adaptWorkspace(workspaceRoot);
   if (target === 'adapted-default') return;
 
-  await verifyWorkspace(workspaceRoot);
+  await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   await lockWorkspace(workspaceRoot);
 }
 

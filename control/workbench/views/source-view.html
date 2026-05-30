@@ -27,7 +27,7 @@
       </nav>
 
 
-<section class="card"><h2>CI Summary</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>0</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>3</td></tr><tr><td>Impacted Slots</td><td>1</td></tr><tr><td>Runtime Entries</td><td>8</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Chain Attention Stages</td><td>1</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr></tbody></table></section>
+<section class="card"><h2>CI Summary</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>attention</td></tr><tr><td>Failures</td><td>0</td></tr><tr><td>Regression Risks</td><td>2</td></tr><tr><td>Conflict Hints</td><td>0</td></tr><tr><td>Impacted Blocks</td><td>8</td></tr><tr><td>Impacted Slots</td><td>2</td></tr><tr><td>Runtime Entries</td><td>14</td></tr><tr><td>Chain Status</td><td>attention</td></tr><tr><td>Chain Stages</td><td>3/4</td></tr><tr><td>Chain Attention Stages</td><td>1</td></tr><tr><td>Chain Failed Stages</td><td>0</td></tr></tbody></table></section>
 
 
 
@@ -36,7 +36,7 @@
 
 
 
-<h3>E2E Chain Summary</h3><table><thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead><tbody><tr><td>verification</td><td>passed</td><td>lane=all; failed=none</td><td>ci=passed, failures=0</td></tr><tr><td>coverage</td><td>passed</td><td>blocks=3/3; slots=1/1</td><td>blocks=3/3, slots=1/1</td></tr><tr><td>artifacts</td><td>attention</td><td>total=0; missing=0</td><td>artifacts=missing</td></tr><tr><td>review</td><td>passed</td><td>review-summary=generated</td><td>review-summary=generated</td></tr></tbody></table>
+<h3>E2E Chain Summary</h3><table><thead><tr><th>Stage</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead><tbody><tr><td>verification</td><td>passed</td><td>lane=all; failed=none</td><td>ci=attention, failures=0</td></tr><tr><td>coverage</td><td>passed</td><td>blocks=7/8; slots=1/2</td><td>blocks=7/8, slots=1/2</td></tr><tr><td>artifacts</td><td>attention</td><td>total=0; missing=0</td><td>artifacts=missing</td></tr><tr><td>review</td><td>passed</td><td>review-summary=generated</td><td>review-summary=generated</td></tr></tbody></table>
 
 
 
@@ -45,15 +45,21 @@
   <p>Default editable workspace inputs live under top-level source; project remains the materialized runtime target and control stores evidence, graph, provenance, workflow, and Workbench projections.</p>
   <p>Workbench edits are accepted as structured mutations under source/views/mutations and applied back to source/app.yaml.</p>
   <h3>Editable Areas</h3><table><thead><tr><th>Area</th><th>Path</th></tr></thead><tbody><tr><td>App Plan</td><td>source/app.yaml</td></tr><tr><td>Model</td><td>source/model/**</td></tr><tr><td>Slots</td><td>source/code/slots/**</td></tr><tr><td>Application Code</td><td>source/code/{app,server,ui,shared,integrations}/**</td></tr><tr><td>Opaque Code</td><td>source/code/opaque/**</td></tr><tr><td>Lab Code</td><td>source/code/lab/**</td></tr><tr><td>Patches</td><td>source/patches/**</td></tr><tr><td>Assets</td><td>source/assets/**</td></tr><tr><td>Views</td><td>source/views/**</td></tr><tr><td>Workbench Mutations</td><td>source/views/mutations/*.json -&gt; source/app.yaml</td></tr><tr><td>Env</td><td>source/env/**</td></tr><tr><td>Private Blocks</td><td>source/blocks/private/**</td></tr></tbody></table>
-  <h3>Slot Materialization</h3><table><thead><tr><th>Slot</th><th>Source Path</th><th>Runtime Target</th></tr></thead><tbody><tr><td>customer_normalizer</td><td>source/code/slots/customer_normalizer.ts</td><td>custom/customer_normalizer.ts</td></tr></tbody></table>
+  <h3>Slot Materialization</h3><table><thead><tr><th>Slot</th><th>Source Path</th><th>Runtime Target</th></tr></thead><tbody><tr><td>customer_normalizer</td><td>source/code/slots/customer_normalizer.ts</td><td>custom/customer_normalizer.ts</td></tr><tr><td>ticket_comment_delegate</td><td>source/code/slots/ticket_comment_delegate.ts</td><td>custom/ticket_comment_delegate.ts</td></tr></tbody></table>
 </section>
 
 <section class="card">
   <h1>Source View</h1>
-  <p>Blocks: 3 | Slots: 1 | Files: 41</p>
+  <p>Blocks: 8 | Slots: 2 | Files: 68</p>
   <table>
     <thead><tr><th>Path</th><th>Origin</th><th>Registry</th><th>Override</th></tr></thead>
     <tbody>
+      <tr>
+        <td>app/api/customers/[customerId]/attachments/route.ts</td>
+        <td>generated:app/api/customers/[customerId]/attachments/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
       <tr>
         <td>app/api/customers/route.ts</td>
         <td>generated:app/api/customers/route.ts</td>
@@ -75,6 +81,30 @@
       <tr>
         <td>app/api/session/logout/route.ts</td>
         <td>generated:app/api/session/logout/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>app/api/tickets/[ticketId]/attachments/route.ts</td>
+        <td>generated:app/api/tickets/[ticketId]/attachments/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>app/api/tickets/[ticketId]/comments/route.ts</td>
+        <td>generated:app/api/tickets/[ticketId]/comments/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>app/api/tickets/[ticketId]/status/route.ts</td>
+        <td>generated:app/api/tickets/[ticketId]/status/route.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>app/api/tickets/route.ts</td>
+        <td>generated:app/api/tickets/route.ts</td>
         <td></td>
         <td>none</td>
       </tr>
@@ -109,8 +139,20 @@
         <td>none</td>
       </tr>
       <tr>
+        <td>app/tickets/page.tsx</td>
+        <td>generated:app/tickets/page.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
         <td>app/workspace/page.tsx</td>
         <td>generated:app/workspace/page.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>components/customer-attachment-form.tsx</td>
+        <td>generated:components/customer-attachment-form.tsx</td>
         <td></td>
         <td>none</td>
       </tr>
@@ -129,6 +171,30 @@
       <tr>
         <td>components/logout-button.tsx</td>
         <td>generated:components/logout-button.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>components/ticket-attachment-form.tsx</td>
+        <td>generated:components/ticket-attachment-form.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>components/ticket-comment-form.tsx</td>
+        <td>generated:components/ticket-comment-form.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>components/ticket-form.tsx</td>
+        <td>generated:components/ticket-form.tsx</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>components/ticket-status-form.tsx</td>
+        <td>generated:components/ticket-status-form.tsx</td>
         <td></td>
         <td>none</td>
       </tr>
@@ -199,6 +265,12 @@
         <td>none</td>
       </tr>
       <tr>
+        <td>custom/ticket_comment_delegate.ts</td>
+        <td>slot:ticket_comment_delegate</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
         <td>generated/routes.ts</td>
         <td>generated:generated/routes.ts</td>
         <td></td>
@@ -236,7 +308,7 @@
       </tr>
       <tr>
         <td>prisma/schema.prisma</td>
-        <td>block:entity/customer-basic</td>
+        <td>block:comment/basic</td>
         <td>official (official, compiler)</td>
         <td>none</td>
       </tr>
@@ -247,8 +319,32 @@
         <td>none</td>
       </tr>
       <tr>
+        <td>source/code/slots/ticket_comment_delegate.ts</td>
+        <td>slot:ticket_comment_delegate</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>src/installed/agent/executor-service.ts</td>
+        <td>block:agent/executor</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>src/installed/agent/harness-service.ts</td>
+        <td>block:agent/harness</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
         <td>src/installed/auth/session.ts</td>
         <td>block:auth/basic-session</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>src/installed/comment/comment-service.ts</td>
+        <td>block:comment/basic</td>
         <td>official (official, compiler)</td>
         <td>none</td>
       </tr>
@@ -259,8 +355,32 @@
         <td>none</td>
       </tr>
       <tr>
+        <td>src/installed/file/customer-attachments.ts</td>
+        <td>block:file/upload</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
         <td>src/installed/tenant/context.ts</td>
         <td>block:tenant/basic-workspace</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>src/installed/ticket/ticket-service.ts</td>
+        <td>block:ticket/basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>tests/acceptance/agent-classifier-flow.test.ts</td>
+        <td>block:agent/executor</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>tests/acceptance/comment-flow.test.ts</td>
+        <td>block:comment/basic</td>
         <td>official (official, compiler)</td>
         <td>none</td>
       </tr>
@@ -271,8 +391,20 @@
         <td>none</td>
       </tr>
       <tr>
+        <td>tests/acceptance/ticket-flow.test.ts</td>
+        <td>block:ticket/basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
         <td>tests/runtime/acceptance/customer-flow.spec.ts</td>
         <td>generated:tests/runtime/acceptance/customer-flow.spec.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>tests/runtime/acceptance/ticket-flow.spec.ts</td>
+        <td>generated:tests/runtime/acceptance/ticket-flow.spec.ts</td>
         <td></td>
         <td>none</td>
       </tr>
@@ -283,14 +415,44 @@
         <td>none</td>
       </tr>
       <tr>
+        <td>tests/runtime/unit/ticket-runtime.test.ts</td>
+        <td>generated:tests/runtime/unit/ticket-runtime.test.ts</td>
+        <td></td>
+        <td>none</td>
+      </tr>
+      <tr>
         <td>tests/shared/tenant-runtime-fixture.ts</td>
         <td>block:tenant/basic-workspace</td>
         <td>official (official, compiler)</td>
         <td>none</td>
       </tr>
       <tr>
+        <td>tests/shared/ticket-service-suite.ts</td>
+        <td>block:ticket/basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>tests/unit/comment-service.test.ts</td>
+        <td>block:comment/basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>tests/unit/customer-attachments.test.ts</td>
+        <td>block:file/upload</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
         <td>tests/unit/customer-normalizer.test.ts</td>
         <td>block:entity/customer-basic</td>
+        <td>official (official, compiler)</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>tests/unit/ticket-service.test.ts</td>
+        <td>block:ticket/basic</td>
         <td>official (official, compiler)</td>
         <td>none</td>
       </tr>
@@ -307,21 +469,21 @@
 
 <section class="card">
   <h2>Runtime Entry Points</h2>
-  <table><thead><tr><th>Kind</th><th>Path</th></tr></thead><tbody><tr><td>api</td><td>app/api/customers/route.ts</td></tr><tr><td>api</td><td>app/api/session/current/route.ts</td></tr><tr><td>api</td><td>app/api/session/login/route.ts</td></tr><tr><td>api</td><td>app/api/session/logout/route.ts</td></tr><tr><td>page</td><td>app/customers/page.tsx</td></tr><tr><td>page</td><td>app/login/page.tsx</td></tr><tr><td>page</td><td>app/page.tsx</td></tr><tr><td>page</td><td>app/workspace/page.tsx</td></tr></tbody></table>
+  <table><thead><tr><th>Kind</th><th>Path</th></tr></thead><tbody><tr><td>api</td><td>app/api/customers/[customerId]/attachments/route.ts</td></tr><tr><td>api</td><td>app/api/customers/route.ts</td></tr><tr><td>api</td><td>app/api/session/current/route.ts</td></tr><tr><td>api</td><td>app/api/session/login/route.ts</td></tr><tr><td>api</td><td>app/api/session/logout/route.ts</td></tr><tr><td>api</td><td>app/api/tickets/[ticketId]/attachments/route.ts</td></tr><tr><td>api</td><td>app/api/tickets/[ticketId]/comments/route.ts</td></tr><tr><td>api</td><td>app/api/tickets/[ticketId]/status/route.ts</td></tr><tr><td>api</td><td>app/api/tickets/route.ts</td></tr><tr><td>page</td><td>app/customers/page.tsx</td></tr><tr><td>page</td><td>app/login/page.tsx</td></tr><tr><td>page</td><td>app/page.tsx</td></tr><tr><td>page</td><td>app/tickets/page.tsx</td></tr><tr><td>page</td><td>app/workspace/page.tsx</td></tr></tbody></table>
 </section>
 
 
 
 <section class="card">
   <h2>Vertical Summary</h2>
-  <table><thead><tr><th>Vertical</th><th>Blocks</th><th>Runtime Entries</th><th>Regression Risks</th></tr></thead><tbody><tr><td>customer</td><td>entity/customer-basic</td><td>app/api/customers/route.ts, app/customers/page.tsx</td><td>none</td></tr></tbody></table>
+  <table><thead><tr><th>Vertical</th><th>Blocks</th><th>Runtime Entries</th><th>Regression Risks</th></tr></thead><tbody><tr><td>customer</td><td>entity/customer-basic</td><td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/customers/page.tsx</td><td>none</td></tr><tr><td>ticket</td><td>ticket/basic</td><td>app/api/tickets/[ticketId]/attachments/route.ts, app/api/tickets/[ticketId]/comments/route.ts, app/api/tickets/[ticketId]/status/route.ts, app/api/tickets/route.ts, app/tickets/page.tsx</td><td>Slot ticket_comment_delegate has no runtime acceptance coverage</td></tr></tbody></table>
 </section>
 
 
 
 <section class="card">
   <h2>Block Combination Summary</h2>
-  <table><thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Verticals</th><th>Runtime Entries</th></tr></thead><tbody><tr><td>auth/basic-session</td><td>capability</td><td>1</td><td>1</td><td>none</td><td>none</td></tr><tr><td>tenant/basic-workspace</td><td>capability</td><td>2</td><td>2</td><td>none</td><td>none</td></tr><tr><td>entity/customer-basic</td><td>capability</td><td>3</td><td>4</td><td>customer</td><td>none</td></tr></tbody></table>
+  <table><thead><tr><th>Block</th><th>Kind</th><th>Install Order</th><th>Install Steps</th><th>Verticals</th><th>Runtime Entries</th></tr></thead><tbody><tr><td>auth/basic-session</td><td>capability</td><td>1</td><td>1</td><td>none</td><td>none</td></tr><tr><td>tenant/basic-workspace</td><td>capability</td><td>2</td><td>2</td><td>none</td><td>none</td></tr><tr><td>agent/harness</td><td>capability</td><td>3</td><td>2</td><td>none</td><td>none</td></tr><tr><td>entity/customer-basic</td><td>capability</td><td>4</td><td>4</td><td>customer</td><td>none</td></tr><tr><td>file/upload</td><td>capability</td><td>5</td><td>2</td><td>customer</td><td>none</td></tr><tr><td>ticket/basic</td><td>capability</td><td>6</td><td>5</td><td>ticket</td><td>none</td></tr><tr><td>comment/basic</td><td>capability</td><td>7</td><td>4</td><td>none</td><td>none</td></tr><tr><td>agent/executor</td><td>capability</td><td>8</td><td>2</td><td>none</td><td>none</td></tr></tbody></table>
 </section>
 
 
@@ -336,17 +498,17 @@
 
 <section class="card">
   <h2>Review Runtime Attribution</h2>
-  <h3>Runtime Groups</h3><table><thead><tr><th>Vertical</th><th>Kind</th><th>Count</th><th>Related Blocks</th></tr></thead><tbody><tr><td>customer</td><td>api</td><td>1</td><td>entity/customer-basic</td></tr><tr><td>customer</td><td>page</td><td>1</td><td>entity/customer-basic</td></tr><tr><td>none</td><td>api</td><td>3</td><td>none</td></tr><tr><td>none</td><td>page</td><td>3</td><td>none</td></tr></tbody></table>
-  <h3>Runtime Entries</h3><table><thead><tr><th>Kind</th><th>Vertical</th><th>Path</th><th>Related Blocks</th></tr></thead><tbody><tr><td>api</td><td>customer</td><td>app/api/customers/route.ts</td><td>entity/customer-basic</td></tr><tr><td>api</td><td>none</td><td>app/api/session/current/route.ts</td><td>none</td></tr><tr><td>api</td><td>none</td><td>app/api/session/login/route.ts</td><td>none</td></tr><tr><td>api</td><td>none</td><td>app/api/session/logout/route.ts</td><td>none</td></tr><tr><td>page</td><td>customer</td><td>app/customers/page.tsx</td><td>entity/customer-basic</td></tr><tr><td>page</td><td>none</td><td>app/login/page.tsx</td><td>none</td></tr><tr><td>page</td><td>none</td><td>app/page.tsx</td><td>none</td></tr><tr><td>page</td><td>none</td><td>app/workspace/page.tsx</td><td>none</td></tr></tbody></table>
+  <h3>Runtime Groups</h3><table><thead><tr><th>Vertical</th><th>Kind</th><th>Count</th><th>Related Blocks</th></tr></thead><tbody><tr><td>customer</td><td>api</td><td>2</td><td>entity/customer-basic</td></tr><tr><td>customer</td><td>page</td><td>1</td><td>entity/customer-basic</td></tr><tr><td>none</td><td>api</td><td>3</td><td>none</td></tr><tr><td>none</td><td>page</td><td>3</td><td>none</td></tr><tr><td>ticket</td><td>api</td><td>4</td><td>ticket/basic</td></tr><tr><td>ticket</td><td>page</td><td>1</td><td>ticket/basic</td></tr></tbody></table>
+  <h3>Runtime Entries</h3><table><thead><tr><th>Kind</th><th>Vertical</th><th>Path</th><th>Related Blocks</th></tr></thead><tbody><tr><td>api</td><td>customer</td><td>app/api/customers/[customerId]/attachments/route.ts</td><td>entity/customer-basic</td></tr><tr><td>api</td><td>customer</td><td>app/api/customers/route.ts</td><td>entity/customer-basic</td></tr><tr><td>api</td><td>none</td><td>app/api/session/current/route.ts</td><td>none</td></tr><tr><td>api</td><td>none</td><td>app/api/session/login/route.ts</td><td>none</td></tr><tr><td>api</td><td>none</td><td>app/api/session/logout/route.ts</td><td>none</td></tr><tr><td>api</td><td>ticket</td><td>app/api/tickets/[ticketId]/attachments/route.ts</td><td>ticket/basic</td></tr><tr><td>api</td><td>ticket</td><td>app/api/tickets/[ticketId]/comments/route.ts</td><td>ticket/basic</td></tr><tr><td>api</td><td>ticket</td><td>app/api/tickets/[ticketId]/status/route.ts</td><td>ticket/basic</td></tr><tr><td>api</td><td>ticket</td><td>app/api/tickets/route.ts</td><td>ticket/basic</td></tr><tr><td>page</td><td>customer</td><td>app/customers/page.tsx</td><td>entity/customer-basic</td></tr><tr><td>page</td><td>none</td><td>app/login/page.tsx</td><td>none</td></tr><tr><td>page</td><td>none</td><td>app/page.tsx</td><td>none</td></tr><tr><td>page</td><td>ticket</td><td>app/tickets/page.tsx</td><td>ticket/basic</td></tr><tr><td>page</td><td>none</td><td>app/workspace/page.tsx</td><td>none</td></tr></tbody></table>
 </section>
 
 
 
 <section class="card">
   <h2>Install Impact Summary</h2>
-  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Impacts</td><td>3</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Action Kinds</td><td>2</td></tr><tr><td>Source Roots</td><td>3</td></tr><tr><td>Target Paths</td><td>7</td></tr><tr><td>Verticals</td><td>1</td></tr><tr><td>Runtime Entries</td><td>0</td></tr><tr><td>Groups</td><td>2</td></tr></tbody></table>
-  <h3>Impact Groups</h3><table><thead><tr><th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th></tr></thead><tbody><tr><td>customer</td><td>1</td><td>copy, merge-prisma</td><td>none</td><td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>none</td><td>2</td><td>copy</td><td>none</td><td>src/installed/auth/session.ts, src/installed/tenant/context.ts, tests/shared/tenant-runtime-fixture.ts</td></tr></tbody></table>
-  <h3>Impact Details</h3><table><thead><tr><th>Block</th><th>Actions</th><th>Sources</th><th>Verticals</th><th>Runtime Entries</th><th>Targets</th></tr></thead><tbody><tr><td>auth/basic-session</td><td>copy</td><td>auth.basic-session</td><td>none</td><td>none</td><td>src/installed/auth/session.ts</td></tr><tr><td>entity/customer-basic</td><td>copy, merge-prisma</td><td>entity.customer-basic</td><td>customer</td><td>none</td><td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>tenant/basic-workspace</td><td>copy</td><td>tenant.basic-workspace</td><td>none</td><td>none</td><td>src/installed/tenant/context.ts, tests/shared/tenant-runtime-fixture.ts</td></tr></tbody></table>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Impacts</td><td>8</td></tr><tr><td>Blocks</td><td>8</td></tr><tr><td>Action Kinds</td><td>2</td></tr><tr><td>Source Roots</td><td>8</td></tr><tr><td>Target Paths</td><td>19</td></tr><tr><td>Verticals</td><td>2</td></tr><tr><td>Runtime Entries</td><td>0</td></tr><tr><td>Groups</td><td>3</td></tr></tbody></table>
+  <h3>Impact Groups</h3><table><thead><tr><th>Vertical</th><th>Blocks</th><th>Actions</th><th>Runtime Entries</th><th>Targets</th></tr></thead><tbody><tr><td>customer</td><td>2</td><td>copy, merge-prisma</td><td>none</td><td>prisma/schema.prisma, src/installed/entity/customer-service.ts, src/installed/file/customer-attachments.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>none</td><td>5</td><td>copy, merge-prisma</td><td>none</td><td>prisma/schema.prisma, src/installed/agent/executor-service.ts, src/installed/agent/harness-service.ts, src/installed/auth/session.ts, src/installed/comment/comment-service.ts, src/installed/tenant/context.ts, tests/acceptance/agent-classifier-flow.test.ts, tests/acceptance/comment-flow.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/comment-service.test.ts</td></tr><tr><td>ticket</td><td>1</td><td>copy, merge-prisma</td><td>none</td><td>prisma/schema.prisma, src/installed/ticket/ticket-service.ts, tests/acceptance/ticket-flow.test.ts, tests/shared/ticket-service-suite.ts, tests/unit/ticket-service.test.ts</td></tr></tbody></table>
+  <h3>Impact Details</h3><table><thead><tr><th>Block</th><th>Actions</th><th>Sources</th><th>Verticals</th><th>Runtime Entries</th><th>Targets</th></tr></thead><tbody><tr><td>agent/executor</td><td>copy</td><td>agent.executor</td><td>none</td><td>none</td><td>src/installed/agent/executor-service.ts, tests/acceptance/agent-classifier-flow.test.ts</td></tr><tr><td>agent/harness</td><td>copy, merge-prisma</td><td>agent.harness</td><td>none</td><td>none</td><td>prisma/schema.prisma, src/installed/agent/harness-service.ts</td></tr><tr><td>auth/basic-session</td><td>copy</td><td>auth.basic-session</td><td>none</td><td>none</td><td>src/installed/auth/session.ts</td></tr><tr><td>comment/basic</td><td>copy, merge-prisma</td><td>comment.basic</td><td>none</td><td>none</td><td>prisma/schema.prisma, src/installed/comment/comment-service.ts, tests/acceptance/comment-flow.test.ts, tests/unit/comment-service.test.ts</td></tr><tr><td>entity/customer-basic</td><td>copy, merge-prisma</td><td>entity.customer-basic</td><td>customer</td><td>none</td><td>prisma/schema.prisma, src/installed/entity/customer-service.ts, tests/acceptance/customer-flow.test.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>file/upload</td><td>copy</td><td>file.upload</td><td>customer</td><td>none</td><td>src/installed/file/customer-attachments.ts, tests/unit/customer-attachments.test.ts</td></tr><tr><td>tenant/basic-workspace</td><td>copy</td><td>tenant.basic-workspace</td><td>none</td><td>none</td><td>src/installed/tenant/context.ts, tests/shared/tenant-runtime-fixture.ts</td></tr><tr><td>ticket/basic</td><td>copy, merge-prisma</td><td>ticket.basic</td><td>ticket</td><td>none</td><td>prisma/schema.prisma, src/installed/ticket/ticket-service.ts, tests/acceptance/ticket-flow.test.ts, tests/shared/ticket-service-suite.ts, tests/unit/ticket-service.test.ts</td></tr></tbody></table>
 </section>
 
 
@@ -354,20 +516,20 @@
 
 <section class="card">
   <h2>Provenance Summary</h2>
-  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Artifacts</td><td>41</td></tr><tr><td>Verified Artifacts</td><td>6</td></tr><tr><td>Unverified Artifacts</td><td>35</td></tr><tr><td>Override Artifacts</td><td>0</td></tr><tr><td>Registry Artifacts</td><td>7</td></tr><tr><td>Generated Artifacts</td><td>41</td></tr><tr><td>Generated Passes</td><td>5</td></tr></tbody></table>
-  <h3>Provenance Origin Summary</h3><table><thead><tr><th>Origin</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>undefined</td><td>7</td><td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts</td></tr><tr><td>undefined</td><td>32</td><td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.dot, control/graph/explain-graph.json, control/graph/explain-graph.mmd, control/provenance/provenance.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tsconfig.json</td></tr><tr><td>undefined</td><td>2</td><td>custom/customer_normalizer.ts, source/code/slots/customer_normalizer.ts</td></tr></tbody></table>
-  <h3>Provenance Override Summary</h3><table><thead><tr><th>Status</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>none</td><td>41</td><td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.dot, control/graph/explain-graph.json, control/graph/explain-graph.mmd, control/provenance/provenance.json, custom/customer_normalizer.ts, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, source/code/slots/customer_normalizer.ts, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td></tr></tbody></table>
-  <h3>Provenance Registry Summary</h3><table><thead><tr><th>Source</th><th>Kind</th><th>Location</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>official</td><td>official</td><td>compiler</td><td>7</td><td>prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts</td></tr></tbody></table>
-  <h3>Provenance Generated Pass Summary</h3><table><thead><tr><th>Pass</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>adapt</td><td>2</td><td>custom/customer_normalizer.ts, source/code/slots/customer_normalizer.ts</td></tr><tr><td>compose</td><td>31</td><td>app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/workspace/page.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, src/installed/auth/session.ts, src/installed/entity/customer-service.ts, src/installed/tenant/context.ts, tests/acceptance/customer-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/unit/customer-normalizer.test.ts, tsconfig.json</td></tr><tr><td>explain</td><td>3</td><td>control/graph/explain-graph.dot, control/graph/explain-graph.json, control/graph/explain-graph.mmd</td></tr><tr><td>lock</td><td>1</td><td>control/provenance/provenance.json</td></tr><tr><td>verify</td><td>4</td><td>control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json</td></tr></tbody></table>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Artifacts</td><td>68</td></tr><tr><td>Verified Artifacts</td><td>19</td></tr><tr><td>Unverified Artifacts</td><td>49</td></tr><tr><td>Override Artifacts</td><td>0</td></tr><tr><td>Registry Artifacts</td><td>19</td></tr><tr><td>Generated Artifacts</td><td>68</td></tr><tr><td>Generated Passes</td><td>5</td></tr></tbody></table>
+  <h3>Provenance Origin Summary</h3><table><thead><tr><th>Origin</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>undefined</td><td>19</td><td>prisma/schema.prisma, src/installed/agent/executor-service.ts, src/installed/agent/harness-service.ts, src/installed/auth/session.ts, src/installed/comment/comment-service.ts, src/installed/entity/customer-service.ts, src/installed/file/customer-attachments.ts, src/installed/tenant/context.ts, src/installed/ticket/ticket-service.ts, tests/acceptance/agent-classifier-flow.test.ts, tests/acceptance/comment-flow.test.ts, tests/acceptance/customer-flow.test.ts, tests/acceptance/ticket-flow.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/shared/ticket-service-suite.ts, tests/unit/comment-service.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/ticket-service.test.ts</td></tr><tr><td>undefined</td><td>45</td><td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/api/tickets/[ticketId]/attachments/route.ts, app/api/tickets/[ticketId]/comments/route.ts, app/api/tickets/[ticketId]/status/route.ts, app/api/tickets/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/tickets/page.tsx, app/workspace/page.tsx, components/customer-attachment-form.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, components/ticket-attachment-form.tsx, components/ticket-comment-form.tsx, components/ticket-form.tsx, components/ticket-status-form.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.dot, control/graph/explain-graph.json, control/graph/explain-graph.mmd, control/provenance/provenance.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/acceptance/ticket-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/runtime/unit/ticket-runtime.test.ts, tsconfig.json</td></tr><tr><td>undefined</td><td>4</td><td>custom/customer_normalizer.ts, custom/ticket_comment_delegate.ts, source/code/slots/customer_normalizer.ts, source/code/slots/ticket_comment_delegate.ts</td></tr></tbody></table>
+  <h3>Provenance Override Summary</h3><table><thead><tr><th>Status</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>none</td><td>68</td><td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/api/tickets/[ticketId]/attachments/route.ts, app/api/tickets/[ticketId]/comments/route.ts, app/api/tickets/[ticketId]/status/route.ts, app/api/tickets/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/tickets/page.tsx, app/workspace/page.tsx, components/customer-attachment-form.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, components/ticket-attachment-form.tsx, components/ticket-comment-form.tsx, components/ticket-form.tsx, components/ticket-status-form.tsx, control/evidence/acceptance-coverage.json, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json, control/graph/explain-graph.dot, control/graph/explain-graph.json, control/graph/explain-graph.mmd, control/provenance/provenance.json, custom/customer_normalizer.ts, custom/ticket_comment_delegate.ts, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, source/code/slots/customer_normalizer.ts, source/code/slots/ticket_comment_delegate.ts, src/installed/agent/executor-service.ts, src/installed/agent/harness-service.ts, src/installed/auth/session.ts, src/installed/comment/comment-service.ts, src/installed/entity/customer-service.ts, src/installed/file/customer-attachments.ts, src/installed/tenant/context.ts, src/installed/ticket/ticket-service.ts, tests/acceptance/agent-classifier-flow.test.ts, tests/acceptance/comment-flow.test.ts, tests/acceptance/customer-flow.test.ts, tests/acceptance/ticket-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/acceptance/ticket-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/runtime/unit/ticket-runtime.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/shared/ticket-service-suite.ts, tests/unit/comment-service.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/ticket-service.test.ts, tsconfig.json</td></tr></tbody></table>
+  <h3>Provenance Registry Summary</h3><table><thead><tr><th>Source</th><th>Kind</th><th>Location</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>official</td><td>official</td><td>compiler</td><td>19</td><td>prisma/schema.prisma, src/installed/agent/executor-service.ts, src/installed/agent/harness-service.ts, src/installed/auth/session.ts, src/installed/comment/comment-service.ts, src/installed/entity/customer-service.ts, src/installed/file/customer-attachments.ts, src/installed/tenant/context.ts, src/installed/ticket/ticket-service.ts, tests/acceptance/agent-classifier-flow.test.ts, tests/acceptance/comment-flow.test.ts, tests/acceptance/customer-flow.test.ts, tests/acceptance/ticket-flow.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/shared/ticket-service-suite.ts, tests/unit/comment-service.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/ticket-service.test.ts</td></tr></tbody></table>
+  <h3>Provenance Generated Pass Summary</h3><table><thead><tr><th>Pass</th><th>Count</th><th>Paths</th></tr></thead><tbody><tr><td>adapt</td><td>4</td><td>custom/customer_normalizer.ts, custom/ticket_comment_delegate.ts, source/code/slots/customer_normalizer.ts, source/code/slots/ticket_comment_delegate.ts</td></tr><tr><td>compose</td><td>56</td><td>app/api/customers/[customerId]/attachments/route.ts, app/api/customers/route.ts, app/api/session/current/route.ts, app/api/session/login/route.ts, app/api/session/logout/route.ts, app/api/tickets/[ticketId]/attachments/route.ts, app/api/tickets/[ticketId]/comments/route.ts, app/api/tickets/[ticketId]/status/route.ts, app/api/tickets/route.ts, app/customers/page.tsx, app/globals.css, app/layout.tsx, app/login/page.tsx, app/page.tsx, app/tickets/page.tsx, app/workspace/page.tsx, components/customer-attachment-form.tsx, components/customer-form.tsx, components/login-form.tsx, components/logout-button.tsx, components/ticket-attachment-form.tsx, components/ticket-comment-form.tsx, components/ticket-form.tsx, components/ticket-status-form.tsx, control/evidence/block-usage-map.json, control/evidence/install-manifest.json, generated/routes.ts, lib/session.ts, lib/store.ts, next-env.d.ts, next.config.mjs, package.json, prisma/schema.prisma, src/installed/agent/executor-service.ts, src/installed/agent/harness-service.ts, src/installed/auth/session.ts, src/installed/comment/comment-service.ts, src/installed/entity/customer-service.ts, src/installed/file/customer-attachments.ts, src/installed/tenant/context.ts, src/installed/ticket/ticket-service.ts, tests/acceptance/agent-classifier-flow.test.ts, tests/acceptance/comment-flow.test.ts, tests/acceptance/customer-flow.test.ts, tests/acceptance/ticket-flow.test.ts, tests/runtime/acceptance/customer-flow.spec.ts, tests/runtime/acceptance/ticket-flow.spec.ts, tests/runtime/unit/customer-runtime.test.ts, tests/runtime/unit/ticket-runtime.test.ts, tests/shared/tenant-runtime-fixture.ts, tests/shared/ticket-service-suite.ts, tests/unit/comment-service.test.ts, tests/unit/customer-attachments.test.ts, tests/unit/customer-normalizer.test.ts, tests/unit/ticket-service.test.ts, tsconfig.json</td></tr><tr><td>explain</td><td>3</td><td>control/graph/explain-graph.dot, control/graph/explain-graph.json, control/graph/explain-graph.mmd</td></tr><tr><td>lock</td><td>1</td><td>control/provenance/provenance.json</td></tr><tr><td>verify</td><td>4</td><td>control/evidence/acceptance-coverage.json, control/evidence/policy-report.json, control/evidence/runtime-report.json, control/evidence/verification-report.json</td></tr></tbody></table>
 </section>
 
 
 
 <section class="card">
   <h2>Acceptance Coverage Summary</h2>
-  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Acceptance Passed</td><td>4</td></tr><tr><td>Blocks</td><td>3</td></tr><tr><td>Covered Blocks</td><td>3</td></tr><tr><td>Uncovered Blocks</td><td>0</td></tr><tr><td>Slots</td><td>1</td></tr><tr><td>Covered Slots</td><td>1</td></tr><tr><td>Uncovered Slots</td><td>0</td></tr></tbody></table>
-  <h3>Block Coverage Summary</h3><table><thead><tr><th>Block</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead><tbody><tr><td>auth/basic-session</td><td>1</td><td>1</td><td>user_can_login</td></tr><tr><td>entity/customer-basic</td><td>3</td><td>3</td><td>tenant_only_sees_own_customers, user_can_create_customer, user_can_list_customers</td></tr><tr><td>tenant/basic-workspace</td><td>1</td><td>1</td><td>tenant_only_sees_own_customers</td></tr></tbody></table>
-  <h3>Slot Coverage Summary</h3><table><thead><tr><th>Slot</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead><tbody><tr><td>customer_normalizer</td><td>2</td><td>2</td><td>tenant_only_sees_own_customers, user_can_create_customer</td></tr></tbody></table>
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Acceptance Passed</td><td>11</td></tr><tr><td>Blocks</td><td>8</td></tr><tr><td>Covered Blocks</td><td>7</td></tr><tr><td>Uncovered Blocks</td><td>1</td></tr><tr><td>Slots</td><td>2</td></tr><tr><td>Covered Slots</td><td>1</td></tr><tr><td>Uncovered Slots</td><td>1</td></tr></tbody></table>
+  <h3>Block Coverage Summary</h3><table><thead><tr><th>Block</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead><tbody><tr><td>agent/executor</td><td>1</td><td>1</td><td>agent_can_automatically_classify_ticket</td></tr><tr><td>agent/harness</td><td>1</td><td>1</td><td>agent_can_be_registered</td></tr><tr><td>auth/basic-session</td><td>1</td><td>1</td><td>user_can_login</td></tr><tr><td>comment/basic</td><td>1</td><td>1</td><td>ticket_comment_can_be_added</td></tr><tr><td>entity/customer-basic</td><td>3</td><td>3</td><td>tenant_only_sees_own_customers, user_can_create_customer, user_can_list_customers</td></tr><tr><td>file/upload</td><td>1</td><td>0</td><td>none</td></tr><tr><td>tenant/basic-workspace</td><td>2</td><td>1</td><td>tenant_only_sees_own_customers</td></tr><tr><td>ticket/basic</td><td>6</td><td>5</td><td>assignee_can_filter_tickets, ticket_attachment_can_be_uploaded, ticket_can_be_created, ticket_comment_can_be_added, ticket_status_can_transition</td></tr></tbody></table>
+  <h3>Slot Coverage Summary</h3><table><thead><tr><th>Slot</th><th>Declared Acceptance</th><th>Covered By</th><th>Acceptance IDs</th></tr></thead><tbody><tr><td>customer_normalizer</td><td>2</td><td>2</td><td>tenant_only_sees_own_customers, user_can_create_customer</td></tr><tr><td>ticket_comment_delegate</td><td>0</td><td>0</td><td>none</td></tr></tbody></table>
 </section>
 
 
@@ -377,7 +539,7 @@
   <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Status</td><td>passed</td></tr><tr><td>Official Policies</td><td>1</td></tr><tr><td>Project Policies</td><td>0</td></tr><tr><td>Merged Policies</td><td>1</td></tr><tr><td>Policy Sources</td><td>2</td></tr><tr><td>Violations</td><td>0</td></tr></tbody></table>
   <h3>Policy Severity Summary</h3><table><thead><tr><th>Severity</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">No policy violations.</td></tr></tbody></table>
   <h3>Policy Source Summary</h3><table><thead><tr><th>Scope</th><th>Path</th><th>Policy IDs</th></tr></thead><tbody><tr><td>official</td><td>platform/policies/official/policy.spec.yaml</td><td>tenant-scope-required</td></tr><tr><td>project</td><td>source/model/policies/policy.spec.yaml</td><td>none</td></tr></tbody></table>
-  <h3>Policy Merge Summary</h3><table><thead><tr><th>Policy</th><th>Scope</th><th>Targets</th><th>Target Paths</th></tr></thead><tbody><tr><td>tenant-scope-required</td><td>official</td><td>1</td><td>src/installed/entity/customer-service.ts</td></tr></tbody></table>
+  <h3>Policy Merge Summary</h3><table><thead><tr><th>Policy</th><th>Scope</th><th>Targets</th><th>Target Paths</th></tr></thead><tbody><tr><td>tenant-scope-required</td><td>official</td><td>2</td><td>src/installed/entity/customer-service.ts, src/installed/ticket/ticket-service.ts</td></tr></tbody></table>
   <h3>Policy Violation Summary</h3><table><thead><tr><th>Policy</th><th>Severity</th><th>Files</th><th>File Paths</th><th>Message</th></tr></thead><tbody><tr><td colspan="5">No policy violations.</td></tr></tbody></table>
 </section>
 
@@ -420,7 +582,7 @@
 </section>
 <section class="card">
   <h2>Review Regression Risks</h2>
-  <table><thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead><tbody><tr><td colspan="4">No regression risks.</td></tr></tbody></table>
+  <table><thead><tr><th>Kind</th><th>Block</th><th>Slot</th><th>Message</th></tr></thead><tbody><tr><td>coverage-gap</td><td></td><td>ticket_comment_delegate</td><td>Slot ticket_comment_delegate has no runtime acceptance coverage</td></tr><tr><td>coverage-gap</td><td>file/upload</td><td></td><td>Block file/upload has no runtime acceptance coverage</td></tr></tbody></table>
 </section>
 <section class="card">
   <h2>Review Conflict Hints</h2>
@@ -428,8 +590,8 @@
 </section>
 
 <section class="card"><h2>Explain Graph</h2><pre>{
-  &quot;nodes&quot;: 61,
-  &quot;edges&quot;: 70
+  &quot;nodes&quot;: 123,
+  &quot;edges&quot;: 154
 }</pre></section>
 
     </main>

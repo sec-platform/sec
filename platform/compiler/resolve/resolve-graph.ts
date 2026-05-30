@@ -37,8 +37,8 @@ function detectConflicts(entries: ManifestEntry[], capabilityProviders: Map<stri
           `Block "${entry.manifest.id}" conflicts with "${conflict}"`
         );
       }
-        const providers = capabilityProviders.get(conflict);
-        if (providers?.length) {
+      const providers = capabilityProviders.get(conflict);
+      if (providers?.length) {
         throw new CompilerError(
           'RESOLVE-CONFLICT-003',
           `Block "${entry.manifest.id}" conflicts with provided capability "${conflict}"`
@@ -127,7 +127,9 @@ function buildSlotTasks(plan: PlanFile, manifestMap: Map<string, ManifestEntry>)
         provenanceHints: {
           generator: explicitSlot ? 'mock-local-synthesizer' : null,
           verifiedBy: []
-        }
+        },
+        ...(manifestSlot.exports ? { exports: manifestSlot.exports } : {}),
+        ...(manifestSlot.mockTemplate ? { mockTemplate: manifestSlot.mockTemplate } : {})
       });
     }
   }
@@ -194,7 +196,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     version: entry.manifest.version,
     kind: entry.manifest.kind,
     installOrder: index + 1,
-    manifestPath: relativePosixPath(entry.manifestRoot, entry.manifestPath),
+    manifestPath: relativePosixPath(workspaceRoot, entry.manifestPath),
     registrySourceId: entry.registrySourceId,
     registryKind: entry.registryKind,
     registryLocation: entry.registryLocation,

@@ -8,7 +8,7 @@ Registry 的最终形态不是文件模板市场，而是语义合约 registry�
 
 | 类型 | 说明 | 当前状态 |
 | --- | --- | --- |
-| `official` | 平台官方维护，随编译器分发 | 13 个官方块 |
+| `official` | 平台官方维护，随编译器分发 | 16 个官方块 |
 | `private` | 团队内部维护 | `source/blocks/private/**` / `platform/registry/private/**` |
 | `community` | 社区贡献 | `v1+` 开放 |
 
@@ -95,6 +95,8 @@ registry:
 | `contracts` | 否 | 语义合约入口，声明 entities / operations / policies / views / events / permissions 等 |
 | `generators` | 否 | 生成器声明，按工程动作从合约生成文件、测试、视图或治理产物 |
 | `upgrade` | 否 | 升级元数据 |
+| `uiPortals` | 否 | 声明式的 UI 插槽 Portal 列表 |
+| `uiHooks` | 否 | 将 UI Hook 注入 Portal 的组件挂载元数据 |
 
 ## 6. Slot 字段
 
@@ -116,7 +118,39 @@ Pin/slot 是工程编译器的接口类型系统。约束必须稳定，但不�
 
 当 opaque module 需要复用、升级或被平台治理时，必须回收为 private block：补齐 `block.manifest.yaml`、pins/slots、acceptance、policy、provenance，并按需要迁移到 `contracts/**` 或 `generators/**`。回收前不得绕过 registry trust、version、upgrade 和 rollback 规则。
 
-## 7. 安装协议
+## 7. UI Portal 与 UI Hook 协议
+
+UI Portals 和 UI Hooks 是实现前端页面生成去业务 Hardcode 的通用插槽机制。
+核心编译器只负责在 Compose 阶段收集所有 resolved 块声明的 `uiHooks` 并根据匹配的 `targetPortal` 合并生成渲染代码。
+
+### 7.1 UI Portal 声明
+每个 Portal 代表前端页面的一个插槽占位符：
+```yaml
+uiPortals:
+  - id: customer_list_item
+    description: "渲染在每个客户行内的自定义挂载项"
+```
+
+### 7.2 UI Hook 挂载
+其他业务或辅助块（如 file/upload 或 audit/basic）可以声明对应的 Hook 挂载入特定 Portal：
+```yaml
+uiHooks:
+  - targetPortal: customer_list_item
+    component: CustomerAttachmentForm
+    importFrom: ../../components/customer-attachment-form.tsx
+    dataBinder: |
+      const attachments = listCustomerAttachments(database, session, customer.id);
+    renderSnippet: |
+      <CustomerAttachmentForm attachments={attachments} />
+```
+
+- `targetPortal`: 目标插槽 Portal 的 ID。
+- `component`: 注入的组件符号（包括任何需要引用的服务函数，以逗号分隔，比如 `listCustomerAttachments`）。
+- `importFrom`: 前端页面导入这些符号的相对或绝对路径。
+- `dataBinder`: （可选）在 React 页面服务端/Setup 阶段执行的数据获取与绑定代码。
+- `renderSnippet`: （可选）渲染在 JSX 组件树中的 React 表达式片段。
+
+## 8. 安装协议
 
 支持动作：`copy`（递归复制）、`merge-prisma`（智能合并去重）。
 

@@ -235,6 +235,19 @@ export interface UpgradeConfig {
   migrations: UpgradeMigration[];
 }
 
+export interface SlotParam {
+  name: string;
+  type: string;
+  importFrom?: string;
+}
+
+export interface ManifestSlotExport {
+  symbol: string;
+  params: SlotParam[];
+  outputType: string;
+  outputImportFrom?: string;
+}
+
 export interface ManifestSlot {
   id: string;
   kind: SlotKind;
@@ -243,6 +256,8 @@ export interface ManifestSlot {
   inputType?: string;
   outputType?: string;
   writableZones?: string[];
+  exports?: ManifestSlotExport[];
+  mockTemplate?: string;
 }
 
 export interface ManifestRoute {
@@ -253,6 +268,19 @@ export interface ManifestRoute {
 export interface ManifestPins {
   inputs: ManifestPin[];
   outputs: ManifestPin[];
+}
+
+export interface ManifestUiPortal {
+  id: string;
+  description?: string;
+}
+
+export interface ManifestUiHook {
+  targetPortal: string;
+  component: string;
+  importFrom: string;
+  dataBinder?: string;
+  renderSnippet?: string;
 }
 
 export interface BlockManifest {
@@ -270,6 +298,8 @@ export interface BlockManifest {
   acceptance: AcceptanceItem[];
   routes: ManifestRoute[];
   upgrade?: UpgradeConfig;
+  uiPortals?: ManifestUiPortal[];
+  uiHooks?: ManifestUiHook[];
 }
 
 export interface ManifestEntry {

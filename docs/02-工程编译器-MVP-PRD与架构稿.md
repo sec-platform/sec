@@ -50,7 +50,7 @@
 - 证明首条闭环：开发者写 `source/app.yaml`，系统解析并安装官方块，AI 填受控 slot，Playwright 验收通过
 
 ### v0.2（当前阶段）
-- provenance ✅、upgrade/migrate ✅、13 个官方块 ✅、policy gate ✅、repair ✅、override ✅、explain graph ✅、review summary ✅、架构内聚重构 ✅
+- provenance ✅、upgrade/migrate ✅、16 个官方块 ✅、policy gate ✅、repair ✅、override ✅、explain graph ✅、review summary ✅、架构内聚重构 ✅
 - 补齐 review workbench 与 graph visualization 的只读操作面，避免治理产物只停留在 JSON/CLI。
 
 ### v0.3

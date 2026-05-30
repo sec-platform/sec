@@ -1,13 +1,13 @@
 {
   "formatVersion": "2",
   "ciSummary": {
-    "status": "passed",
+    "status": "attention",
     "failureCount": 0,
-    "regressionRiskCount": 0,
+    "regressionRiskCount": 2,
     "conflictHintCount": 0,
-    "impactedBlockCount": 3,
-    "impactedSlotCount": 1,
-    "runtimeEntryCount": 8
+    "impactedBlockCount": 8,
+    "impactedSlotCount": 2,
+    "runtimeEntryCount": 14
   },
   "chainSummary": {
     "status": "attention",
@@ -24,7 +24,7 @@
       {
         "id": "coverage",
         "status": "passed",
-        "detail": "blocks=3/3; slots=1/1"
+        "detail": "blocks=7/8; slots=1/2"
       },
       {
         "id": "artifacts",
@@ -40,22 +40,55 @@
   },
   "coverageSummary": {
     "status": "passed",
-    "acceptancePassedCount": 4,
-    "blockCount": 3,
-    "slotCount": 1,
-    "coveredBlockCount": 3,
+    "acceptancePassedCount": 11,
+    "blockCount": 8,
+    "slotCount": 2,
+    "coveredBlockCount": 7,
     "coveredSlotCount": 1,
-    "uncoveredBlockCount": 0,
-    "uncoveredSlotCount": 0,
+    "uncoveredBlockCount": 1,
+    "uncoveredSlotCount": 1,
     "acceptancePassed": [
+      "agent_can_automatically_classify_ticket",
+      "agent_can_be_registered",
+      "assignee_can_filter_tickets",
       "tenant_only_sees_own_customers",
+      "ticket_attachment_can_be_uploaded",
+      "ticket_can_be_created",
+      "ticket_comment_can_be_added",
+      "ticket_status_can_transition",
       "user_can_create_customer",
       "user_can_list_customers",
       "user_can_login"
     ],
-    "uncoveredBlocks": [],
-    "uncoveredSlots": [],
+    "uncoveredBlocks": [
+      "file/upload"
+    ],
+    "uncoveredSlots": [
+      "ticket_comment_delegate"
+    ],
     "blockSummaries": [
+      {
+        "id": "agent/executor",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "agent_can_automatically_classify_ticket"
+        ],
+        "coveredBy": [
+          "agent_can_automatically_classify_ticket"
+        ]
+      },
+      {
+        "id": "agent/harness",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "agent_can_be_registered"
+        ],
+        "coveredBy": [
+          "agent_can_be_registered"
+        ]
+      },
       {
         "id": "auth/basic-session",
         "declaredAcceptanceCount": 1,
@@ -65,6 +98,17 @@
         ],
         "coveredBy": [
           "user_can_login"
+        ]
+      },
+      {
+        "id": "comment/basic",
+        "declaredAcceptanceCount": 1,
+        "coveredByCount": 1,
+        "declaredAcceptance": [
+          "ticket_comment_can_be_added"
+        ],
+        "coveredBy": [
+          "ticket_comment_can_be_added"
         ]
       },
       {
@@ -83,14 +127,44 @@
         ]
       },
       {
-        "id": "tenant/basic-workspace",
+        "id": "file/upload",
         "declaredAcceptanceCount": 1,
+        "coveredByCount": 0,
+        "declaredAcceptance": [
+          "customer_can_upload_attachment"
+        ],
+        "coveredBy": []
+      },
+      {
+        "id": "tenant/basic-workspace",
+        "declaredAcceptanceCount": 2,
         "coveredByCount": 1,
         "declaredAcceptance": [
-          "tenant_only_sees_own_customers"
+          "tenant_only_sees_own_customers",
+          "tenant_only_sees_own_tickets"
         ],
         "coveredBy": [
           "tenant_only_sees_own_customers"
+        ]
+      },
+      {
+        "id": "ticket/basic",
+        "declaredAcceptanceCount": 6,
+        "coveredByCount": 5,
+        "declaredAcceptance": [
+          "assignee_can_filter_tickets",
+          "tenant_only_sees_own_tickets",
+          "ticket_attachment_can_be_uploaded",
+          "ticket_can_be_created",
+          "ticket_comment_can_be_added",
+          "ticket_status_can_transition"
+        ],
+        "coveredBy": [
+          "assignee_can_filter_tickets",
+          "ticket_attachment_can_be_uploaded",
+          "ticket_can_be_created",
+          "ticket_comment_can_be_added",
+          "ticket_status_can_transition"
         ]
       }
     ],
@@ -107,49 +181,79 @@
           "tenant_only_sees_own_customers",
           "user_can_create_customer"
         ]
+      },
+      {
+        "id": "ticket_comment_delegate",
+        "declaredAcceptanceCount": 0,
+        "coveredByCount": 0,
+        "declaredAcceptance": [],
+        "coveredBy": []
       }
     ]
   },
   "provenanceSummary": {
-    "artifactCount": 41,
-    "verifiedArtifactCount": 6,
-    "unverifiedArtifactCount": 35,
+    "artifactCount": 68,
+    "verifiedArtifactCount": 19,
+    "unverifiedArtifactCount": 49,
     "overrideArtifactCount": 0,
-    "registryArtifactCount": 7,
-    "generatedArtifactCount": 41,
+    "registryArtifactCount": 19,
+    "generatedArtifactCount": 68,
     "generatedPassCount": 5,
     "originSummaryCount": 3,
     "originSummaries": [
       {
         "originType": "block",
-        "count": 7,
+        "count": 19,
         "paths": [
           "prisma/schema.prisma",
+          "src/installed/agent/executor-service.ts",
+          "src/installed/agent/harness-service.ts",
           "src/installed/auth/session.ts",
+          "src/installed/comment/comment-service.ts",
           "src/installed/entity/customer-service.ts",
+          "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-service.ts",
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
           "tests/shared/tenant-runtime-fixture.ts",
-          "tests/unit/customer-normalizer.test.ts"
+          "tests/shared/ticket-service-suite.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
         ]
       },
       {
         "originType": "generated",
-        "count": 32,
+        "count": 45,
         "paths": [
+          "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
           "app/api/session/login/route.ts",
           "app/api/session/logout/route.ts",
+          "app/api/tickets/[ticketId]/attachments/route.ts",
+          "app/api/tickets/[ticketId]/comments/route.ts",
+          "app/api/tickets/[ticketId]/status/route.ts",
+          "app/api/tickets/route.ts",
           "app/customers/page.tsx",
           "app/globals.css",
           "app/layout.tsx",
           "app/login/page.tsx",
           "app/page.tsx",
+          "app/tickets/page.tsx",
           "app/workspace/page.tsx",
+          "components/customer-attachment-form.tsx",
           "components/customer-form.tsx",
           "components/login-form.tsx",
           "components/logout-button.tsx",
+          "components/ticket-attachment-form.tsx",
+          "components/ticket-comment-form.tsx",
+          "components/ticket-form.tsx",
+          "components/ticket-status-form.tsx",
           "control/evidence/acceptance-coverage.json",
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
@@ -167,16 +271,20 @@
           "next.config.mjs",
           "package.json",
           "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/runtime/unit/ticket-runtime.test.ts",
           "tsconfig.json"
         ]
       },
       {
         "originType": "slot",
-        "count": 2,
+        "count": 4,
         "paths": [
           "custom/customer_normalizer.ts",
-          "source/code/slots/customer_normalizer.ts"
+          "custom/ticket_comment_delegate.ts",
+          "source/code/slots/customer_normalizer.ts",
+          "source/code/slots/ticket_comment_delegate.ts"
         ]
       }
     ],
@@ -184,21 +292,32 @@
     "overrideSummaries": [
       {
         "overrideStatus": "none",
-        "count": 41,
+        "count": 68,
         "paths": [
+          "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
           "app/api/session/login/route.ts",
           "app/api/session/logout/route.ts",
+          "app/api/tickets/[ticketId]/attachments/route.ts",
+          "app/api/tickets/[ticketId]/comments/route.ts",
+          "app/api/tickets/[ticketId]/status/route.ts",
+          "app/api/tickets/route.ts",
           "app/customers/page.tsx",
           "app/globals.css",
           "app/layout.tsx",
           "app/login/page.tsx",
           "app/page.tsx",
+          "app/tickets/page.tsx",
           "app/workspace/page.tsx",
+          "components/customer-attachment-form.tsx",
           "components/customer-form.tsx",
           "components/login-form.tsx",
           "components/logout-button.tsx",
+          "components/ticket-attachment-form.tsx",
+          "components/ticket-comment-form.tsx",
+          "components/ticket-form.tsx",
+          "components/ticket-status-form.tsx",
           "control/evidence/acceptance-coverage.json",
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
@@ -210,6 +329,7 @@
           "control/graph/explain-graph.mmd",
           "control/provenance/provenance.json",
           "custom/customer_normalizer.ts",
+          "custom/ticket_comment_delegate.ts",
           "generated/routes.ts",
           "lib/session.ts",
           "lib/store.ts",
@@ -218,14 +338,29 @@
           "package.json",
           "prisma/schema.prisma",
           "source/code/slots/customer_normalizer.ts",
+          "source/code/slots/ticket_comment_delegate.ts",
+          "src/installed/agent/executor-service.ts",
+          "src/installed/agent/harness-service.ts",
           "src/installed/auth/session.ts",
+          "src/installed/comment/comment-service.ts",
           "src/installed/entity/customer-service.ts",
+          "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-service.ts",
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/runtime/unit/ticket-runtime.test.ts",
           "tests/shared/tenant-runtime-fixture.ts",
+          "tests/shared/ticket-service-suite.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
           "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts",
           "tsconfig.json"
         ]
       }
@@ -236,44 +371,69 @@
         "registrySourceId": "official",
         "registryKind": "official",
         "registryLocation": "compiler",
-        "count": 7,
+        "count": 19,
         "paths": [
           "prisma/schema.prisma",
+          "src/installed/agent/executor-service.ts",
+          "src/installed/agent/harness-service.ts",
           "src/installed/auth/session.ts",
+          "src/installed/comment/comment-service.ts",
           "src/installed/entity/customer-service.ts",
+          "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-service.ts",
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
           "tests/shared/tenant-runtime-fixture.ts",
-          "tests/unit/customer-normalizer.test.ts"
+          "tests/shared/ticket-service-suite.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
+          "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts"
         ]
       }
     ],
     "generatedPassSummaries": [
       {
         "pass": "adapt",
-        "count": 2,
+        "count": 4,
         "paths": [
           "custom/customer_normalizer.ts",
-          "source/code/slots/customer_normalizer.ts"
+          "custom/ticket_comment_delegate.ts",
+          "source/code/slots/customer_normalizer.ts",
+          "source/code/slots/ticket_comment_delegate.ts"
         ]
       },
       {
         "pass": "compose",
-        "count": 31,
+        "count": 56,
         "paths": [
+          "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
           "app/api/session/current/route.ts",
           "app/api/session/login/route.ts",
           "app/api/session/logout/route.ts",
+          "app/api/tickets/[ticketId]/attachments/route.ts",
+          "app/api/tickets/[ticketId]/comments/route.ts",
+          "app/api/tickets/[ticketId]/status/route.ts",
+          "app/api/tickets/route.ts",
           "app/customers/page.tsx",
           "app/globals.css",
           "app/layout.tsx",
           "app/login/page.tsx",
           "app/page.tsx",
+          "app/tickets/page.tsx",
           "app/workspace/page.tsx",
+          "components/customer-attachment-form.tsx",
           "components/customer-form.tsx",
           "components/login-form.tsx",
           "components/logout-button.tsx",
+          "components/ticket-attachment-form.tsx",
+          "components/ticket-comment-form.tsx",
+          "components/ticket-form.tsx",
+          "components/ticket-status-form.tsx",
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
           "generated/routes.ts",
@@ -283,14 +443,28 @@
           "next.config.mjs",
           "package.json",
           "prisma/schema.prisma",
+          "src/installed/agent/executor-service.ts",
+          "src/installed/agent/harness-service.ts",
           "src/installed/auth/session.ts",
+          "src/installed/comment/comment-service.ts",
           "src/installed/entity/customer-service.ts",
+          "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-service.ts",
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/acceptance/ticket-flow.test.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
+          "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
+          "tests/runtime/unit/ticket-runtime.test.ts",
           "tests/shared/tenant-runtime-fixture.ts",
+          "tests/shared/ticket-service-suite.ts",
+          "tests/unit/comment-service.test.ts",
+          "tests/unit/customer-attachments.test.ts",
           "tests/unit/customer-normalizer.test.ts",
+          "tests/unit/ticket-service.test.ts",
           "tsconfig.json"
         ]
       },
@@ -322,19 +496,30 @@
       }
     ],
     "unverifiedArtifacts": [
+      "app/api/customers/[customerId]/attachments/route.ts",
       "app/api/customers/route.ts",
       "app/api/session/current/route.ts",
       "app/api/session/login/route.ts",
       "app/api/session/logout/route.ts",
+      "app/api/tickets/[ticketId]/attachments/route.ts",
+      "app/api/tickets/[ticketId]/comments/route.ts",
+      "app/api/tickets/[ticketId]/status/route.ts",
+      "app/api/tickets/route.ts",
       "app/customers/page.tsx",
       "app/globals.css",
       "app/layout.tsx",
       "app/login/page.tsx",
       "app/page.tsx",
+      "app/tickets/page.tsx",
       "app/workspace/page.tsx",
+      "components/customer-attachment-form.tsx",
       "components/customer-form.tsx",
       "components/login-form.tsx",
       "components/logout-button.tsx",
+      "components/ticket-attachment-form.tsx",
+      "components/ticket-comment-form.tsx",
+      "components/ticket-form.tsx",
+      "components/ticket-status-form.tsx",
       "control/evidence/acceptance-coverage.json",
       "control/evidence/block-usage-map.json",
       "control/evidence/install-manifest.json",
@@ -351,10 +536,13 @@
       "next-env.d.ts",
       "next.config.mjs",
       "package.json",
+      "src/installed/agent/harness-service.ts",
       "src/installed/auth/session.ts",
       "src/installed/tenant/context.ts",
       "tests/runtime/acceptance/customer-flow.spec.ts",
+      "tests/runtime/acceptance/ticket-flow.spec.ts",
       "tests/runtime/unit/customer-runtime.test.ts",
+      "tests/runtime/unit/ticket-runtime.test.ts",
       "tests/shared/tenant-runtime-fixture.ts",
       "tsconfig.json"
     ]
@@ -386,18 +574,29 @@
         "id": "tenant-scope-required",
         "sourceScope": "official",
         "sourcePath": "platform/policies/official/policy.spec.yaml",
-        "targetCount": 1,
+        "targetCount": 2,
         "targets": [
-          "src/installed/entity/customer-service.ts"
+          "src/installed/entity/customer-service.ts",
+          "src/installed/ticket/ticket-service.ts"
         ]
       }
     ],
     "violationSummaries": []
   },
-  "changeSourceCount": 41,
-  "runtimeEntryCount": 8,
-  "installImpactCount": 3,
+  "changeSourceCount": 68,
+  "runtimeEntryCount": 14,
+  "installImpactCount": 8,
   "changeSources": [
+    {
+      "path": "app/api/customers/[customerId]/attachments/route.ts",
+      "originType": "generated",
+      "originId": "app/api/customers/[customerId]/attachments/route.ts",
+      "runtimeKind": "api",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
+    },
     {
       "path": "app/api/customers/route.ts",
       "originType": "generated",
@@ -428,6 +627,46 @@
       "originId": "app/api/session/logout/route.ts",
       "runtimeKind": "api",
       "relatedBlocks": []
+    },
+    {
+      "path": "app/api/tickets/[ticketId]/attachments/route.ts",
+      "originType": "generated",
+      "originId": "app/api/tickets/[ticketId]/attachments/route.ts",
+      "runtimeKind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
+      "path": "app/api/tickets/[ticketId]/comments/route.ts",
+      "originType": "generated",
+      "originId": "app/api/tickets/[ticketId]/comments/route.ts",
+      "runtimeKind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
+      "path": "app/api/tickets/[ticketId]/status/route.ts",
+      "originType": "generated",
+      "originId": "app/api/tickets/[ticketId]/status/route.ts",
+      "runtimeKind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
+      "path": "app/api/tickets/route.ts",
+      "originType": "generated",
+      "originId": "app/api/tickets/route.ts",
+      "runtimeKind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
     },
     {
       "path": "app/customers/page.tsx",
@@ -464,11 +703,26 @@
       "relatedBlocks": []
     },
     {
+      "path": "app/tickets/page.tsx",
+      "originType": "generated",
+      "originId": "app/tickets/page.tsx",
+      "runtimeKind": "page",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
       "path": "app/workspace/page.tsx",
       "originType": "generated",
       "originId": "app/workspace/page.tsx",
       "runtimeKind": "page",
       "relatedBlocks": []
+    },
+    {
+      "path": "components/customer-attachment-form.tsx",
+      "originType": "generated",
+      "originId": "components/customer-attachment-form.tsx"
     },
     {
       "path": "components/customer-form.tsx",
@@ -484,6 +738,26 @@
       "path": "components/logout-button.tsx",
       "originType": "generated",
       "originId": "components/logout-button.tsx"
+    },
+    {
+      "path": "components/ticket-attachment-form.tsx",
+      "originType": "generated",
+      "originId": "components/ticket-attachment-form.tsx"
+    },
+    {
+      "path": "components/ticket-comment-form.tsx",
+      "originType": "generated",
+      "originId": "components/ticket-comment-form.tsx"
+    },
+    {
+      "path": "components/ticket-form.tsx",
+      "originType": "generated",
+      "originId": "components/ticket-form.tsx"
+    },
+    {
+      "path": "components/ticket-status-form.tsx",
+      "originType": "generated",
+      "originId": "components/ticket-status-form.tsx"
     },
     {
       "path": "control/evidence/acceptance-coverage.json",
@@ -543,6 +817,13 @@
       "runtimeTarget": "custom/customer_normalizer.ts"
     },
     {
+      "path": "custom/ticket_comment_delegate.ts",
+      "originType": "slot",
+      "originId": "ticket_comment_delegate",
+      "sourcePath": "source/code/slots/ticket_comment_delegate.ts",
+      "runtimeTarget": "custom/ticket_comment_delegate.ts"
+    },
+    {
       "path": "generated/routes.ts",
       "originType": "generated",
       "originId": "generated/routes.ts"
@@ -575,7 +856,7 @@
     {
       "path": "prisma/schema.prisma",
       "originType": "block",
-      "originId": "entity/customer-basic",
+      "originId": "comment/basic",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler"
@@ -588,9 +869,40 @@
       "runtimeTarget": "custom/customer_normalizer.ts"
     },
     {
+      "path": "source/code/slots/ticket_comment_delegate.ts",
+      "originType": "slot",
+      "originId": "ticket_comment_delegate",
+      "sourcePath": "source/code/slots/ticket_comment_delegate.ts",
+      "runtimeTarget": "custom/ticket_comment_delegate.ts"
+    },
+    {
+      "path": "src/installed/agent/executor-service.ts",
+      "originType": "block",
+      "originId": "agent/executor",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "src/installed/agent/harness-service.ts",
+      "originType": "block",
+      "originId": "agent/harness",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
       "path": "src/installed/auth/session.ts",
       "originType": "block",
       "originId": "auth/basic-session",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "src/installed/comment/comment-service.ts",
+      "originType": "block",
+      "originId": "comment/basic",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler"
@@ -604,9 +916,41 @@
       "registryLocation": "compiler"
     },
     {
+      "path": "src/installed/file/customer-attachments.ts",
+      "originType": "block",
+      "originId": "file/upload",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
       "path": "src/installed/tenant/context.ts",
       "originType": "block",
       "originId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "src/installed/ticket/ticket-service.ts",
+      "originType": "block",
+      "originId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "tests/acceptance/agent-classifier-flow.test.ts",
+      "originType": "block",
+      "originId": "agent/executor",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "tests/acceptance/comment-flow.test.ts",
+      "originType": "block",
+      "originId": "comment/basic",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler"
@@ -620,9 +964,22 @@
       "registryLocation": "compiler"
     },
     {
+      "path": "tests/acceptance/ticket-flow.test.ts",
+      "originType": "block",
+      "originId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
       "path": "tests/runtime/acceptance/customer-flow.spec.ts",
       "originType": "generated",
       "originId": "tests/runtime/acceptance/customer-flow.spec.ts"
+    },
+    {
+      "path": "tests/runtime/acceptance/ticket-flow.spec.ts",
+      "originType": "generated",
+      "originId": "tests/runtime/acceptance/ticket-flow.spec.ts"
     },
     {
       "path": "tests/runtime/unit/customer-runtime.test.ts",
@@ -630,9 +987,38 @@
       "originId": "tests/runtime/unit/customer-runtime.test.ts"
     },
     {
+      "path": "tests/runtime/unit/ticket-runtime.test.ts",
+      "originType": "generated",
+      "originId": "tests/runtime/unit/ticket-runtime.test.ts"
+    },
+    {
       "path": "tests/shared/tenant-runtime-fixture.ts",
       "originType": "block",
       "originId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "tests/shared/ticket-service-suite.ts",
+      "originType": "block",
+      "originId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "tests/unit/comment-service.test.ts",
+      "originType": "block",
+      "originId": "comment/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "tests/unit/customer-attachments.test.ts",
+      "originType": "block",
+      "originId": "file/upload",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler"
@@ -646,12 +1032,28 @@
       "registryLocation": "compiler"
     },
     {
+      "path": "tests/unit/ticket-service.test.ts",
+      "originType": "block",
+      "originId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
       "path": "tsconfig.json",
       "originType": "generated",
       "originId": "tsconfig.json"
     }
   ],
   "runtimeEntries": [
+    {
+      "path": "app/api/customers/[customerId]/attachments/route.ts",
+      "kind": "api",
+      "vertical": "customer",
+      "relatedBlocks": [
+        "entity/customer-basic"
+      ]
+    },
     {
       "path": "app/api/customers/route.ts",
       "kind": "api",
@@ -676,6 +1078,38 @@
       "relatedBlocks": []
     },
     {
+      "path": "app/api/tickets/[ticketId]/attachments/route.ts",
+      "kind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
+      "path": "app/api/tickets/[ticketId]/comments/route.ts",
+      "kind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
+      "path": "app/api/tickets/[ticketId]/status/route.ts",
+      "kind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
+      "path": "app/api/tickets/route.ts",
+      "kind": "api",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
       "path": "app/customers/page.tsx",
       "kind": "page",
       "vertical": "customer",
@@ -694,6 +1128,14 @@
       "relatedBlocks": []
     },
     {
+      "path": "app/tickets/page.tsx",
+      "kind": "page",
+      "vertical": "ticket",
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
+    },
+    {
       "path": "app/workspace/page.tsx",
       "kind": "page",
       "relatedBlocks": []
@@ -703,15 +1145,60 @@
     {
       "id": "customer",
       "runtimeEntries": [
+        "app/api/customers/[customerId]/attachments/route.ts",
         "app/api/customers/route.ts",
         "app/customers/page.tsx"
       ],
       "relatedBlocks": [
         "entity/customer-basic"
       ]
+    },
+    {
+      "id": "ticket",
+      "runtimeEntries": [
+        "app/api/tickets/[ticketId]/attachments/route.ts",
+        "app/api/tickets/[ticketId]/comments/route.ts",
+        "app/api/tickets/[ticketId]/status/route.ts",
+        "app/api/tickets/route.ts",
+        "app/tickets/page.tsx"
+      ],
+      "relatedBlocks": [
+        "ticket/basic"
+      ]
     }
   ],
   "installImpacts": [
+    {
+      "blockId": "agent/executor",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "agent.executor"
+      ],
+      "targetPaths": [
+        "src/installed/agent/executor-service.ts",
+        "tests/acceptance/agent-classifier-flow.test.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "agent/harness",
+      "actionKinds": [
+        "copy",
+        "merge-prisma"
+      ],
+      "sourceRoots": [
+        "agent.harness"
+      ],
+      "targetPaths": [
+        "prisma/schema.prisma",
+        "src/installed/agent/harness-service.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
     {
       "blockId": "auth/basic-session",
       "actionKinds": [
@@ -722,6 +1209,24 @@
       ],
       "targetPaths": [
         "src/installed/auth/session.ts"
+      ],
+      "verticals": [],
+      "runtimeEntries": []
+    },
+    {
+      "blockId": "comment/basic",
+      "actionKinds": [
+        "copy",
+        "merge-prisma"
+      ],
+      "sourceRoots": [
+        "comment.basic"
+      ],
+      "targetPaths": [
+        "prisma/schema.prisma",
+        "src/installed/comment/comment-service.ts",
+        "tests/acceptance/comment-flow.test.ts",
+        "tests/unit/comment-service.test.ts"
       ],
       "verticals": [],
       "runtimeEntries": []
@@ -747,6 +1252,23 @@
       "runtimeEntries": []
     },
     {
+      "blockId": "file/upload",
+      "actionKinds": [
+        "copy"
+      ],
+      "sourceRoots": [
+        "file.upload"
+      ],
+      "targetPaths": [
+        "src/installed/file/customer-attachments.ts",
+        "tests/unit/customer-attachments.test.ts"
+      ],
+      "verticals": [
+        "customer"
+      ],
+      "runtimeEntries": []
+    },
+    {
       "blockId": "tenant/basic-workspace",
       "actionKinds": [
         "copy"
@@ -760,53 +1282,98 @@
       ],
       "verticals": [],
       "runtimeEntries": []
+    },
+    {
+      "blockId": "ticket/basic",
+      "actionKinds": [
+        "copy",
+        "merge-prisma"
+      ],
+      "sourceRoots": [
+        "ticket.basic"
+      ],
+      "targetPaths": [
+        "prisma/schema.prisma",
+        "src/installed/ticket/ticket-service.ts",
+        "tests/acceptance/ticket-flow.test.ts",
+        "tests/shared/ticket-service-suite.ts",
+        "tests/unit/ticket-service.test.ts"
+      ],
+      "verticals": [
+        "ticket"
+      ],
+      "runtimeEntries": []
     }
   ],
   "installImpactSummary": {
-    "impactCount": 3,
-    "blockCount": 3,
+    "impactCount": 8,
+    "blockCount": 8,
     "actionKindCount": 2,
-    "sourceRootCount": 3,
-    "targetPathCount": 7,
-    "verticalCount": 1,
+    "sourceRootCount": 8,
+    "targetPathCount": 19,
+    "verticalCount": 2,
     "runtimeEntryCount": 0,
-    "groupCount": 2,
+    "groupCount": 3,
     "blocks": [
+      "agent/executor",
+      "agent/harness",
       "auth/basic-session",
+      "comment/basic",
       "entity/customer-basic",
-      "tenant/basic-workspace"
+      "file/upload",
+      "tenant/basic-workspace",
+      "ticket/basic"
     ],
     "actionKinds": [
       "copy",
       "merge-prisma"
     ],
     "sourceRoots": [
+      "agent.executor",
+      "agent.harness",
       "auth.basic-session",
+      "comment.basic",
       "entity.customer-basic",
-      "tenant.basic-workspace"
+      "file.upload",
+      "tenant.basic-workspace",
+      "ticket.basic"
     ],
     "targetPaths": [
       "prisma/schema.prisma",
+      "src/installed/agent/executor-service.ts",
+      "src/installed/agent/harness-service.ts",
       "src/installed/auth/session.ts",
+      "src/installed/comment/comment-service.ts",
       "src/installed/entity/customer-service.ts",
+      "src/installed/file/customer-attachments.ts",
       "src/installed/tenant/context.ts",
+      "src/installed/ticket/ticket-service.ts",
+      "tests/acceptance/agent-classifier-flow.test.ts",
+      "tests/acceptance/comment-flow.test.ts",
       "tests/acceptance/customer-flow.test.ts",
+      "tests/acceptance/ticket-flow.test.ts",
       "tests/shared/tenant-runtime-fixture.ts",
-      "tests/unit/customer-normalizer.test.ts"
+      "tests/shared/ticket-service-suite.ts",
+      "tests/unit/comment-service.test.ts",
+      "tests/unit/customer-attachments.test.ts",
+      "tests/unit/customer-normalizer.test.ts",
+      "tests/unit/ticket-service.test.ts"
     ],
     "verticals": [
-      "customer"
+      "customer",
+      "ticket"
     ],
     "runtimeEntries": [],
     "groupSummaries": [
       {
         "vertical": "customer",
-        "blockCount": 1,
+        "blockCount": 2,
         "actionKindCount": 2,
         "runtimeEntryCount": 0,
-        "targetPathCount": 4,
+        "targetPathCount": 6,
         "blocks": [
-          "entity/customer-basic"
+          "entity/customer-basic",
+          "file/upload"
         ],
         "actionKinds": [
           "copy",
@@ -816,41 +1383,93 @@
         "targetPaths": [
           "prisma/schema.prisma",
           "src/installed/entity/customer-service.ts",
+          "src/installed/file/customer-attachments.ts",
           "tests/acceptance/customer-flow.test.ts",
+          "tests/unit/customer-attachments.test.ts",
           "tests/unit/customer-normalizer.test.ts"
         ]
       },
       {
         "vertical": "none",
-        "blockCount": 2,
-        "actionKindCount": 1,
+        "blockCount": 5,
+        "actionKindCount": 2,
         "runtimeEntryCount": 0,
-        "targetPathCount": 3,
+        "targetPathCount": 10,
         "blocks": [
+          "agent/executor",
+          "agent/harness",
           "auth/basic-session",
+          "comment/basic",
           "tenant/basic-workspace"
         ],
         "actionKinds": [
-          "copy"
+          "copy",
+          "merge-prisma"
         ],
         "runtimeEntries": [],
         "targetPaths": [
+          "prisma/schema.prisma",
+          "src/installed/agent/executor-service.ts",
+          "src/installed/agent/harness-service.ts",
           "src/installed/auth/session.ts",
+          "src/installed/comment/comment-service.ts",
           "src/installed/tenant/context.ts",
-          "tests/shared/tenant-runtime-fixture.ts"
+          "tests/acceptance/agent-classifier-flow.test.ts",
+          "tests/acceptance/comment-flow.test.ts",
+          "tests/shared/tenant-runtime-fixture.ts",
+          "tests/unit/comment-service.test.ts"
+        ]
+      },
+      {
+        "vertical": "ticket",
+        "blockCount": 1,
+        "actionKindCount": 2,
+        "runtimeEntryCount": 0,
+        "targetPathCount": 5,
+        "blocks": [
+          "ticket/basic"
+        ],
+        "actionKinds": [
+          "copy",
+          "merge-prisma"
+        ],
+        "runtimeEntries": [],
+        "targetPaths": [
+          "prisma/schema.prisma",
+          "src/installed/ticket/ticket-service.ts",
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/shared/ticket-service-suite.ts",
+          "tests/unit/ticket-service.test.ts"
         ]
       }
     ]
   },
   "impactedBlocks": [
+    "agent/executor",
+    "agent/harness",
     "auth/basic-session",
+    "comment/basic",
     "entity/customer-basic",
-    "tenant/basic-workspace"
+    "file/upload",
+    "tenant/basic-workspace",
+    "ticket/basic"
   ],
   "impactedSlots": [
-    "customer_normalizer"
+    "customer_normalizer",
+    "ticket_comment_delegate"
   ],
   "failurePoints": [],
-  "regressionRisks": [],
+  "regressionRisks": [
+    {
+      "kind": "coverage-gap",
+      "slotId": "ticket_comment_delegate",
+      "message": "Slot ticket_comment_delegate has no runtime acceptance coverage"
+    },
+    {
+      "kind": "coverage-gap",
+      "blockId": "file/upload",
+      "message": "Block file/upload has no runtime acceptance coverage"
+    }
+  ],
   "conflictHints": []
 }

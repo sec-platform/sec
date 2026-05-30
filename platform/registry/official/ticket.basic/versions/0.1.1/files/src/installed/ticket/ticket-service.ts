@@ -138,31 +138,14 @@ export function listTicketAttachments(
   return listTicketScopedRecords(db.ticketAttachments, tenantId, ticketId);
 }
 
+import { addTicketCommentDelegate, listTicketCommentsDelegate } from '../../../custom/ticket_comment_delegate.ts';
+
 export function addTicketComment(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {
-  const tenantId = currentTenant(session);
-  assertTenantTicket(db, input.ticketId, tenantId);
-  const body = input.body.trim();
-  if (!body) {
-    throw new Error('Ticket comment is required');
-  }
-
-  const comment: TicketCommentRecord = {
-    id: db.nextTicketCommentId++,
-    tenantId,
-    ticketId: input.ticketId,
-    body,
-    authorId: session.userId,
-    createdAt: new Date(0).toISOString()
-  };
-
-  db.ticketComments.push(comment);
-  return comment;
+  return addTicketCommentDelegate(db, session, input);
 }
 
 export function listTicketComments(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {
-  const tenantId = currentTenant(session);
-  assertTenantTicket(db, ticketId, tenantId);
-  return listTicketScopedRecords(db.ticketComments, tenantId, ticketId);
+  return listTicketCommentsDelegate(db, session, ticketId);
 }
 
 export function listTicketsByAssignee(db: Database, session: Session, assigneeId: string): TicketRecord[] {

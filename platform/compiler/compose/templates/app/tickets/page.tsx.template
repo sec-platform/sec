@@ -1,0 +1,238 @@
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { TicketAttachmentForm } from '../../components/ticket-attachment-form.tsx';
+import { TicketCommentForm } from '../../components/ticket-comment-form.tsx';
+/*#IF worklogEnabled*/
+import { TicketWorklogForm } from '../../components/ticket-worklog-form.tsx';
+/*#ENDIF*/
+import { TicketForm } from '../../components/ticket-form.tsx';
+import { TicketStatusForm } from '../../components/ticket-status-form.tsx';
+import { LogoutButton } from '../../components/logout-button.tsx';
+import { getCurrentSession } from '../../lib/session.ts';
+import { getDatabase } from '../../lib/store.ts';
+import { listTicketAttachments, listTicketComments, listTickets, listTicketsWithFilters, type TicketFilters } from '../../src/installed/ticket/ticket-service.ts';
+/*#IF notifyEmailEnabled*/
+import { listEmailNotifications } from '../../src/installed/notify/email-outbox.ts';
+/*#ENDIF*/
+/*#IF ticketReportingEnabled*/
+import { summarizeTickets } from '../../src/installed/reporting/ticket-summary.ts';
+/*#ENDIF*/
+/*#IF worklogEnabled*/
+import { listWorklogs, summarizeWorklogMinutes } from '../../src/installed/worklog/worklog-service.ts';
+/*#ENDIF*/
+
+interface TicketsPageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function TicketsPage({ searchParams }: TicketsPageProps) {
+  const session = await getCurrentSession();
+  if (!session) {
+    redirect('/login');
+  }
+
+  const params = await searchParams;
+  const assignee = typeof params?.assignee === 'string' ? params.assignee : '';
+  const status = typeof params?.status === 'string' ? params.status : '';
+  const database = getDatabase();
+  const allTickets = listTickets(database, session);
+  const filters: TicketFilters = {
+    ...(assignee ? { assigneeId: assignee } : {}),
+    ...(status === 'open' || status === 'in_progress' || status === 'closed' ? { status } : {})
+  };
+  const tickets = listTicketsWithFilters(database, session, filters);
+  const assignees = Array.from(new Set(allTickets.map((ticket) => ticket.assigneeId))).sort((left, right) => left.localeCompare(right));
+  const summaryQuery = new URLSearchParams();
+  if (assignee) {
+    summaryQuery.set('assigneeId', assignee);
+  }
+  if (status) {
+    summaryQuery.set('status', status);
+  }
+  const queryString = summaryQuery.toString();
+  const exportHref = queryString ? '/api/tickets/export?' + queryString : '/api/tickets/export';
+  const summaryHref = queryString ? '/api/tickets/summary?' + queryString : '/api/tickets/summary';
+
+  /*#IF ticketSummaryExportEnabled*/
+  const summaryExportHref = queryString ? '/api/tickets/summary/export?' + queryString : '/api/tickets/summary/export';
+  /*#ENDIF*/
+
+  const attachmentsByTicket = new Map(tickets.map((ticket) => [ticket.id, listTicketAttachments(database, session, ticket.id)]));
+  const commentsByTicket = new Map(tickets.map((ticket) => [ticket.id, listTicketComments(database, session, ticket.id)]));
+
+  /*#IF worklogEnabled*/
+  const worklogsByTicket = new Map(tickets.map((ticket) => [ticket.id, listWorklogs(database, session, ticket.id)]));
+  const worklogMinutesByTicket = new Map(tickets.map((ticket) => [ticket.id, summarizeWorklogMinutes(database, session, ticket.id)]));
+  /*#ENDIF*/
+
+  /*#IF notifyEmailEnabled*/
+  const ticketNotifications = listEmailNotifications(database, session).filter((notification) => notification.entity === 'ticket');
+  /*#ENDIF*/
+
+  /*#IF ticketReportingEnabled*/
+  const ticketSummary = summarizeTickets(tickets);
+  /*#ENDIF*/
+
+  /*#IF auditEnabled*/
+  const auditEntries = database.auditEntries.filter((entry) => entry.tenantId === session.tenantId && entry.entity === 'ticket');
+  /*#ENDIF*/
+
+  return (
+    <main className="stack">
+      <section className="card stack">
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <div className="stack">
+            <h1>Tickets</h1>
+            <p>Tenant <strong>{session.tenantId}</strong> currently sees {tickets.length} ticket(s).</p>
+          </div>
+          <div className="row">
+            <Link href="/workspace">Workspace</Link>
+            /*#IF exportCsvEnabled*/
+            <a href={exportHref}>Export tickets CSV</a>
+            /*#ENDIF*/
+            <LogoutButton />
+          </div>
+        </div>
+      </section>
+
+      <section className="card stack">
+        <h2>Filters</h2>
+        <form className="row" action="/tickets">
+          <label style={{ flex: 1 }}>
+            Assignee
+            <select aria-label="Assignee filter" name="assignee" defaultValue={assignee}>
+              <option value="">All assignees</option>
+              {assignees.map((entry) => (
+                <option key={entry} value={entry}>{entry}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ flex: 1 }}>
+            Status
+            <select aria-label="Ticket status filter" name="status" defaultValue={status}>
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In progress</option>
+              <option value="closed">Closed</option>
+            </select>
+          </label>
+          <button type="submit">Apply ticket filters</button>
+        </form>
+      </section>
+
+      <section className="card stack">
+        <TicketForm />
+      </section>
+
+      <section className="card stack">
+        <h2>Ticket List</h2>
+        <ul className="clean" aria-label="Tickets">
+          {tickets.map((ticket) => (
+            <li key={ticket.id}>
+              <div><strong>{ticket.title}</strong> ({ticket.status})</div>
+              <div>{ticket.description || 'No description'}</div>
+              <div>Assignee: {ticket.assigneeId}</div>
+              <div>Due date: {ticket.dueDate || 'Unscheduled'}</div>
+              <TicketStatusForm ticketId={ticket.id} ticketTitle={ticket.title} currentStatus={ticket.status} />
+              
+              <div className="stack" style={{ marginTop: 12 }}>
+                <TicketAttachmentForm ticketId={ticket.id} ticketTitle={ticket.title} />
+                <ul className="clean" aria-label={`Attachments for ${ticket.title}`}>
+                  {(attachmentsByTicket.get(ticket.id) ?? []).map((attachment) => (
+                    <li key={attachment.id}>{attachment.fileName} ({attachment.contentType})</li>
+                  ))}
+                  {(attachmentsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No attachments yet.</li> : null}
+                </ul>
+              </div>
+
+              <div className="stack" style={{ marginTop: 12 }}>
+                <TicketCommentForm ticketId={ticket.id} ticketTitle={ticket.title} />
+                <ul className="clean" aria-label={`Comments for ${ticket.title}`}>
+                  {(commentsByTicket.get(ticket.id) ?? []).map((comment) => (
+                    <li key={comment.id}>{comment.authorId}: {comment.body}</li>
+                  ))}
+                  {(commentsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No comments yet.</li> : null}
+                </ul>
+              </div>
+
+              /*#IF worklogEnabled*/
+              <div className="stack" style={{ marginTop: 12 }}>
+                <TicketWorklogForm ticketId={ticket.id} ticketTitle={ticket.title} />
+                <div>Total worklog minutes: {worklogMinutesByTicket.get(ticket.id) ?? 0}</div>
+                <ul className="clean" aria-label={`Worklogs for ${ticket.title}`}>
+                  {(worklogsByTicket.get(ticket.id) ?? []).map((worklog) => (
+                    <li key={worklog.id}>{worklog.minutes}m by {worklog.authorId}: {worklog.note || 'No note'}</li>
+                  ))}
+                  {(worklogsByTicket.get(ticket.id) ?? []).length === 0 ? <li>No worklogs yet.</li> : null}
+                </ul>
+              </div>
+              /*#ENDIF*/
+            </li>
+          ))}
+          {tickets.length === 0 ? <li>No tickets yet.</li> : null}
+        </ul>
+      </section>
+
+      /*#IF ticketReportingEnabled*/
+      <section className="card stack">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2>Ticket Summary</h2>
+          <div className="row">
+            <a href={summaryHref}>View ticket summary JSON</a>
+            /*#IF ticketSummaryExportEnabled*/
+            <a href={summaryExportHref}>Export ticket summary CSV</a>
+            /*#ENDIF*/
+          </div>
+        </div>
+        <p>Total tickets: {ticketSummary.total}</p>
+        <ul className="clean" aria-label="Ticket SLA summary">
+          <li>Overdue: {ticketSummary.sla.overdue}</li>
+          <li>Due soon: {ticketSummary.sla.dueSoon}</li>
+          <li>Unscheduled: {ticketSummary.sla.unscheduled}</li>
+        </ul>
+        <ul className="clean" aria-label="Ticket status summary">
+          <li>Open: {ticketSummary.byStatus.open}</li>
+          <li>In progress: {ticketSummary.byStatus.in_progress}</li>
+          <li>Closed: {ticketSummary.byStatus.closed}</li>
+        </ul>
+        <ul className="clean" aria-label="Assignee summary">
+          {ticketSummary.byAssignee.map((entry) => (
+            <li key={entry.assigneeId}>{entry.assigneeId}: {entry.count}</li>
+          ))}
+          {ticketSummary.byAssignee.length === 0 ? <li>No assignee summary yet.</li> : null}
+        </ul>
+      </section>
+      /*#ENDIF*/
+
+      /*#IF notifyEmailEnabled*/
+      <section className="card stack">
+        <h2>Ticket Notifications</h2>
+        <ul className="clean" aria-label="Ticket notifications">
+          {ticketNotifications.map((notification) => (
+            <li key={notification.id}>
+              <div><strong>{notification.subject}</strong></div>
+              <div>{notification.recipient}</div>
+            </li>
+          ))}
+          {ticketNotifications.length === 0 ? <li>No ticket notifications yet.</li> : null}
+        </ul>
+      </section>
+      /*#ENDIF*/
+
+      /*#IF auditEnabled*/
+      <section className="card stack">
+        <h2>Ticket Audit Trail</h2>
+        <ul className="clean" aria-label="Ticket audit entries">
+          {auditEntries.map((entry) => (
+            <li key={`${entry.action}:${entry.entityId}:${entry.occurredAt}`}>
+              <div><strong>{entry.action}</strong> ticket {entry.entityId}</div>
+              <div>{entry.actorId} in {entry.tenantId}</div>
+            </li>
+          ))}
+          {auditEntries.length === 0 ? <li>No ticket audit entries yet.</li> : null}
+        </ul>
+      </section>
+      /*#ENDIF*/
+    </main>
+  );
+}
