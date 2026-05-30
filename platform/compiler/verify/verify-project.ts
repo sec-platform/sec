@@ -19,6 +19,7 @@ import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import { typecheckProject } from './typecheck-project.ts';
 import { checkReferenceDrift } from './check-drift.ts';
+import { validateSlotSecurity } from './validate-slot-security.ts';
 
 
 interface SuiteModule {
@@ -253,6 +254,7 @@ export async function verifyProject(
   assertPassStatus(lock, 'adapt', 'succeeded', new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify'));
 
   await checkReferenceDrift(workspaceRoot);
+  await validateSlotSecurity(workspaceRoot, lock);
 
   const fastResult =
     lane === 'runtime' ? { lane: createSkippedFastLane(), failure: null } : await runFastVerification(workspaceRoot, projectRoot);

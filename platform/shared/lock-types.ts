@@ -67,6 +67,7 @@ export interface LockFile {
     name: string;
     stack: string;
     mode: string;
+    target?: 'monolith' | 'microservices';
   };
   resolvedBlocks: ResolvedBlock[];
   resolvedCapabilities: string[];

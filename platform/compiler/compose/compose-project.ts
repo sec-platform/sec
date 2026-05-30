@@ -16,6 +16,7 @@ import { mergeTailwindTheme } from './merge-tailwind-theme.ts';
 import { mapCustomRoutes } from './map-custom-routes.ts';
 import { formatOutputFiles } from './format-output-files.ts';
 import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
+import { lowerToMicroservices } from './microservice-lower-pass.ts';
 
 
 
@@ -128,6 +129,7 @@ export async function composeProject(
   );
 
   const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
+  const microservicePaths = await lowerToMicroservices(workspaceRoot, lock);
   addGeneratedPaths(lock, [
     ...runtimeScaffoldPaths,
     'generated/routes.ts',
@@ -135,7 +137,8 @@ export async function composeProject(
     CI_ARTIFACT_FILES.installManifest,
     ...opaqueGeneratedPaths,
     ...tailwindGeneratedPaths,
-    ...customRoutesGeneratedPaths
+    ...customRoutesGeneratedPaths,
+    ...microservicePaths
   ]);
 
   await applyOverrides(workspaceRoot, 'compose');

@@ -397,3 +397,89 @@ L3 Engineering Pattern Graph 当前只输出 `stableArtifact: false` 的低置�
    - 在 Missing Artifacts 列表下方物理植入了 **Missing Artifact Remediation Guide** 智能诊断引导。
    - 当检测到有任何 stable 治理产物（如 `review-summary.json`, `graph.lock.json` 等）缺失时，提供针对性的 CLI 编译和验证修复步骤引导。
 
+
+## 14. 契约驱动的可视化组装界面 (Visual Spec Builder) 架构与 IR 转换
+
+为了解决低代码平台“黑盒不可控、代码难维护、强行绑定私有运行时”的行业死穴，本项目为用户规划了 **“契约驱动的可视化组装界面 (Visual Spec Builder)”**。该界面比常规低代码平台更加细致、高级，旨在提供 100% 受控的代码编译闭环。
+
+### 14.1 核心设计哲学
+
+1. **AI 开发无管脚，用户开发图形化**：
+   - 对于 **AI 自动开发**，直接在后台通过纯 L3 语义契约（IR 级别）与 `app.yaml` 进行逻辑组装，无需任何图形界面。
+   - 对于 **人类用户开发**，提供极具视觉冲击力与直观度的 **图形拓扑 Spec 连接器**，方便用户理解庞大系统的依赖与拼缝关系。
+2. **纯粹的“契约编辑器”，拒绝生成黑盒脏代码**：
+   - **低代码的通病**：前端拖拽后，在后台直接生成海量、充满 hardcode 细节的页面和数据库查询代码，变成无法维护的黑坑。
+   - **本平台的方案**：Visual Spec Builder **不直接生成任何底层应用代码**。它只是一个**“声明式工程契约 the 图形渲染与编辑器”**。它将用户的拖拉拽操作归一化为结构性的 `mutations`，然后触发平台编译器在 10s 内重新 Stitch/Compose 出 100% 纯净、无任何硬编码的工业级 TypeScript/Next.js 全套源码！
+
+### 14.2 可视化拓扑映射模型与 IR 转换
+
+Visual Spec Builder 采用 **“Node-Link” 拓扑映射模型**，在前端将 `explain-graph.json` 渲染为高度可交互的工程图谱，支持以下 4 类核心图形操作，并在后端实时物化为 L3 Engineering IR 与契约文件：
+
+```text
+ 用户在 UI 图形拖拽/连线
+   │
+   ├──► 1. 拖入 Block 卡片 ──────► 产生 add-block 动作
+   ├──► 2. Slot 管脚连线 ────────► 映射 Custom Slot 契约
+   ├──► 3. 数据模型连线 ──────────► 缝合 Prisma Relation
+   └──► 4. 挂载 Acceptance ──────► 建立 100% 验收覆盖边
+   │
+   ▼
+ 产生结构化 Mutation (source/views/mutations/*.json)
+   │
+   ▼
+ 运行 `sec workbench mutations apply` 写入 `source/app.yaml`
+   │
+   ▼
+ 触发编译管道 `sec compose && sec adapt` ──────► 生成 100% 纯净代码 (project/)
+```
+
+1. **Block 卡片拓扑组件 (Block Card Nodes)**：
+   - 每一个 Block（如 `tenant/basic-workspace`, `auth/basic-session`）以高保真的逻辑卡片展示，清晰标识其 **Requires（输入引脚）** 和 **Provides（输出引脚）**。
+   - 用户拖入新 Block，或用线连接两个引脚，在后端生成 `add-block` 或 `connect-dependency` 契约，自动写入 `source/app.yaml` 的 `blocks` 列表。
+2. **Slots（管脚）物理对齐连接 (Slots Alignment Link)**：
+   - 在 Block 卡片上，会将声明的所有 `slots` 物理暴露为“插头”。
+   - 用户可以点击插头拖出一条连接线，指向开发者的物理源码路径（如 `source/code/slots/ticket_resolver.ts`）。
+   - 图形上会实时对齐 Slot 声明的 `inputType` / `outputType` 类型，一旦类型不匹配，连接线变红并报错。映射关系自动写入 `source/app.yaml` 的 `slots` 段落。
+3. **数据模型缝合图示 (Schema Stitching View)**：
+   - 展示缝合后的 `schema.prisma` 实体模型图，并清晰用虚线高亮显示跨 Block 自动注入的关系（例如租户 ID 如何自动行级缝合到工单实体）。
+   - 用户可以在 UI 上配置缝合字段的审计 Policy 策略，自动关联到 Policy Gate。
+4. **验收用例 (Acceptance) 挂载拦截**：
+   - 所有的 Acceptance 验收测试用例在图上作为绿色“盾牌”节点展示。
+   - 用户可以将盾牌拖动连接到具体的 Block 卡片或 Slot 插头上，表示“必须跑通此测试才允许将此 Block/Slot 判定为可信”。后端自动在 `acceptance` 数组里增加覆盖边，在 `verify` 阶段强行拦截。
+
+### 14.3 双向同步与安全回写
+
+1. **Mutation 缓冲回写机制**：
+   - 用户的任何图形操作 **严禁直接写 `project/` 下的运行源码，也严禁直接写 `control/` 下的治理哈希**。
+   - 所有操作先在浏览器内存中生成一份可被撤销与重做的标准 `source/views/mutations/change_xxxx.json` 片段。
+   - 当用户点击“应用变更并重新编译”时，调用 `platform workbench mutations apply` 命令将修改回写进核心事实源 `source/app.yaml`。
+2. **编译器极速重缝合 (Compiler Stitching Loop)**：
+   - 回写成功后，平台自动并行触发 `compose` 与 `adapt` Pass，在 10s 内重新装配出完整的 Next.js 页面与 Prisma 模型。
+   - 接着触发 affected verify，只对发生变动的 Slot 或 Block 跑 Playwright 验收。全部通过后，利用 `sec lock` 重新锁定哈希，生成全新的只读 `explain-graph.json`，并将最新图谱状态实时推送回前端界面渲染。
+   - 这一“双向闭环”确保了图形化开发和契约编译的绝对纯净与高度一致！
+
+
+## 15. 可组合前端的“视觉美学隔离与设计系统 Token 桥”
+
+当来自 16+ 个不同 Block（包括官方与私有）的 UI 组件（如 `LoginForm`、`CustomerAttachmentForm`、`AIAgentClassifierBadge`）通过 `uiHooks` 被拼缝注入到同一个页面 Portal 时，为了防止样式冲突、坍塌或视觉风格破裂，平台在前端实施严苛的**视觉隔离与设计 Token 桥接约束**：
+
+### 15.1 语义设计 Token 桥 (Design Token Bridge)
+
+1. **封禁 ad-hoc 样式**：
+   - 任何 Block 携带的前端组件，严禁在 JSX/CSS 中手写硬编码的颜色、间距或字体大小（如 `style={{ color: '#FF0000', margin: '15px' }}`）。
+2. **强制语义 Token 绑定**：
+   - 所有的视觉属性必须强制绑定平台定义的主题语义变量（Design Tokens），如：
+     - 背景色：`bg-primary`（主板卡背景）、`bg-secondary`（灰底卡片背景）
+     - 前景色：`text-main`（主文本）、`text-muted`（灰体文本）
+     - 间距：`gap-card`（卡片间距）、`p-card`（内边距）
+   - 这确保了不管由哪个 Block 注入何种组件，其最终的视觉饱和度、圆角和暗黑模式支持与主系统 100% 保持极致契合与高端美感。
+
+### 15.2 前端 CSS 样式隔离沙盒 (Prefix Sandboxing)
+
+1. **CSS Scope 局部样式化**：
+   - 注入的 React 组件必须使用 **CSS Modules**（即 `styles.module.css`）或者是 CSS-in-JS 的 Scope 属性，限制其所编写的所有 class 样式仅作用于组件本尊。
+2. **Tailwind 前缀隔离沙盒 (Prefix Sandboxing)**：
+   - 如果 Block 使用 TailwindCSS 编写，为了防止其类名污染全局或与主生成项目冲突，编译器在 Compose 时，会自动对该 Block 注入的组件样式进行正则预处理，强制为其所有的 Tailwind utility 类名加上 **Block 专属前缀**（如将 `className="flex items-center"` 重写为 `className="block-attachment-flex block-attachment-items-center"`）。
+   - 该样式沙盒机制在物理层彻底掐死了前端样式大混战与 UI 退化风险！
+
+

@@ -140,3 +140,56 @@ Context Packet 是 task envelope 在执行时的只读上下文投影，不是�
 1. **结构化归因**：编译系统的错误处理器自动将 TypeScript 编译器诊断信息和 Playwright/E2E 错误进行提取与定位，归因到具体的符号（如特定函数）和 AST 节点。
 2. **生成修复信封**：将 `repair-plan.json` 反馈包（包含出错的堆栈摘要、目标 AST 节点源码切片、违背的 Policy 规则条目、以及推荐的修复策略建议）封装进新的任务信封。
 3. **精准二次修改**：子模型/Agent 在沙盒中仅针对信封内指定的 `allowedPaths` 内的错误节点进行修改，在限定范围内执行修复，直到通过 Playwright 端到端断言，以此阻断全局越权修改导致的“错误蔓延”。
+
+## 9. 极客战略：AI Agent Harness 的宿生定位与外部 IDE 宿主赋能
+
+对于本平台的终极演进形态，我们做出了一个决定性的极客战略决策：**绝不重复制造重型 IDE 壳壳（如 VS Code 甚至自研编辑器界面），也不重复编写底层的通用 AI 编码引擎，而是采取“高内聚、强契约、带只读验证闭环的织布架”定位，主动寄生并赋能于任何外部先进的 Agent 与 IDE 宿主！**
+
+### 9.1 战略考量与护城河
+
+1. **宿主（Host）的极速演进**：Cursor、Windsurf、Roo Code 及各种先进的 MCP 工具链演进极其迅猛，在代码编辑、模糊上下文匹配、全库理解等“体力活”与“操作面”上做得非常好。试图与它们竞争去重复造 IDE 壳无异于用自己的短板碰别人的长板。
+2. **宿生（Symbiote）的绝对受控**：外部 Agent 唯一的致命缺陷是 **"失控与漂移"** —— 它们在修改代码时会产生大量的 Hardcode、API 破坏、架构碎屑、隐式副作用，且极难在每次修改后完成 100% 架构对齐。
+3. **平台的核心壁垒**：SpecEngineer 平台提供的是一套高度内聚的 **L3 语义契约约束（Engineering IR）与物理只读验证沙盒**。我们做的事情是给外部 Agent “戴上项圈与手铐”，让他们在极度受控、极度安全的契约沙盒下发挥强大的编码效率。
+
+### 9.2 宿生赋能（Parasitic Symbiosis）工作流架构
+
+外部 Agent（如 Cursor / 任何宿主 IDE）将 SpecEngineer 当作只读执行底盘与治理中枢，实现极致安全的受控开发：
+
+```mermaid
+graph TD
+    HostAgent[外部 Host Agent / IDE] -- 1. 读取语义上下文 --> ContextPacket[平台只读 Context Packet 投影]
+    HostAgent -- 2. 获取限定写入路径 --> AllowedPaths[Task Envelope Allowed Paths]
+    HostAgent -- 3. 执行受限 Slot 代码填充 --> LocalSlot[物理 Slot 源码层]
+    LocalSlot -- 4. 触发编译与验证 --> SecVerify[platform verify 校验 Pass]
+    SecVerify -- 5. 漂移拦截与哈希锁定 --> SecLock[platform lock 锁定与图谱更新]
+    SecLock -- 6. 成功同步反馈 --> HostAgent
+```
+
+1. **只读上下文投影 (Context Packet)**：外部 Agent 启动后，SpecEngineer 不会向其敞开整个 Git 仓库的代码，而是向其投影高内聚的 `Context Packet` 结构化数据（包含 App 拓扑、Prisma 缝合关系、API Contract 及 Acceptance 测试描述），让 Agent 瞬间获得完全精确、无歧义的逻辑实体描述。
+2. **任务信封 (Task Envelope) 越权拦截**：平台为 Agent 的每一次修改动作派发 `Task Envelope`，严格收缩其 `allowedPaths` 至单个 `source/code/slots/` 物理文件，并列出 `forbiddenOperations`（如禁止操作数据库、禁止越权修改其他文件）。
+3. **后验只读验证闭环 (Verify & Lock)**：外部 Agent 编写完代码后，必须通过平台内聚的 `verify` 和 `lock`。一旦检测到生成产物与 provenance 的哈希基线存在非受控漂移，或者触发 policy violation，平台将直接阻断并拒绝合流，生成 `repair-plan.json` 反馈包迫使其在原位进行修补。
+
+通过这种“寄生”机制，人类可以通过任何自己喜爱的先进 IDE（Cursor/Windsurf 等）甚至强大的外部 Agent 来调用 SpecEngineer 编译器。我们专注于**极致的架构拼缝、只读拦截、哈希 provenance 追溯与 100% 受控的可视化 review 面**，这才是契约驱动开发平台的终极工业尊严！
+
+
+## 10. Custom Slot 沙盒安全防御与 Prompt 注入拦截
+
+在外部 Agent 充当编译 Pass 自主填充 Custom Slot 的开发过程中，存在被恶意第三方通过 Prompt 注入攻击（Prompt Injection）导致在 Slot 源码中偷偷埋入“数据泄露或提权后门”的风险。平台在编译验证期和运行时实施双重**确定性安全拦截**：
+
+### 10.1 编译期静态 AST 越权审查
+
+1. **语法树强解析与危险依赖封禁**：
+   - 验证器（se verify）在分析修改后的 Slot 文件时，利用 TS-Morph 静态加载其 AST。
+   - 强行审计该文件中的所有 `ImportDeclarations`（导入声明）和 `CallExpressions`（调用表达式）。
+   - **拦截规则**：严禁在 `source/code/slots/` 下的任何自定义 Slot 源码中引入危险的 Node.js 核心底层包或命令执行函数（如 `child_process`、`fs`、`os`、`cluster` 等），一旦查出，抛出 **`SLOT-SECURITY-002`** 并强行阻断编译，拒绝数据合流。
+
+### 10.2 运行时物理隔离沙盒 (Process Sandboxing)
+
+1. **有限权限子进程包裹**：
+   - 对于运行期执行的非可信 Custom Slot 业务函数，平台将其包裹在极度收敛的运行时沙盒进程（如 V8 Isolates 或 WebAssembly 沙盒环境，在本地通过轻量的 Bun Sandbox / ts-node 受限子进程模拟）中执行。
+   - **确定性沙盒拦截规则**：
+     - **磁盘 I/O 封禁**：沙盒进程除当前 Slot 所需的临时只读缓存路径外，剥夺其对硬盘上任何其他目录的物理读写权限。
+     - **网络出口拦截 (Egress Block)**：严禁沙盒进程在运行时主动发起任何未经白名单声明的外网 HTTP/TCP 网络连接，从物理层面彻底阻断后门代码向黑客服务器发送“线上多租户数据库数据”的通路。
+     - **系统资源配额 (Resource Quota)**：限制该沙盒进程的 CPU 上限与内存配额，对超时 Slot 强行终止，防御恶意的死循环 DDOS 攻击。
+
+

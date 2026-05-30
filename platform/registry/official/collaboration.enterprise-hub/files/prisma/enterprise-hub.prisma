@@ -1,0 +1,28 @@
+model ApprovalWorkflow {
+  id        String         @id @default(uuid())
+  name      String
+  tenantId  String
+  steps     WorkflowStep[]
+  requests  ApprovalRequest[]
+  createdAt DateTime       @default(now())
+}
+
+model WorkflowStep {
+  id         String           @id @default(uuid())
+  workflowId String
+  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  role       String
+  stepOrder  Int
+  createdAt  DateTime         @default(now())
+}
+
+model ApprovalRequest {
+  id         String           @id @default(uuid())
+  title      String
+  status     String           @default("pending") // pending | approved | rejected
+  workflowId String
+  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  tenantId   String
+  currentStep Int             @default(1)
+  createdAt  DateTime         @default(now())
+}
