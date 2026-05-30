@@ -127,6 +127,25 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
 
   const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
   await ensureDir(generatedViewsDir);
+
+  // Local-First Vis.js offline caching
+  const visLocalPath = path.join(generatedViewsDir, 'vis-network.min.js');
+  if (!(await pathExists(visLocalPath))) {
+    try {
+      console.log(`[Workbench] Downloading offline vis-network.min.js asset...`);
+      const res = await fetch('https://unpkg.com/vis-network/standalone/umd/vis-network.min.js');
+      if (res.ok) {
+        const text = await res.text();
+        await fs.writeFile(visLocalPath, text, 'utf8');
+        console.log(`[Workbench] Cached vis-network.min.js locally successfully.`);
+      } else {
+        console.warn(`[Workbench] Download vis-network.min.js failed (status: ${res.status}). Fallback to CDN.`);
+      }
+    } catch (e) {
+      console.warn(`[Workbench] Failed to download offline asset (offline mode): ${String(e)}. Browser will fallback to CDN.`);
+    }
+  }
+
   await writeLockWithGeneratedPaths(lockPath, lock, CI_ARTIFACT_PATHS.view);
 
   const [provenance, report, coverage, policyReport, review, graph, artifactManifest, codeQuality, architectureBoundary, semanticPattern, governanceReports] = await Promise.all([

@@ -386,6 +386,10 @@ L3 Engineering Pattern Graph 当前只输出 `stableArtifact: false` 的低置�
 2. **Manual Override 警告与注册表**：
    - 在 Graph Nodes 列表与 Node Type Detail 列表中，为被手动覆盖的节点与文件自动追加 `[Manual Override ⚠️]` 醒目标签。
    - 新增 **Manual Override Registry** 专用卡片，集中罗列所有被 Manual Override 的文件目标、来源 Type 及对应的业务块，方便审查人员快速定位受开发人员直接干预的代码区。
+3. **Local-First 本地离线优先支持**：
+   - 将 unpkg.com 的 CDN 资源解耦。在编译 explain 时，平台自动检测并下载缓存 `control/workbench/views/vis-network.min.js`。
+   - 网页内置 **Local-First Loader with CDN Fallback** 双保险加载器，在脱网或极慢网络环境下自动优先秒级加载本地缓存，保障 100% 离线可用度与画布流畅度。
+
 
 ### 13.2 Review View 增强
 1. **CI 链摘要**：
