@@ -135,6 +135,40 @@
 </script>
 
 <style>
+  /* V2 Glassmorphism Double-Tabs Styles */
+  .tabs-container {
+    display: flex;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid var(--border-color);
+    padding: 6px;
+    border-radius: 12px;
+    backdrop-filter: blur(8px);
+  }
+  .tab-btn {
+    flex: 1;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: #94a3b8;
+    background: none;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+  .tab-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .tab-btn.active {
+    color: #090d16;
+    background: linear-gradient(135deg, #00f2fe, #4facfe);
+    box-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
+  }
+
   /* Custom Page Layout styles */
   .workspace-layout {
     display: flex;
@@ -576,42 +610,20 @@
     </div>
   </div>
 
+  <!-- Dual Tabs Switcher -->
+  <div class="tabs-container">
+    <button class="tab-btn active" onclick="switchTab('spec-builder')">可操作 Spec 组装设计器 (SPEC Topology Builder)</button>
+    <button class="tab-btn" onclick="switchTab('audit-graph')">只读架构依赖审计图 (Architectural Audit Graph)</button>
+  </div>
+
   <div class="canvas-grid">
     <!-- Left Sidebar: Node Catalog -->
     <div class="node-sidebar">
       <div>
         <div class="sidebar-section-title" data-key="sidebarBlocks">Available Blocks (能力块)</div>
-        <div style="display:flex; flex-direction:column; gap:8px;" id="sidebar-blocks-list">
-          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'tenant/basic-workspace')">
-            <span class="sidebar-node-name">tenant/basic-workspace</span>
-            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'tenant/basic-workspace')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
-          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'comment/basic')">
-            <span class="sidebar-node-name">comment/basic</span>
-            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'comment/basic')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
-          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'agent/executor')">
-            <span class="sidebar-node-name">agent/executor</span>
-            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'agent/executor')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
-          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'file/upload')">
-            <span class="sidebar-node-name">file/upload</span>
-            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'file/upload')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
-          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'block', 'auth/basic-session')">
-            <span class="sidebar-node-name">auth/basic-session</span>
-            <button class="sidebar-node-add-btn" onclick="quickAddNode('block', 'auth/basic-session')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
+        <input type="text" id="catalog-search" class="form-input" style="margin-bottom: 12px; font-size: 12px;" placeholder="🔍 Filter blocks..." oninput="filterCatalog()" />
+        <div style="display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:360px;" id="sidebar-blocks-list">
+          <!-- Dynamically Rendered -->
         </div>
         <div style="margin-top:12px; display:flex; gap:6px;">
           <input type="text" id="custom-block-name" class="form-input" style="padding:6px; font-size:11px;" placeholder="custom/block-name" />
@@ -622,18 +634,7 @@
       <div>
         <div class="sidebar-section-title" data-key="sidebarSlots">Available Slots (插槽)</div>
         <div style="display:flex; flex-direction:column; gap:8px;" id="sidebar-slots-list">
-          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'slot', 'ticket_resolver')">
-            <span class="sidebar-node-name">ticket_resolver</span>
-            <button class="sidebar-node-add-btn" onclick="quickAddNode('slot', 'ticket_resolver')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
-          <div class="sidebar-node-item" draggable="true" ondragstart="handleDragStart(event, 'slot', 'comment_hook')">
-            <span class="sidebar-node-name">comment_hook</span>
-            <button class="sidebar-node-add-btn" onclick="quickAddNode('slot', 'comment_hook')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
+          <!-- Dynamically Rendered -->
         </div>
         <div style="margin-top:12px; display:flex; gap:6px;">
           <input type="text" id="custom-slot-name" class="form-input" style="padding:6px; font-size:11px;" placeholder="custom_slot_id" />
@@ -848,6 +849,149 @@
 
   let currentLang = 'zh'; // Default Chinese
   let mutationsList = [];
+  let undoStack = [];
+  let redoStack = [];
+  let activeTab = 'spec-builder'; // 'spec-builder' | 'audit-graph'
+  let blocksCatalog = [];
+
+  // V2 Operations Undo / Redo engine
+  function pushMutation(mutation) {
+    undoStack.push(JSON.parse(JSON.stringify(mutationsList)));
+    redoStack = [];
+    mutationsList.push(mutation);
+    updateMutationBadge();
+  }
+
+  function triggerUndo() {
+    if (undoStack.length === 0) return;
+    redoStack.push(JSON.parse(JSON.stringify(mutationsList)));
+    mutationsList = undoStack.pop();
+    updateMutationBadge();
+    renderTopology();
+  }
+
+  function triggerRedo() {
+    if (redoStack.length === 0) return;
+    undoStack.push(JSON.parse(JSON.stringify(mutationsList)));
+    mutationsList = redoStack.pop();
+    updateMutationBadge();
+    renderTopology();
+  }
+
+  // Dynamic Catalog Scan Fetch
+  async function loadBlocksCatalog() {
+    try {
+      const res = await fetch('/api/blocks-catalog');
+      if (res.ok) {
+        blocksCatalog = await res.json();
+        renderCatalog();
+        renderSidebarSlots();
+      }
+    } catch (e) {
+      console.error("Failed to load catalog:", e);
+    }
+  }
+
+  function renderCatalog() {
+    const listContainer = document.getElementById('sidebar-blocks-list');
+    const searchVal = document.getElementById('catalog-search').value.toLowerCase();
+    listContainer.innerHTML = '';
+    
+    const domains = {};
+    blocksCatalog.forEach(b => {
+      if (searchVal && !b.id.toLowerCase().includes(searchVal)) return;
+      
+      const parts = b.id.split('/');
+      const domain = parts[0] || 'general';
+      if (!domains[domain]) domains[domain] = [];
+      domains[domain].push(b);
+    });
+
+    Object.keys(domains).sort().forEach(domain => {
+      const groupDiv = document.createElement('div');
+      groupDiv.style.marginBottom = '12px';
+      
+      const title = document.createElement('div');
+      title.style.fontSize = '11px';
+      title.style.fontWeight = '700';
+      title.style.color = '#00f2fe';
+      title.style.textTransform = 'uppercase';
+      title.style.letterSpacing = '0.5px';
+      title.style.marginBottom = '6px';
+      title.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+      title.style.paddingBottom = '2px';
+      title.textContent = domain;
+      groupDiv.appendChild(title);
+      
+      domains[domain].forEach(b => {
+        const item = document.createElement('div');
+        item.className = 'sidebar-node-item';
+        item.setAttribute('draggable', 'true');
+        item.style.marginBottom = '6px';
+        item.ondragstart = (e) => handleDragStart(e, 'block', b.id);
+        
+        const reqStr = b.requires && b.requires.length > 0 ? b.requires.join(', ') : 'none';
+        const provStr = b.provides && b.provides.length > 0 ? b.provides.join(', ') : 'none';
+        item.title = `Version: ${b.version}\nRequires: [${reqStr}]\nProvides: [${provStr}]`;
+        
+        item.innerHTML = `
+          <span class="sidebar-node-name" style="font-weight: 600;">${b.id.replace(domain + '/', '')}</span>
+          <button class="sidebar-node-add-btn" onclick="quickAddNode('block', '${b.id}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </button>
+        `;
+        groupDiv.appendChild(item);
+      });
+      listContainer.appendChild(groupDiv);
+    });
+  }
+
+  function filterCatalog() {
+    renderCatalog();
+  }
+
+  function renderSidebarSlots() {
+    const listContainer = document.getElementById('sidebar-slots-list');
+    listContainer.innerHTML = '';
+    
+    // 从 Catalog 和 rawGraph 收集所有的 Slot 声明
+    const declaredSlots = new Set();
+    blocksCatalog.forEach(b => {
+      if (b.slots) b.slots.forEach(s => declaredSlots.add(s.id));
+    });
+    
+    // 如果没有，放两个 mock fallback
+    if (declaredSlots.size === 0) {
+      declaredSlots.add('ticket_resolver');
+      declaredSlots.add('comment_hook');
+    }
+    
+    declaredSlots.forEach(slotId => {
+      const item = document.createElement('div');
+      item.className = 'sidebar-node-item';
+      item.setAttribute('draggable', 'true');
+      item.ondragstart = (e) => handleDragStart(e, 'slot', slotId);
+      item.innerHTML = `
+        <span class="sidebar-node-name">${slotId}</span>
+        <button class="sidebar-node-add-btn" onclick="quickAddNode('slot', '${slotId}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      `;
+      listContainer.appendChild(item);
+    });
+  }
+
+  function switchTab(tabId) {
+    if (activeTab === tabId) return;
+    activeTab = tabId;
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    if (tabId === 'spec-builder') {
+      document.querySelector('[onclick="switchTab(\'spec-builder\')"]').classList.add('active');
+    } else {
+      document.querySelector('[onclick="switchTab(\'audit-graph\')"]').classList.add('active');
+    }
+    renderTopology();
+  }
 
   function toggleLanguage() {
     currentLang = currentLang === 'en' ? 'zh' : 'en';
@@ -926,7 +1070,7 @@
         return;
       }
       
-      mutationsList.push({
+      pushMutation({
         id: mutationId,
         kind: 'add-block',
         blockId: blockId,
@@ -948,12 +1092,66 @@
           shadow: {
             enabled: true,
             color: '#f59e0b',
-            size: 10,
+            size: 14,
             x: 0,
             y: 0
           },
           font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
         });
+        
+        // V2 Explode: Automatically expand Provides and Requires on the canvas around the block node!
+        const bDef = blocksCatalog.find(b => b.id === blockId);
+        if (bDef) {
+          if (bDef.provides) {
+            bDef.provides.forEach((prov, idx) => {
+              const portId = `port-provides:${blockId}:${prov}`;
+              try {
+                visNodes.add({
+                  id: portId,
+                  label: `Provides:\n${prov}`,
+                  x: x + 100,
+                  y: y + (idx - (bDef.provides.length - 1)/2) * 50,
+                  shape: 'dot',
+                  size: 10,
+                  color: { background: '#064e3b', border: '#10b981' },
+                  shadow: { enabled: true, color: '#10b981', size: 8, x: 0, y: 0 },
+                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' }
+                });
+                visEdges.add({
+                  from: `block:${blockId}`,
+                  to: portId,
+                  color: { color: '#047857' },
+                  dashes: true
+                });
+              } catch (e) {}
+            });
+          }
+          
+          if (bDef.requires) {
+            bDef.requires.forEach((req, idx) => {
+              const portId = `port-requires:${blockId}:${req}`;
+              try {
+                visNodes.add({
+                  id: portId,
+                  label: `Requires:\n${req}`,
+                  x: x - 100,
+                  y: y + (idx - (bDef.requires.length - 1)/2) * 50,
+                  shape: 'dot',
+                  size: 10,
+                  color: { background: '#78350f', border: '#f59e0b' },
+                  shadow: { enabled: true, color: '#f59e0b', size: 8, x: 0, y: 0 },
+                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' }
+                });
+                visEdges.add({
+                  from: portId,
+                  to: `block:${blockId}`,
+                  color: { color: '#b45309' },
+                  dashes: true
+                });
+              } catch (e) {}
+            });
+          }
+        }
         
         const appNode = rawGraph.nodes.find(n => n.type === 'app');
         if (appNode) {
@@ -966,7 +1164,6 @@
           });
         }
       }
-      updateMutationBadge();
     } else if (type === 'slot') {
       const slotId = id;
       if (visNodes) {
@@ -988,7 +1185,7 @@
           shadow: {
             enabled: true,
             color: '#f59e0b',
-            size: 10,
+            size: 14,
             x: 0,
             y: 0
           },
@@ -1047,71 +1244,218 @@
   }
 
   function renderTopology() {
-    const nodesArray = rawGraph.nodes.map(n => {
-      const typeStyle = groupStyles[n.type] || { color: { background: '#1e293b', border: '#475569' }, shape: 'box' };
-      const prefix = translationDict[currentLang][n.type] || n.type;
-      
-      const state = getNodeStatus(n.id, n.type);
-      
-      let borderCol = typeStyle.color.border;
-      let glowCol = 'rgba(0,0,0,0)';
-      let badgeText = '';
-      
-      if (state === 'failed') {
-        borderCol = '#ef4444';
-        glowCol = '#ef4444';
-        badgeText = ' ❌';
-      } else if (state === 'warning') {
-        borderCol = '#f59e0b';
-        glowCol = '#f59e0b';
-        badgeText = ' ⚠️';
-      } else if (state === 'passed') {
-        borderCol = '#10b981';
-        glowCol = '#10b981';
-        badgeText = ' ✅';
-      }
-      
-      return {
-        id: n.id,
-        label: `${prefix}:\n${n.label}${badgeText}`,
-        title: `Type: ${n.type}\nID: ${n.id}`,
-        ...typeStyle,
-        color: {
-          ...typeStyle.color,
-          border: borderCol,
-          highlight: {
-            ...typeStyle.color.highlight,
-            border: borderCol
-          }
-        },
-        shadow: {
-          enabled: glowCol !== 'rgba(0,0,0,0)',
-          color: glowCol,
-          size: 10,
-          x: 0,
-          y: 0
-        },
-        margin: 10,
-        font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
-      };
-    });
+    let nodesArray = [];
+    let edgesArray = [];
+    
+    if (activeTab === 'audit-graph') {
+      // 1. Audit viewport: Draw the entire 120+ nodes flat dependency graph (original Vis.js mapping)
+      nodesArray = rawGraph.nodes.map(n => {
+        const typeStyle = groupStyles[n.type] || { color: { background: '#1e293b', border: '#475569' }, shape: 'box' };
+        const prefix = translationDict[currentLang][n.type] || n.type;
+        const state = getNodeStatus(n.id, n.type);
+        
+        let borderCol = typeStyle.color.border;
+        let glowCol = 'rgba(0,0,0,0)';
+        let badgeText = '';
+        
+        if (state === 'failed') {
+          borderCol = '#ef4444';
+          glowCol = '#ef4444';
+          badgeText = ' ❌';
+        } else if (state === 'warning') {
+          borderCol = '#f59e0b';
+          glowCol = '#f59e0b';
+          badgeText = ' ⚠️';
+        } else if (state === 'passed') {
+          borderCol = '#10b981';
+          glowCol = '#10b981';
+          badgeText = ' ✅';
+        }
+        
+        return {
+          id: n.id,
+          label: `${prefix}:\n${n.label}${badgeText}`,
+          title: `Type: ${n.type}\nID: ${n.id}`,
+          ...typeStyle,
+          color: {
+            ...typeStyle.color,
+            border: borderCol,
+            highlight: { ...typeStyle.color.highlight, border: borderCol }
+          },
+          shadow: {
+            enabled: glowCol !== 'rgba(0,0,0,0)',
+            color: glowCol,
+            size: 10,
+            x: 0,
+            y: 0
+          },
+          margin: 10,
+          font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
+        };
+      });
 
-    const edgesArray = rawGraph.edges.map(e => {
-      const isConnection = e.type === 'connects_to';
-      return {
-        from: e.from,
-        to: e.to,
-        label: e.type,
-        arrows: 'to',
-        font: { color: '#94a3b8', size: 10, strokeWidth: 0, face: 'JetBrains Mono, monospace' },
-        color: {
-          color: isConnection ? '#8b5cf6' : '#334155',
-          highlight: '#00f2fe',
-          hover: '#00f2fe'
-        },
-        dashes: isConnection
-      };
-    });
+      edgesArray = rawGraph.edges.map(e => {
+        const isConnection = e.type === 'connects_to';
+        return {
+          from: e.from,
+          to: e.to,
+          label: e.type,
+          arrows: 'to',
+          font: { color: '#94a3b8', size: 10, strokeWidth: 0, face: 'JetBrains Mono, monospace' },
+          color: {
+            color: isConnection ? '#8b5cf6' : '#334155',
+            highlight: '#00f2fe',
+            hover: '#00f2fe'
+          },
+          dashes: isConnection
+        };
+      });
+    } else {
+      // 2. SPEC Topology Builder viewport: High-Fidelity exploded compound port diagram
+      const coreNodes = rawGraph.nodes.filter(n => n.type === 'app' || n.type === 'block' || n.type === 'slot');
+      
+      coreNodes.forEach(n => {
+        const typeStyle = groupStyles[n.type] || { color: { background: '#1e293b', border: '#475569' }, shape: 'box' };
+        const prefix = translationDict[currentLang][n.type] || n.type;
+        const state = getNodeStatus(n.id, n.type);
+        
+        let borderCol = typeStyle.color.border;
+        let glowCol = 'rgba(0,0,0,0)';
+        let badgeText = '';
+        
+        if (state === 'failed') {
+          borderCol = '#ef4444';
+          glowCol = '#ef4444';
+          badgeText = ' ❌';
+        } else if (state === 'warning') {
+          borderCol = '#f59e0b';
+          glowCol = '#f59e0b';
+          badgeText = ' ⚠️';
+        } else if (state === 'passed') {
+          borderCol = '#10b981';
+          glowCol = '#10b981';
+          badgeText = ' ✅';
+        }
+        
+        nodesArray.push({
+          id: n.id,
+          label: `${prefix}:\n${n.label}${badgeText}`,
+          title: `Type: ${n.type}\nID: ${n.id}`,
+          ...typeStyle,
+          color: {
+            ...typeStyle.color,
+            border: borderCol,
+            highlight: { ...typeStyle.color.highlight, border: borderCol }
+          },
+          shadow: {
+            enabled: glowCol !== 'rgba(0,0,0,0)',
+            color: glowCol,
+            size: 14,
+            x: 0,
+            y: 0
+          },
+          margin: 10,
+          font: { color: '#ffffff', size: 12, face: 'JetBrains Mono, monospace' }
+        });
+
+        // Spontaneous compound ports explosion physics mapping
+        if (n.type === 'block') {
+          const blockId = n.id.replace('block:', '');
+          const bDef = blocksCatalog.find(b => b.id === blockId);
+          if (bDef) {
+            if (bDef.provides) {
+              bDef.provides.forEach((prov, idx) => {
+                const portId = `port-provides:${blockId}:${prov}`;
+                nodesArray.push({
+                  id: portId,
+                  label: `Provides:\n${prov}`,
+                  shape: 'dot',
+                  size: 10,
+                  color: { background: '#064e3b', border: '#10b981' },
+                  shadow: { enabled: true, color: '#10b981', size: 8, x: 0, y: 0 },
+                  font: { color: '#34d399', size: 9, face: 'JetBrains Mono, monospace' }
+                });
+                edgesArray.push({
+                  from: n.id,
+                  to: portId,
+                  color: { color: '#047857' },
+                  dashes: true
+                });
+              });
+            }
+            if (bDef.requires) {
+              bDef.requires.forEach((req, idx) => {
+                const portId = `port-requires:${blockId}:${req}`;
+                nodesArray.push({
+                  id: portId,
+                  label: `Requires:\n${req}`,
+                  shape: 'dot',
+                  size: 10,
+                  color: { background: '#78350f', border: '#f59e0b' },
+                  shadow: { enabled: true, color: '#f59e0b', size: 8, x: 0, y: 0 },
+                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' }
+                });
+                edgesArray.push({
+                  from: portId,
+                  to: n.id,
+                  color: { color: '#b45309' },
+                  dashes: true
+                });
+              });
+            }
+          }
+        }
+      });
+
+      // Map connection edges dynamically in SPEC viewport
+      rawGraph.edges.forEach(e => {
+        if (e.type === 'connects_to') {
+          edgesArray.push({
+            from: e.from,
+            to: e.to,
+            label: 'connects_to',
+            arrows: 'to',
+            color: { color: '#8b5cf6', highlight: '#00f2fe' },
+            font: { color: '#94a3b8', size: 10, face: 'JetBrains Mono, monospace' },
+            dashes: true
+          });
+        } else if (e.type === 'provides') {
+          // Block -> capability (map Provides port to capability)
+          const blockId = e.from.replace('block:', '');
+          const capId = e.to.replace('capability:', '');
+          const portId = `port-provides:${blockId}:${capId}`;
+          if (nodesArray.some(nd => nd.id === portId)) {
+            // Find if there is a capability node in active array, if not, add it
+            if (!nodesArray.some(nd => nd.id === e.to)) {
+              const capNode = rawGraph.nodes.find(nd => nd.id === e.to);
+              if (capNode) {
+                nodesArray.push({
+                  id: capNode.id,
+                  label: `Capability:\n${capNode.label}`,
+                  ...groupStyles.capability,
+                  font: { color: '#ffffff', size: 11, face: 'JetBrains Mono, monospace' }
+                });
+              }
+            }
+            edgesArray.push({
+              from: portId,
+              to: e.to,
+              arrows: 'to',
+              color: { color: '#10b981' }
+            });
+          }
+        } else if (e.type === 'depends_on' && e.from.startsWith('block:') && e.to.startsWith('block:')) {
+          // General dependencies mapping
+          edgesArray.push({
+            from: e.from,
+            to: e.to,
+            label: 'depends_on',
+            arrows: 'to',
+            color: { color: '#334155' }
+          });
+        }
+      });
+    }
 
     visNodes = new vis.DataSet(nodesArray);
     visEdges = new vis.DataSet(edgesArray);
@@ -1419,6 +1763,10 @@
       `;
     } else if (node.type === 'slot') {
       const slotId = nodeId.startsWith('slot:') ? nodeId.slice(5) : nodeId;
+      const rawCamel = slotId.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
+      const inferredPath = `source/code/slots/${slotId}.ts`;
+      const inferredSymbol = `handle${symbolName}`;
       
       html += `
         <div style="border-top:1px solid #1e293b; padding-top:16px; margin-top:16px;">
@@ -1427,29 +1775,35 @@
             <label>Target Block Connection</label>
             <select id="sidebar-slot-block" class="form-select">
               ${rawGraph.nodes.filter(n => n.type === 'block').map(n => {
-                const bId = n.id.slice(6);
+                const bId = n.id.replace('block:', '');
                 return `<option value="${bId}">${bId}</option>`;
               }).join('')}
             </select>
           </div>
           <div class="form-group">
-            <label>Source File Path</label>
-            <input type="text" id="sidebar-slot-path" class="form-input" value="source/code/slots/${slotId}.ts" />
+            <label>Source File Path (智能自动推断)</label>
+            <input type="text" id="sidebar-slot-path" class="form-input" style="background: rgba(255,255,255,0.05); color: #94a3b8;" value="${inferredPath}" readonly />
           </div>
           <div class="form-group">
-            <label>Symbol / Handler Name</label>
-            <input type="text" id="sidebar-slot-symbol" class="form-input" value="handle${slotId.charAt(0).toUpperCase() + slotId.slice(1)}" />
+            <label>Symbol / Handler Name (智能自动推断)</label>
+            <input type="text" id="sidebar-slot-symbol" class="form-input" style="background: rgba(255,255,255,0.05); color: #94a3b8;" value="${inferredSymbol}" readonly />
           </div>
           <div class="form-group">
             <label>Description</label>
             <input type="text" id="sidebar-slot-desc" class="form-input" placeholder="Configure slot behavior" />
           </div>
-          <div style="display:flex; gap:8px; margin-top:14px;">
-            <button class="btn btn-primary" style="flex:1; justify-content:center;" onclick="bindSlotForm('${slotId}')">
-              Save Bind
-            </button>
-            <button class="btn btn-danger" onclick="unbindSlot('${slotId}')">
-              Unbind
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary" style="flex:1; justify-content:center;" onclick="bindSlotForm('${slotId}')">
+                Save Bind (保存绑定)
+              </button>
+              <button class="btn btn-danger" onclick="unbindSlot('${slotId}')">
+                Unbind
+              </button>
+            </div>
+            <button class="btn" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: #ffffff; justify-content:center; gap:6px;" onclick="bootstrapSlotCode('${slotId}')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 18l6-6-6-6M8 6L2 12l6 6"/></svg>
+              Bootstrap Code (一键自举 Slot 源码)
             </button>
           </div>
         </div>
@@ -1480,7 +1834,7 @@
   // Mutations Operations Action triggers
   function uninstallBlock(blockId) {
     const mutationId = `mut-block-remove-${Date.now()}`;
-    mutationsList.push({
+    pushMutation({
       id: mutationId,
       kind: 'remove-block',
       blockId: blockId
@@ -1490,7 +1844,6 @@
       try { visNodes.remove(`block:${blockId}`); } catch(e){}
     }
     
-    updateMutationBadge();
     closeDrawer();
   }
 
@@ -1503,7 +1856,7 @@
 
     if (!path || !symbol) return;
 
-    mutationsList.push({
+    pushMutation({
       id: mutationId,
       kind: 'bind-slot',
       slotId: slotId,
@@ -1538,13 +1891,12 @@
     updateNodeVisualState(`slot:${slotId}`, 'warning');
     updateNodeVisualState(`block:${block}`, 'warning');
 
-    updateMutationBadge();
     closeDrawer();
   }
 
   function unbindSlot(slotId) {
     const mutationId = `mut-slot-unbind-${Date.now()}`;
-    mutationsList.push({
+    pushMutation({
       id: mutationId,
       kind: 'unbind-slot',
       slotId: slotId
@@ -1562,8 +1914,51 @@
     }
 
     updateNodeVisualState(`slot:${slotId}`, 'warning');
-    updateMutationBadge();
     closeDrawer();
+  }
+
+  // V2 Frontend physical code bootstrap invoker
+  async function bootstrapSlotCode(slotId) {
+    const blockVal = document.getElementById('sidebar-slot-block') ? document.getElementById('sidebar-slot-block').value : '';
+    const consoleContainer = document.getElementById('node-runner-console-container');
+    const runnerConsole = document.getElementById('node-runner-console');
+    
+    if (consoleContainer) consoleContainer.style.display = 'block';
+    if (runnerConsole) runnerConsole.innerHTML = `[Scaffolder] Bootstrapping physical Slot handler on server...\n`;
+
+    try {
+      const res = await fetch('/api/bootstrap-slot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId: slotId, block: blockVal })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        if (runnerConsole) {
+          const div = document.createElement('div');
+          div.style.color = '#4ade80';
+          div.textContent = `[SUCCESS] Physical slot handler bootstrapped at: ${data.path}`;
+          runnerConsole.appendChild(div);
+          
+          const divCheck = document.createElement('div');
+          divCheck.style.color = '#38bdf8';
+          divCheck.textContent = `[Runner] Dispatching incremental static AST check for ${slotId}...`;
+          runnerConsole.appendChild(divCheck);
+        }
+        
+        // 自动触发静态分析运行，并将分析结果流式显示在 Runner 控制台中！
+        await runSingleNode('slot', slotId);
+      } else {
+        throw new Error(data.error || 'Failed to bootstrap file');
+      }
+    } catch(err) {
+      if (runnerConsole) {
+        const div = document.createElement('div');
+        div.style.color = '#f87171';
+        div.textContent = `[ERROR] Bootstrapping failed: ${err.message || err}`;
+        runnerConsole.appendChild(div);
+      }
+    }
   }
 
   function updateNodeVisualState(nodeId, state) {
@@ -1782,16 +2177,24 @@
   document.getElementById('recompile-btn').addEventListener('click', triggerHotCompile);
   document.getElementById('lang-btn').addEventListener('click', toggleLanguage);
 
-  // 绑定全局键盘删除事件
+  // 绑定全局键盘快捷键事件 (Delete/Backspace 删除, Ctrl+Z 撤销, Ctrl+Y 重做)
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      triggerUndo();
+    } else if (e.ctrlKey && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      triggerRedo();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
         handleKeyboardDelete();
       }
     }
   });
 
-  // Initialize page translations and network layout
+  // Initialize page translations and network layout with dynamic Blocks catalog scanning first
   applyTranslations();
-  renderTopology();
+  loadBlocksCatalog().then(() => {
+    renderTopology();
+  });
 </script>
