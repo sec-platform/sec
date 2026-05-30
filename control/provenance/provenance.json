@@ -254,6 +254,15 @@
       "hash": "fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"
     },
     {
+      "path": "control/evidence/review-summary.json",
+      "originType": "generated",
+      "originId": "control/evidence/review-summary.json",
+      "generatedByPass": "verify",
+      "verifiedBy": [],
+      "overrideStatus": "none",
+      "hash": "816b6d9547b511ad6122e34d3601db1081250224d6688de94252649846cca2a4"
+    },
+    {
       "path": "control/evidence/runtime-report.json",
       "originType": "generated",
       "originId": "control/evidence/runtime-report.json",
@@ -287,7 +296,7 @@
       "generatedByPass": "explain",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "f85ee67beea6645e63f305011570435bec8aca2cfdd8c68dca1885003098c582"
+      "hash": "9c67e45437151a9b006443875827280473a5aae957fe3cfee588a0239de75dea"
     },
     {
       "path": "control/graph/explain-graph.mmd",
@@ -305,7 +314,52 @@
       "generatedByPass": "lock",
       "verifiedBy": [],
       "overrideStatus": "none",
-      "hash": "22efcd566cdc78f16385b41d7cb762c8558d995444e814ede5d5b61fbb6c1655"
+      "hash": "554b1c4c36c42e364bd8b76ac6f98f6e003b9bd5d15bd24ffef1c963d648fb2e"
+    },
+    {
+      "path": "control/workbench/views/graph-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/graph-view.html",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none",
+      "hash": "b9c31c5f941681b28d101aad24343a0fe24db040e4633c067f2323827de52fb9"
+    },
+    {
+      "path": "control/workbench/views/overview-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/overview-view.html",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none",
+      "hash": "e034ffb7d7d37dbb53c9c0439a290b6b018df082de6381032eadc32f872eb0d5"
+    },
+    {
+      "path": "control/workbench/views/review-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/review-view.html",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none",
+      "hash": "cc08749a6adf366dc38f44ce983f776acc599280b94be6e256a989c92a6c55dd"
+    },
+    {
+      "path": "control/workbench/views/slot-rule-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/slot-rule-view.html",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none",
+      "hash": "2dc9a6ad45f01cf8277e6824fa99d7fde36dd1d315617f17cf6009eadde543a4"
+    },
+    {
+      "path": "control/workbench/views/source-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/source-view.html",
+      "generatedByPass": "explain",
+      "verifiedBy": [],
+      "overrideStatus": "none",
+      "hash": "ba418238567d55ff83d82c7be29627a4465e7ac994c9feec1adaee5ce218bd9b"
     },
     {
       "path": "custom/customer_normalizer.ts",
