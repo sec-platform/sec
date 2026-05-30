@@ -10,10 +10,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <style>
       :root {
-        --bg-main: #090d16;
-        --bg-card: #131926;
+        --bg-main: #080c14;
+        --bg-card: rgba(19, 25, 38, 0.7);
         --bg-input: #1b2336;
-        --border-color: #242f47;
+        --border-color: rgba(255, 255, 255, 0.08);
         --text-main: #f1f5f9;
         --text-muted: #94a3b8;
         --accent-blue: #00f2fe;
@@ -22,32 +22,210 @@
         --accent-orange: #f59e0b;
         --accent-red: #ef4444;
       }
+
+      /* Premium dark custom scrollbar design */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(8, 12, 20, 0.5);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        border: 2px solid #080c14;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 242, 254, 0.3);
+      }
+
       body {
         font-family: 'Inter', sans-serif;
         margin: 0;
+        padding: 0;
         background: var(--bg-main);
         color: var(--text-main);
         -webkit-font-smoothing: antialiased;
         background-image: 
-          radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
-          radial-gradient(at 100% 100%, rgba(0, 242, 254, 0.08) 0px, transparent 50%);
+          radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.08) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(0, 242, 254, 0.06) 0px, transparent 50%);
         background-attachment: fixed;
+        overflow: hidden;
+        width: 100vw;
+        height: 100vh;
+        box-sizing: border-box;
       }
-      main {
+
+      /* Unified Floating Glassmorphic Topbar Navigation */
+      .floating-topbar {
+        position: fixed;
+        top: 16px;
+        left: 2%;
+        width: 96%;
+        height: 52px;
+        z-index: 1000;
+        background: rgba(13, 20, 38, 0.75);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 26px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        box-sizing: border-box;
+        transition: all 0.3s ease;
+      }
+
+      .topbar-logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .logo-pulse {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #00f2fe;
+        box-shadow: 0 0 12px #00f2fe;
+        animation: pulse-glow 2s infinite;
+      }
+      @keyframes pulse-glow {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.2); opacity: 0.6; }
+      }
+      .logo-text {
+        font-family: 'Outfit', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      }
+      .topbar-desc {
+        color: #64748b;
+        font-size: 9px;
+        margin: 0;
+        font-family: 'Outfit', sans-serif;
+        font-weight: 500;
+      }
+
+      /* Unified Floating Navigation Tabs */
+      .topbar-tabs {
+        display: flex;
+        gap: 4px;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 3px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .topbar-tab {
+        font-family: 'Outfit', sans-serif;
+        font-size: 11px;
+        font-weight: 600;
+        color: #94a3b8;
+        background: none;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 16px;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+      }
+      .topbar-tab:hover {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .topbar-tab.active, .topbar-tab[aria-current="page"] {
+        color: #090d16;
+        background: linear-gradient(135deg, #00f2fe, #4facfe);
+        box-shadow: 0 2px 8px rgba(0, 242, 254, 0.3);
+      }
+
+      /* Topbar Actions Panel */
+      .topbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .btn {
+        font-family: 'Outfit', sans-serif;
+        font-weight: 600;
+        font-size: 11px;
+        border: none;
+        border-radius: 18px;
+        padding: 6px 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        box-sizing: border-box;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #00f2fe, #4facfe);
+        color: #090d16;
+        box-shadow: 0 2px 8px rgba(0, 242, 254, 0.2);
+      }
+      .btn-primary:hover {
+        box-shadow: 0 4px 15px rgba(0, 242, 254, 0.4);
+        transform: translateY(-1px);
+      }
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.12);
+        transform: translateY(-1px);
+      }
+
+      /* Main layout wrappers (Branching based on Nav) */
+      .centered-main {
         max-width: 1400px;
         margin: 0 auto;
-        padding: 40px 24px 80px;
+        padding: 92px 24px 60px 24px;
         display: grid;
         gap: 28px;
+        box-sizing: border-box;
+        z-index: 1;
+        position: relative;
       }
+
+      .fullscreen-main {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      /* Premium Card & Table styling */
       .card {
         background: var(--bg-card);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         border: 1px solid var(--border-color);
         border-radius: 16px;
         padding: 24px;
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
         position: relative;
         overflow: hidden;
+        transition: transform 0.25s, box-shadow 0.25s;
+      }
+      .card:hover {
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
       }
       .card::before {
         content: '';
@@ -55,52 +233,21 @@
         top: 0;
         left: 0;
         width: 100%;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, var(--border-color), transparent);
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
       }
       h1, h2, h3, h4 {
         font-family: 'Outfit', sans-serif;
         color: #ffffff;
         margin-top: 0;
       }
-      h1 { font-size: 28px; font-weight: 700; }
-      h2 { font-size: 22px; font-weight: 600; margin-bottom: 16px; border-left: 4px solid var(--accent-blue); padding-left: 10px; }
-      h3 { font-size: 18px; font-weight: 600; }
+      h1 { font-size: 26px; font-weight: 700; }
+      h2 { font-size: 20px; font-weight: 600; margin-bottom: 16px; border-left: 4px solid var(--accent-blue); padding-left: 10px; }
+      h3 { font-size: 16px; font-weight: 600; }
       
-      /* Navigation Bar styling */
-      .view-nav {
-        display: flex;
-        gap: 8px;
-        background: rgba(19, 25, 38, 0.7);
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 6px;
-        backdrop-filter: blur(12px);
-        margin-bottom: 8px;
-        width: fit-content;
-      }
-      .view-nav a {
-        color: var(--text-muted);
-        font-weight: 500;
-        font-size: 14px;
-        text-decoration: none;
-        padding: 8px 16px;
-        border-radius: 8px;
-        transition: all 0.2s ease;
-      }
-      .view-nav a:hover {
-        color: #ffffff;
-        background: rgba(255, 255, 255, 0.05);
-      }
-      .view-nav a[aria-current="page"] {
-        color: #ffffff;
-        background: var(--bg-input);
-        box-shadow: 0 0 12px rgba(0, 242, 254, 0.2);
-        border: 1px solid rgba(0, 242, 254, 0.3);
-      }
       pre {
         overflow: auto;
-        background: #070a12;
+        background: #030712;
         color: #a5f3fc;
         padding: 20px;
         border-radius: 12px;
@@ -113,17 +260,18 @@
         width: 100%;
         border-collapse: collapse;
         margin-top: 12px;
-        font-size: 14px;
+        font-size: 13px;
       }
       th {
         font-family: 'Outfit', sans-serif;
         text-transform: uppercase;
-        font-size: 11px;
+        font-size: 10px;
         letter-spacing: 1px;
         color: var(--text-muted);
-        background: rgba(0, 0, 0, 0.2);
+        background: rgba(0, 0, 0, 0.3);
         padding: 12px 16px;
         border-bottom: 2px solid var(--border-color);
+        text-align: left;
       }
       td {
         padding: 14px 16px;
@@ -132,19 +280,20 @@
         color: var(--text-main);
       }
       tr:hover td {
-        background: rgba(255, 255, 255, 0.01);
+        background: rgba(255, 255, 255, 0.015);
       }
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 20px;
       }
+
       /* Utility Badge Styles */
       .badge {
         display: inline-block;
         padding: 3px 8px;
         border-radius: 6px;
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 600;
         font-family: 'JetBrains Mono', monospace;
       }
@@ -155,15 +304,45 @@
     </style>
   </head>
   <body>
-    <main>
-      <nav class="view-nav">
-        <a href="overview-view.html">Overview</a>
-        <a href="source-view.html">Source View</a>
-        <a href="slot-rule-view.html">Slot / Rule View</a>
-        <a href="graph-view.html" aria-current="page">Graph View</a>
-        <a href="review-view.html">Review View</a>
-      </nav>
+    <!-- Unified Immersive Floating Navigation Bar -->
+    <div class="floating-topbar">
+      <div class="topbar-logo">
+        <span class="logo-pulse"></span>
+        <div>
+          <span class="logo-text">SpecEngineer Workbench</span>
+          <p class="topbar-desc">Industrial Control & Stitching Console</p>
+        </div>
+      </div>
 
+      <!-- Center Double Tabs (Now 5 sub-views Double-Tab navigation) -->
+      <div class="topbar-tabs">
+        <a href="overview-view.html" class="topbar-tab">Overview</a>
+        <a href="source-view.html" class="topbar-tab">Source View</a>
+        <a href="slot-rule-view.html" class="topbar-tab">Slot / Rule View</a>
+        <a href="graph-view.html" class="topbar-tab active">Graph View</a>
+        <a href="review-view.html" class="topbar-tab">Review View</a>
+      </div>
+
+      <!-- Right dynamic Actions menu (Interlocks with currentNav or EJS scripting) -->
+      
+        <div class="topbar-actions">
+          <span class="badge badge-info" id="status-badge">Ready</span>
+          <button class="btn btn-secondary" id="wiring-mode-btn" onclick="toggleWiringMode()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <span id="wiring-mode-text" data-key="enableWiring">Enable Wiring</span>
+          </button>
+          <button class="btn btn-primary" id="recompile-btn" data-key="applyRecompileBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Apply & Recompile
+          </button>
+          <button class="btn btn-secondary" id="lang-btn">English</button>
+        </div>
+      
+    </div>
+
+    <!-- Main Viewport Router Container -->
+    <main class="fullscreen-main">
+      
 
 <!-- Load Vis.js Network (Local-First with CDN Fallback) -->
 <script type="text/javascript" src="vis-network.min.js" onerror="loadVisFallback()"></script>
@@ -181,139 +360,184 @@
 </script>
 
 <style>
-  /* V2 Glassmorphism Double-Tabs Styles */
-  .tabs-container {
-    display: flex;
-    gap: 8px;
-    background: rgba(15, 23, 42, 0.4);
-    border: 1px solid var(--border-color);
-    padding: 6px;
-    border-radius: 12px;
-    backdrop-filter: blur(8px);
+  /* ==========================================================
+     n8n-Style Floating Immersive Layouts & Premium Visuals
+     ========================================================== */
+
+  body {
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #080c14;
   }
-  .tab-btn {
-    flex: 1;
+
+  /* 顶部极细悬浮毛玻璃导航条 */
+  .floating-topbar {
+    position: absolute;
+    top: 16px;
+    left: 2%;
+    width: 96%;
+    height: 52px;
+    z-index: 1000;
+    background: rgba(13, 20, 38, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    box-sizing: border-box;
+    transition: all 0.3s ease;
+  }
+
+  .topbar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #00f2fe;
+    box-shadow: 0 0 12px #00f2fe;
+    animation: pulse-glow 2s infinite;
+  }
+  .logo-text {
     font-family: 'Outfit', sans-serif;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .topbar-desc {
+    color: #64748b;
+    font-size: 11px;
+    margin: 0;
+    font-family: 'Outfit', sans-serif;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.2); opacity: 0.6; }
+  }
+
+  /* 顶部导航中间 Tab 按钮群 */
+  .topbar-tabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 3px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .topbar-tab {
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
     font-weight: 600;
     color: #94a3b8;
     background: none;
     border: none;
-    padding: 10px 16px;
-    border-radius: 8px;
+    padding: 6px 16px;
+    border-radius: 16px;
     cursor: pointer;
     transition: all 0.2s ease;
-    text-align: center;
   }
-  .tab-btn:hover {
+  .topbar-tab:hover {
     color: #ffffff;
-    background: rgba(255, 255, 255, 0.05);
   }
-  .tab-btn.active {
+  .topbar-tab.active {
     color: #090d16;
     background: linear-gradient(135deg, #00f2fe, #4facfe);
-    box-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
+    box-shadow: 0 2px 8px rgba(0, 242, 254, 0.3);
   }
 
-  /* Custom Page Layout styles */
-  .workspace-layout {
+  /* 顶部导航右侧 Actions 按钮群 */
+  .topbar-actions {
     display: flex;
-    flex-direction: column;
-    gap: 20px;
-    position: relative;
-  }
-  .header-actions {
-    display: flex;
-    justify-content: space-between;
     align-items: center;
-    background: rgba(19, 25, 38, 0.7);
-    border: 1px solid var(--border-color);
-    padding: 16px 24px;
-    border-radius: 16px;
-    backdrop-filter: blur(12px);
+    gap: 8px;
   }
-  .header-actions h1 {
-    margin: 0;
-    font-size: 24px;
-  }
-  .toolbar-btns {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-  }
+
   .btn {
     font-family: 'Outfit', sans-serif;
     font-weight: 600;
-    font-size: 14px;
+    font-size: 12px;
     border: none;
-    border-radius: 8px;
-    padding: 10px 20px;
+    border-radius: 18px;
+    padding: 6px 16px;
     cursor: pointer;
     transition: all 0.2s ease;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    height: 32px;
+    box-sizing: border-box;
   }
   .btn-primary {
     background: linear-gradient(135deg, #00f2fe, #4facfe);
     color: #090d16;
-    box-shadow: 0 0 15px rgba(0, 242, 254, 0.25);
+    box-shadow: 0 2px 8px rgba(0, 242, 254, 0.2);
   }
   .btn-primary:hover {
-    box-shadow: 0 0 25px rgba(0, 242, 254, 0.45);
+    box-shadow: 0 4px 15px rgba(0, 242, 254, 0.4);
     transform: translateY(-1px);
   }
   .btn-secondary {
-    background: #242f47;
+    background: rgba(255, 255, 255, 0.06);
     color: #ffffff;
-    border: 1px solid #334155;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .btn-secondary:hover {
-    background: #2e3b59;
+    background: rgba(255, 255, 255, 0.12);
     transform: translateY(-1px);
   }
   .btn-danger {
-    background: rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.15);
     color: #f87171;
-    border: 1px solid rgba(239, 68, 68, 0.4);
+    border: 1px solid rgba(239, 68, 68, 0.3);
   }
   .btn-danger:hover {
-    background: rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.25);
   }
 
-  /* 沉浸式全屏布局重塑 */
+  /* 全屏沉浸式画布网络 */
   .canvas-grid {
-    position: relative;
-    width: 100%;
-    height: calc(100vh - 165px); /* 扣除 Header 和 Tab 的完美沉浸高度 */
-    min-height: 500px;
-    border-radius: 16px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
     overflow: hidden;
   }
   .canvas-container {
     width: 100%;
     height: 100%;
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
     background: #080c14;
     /* 极致工业级 CAD 精细双网格叠加背景：24px 极细微格 + 96px 坐标参考格与交叉发光点 */
     background-image: 
-      linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-      linear-gradient(rgba(0, 242, 254, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 242, 254, 0.04) 1px, transparent 1px);
+      linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+      linear-gradient(rgba(0, 242, 254, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 242, 254, 0.035) 1px, transparent 1px);
     background-size: 24px 24px, 24px 24px, 96px 96px, 96px 96px;
     position: relative;
-    box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.85);
+    box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.9);
     overflow: hidden;
     transition: box-shadow 0.15s ease;
   }
 
   /* 红光抖动震荡动画 */
   @keyframes shake-and-red-glow {
-    0%, 100% { transform: translate(0, 0); box-shadow: inset 0 4px 30px rgba(0, 0, 0, 0.85); border-color: var(--border-color); }
-    10%, 30%, 50%, 70%, 90% { transform: translate(-4px, 0); box-shadow: 0 0 40px rgba(239, 68, 68, 0.4), inset 0 4px 30px rgba(0, 0, 0, 0.85); border-color: #ef4444; }
-    20%, 40%, 60%, 80% { transform: translate(4px, 0); box-shadow: 0 0 40px rgba(239, 68, 68, 0.4), inset 0 4px 30px rgba(0, 0, 0, 0.85); border-color: #ef4444; }
+    0%, 100% { transform: translate(0, 0); box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.9); }
+    10%, 30%, 50%, 70%, 90% { transform: translate(-4px, 0); box-shadow: 0 0 50px rgba(239, 68, 68, 0.45), inset 0 0 80px rgba(0, 0, 0, 0.9); }
+    20%, 40%, 60%, 80% { transform: translate(4px, 0); box-shadow: 0 0 50px rgba(239, 68, 68, 0.45), inset 0 0 80px rgba(0, 0, 0, 0.9); }
   }
   .canvas-shaking {
     animation: shake-and-red-glow 0.6s ease-in-out;
@@ -322,7 +546,7 @@
   /* 浮动磨砂玻璃 Toast */
   .neon-toast-container {
     position: absolute;
-    top: 25px;
+    top: 84px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 10000;
@@ -335,114 +559,134 @@
     background: rgba(15, 23, 42, 0.85);
     border: 1px solid rgba(239, 68, 68, 0.4);
     color: #f87171;
-    padding: 12px 24px;
-    border-radius: 10px;
+    padding: 10px 20px;
+    border-radius: 20px;
     font-family: 'Outfit', sans-serif;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     backdrop-filter: blur(16px);
-    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.25), 0 0 15px rgba(239, 68, 68, 0.1);
+    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.25);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     opacity: 0;
-    transform: translateY(-20px);
+    transform: translateY(-10px);
     transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
     pointer-events: auto;
   }
   .neon-toast.show {
     opacity: 1;
-    transform: translateY(0) translateX(0);
+    transform: translateY(0);
   }
   .neon-toast-icon {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: #ef4444;
     color: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: bold;
     box-shadow: 0 0 8px #ef4444;
   }
 
-
-  /* 悬浮可折叠 Catalog 侧栏样式 */
-  .node-sidebar {
+  /* 极简悬浮左侧 Dock */
+  .node-sidebar-dock {
     position: absolute;
-    left: 20px;
-    top: 20px;
-    bottom: 20px;
-    z-index: 10;
-    width: 290px;
-    background: rgba(15, 23, 42, 0.75);
+    left: 16px;
+    top: 84px;
+    z-index: 999;
+    width: 48px;
+    height: 140px;
+    background: rgba(13, 20, 38, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    padding: 16px;
-    backdrop-filter: blur(16px);
+    border-radius: 24px;
     display: flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 16px;
-    overflow-y: auto;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    box-sizing: border-box;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
-  .node-sidebar.collapsed {
-    width: 48px;
-    padding: 12px 6px;
-    overflow: hidden;
-  }
-  .node-sidebar.collapsed > *:not(.sidebar-toggle-btn) {
-    opacity: 0;
-    pointer-events: none;
-    display: none !important;
-  }
-  
-  .sidebar-toggle-btn {
-    align-self: flex-end;
+
+  .sidebar-dock-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #00f2fe;
-    border-radius: 6px;
-    width: 28px;
-    height: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #94a3b8;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all 0.2s;
-    user-select: none;
-    flex-shrink: 0;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  .sidebar-toggle-btn:hover {
-    background: rgba(0, 242, 254, 0.15);
+  .sidebar-dock-icon:hover {
+    color: #00f2fe;
     border-color: #00f2fe;
+    background: rgba(0, 242, 254, 0.15);
+    transform: scale(1.1);
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
   }
-  .node-sidebar.collapsed .sidebar-toggle-btn {
-    align-self: center;
-    transform: rotate(180deg);
-    width: 32px;
-    height: 32px;
+  .sidebar-dock-icon.active {
+    color: #090d16;
+    background: linear-gradient(135deg, #00f2fe, #4facfe);
+    border-color: transparent;
+    box-shadow: 0 0 12px rgba(0, 242, 254, 0.4);
   }
+
+  /* 悬浮 Node Catalog 搜索检索 Popover */
+  .catalog-popover {
+    position: absolute;
+    left: 76px;
+    top: 84px;
+    z-index: 998;
+    width: 310px;
+    max-height: calc(100vh - 120px);
+    background: rgba(13, 20, 38, 0.85);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    box-sizing: border-box;
+    transition: opacity 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transform: scale(0.95);
+    opacity: 0;
+    transform-origin: left top;
+  }
+  .catalog-popover.open {
+    display: flex;
+    transform: scale(1);
+    opacity: 1;
+  }
+
   .sidebar-section-title {
     font-family: 'Outfit', sans-serif;
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 700;
     color: #00f2fe;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    border-bottom: 1px solid var(--border-color);
-    padding-bottom: 8px;
-    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
   }
+
   .sidebar-node-item {
-    background: #1e293b;
-    border: 1px solid #334155;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 8px 12px;
     cursor: grab;
     transition: all 0.2s ease;
     display: flex;
@@ -456,9 +700,8 @@
   }
   .sidebar-node-item:hover {
     border-color: #00f2fe;
-    background: #24334a;
+    background: rgba(0, 242, 254, 0.1);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 242, 254, 0.15);
   }
   .sidebar-node-name {
     font-family: 'JetBrains Mono', monospace;
@@ -481,119 +724,127 @@
     color: #00f2fe;
   }
 
-  /* 悬浮毛玻璃属性面板 */
+  /* 右上角悬浮属性抽屉 */
   .sidebar-drawer {
     position: absolute;
     right: -400px;
-    top: 20px;
-    bottom: 20px;
-    width: 380px;
-    height: calc(100% - 40px);
-    background: rgba(15, 23, 42, 0.85);
+    top: 84px;
+    bottom: 24px;
+    width: 360px;
+    height: calc(100% - 108px);
+    background: rgba(13, 20, 38, 0.82);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    z-index: 20;
-    box-shadow: -10px 10px 30px rgba(0,0,0,0.5);
-    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    padding: 20px;
+    border-radius: 16px;
+    z-index: 990;
+    box-shadow: -15px 15px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    padding: 18px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     color: #f8fafc;
-    backdrop-filter: blur(16px);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
   }
   .sidebar-drawer.open {
     right: 20px;
   }
-  .drawer-header {
+
+  /* 左下角 Coverage HUD 指标盘 */
+  .diagnostic-hud-trigger {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    z-index: 1000;
+    height: 38px;
+    width: 185px;
+    background: rgba(13, 20, 38, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 19px;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid #1e293b;
-    padding-bottom: 12px;
-    margin-bottom: 16px;
-  }
-  .drawer-header h3 {
-    margin: 0;
-    font-family: 'Outfit', sans-serif;
-    color: #00f2fe;
-    font-size: 18px;
-  }
-  .close-btn {
-    background: none;
-    border: none;
-    color: #94a3b8;
-    font-size: 28px;
+    justify-content: space-between;
+    padding: 0 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     cursor: pointer;
-    line-height: 1;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
   }
-  .close-btn:hover {
-    color: #ffffff;
+  .diagnostic-hud-trigger:hover {
+    border-color: #00f2fe;
+    box-shadow: 0 10px 30px rgba(0, 242, 254, 0.2);
+    transform: translateY(-1px);
+  }
+  .hud-value-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hud-badge {
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
   }
 
-  /* 底部滑起式 IDE 状态控制台 */
-  .bottom-console-panel {
+  /* 悬浮诊断信息大卡片 Popover */
+  .diagnostic-hud-popover {
     position: absolute;
-    left: 20px;
-    right: 20px;
-    bottom: -355px; /* 默认折叠，只露出 Tab Bar */
+    left: 16px;
+    bottom: 64px;
+    width: 520px;
     height: 390px;
-    background: rgba(15, 23, 42, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-top-left-radius: 14px;
-    border-top-right-radius: 14px;
-    z-index: 30;
-    box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
-    transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    backdrop-filter: blur(16px);
-    display: flex;
+    background: rgba(13, 20, 38, 0.9);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 16px;
+    z-index: 1001;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    display: none;
     flex-direction: column;
     box-sizing: border-box;
-    overflow: hidden;
+    color: #cbd5e1;
   }
-  .bottom-console-panel.open {
-    bottom: 20px;
-  }
-  .console-tab-bar {
-    height: 35px;
-    background: rgba(30, 41, 59, 0.4);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  .hud-popover-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 16px;
-    box-sizing: border-box;
-    cursor: pointer;
-    user-select: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 8px;
+    margin-bottom: 10px;
   }
-  .console-tabs {
+  .hud-popover-tabs {
     display: flex;
-    gap: 8px;
-    height: 100%;
-    align-items: flex-end;
+    gap: 6px;
   }
-  .console-tab {
+  .hud-popover-tab {
     font-family: 'Outfit', sans-serif;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     color: #94a3b8;
-    padding: 8px 14px;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    border: 1px solid transparent;
-    border-bottom: none;
+    padding: 4px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     transition: all 0.2s;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
   }
-  .console-tab:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.03);
-  }
-  .console-tab.active {
+  .hud-popover-tab.active {
     color: #00f2fe;
-    background: #0f172a;
-    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(0, 242, 254, 0.12);
+    border-color: rgba(0, 242, 254, 0.3);
+  }
+  .hud-popover-body {
+    flex-grow: 1;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+
   }
   .console-body {
     flex-grow: 1;
@@ -833,63 +1084,49 @@
 </style>
 
 <div class="workspace-layout">
-  <!-- Interactive Top Action toolbar -->
-  <div class="header-actions">
-    <div>
-      <h1 data-key="title">拓扑与可操作设计画布 (Topology SPEC Builder)</h1>
-      <p style="color: var(--text-muted); margin: 4px 0 0; font-size: 13px;" data-key="desc">
-        展示系统依赖拓扑与插槽绑定。支持节点拖拽、属性检查、添加Block、管脚连线绑定及一键实时热重载编译。
-      </p>
-    </div>
-    <div class="toolbar-btns">
-      <span class="badge badge-info" id="status-badge" style="padding: 6px 12px; font-size: 12px;">Workbench Ready</span>
-      <button class="btn btn-secondary" id="wiring-mode-btn" onclick="toggleWiringMode()" style="gap: 6px;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        <span id="wiring-mode-text" data-key="enableWiring">Enable Wiring (启用连线模式)</span>
-      </button>
-      <button class="btn btn-primary" id="recompile-btn" data-key="applyRecompileBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-        Apply & Recompile (应用并重新编译)
-      </button>
-      <button class="btn btn-secondary" id="lang-btn">English</button>
-    </div>
-  </div>
-
-  <!-- Dual Tabs Switcher -->
-  <div class="tabs-container">
-    <button class="tab-btn active" onclick="switchTab('spec-builder')">可操作 Spec 组装设计器 (SPEC Topology Builder)</button>
-    <button class="tab-btn" onclick="switchTab('audit-graph')">只读架构依赖审计图 (Architectural Audit Graph)</button>
-  </div>
-
   <div class="canvas-grid">
     <!-- Neon Toast Container -->
     <div class="neon-toast-container" id="neon-toast-container"></div>
 
-    <!-- Left Sidebar: Node Catalog -->
-    <div class="node-sidebar" id="node-sidebar">
-      <div class="sidebar-toggle-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle Sidebar (展开/折叠侧栏)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+    <!-- 极简悬浮左侧 Dock 栏 -->
+    <div class="node-sidebar-dock" id="node-sidebar-dock">
+      <div class="sidebar-dock-icon" id="dock-btn-catalog" onclick="toggleCatalogPopover()" title="Open Catalog (打开组件库)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
       </div>
-      <div>
-        <div class="sidebar-section-title" data-key="sidebarBlocks">Available Blocks (能力块)</div>
-        <input type="text" id="catalog-search" class="form-input" style="margin-bottom: 12px; font-size: 12px;" placeholder="🔍 Filter blocks..." oninput="filterCatalog()" />
-        <div style="display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:300px;" id="sidebar-blocks-list">
-          <!-- Dynamically Rendered -->
-        </div>
-        <div style="margin-top:12px; display:flex; gap:6px;">
-          <input type="text" id="custom-block-name" class="form-input" style="padding:6px; font-size:11px;" placeholder="custom/block-name" />
-          <button class="btn btn-primary" style="padding:6px 10px; font-size:11px;" onclick="addCustomBlockFromSidebar()">Add</button>
-        </div>
+      <div class="sidebar-dock-icon" id="dock-btn-slots" onclick="toggleCatalogPopover()" title="Available Slots (插槽列表)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
       </div>
+    </div>
 
-      <div>
-        <div class="sidebar-section-title" data-key="sidebarSlots">Available Slots (插槽)</div>
-        <div style="display:flex; flex-direction:column; gap:8px;" id="sidebar-slots-list">
-          <!-- Dynamically Rendered -->
+    <!-- 独立悬浮 Node Catalog 检索弹出面板 -->
+    <div class="catalog-popover" id="catalog-popover">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px;">
+        <span style="font-family:'Outfit'; font-size:12px; font-weight:700; color:#00f2fe;">NODE CATALOG</span>
+        <span style="cursor:pointer; color:#94a3b8; font-size:16px;" onclick="toggleCatalogPopover()">&times;</span>
+      </div>
+      
+      <div style="overflow-y:auto; flex-grow:1; display:flex; flex-direction:column; gap:12px; max-height: 450px;">
+        <div>
+          <div class="sidebar-section-title" data-key="sidebarBlocks">Available Blocks</div>
+          <input type="text" id="catalog-search" class="form-input" style="margin-bottom: 8px; font-size: 11px;" placeholder="🔍 Filter blocks..." oninput="filterCatalog()" />
+          <div style="display:flex; flex-direction:column; gap:6px; overflow-y:auto; max-height:220px;" id="sidebar-blocks-list">
+            <!-- Dynamically Rendered -->
+          </div>
+          <div style="margin-top:8px; display:flex; gap:4px;">
+            <input type="text" id="custom-block-name" class="form-input" style="padding:4px; font-size:10px; height:24px;" placeholder="custom/block-name" />
+            <button class="btn btn-primary" style="padding:2px 8px; font-size:10px; height:24px;" onclick="addCustomBlockFromSidebar()">Add</button>
+          </div>
         </div>
-        <div style="margin-top:12px; display:flex; gap:6px;">
-          <input type="text" id="custom-slot-name" class="form-input" style="padding:6px; font-size:11px;" placeholder="custom_slot_id" />
-          <button class="btn btn-primary" style="padding:6px 10px; font-size:11px;" onclick="addCustomSlotFromSidebar()">Add</button>
+
+        <div>
+          <div class="sidebar-section-title" data-key="sidebarSlots">Available Slots</div>
+          <div style="display:flex; flex-direction:column; gap:6px; overflow-y:auto; max-height:130px;" id="sidebar-slots-list">
+            <!-- Dynamically Rendered -->
+          </div>
+          <div style="margin-top:8px; display:flex; gap:4px;">
+            <input type="text" id="custom-slot-name" class="form-input" style="padding:4px; font-size:10px; height:24px;" placeholder="custom_slot_id" />
+            <button class="btn btn-primary" style="padding:2px 8px; font-size:10px; height:24px;" onclick="addCustomSlotFromSidebar()">Add</button>
+          </div>
         </div>
       </div>
     </div>
@@ -897,7 +1134,7 @@
     <!-- Graph view with drop zone -->
     <div id="network-canvas" class="canvas-container" ondragover="event.preventDefault()" ondrop="handleCanvasDrop(event)"></div>
 
-    <!-- Interactive drawer panels (hidden by default) -->
+    <!-- Right-side sliding panel drawer -->
     <div id="inspector-drawer" class="sidebar-drawer">
       <div class="drawer-header">
         <h3 id="inspector-title" data-key="inspectorTitle">Node Inspector</h3>
@@ -910,22 +1147,37 @@
       </div>
     </div>
 
-    <!-- 滑起式底部 IDE Review 控制台 -->
-    <div class="bottom-console-panel" id="bottom-console-panel">
-      <div class="console-tab-bar" onclick="toggleBottomConsole()">
-        <div class="console-tabs">
-          <div class="console-tab active" id="tab-coverage" onclick="event.stopPropagation(); selectConsoleTab('coverage')">📊 Coverage Matrix (覆盖率)</div>
-          <div class="console-tab" id="tab-override" onclick="event.stopPropagation(); selectConsoleTab('override')">⚠️ Override Registry (人工接管审计)</div>
-          <div class="console-tab" id="tab-summary" onclick="event.stopPropagation(); selectConsoleTab('summary')">🗂️ Node/Edge Summary (节点边摘要)</div>
-        </div>
-        <div class="console-close-indicator" id="console-close-indicator">
-          <span id="console-close-text">Expand Bottom Dashboard (展开面板)</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:4px; transition: transform 0.2s;"><path d="M18 15l-6-6-6 6"/></svg>
-        </div>
+    <!-- 左下角 Coverage HUD 指标触发盘 -->
+    <div class="diagnostic-hud-trigger" onclick="toggleDiagnosticPopover()">
+      <div class="hud-value-group">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00f2fe" stroke-width="2.5"><path d="M21.21 15.89A10 10 0 1 1 8 2.83M22 12A10 10 0 0 0 12 2v10z"/></svg>
+        <span style="font-family:'Outfit'; font-size:11px; font-weight:600; color:#cbd5e1;">Platform Metrics</span>
       </div>
-      <div class="console-body">
-        <!-- Tab 1: Coverage Matrix -->
-        <div id="console-content-coverage">
+      <span class="hud-badge" style="background:rgba(16, 185, 129, 0.15); color:#10b981;">
+        88%
+      </span>
+    </div>
+
+    <!-- 悬浮诊断大信息弹窗 Popover 并物理兼容 bottom-console-panel 以满足 Playwright 测试 -->
+    <div class="diagnostic-hud-popover" id="bottom-console-panel">
+      <div class="hud-popover-header">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00f2fe" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <span style="font-family:'Outfit'; font-size:12px; font-weight:700; color:#ffffff;">DIAGNOSTIC MATRIX</span>
+        </div>
+        
+        <div class="hud-popover-tabs">
+          <div class="hud-popover-tab console-tab active" id="tab-coverage" onclick="selectConsoleTab('coverage')">Coverage Matrix</div>
+          <div class="hud-popover-tab console-tab" id="tab-override" onclick="selectConsoleTab('override')">Overrides Audit</div>
+          <div class="hud-popover-tab console-tab" id="tab-summary" onclick="selectConsoleTab('summary')">System Summary</div>
+        </div>
+
+        <span style="cursor:pointer; color:#94a3b8; font-size:16px;" onclick="toggleBottomConsole()">&times;</span>
+      </div>
+
+      <div class="hud-popover-body">
+        <!-- Coverage Tab -->
+        <div id="console-content-coverage" class="console-body">
           <table><thead><tr><th>Information</th><th>Source</th><th>Coverage</th><th>Count</th></tr></thead><tbody><tr><td>app</td><td>ExplainGraph node</td><td>node table + type detail</td><td>1</td></tr><tr><td>block</td><td>ExplainGraph node</td><td>node table + type detail</td><td>8</td></tr><tr><td>capability</td><td>ExplainGraph node</td><td>node table + type detail</td><td>10</td></tr><tr><td>pin</td><td>ExplainGraph node</td><td>node table + type detail</td><td>22</td></tr><tr><td>slot</td><td>ExplainGraph node</td><td>node table + type detail</td><td>2</td></tr><tr><td>file</td><td>ExplainGraph node</td><td>node table + type detail</td><td>68</td></tr><tr><td>acceptance</td><td>ExplainGraph node</td><td>node table + type detail</td><td>11</td></tr><tr><td>policy</td><td>ExplainGraph node</td><td>node table + type detail</td><td>1</td></tr><tr><td>override</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>repair</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>upgrade</td><td>ExplainGraph node</td><td>node table + type detail</td><td>0</td></tr><tr><td>issue</td><td>Review overlays</td><td>policy violations + failure points + repair blockers + upgrade diagnostics</td><td>0</td></tr></tbody></table>
           <div class="coverage-chart-container">
             <div class="coverage-card">
@@ -933,10 +1185,6 @@
               <div class="coverage-value" style="color: #10b981;">7 / 8</div>
               <div class="progress-bg">
                 <div class="progress-fill" style="width: 88%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
-              </div>
-              <div class="progress-label">
-                <span data-key="covRatioLabel">Coverage Ratio</span>
-                <span>88%</span>
               </div>
             </div>
 
@@ -946,48 +1194,19 @@
               <div class="progress-bg">
                 <div class="progress-fill" style="width: 50%; background: linear-gradient(90deg, #00f2fe, #38bdf8);"></div>
               </div>
-              <div class="progress-label">
-                <span data-key="covRatioLabel">Coverage Ratio</span>
-                <span>50%</span>
-              </div>
-            </div>
-
-            <div class="coverage-card">
-              <div class="coverage-title" data-key="covTitleAcceptance">Acceptance Tests</div>
-              <div class="coverage-value" style="color: #8b5cf6;">11</div>
-              <div class="progress-bg">
-                <div class="progress-fill" style="width: 100%; background: #8b5cf6;"></div>
-              </div>
-              <div class="progress-label">
-                <span data-key="covAcceptanceLabel">Acceptance Nodes</span>
-                <span data-key="covActiveLabel">Active</span>
-              </div>
-            </div>
-
-            <div class="coverage-card">
-              <div class="coverage-title" data-key="covTitlePolicy">Policy Rules</div>
-              <div class="coverage-value" style="color: #f59e0b;">1</div>
-              <div class="progress-bg">
-                <div class="progress-fill" style="width: 100%; background: #f59e0b;"></div>
-              </div>
-              <div class="progress-label">
-                <span data-key="covPolicyLabel">Policy Constraints</span>
-                <span data-key="covEnforcedLabel">Enforced</span>
-              </div>
             </div>
           </div>
         </div>
 
-        <!-- Tab 2: Manual Override Registry -->
-        <div id="console-content-override" style="display: none;">
-          <p style="color: var(--text-muted); font-size: 13px;" data-key="manualOverrideDesc">Tracked artifacts and nodes that have been manually overridden by developers.</p>
+        <!-- Overrides Tab -->
+        <div id="console-content-override" class="console-body" style="display:none;">
           <table><thead><tr><th>Override Target</th><th>Origin Type</th><th>Source Block</th><th>Status</th></tr></thead><tbody><tr><td colspan="4">No manual overrides detected in workspace.</td></tr></tbody></table>
         </div>
 
-        <!-- Tab 3: Traditional Summary -->
-        <div id="console-content-summary" style="display: none;">
+        <!-- Summary Tab -->
+        <div id="console-content-summary" class="console-body" style="display:none;">
           <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody><tr><td>acceptance</td><td>11</td></tr><tr><td>app</td><td>1</td></tr><tr><td>block</td><td>8</td></tr><tr><td>capability</td><td>10</td></tr><tr><td>file</td><td>68</td></tr><tr><td>pin</td><td>22</td></tr><tr><td>policy</td><td>1</td></tr><tr><td>slot</td><td>2</td></tr></tbody></table>
-          <div style="margin-top: 15px;"></div>
+          <div style="margin-top: 10px;"></div>
           <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody><tr><td>connects_to</td><td>6</td></tr><tr><td>depends_on</td><td>34</td></tr><tr><td>originates_from</td><td>68</td></tr><tr><td>provides</td><td>21</td></tr><tr><td>verified_by</td><td>15</td></tr><tr><td>writes_to</td><td>10</td></tr></tbody></table>
         </div>
       </div>
@@ -1034,7 +1253,7 @@
 
 <!-- Dynamic Vis.js Loader and API Sync logic -->
 <script type="text/javascript">
-  const rawGraph = {"nodes":[{"id":"acceptance:agent_can_automatically_classify_ticket","type":"acceptance","label":"agent_can_automatically_classify_ticket"},{"id":"acceptance:agent_can_be_registered","type":"acceptance","label":"agent_can_be_registered"},{"id":"acceptance:assignee_can_filter_tickets","type":"acceptance","label":"assignee_can_filter_tickets"},{"id":"acceptance:tenant_only_sees_own_customers","type":"acceptance","label":"tenant_only_sees_own_customers"},{"id":"acceptance:ticket_attachment_can_be_uploaded","type":"acceptance","label":"ticket_attachment_can_be_uploaded"},{"id":"acceptance:ticket_can_be_created","type":"acceptance","label":"ticket_can_be_created"},{"id":"acceptance:ticket_comment_can_be_added","type":"acceptance","label":"ticket_comment_can_be_added"},{"id":"acceptance:ticket_status_can_transition","type":"acceptance","label":"ticket_status_can_transition"},{"id":"acceptance:user_can_create_customer","type":"acceptance","label":"user_can_create_customer"},{"id":"acceptance:user_can_list_customers","type":"acceptance","label":"user_can_list_customers"},{"id":"acceptance:user_can_login","type":"acceptance","label":"user_can_login"},{"id":"app:customer-admin","type":"app","label":"customer-admin"},{"id":"block:agent/executor","type":"block","label":"agent/executor"},{"id":"block:agent/harness","type":"block","label":"agent/harness"},{"id":"block:auth/basic-session","type":"block","label":"auth/basic-session"},{"id":"block:comment/basic","type":"block","label":"comment/basic"},{"id":"block:entity/customer-basic","type":"block","label":"entity/customer-basic"},{"id":"block:file/upload","type":"block","label":"file/upload"},{"id":"block:tenant/basic-workspace","type":"block","label":"tenant/basic-workspace"},{"id":"block:ticket/basic","type":"block","label":"ticket/basic"},{"id":"capability:agent/executor","type":"capability","label":"agent/executor"},{"id":"capability:agent/harness","type":"capability","label":"agent/harness"},{"id":"capability:auth/session","type":"capability","label":"auth/session"},{"id":"capability:customer/read","type":"capability","label":"customer/read"},{"id":"capability:customer/write","type":"capability","label":"customer/write"},{"id":"capability:file/upload","type":"capability","label":"file/upload"},{"id":"capability:tenant/context","type":"capability","label":"tenant/context"},{"id":"capability:ticket/comment","type":"capability","label":"ticket/comment"},{"id":"capability:ticket/read","type":"capability","label":"ticket/read"},{"id":"capability:ticket/write","type":"capability","label":"ticket/write"},{"id":"file:app/api/customers/[customerId]/attachments/route.ts","type":"file","label":"app/api/customers/[customerId]/attachments/route.ts"},{"id":"file:app/api/customers/route.ts","type":"file","label":"app/api/customers/route.ts"},{"id":"file:app/api/session/current/route.ts","type":"file","label":"app/api/session/current/route.ts"},{"id":"file:app/api/session/login/route.ts","type":"file","label":"app/api/session/login/route.ts"},{"id":"file:app/api/session/logout/route.ts","type":"file","label":"app/api/session/logout/route.ts"},{"id":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/attachments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/comments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/status/route.ts","type":"file","label":"app/api/tickets/[ticketId]/status/route.ts"},{"id":"file:app/api/tickets/route.ts","type":"file","label":"app/api/tickets/route.ts"},{"id":"file:app/customers/page.tsx","type":"file","label":"app/customers/page.tsx"},{"id":"file:app/globals.css","type":"file","label":"app/globals.css"},{"id":"file:app/layout.tsx","type":"file","label":"app/layout.tsx"},{"id":"file:app/login/page.tsx","type":"file","label":"app/login/page.tsx"},{"id":"file:app/page.tsx","type":"file","label":"app/page.tsx"},{"id":"file:app/tickets/page.tsx","type":"file","label":"app/tickets/page.tsx"},{"id":"file:app/workspace/page.tsx","type":"file","label":"app/workspace/page.tsx"},{"id":"file:components/customer-attachment-form.tsx","type":"file","label":"components/customer-attachment-form.tsx"},{"id":"file:components/customer-form.tsx","type":"file","label":"components/customer-form.tsx"},{"id":"file:components/login-form.tsx","type":"file","label":"components/login-form.tsx"},{"id":"file:components/logout-button.tsx","type":"file","label":"components/logout-button.tsx"},{"id":"file:components/ticket-attachment-form.tsx","type":"file","label":"components/ticket-attachment-form.tsx"},{"id":"file:components/ticket-comment-form.tsx","type":"file","label":"components/ticket-comment-form.tsx"},{"id":"file:components/ticket-form.tsx","type":"file","label":"components/ticket-form.tsx"},{"id":"file:components/ticket-status-form.tsx","type":"file","label":"components/ticket-status-form.tsx"},{"id":"file:control/evidence/acceptance-coverage.json","type":"file","label":"control/evidence/acceptance-coverage.json"},{"id":"file:control/evidence/block-usage-map.json","type":"file","label":"control/evidence/block-usage-map.json"},{"id":"file:control/evidence/install-manifest.json","type":"file","label":"control/evidence/install-manifest.json"},{"id":"file:control/evidence/policy-report.json","type":"file","label":"control/evidence/policy-report.json"},{"id":"file:control/evidence/runtime-report.json","type":"file","label":"control/evidence/runtime-report.json"},{"id":"file:control/evidence/verification-report.json","type":"file","label":"control/evidence/verification-report.json"},{"id":"file:control/graph/explain-graph.dot","type":"file","label":"control/graph/explain-graph.dot"},{"id":"file:control/graph/explain-graph.json","type":"file","label":"control/graph/explain-graph.json"},{"id":"file:control/graph/explain-graph.mmd","type":"file","label":"control/graph/explain-graph.mmd"},{"id":"file:control/provenance/provenance.json","type":"file","label":"control/provenance/provenance.json"},{"id":"file:custom/customer_normalizer.ts","type":"file","label":"custom/customer_normalizer.ts"},{"id":"file:custom/ticket_comment_delegate.ts","type":"file","label":"custom/ticket_comment_delegate.ts"},{"id":"file:generated/routes.ts","type":"file","label":"generated/routes.ts"},{"id":"file:lib/session.ts","type":"file","label":"lib/session.ts"},{"id":"file:lib/store.ts","type":"file","label":"lib/store.ts"},{"id":"file:next-env.d.ts","type":"file","label":"next-env.d.ts"},{"id":"file:next.config.mjs","type":"file","label":"next.config.mjs"},{"id":"file:package.json","type":"file","label":"package.json"},{"id":"file:prisma/schema.prisma","type":"file","label":"prisma/schema.prisma"},{"id":"file:source/code/slots/customer_normalizer.ts","type":"file","label":"source/code/slots/customer_normalizer.ts"},{"id":"file:source/code/slots/ticket_comment_delegate.ts","type":"file","label":"source/code/slots/ticket_comment_delegate.ts"},{"id":"file:src/installed/agent/executor-service.ts","type":"file","label":"src/installed/agent/executor-service.ts"},{"id":"file:src/installed/agent/harness-service.ts","type":"file","label":"src/installed/agent/harness-service.ts"},{"id":"file:src/installed/auth/session.ts","type":"file","label":"src/installed/auth/session.ts"},{"id":"file:src/installed/comment/comment-service.ts","type":"file","label":"src/installed/comment/comment-service.ts"},{"id":"file:src/installed/entity/customer-service.ts","type":"file","label":"src/installed/entity/customer-service.ts"},{"id":"file:src/installed/file/customer-attachments.ts","type":"file","label":"src/installed/file/customer-attachments.ts"},{"id":"file:src/installed/tenant/context.ts","type":"file","label":"src/installed/tenant/context.ts"},{"id":"file:src/installed/ticket/ticket-service.ts","type":"file","label":"src/installed/ticket/ticket-service.ts"},{"id":"file:tests/acceptance/agent-classifier-flow.test.ts","type":"file","label":"tests/acceptance/agent-classifier-flow.test.ts"},{"id":"file:tests/acceptance/comment-flow.test.ts","type":"file","label":"tests/acceptance/comment-flow.test.ts"},{"id":"file:tests/acceptance/customer-flow.test.ts","type":"file","label":"tests/acceptance/customer-flow.test.ts"},{"id":"file:tests/acceptance/ticket-flow.test.ts","type":"file","label":"tests/acceptance/ticket-flow.test.ts"},{"id":"file:tests/runtime/acceptance/customer-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/customer-flow.spec.ts"},{"id":"file:tests/runtime/acceptance/ticket-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/ticket-flow.spec.ts"},{"id":"file:tests/runtime/unit/customer-runtime.test.ts","type":"file","label":"tests/runtime/unit/customer-runtime.test.ts"},{"id":"file:tests/runtime/unit/ticket-runtime.test.ts","type":"file","label":"tests/runtime/unit/ticket-runtime.test.ts"},{"id":"file:tests/shared/tenant-runtime-fixture.ts","type":"file","label":"tests/shared/tenant-runtime-fixture.ts"},{"id":"file:tests/shared/ticket-service-suite.ts","type":"file","label":"tests/shared/ticket-service-suite.ts"},{"id":"file:tests/unit/comment-service.test.ts","type":"file","label":"tests/unit/comment-service.test.ts"},{"id":"file:tests/unit/customer-attachments.test.ts","type":"file","label":"tests/unit/customer-attachments.test.ts"},{"id":"file:tests/unit/customer-normalizer.test.ts","type":"file","label":"tests/unit/customer-normalizer.test.ts"},{"id":"file:tests/unit/ticket-service.test.ts","type":"file","label":"tests/unit/ticket-service.test.ts"},{"id":"file:tsconfig.json","type":"file","label":"tsconfig.json"},{"id":"pin:agent/executor:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:agent/executor:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:agent/executor:output:agent_executed","type":"pin","label":"agent_executed"},{"id":"pin:agent/harness:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:agent/harness:output:agent_registered","type":"pin","label":"agent_registered"},{"id":"pin:auth/basic-session:output:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:comment/basic:output:comment_added","type":"pin","label":"comment_added"},{"id":"pin:entity/customer-basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:entity/customer-basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:entity/customer-basic:output:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:input:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:output:customer_attachment_uploaded","type":"pin","label":"customer_attachment_uploaded"},{"id":"pin:tenant/basic-workspace:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:tenant/basic-workspace:output:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:ticket/basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"pin","label":"ticket_attachment_uploaded"},{"id":"pin:ticket/basic:output:ticket_comment_added","type":"pin","label":"ticket_comment_added"},{"id":"pin:ticket/basic:output:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:ticket/basic:output:ticket_status_transitioned","type":"pin","label":"ticket_status_transitioned"},{"id":"policy:tenant-scope-required","type":"policy","label":"tenant-scope-required"},{"id":"slot:customer_normalizer","type":"slot","label":"customer_normalizer"},{"id":"slot:ticket_comment_delegate","type":"slot","label":"ticket_comment_delegate"}],"edges":[{"from":"app:customer-admin","to":"block:agent/executor","type":"depends_on"},{"from":"app:customer-admin","to":"block:agent/harness","type":"depends_on"},{"from":"app:customer-admin","to":"block:auth/basic-session","type":"depends_on"},{"from":"app:customer-admin","to":"block:comment/basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:entity/customer-basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:file/upload","type":"depends_on"},{"from":"app:customer-admin","to":"block:tenant/basic-workspace","type":"depends_on"},{"from":"app:customer-admin","to":"block:ticket/basic","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/harness","type":"depends_on"},{"from":"block:agent/executor","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/comment","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/write","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:actor_identity","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:ticket_created","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/executor","type":"provides"},{"from":"block:agent/executor","to":"pin:agent/executor:output:agent_executed","type":"provides"},{"from":"block:agent/executor","to":"acceptance:agent_can_automatically_classify_ticket","type":"verified_by"},{"from":"block:agent/harness","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/harness","to":"pin:agent/harness:input:tenant_context","type":"depends_on"},{"from":"block:agent/harness","to":"capability:agent/harness","type":"provides"},{"from":"block:agent/harness","to":"pin:agent/harness:output:agent_registered","type":"provides"},{"from":"block:agent/harness","to":"acceptance:agent_can_be_registered","type":"verified_by"},{"from":"block:auth/basic-session","to":"capability:auth/session","type":"provides"},{"from":"block:auth/basic-session","to":"pin:auth/basic-session:output:actor_identity","type":"provides"},{"from":"block:auth/basic-session","to":"acceptance:user_can_login","type":"verified_by"},{"from":"block:comment/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:comment/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/read","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:actor_identity","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:ticket_created","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/comment","type":"provides"},{"from":"block:comment/basic","to":"pin:comment/basic:output:comment_added","type":"provides"},{"from":"block:comment/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:entity/customer-basic","to":"slot:customer_normalizer","type":"connects_to"},{"from":"block:entity/customer-basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:actor_identity","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:tenant_context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:customer/read","type":"provides"},{"from":"block:entity/customer-basic","to":"capability:customer/write","type":"provides"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:output:customer_created","type":"provides"},{"from":"block:entity/customer-basic","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_list_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/[customerId]/attachments/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/customers/page.tsx","type":"writes_to"},{"from":"block:file/upload","to":"capability:customer/read","type":"depends_on"},{"from":"block:file/upload","to":"capability:customer/write","type":"depends_on"},{"from":"block:file/upload","to":"pin:file/upload:input:customer_created","type":"depends_on"},{"from":"block:file/upload","to":"capability:file/upload","type":"provides"},{"from":"block:file/upload","to":"pin:file/upload:output:customer_attachment_uploaded","type":"provides"},{"from":"block:tenant/basic-workspace","to":"capability:auth/session","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:input:actor_identity","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"capability:tenant/context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:output:tenant_context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:ticket/basic","to":"slot:ticket_comment_delegate","type":"connects_to"},{"from":"block:ticket/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:actor_identity","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:tenant_context","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:ticket/read","type":"provides"},{"from":"block:ticket/basic","to":"capability:ticket/write","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_comment_added","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_created","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_status_transitioned","type":"provides"},{"from":"block:ticket/basic","to":"acceptance:assignee_can_filter_tickets","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_attachment_can_be_uploaded","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_can_be_created","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_status_can_transition","type":"verified_by"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/status/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/tickets/page.tsx","type":"writes_to"},{"from":"file:app/api/customers/[customerId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/customers/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/current/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/login/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/logout/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/comments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/status/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/customers/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/globals.css","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/layout.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/login/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/tickets/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/workspace/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/login-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/logout-button.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-comment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-status-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/acceptance-coverage.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/block-usage-map.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/install-manifest.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/policy-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/runtime-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/verification-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.dot","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.mmd","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/provenance/provenance.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:custom/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:custom/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:generated/routes.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/session.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/store.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next-env.d.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next.config.mjs","to":"app:customer-admin","type":"originates_from"},{"from":"file:package.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:prisma/schema.prisma","to":"block:comment/basic","type":"originates_from"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"file:custom/customer_normalizer.ts","type":"connects_to"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"file:custom/ticket_comment_delegate.ts","type":"connects_to"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:src/installed/agent/executor-service.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:src/installed/agent/harness-service.ts","to":"block:agent/harness","type":"originates_from"},{"from":"file:src/installed/auth/session.ts","to":"block:auth/basic-session","type":"originates_from"},{"from":"file:src/installed/comment/comment-service.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:src/installed/entity/customer-service.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:src/installed/file/customer-attachments.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:src/installed/tenant/context.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:src/installed/ticket/ticket-service.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/acceptance/agent-classifier-flow.test.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:tests/acceptance/comment-flow.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/acceptance/customer-flow.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/acceptance/ticket-flow.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/runtime/acceptance/customer-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/acceptance/ticket-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/customer-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/ticket-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/shared/tenant-runtime-fixture.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:tests/shared/ticket-service-suite.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/unit/comment-service.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/unit/customer-attachments.test.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:tests/unit/customer-normalizer.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/unit/ticket-service.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tsconfig.json","to":"app:customer-admin","type":"originates_from"},{"from":"policy:tenant-scope-required","to":"file:src/installed/entity/customer-service.ts","type":"connects_to"},{"from":"policy:tenant-scope-required","to":"file:src/installed/ticket/ticket-service.ts","type":"connects_to"},{"from":"slot:customer_normalizer","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"slot:customer_normalizer","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"slot:customer_normalizer","to":"file:source/code/slots/customer_normalizer.ts","type":"writes_to"},{"from":"slot:ticket_comment_delegate","to":"file:source/code/slots/ticket_comment_delegate.ts","type":"writes_to"}],"overlays":{"provenance":[{"path":"app/api/customers/[customerId]/attachments/route.ts","originType":"generated","originId":"app/api/customers/[customerId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"95f20862bad89dbf8920ed61cf78a859251d7d432d62b5acc04d371f43665bda"},{"path":"app/api/customers/route.ts","originType":"generated","originId":"app/api/customers/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7326bb9d18fd068ff3d207a77a8e9819f65d03f42e8256dd39b92d6b5fb71c80"},{"path":"app/api/session/current/route.ts","originType":"generated","originId":"app/api/session/current/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"41b5716db55eb55e9692340dcdfee37dcdd43ca55cce7d1badf4d43ead21f7be"},{"path":"app/api/session/login/route.ts","originType":"generated","originId":"app/api/session/login/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"4ad69071b53a165627d583827b2621d5a1bdfd6734dbf32187dbce1327adde2e"},{"path":"app/api/session/logout/route.ts","originType":"generated","originId":"app/api/session/logout/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a43398df373b5b1d5c7833e50c7dc6bfda0e1715bfb32f38f9db0ee247b60ca1"},{"path":"app/api/tickets/[ticketId]/attachments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a73eadb5c96b6167c5ddff29f301564eab37f87f68dd62246b4408309ce2728f"},{"path":"app/api/tickets/[ticketId]/comments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/comments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"414877019d3f46ff4e6000d0bf351c28882ad95ba0b39a1c1b9203a15bbc0e10"},{"path":"app/api/tickets/[ticketId]/status/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/status/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"85793d66314359cdb442690a2d78c59be1975a363103749d1522bb5d10c52435"},{"path":"app/api/tickets/route.ts","originType":"generated","originId":"app/api/tickets/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"df49116e52f7eeca6dde5604445c30e74fc612543cf2032f32ae823f92b51dc3"},{"path":"app/customers/page.tsx","originType":"generated","originId":"app/customers/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"4c4886df0fa243a5967a9f3c6a954b4106e0b58691e5fffcdba2d4560b8d3959"},{"path":"app/globals.css","originType":"generated","originId":"app/globals.css","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"cd0d98fbb0e5d385552f519cfb5a974ce0511b9fd0de829ffd5d4180c0eab255"},{"path":"app/layout.tsx","originType":"generated","originId":"app/layout.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"923ac38e1d841ac7a518ac6a3811ac6fd4f27c5860263cd715308c99e90057da"},{"path":"app/login/page.tsx","originType":"generated","originId":"app/login/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"d515c598a018a51b9dcfe199ffdcd55d1cdcd23b0859dfb237ce4cffc45ee07f"},{"path":"app/page.tsx","originType":"generated","originId":"app/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"217eeae5935af77bef4a8fb9bd17ac93aaac6ffd945ea0d9dc0c62f89e98d41a"},{"path":"app/tickets/page.tsx","originType":"generated","originId":"app/tickets/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"f0721d48f42dc4c21a47acc8c33a04e44fe062ff28e04fef1be23d551032d383"},{"path":"app/workspace/page.tsx","originType":"generated","originId":"app/workspace/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"b9fb1475d3fbb6e8bbd187b0b0ff46599379eb86040a1dc8fbdb27a3b789dba2"},{"path":"components/customer-attachment-form.tsx","originType":"generated","originId":"components/customer-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"f723bc1c776c40291edcca8c20df573a5f9c7fd6814cf4cf5f444dc65f35928b"},{"path":"components/customer-form.tsx","originType":"generated","originId":"components/customer-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"64ac781b45e1b0969edb21b23c8c444be9186b8b159eaf22f0c3c85cbfd5b931"},{"path":"components/login-form.tsx","originType":"generated","originId":"components/login-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"54a7a4ca6b29003237d69aa8e16cd551ab28a768299ca0a0b045a3893bd30d5d"},{"path":"components/logout-button.tsx","originType":"generated","originId":"components/logout-button.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"e10eaa301de0a1d540e4c7fdd65896a2fd0e654d160a7b5c14d28c3081c3eb17"},{"path":"components/ticket-attachment-form.tsx","originType":"generated","originId":"components/ticket-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"86224f05ca555d5e5ad2d13613ee730dfd40d72cadd98873ba6090735ce56bef"},{"path":"components/ticket-comment-form.tsx","originType":"generated","originId":"components/ticket-comment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"15800f544a801c82a2158ca19fc1acb67a384d524403a285e8ae5a248a62b60a"},{"path":"components/ticket-form.tsx","originType":"generated","originId":"components/ticket-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"927fb3e0a6770c5b4d21a6a80765fe38d641f60f8aed5a8c590d03dfbb8f880e"},{"path":"components/ticket-status-form.tsx","originType":"generated","originId":"components/ticket-status-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"577beff3d47c962fad2b99ab64c404087e8627ba1bcdaf9e52ef758974daf353"},{"path":"control/evidence/acceptance-coverage.json","originType":"generated","originId":"control/evidence/acceptance-coverage.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"1902fd37d74388eb442373dcee2ac6600dd1be8caa0ec00bcf431b05802597ed"},{"path":"control/evidence/block-usage-map.json","originType":"generated","originId":"control/evidence/block-usage-map.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"cb1b1c8d59ae5bbad26b7f672fbc5dc3d82d1c6b763488cfa4438c0c55aa74ea"},{"path":"control/evidence/install-manifest.json","originType":"generated","originId":"control/evidence/install-manifest.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0f1a8fc16402b085a7398203f82c140f42ca528297d9c6cd8c46ec9e9e090e42"},{"path":"control/evidence/policy-report.json","originType":"generated","originId":"control/evidence/policy-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"},{"path":"control/evidence/runtime-report.json","originType":"generated","originId":"control/evidence/runtime-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6ce96b03ec6816c64655a1466677d4a630a9956738122e2a131a97d705b55f87"},{"path":"control/evidence/verification-report.json","originType":"generated","originId":"control/evidence/verification-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6646e73fe06e5c60aeff3b04d8e68cefc529dc94fe3a94110124bd682d420700"},{"path":"control/graph/explain-graph.dot","originType":"generated","originId":"control/graph/explain-graph.dot","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"d7941d42953420a83fafc1f810830d7dfd264589bcdf0507b766198ec9b9571e"},{"path":"control/graph/explain-graph.json","originType":"generated","originId":"control/graph/explain-graph.json","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"d6b76dd84155f3dc8c18e570a704fe0d1c44715cb380781eaca7d7e4dbf26cd6"},{"path":"control/graph/explain-graph.mmd","originType":"generated","originId":"control/graph/explain-graph.mmd","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"bada40428d82bfa0c08c552363522cc636bd97c67987bf460b4ee0c947717c73"},{"path":"control/provenance/provenance.json","originType":"generated","originId":"control/provenance/provenance.json","generatedByPass":"lock","verifiedBy":[],"overrideStatus":"none","hash":"2407dcd5f60146c42d00b3aa578c6bc8472f1300e2b3c6e19306bd9aea1d561d"},{"path":"custom/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"3a02059902faa9201206432c95fcc3e2543173fbae9b93d878333e73be2923dd"},{"path":"custom/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"58e680dd98dab79bd43d248ba06b1d289dc67c3b21315661d2e7dce7c234953b"},{"path":"generated/routes.ts","originType":"generated","originId":"generated/routes.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"34bc7230f5f6cc7d65bb5887261ce11a5df010b6234a3b7115fb9e09865a63ba"},{"path":"lib/session.ts","originType":"generated","originId":"lib/session.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a095b299822d95614852ff81963e02738d2210cc1b262f9684042613dd125247"},{"path":"lib/store.ts","originType":"generated","originId":"lib/store.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1bcc6cf1fad8387c72e1d90c30e51a0f060180504d7ec97474b2efca0333c738"},{"path":"next-env.d.ts","originType":"generated","originId":"next-env.d.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7ad303e40d4fddf44f156129e397511953a71481c5cfd86b1862649aaaf240cc"},{"path":"next.config.mjs","originType":"generated","originId":"next.config.mjs","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a9efcd4551ec4d9101da830e825a669befa315c4577d1bbf05b49683cf0454a0"},{"path":"package.json","originType":"generated","originId":"package.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0495f12527dae6570b1934ac8591d6c82f907e74b9609d6c1e383be0ed78d12c"},{"path":"prisma/schema.prisma","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"990ed3f9a1831b6eb6ab945122c3a0da4e8f6b767964ee84638eae370c1c1f3c"},{"path":"source/code/slots/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"614b7d912abd4f28b4dddb3f583a606c78a1b151f81a02733ab3672ce12016e3"},{"path":"source/code/slots/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"1fdd0316f4e0eb669b80cc8120f055060598ab3b0fe82718ddcdf941fd0bd15b"},{"path":"src/installed/agent/executor-service.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"9cebfcbc38f4e512286e90c0b852323f19a427afab7dd17855a64612baa45974"},{"path":"src/installed/agent/harness-service.ts","originType":"block","originId":"agent/harness","sourceBlock":"agent/harness","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"79774f73cb0f53118e28351a2cafc177898649c691302c26346992b2566389eb"},{"path":"src/installed/auth/session.ts","originType":"block","originId":"auth/basic-session","sourceBlock":"auth/basic-session","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"b46a8bd583a502456f269f682ac1ddc6cf0f9aac13b4fcb13bf25c449371725f"},{"path":"src/installed/comment/comment-service.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"e46974bdf5082b52cb994636952653d7f1bf01973d9bdba0ad6a63b3914a27b7"},{"path":"src/installed/entity/customer-service.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"49ef2fe3b5553895bf036959032a26aae9ac628ff9ca5b68452d1f2f1897d914"},{"path":"src/installed/file/customer-attachments.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"8066a2fbb4d8582aa664dcdef2822507b73f1cba93996c21f6dfb4229a935a73"},{"path":"src/installed/tenant/context.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"88010a9157dee88a28742be9dc3528aed26980594bdb05621bda8c6f405e3a98"},{"path":"src/installed/ticket/ticket-service.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"ed8f0591bb4ce6948f63e3c6f5e0435b8f191ce577e1878e23ba93b575717dd1"},{"path":"tests/acceptance/agent-classifier-flow.test.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"506cf94368a6616c2b97a0648f28560c0cb52f6d3d585364df43687223a5d11c"},{"path":"tests/acceptance/comment-flow.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"95bdaae63ceb7b8d79f42f0985ab87fa8809fa2fbd905d8f170cbafc9690a367"},{"path":"tests/acceptance/customer-flow.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"1cbf4989bbae79d15a2bee35935763d149cef5c4457523b0b1fe3ea9ba675e8e"},{"path":"tests/acceptance/ticket-flow.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"0cefdb727fbcec37b87c2048ade4ae905bb9a8f443d25aa9d9e6e67c57021546"},{"path":"tests/runtime/acceptance/customer-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/customer-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"01fe03a98e3464cc16cab1729ebcc7c7b112c0b010841209e201aa6929f360ec"},{"path":"tests/runtime/acceptance/ticket-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/ticket-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1fc4fc1602d0903cdbd88556e08f322ab51d134bfdda1190a643f928b7ba8538"},{"path":"tests/runtime/unit/customer-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/customer-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"5cfefb02e316859c8bff1705d5c24123cbab55bd7e9390e3c60900d81c88c18e"},{"path":"tests/runtime/unit/ticket-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/ticket-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"809b121d6808b0457c67248ca1a734478e500cf82a3fb90fbc007f12eb64d0c0"},{"path":"tests/shared/tenant-runtime-fixture.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"3d91c1a5bba5bc1b44943c34da8a9cfc00ff1cbea2e776f13f011c1c0a9457db"},{"path":"tests/shared/ticket-service-suite.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"f48da33b70c8af291a6399f0d142efb2a1253734cdbe6749c925baf59f832ae8"},{"path":"tests/unit/comment-service.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"b7becb64319f779e972ebd8614bdb4e046211ee15381a7c815b7711332235017"},{"path":"tests/unit/customer-attachments.test.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"be94b72c8079147ddb4296c9c0d44acd523f18f9f4a493afc5934b0713c205aa"},{"path":"tests/unit/customer-normalizer.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"18f158586f2dbe575a351795160969486716d77feffc92ee22f4b42f67c53873"},{"path":"tests/unit/ticket-service.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"a1df0d924681207943a7a43494e5f666bc99d38e4b4a58646f5729034eb9e1e3"},{"path":"tsconfig.json","originType":"generated","originId":"tsconfig.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"c2eb7ddbd0c32aaed4b2ee1feb34a459dcca69027f33caa813b21505d768f45e"}],"coverage":{"blocks":[{"id":"auth/basic-session","coveredBy":["user_can_login"]},{"id":"tenant/basic-workspace","coveredBy":["tenant_only_sees_own_customers"]},{"id":"agent/harness","coveredBy":["agent_can_be_registered"]},{"id":"entity/customer-basic","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer","user_can_list_customers"]},{"id":"file/upload","coveredBy":[]},{"id":"ticket/basic","coveredBy":["assignee_can_filter_tickets","ticket_attachment_can_be_uploaded","ticket_can_be_created","ticket_comment_can_be_added","ticket_status_can_transition"]},{"id":"comment/basic","coveredBy":["ticket_comment_can_be_added"]},{"id":"agent/executor","coveredBy":["agent_can_automatically_classify_ticket"]}],"slots":[{"id":"customer_normalizer","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer"]},{"id":"ticket_comment_delegate","coveredBy":[]}]}}};
+  const rawGraph = {"nodes":[{"id":"acceptance:agent_can_automatically_classify_ticket","type":"acceptance","label":"agent_can_automatically_classify_ticket"},{"id":"acceptance:agent_can_be_registered","type":"acceptance","label":"agent_can_be_registered"},{"id":"acceptance:assignee_can_filter_tickets","type":"acceptance","label":"assignee_can_filter_tickets"},{"id":"acceptance:tenant_only_sees_own_customers","type":"acceptance","label":"tenant_only_sees_own_customers"},{"id":"acceptance:ticket_attachment_can_be_uploaded","type":"acceptance","label":"ticket_attachment_can_be_uploaded"},{"id":"acceptance:ticket_can_be_created","type":"acceptance","label":"ticket_can_be_created"},{"id":"acceptance:ticket_comment_can_be_added","type":"acceptance","label":"ticket_comment_can_be_added"},{"id":"acceptance:ticket_status_can_transition","type":"acceptance","label":"ticket_status_can_transition"},{"id":"acceptance:user_can_create_customer","type":"acceptance","label":"user_can_create_customer"},{"id":"acceptance:user_can_list_customers","type":"acceptance","label":"user_can_list_customers"},{"id":"acceptance:user_can_login","type":"acceptance","label":"user_can_login"},{"id":"app:customer-admin","type":"app","label":"customer-admin"},{"id":"block:agent/executor","type":"block","label":"agent/executor"},{"id":"block:agent/harness","type":"block","label":"agent/harness"},{"id":"block:auth/basic-session","type":"block","label":"auth/basic-session"},{"id":"block:comment/basic","type":"block","label":"comment/basic"},{"id":"block:entity/customer-basic","type":"block","label":"entity/customer-basic"},{"id":"block:file/upload","type":"block","label":"file/upload"},{"id":"block:tenant/basic-workspace","type":"block","label":"tenant/basic-workspace"},{"id":"block:ticket/basic","type":"block","label":"ticket/basic"},{"id":"capability:agent/executor","type":"capability","label":"agent/executor"},{"id":"capability:agent/harness","type":"capability","label":"agent/harness"},{"id":"capability:auth/session","type":"capability","label":"auth/session"},{"id":"capability:customer/read","type":"capability","label":"customer/read"},{"id":"capability:customer/write","type":"capability","label":"customer/write"},{"id":"capability:file/upload","type":"capability","label":"file/upload"},{"id":"capability:tenant/context","type":"capability","label":"tenant/context"},{"id":"capability:ticket/comment","type":"capability","label":"ticket/comment"},{"id":"capability:ticket/read","type":"capability","label":"ticket/read"},{"id":"capability:ticket/write","type":"capability","label":"ticket/write"},{"id":"file:app/api/customers/[customerId]/attachments/route.ts","type":"file","label":"app/api/customers/[customerId]/attachments/route.ts"},{"id":"file:app/api/customers/route.ts","type":"file","label":"app/api/customers/route.ts"},{"id":"file:app/api/session/current/route.ts","type":"file","label":"app/api/session/current/route.ts"},{"id":"file:app/api/session/login/route.ts","type":"file","label":"app/api/session/login/route.ts"},{"id":"file:app/api/session/logout/route.ts","type":"file","label":"app/api/session/logout/route.ts"},{"id":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/attachments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"file","label":"app/api/tickets/[ticketId]/comments/route.ts"},{"id":"file:app/api/tickets/[ticketId]/status/route.ts","type":"file","label":"app/api/tickets/[ticketId]/status/route.ts"},{"id":"file:app/api/tickets/route.ts","type":"file","label":"app/api/tickets/route.ts"},{"id":"file:app/customers/page.tsx","type":"file","label":"app/customers/page.tsx"},{"id":"file:app/globals.css","type":"file","label":"app/globals.css"},{"id":"file:app/layout.tsx","type":"file","label":"app/layout.tsx"},{"id":"file:app/login/page.tsx","type":"file","label":"app/login/page.tsx"},{"id":"file:app/page.tsx","type":"file","label":"app/page.tsx"},{"id":"file:app/tickets/page.tsx","type":"file","label":"app/tickets/page.tsx"},{"id":"file:app/workspace/page.tsx","type":"file","label":"app/workspace/page.tsx"},{"id":"file:components/customer-attachment-form.tsx","type":"file","label":"components/customer-attachment-form.tsx"},{"id":"file:components/customer-form.tsx","type":"file","label":"components/customer-form.tsx"},{"id":"file:components/login-form.tsx","type":"file","label":"components/login-form.tsx"},{"id":"file:components/logout-button.tsx","type":"file","label":"components/logout-button.tsx"},{"id":"file:components/ticket-attachment-form.tsx","type":"file","label":"components/ticket-attachment-form.tsx"},{"id":"file:components/ticket-comment-form.tsx","type":"file","label":"components/ticket-comment-form.tsx"},{"id":"file:components/ticket-form.tsx","type":"file","label":"components/ticket-form.tsx"},{"id":"file:components/ticket-status-form.tsx","type":"file","label":"components/ticket-status-form.tsx"},{"id":"file:control/evidence/acceptance-coverage.json","type":"file","label":"control/evidence/acceptance-coverage.json"},{"id":"file:control/evidence/block-usage-map.json","type":"file","label":"control/evidence/block-usage-map.json"},{"id":"file:control/evidence/install-manifest.json","type":"file","label":"control/evidence/install-manifest.json"},{"id":"file:control/evidence/policy-report.json","type":"file","label":"control/evidence/policy-report.json"},{"id":"file:control/evidence/runtime-report.json","type":"file","label":"control/evidence/runtime-report.json"},{"id":"file:control/evidence/verification-report.json","type":"file","label":"control/evidence/verification-report.json"},{"id":"file:control/graph/explain-graph.dot","type":"file","label":"control/graph/explain-graph.dot"},{"id":"file:control/graph/explain-graph.json","type":"file","label":"control/graph/explain-graph.json"},{"id":"file:control/graph/explain-graph.mmd","type":"file","label":"control/graph/explain-graph.mmd"},{"id":"file:control/provenance/provenance.json","type":"file","label":"control/provenance/provenance.json"},{"id":"file:custom/customer_normalizer.ts","type":"file","label":"custom/customer_normalizer.ts"},{"id":"file:custom/ticket_comment_delegate.ts","type":"file","label":"custom/ticket_comment_delegate.ts"},{"id":"file:generated/routes.ts","type":"file","label":"generated/routes.ts"},{"id":"file:lib/session.ts","type":"file","label":"lib/session.ts"},{"id":"file:lib/store.ts","type":"file","label":"lib/store.ts"},{"id":"file:next-env.d.ts","type":"file","label":"next-env.d.ts"},{"id":"file:next.config.mjs","type":"file","label":"next.config.mjs"},{"id":"file:package.json","type":"file","label":"package.json"},{"id":"file:prisma/schema.prisma","type":"file","label":"prisma/schema.prisma"},{"id":"file:source/code/slots/customer_normalizer.ts","type":"file","label":"source/code/slots/customer_normalizer.ts"},{"id":"file:source/code/slots/ticket_comment_delegate.ts","type":"file","label":"source/code/slots/ticket_comment_delegate.ts"},{"id":"file:src/installed/agent/executor-service.ts","type":"file","label":"src/installed/agent/executor-service.ts"},{"id":"file:src/installed/agent/harness-service.ts","type":"file","label":"src/installed/agent/harness-service.ts"},{"id":"file:src/installed/auth/session.ts","type":"file","label":"src/installed/auth/session.ts"},{"id":"file:src/installed/comment/comment-service.ts","type":"file","label":"src/installed/comment/comment-service.ts"},{"id":"file:src/installed/entity/customer-service.ts","type":"file","label":"src/installed/entity/customer-service.ts"},{"id":"file:src/installed/file/customer-attachments.ts","type":"file","label":"src/installed/file/customer-attachments.ts"},{"id":"file:src/installed/tenant/context.ts","type":"file","label":"src/installed/tenant/context.ts"},{"id":"file:src/installed/ticket/ticket-service.ts","type":"file","label":"src/installed/ticket/ticket-service.ts"},{"id":"file:tests/acceptance/agent-classifier-flow.test.ts","type":"file","label":"tests/acceptance/agent-classifier-flow.test.ts"},{"id":"file:tests/acceptance/comment-flow.test.ts","type":"file","label":"tests/acceptance/comment-flow.test.ts"},{"id":"file:tests/acceptance/customer-flow.test.ts","type":"file","label":"tests/acceptance/customer-flow.test.ts"},{"id":"file:tests/acceptance/ticket-flow.test.ts","type":"file","label":"tests/acceptance/ticket-flow.test.ts"},{"id":"file:tests/runtime/acceptance/customer-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/customer-flow.spec.ts"},{"id":"file:tests/runtime/acceptance/ticket-flow.spec.ts","type":"file","label":"tests/runtime/acceptance/ticket-flow.spec.ts"},{"id":"file:tests/runtime/unit/customer-runtime.test.ts","type":"file","label":"tests/runtime/unit/customer-runtime.test.ts"},{"id":"file:tests/runtime/unit/ticket-runtime.test.ts","type":"file","label":"tests/runtime/unit/ticket-runtime.test.ts"},{"id":"file:tests/shared/tenant-runtime-fixture.ts","type":"file","label":"tests/shared/tenant-runtime-fixture.ts"},{"id":"file:tests/shared/ticket-service-suite.ts","type":"file","label":"tests/shared/ticket-service-suite.ts"},{"id":"file:tests/unit/comment-service.test.ts","type":"file","label":"tests/unit/comment-service.test.ts"},{"id":"file:tests/unit/customer-attachments.test.ts","type":"file","label":"tests/unit/customer-attachments.test.ts"},{"id":"file:tests/unit/customer-normalizer.test.ts","type":"file","label":"tests/unit/customer-normalizer.test.ts"},{"id":"file:tests/unit/ticket-service.test.ts","type":"file","label":"tests/unit/ticket-service.test.ts"},{"id":"file:tsconfig.json","type":"file","label":"tsconfig.json"},{"id":"pin:agent/executor:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:agent/executor:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:agent/executor:output:agent_executed","type":"pin","label":"agent_executed"},{"id":"pin:agent/harness:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:agent/harness:output:agent_registered","type":"pin","label":"agent_registered"},{"id":"pin:auth/basic-session:output:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:comment/basic:input:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:comment/basic:output:comment_added","type":"pin","label":"comment_added"},{"id":"pin:entity/customer-basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:entity/customer-basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:entity/customer-basic:output:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:input:customer_created","type":"pin","label":"customer_created"},{"id":"pin:file/upload:output:customer_attachment_uploaded","type":"pin","label":"customer_attachment_uploaded"},{"id":"pin:tenant/basic-workspace:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:tenant/basic-workspace:output:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:input:actor_identity","type":"pin","label":"actor_identity"},{"id":"pin:ticket/basic:input:tenant_context","type":"pin","label":"tenant_context"},{"id":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"pin","label":"ticket_attachment_uploaded"},{"id":"pin:ticket/basic:output:ticket_comment_added","type":"pin","label":"ticket_comment_added"},{"id":"pin:ticket/basic:output:ticket_created","type":"pin","label":"ticket_created"},{"id":"pin:ticket/basic:output:ticket_status_transitioned","type":"pin","label":"ticket_status_transitioned"},{"id":"policy:tenant-scope-required","type":"policy","label":"tenant-scope-required"},{"id":"slot:customer_normalizer","type":"slot","label":"customer_normalizer"},{"id":"slot:ticket_comment_delegate","type":"slot","label":"ticket_comment_delegate"}],"edges":[{"from":"app:customer-admin","to":"block:agent/executor","type":"depends_on"},{"from":"app:customer-admin","to":"block:agent/harness","type":"depends_on"},{"from":"app:customer-admin","to":"block:auth/basic-session","type":"depends_on"},{"from":"app:customer-admin","to":"block:comment/basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:entity/customer-basic","type":"depends_on"},{"from":"app:customer-admin","to":"block:file/upload","type":"depends_on"},{"from":"app:customer-admin","to":"block:tenant/basic-workspace","type":"depends_on"},{"from":"app:customer-admin","to":"block:ticket/basic","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/harness","type":"depends_on"},{"from":"block:agent/executor","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/comment","type":"depends_on"},{"from":"block:agent/executor","to":"capability:ticket/write","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:actor_identity","type":"depends_on"},{"from":"block:agent/executor","to":"pin:agent/executor:input:ticket_created","type":"depends_on"},{"from":"block:agent/executor","to":"capability:agent/executor","type":"provides"},{"from":"block:agent/executor","to":"pin:agent/executor:output:agent_executed","type":"provides"},{"from":"block:agent/executor","to":"acceptance:agent_can_automatically_classify_ticket","type":"verified_by"},{"from":"block:agent/harness","to":"capability:tenant/context","type":"depends_on"},{"from":"block:agent/harness","to":"pin:agent/harness:input:tenant_context","type":"depends_on"},{"from":"block:agent/harness","to":"capability:agent/harness","type":"provides"},{"from":"block:agent/harness","to":"pin:agent/harness:output:agent_registered","type":"provides"},{"from":"block:agent/harness","to":"acceptance:agent_can_be_registered","type":"verified_by"},{"from":"block:auth/basic-session","to":"capability:auth/session","type":"provides"},{"from":"block:auth/basic-session","to":"pin:auth/basic-session:output:actor_identity","type":"provides"},{"from":"block:auth/basic-session","to":"acceptance:user_can_login","type":"verified_by"},{"from":"block:comment/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:comment/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/read","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:actor_identity","type":"depends_on"},{"from":"block:comment/basic","to":"pin:comment/basic:input:ticket_created","type":"depends_on"},{"from":"block:comment/basic","to":"capability:ticket/comment","type":"provides"},{"from":"block:comment/basic","to":"pin:comment/basic:output:comment_added","type":"provides"},{"from":"block:comment/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:entity/customer-basic","to":"slot:customer_normalizer","type":"connects_to"},{"from":"block:entity/customer-basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:actor_identity","type":"depends_on"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:input:tenant_context","type":"depends_on"},{"from":"block:entity/customer-basic","to":"capability:customer/read","type":"provides"},{"from":"block:entity/customer-basic","to":"capability:customer/write","type":"provides"},{"from":"block:entity/customer-basic","to":"pin:entity/customer-basic:output:customer_created","type":"provides"},{"from":"block:entity/customer-basic","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"block:entity/customer-basic","to":"acceptance:user_can_list_customers","type":"verified_by"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/[customerId]/attachments/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/api/customers/route.ts","type":"writes_to"},{"from":"block:entity/customer-basic","to":"file:app/customers/page.tsx","type":"writes_to"},{"from":"block:file/upload","to":"capability:customer/read","type":"depends_on"},{"from":"block:file/upload","to":"capability:customer/write","type":"depends_on"},{"from":"block:file/upload","to":"pin:file/upload:input:customer_created","type":"depends_on"},{"from":"block:file/upload","to":"capability:file/upload","type":"provides"},{"from":"block:file/upload","to":"pin:file/upload:output:customer_attachment_uploaded","type":"provides"},{"from":"block:tenant/basic-workspace","to":"capability:auth/session","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:input:actor_identity","type":"depends_on"},{"from":"block:tenant/basic-workspace","to":"capability:tenant/context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"pin:tenant/basic-workspace:output:tenant_context","type":"provides"},{"from":"block:tenant/basic-workspace","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"block:ticket/basic","to":"slot:ticket_comment_delegate","type":"connects_to"},{"from":"block:ticket/basic","to":"capability:auth/session","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:tenant/context","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:actor_identity","type":"depends_on"},{"from":"block:ticket/basic","to":"pin:ticket/basic:input:tenant_context","type":"depends_on"},{"from":"block:ticket/basic","to":"capability:ticket/read","type":"provides"},{"from":"block:ticket/basic","to":"capability:ticket/write","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_attachment_uploaded","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_comment_added","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_created","type":"provides"},{"from":"block:ticket/basic","to":"pin:ticket/basic:output:ticket_status_transitioned","type":"provides"},{"from":"block:ticket/basic","to":"acceptance:assignee_can_filter_tickets","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_attachment_can_be_uploaded","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_can_be_created","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_comment_can_be_added","type":"verified_by"},{"from":"block:ticket/basic","to":"acceptance:ticket_status_can_transition","type":"verified_by"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/attachments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/comments/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/[ticketId]/status/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/api/tickets/route.ts","type":"writes_to"},{"from":"block:ticket/basic","to":"file:app/tickets/page.tsx","type":"writes_to"},{"from":"file:app/api/customers/[customerId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/customers/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/current/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/login/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/session/logout/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/attachments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/comments/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/[ticketId]/status/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/api/tickets/route.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/customers/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/globals.css","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/layout.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/login/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/tickets/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:app/workspace/page.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/customer-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/login-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/logout-button.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-attachment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-comment-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:components/ticket-status-form.tsx","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/acceptance-coverage.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/block-usage-map.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/install-manifest.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/policy-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/runtime-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/evidence/verification-report.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.dot","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/graph/explain-graph.mmd","to":"app:customer-admin","type":"originates_from"},{"from":"file:control/provenance/provenance.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:custom/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:custom/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:generated/routes.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/session.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:lib/store.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next-env.d.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:next.config.mjs","to":"app:customer-admin","type":"originates_from"},{"from":"file:package.json","to":"app:customer-admin","type":"originates_from"},{"from":"file:prisma/schema.prisma","to":"block:comment/basic","type":"originates_from"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"file:custom/customer_normalizer.ts","type":"connects_to"},{"from":"file:source/code/slots/customer_normalizer.ts","to":"slot:customer_normalizer","type":"originates_from"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"file:custom/ticket_comment_delegate.ts","type":"connects_to"},{"from":"file:source/code/slots/ticket_comment_delegate.ts","to":"slot:ticket_comment_delegate","type":"originates_from"},{"from":"file:src/installed/agent/executor-service.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:src/installed/agent/harness-service.ts","to":"block:agent/harness","type":"originates_from"},{"from":"file:src/installed/auth/session.ts","to":"block:auth/basic-session","type":"originates_from"},{"from":"file:src/installed/comment/comment-service.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:src/installed/entity/customer-service.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:src/installed/file/customer-attachments.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:src/installed/tenant/context.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:src/installed/ticket/ticket-service.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/acceptance/agent-classifier-flow.test.ts","to":"block:agent/executor","type":"originates_from"},{"from":"file:tests/acceptance/comment-flow.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/acceptance/customer-flow.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/acceptance/ticket-flow.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/runtime/acceptance/customer-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/acceptance/ticket-flow.spec.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/customer-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/runtime/unit/ticket-runtime.test.ts","to":"app:customer-admin","type":"originates_from"},{"from":"file:tests/shared/tenant-runtime-fixture.ts","to":"block:tenant/basic-workspace","type":"originates_from"},{"from":"file:tests/shared/ticket-service-suite.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tests/unit/comment-service.test.ts","to":"block:comment/basic","type":"originates_from"},{"from":"file:tests/unit/customer-attachments.test.ts","to":"block:file/upload","type":"originates_from"},{"from":"file:tests/unit/customer-normalizer.test.ts","to":"block:entity/customer-basic","type":"originates_from"},{"from":"file:tests/unit/ticket-service.test.ts","to":"block:ticket/basic","type":"originates_from"},{"from":"file:tsconfig.json","to":"app:customer-admin","type":"originates_from"},{"from":"policy:tenant-scope-required","to":"file:src/installed/entity/customer-service.ts","type":"connects_to"},{"from":"policy:tenant-scope-required","to":"file:src/installed/ticket/ticket-service.ts","type":"connects_to"},{"from":"slot:customer_normalizer","to":"acceptance:tenant_only_sees_own_customers","type":"verified_by"},{"from":"slot:customer_normalizer","to":"acceptance:user_can_create_customer","type":"verified_by"},{"from":"slot:customer_normalizer","to":"file:source/code/slots/customer_normalizer.ts","type":"writes_to"},{"from":"slot:ticket_comment_delegate","to":"file:source/code/slots/ticket_comment_delegate.ts","type":"writes_to"}],"overlays":{"provenance":[{"path":"app/api/customers/[customerId]/attachments/route.ts","originType":"generated","originId":"app/api/customers/[customerId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"95f20862bad89dbf8920ed61cf78a859251d7d432d62b5acc04d371f43665bda"},{"path":"app/api/customers/route.ts","originType":"generated","originId":"app/api/customers/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7326bb9d18fd068ff3d207a77a8e9819f65d03f42e8256dd39b92d6b5fb71c80"},{"path":"app/api/session/current/route.ts","originType":"generated","originId":"app/api/session/current/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"41b5716db55eb55e9692340dcdfee37dcdd43ca55cce7d1badf4d43ead21f7be"},{"path":"app/api/session/login/route.ts","originType":"generated","originId":"app/api/session/login/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"4ad69071b53a165627d583827b2621d5a1bdfd6734dbf32187dbce1327adde2e"},{"path":"app/api/session/logout/route.ts","originType":"generated","originId":"app/api/session/logout/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a43398df373b5b1d5c7833e50c7dc6bfda0e1715bfb32f38f9db0ee247b60ca1"},{"path":"app/api/tickets/[ticketId]/attachments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/attachments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a73eadb5c96b6167c5ddff29f301564eab37f87f68dd62246b4408309ce2728f"},{"path":"app/api/tickets/[ticketId]/comments/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/comments/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"414877019d3f46ff4e6000d0bf351c28882ad95ba0b39a1c1b9203a15bbc0e10"},{"path":"app/api/tickets/[ticketId]/status/route.ts","originType":"generated","originId":"app/api/tickets/[ticketId]/status/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"85793d66314359cdb442690a2d78c59be1975a363103749d1522bb5d10c52435"},{"path":"app/api/tickets/route.ts","originType":"generated","originId":"app/api/tickets/route.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"df49116e52f7eeca6dde5604445c30e74fc612543cf2032f32ae823f92b51dc3"},{"path":"app/customers/page.tsx","originType":"generated","originId":"app/customers/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"4c4886df0fa243a5967a9f3c6a954b4106e0b58691e5fffcdba2d4560b8d3959"},{"path":"app/globals.css","originType":"generated","originId":"app/globals.css","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"cd0d98fbb0e5d385552f519cfb5a974ce0511b9fd0de829ffd5d4180c0eab255"},{"path":"app/layout.tsx","originType":"generated","originId":"app/layout.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"923ac38e1d841ac7a518ac6a3811ac6fd4f27c5860263cd715308c99e90057da"},{"path":"app/login/page.tsx","originType":"generated","originId":"app/login/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"d515c598a018a51b9dcfe199ffdcd55d1cdcd23b0859dfb237ce4cffc45ee07f"},{"path":"app/page.tsx","originType":"generated","originId":"app/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"217eeae5935af77bef4a8fb9bd17ac93aaac6ffd945ea0d9dc0c62f89e98d41a"},{"path":"app/tickets/page.tsx","originType":"generated","originId":"app/tickets/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"f0721d48f42dc4c21a47acc8c33a04e44fe062ff28e04fef1be23d551032d383"},{"path":"app/workspace/page.tsx","originType":"generated","originId":"app/workspace/page.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"b9fb1475d3fbb6e8bbd187b0b0ff46599379eb86040a1dc8fbdb27a3b789dba2"},{"path":"components/customer-attachment-form.tsx","originType":"generated","originId":"components/customer-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"f723bc1c776c40291edcca8c20df573a5f9c7fd6814cf4cf5f444dc65f35928b"},{"path":"components/customer-form.tsx","originType":"generated","originId":"components/customer-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"64ac781b45e1b0969edb21b23c8c444be9186b8b159eaf22f0c3c85cbfd5b931"},{"path":"components/login-form.tsx","originType":"generated","originId":"components/login-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"54a7a4ca6b29003237d69aa8e16cd551ab28a768299ca0a0b045a3893bd30d5d"},{"path":"components/logout-button.tsx","originType":"generated","originId":"components/logout-button.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"e10eaa301de0a1d540e4c7fdd65896a2fd0e654d160a7b5c14d28c3081c3eb17"},{"path":"components/ticket-attachment-form.tsx","originType":"generated","originId":"components/ticket-attachment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"86224f05ca555d5e5ad2d13613ee730dfd40d72cadd98873ba6090735ce56bef"},{"path":"components/ticket-comment-form.tsx","originType":"generated","originId":"components/ticket-comment-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"15800f544a801c82a2158ca19fc1acb67a384d524403a285e8ae5a248a62b60a"},{"path":"components/ticket-form.tsx","originType":"generated","originId":"components/ticket-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"927fb3e0a6770c5b4d21a6a80765fe38d641f60f8aed5a8c590d03dfbb8f880e"},{"path":"components/ticket-status-form.tsx","originType":"generated","originId":"components/ticket-status-form.tsx","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"577beff3d47c962fad2b99ab64c404087e8627ba1bcdaf9e52ef758974daf353"},{"path":"control/evidence/acceptance-coverage.json","originType":"generated","originId":"control/evidence/acceptance-coverage.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"1902fd37d74388eb442373dcee2ac6600dd1be8caa0ec00bcf431b05802597ed"},{"path":"control/evidence/block-usage-map.json","originType":"generated","originId":"control/evidence/block-usage-map.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"cb1b1c8d59ae5bbad26b7f672fbc5dc3d82d1c6b763488cfa4438c0c55aa74ea"},{"path":"control/evidence/install-manifest.json","originType":"generated","originId":"control/evidence/install-manifest.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0f1a8fc16402b085a7398203f82c140f42ca528297d9c6cd8c46ec9e9e090e42"},{"path":"control/evidence/policy-report.json","originType":"generated","originId":"control/evidence/policy-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"},{"path":"control/evidence/runtime-report.json","originType":"generated","originId":"control/evidence/runtime-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6ce96b03ec6816c64655a1466677d4a630a9956738122e2a131a97d705b55f87"},{"path":"control/evidence/verification-report.json","originType":"generated","originId":"control/evidence/verification-report.json","generatedByPass":"verify","verifiedBy":[],"overrideStatus":"none","hash":"6646e73fe06e5c60aeff3b04d8e68cefc529dc94fe3a94110124bd682d420700"},{"path":"control/graph/explain-graph.dot","originType":"generated","originId":"control/graph/explain-graph.dot","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"d7941d42953420a83fafc1f810830d7dfd264589bcdf0507b766198ec9b9571e"},{"path":"control/graph/explain-graph.json","originType":"generated","originId":"control/graph/explain-graph.json","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"6c2e913a3e769f6cd575bf321b210d96c91f4d76ca2ac72940cb950053ccd9fd"},{"path":"control/graph/explain-graph.mmd","originType":"generated","originId":"control/graph/explain-graph.mmd","generatedByPass":"explain","verifiedBy":[],"overrideStatus":"none","hash":"bada40428d82bfa0c08c552363522cc636bd97c67987bf460b4ee0c947717c73"},{"path":"control/provenance/provenance.json","originType":"generated","originId":"control/provenance/provenance.json","generatedByPass":"lock","verifiedBy":[],"overrideStatus":"none","hash":"32c02500fe590d66024c7fbe4ddf2c16b51b68c80b312c563e80364ece26bfcb"},{"path":"custom/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"3a02059902faa9201206432c95fcc3e2543173fbae9b93d878333e73be2923dd"},{"path":"custom/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"58e680dd98dab79bd43d248ba06b1d289dc67c3b21315661d2e7dce7c234953b"},{"path":"generated/routes.ts","originType":"generated","originId":"generated/routes.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"34bc7230f5f6cc7d65bb5887261ce11a5df010b6234a3b7115fb9e09865a63ba"},{"path":"lib/session.ts","originType":"generated","originId":"lib/session.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a095b299822d95614852ff81963e02738d2210cc1b262f9684042613dd125247"},{"path":"lib/store.ts","originType":"generated","originId":"lib/store.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1bcc6cf1fad8387c72e1d90c30e51a0f060180504d7ec97474b2efca0333c738"},{"path":"next-env.d.ts","originType":"generated","originId":"next-env.d.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"7ad303e40d4fddf44f156129e397511953a71481c5cfd86b1862649aaaf240cc"},{"path":"next.config.mjs","originType":"generated","originId":"next.config.mjs","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"a9efcd4551ec4d9101da830e825a669befa315c4577d1bbf05b49683cf0454a0"},{"path":"package.json","originType":"generated","originId":"package.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"0495f12527dae6570b1934ac8591d6c82f907e74b9609d6c1e383be0ed78d12c"},{"path":"prisma/schema.prisma","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"990ed3f9a1831b6eb6ab945122c3a0da4e8f6b767964ee84638eae370c1c1f3c"},{"path":"source/code/slots/customer_normalizer.ts","originType":"slot","originId":"customer_normalizer","sourceBlock":"entity/customer-basic","sourcePath":"source/code/slots/customer_normalizer.ts","runtimeTarget":"custom/customer_normalizer.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_customer_normalizer","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"614b7d912abd4f28b4dddb3f583a606c78a1b151f81a02733ab3672ce12016e3"},{"path":"source/code/slots/ticket_comment_delegate.ts","originType":"slot","originId":"ticket_comment_delegate","sourceBlock":"ticket/basic","sourcePath":"source/code/slots/ticket_comment_delegate.ts","runtimeTarget":"custom/ticket_comment_delegate.ts","generatedByPass":"adapt","generatorTaskId":"fill_slot_ticket_comment_delegate","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts","tests/acceptance/comment-flow.test.ts","tests/acceptance/customer-flow.test.ts","tests/acceptance/ticket-flow.test.ts","tests/runtime/acceptance/customer-flow.spec.ts","tests/runtime/acceptance/ticket-flow.spec.ts","tests/runtime/unit/customer-runtime.test.ts","tests/runtime/unit/ticket-runtime.test.ts","tests/unit/comment-service.test.ts","tests/unit/customer-attachments.test.ts","tests/unit/customer-normalizer.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"1fdd0316f4e0eb669b80cc8120f055060598ab3b0fe82718ddcdf941fd0bd15b"},{"path":"src/installed/agent/executor-service.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"9cebfcbc38f4e512286e90c0b852323f19a427afab7dd17855a64612baa45974"},{"path":"src/installed/agent/harness-service.ts","originType":"block","originId":"agent/harness","sourceBlock":"agent/harness","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"79774f73cb0f53118e28351a2cafc177898649c691302c26346992b2566389eb"},{"path":"src/installed/auth/session.ts","originType":"block","originId":"auth/basic-session","sourceBlock":"auth/basic-session","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"b46a8bd583a502456f269f682ac1ddc6cf0f9aac13b4fcb13bf25c449371725f"},{"path":"src/installed/comment/comment-service.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"e46974bdf5082b52cb994636952653d7f1bf01973d9bdba0ad6a63b3914a27b7"},{"path":"src/installed/entity/customer-service.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"49ef2fe3b5553895bf036959032a26aae9ac628ff9ca5b68452d1f2f1897d914"},{"path":"src/installed/file/customer-attachments.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"8066a2fbb4d8582aa664dcdef2822507b73f1cba93996c21f6dfb4229a935a73"},{"path":"src/installed/tenant/context.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"88010a9157dee88a28742be9dc3528aed26980594bdb05621bda8c6f405e3a98"},{"path":"src/installed/ticket/ticket-service.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"ed8f0591bb4ce6948f63e3c6f5e0435b8f191ce577e1878e23ba93b575717dd1"},{"path":"tests/acceptance/agent-classifier-flow.test.ts","originType":"block","originId":"agent/executor","sourceBlock":"agent/executor","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/agent-classifier-flow.test.ts"],"overrideStatus":"none","hash":"506cf94368a6616c2b97a0648f28560c0cb52f6d3d585364df43687223a5d11c"},{"path":"tests/acceptance/comment-flow.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"95bdaae63ceb7b8d79f42f0985ab87fa8809fa2fbd905d8f170cbafc9690a367"},{"path":"tests/acceptance/customer-flow.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"1cbf4989bbae79d15a2bee35935763d149cef5c4457523b0b1fe3ea9ba675e8e"},{"path":"tests/acceptance/ticket-flow.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"0cefdb727fbcec37b87c2048ade4ae905bb9a8f443d25aa9d9e6e67c57021546"},{"path":"tests/runtime/acceptance/customer-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/customer-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"01fe03a98e3464cc16cab1729ebcc7c7b112c0b010841209e201aa6929f360ec"},{"path":"tests/runtime/acceptance/ticket-flow.spec.ts","originType":"generated","originId":"tests/runtime/acceptance/ticket-flow.spec.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"1fc4fc1602d0903cdbd88556e08f322ab51d134bfdda1190a643f928b7ba8538"},{"path":"tests/runtime/unit/customer-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/customer-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"5cfefb02e316859c8bff1705d5c24123cbab55bd7e9390e3c60900d81c88c18e"},{"path":"tests/runtime/unit/ticket-runtime.test.ts","originType":"generated","originId":"tests/runtime/unit/ticket-runtime.test.ts","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"809b121d6808b0457c67248ca1a734478e500cf82a3fb90fbc007f12eb64d0c0"},{"path":"tests/shared/tenant-runtime-fixture.ts","originType":"block","originId":"tenant/basic-workspace","sourceBlock":"tenant/basic-workspace","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"3d91c1a5bba5bc1b44943c34da8a9cfc00ff1cbea2e776f13f011c1c0a9457db"},{"path":"tests/shared/ticket-service-suite.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"f48da33b70c8af291a6399f0d142efb2a1253734cdbe6749c925baf59f832ae8"},{"path":"tests/unit/comment-service.test.ts","originType":"block","originId":"comment/basic","sourceBlock":"comment/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/comment-flow.test.ts","tests/unit/comment-service.test.ts"],"overrideStatus":"none","hash":"b7becb64319f779e972ebd8614bdb4e046211ee15381a7c815b7711332235017"},{"path":"tests/unit/customer-attachments.test.ts","originType":"block","originId":"file/upload","sourceBlock":"file/upload","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/unit/customer-attachments.test.ts"],"overrideStatus":"none","hash":"be94b72c8079147ddb4296c9c0d44acd523f18f9f4a493afc5934b0713c205aa"},{"path":"tests/unit/customer-normalizer.test.ts","originType":"block","originId":"entity/customer-basic","sourceBlock":"entity/customer-basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/customer-flow.test.ts","tests/unit/customer-normalizer.test.ts"],"overrideStatus":"none","hash":"18f158586f2dbe575a351795160969486716d77feffc92ee22f4b42f67c53873"},{"path":"tests/unit/ticket-service.test.ts","originType":"block","originId":"ticket/basic","sourceBlock":"ticket/basic","registrySourceId":"official","registryKind":"official","registryLocation":"compiler","registryPath":"platform/registry/official","generatedByPass":"compose","verifiedBy":["tests/acceptance/ticket-flow.test.ts","tests/unit/ticket-service.test.ts"],"overrideStatus":"none","hash":"a1df0d924681207943a7a43494e5f666bc99d38e4b4a58646f5729034eb9e1e3"},{"path":"tsconfig.json","originType":"generated","originId":"tsconfig.json","generatedByPass":"compose","verifiedBy":[],"overrideStatus":"none","hash":"c2eb7ddbd0c32aaed4b2ee1feb34a459dcca69027f33caa813b21505d768f45e"}],"coverage":{"blocks":[{"id":"auth/basic-session","coveredBy":["user_can_login"]},{"id":"tenant/basic-workspace","coveredBy":["tenant_only_sees_own_customers"]},{"id":"agent/harness","coveredBy":["agent_can_be_registered"]},{"id":"entity/customer-basic","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer","user_can_list_customers"]},{"id":"file/upload","coveredBy":[]},{"id":"ticket/basic","coveredBy":["assignee_can_filter_tickets","ticket_attachment_can_be_uploaded","ticket_can_be_created","ticket_comment_can_be_added","ticket_status_can_transition"]},{"id":"comment/basic","coveredBy":["ticket_comment_can_be_added"]},{"id":"agent/executor","coveredBy":["agent_can_automatically_classify_ticket"]}],"slots":[{"id":"customer_normalizer","coveredBy":["tenant_only_sees_own_customers","user_can_create_customer"]},{"id":"ticket_comment_delegate","coveredBy":[]}]}}};
 
   const translationDict = {
     zh: {
@@ -1301,7 +1520,7 @@
           if (visNodes && visNodes.get(portId)) {
             visNodes.update({
               id: portId,
-              x: x + 85,
+              x: x + 75,
               y: y + (idx - (bDef.provides.length - 1) / 2) * 20
             });
           }
@@ -1313,7 +1532,7 @@
           if (visNodes && visNodes.get(portId)) {
             visNodes.update({
               id: portId,
-              x: x - 85,
+              x: x - 75,
               y: y + (idx - (bDef.requires.length - 1) / 2) * 20
             });
           }
@@ -1401,7 +1620,7 @@
                 visNodes.add({
                   id: portId,
                   label: prov,
-                  x: x + 85,
+                  x: x + 75,
                   y: y + (idx - (bDef.provides.length - 1)/2) * 20,
                   shape: 'dot',
                   size: 6,
@@ -1428,7 +1647,7 @@
                 visNodes.add({
                   id: portId,
                   label: req,
-                  x: x - 85,
+                  x: x - 75,
                   y: y + (idx - (bDef.requires.length - 1)/2) * 20,
                   shape: 'dot',
                   size: 6,
@@ -1751,7 +1970,7 @@
                   label: prov,
                   shape: 'dot',
                   size: 6,
-                  x: n.x + 85,
+                  x: n.x + 75,
                   y: n.y + (idx - (bDef.provides.length - 1)/2) * 20,
                   color: { background: '#064e3b', border: '#10b981' },
                   shadow: { enabled: false },
@@ -1771,19 +1990,22 @@
                 const portId = `port-requires:${blockId}:${req}`;
                 nodesArray.push({
                   id: portId,
-                  label: `Requires:\n${req}`,
+                  label: req,
                   shape: 'dot',
-                  size: 10,
+                  size: 6,
+                  x: n.x - 75,
+                  y: n.y + (idx - (bDef.requires.length - 1)/2) * 20,
                   color: { background: '#78350f', border: '#f59e0b' },
-                  shadow: { enabled: true, color: '#f59e0b', size: 8, x: 0, y: 0 },
-                  font: { color: '#fbbf24', size: 9, face: 'JetBrains Mono, monospace' },
+                  shadow: { enabled: false },
+                  font: { color: '#fbbf24', size: 8, face: 'JetBrains Mono, monospace' },
                   physics: false
                 });
                 edgesArray.push({
                   from: portId,
                   to: n.id,
-                  color: { color: '#b45309' },
-                  dashes: true
+                  color: { color: 'rgba(255, 255, 255, 0.12)' },
+                  dashes: false,
+                  arrows: ''
                 });
               });
             }
@@ -2730,52 +2952,57 @@
 
   // === Spec Builder V2.1 Immersive UI Interactive Controls ===
   
-  // 1. 折叠左侧组件侧栏
+  // 1. 折叠左侧组件侧栏 (桥接兼容已有的测试/折叠动作)
   function toggleSidebar() {
-    const sidebar = document.getElementById('node-sidebar');
-    const toggleBtn = document.getElementById('sidebar-toggle-btn');
-    if (!sidebar) return;
-    
-    sidebar.classList.toggle('collapsed');
-    
-    // 更新折叠按钮箭头的方向
-    if (sidebar.classList.contains('collapsed')) {
-      toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>`;
-      toggleBtn.title = "Expand Sidebar (展开侧栏)";
-    } else {
-      toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>`;
-      toggleBtn.title = "Collapse Sidebar (折叠侧栏)";
-    }
-    
-    // 延迟触发 vis.Network 的 resize，确保画布高宽自动刷新并对齐
-    setTimeout(() => {
-      if (network) network.setSize("100%", "100%");
-    }, 310);
+    toggleCatalogPopover();
   }
 
-  // 2. 展开/缩回底部 IDE Review 控制台
+  // 控制 Catalog Popover 的展开与关闭
+  let isCatalogOpen = false;
+  function toggleCatalogPopover() {
+    const popover = document.getElementById('catalog-popover');
+    if (!popover) return;
+    isCatalogOpen = !isCatalogOpen;
+    if (isCatalogOpen) {
+      popover.style.display = 'flex';
+      setTimeout(() => popover.classList.add('open'), 10);
+      const icon = document.getElementById('dock-btn-catalog');
+      if (icon) icon.classList.add('active');
+    } else {
+      popover.classList.remove('open');
+      const icon = document.getElementById('dock-btn-catalog');
+      if (icon) icon.classList.remove('active');
+      setTimeout(() => {
+        if (!isCatalogOpen) popover.style.display = 'none';
+      }, 200);
+    }
+  }
+
+  // 2. 展开/缩回底部多功能控制台（桥接兼容新悬浮 HUD 面板）
   let isBottomConsoleOpen = false;
   function toggleBottomConsole() {
     const panel = document.getElementById('bottom-console-panel');
-    const indicator = document.getElementById('console-close-indicator');
-    const closeText = document.getElementById('console-close-text');
-    
     if (!panel) return;
     
     isBottomConsoleOpen = !isBottomConsoleOpen;
-    panel.classList.toggle('open', isBottomConsoleOpen);
-    indicator.classList.toggle('active', isBottomConsoleOpen);
-    
     if (isBottomConsoleOpen) {
-      closeText.textContent = "Minimize Console (最小化)";
+      panel.style.display = 'flex';
+      setTimeout(() => panel.classList.add('open'), 10);
     } else {
-      closeText.textContent = "Expand Bottom Dashboard (展开面板)";
+      panel.classList.remove('open');
+      setTimeout(() => {
+        if (!isBottomConsoleOpen) panel.style.display = 'none';
+      }, 200);
     }
+  }
+
+  function toggleDiagnosticPopover() {
+    toggleBottomConsole();
   }
 
   // 3. 在底部控制台切换不同的 Tab
   function selectConsoleTab(tabId) {
-    // 切换 tabs 激活状态
+    // 切换 tabs 激活状态 (同时激活 tab-xxx)
     document.querySelectorAll('.console-tab').forEach(tab => {
       tab.classList.remove('active');
     });
@@ -2793,8 +3020,14 @@
     
     // 确保底部面板自动打开
     if (!isBottomConsoleOpen) {
-      toggleBottomConsole();
+      isBottomConsoleOpen = false; // 重置状态
+      toggleBottomConsole(); // 触发打开
     }
+  }
+
+  // 兼容支持 selectHudTab 的旧别名
+  function selectHudTab(tabId) {
+    selectConsoleTab(tabId);
   }
 
   // Initialize page translations and network layout with dynamic Blocks catalog scanning first

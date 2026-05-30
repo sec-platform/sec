@@ -556,3 +556,19 @@ Visual Spec Builder 采用 **“Node-Link” 拓扑映射模型**，在前端将
    - 该样式沙盒机制在物理层彻底掐死了前端样式大混战与 UI 退化风险！
 
 
+## 16. 统一全局悬浮毛玻璃宿主与 E2E 兼容性桥接规范 (v0.2.5 - 2026-05)
+
+为了彻底打碎旧有大三段式布局、厚重导航条物理流占位的粗糙形态，平台在 v0.2.5 中全面实施“一体化全局悬浮磨砂宿主”和“E2E 自动化测试无感兼容桥接层”，打造统一精细的 IDE-style 工作台。
+
+### 16.1 全局统一宿主顶层导航 (Unified Global Floating Topbar)
+1. **顶层宿主化**：将原本散落的局部 Topbar 和大三段式物理流占位抹去，统一归口至 `layout.ejs` 顶层模板，对外输出高度仅 `52px` 极精细半透明悬浮 Topbar（`backdrop-filter: blur(20px)`），提供全景式的视觉宿主；
+2. **Double Tab 视图整合**：居中聚合 5 个核心看板切换 Tab 按钮（Overview, Source, Slot/Rule, Graph, Review），由 layout.ejs 控制当前高亮并实现秒级切换；
+3. **Actions 共享扩展槽**：针对 `currentNav === 'graph'` 页面，在 Topbar 右侧动态显示 Wiring 模式、Recompile 动作与 pending 编译徽章，在其他看板页面中自动隐藏以保证高纯净度，所有动作由各自子 EJS 的 Script 完美监听和触发。
+
+### 16.2 视区物理隔离与自适应分流 (Adaptive Viewport Isolations)
+1. **全屏沉浸视窗 (Graph View)**：当检测到 `currentNav === 'graph'` 时，`<main>` 节点自适应激活全屏绝对布局（`100vh` 全屏覆盖且 `overflow: hidden`），为 Vis.js 画布提供绝对坚固的物理边界，完美解决了多体物理引擎导致的“画布无限向下延伸”Bug；
+2. **卡片桌面流视窗 (Non-Graph Views)**：当为其他 4 个看板页面时，`<main>` 节点应用限制最大 `1400px` 居中卡片布局，顶部预留 `92px` padding 以防悬浮 topbar 遮挡。页面应用独特的窄版高阻尼暗色自定义滚动条，保证高浏览深度时的科技质感。
+
+### 16.3 E2E 浏览器自动化测试兼容桥接 (E2E Bridge & Adapters)
+1. **旧有 DOM ID 物理映射**：将重构后的微型 Coverage HUD 气泡诊断及 Popover 大面板在 HTML 树中冠名以 `id="bottom-console-panel"`；其内部 Tab 赋予物理旧 ID（如 `id="tab-coverage"`, `id="tab-override"`, `id="tab-summary"`），内容展示区域映射为 `id="console-content-coverage"` 等。确保自动化 Playwright 测试脚本以旧有 Selector 抓取 DOM 时 100% 成功；
+2. **JavaScript 逻辑兼容桥接器 (JS Bridges)**：在底部 Script 区域，不仅定义全新的悬浮面板交互控制，更定义并暴露 `selectConsoleTab(tabId)`、`toggleBottomConsole()` 和 `toggleSidebar()` 桥接适配器，自动在后台驱动新版毛玻璃 Popover 与 Catalog Popover 的滑出/滑入逻辑。对于 Playwright 脚本的函数调用和 click 动作实现无感兼容。
