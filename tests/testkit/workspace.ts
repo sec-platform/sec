@@ -91,15 +91,21 @@ async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
   const stagingRoot = path.join(templateParent, `${kind}.staging-${process.pid}-${Date.now()}`);
   await fs.rm(stagingRoot, { recursive: true, force: true });
   await fs.mkdir(stagingRoot, { recursive: true });
-  await prepareWorkspacePipeline(stagingRoot, {}, kind);
-  await fs.writeFile(path.join(stagingRoot, '.template-ready'), `${kind}\n`, 'utf8');
-  await fs.rm(templateRoot, { recursive: true, force: true });
   try {
-    await fs.rename(stagingRoot, templateRoot);
-  } catch {
-    await fs.mkdir(templateRoot, { recursive: true });
-    await fs.cp(stagingRoot, templateRoot, { recursive: true });
+    await prepareWorkspacePipeline(stagingRoot, {}, kind);
+    await fs.writeFile(path.join(stagingRoot, '.template-ready'), `${kind}\n`, 'utf8');
+    await fs.rm(templateRoot, { recursive: true, force: true });
+    try {
+      await fs.rename(stagingRoot, templateRoot);
+    } catch {
+      await fs.mkdir(templateRoot, { recursive: true });
+      await fs.cp(stagingRoot, templateRoot, { recursive: true });
+      await fs.rm(stagingRoot, { recursive: true, force: true });
+    }
+  } catch (error) {
+    // 防止 staging 残留为孤儿
     await fs.rm(stagingRoot, { recursive: true, force: true });
+    throw error;
   }
   return templateRoot;
 }
