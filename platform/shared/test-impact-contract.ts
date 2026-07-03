@@ -193,17 +193,31 @@ function readTestSource(testFile: string): string | null {
   }
 }
 
+// 测试文件的 import specifier 列表在进程内不会变化（test 集合在启动时确定），
+// memoize 一次解析结果可让 selectTestsForSources 在多次调用时复用，避免反复
+// 读盘 + ts-morph 解析。ci-lanes.test.ts / test-impact.test.ts 等多次调用场景
+// 可由 ~4-6x 解析降到 1x 解析 + 廉价查表。
+const testImportSpecifiersCache = new Map<string, string[]>();
+
+function readTestImportSpecifiers(testFile: string): string[] {
+  const cached = testImportSpecifiersCache.get(testFile);
+  if (cached) return cached;
+
+  const source = readTestSource(testFile);
+  if (!source) {
+    return [];
+  }
+  const specifiers = importSpecifiers(source, testFile);
+  testImportSpecifiersCache.set(testFile, specifiers);
+  return specifiers;
+}
+
 function testsReferencingSources(files: string[]): string[] {
   const sourceFiles = new Set(files.map(normalizeRepoPath));
   const matchedTests = new Set<string>();
 
   for (const testFile of getTestFilesSync()) {
-    const source = readTestSource(testFile);
-    if (!source) {
-      continue;
-    }
-
-    for (const specifier of importSpecifiers(source, testFile)) {
+    for (const specifier of readTestImportSpecifiers(testFile)) {
       for (const candidate of importCandidates(testFile, specifier)) {
         if (sourceFiles.has(candidate)) {
           matchedTests.add(testFile);
