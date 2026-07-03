@@ -6,64 +6,66 @@ import type { InstallPlanStep } from '../../platform/shared/lock-types.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { BlockManifest } from '../../platform/shared/plan-manifest-types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('plan validation rejects registry paths that traverse outside their base root', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-path-plan-registry-');
-  const { planPath } = getWorkspacePaths(workspaceRoot);
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { planPath } = getWorkspacePaths(workspaceRoot);
 
-  await writeYaml(planPath, {
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs-ts-prisma-sqlite',
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
-    registry: {
-      sources: [
-        {
-          id: 'private',
-          kind: 'private',
-          location: 'workspace',
-          path: 'source/blocks/private/../outside'
-        }
-      ]
-    },
-    blocks: [],
-    slots: [],
-    acceptance: []
-  });
+    await writeYaml(planPath, {
+      app: {
+        name: 'customer-admin',
+        stack: 'nextjs-ts-prisma-sqlite',
+        packageManager: 'pnpm',
+        mode: 'single-tenant'
+      },
+      registry: {
+        sources: [
+          {
+            id: 'private',
+            kind: 'private',
+            location: 'workspace',
+            path: 'source/blocks/private/../outside'
+          }
+        ]
+      },
+      blocks: [],
+      slots: [],
+      acceptance: []
+    });
 
-  await expect(loadPlan(planPath)).rejects.toMatchObject({ code: 'PLAN-VALIDATION-012' });
+    await expect(loadPlan(planPath)).rejects.toMatchObject({ code: 'PLAN-VALIDATION-012' });
+  }, 'engineering-compiler-path-plan-registry-');
 });
 
 test('plan validation rejects slot targets that traverse outside custom', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-path-plan-slot-');
-  const { planPath } = getWorkspacePaths(workspaceRoot);
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { planPath } = getWorkspacePaths(workspaceRoot);
 
-  await writeYaml(planPath, {
-    app: {
-      name: 'customer-admin',
-      stack: 'nextjs-ts-prisma-sqlite',
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
-    blocks: [{ id: 'entity/customer-basic' }],
-    slots: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        kind: 'adapter',
-        target: 'custom/../../control/evil.ts',
-        sourcePath: 'source/code/slots/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        description: 'Normalize customer input.'
-      }
-    ],
-    acceptance: []
-  });
+    await writeYaml(planPath, {
+      app: {
+        name: 'customer-admin',
+        stack: 'nextjs-ts-prisma-sqlite',
+        packageManager: 'pnpm',
+        mode: 'single-tenant'
+      },
+      blocks: [{ id: 'entity/customer-basic' }],
+      slots: [
+        {
+          id: 'customer_normalizer',
+          block: 'entity/customer-basic',
+          kind: 'adapter',
+          target: 'custom/../../control/evil.ts',
+          sourcePath: 'source/code/slots/customer_normalizer.ts',
+          symbol: 'normalizeCustomerInput',
+          description: 'Normalize customer input.'
+        }
+      ],
+      acceptance: []
+    });
 
-  await expect(loadPlan(planPath)).rejects.toMatchObject({ code: 'PLAN-VALIDATION-008' });
+    await expect(loadPlan(planPath)).rejects.toMatchObject({ code: 'PLAN-VALIDATION-008' });
+  }, 'engineering-compiler-path-plan-slot-');
 });
 
 test('manifest validation rejects install paths that traverse outside allowed roots', () => {
@@ -100,48 +102,49 @@ test('manifest validation rejects install paths that traverse outside allowed ro
 });
 
 test('install strategy rejects persisted lock targets that escape project root', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-path-install-');
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  const step: InstallPlanStep = {
-    stepId: 'private/path-test:1',
-    blockId: 'private/path-test',
-    registrySourceId: 'private',
-    registryKind: 'private',
-    registryLocation: 'workspace',
-    registryPath: 'platform/registry/private',
-    sourceRoot: '',
-    action: 'copy',
-    from: 'files/source.ts',
-    to: '../outside.ts'
-  };
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { projectRoot } = getWorkspacePaths(workspaceRoot);
+    const step: InstallPlanStep = {
+      stepId: 'private/path-test:1',
+      blockId: 'private/path-test',
+      registrySourceId: 'private',
+      registryKind: 'private',
+      registryLocation: 'workspace',
+      registryPath: 'platform/registry/private',
+      sourceRoot: '',
+      action: 'copy',
+      from: 'files/source.ts',
+      to: '../outside.ts'
+    };
 
-  await expect(defaultInstallRegistry.executeAll([step], {
-    workspaceRoot,
-    projectRoot,
-    lock: {
-      formatVersion: '1',
-      app: {
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
-      },
-      resolvedBlocks: [],
-      resolvedCapabilities: [],
-      installPlan: [],
-      slotTasks: [],
-      generatedPaths: [],
-      acceptancePlan: [],
-      passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'pending',
-        adapt: 'pending',
-        verify: 'pending',
-        repair: 'pending',
-        lock: 'pending',
-        emit: 'pending'
+    await expect(defaultInstallRegistry.executeAll([step], {
+      workspaceRoot,
+      projectRoot,
+      lock: {
+        formatVersion: '1',
+        app: {
+          name: 'customer-admin',
+          stack: 'nextjs-ts-prisma-sqlite',
+          mode: 'single-tenant'
+        },
+        resolvedBlocks: [],
+        resolvedCapabilities: [],
+        installPlan: [],
+        slotTasks: [],
+        generatedPaths: [],
+        acceptancePlan: [],
+        passStatus: {
+          parse: 'succeeded',
+          align: 'succeeded',
+          resolve: 'succeeded',
+          compose: 'pending',
+          adapt: 'pending',
+          verify: 'pending',
+          repair: 'pending',
+          lock: 'pending',
+          emit: 'pending'
+        }
       }
-    }
-  })).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
+    })).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
+  }, 'engineering-compiler-path-install-');
 });

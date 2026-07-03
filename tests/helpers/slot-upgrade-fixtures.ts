@@ -66,6 +66,23 @@ export async function prepareSlotUpgradeDryRunFixture(
   return { workspaceRoot, paths, versionRoot, beforePlan };
 }
 
+/**
+ * 推荐使用的 callback 风格 API：在内部 try/finally 中确保 workspace 立即清理，
+ * 不依赖 afterAll 批量清理。
+ * 调用方应在 callback 内完成所有测试逻辑（包括 dryRun/apply/断言）。
+ */
+export async function withSlotUpgradeDryRunFixture<T>(
+  options: SlotUpgradeDryRunFixtureOptions,
+  callback: (context: SlotUpgradeDryRunFixtureContext & { beforePlan: string }) => Promise<T>
+): Promise<T> {
+  const context = await prepareSlotUpgradeDryRunFixture(options);
+  try {
+    return await callback(context);
+  } finally {
+    await fs.rm(context.workspaceRoot, { recursive: true, force: true });
+  }
+}
+
 export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<void> {
   const { lockPath, planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
   const blockRoot = path.join(privateRegistryRoot, 'private.slot-contract');
