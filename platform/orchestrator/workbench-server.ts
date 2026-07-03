@@ -3,12 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { writeJson } from '../shared/fs.ts';
+import { defaultLogger } from '../shared/logger.ts';
 import {
-  controlWorkbenchViewsRelativePath,
-  getWorkspacePaths,
-  officialRegistryRelativePath,
-  posixPath,
-  sourceSlotsRelativePath,
+    controlWorkbenchViewsRelativePath,
+    getWorkspacePaths,
+    officialRegistryRelativePath,
+    posixPath,
+    sourceSlotsRelativePath,
 } from '../shared/paths.ts';
 
 import { resolveWorkspace } from './block-orchestrator.ts';
@@ -141,20 +142,18 @@ const COLORS = {
   reset: '\x1b[0m',
 } as const;
 
-function timestamp(): string {
-  return new Date().toISOString();
-}
-
 function logSystem(msg: string): void {
-  console.log(`${COLORS.red}[SYSTEM] [${timestamp()}] ${msg}${COLORS.reset}`);
+  defaultLogger.warn(msg);
 }
 
 function logMutex(msg: string): void {
-  console.log(`${COLORS.cyan}[Mutex] [${timestamp()}] ${msg}${COLORS.reset}`);
+  defaultLogger.debug(msg);
 }
 
 function logHttp(method: string, reqPath: string, status: number, statusText: string, elapsed: number, color: string): void {
-  console.log(`${color}[HTTP] [${timestamp()}] ${method} ${reqPath} - ${status} ${statusText} - ${elapsed}ms${COLORS.reset}`);
+  // 复用原有颜色语义推断日志级别：red=error, yellow=warn, 其余=info。
+  const level = color === COLORS.red ? 'error' : color === COLORS.yellow ? 'warn' : 'info';
+  defaultLogger[level]('HTTP request', { method, path: reqPath, status, statusText, elapsedMs: elapsed });
 }
 
 const SECURITY_HEADERS: Record<string, string> = {

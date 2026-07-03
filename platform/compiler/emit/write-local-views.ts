@@ -9,12 +9,13 @@ import { EXPLAIN_NODE_TYPES, type ExplainGraph } from '../../shared/explain-type
 import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
+import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import {
-  buildProjectOverview,
-  PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
-  type ProjectOverview
+    buildProjectOverview,
+    PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
+    type ProjectOverview
 } from '../../shared/project-overview.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
@@ -132,17 +133,17 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   const visLocalPath = path.join(generatedViewsDir, 'vis-network.min.js');
   if (!(await pathExists(visLocalPath))) {
     try {
-      console.log(`[Workbench] Downloading offline vis-network.min.js asset...`);
+      defaultLogger.info('Downloading offline vis-network.min.js asset', { visLocalPath });
       const res = await fetch('https://unpkg.com/vis-network/standalone/umd/vis-network.min.js');
       if (res.ok) {
         const text = await res.text();
         await fs.writeFile(visLocalPath, text, 'utf8');
-        console.log(`[Workbench] Cached vis-network.min.js locally successfully.`);
+        defaultLogger.info('Cached vis-network.min.js locally', { visLocalPath, bytes: text.length });
       } else {
-        console.warn(`[Workbench] Download vis-network.min.js failed (status: ${res.status}). Fallback to CDN.`);
+        defaultLogger.warn('Download vis-network.min.js failed; falling back to CDN', { status: res.status });
       }
     } catch (e) {
-      console.warn(`[Workbench] Failed to download offline asset (offline mode): ${String(e)}. Browser will fallback to CDN.`);
+      defaultLogger.warn('Failed to download offline asset; browser will fall back to CDN', { error: e });
     }
   }
 
