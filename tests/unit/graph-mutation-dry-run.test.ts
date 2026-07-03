@@ -2,18 +2,17 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { buildExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
+import { loadPlan } from '../../platform/compiler/parse/load-plan.ts';
 import { applyViewMutations } from '../../platform/compiler/workbench/apply-view-mutations.ts';
 import {
   GRAPH_MUTATION_DRY_RUN_REPORT_PATH,
   buildGraphMutationDryRun
 } from '../../platform/compiler/workbench/graph-mutation-dry-run.ts';
-import { initWorkspace, resolveWorkspace } from '../../platform/orchestrator.ts';
+import { initWorkspace } from '../../platform/orchestrator.ts';
 import { fixedCiArtifactPaths } from '../../platform/shared/ci-artifact-contract.ts';
 import type { ExplainGraph } from '../../platform/shared/explain-types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { AcceptanceCoverageReport, ProvenanceFile } from '../../platform/shared/types.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 const baseGraph: ExplainGraph = {
@@ -33,30 +32,6 @@ const baseGraph: ExplainGraph = {
     }
   }
 };
-
-function emptyCoverage(): AcceptanceCoverageReport {
-  return {
-    formatVersion: '1',
-    status: 'passed',
-    acceptancePassed: [],
-    blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
-  };
-}
-
-function emptyProvenance(): ProvenanceFile {
-  return {
-    formatVersion: '1',
-    artifacts: []
-  };
-}
-
-async function buildCurrentGraph(workspaceRoot: string): Promise<ExplainGraph> {
-  const { lock } = await resolveWorkspace(workspaceRoot);
-  return buildExplainGraph(workspaceRoot, lock, emptyProvenance(), emptyCoverage(), null);
-}
 
 test('builds a dry-run report that previews an add-acceptance mutation without writing source', () => {
   const report = buildGraphMutationDryRun(baseGraph, [
@@ -159,14 +134,18 @@ test('expected node delta matches the graph after applying the generated mutatio
 
   await writeJson(path.join(paths.sourceViewMutationsRoot, 'add-review-acceptance.json'), mutationFile);
   await applyViewMutations(workspaceRoot);
-  const afterGraph = await buildCurrentGraph(workspaceRoot);
-  const afterNodeIds = new Set(afterGraph.nodes.map((node) => node.id));
-  const expectedNodeIds = report.operations.flatMap((operation) =>
-    operation.expectedGraphDelta.nodes.added.map((node) => node.id)
+  // buildExplainGraph 把 lock.acceptancePlan 中每个 id 映射为 acceptance:<id> 节点；
+  // lock.acceptancePlan 又派生自 plan.acceptance。直接读 plan 校验源头即可，
+  // 避免再做一次 resolveWorkspace + buildExplainGraph（每次 ~2-3s）。
+  const plan = await loadPlan(paths.planPath);
+  const expectedAcceptanceIds = report.operations.flatMap((operation) =>
+    operation.expectedGraphDelta.nodes.added
+      .filter((node) => node.type === 'acceptance')
+      .map((node) => node.label)
   );
 
-  for (const expectedId of expectedNodeIds) {
-    expect(afterNodeIds.has(expectedId)).toBe(true);
+  for (const expectedId of expectedAcceptanceIds) {
+    expect(plan.acceptance.some((entry) => entry.id === expectedId)).toBe(true);
   }
 }, 120000);
 test('rejects mutation ids that cannot be used as source mutation file names', () => {
