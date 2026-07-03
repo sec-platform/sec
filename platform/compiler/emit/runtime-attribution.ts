@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import { uniqueSorted } from '../../shared/collections.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import { defaultLogger } from '../../shared/logger.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
 
 export type RuntimeEntryKind = 'page' | 'api';
@@ -43,7 +44,7 @@ export class AttributionResolver {
           manifests.set(block.id, manifest);
         }
       } catch (err) {
-        // fallback ignore
+        defaultLogger.warn('Failed to load block manifest for runtime attribution', { blockId: block.id, error: err });
       }
     }
 
