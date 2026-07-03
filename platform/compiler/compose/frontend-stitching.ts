@@ -92,8 +92,10 @@ export async function prefixJsxClassNames(filePath: string, prefix = 'block-atta
 
     const jsxAttributes = sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute);
     for (const attr of jsxAttributes) {
-      const nameNode = (attr as any).getNameNode?.();
-      const attrName = nameNode ? nameNode.getText() : (attr as any).getName?.() ?? '';
+      // ts-morph JsxAttribute.getNameNode() 总是返回 JsxAttributeName（不会是 undefined），
+      // 早期的 as any + 可选链是过度防御，且 fallback 的 getName() 根本不是 JsxAttribute 的方法。
+      const nameNode = attr.getNameNode();
+      const attrName = nameNode.getText();
       if (attrName === 'className') {
         const initializer = attr.getInitializer();
         if (!initializer) continue;
