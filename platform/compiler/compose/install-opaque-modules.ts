@@ -1,10 +1,11 @@
-import path from 'node:path';
-import fs from 'node:fs/promises';
 import { globby } from 'globby';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { z } from 'zod';
-import { pathExists, readJson, writeJson, copyRecursive, removeDir } from '../../shared/fs.ts';
-import { readYamlWithSchema } from '../../shared/yaml.ts';
+import { copyRecursive, pathExists, readJson, removeDir, writeJson } from '../../shared/fs.ts';
+import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import { readYamlWithSchema } from '../../shared/yaml.ts';
 
 const opaqueModuleSchema = z.object({
   id: z.string(),
@@ -37,7 +38,7 @@ export async function installOpaqueModules(workspaceRoot: string, projectRoot: s
         absolutePath: yamlFile,
       });
     } catch (err) {
-      console.warn(`Failed to process opaque module yaml at ${yamlFile}:`, err);
+      defaultLogger.warn('Failed to process opaque module yaml', { yamlFile, error: err });
     }
   }
 

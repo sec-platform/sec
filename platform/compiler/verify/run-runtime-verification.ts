@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { listFilesRecursive } from '../../shared/fs.ts';
+import { defaultLogger } from '../../shared/logger.ts';
 import { compilerRoot, relativePosixPath } from '../../shared/paths.ts';
 import { pathEnvKey, runCommand } from '../../shared/process.ts';
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
@@ -101,7 +102,7 @@ async function timed<T>(
   const result = await fn();
   if (emitTiming) {
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-    console.log(`[TIMING] ${label}: ${elapsed}s`);
+    defaultLogger.info('Runtime verification step timing', { label, elapsedSeconds: elapsed });
   }
   return result;
 }

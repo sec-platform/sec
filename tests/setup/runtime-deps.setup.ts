@@ -14,6 +14,11 @@ async function configureTestTempRoot(): Promise<void> {
   process.env.TMPDIR = tempRoot;
   process.env.TMP = tempRoot;
   process.env.TEMP = tempRoot;
+  // 测试场景默认提升日志级别到 warn，减少 pino JSON 输出带来的 I/O 噪音和耗时；
+  // 单测若需断言 logger 行为可显式覆盖 LOG_LEVEL。
+  if (!process.env.LOG_LEVEL) {
+    process.env.LOG_LEVEL = 'warn';
+  }
   await cleanStaleWorkspaces(tempRoot);
 }
 
