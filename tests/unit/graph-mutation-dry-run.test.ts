@@ -5,15 +5,15 @@ import path from 'node:path';
 import { loadPlan } from '../../platform/compiler/parse/load-plan.ts';
 import { applyViewMutations } from '../../platform/compiler/workbench/apply-view-mutations.ts';
 import {
-  GRAPH_MUTATION_DRY_RUN_REPORT_PATH,
-  buildGraphMutationDryRun
+    GRAPH_MUTATION_DRY_RUN_REPORT_PATH,
+    buildGraphMutationDryRun
 } from '../../platform/compiler/workbench/graph-mutation-dry-run.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import { fixedCiArtifactPaths } from '../../platform/shared/ci-artifact-contract.ts';
 import type { ExplainGraph } from '../../platform/shared/explain-types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const baseGraph: ExplainGraph = {
   nodes: [
@@ -112,41 +112,42 @@ test('builds a dry-run report that previews an add-acceptance mutation without w
 });
 
 test('expected node delta matches the graph after applying the generated mutation file', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-graph-mutation-dry-run-');
-  await initWorkspace(workspaceRoot, { reset: true });
+  await withTempWorkspace(async (workspaceRoot) => {
+    await initWorkspace(workspaceRoot, { reset: true });
 
-  const paths = getWorkspacePaths(workspaceRoot);
-  // 使用 baseGraph（与第一个测试一致）作为 dry-run 输入，避免一次完整的 resolve+buildExplainGraph 调用。
-  // baseGraph 不含 acceptance 节点，precondition "acceptance-node-absent" 同样满足。
-  const report = buildGraphMutationDryRun(baseGraph, [
-    {
-      id: 'add-review-acceptance',
-      kind: 'add-acceptance',
-      acceptanceId: 'review_can_approve_graph_change'
+    const paths = getWorkspacePaths(workspaceRoot);
+    // 使用 baseGraph（与第一个测试一致）作为 dry-run 输入，避免一次完整的 resolve+buildExplainGraph 调用。
+    // baseGraph 不含 acceptance 节点，precondition "acceptance-node-absent" 同样满足。
+    const report = buildGraphMutationDryRun(baseGraph, [
+      {
+        id: 'add-review-acceptance',
+        kind: 'add-acceptance',
+        acceptanceId: 'review_can_approve_graph_change'
+      }
+    ]);
+    const mutationFile = report.operations[0]?.mutationFile;
+
+    const mutationFilesBeforeApply = (await fs.readdir(paths.sourceViewMutationsRoot)).filter((file) => file.endsWith('.json'));
+    expect(mutationFilesBeforeApply).toHaveLength(0);
+    expect(mutationFile).not.toBeNull();
+    if (!mutationFile) throw new Error('expected ready dry-run mutation file');
+
+    await writeJson(path.join(paths.sourceViewMutationsRoot, 'add-review-acceptance.json'), mutationFile);
+    await applyViewMutations(workspaceRoot);
+    // buildExplainGraph 把 lock.acceptancePlan 中每个 id 映射为 acceptance:<id> 节点；
+    // lock.acceptancePlan 又派生自 plan.acceptance。直接读 plan 校验源头即可，
+    // 避免再做一次 resolveWorkspace + buildExplainGraph（每次 ~2-3s）。
+    const plan = await loadPlan(paths.planPath);
+    const expectedAcceptanceIds = report.operations.flatMap((operation) =>
+      operation.expectedGraphDelta.nodes.added
+        .filter((node) => node.type === 'acceptance')
+        .map((node) => node.label)
+    );
+
+    for (const expectedId of expectedAcceptanceIds) {
+      expect(plan.acceptance.some((entry) => entry.id === expectedId)).toBe(true);
     }
-  ]);
-  const mutationFile = report.operations[0]?.mutationFile;
-
-  const mutationFilesBeforeApply = (await fs.readdir(paths.sourceViewMutationsRoot)).filter((file) => file.endsWith('.json'));
-  expect(mutationFilesBeforeApply).toHaveLength(0);
-  expect(mutationFile).not.toBeNull();
-  if (!mutationFile) throw new Error('expected ready dry-run mutation file');
-
-  await writeJson(path.join(paths.sourceViewMutationsRoot, 'add-review-acceptance.json'), mutationFile);
-  await applyViewMutations(workspaceRoot);
-  // buildExplainGraph 把 lock.acceptancePlan 中每个 id 映射为 acceptance:<id> 节点；
-  // lock.acceptancePlan 又派生自 plan.acceptance。直接读 plan 校验源头即可，
-  // 避免再做一次 resolveWorkspace + buildExplainGraph（每次 ~2-3s）。
-  const plan = await loadPlan(paths.planPath);
-  const expectedAcceptanceIds = report.operations.flatMap((operation) =>
-    operation.expectedGraphDelta.nodes.added
-      .filter((node) => node.type === 'acceptance')
-      .map((node) => node.label)
-  );
-
-  for (const expectedId of expectedAcceptanceIds) {
-    expect(plan.acceptance.some((entry) => entry.id === expectedId)).toBe(true);
-  }
+  }, 'engineering-compiler-graph-mutation-dry-run-');
 }, 120000);
 test('rejects mutation ids that cannot be used as source mutation file names', () => {
   expect(() => buildGraphMutationDryRun(baseGraph, [

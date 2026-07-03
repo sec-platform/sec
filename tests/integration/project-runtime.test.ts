@@ -7,16 +7,16 @@ import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
-  ensureProjectDependencies,
-  ensureSharedDepsReady,
-  readRuntimeDepsStamp,
-  withProjectDependencyBridge,
-  writeRuntimeDepsStamp
+    ensureProjectDependencies,
+    ensureSharedDepsReady,
+    readRuntimeDepsStamp,
+    withProjectDependencyBridge,
+    writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 import { installRuntimeDeps } from './project-runtime-fixtures.ts';
 
 type RuntimePackageJson = {
@@ -26,27 +26,28 @@ type RuntimePackageJson = {
 
 describe('shared runtime dependency installation', () => {
   test('ensureSharedDepsReady serializes concurrent installs behind one lock', async () => {
-    const tempRoot = await createWorkspace('engineering-compiler-shared-deps-');
-    const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-    let installCalls = 0;
+    await withTempWorkspace(async (tempRoot) => {
+      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
+      let installCalls = 0;
 
-    const commandRunner = async (_command: string, _args: string[], options: { cwd: string }) => {
-      installCalls += 1;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      await installRuntimeDeps(options.cwd);
-      return { code: 0, stdout: 'ok', stderr: '' };
-    };
+      const commandRunner = async (_command: string, _args: string[], options: { cwd: string }) => {
+        installCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        await installRuntimeDeps(options.cwd);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
 
-    await Promise.all([
-      ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
-      ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
-      ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot })
-    ]);
+      await Promise.all([
+        ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
+        ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
+        ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot })
+      ]);
 
-    expect(installCalls).toBe(1);
-    expect(await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'))).toMatchObject({
-      packageManager: 'bun'
-    });
+      expect(installCalls).toBe(1);
+      expect(await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'))).toMatchObject({
+        packageManager: 'bun'
+      });
+    }, 'engineering-compiler-shared-deps-');
   });
 });
 
@@ -417,103 +418,106 @@ describe('error protocol and developer contracts', () => {
 
 describe('project and shared runtime manifests', () => {
   test('derive versions from the root package.json', async () => {
-    const workspaceRoot = await createWorkspace('engineering-compiler-runtime-manifest-');
-    const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+    await withTempWorkspace(async (workspaceRoot) => {
+      const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
 
-    await ensureProjectBase(workspaceRoot);
-    await ensureSharedDepsReady({
-      commandRunner: async (_command, _args, options) => {
-        await installRuntimeDeps(options.cwd);
-        return { code: 0, stdout: 'ok', stderr: '' };
-      },
-      sharedDepsRoot
-    });
+      await ensureProjectBase(workspaceRoot);
+      await ensureSharedDepsReady({
+        commandRunner: async (_command, _args, options) => {
+          await installRuntimeDeps(options.cwd);
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        sharedDepsRoot
+      });
 
-    const rootPackage = await readCompilerPackageJson();
-    const { projectPackagePath } = getWorkspacePaths(workspaceRoot);
-    const projectPackage = await readJson<RuntimePackageJson>(projectPackagePath);
-    const sharedPackage = await readJson<RuntimePackageJson>(path.join(sharedDepsRoot, 'package.json'));
+      const rootPackage = await readCompilerPackageJson();
+      const { projectPackagePath } = getWorkspacePaths(workspaceRoot);
+      const projectPackage = await readJson<RuntimePackageJson>(projectPackagePath);
+      const sharedPackage = await readJson<RuntimePackageJson>(path.join(sharedDepsRoot, 'package.json'));
 
-    expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next as string);
-    expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react as string);
-    expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node'] as string);
-    expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript as string);
-    expect(sharedPackage.dependencies).toEqual(projectPackage.dependencies);
-    expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
+      expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next as string);
+      expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react as string);
+      expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node'] as string);
+      expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript as string);
+      expect(sharedPackage.dependencies).toEqual(projectPackage.dependencies);
+      expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
+    }, 'engineering-compiler-runtime-manifest-');
   });
 });
 
 describe('project base', () => {
   test('keeps Playwright as the runtime full browser smoke', async () => {
-    const workspaceRoot = await createWorkspace('engineering-compiler-runtime-trace-');
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
 
-    await ensureProjectBase(workspaceRoot);
+      const runtimeSpec = await loadRuntimeDependencySpec();
+      const { projectPackagePath, projectRoot } = getWorkspacePaths(workspaceRoot);
+      const projectPackage = await readJson<RuntimePackageJson & { scripts: Record<string, string> }>(projectPackagePath);
+      const playwrightConfig = await fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8');
 
-    const runtimeSpec = await loadRuntimeDependencySpec();
-    const { projectPackagePath, projectRoot } = getWorkspacePaths(workspaceRoot);
-    const projectPackage = await readJson<RuntimePackageJson & { scripts: Record<string, string> }>(projectPackagePath);
-    const playwrightConfig = await fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8');
-
-    expect(runtimeSpec.devDependencies['@playwright/test']).toBeDefined();
-    expect(projectPackage.devDependencies['@playwright/test']).toBe(runtimeSpec.devDependencies['@playwright/test']);
-    expect(projectPackage.scripts['test:acceptance']).toBe('playwright test --config playwright.config.ts');
-    expect(projectPackage.scripts['verify:runtime:full']).toBe('bun run build && bun run test:unit && bun run test:acceptance');
-    expect(projectPackage.scripts['test:fast']).not.toContain('playwright');
-    expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
-    expect(playwrightConfig).toContain('workers: 1');
+      expect(runtimeSpec.devDependencies['@playwright/test']).toBeDefined();
+      expect(projectPackage.devDependencies['@playwright/test']).toBe(runtimeSpec.devDependencies['@playwright/test']);
+      expect(projectPackage.scripts['test:acceptance']).toBe('playwright test --config playwright.config.ts');
+      expect(projectPackage.scripts['verify:runtime:full']).toBe('bun run build && bun run test:unit && bun run test:acceptance');
+      expect(projectPackage.scripts['test:fast']).not.toContain('playwright');
+      expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
+      expect(playwrightConfig).toContain('workers: 1');
+    }, 'engineering-compiler-runtime-trace-');
   });
 });
 
 describe('dependency bridge', () => {
   test('reuses the shared runtime cache when the project has no node_modules', async () => {
-    const workspaceRoot = await createWorkspace('engineering-compiler-runtime-bridge-');
-    const { projectRoot } = getWorkspacePaths(workspaceRoot);
-    const bridgePath = path.join(projectRoot, 'node_modules');
+    await withTempWorkspace(async (workspaceRoot) => {
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const bridgePath = path.join(projectRoot, 'node_modules');
 
-    await ensureProjectBase(workspaceRoot);
-    await withProjectDependencyBridge(projectRoot, async () => {
-      const bridgeStats = await fs.lstat(bridgePath);
-      expect(bridgeStats.isSymbolicLink()).toBe(true);
-      await expect(fs.stat(path.join(bridgePath, 'next', 'package.json'))).resolves.toBeDefined();
-    });
+      await ensureProjectBase(workspaceRoot);
+      await withProjectDependencyBridge(projectRoot, async () => {
+        const bridgeStats = await fs.lstat(bridgePath);
+        expect(bridgeStats.isSymbolicLink()).toBe(true);
+        await expect(fs.stat(path.join(bridgePath, 'next', 'package.json'))).resolves.toBeDefined();
+      });
 
-    await expect(fs.stat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.stat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-runtime-bridge-');
   });
 });
 
 describe('ensureProjectDependencies', () => {
   test('links shared cache without copying when project deps are cold', async () => {
-    const workspaceRoot = await createWorkspace('engineering-compiler-runtime-link-');
-    const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
-    const runtimeSpec = await loadRuntimeDependencySpec();
+    await withTempWorkspace(async (workspaceRoot) => {
+      const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+      const runtimeSpec = await loadRuntimeDependencySpec();
 
-    await ensureProjectBase(workspaceRoot);
-    const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
 
-    await fs.mkdir(path.join(sharedDepsRoot, 'node_modules', 'next'), { recursive: true });
-    await fs.writeFile(
-      path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json'),
-      '{\n  "name": "next",\n  "version": "0.0.0"\n}\n',
-      'utf8'
-    );
-    await writeRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'), {
-      manifestHash: runtimeSpec.manifestHash,
-      packageManager: 'bun',
-      installedAt: '2026-01-01T00:00:00.000Z'
-    });
+      await fs.mkdir(path.join(sharedDepsRoot, 'node_modules', 'next'), { recursive: true });
+      await fs.writeFile(
+        path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json'),
+        '{\n  "name": "next",\n  "version": "0.0.0"\n}\n',
+        'utf8'
+      );
+      await writeRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'), {
+        manifestHash: runtimeSpec.manifestHash,
+        packageManager: 'bun',
+        installedAt: '2026-01-01T00:00:00.000Z'
+      });
 
-    let installCalls = 0;
-    await ensureProjectDependencies(projectRoot, {
-      commandRunner: async () => {
-        installCalls += 1;
-        return { code: 0, stdout: 'ok', stderr: '' };
-      },
-      sharedDepsRoot
-    });
+      let installCalls = 0;
+      await ensureProjectDependencies(projectRoot, {
+        commandRunner: async () => {
+          installCalls += 1;
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        sharedDepsRoot
+      });
 
-    expect(installCalls).toBe(0);
-    expect(await fs.realpath(path.join(projectRoot, 'node_modules'))).toBe(
-      path.join(sharedDepsRoot, 'node_modules')
-    );
+      expect(installCalls).toBe(0);
+      expect(await fs.realpath(path.join(projectRoot, 'node_modules'))).toBe(
+        path.join(sharedDepsRoot, 'node_modules')
+      );
+    }, 'engineering-compiler-runtime-link-');
   });
 });

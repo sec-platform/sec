@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { validateSlotSecurity } from '../../platform/compiler/verify/validate-slot-security.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('Custom Slot static AST security audit (AST Guard Pass)', () => {
   const createMockLock = (sourcePath: string): LockFile => ({
@@ -48,14 +48,14 @@ describe('Custom Slot static AST security audit (AST Guard Pass)', () => {
   });
 
   test('passes audit when Custom Slot is clean and has no dangerous imports', async () => {
-    const workspaceRoot = await createWorkspace('slot-security-clean-');
-    const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
-    await fs.mkdir(slotsDir, { recursive: true });
+    await withTempWorkspace(async (workspaceRoot) => {
+      const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
+      await fs.mkdir(slotsDir, { recursive: true });
 
-    const slotFile = path.join(slotsDir, 'mock_slot.ts');
-    await fs.writeFile(
-      slotFile,
-      `
+      const slotFile = path.join(slotsDir, 'mock_slot.ts');
+      await fs.writeFile(
+        slotFile,
+        `
       import { changeCase } from 'change-case';
       
       export function normalizeCustomerInput(input: any) {
@@ -65,24 +65,25 @@ describe('Custom Slot static AST security audit (AST Guard Pass)', () => {
         };
       }
       `,
-      'utf8'
-    );
+        'utf8'
+      );
 
-    const lock = createMockLock('source/code/slots/mock_slot.ts');
-    
-    // 执行安全审查，预期平滑通过，不抛出任何异常
-    await expect(validateSlotSecurity(workspaceRoot, lock)).resolves.toBeUndefined();
+      const lock = createMockLock('source/code/slots/mock_slot.ts');
+
+      // 执行安全审查，预期平滑通过，不抛出任何异常
+      await expect(validateSlotSecurity(workspaceRoot, lock)).resolves.toBeUndefined();
+    }, 'slot-security-clean-');
   });
 
   test('throws SLOT-SECURITY-002 when Slot imports forbidden child_process module', async () => {
-    const workspaceRoot = await createWorkspace('slot-security-forbidden-import-');
-    const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
-    await fs.mkdir(slotsDir, { recursive: true });
+    await withTempWorkspace(async (workspaceRoot) => {
+      const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
+      await fs.mkdir(slotsDir, { recursive: true });
 
-    const slotFile = path.join(slotsDir, 'mock_slot.ts');
-    await fs.writeFile(
-      slotFile,
-      `
+      const slotFile = path.join(slotsDir, 'mock_slot.ts');
+      await fs.writeFile(
+        slotFile,
+        `
       import { execSync } from 'child_process';
       
       export function maliciousSlot(input: any) {
@@ -90,64 +91,67 @@ describe('Custom Slot static AST security audit (AST Guard Pass)', () => {
         return input;
       }
       `,
-      'utf8'
-    );
+        'utf8'
+      );
 
-    const lock = createMockLock('source/code/slots/mock_slot.ts');
+      const lock = createMockLock('source/code/slots/mock_slot.ts');
 
-    // 执行安全审查，预期强行拦截并抛出指定错误码
-    await expect(validateSlotSecurity(workspaceRoot, lock)).rejects.toThrow(
-      /Forbidden system module import "child_process" detected in Custom Slot/
-    );
+      // 执行安全审查，预期强行拦截并抛出指定错误码
+      await expect(validateSlotSecurity(workspaceRoot, lock)).rejects.toThrow(
+        /Forbidden system module import "child_process" detected in Custom Slot/
+      );
+    }, 'slot-security-forbidden-import-');
   });
 
   test('throws SLOT-SECURITY-002 when Slot utilizes dynamic require() on forbidden fs module', async () => {
-    const workspaceRoot = await createWorkspace('slot-security-dynamic-require-');
-    const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
-    await fs.mkdir(slotsDir, { recursive: true });
+    await withTempWorkspace(async (workspaceRoot) => {
+      const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
+      await fs.mkdir(slotsDir, { recursive: true });
 
-    const slotFile = path.join(slotsDir, 'mock_slot.ts');
-    await fs.writeFile(
-      slotFile,
-      `
+      const slotFile = path.join(slotsDir, 'mock_slot.ts');
+      await fs.writeFile(
+        slotFile,
+        `
       export function maliciousSlot(input: any) {
         const fs = require('fs');
         const data = fs.readFileSync('/etc/passwd', 'utf8');
         return data;
       }
       `,
-      'utf8'
-    );
+        'utf8'
+      );
 
-    const lock = createMockLock('source/code/slots/mock_slot.ts');
+      const lock = createMockLock('source/code/slots/mock_slot.ts');
 
-    await expect(validateSlotSecurity(workspaceRoot, lock)).rejects.toThrow(
-      /Forbidden dynamic require\("fs"\) call detected in Custom Slot/
-    );
+      await expect(validateSlotSecurity(workspaceRoot, lock)).rejects.toThrow(
+        /Forbidden dynamic require\("fs"\) call detected in Custom Slot/
+      );
+    }, 'slot-security-dynamic-require-');
   });
 
   test('throws SLOT-SECURITY-002 when Slot utilizes dynamic import() on node:vm', async () => {
-    const workspaceRoot = await createWorkspace('slot-security-dynamic-import-');
-    const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
-    await fs.mkdir(slotsDir, { recursive: true });
+    await withTempWorkspace(async (workspaceRoot) => {
+      const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
+      await fs.mkdir(slotsDir, { recursive: true });
 
-    const slotFile = path.join(slotsDir, 'mock_slot.ts');
-    await fs.writeFile(
-      slotFile,
-      `
+      const slotFile = path.join(slotsDir, 'mock_slot.ts');
+      await fs.writeFile(
+        slotFile,
+        `
       export async function maliciousSlot(input: any) {
         const vm = await import('node:vm');
         vm.runInNewContext('1 + 1');
         return input;
       }
       `,
-      'utf8'
-    );
+        'utf8'
+      );
 
-    const lock = createMockLock('source/code/slots/mock_slot.ts');
+      const lock = createMockLock('source/code/slots/mock_slot.ts');
 
-    await expect(validateSlotSecurity(workspaceRoot, lock)).rejects.toThrow(
-      /Forbidden dynamic import\("node:vm"\) call detected in Custom Slot/
-    );
+      await expect(validateSlotSecurity(workspaceRoot, lock)).rejects.toThrow(
+        /Forbidden dynamic import\("node:vm"\) call detected in Custom Slot/
+      );
+    }, 'slot-security-dynamic-import-');
   });
 });
