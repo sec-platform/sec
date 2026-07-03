@@ -2,6 +2,7 @@ import path from 'node:path';
 import prettier from 'prettier';
 import { pathExists, readText, writeText } from '../../shared/fs.ts';
 import { createConcurrencyLimit } from '../../shared/concurrency.ts';
+import { defaultLogger } from '../../shared/logger.ts';
 
 export async function formatOutputFiles(projectRoot: string, filePaths: string[]): Promise<void> {
   const limit = createConcurrencyLimit(10);
@@ -23,7 +24,9 @@ export async function formatOutputFiles(projectRoot: string, filePaths: string[]
             await writeText(fullPath, formatted);
           }
         } catch (e) {
-          // Ignore formatting errors for unsupported file types or syntax errors
+          // 格式化失败通常由不支持的文件类型或语法错误引起，跳过该文件即可；
+          // 但仍记录 warn 以便排查意外失败（如 prettier 配置错误）。
+          defaultLogger.warn('Prettier formatting skipped for file', { filePath: relPath, error: e });
         }
       })
     )

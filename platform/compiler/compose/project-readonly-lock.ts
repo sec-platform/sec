@@ -1,7 +1,14 @@
+import { globby } from 'globby';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { globby } from 'globby';
 import { pathExists } from '../../shared/fs.ts';
+import { defaultLogger } from '../../shared/logger.ts';
+
+function isIgnorableChmodError(error: unknown): boolean {
+  if (!(error instanceof Error) || !('code' in error)) return false;
+  const code = (error as { code?: string }).code;
+  return code === 'ENOENT' || code === 'EPERM' || code === 'EACCES';
+}
 
 export async function setFileWritable(filePath: string, writable: boolean): Promise<void> {
   try {
@@ -20,7 +27,11 @@ export async function setFileWritable(filePath: string, writable: boolean): Prom
       await fs.chmod(filePath, newMode);
     }
   } catch (err) {
-    // Ignore permissions/file-not-found errors
+    // 文件被并发删除（ENOENT）或权限不允许（EPERM/EACCES）是预期情况，可静默忽略。
+    // 其他错误（如 EIO/ENOSPC）应被记录以便排查。
+    if (!isIgnorableChmodError(err)) {
+      defaultLogger.warn('Failed to chmod project file', { filePath, writable, error: err });
+    }
   }
 }
 
