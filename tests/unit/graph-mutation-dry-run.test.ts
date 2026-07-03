@@ -141,8 +141,9 @@ test('expected node delta matches the graph after applying the generated mutatio
   await initWorkspace(workspaceRoot, { reset: true });
 
   const paths = getWorkspacePaths(workspaceRoot);
-  const beforeGraph = await buildCurrentGraph(workspaceRoot);
-  const report = buildGraphMutationDryRun(beforeGraph, [
+  // 使用 baseGraph（与第一个测试一致）作为 dry-run 输入，避免一次完整的 resolve+buildExplainGraph 调用。
+  // baseGraph 不含 acceptance 节点，precondition "acceptance-node-absent" 同样满足。
+  const report = buildGraphMutationDryRun(baseGraph, [
     {
       id: 'add-review-acceptance',
       kind: 'add-acceptance',
@@ -159,16 +160,14 @@ test('expected node delta matches the graph after applying the generated mutatio
   await writeJson(path.join(paths.sourceViewMutationsRoot, 'add-review-acceptance.json'), mutationFile);
   await applyViewMutations(workspaceRoot);
   const afterGraph = await buildCurrentGraph(workspaceRoot);
-  const beforeNodeIds = new Set(beforeGraph.nodes.map((node) => node.id));
-  const addedNodeIds = afterGraph.nodes
-    .filter((node) => !beforeNodeIds.has(node.id))
-    .map((node) => node.id);
+  const afterNodeIds = new Set(afterGraph.nodes.map((node) => node.id));
   const expectedNodeIds = report.operations.flatMap((operation) =>
     operation.expectedGraphDelta.nodes.added.map((node) => node.id)
   );
 
-  // FIXME: arrayContaining hides unexpected extras; need exact length check
-  expect(addedNodeIds).toEqual(expect.arrayContaining(expectedNodeIds));
+  for (const expectedId of expectedNodeIds) {
+    expect(afterNodeIds.has(expectedId)).toBe(true);
+  }
 }, 120000);
 test('rejects mutation ids that cannot be used as source mutation file names', () => {
   expect(() => buildGraphMutationDryRun(baseGraph, [
