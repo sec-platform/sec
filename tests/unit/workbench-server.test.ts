@@ -16,19 +16,22 @@ test('workbench server serves files and APIs correctly', async () => {
     const mockGraph = { nodes: [], edges: [] };
     await fs.writeFile(path.join(graphDir, 'explain-graph.json'), JSON.stringify(mockGraph), 'utf8');
 
-    // 2. Start Bun HTTP server on port 8085
-    const server = await startWorkbenchServer(workspaceRoot, 8085);
+    // 2. Start Bun HTTP server on a random port (port=0 lets the OS pick one)
+    const server = await startWorkbenchServer(workspaceRoot, 0);
     expect(server).toBeDefined();
+    const port = server.port ?? 0;
+    expect(port).toBeGreaterThan(0);
+    const base = `http://localhost:${port}`;
 
     try {
       // 3. Test static file fetch
-      const resFile = await fetch('http://localhost:8085/overview-view.html');
+      const resFile = await fetch(`${base}/overview-view.html`);
       expect(resFile.status).toBe(200);
       const textFile = await resFile.text();
       expect(textFile).toContain('Overview');
 
       // 4. Test GET /api/graph
-      const resGraph = await fetch('http://localhost:8085/api/graph');
+      const resGraph = await fetch(`${base}/api/graph`);
       expect(resGraph.status).toBe(200);
       const jsonGraph = await resGraph.json() as { nodes: unknown[]; edges: unknown[] };
       expect(jsonGraph.nodes).toBeDefined();
@@ -40,7 +43,7 @@ test('workbench server serves files and APIs correctly', async () => {
           { id: 'mut-1', kind: 'add-block', blockId: 'test-block', version: '1.0.0' }
         ]
       };
-      const resMutations = await fetch('http://localhost:8085/api/mutations', {
+      const resMutations = await fetch(`${base}/api/mutations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mockMutations)
@@ -58,7 +61,7 @@ test('workbench server serves files and APIs correctly', async () => {
       expect(written.mutations[0].blockId).toBe('test-block');
 
       // 6. Test POST /api/run-node
-      const resRun = await fetch('http://localhost:8085/api/run-node', {
+      const resRun = await fetch(`${base}/api/run-node`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'block', id: 'nonexistent-block-for-platform-verify' })
@@ -85,16 +88,16 @@ slots: []
 `;
       await fs.writeFile(path.join(mockRegDir, 'block.manifest.yaml'), mockManifest, 'utf8');
 
-      const resCatalog = await fetch('http://localhost:8085/api/blocks-catalog');
+      const resCatalog = await fetch(`${base}/api/blocks-catalog`);
       expect(resCatalog.status).toBe(200);
       const jsonCatalog = await resCatalog.json() as Array<{ id: string; version: string }>;
       expect(Array.isArray(jsonCatalog)).toBe(true);
-      const matchedBlock = jsonCatalog.find((b: any) => b.id === 'test-mock-block');
+      const matchedBlock = jsonCatalog.find((b: { id: string }) => b.id === 'test-mock-block');
       expect(matchedBlock).toBeDefined();
       expect(matchedBlock!.version).toBe('0.9.9');
 
       // 8. Test POST /api/bootstrap-slot
-      const resBootstrap = await fetch('http://localhost:8085/api/bootstrap-slot', {
+      const resBootstrap = await fetch(`${base}/api/bootstrap-slot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slotId: 'test_resolver_slot', block: 'test/block' })
@@ -111,7 +114,7 @@ slots: []
       expect(bootstrappedContent).toContain('test/block');
 
       // 9. Test OPTIONS Preflight CORS Request
-      const resOptions = await fetch('http://localhost:8085/api/graph', {
+      const resOptions = await fetch(`${base}/api/graph`, {
         method: 'OPTIONS'
       });
       expect(resOptions.status).toBe(204);
@@ -121,7 +124,7 @@ slots: []
       // 10. Test High-Concurrency Mutex Compilation Lock (Concurrency Guard Test)
       // 并发发起 3 次 run-node 局部测试请求，断言服务器互斥锁成功串行化处理
       const runPromises = Array.from({ length: 3 }).map(() =>
-        fetch('http://localhost:8085/api/run-node', {
+        fetch(`${base}/api/run-node`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'block', id: 'nonexistent-block-for-platform-verify' })
