@@ -6,4 +6,13 @@ export function createConcurrencyLimit(concurrency: number = DEFAULT_CONCURRENCY
   return pLimit(concurrency);
 }
 
-export const defaultLimit = createConcurrencyLimit();
+let _defaultLimit: LimitFunction | null = null;
+
+export function getDefaultLimit(): LimitFunction {
+  if (_defaultLimit === null) {
+    _defaultLimit = createConcurrencyLimit();
+  }
+  return _defaultLimit;
+}
+
+export const defaultLimit: LimitFunction = ((...args: Parameters<LimitFunction>) => getDefaultLimit()(...args)) as LimitFunction;

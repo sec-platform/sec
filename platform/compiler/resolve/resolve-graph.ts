@@ -6,15 +6,6 @@ import { relativePosixPath } from '../../shared/paths.ts';
 import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
 import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
 
-function compareBlocks(left: ManifestEntry, right: ManifestEntry): number {
-  const leftPriority = KIND_PRIORITY[left.manifest.kind] ?? 99;
-  const rightPriority = KIND_PRIORITY[right.manifest.kind] ?? 99;
-  if (leftPriority !== rightPriority) {
-    return leftPriority - rightPriority;
-  }
-  return left.manifest.id.localeCompare(right.manifest.id);
-}
-
 function buildCapabilityProviders(entries: ManifestEntry[]): Map<string, ManifestEntry[]> {
   const providers = new Map<string, ManifestEntry[]>();
   for (const entry of entries) {
@@ -51,6 +42,7 @@ function detectConflicts(entries: ManifestEntry[], capabilityProviders: Map<stri
 function topologicalSort(entries: ManifestEntry[], providerMap: Map<string, ManifestEntry[]>): ManifestEntry[] {
   const adjacency = new Map<string, Set<string>>(entries.map((entry) => [entry.manifest.id, new Set<string>()]));
   const indegree = new Map<string, number>(entries.map((entry) => [entry.manifest.id, 0]));
+  const entryMap = new Map<string, ManifestEntry>(entries.map((entry) => [entry.manifest.id, entry]));
 
   for (const entry of entries) {
     for (const requirement of entry.manifest.requires) {
@@ -71,27 +63,65 @@ function topologicalSort(entries: ManifestEntry[], providerMap: Map<string, Mani
     }
   }
 
-  const queue: ManifestEntry[] = entries
-    .filter((entry) => indegree.get(entry.manifest.id) === 0)
-    .sort(compareBlocks);
+  type PriorityBucket = Map<string, ManifestEntry>;
+  const buckets = new Map<number, PriorityBucket>();
+  const bucketPriorities: number[] = [];
+  let totalCount = 0;
+
+  function bucketAdd(entry: ManifestEntry): void {
+    const priority = KIND_PRIORITY[entry.manifest.kind] ?? 99;
+    let bucket = buckets.get(priority);
+    if (!bucket) {
+      bucket = new Map();
+      buckets.set(priority, bucket);
+      bucketPriorities.push(priority);
+      bucketPriorities.sort((a, b) => a - b);
+    }
+    bucket.set(entry.manifest.id, entry);
+    totalCount++;
+  }
+
+  function bucketShift(): ManifestEntry | null {
+    if (totalCount === 0) {
+      return null;
+    }
+    for (const priority of bucketPriorities) {
+      const bucket = buckets.get(priority);
+      if (bucket && bucket.size > 0) {
+        const sortedIds = [...bucket.keys()].sort();
+        const firstId = sortedIds[0];
+        const item = bucket.get(firstId)!;
+        bucket.delete(firstId);
+        totalCount--;
+        return item;
+      }
+    }
+    return null;
+  }
+
+  for (const entry of entries) {
+    if (indegree.get(entry.manifest.id) === 0) {
+      bucketAdd(entry);
+    }
+  }
+
   const result: ManifestEntry[] = [];
 
-  while (queue.length > 0) {
-    const current = queue.shift();
+  while (totalCount > 0) {
+    const current = bucketShift();
     if (!current) {
       break;
     }
     result.push(current);
     const dependents = adjacency.get(current.manifest.id) ?? new Set<string>();
-    for (const dependentId of [...dependents]) {
-      indegree.set(dependentId, (indegree.get(dependentId) ?? 0) - 1);
-      if (indegree.get(dependentId) === 0) {
-        const dependent = entries.find((entry) => entry.manifest.id === dependentId);
-        if (!dependent) {
-          continue;
+    for (const dependentId of dependents) {
+      const newIndegree = (indegree.get(dependentId) ?? 0) - 1;
+      indegree.set(dependentId, newIndegree);
+      if (newIndegree === 0) {
+        const dependent = entryMap.get(dependentId);
+        if (dependent) {
+          bucketAdd(dependent);
         }
-        queue.push(dependent);
-        queue.sort(compareBlocks);
       }
     }
   }

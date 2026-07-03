@@ -16,7 +16,7 @@
 | `lock` | `adapt` | 已实现 | 固化最终 pass 状态 |
 | `emit` | `lock` | 已实现 | 输出 governance artifacts、explain graph |
 
-依赖关系定义于 `platform/shared/constants.ts` 的 `PASS_DEPENDENCIES`。
+依赖关系由 orchestrator 调用顺序与 `assertPassStatus` 守卫保证（`platform/shared/lock-utils.ts`）；`shared/constants.ts` 仅保留 `PASS_SEQUENCE` 与 `PASS_STATUS_PENDING`，不再集中表达 pass 间依赖字典。
 
 ## 2. 状态机
 

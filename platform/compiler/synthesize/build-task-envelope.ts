@@ -1,3 +1,4 @@
+import { CompilerError } from '../../shared/errors.ts';
 import type { LockFile, SlotTask } from '../../shared/lock-types.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type { TaskEnvelope } from '../../shared/task-envelope-types.ts';
@@ -5,7 +6,7 @@ import type { TaskEnvelope } from '../../shared/task-envelope-types.ts';
 export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask): TaskEnvelope {
   const slot = plan.slots.find((candidate) => candidate.id === task.id);
   if (!slot) {
-    throw new Error(`Missing slot configuration for ${task.id}`);
+    throw new CompilerError('SLOT-CONFIG-001', `Missing slot configuration for ${task.id}`);
   }
   const writablePath = task.sourcePath ?? task.target;
   return {

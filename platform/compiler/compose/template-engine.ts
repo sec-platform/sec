@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { CompilerError } from '../../shared/errors.ts';
 
 export class TemplateEngine {
   private static cache = new Map<string, string>();
@@ -20,7 +21,7 @@ export class TemplateEngine {
 
     if (!templateContent) {
       if (!fs.existsSync(filePath)) {
-        throw new Error(`Scaffold template not found: ${filePath}`);
+        throw new CompilerError('COMPOSE-TEMPLATE-001', `Scaffold template not found: ${filePath}`);
       }
       templateContent = fs.readFileSync(filePath, 'utf8');
       this.cache.set(filePath, templateContent);
@@ -50,7 +51,7 @@ export class TemplateEngine {
         // 找到对应的 condition
         const condEnd = text.indexOf('*/', nextIf);
         if (condEnd === -1) {
-          throw new Error('Malformed template: missing */ for /*#IF');
+          throw new CompilerError('COMPOSE-TEMPLATE-002', 'Malformed template: missing */ for /*#IF');
         }
         const condition = text.slice(nextIf + 6, condEnd).trim();
 
@@ -64,7 +65,7 @@ export class TemplateEngine {
           const innerEnd = text.indexOf('/*#ENDIF*/', scan);
 
           if (innerEnd === -1) {
-            throw new Error(`Malformed template: missing /*#ENDIF*/ for IF ${condition}`);
+            throw new CompilerError('COMPOSE-TEMPLATE-003', `Malformed template: missing /*#ENDIF*/ for IF ${condition}`);
           }
 
           if (innerIf !== -1 && innerIf < innerEnd) {
@@ -83,7 +84,7 @@ export class TemplateEngine {
         }
 
         if (foundEnd === -1) {
-          throw new Error(`Malformed template: unmatched /*#ENDIF*/ for IF ${condition}`);
+          throw new CompilerError('COMPOSE-TEMPLATE-004', `Malformed template: unmatched /*#ENDIF*/ for IF ${condition}`);
         }
 
         // 提取被 IF 包裹的体内容

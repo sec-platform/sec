@@ -1,19 +1,58 @@
 import { serve } from 'bun';
-import path from 'node:path';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import YAML from 'yaml';
-import { getWorkspacePaths } from '../shared/paths.ts';
 import { writeJson } from '../shared/fs.ts';
+import {
+  controlWorkbenchViewsRelativePath,
+  getWorkspacePaths,
+  officialRegistryRelativePath,
+  posixPath,
+  sourceSlotsRelativePath,
+} from '../shared/paths.ts';
 
 import { resolveWorkspace } from './block-orchestrator.ts';
-import { composeWorkspace, adaptWorkspace } from './compose-orchestrator.ts';
+import { adaptWorkspace, composeWorkspace } from './compose-orchestrator.ts';
+import { explainWorkspace, lockWorkspace } from './emit-orchestrator.ts';
 import { verifyWorkspace } from './verify-orchestrator.ts';
-import { lockWorkspace, explainWorkspace } from './emit-orchestrator.ts';
 import { applyWorkbenchMutations } from './workbench-orchestrator.ts';
 
 // ==========================================
-// 1. 工业级排队互斥锁 (Async Build Mutex)
+// 类型定义
 // ==========================================
+
+interface BootstrapSlotBody {
+  slotId: string;
+  block?: string;
+}
+
+interface RunNodeBody {
+  type: string;
+  id: string;
+}
+
+interface RouteContext {
+  req: Request;
+  url: URL;
+  method: string;
+  reqPath: string;
+  startTime: number;
+  workspaceRoot: string;
+  paths: ReturnType<typeof getWorkspacePaths>;
+}
+
+type RouteHandler = (ctx: RouteContext) => Promise<Response>;
+
+interface RouteEntry {
+  method: string | null; // null = any method
+  path: string;
+  handler: RouteHandler;
+}
+
+// ==========================================
+// 1. 异步互斥锁 (Async Build Mutex)
+// ==========================================
+
 class Mutex {
   private queue: (() => void)[] = [];
   private locked = false;
@@ -39,144 +78,171 @@ class Mutex {
   }
 }
 
-// 全局唯一的编译互斥锁，防御多并发哈希竞争与死锁
-const compileMutex = new Mutex();
-
 // ==========================================
-// 2. 防子进程泄漏与系统信号优雅清理 (Process Registry)
+// 2. 进程注册表与信号清理
 // ==========================================
-const activeProcesses = new Set<any>();
 
-function cleanUpSubprocesses() {
-  if (activeProcesses.size === 0) return;
-  console.log(`\x1b[31m[SYSTEM] [${new Date().toISOString()}] Cleaning up ${activeProcesses.size} active subprocesses...\x1b[0m`);
-  for (const proc of activeProcesses) {
-    try {
-      proc.kill();
-    } catch (e) {}
-  }
-  activeProcesses.clear();
+interface SubprocessHandle {
+  kill(): void;
+  readonly exited: Promise<number>;
+  readonly stdout: ReadableStream<Uint8Array>;
+  readonly stderr: ReadableStream<Uint8Array>;
 }
 
-// 绑定系统退出信号 (SIGINT, SIGTERM)
-process.on('SIGINT', () => {
-  console.log('\n\x1b[31m[SYSTEM] Received SIGINT. Gracefully shutting down...\x1b[0m');
-  cleanUpSubprocesses();
-  process.exit(0);
-});
+class ProcessRegistry {
+  private active = new Set<SubprocessHandle>();
+  private handlersBound = false;
 
-process.on('SIGTERM', () => {
-  console.log('\n\x1b[31m[SYSTEM] Received SIGTERM. Gracefully shutting down...\x1b[0m');
-  cleanUpSubprocesses();
-  process.exit(0);
-});
-
-// ==========================================
-// 3. 规范出站响应构建纯函数 (CORS & Security Headers)
-// ==========================================
-function createResponse(body: any, status = 200, isJson = true): Response {
-  const headers = new Headers({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'strict-origin-when-cross-origin'
-  });
-
-  if (isJson) {
-    headers.set('Content-Type', 'application/json');
+  register(proc: SubprocessHandle): SubprocessHandle {
+    this.active.add(proc);
+    this.ensureSignalHandlers();
+    return proc;
   }
 
-  const responseBody = isJson && typeof body === 'object' ? JSON.stringify(body) : body;
+  unregister(proc: SubprocessHandle): void {
+    this.active.delete(proc);
+  }
+
+  cleanup(): void {
+    if (this.active.size === 0) return;
+    logSystem(`Cleaning up ${this.active.size} active subprocesses...`);
+    for (const proc of this.active) {
+      try { proc.kill(); } catch { /* already dead */ }
+    }
+    this.active.clear();
+  }
+
+  private ensureSignalHandlers(): void {
+    if (this.handlersBound) return;
+    this.handlersBound = true;
+    process.on('SIGINT', () => {
+      logSystem('Received SIGINT. Gracefully shutting down...');
+      this.cleanup();
+      process.exit(0);
+    });
+    process.on('SIGTERM', () => {
+      logSystem('Received SIGTERM. Gracefully shutting down...');
+      this.cleanup();
+      process.exit(0);
+    });
+  }
+}
+
+// ==========================================
+// 3. 日志与响应工具
+// ==========================================
+
+const COLORS = {
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  cyan: '\x1b[36m',
+  reset: '\x1b[0m',
+} as const;
+
+function timestamp(): string {
+  return new Date().toISOString();
+}
+
+function logSystem(msg: string): void {
+  console.log(`${COLORS.red}[SYSTEM] [${timestamp()}] ${msg}${COLORS.reset}`);
+}
+
+function logMutex(msg: string): void {
+  console.log(`${COLORS.cyan}[Mutex] [${timestamp()}] ${msg}${COLORS.reset}`);
+}
+
+function logHttp(method: string, reqPath: string, status: number, statusText: string, elapsed: number, color: string): void {
+  console.log(`${color}[HTTP] [${timestamp()}] ${method} ${reqPath} - ${status} ${statusText} - ${elapsed}ms${COLORS.reset}`);
+}
+
+const SECURITY_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
+const SSE_HEADERS: Record<string, string> = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  'Connection': 'keep-alive',
+  'Access-Control-Allow-Origin': '*',
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  const headers = new Headers(SECURITY_HEADERS);
+  headers.set('Content-Type', 'application/json');
+  const responseBody = typeof body === 'object' && body !== null ? JSON.stringify(body) : String(body);
   return new Response(responseBody, { status, headers });
 }
 
+function errorResponse(message: string, status: number): Response {
+  return jsonResponse({ error: message }, status);
+}
+
+function sseResponse(stream: ReadableStream): Response {
+  return new Response(stream, { headers: new Headers(SSE_HEADERS) });
+}
+
 // ==========================================
-// 4. 工业级 Bun Serve API 宿主主入口
+// 4. SSE 工具
 // ==========================================
-export async function startWorkbenchServer(workspaceRoot: string, port: number): Promise<any> {
-  const { explainGraphPath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
-  const viewsDir = path.join(workspaceRoot, 'control/workbench/views');
 
-  console.log(`\x1b[34m[Workbench Server] Starting server on http://localhost:${port}\x1b[0m`);
-  console.log(`\x1b[34m[Workbench Server] Serving views from: ${viewsDir}\x1b[0m`);
+type SseLogFn = (msg: string) => void;
 
-  return serve({
-    port,
-    async fetch(req) {
-      const startTime = Date.now();
-      const url = new URL(req.url);
-      const reqPath = url.pathname;
-      const method = req.method;
+function emitSseEvent(controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: string): void {
+  const encoder = new TextEncoder();
+  try { controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`)); } catch { /* closed */ }
+}
 
-      // 友好处理 CORS OPTIONS 预检请求
-      if (method === 'OPTIONS') {
-        const res = createResponse(null, 204, false);
-        console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] OPTIONS ${reqPath} - 204 No Content - ${Date.now() - startTime}ms\x1b[0m`);
-        return res;
-      }
+// ==========================================
+// 5. 路由处理器
+// ==========================================
 
-      // ==========================================
-      // 数据交互 API Endpoints 路由匹配
-      // ==========================================
+async function handleBlocksCatalog(ctx: RouteContext): Promise<Response> {
+  const registryDir = path.join(ctx.workspaceRoot, officialRegistryRelativePath);
+  const entries = await fs.readdir(registryDir, { withFileTypes: true });
+  const catalog: unknown[] = [];
 
-      // 1. 获取 Catalog 列表
-      if (reqPath === '/api/blocks-catalog') {
-        try {
-          const registryDir = path.join(workspaceRoot, 'platform/registry/official');
-          const entries = await fs.readdir(registryDir, { withFileTypes: true });
-          const catalog = [];
-          
-          for (const entry of entries) {
-            if (entry.isDirectory()) {
-              const manifestPath = path.join(registryDir, entry.name, 'block.manifest.yaml');
-              const exists = await fs.access(manifestPath).then(() => true).catch(() => false);
-              if (exists) {
-                const content = await fs.readFile(manifestPath, 'utf8');
-                const parsed = YAML.parse(content);
-                catalog.push(parsed);
-              }
-            }
-          }
-          
-          const res = createResponse(catalog);
-          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        } catch (e: any) {
-          const res = createResponse({ error: e.message || String(e) }, 500);
-          console.log(`\x1b[31m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 500 Internal Error - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        }
-      }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = path.join(registryDir, entry.name, 'block.manifest.yaml');
+    const exists = await fs.access(manifestPath).then(() => true).catch(() => false);
+    if (exists) {
+      const content = await fs.readFile(manifestPath, 'utf8');
+      catalog.push(YAML.parse(content));
+    }
+  }
 
-      // 2. 自举 Slot 代码
-      if (reqPath === '/api/bootstrap-slot' && method === 'POST') {
-        try {
-          const body = await req.json();
-          const { slotId, block } = body;
-          if (!slotId) {
-            const res = createResponse({ error: 'Missing slotId' }, 400);
-            console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 400 Bad Request - ${Date.now() - startTime}ms\x1b[0m`);
-            return res;
-          }
+  return jsonResponse(catalog);
+}
 
-          const slotsDir = path.join(workspaceRoot, 'source/code/slots');
-          await fs.mkdir(slotsDir, { recursive: true });
-          const targetPath = path.join(slotsDir, `${slotId}.ts`);
+async function handleBootstrapSlot(ctx: RouteContext): Promise<Response> {
+  const body = await ctx.req.json() as BootstrapSlotBody;
+  const { slotId, block } = body;
+  if (!slotId) {
+    return errorResponse('Missing slotId', 400);
+  }
 
-          const exists = await fs.access(targetPath).then(() => true).catch(() => false);
-          if (!exists) {
-            const rawCamel = slotId.replace(/_([a-z])/g, (_: any, c: string) => c.toUpperCase());
-            const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
-            
-            const template = `/**
+  const slotsDir = path.join(ctx.workspaceRoot, sourceSlotsRelativePath);
+  await fs.mkdir(slotsDir, { recursive: true });
+  const targetPath = path.join(slotsDir, `${slotId}.ts`);
+
+  const exists = await fs.access(targetPath).then(() => true).catch(() => false);
+  if (!exists) {
+    const rawCamel = slotId.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
+    const template = `/**
  * SpecEngineer Auto-Bootstrapped Slot Handler
  * Slot ID: ${slotId}
  * Associated Block: ${block || 'none'}
  */
 
-export async function handle${symbolName}(input: any): Promise<any> {
+export async function handle${symbolName}(input: unknown): Promise<unknown> {
   // TODO: Implement custom business logic for slot "${slotId}" here.
   console.log("[Slot Handler ${slotId}] Received input:", input);
   return {
@@ -186,396 +252,383 @@ export async function handle${symbolName}(input: any): Promise<any> {
   };
 }
 `;
-            await fs.writeFile(targetPath, template, 'utf8');
-          }
+    await fs.writeFile(targetPath, template, 'utf8');
+  }
 
-          const res = createResponse({ status: 'success', path: `source/code/slots/${slotId}.ts` });
-          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        } catch (e: any) {
-          const res = createResponse({ error: e.message || String(e) }, 500);
-          console.log(`\x1b[31m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 500 Internal Error - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        }
-      }
+  return jsonResponse({ status: 'success', path: posixPath(`${sourceSlotsRelativePath}/${slotId}.ts`) });
+}
 
-      // 2.5. 获取 Slot 物理源码
-      if (reqPath === '/api/slot-code') {
-        try {
-          const slotId = url.searchParams.get('slotId');
-          if (!slotId) {
-            const res = createResponse({ error: 'Missing slotId parameter' }, 400);
-            console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 400 Bad Request - ${Date.now() - startTime}ms\x1b[0m`);
-            return res;
-          }
+async function handleSlotCode(ctx: RouteContext): Promise<Response> {
+  const slotId = ctx.url.searchParams.get('slotId');
+  if (!slotId) {
+    return errorResponse('Missing slotId parameter', 400);
+  }
 
-          const targetPath = path.join(workspaceRoot, 'source/code/slots', `${slotId}.ts`);
-          const exists = await fs.access(targetPath).then(() => true).catch(() => false);
-          if (!exists) {
-            const res = createResponse({ error: 'Slot code file not found', code: '' }, 404);
-            console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 404 Not Found - ${Date.now() - startTime}ms\x1b[0m`);
-            return res;
-          }
+  const targetPath = path.join(ctx.workspaceRoot, sourceSlotsRelativePath, `${slotId}.ts`);
+  const exists = await fs.access(targetPath).then(() => true).catch(() => false);
+  if (!exists) {
+    return jsonResponse({ error: 'Slot code file not found', code: '' }, 404);
+  }
 
-          const codeContent = await fs.readFile(targetPath, 'utf8');
-          const res = createResponse({ code: codeContent });
-          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        } catch (e: any) {
-          const res = createResponse({ error: e.message || String(e) }, 500);
-          console.log(`\x1b[31m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 500 Internal Error - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        }
-      }
+  const codeContent = await fs.readFile(targetPath, 'utf8');
+  return jsonResponse({ code: codeContent });
+}
 
-      // 3. 获取 Graph 依赖数据
-      if (reqPath === '/api/graph') {
-        try {
-          const content = await fs.readFile(explainGraphPath, 'utf8');
-          const res = createResponse(JSON.parse(content));
-          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        } catch (e) {
-          const res = createResponse({ error: 'Graph not found' }, 404);
-          console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 404 Not Found - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        }
-      }
+async function handleGraph(ctx: RouteContext): Promise<Response> {
+  const content = await fs.readFile(ctx.paths.explainGraphPath, 'utf8');
+  return jsonResponse(JSON.parse(content));
+}
 
-      // 4. 获取 Review 摘要数据
-      if (reqPath === '/api/review') {
-        try {
-          const content = await fs.readFile(reviewSummaryPath, 'utf8');
-          const res = createResponse(JSON.parse(content));
-          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        } catch (e) {
-          const res = createResponse({ error: 'Review summary not found' }, 404);
-          console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 404 Not Found - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        }
-      }
+async function handleReview(ctx: RouteContext): Promise<Response> {
+  const content = await fs.readFile(ctx.paths.reviewSummaryPath, 'utf8');
+  return jsonResponse(JSON.parse(content));
+}
 
-      // 5. 保存 Mutations 改变集
-      if (reqPath === '/api/mutations' && method === 'POST') {
-        try {
-          const body = await req.json();
-          const mutationsDir = path.join(workspaceRoot, 'source/views/mutations');
-          await fs.mkdir(mutationsDir, { recursive: true });
-          const mutationsPath = path.join(mutationsDir, 'graph-action.json');
-          await writeJson(mutationsPath, body);
-          
-          const res = createResponse({ status: 'success' });
-          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        } catch (err: any) {
-          const res = createResponse({ error: err.message || String(err) }, 500);
-          console.log(`\x1b[31m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 500 Internal Error - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        }
-      }
+async function handleMutations(ctx: RouteContext): Promise<Response> {
+  const body = await ctx.req.json();
+  const mutationsDir = path.join(ctx.paths.sourceViewMutationsRoot);
+  await fs.mkdir(mutationsDir, { recursive: true });
+  const mutationsPath = path.join(mutationsDir, 'graph-action.json');
+  await writeJson(mutationsPath, body);
+  return jsonResponse({ status: 'success' });
+}
 
-      // 6. 热重载与缝合编译 (STREAM SSE API WITH MUTEX QUEUE)
-      if (reqPath === '/api/compile' && method === 'POST') {
-        let releaseMutex: (() => void) | null = null;
-        
-        console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Waiting for compile mutex lock...\x1b[0m`);
-        releaseMutex = await compileMutex.acquire();
-        console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Mutex lock acquired. Starting compilation stream.\x1b[0m`);
+// ==========================================
+// 6. SSE 路由处理器
+// ==========================================
 
-        const stream = new ReadableStream({
-          async start(controller) {
-            const encoder = new TextEncoder();
-            const log = (msg: string) => {
-              try {
-                controller.enqueue(encoder.encode(`event: log\ndata: ${msg}\n\n`));
-              } catch (e) {}
-            };
+async function handleCompileSse(ctx: RouteContext, mutex: Mutex): Promise<Response> {
+  logMutex(`POST ${ctx.reqPath} - Waiting for compile mutex lock...`);
+  const releaseMutex = await mutex.acquire();
+  logMutex(`POST ${ctx.reqPath} - Mutex lock acquired. Starting compilation stream.`);
 
-            try {
-              log('Starting compilation pipeline...');
-              
-              log('Applying workbench mutations to source/app.yaml...');
-              const mutationsReport = await applyWorkbenchMutations(workspaceRoot);
-              log(`   Mutations status: ${mutationsReport.status}. File count: ${mutationsReport.mutationFileCount}. Applied: ${mutationsReport.appliedCount}`);
-              
-              log('Resolving block dependencies...');
-              await resolveWorkspace(workspaceRoot);
-              
-              log('Composing workspace...');
-              await composeWorkspace(workspaceRoot);
-              
-              log('Adapting slots...');
-              await adaptWorkspace(workspaceRoot);
-              
-              log('Running verification lane (fast)...');
-              await verifyWorkspace(workspaceRoot, { lane: 'fast' });
-              
-              log('Locking project...');
-              await lockWorkspace(workspaceRoot);
-              
-              log('Explaining project (regenerating graph & HTML views)...');
-              await explainWorkspace(workspaceRoot);
-              
-              log('Compilation finished successfully!');
-              controller.enqueue(encoder.encode(`event: success\ndata: done\n\n`));
-            } catch (err: any) {
-              log(`[ERROR] Compilation failed: ${err.message || String(err)}`);
-              try {
-                controller.enqueue(encoder.encode(`event: failure\ndata: ${err.message || String(err)}\n\n`));
-              } catch (e) {}
-            } finally {
-              if (releaseMutex) {
-                releaseMutex();
-                console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Mutex lock released.\x1b[0m`);
-              }
-              controller.close();
-            }
-          },
-          cancel() {
-            if (releaseMutex) {
-              releaseMutex();
-              console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Connection cancelled. Mutex released.\x1b[0m`);
-            }
-          }
-        });
-
-        const headers = new Headers({
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*'
-        });
-
-        console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 200 Stream Started - ${Date.now() - startTime}ms\x1b[0m`);
-        return new Response(stream, { headers });
-      }
-
-      // 7. 单节点局部运行与调试 (STREAM SSE API WITH MUTEX & SUBPROCESS BINDING)
-      if (reqPath === '/api/run-node' && method === 'POST') {
-        let releaseMutex: (() => void) | null = null;
-        let activeProcess: any = null;
-
-        try {
-          const body = await req.json();
-          const { type, id } = body;
-
-          console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Waiting for compile mutex lock to run test...\x1b[0m`);
-          releaseMutex = await compileMutex.acquire();
-          console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Mutex lock acquired. Spawning test sub-worker.\x1b[0m`);
-
-          const stream = new ReadableStream({
-            async start(controller) {
-              const encoder = new TextEncoder();
-              const log = (msg: string) => {
-                try {
-                  controller.enqueue(encoder.encode(`event: log\ndata: ${msg}\n\n`));
-                } catch (e) {}
-              };
-              
-              log(`[Runner] Initializing verify worker for ${type} "${id}"...`);
-              let testCmd: string[] = [];
-              
-              if (type === 'slot') {
-                log(`[Runner] Performing static structure check for slot: ${id}...`);
-                const slotFile = path.join(workspaceRoot, `source/code/slots/${id}.ts`);
-                const exists = await fs.access(slotFile).then(() => true).catch(() => false);
-                if (!exists) {
-                  log(`[ERROR] Physical slot handler file does not exist: ${slotFile}`);
-                  try {
-                    controller.enqueue(encoder.encode(`event: failure\ndata: Slot file not found\n\n`));
-                  } catch (e) {}
-                  if (releaseMutex) releaseMutex();
-                  controller.close();
-                  return;
-                }
-                log(`   Found slot implementation file.`);
-                testCmd = ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];
-              } else if (type === 'block') {
-                log(`[Runner] Locating test suite for block: ${id}...`);
-                
-                if (id === 'nonexistent-block-for-platform-verify') {
-                  log(`   Matched test suite: mock/test.test.ts`);
-                  log(`[Runner] Executing: mock tests`);
-                  log(`[Runner] Execution completed successfully!`);
-                  try {
-                    controller.enqueue(encoder.encode(`event: success\ndata: passed\n\n`));
-                  } catch (e) {}
-                  if (releaseMutex) releaseMutex();
-                  controller.close();
-                  return;
-                }
-                
-                const normalizedId = id.replace(/[\/\-_]/g, '').toLowerCase();
-                const testsDir = path.join(workspaceRoot, 'tests');
-                
-                let matchedFile: string | null = null;
-                try {
-                  const searchDir = async (dir: string) => {
-                    const entries = await fs.readdir(dir, { withFileTypes: true });
-                    for (const entry of entries) {
-                      const fullPath = path.join(dir, entry.name);
-                      if (entry.isDirectory()) {
-                        await searchDir(fullPath);
-                      } else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
-                        const nameLower = entry.name.toLowerCase();
-                        if (nameLower.includes(normalizedId) || normalizedId.includes(nameLower.replace('.test.ts', ''))) {
-                          matchedFile = fullPath;
-                          break;
-                        }
-                      }
-                    }
-                  };
-                  await searchDir(testsDir);
-                } catch (e) {}
-                
-                if (matchedFile) {
-                  const relPath = path.relative(workspaceRoot, matchedFile);
-                  log(`   Matched test suite: ${relPath}`);
-                  testCmd = ['bun', 'test', relPath];
-                } else {
-                  log(`   No specific test suite found for this block. Running platform incremental verification...`);
-                  testCmd = ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
-                }
-              } else {
-                testCmd = ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
-              }
-              
-              log(`[Runner] Executing: ${testCmd.join(' ')}`);
-              
-              try {
-                activeProcess = Bun.spawn(testCmd, {
-                  cwd: workspaceRoot,
-                  stdout: 'pipe',
-                  stderr: 'pipe'
-                });
-                
-                // 注册追踪活跃进程，防止强制关闭时残留僵尸进程
-                activeProcesses.add(activeProcess);
-                
-                const readStream = async (stream: ReadableStream<Uint8Array>) => {
-                  const reader = stream.getReader();
-                  const decoder = new TextDecoder();
-                  while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    const text = decoder.decode(value);
-                    const lines = text.split('\n');
-                    for (const line of lines) {
-                      if (line.trim()) {
-                        log(`   ${line.trim()}`);
-                      }
-                    }
-                  }
-                };
-                
-                await Promise.all([
-                  readStream(activeProcess.stdout),
-                  readStream(activeProcess.stderr)
-                ]);
-                
-                const exitCode = await activeProcess.exited;
-                if (exitCode === 0) {
-                  log(`[Runner] Execution completed successfully!`);
-                  controller.enqueue(encoder.encode(`event: success\ndata: passed\n\n`));
-                } else {
-                  log(`[ERROR] Verification exited with non-zero code: ${exitCode}`);
-                  controller.enqueue(encoder.encode(`event: failure\ndata: failed\n\n`));
-                }
-              } catch (runErr: any) {
-                log(`[ERROR] Process execution crashed: ${runErr.message || String(runErr)}`);
-                controller.enqueue(encoder.encode(`event: failure\ndata: crashed\n\n`));
-              } finally {
-                if (activeProcess) {
-                  activeProcesses.delete(activeProcess);
-                }
-                if (releaseMutex) {
-                  releaseMutex();
-                  console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Mutex released.\x1b[0m`);
-                }
-                controller.close();
-              }
-            },
-            cancel() {
-              if (activeProcess) {
-                try {
-                  console.log(`\x1b[31m[SYSTEM] Stream cancelled. Terminating subprocess.\x1b[0m`);
-                  activeProcess.kill();
-                  activeProcesses.delete(activeProcess);
-                } catch (e) {}
-              }
-              if (releaseMutex) {
-                releaseMutex();
-                console.log(`\x1b[36m[Mutex] [${new Date().toISOString()}] POST ${reqPath} - Connection cancelled. Mutex released.\x1b[0m`);
-              }
-            }
-          });
-          
-          const headers = new Headers({
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
-          });
-          
-          console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 200 Stream Started - ${Date.now() - startTime}ms\x1b[0m`);
-          return new Response(stream, { headers });
-        } catch (err: any) {
-          if (releaseMutex) releaseMutex();
-          const res = createResponse({ error: err.message || String(err) }, 500);
-          console.log(`\x1b[31m[HTTP] [${new Date().toISOString()}] POST ${reqPath} - 500 Internal Error - ${Date.now() - startTime}ms\x1b[0m`);
-          return res;
-        }
-      }
-
-      // ==========================================
-      // 静态资源路由分发与安全判定
-      // ==========================================
-      let filePath = reqPath;
-      if (filePath === '/') {
-        filePath = '/overview-view.html';
-      }
-
-      // 防止跨目录安全注入攻击
-      const targetFilePath = path.join(viewsDir, filePath);
-      const relative = path.relative(viewsDir, targetFilePath);
-
-      if (relative.startsWith('..') || path.isAbsolute(relative)) {
-        const res = createResponse('Forbidden', 403, false);
-        console.log(`\x1b[31m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 403 Forbidden - ${Date.now() - startTime}ms\x1b[0m`);
-        return res;
-      }
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const log: SseLogFn = (msg) => {
+        try { controller.enqueue(encoder.encode(`event: log\ndata: ${msg}\n\n`)); } catch { /* closed */ }
+      };
 
       try {
-        const fileContent = await fs.readFile(targetFilePath);
-        let contentType = 'text/html';
-        if (filePath.endsWith('.js')) {
-          contentType = 'application/javascript';
-        } else if (filePath.endsWith('.css')) {
-          contentType = 'text/css';
-        } else if (filePath.endsWith('.json')) {
-          contentType = 'application/json';
+        log('Starting compilation pipeline...');
+
+        log('Applying workbench mutations to source/app.yaml...');
+        const mutationsReport = await applyWorkbenchMutations(ctx.workspaceRoot);
+        log(`   Mutations status: ${mutationsReport.status}. File count: ${mutationsReport.mutationFileCount}. Applied: ${mutationsReport.appliedCount}`);
+
+        log('Resolving block dependencies...');
+        await resolveWorkspace(ctx.workspaceRoot);
+
+        log('Composing workspace...');
+        await composeWorkspace(ctx.workspaceRoot);
+
+        log('Adapting slots...');
+        await adaptWorkspace(ctx.workspaceRoot);
+
+        log('Running verification lane (fast)...');
+        await verifyWorkspace(ctx.workspaceRoot, { lane: 'fast' });
+
+        log('Locking project...');
+        await lockWorkspace(ctx.workspaceRoot);
+
+        log('Explaining project (regenerating graph & HTML views)...');
+        await explainWorkspace(ctx.workspaceRoot);
+
+        log('Compilation finished successfully!');
+        emitSseEvent(controller, 'success', 'done');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`[ERROR] Compilation failed: ${msg}`);
+        emitSseEvent(controller, 'failure', msg);
+      } finally {
+        releaseMutex();
+        logMutex(`POST ${ctx.reqPath} - Mutex lock released.`);
+        controller.close();
+      }
+    },
+    cancel() {
+      releaseMutex();
+      logMutex(`POST ${ctx.reqPath} - Connection cancelled. Mutex released.`);
+    },
+  });
+
+  return sseResponse(stream);
+}
+
+async function handleRunNodeSse(ctx: RouteContext, mutex: Mutex, processRegistry: ProcessRegistry): Promise<Response> {
+  const body = await ctx.req.json() as RunNodeBody;
+  const { type, id } = body;
+
+  logMutex(`POST ${ctx.reqPath} - Waiting for compile mutex lock to run test...`);
+  const releaseMutex = await mutex.acquire();
+  logMutex(`POST ${ctx.reqPath} - Mutex lock acquired. Spawning test sub-worker.`);
+
+  let activeProcess: SubprocessHandle | null = null;
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const log: SseLogFn = (msg) => {
+        try { controller.enqueue(encoder.encode(`event: log\ndata: ${msg}\n\n`)); } catch { /* closed */ }
+      };
+
+      try {
+        log(`[Runner] Initializing verify worker for ${type} "${id}"...`);
+        let testCmd: string[] = [];
+
+        if (type === 'slot') {
+          log(`[Runner] Performing static structure check for slot: ${id}...`);
+          const slotFile = path.join(ctx.workspaceRoot, sourceSlotsRelativePath, `${id}.ts`);
+          const exists = await fs.access(slotFile).then(() => true).catch(() => false);
+          if (!exists) {
+            log(`[ERROR] Physical slot handler file does not exist: ${slotFile}`);
+            emitSseEvent(controller, 'failure', 'Slot file not found');
+            return;
+          }
+          log(`   Found slot implementation file.`);
+          testCmd = ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];
+        } else if (type === 'block') {
+          log(`[Runner] Locating test suite for block: ${id}...`);
+
+          if (id === 'nonexistent-block-for-platform-verify') {
+            log(`   Matched test suite: mock/test.test.ts`);
+            log(`[Runner] Executing: mock tests`);
+            log(`[Runner] Execution completed successfully!`);
+            emitSseEvent(controller, 'success', 'passed');
+            return;
+          }
+
+          const normalizedId = id.replace(/[\/\-_]/g, '').toLowerCase();
+          const testsDir = path.join(ctx.workspaceRoot, 'tests');
+
+          let matchedFile: string | null = null;
+          try {
+            const searchDir = async (dir: string) => {
+              const entries = await fs.readdir(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                  await searchDir(fullPath);
+                } else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
+                  const nameLower = entry.name.toLowerCase();
+                  if (nameLower.includes(normalizedId) || normalizedId.includes(nameLower.replace('.test.ts', ''))) {
+                    matchedFile = fullPath;
+                    break;
+                  }
+                }
+              }
+            };
+            await searchDir(testsDir);
+          } catch { /* dir not found */ }
+
+          if (matchedFile) {
+            const relPath = path.relative(ctx.workspaceRoot, matchedFile);
+            log(`   Matched test suite: ${relPath}`);
+            testCmd = ['bun', 'test', relPath];
+          } else {
+            log(`   No specific test suite found for this block. Running platform incremental verification...`);
+            testCmd = ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
+          }
+        } else {
+          testCmd = ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
         }
 
-        // 统一注入 Security & CORS Headers
-        const res = new Response(fileContent, {
-          headers: new Headers({
-            'Content-Type': contentType,
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-            'Access-Control-Allow-Origin': '*',
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY',
-            'Referrer-Policy': 'strict-origin-when-cross-origin'
-          })
-        });
-        
-        console.log(`\x1b[32m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 200 OK - ${Date.now() - startTime}ms\x1b[0m`);
-        return res;
-      } catch (e) {
-        const res = createResponse('Not Found', 404, false);
-        console.log(`\x1b[33m[HTTP] [${new Date().toISOString()}] GET ${reqPath} - 404 Not Found - ${Date.now() - startTime}ms\x1b[0m`);
+        log(`[Runner] Executing: ${testCmd.join(' ')}`);
+
+        try {
+          activeProcess = Bun.spawn(testCmd, {
+            cwd: ctx.workspaceRoot,
+            stdout: 'pipe',
+            stderr: 'pipe',
+          }) as unknown as SubprocessHandle;
+          processRegistry.register(activeProcess);
+
+          const readStream = async (stream: ReadableStream<Uint8Array>) => {
+            const reader = stream.getReader();
+            const decoder = new TextDecoder();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const text = decoder.decode(value);
+              for (const line of text.split('\n')) {
+                if (line.trim()) {
+                  log(`   ${line.trim()}`);
+                }
+              }
+            }
+          };
+
+          await Promise.all([
+            readStream(activeProcess.stdout),
+            readStream(activeProcess.stderr),
+          ]);
+
+          const exitCode = await activeProcess.exited;
+          if (exitCode === 0) {
+            log(`[Runner] Execution completed successfully!`);
+            emitSseEvent(controller, 'success', 'passed');
+          } else {
+            log(`[ERROR] Verification exited with non-zero code: ${exitCode}`);
+            emitSseEvent(controller, 'failure', 'failed');
+          }
+        } catch (runErr) {
+          const msg = runErr instanceof Error ? runErr.message : String(runErr);
+          log(`[ERROR] Process execution crashed: ${msg}`);
+          emitSseEvent(controller, 'failure', 'crashed');
+        } finally {
+          if (activeProcess) {
+            processRegistry.unregister(activeProcess);
+          }
+        }
+      } finally {
+        releaseMutex();
+        logMutex(`POST ${ctx.reqPath} - Mutex released.`);
+        controller.close();
+      }
+    },
+    cancel() {
+      if (activeProcess) {
+        try {
+          logSystem('Stream cancelled. Terminating subprocess.');
+          activeProcess.kill();
+          processRegistry.unregister(activeProcess);
+        } catch { /* already dead */ }
+      }
+      releaseMutex();
+      logMutex(`POST ${ctx.reqPath} - Connection cancelled. Mutex released.`);
+    },
+  });
+
+  return sseResponse(stream);
+}
+
+// ==========================================
+// 7. 静态文件服务
+// ==========================================
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+};
+
+async function serveStaticFile(viewsDir: string, reqPath: string, startTime: number): Promise<Response> {
+  let filePath = reqPath === '/' ? '/overview-view.html' : reqPath;
+
+  // 防止跨目录安全注入攻击
+  const targetFilePath = path.join(viewsDir, filePath);
+  const relative = path.relative(viewsDir, targetFilePath);
+
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    logHttp('GET', reqPath, 403, 'Forbidden', Date.now() - startTime, COLORS.red);
+    return new Response('Forbidden', { status: 403, headers: new Headers(SECURITY_HEADERS) });
+  }
+
+  try {
+    const fileContent = await fs.readFile(targetFilePath);
+    const ext = path.extname(filePath);
+    const contentType = CONTENT_TYPES[ext] ?? 'text/html';
+
+    const headers = new Headers(SECURITY_HEADERS);
+    headers.set('Content-Type', contentType);
+    headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
+    logHttp('GET', reqPath, 200, 'OK', Date.now() - startTime, COLORS.green);
+    return new Response(fileContent, { headers });
+  } catch {
+    logHttp('GET', reqPath, 404, 'Not Found', Date.now() - startTime, COLORS.yellow);
+    return new Response('Not Found', { status: 404, headers: new Headers(SECURITY_HEADERS) });
+  }
+}
+
+// ==========================================
+// 8. 路由表与错误包装
+// ==========================================
+
+function wrapHandler(handler: RouteHandler): RouteHandler {
+  return async (ctx) => {
+    try {
+      const res = await handler(ctx);
+      const color = res.status >= 500 ? COLORS.red : res.status >= 400 ? COLORS.yellow : COLORS.green;
+      const statusText = res.status >= 500 ? 'Internal Error' : res.status >= 400 ? 'Bad Request' : 'OK';
+      logHttp(ctx.method, ctx.reqPath, res.status, statusText, Date.now() - ctx.startTime, color);
+      return res;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logHttp(ctx.method, ctx.reqPath, 500, 'Internal Error', Date.now() - ctx.startTime, COLORS.red);
+      return errorResponse(msg, 500);
+    }
+  };
+}
+
+// ==========================================
+// 9. 主入口
+// ==========================================
+
+export async function startWorkbenchServer(workspaceRoot: string, port: number): Promise<ReturnType<typeof serve>> {
+  const paths = getWorkspacePaths(workspaceRoot);
+  const viewsDir = path.join(workspaceRoot, controlWorkbenchViewsRelativePath);
+  const mutex = new Mutex();
+  const processRegistry = new ProcessRegistry();
+
+  console.log(`${COLORS.blue}[Workbench Server] Starting server on http://localhost:${port}${COLORS.reset}`);
+  console.log(`${COLORS.blue}[Workbench Server] Serving views from: ${viewsDir}${COLORS.reset}`);
+
+  // 构建路由表
+  const routes: RouteEntry[] = [
+    { method: null, path: '/api/blocks-catalog', handler: wrapHandler(handleBlocksCatalog) },
+    { method: 'POST', path: '/api/bootstrap-slot', handler: wrapHandler(handleBootstrapSlot) },
+    { method: null, path: '/api/slot-code', handler: wrapHandler(handleSlotCode) },
+    { method: null, path: '/api/graph', handler: wrapHandler(handleGraph) },
+    { method: null, path: '/api/review', handler: wrapHandler(handleReview) },
+    { method: 'POST', path: '/api/mutations', handler: wrapHandler(handleMutations) },
+  ];
+
+  return serve({
+    port,
+    async fetch(req) {
+      const startTime = Date.now();
+      const url = new URL(req.url);
+      const reqPath = url.pathname;
+      const method = req.method;
+
+      // CORS OPTIONS 预检
+      if (method === 'OPTIONS') {
+        const res = new Response(null, { status: 204, headers: new Headers(SECURITY_HEADERS) });
+        logHttp('OPTIONS', reqPath, 204, 'No Content', Date.now() - startTime, COLORS.green);
         return res;
       }
-    }
+
+      const ctx: RouteContext = { req, url, method, reqPath, startTime, workspaceRoot, paths };
+
+      // SSE 路由（需要 mutex，不走 wrapHandler）
+      if (reqPath === '/api/compile' && method === 'POST') {
+        const res = await handleCompileSse(ctx, mutex);
+        logHttp('POST', reqPath, 200, 'Stream Started', Date.now() - startTime, COLORS.green);
+        return res;
+      }
+
+      if (reqPath === '/api/run-node' && method === 'POST') {
+        try {
+          const res = await handleRunNodeSse(ctx, mutex, processRegistry);
+          logHttp('POST', reqPath, 200, 'Stream Started', Date.now() - startTime, COLORS.green);
+          return res;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logHttp('POST', reqPath, 500, 'Internal Error', Date.now() - startTime, COLORS.red);
+          return errorResponse(msg, 500);
+        }
+      }
+
+      // 常规 API 路由匹配
+      for (const route of routes) {
+        if (reqPath !== route.path) continue;
+        if (route.method !== null && route.method !== method) continue;
+        return route.handler(ctx);
+      }
+
+      // 静态文件回退
+      return serveStaticFile(viewsDir, reqPath, startTime);
+    },
   });
 }

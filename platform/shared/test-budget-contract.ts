@@ -59,11 +59,6 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
   { id: 'explain', owner: 'platform/compiler/explain', timeoutMs: 90_000, match: /\/(explain|provenance)\.slow\.test\.ts$/ }
 ];
 
-let cachedTestFiles: string[] | null = null;
-let cachedFastTestFiles: string[] | null = null;
-let cachedSlowTestFiles: string[] | null = null;
-let cachedSlowTestSuites: SlowTestSuite[] | null = null;
-
 function scanTestFilesSync(): string[] {
   const files = new Set<string>();
   for (const pattern of TEST_FILE_GLOBS) {
@@ -75,81 +70,116 @@ function scanTestFilesSync(): string[] {
   return [...files].sort();
 }
 
-export async function getTestFiles(): Promise<string[]> {
-  if (cachedTestFiles) return cachedTestFiles;
-  cachedTestFiles = scanTestFilesSync();
-  return cachedTestFiles;
+export class TestBudgetCache {
+  private cachedTestFiles: string[] | null = null;
+  private cachedFastTestFiles: string[] | null = null;
+  private cachedSlowTestFiles: string[] | null = null;
+  private cachedSlowTestSuites: SlowTestSuite[] | null = null;
+
+  getTestFilesSync(): string[] {
+    if (this.cachedTestFiles) return this.cachedTestFiles;
+    this.cachedTestFiles = scanTestFilesSync();
+    return this.cachedTestFiles;
+  }
+
+  async getTestFiles(): Promise<string[]> {
+    return this.getTestFilesSync();
+  }
+
+  getSlowTestFilesSync(): string[] {
+    if (this.cachedSlowTestFiles) return this.cachedSlowTestFiles;
+    this.cachedSlowTestFiles = this.getTestFilesSync().filter(isSlowTestFile);
+    return this.cachedSlowTestFiles;
+  }
+
+  async getSlowTestFiles(): Promise<string[]> {
+    return this.getSlowTestFilesSync();
+  }
+
+  getFastTestFilesSync(): string[] {
+    if (this.cachedFastTestFiles) return this.cachedFastTestFiles;
+    this.cachedFastTestFiles = this.getTestFilesSync().filter(isFastTestFile);
+    return this.cachedFastTestFiles;
+  }
+
+  async getFastTestFiles(): Promise<string[]> {
+    return this.getFastTestFilesSync();
+  }
+
+  getSlowTestSuitesSync(): SlowTestSuite[] {
+    if (this.cachedSlowTestSuites) return this.cachedSlowTestSuites;
+    this.cachedSlowTestSuites = this.buildSlowTestSuites();
+    return this.cachedSlowTestSuites;
+  }
+
+  async getSlowTestSuites(): Promise<SlowTestSuite[]> {
+    return this.getSlowTestSuitesSync();
+  }
+
+  private buildSlowTestSuites(): SlowTestSuite[] {
+    const slowFiles = this.getSlowTestFilesSync();
+    const assigned = new Set<string>();
+    const suites: SlowTestSuite[] = slowTestSuiteDefinitions
+      .map((definition) => {
+        const files = slowFiles.filter((file) => definition.match.test(file));
+        for (const file of files) {
+          assigned.add(file);
+        }
+        return {
+          id: definition.id,
+          owner: definition.owner,
+          timeoutMs: definition.timeoutMs,
+          files
+        };
+      })
+      .filter((suite) => suite.files.length > 0);
+
+    const unmatched = slowFiles.filter((file) => !assigned.has(file));
+    if (unmatched.length > 0) {
+      suites.push({
+        id: 'other',
+        owner: 'unmapped-slow-e2e',
+        timeoutMs: 120_000,
+        files: unmatched
+      });
+    }
+
+    return suites;
+  }
+}
+
+const defaultTestBudgetCache = new TestBudgetCache();
+
+export function getTestFiles(): Promise<string[]> {
+  return defaultTestBudgetCache.getTestFiles();
 }
 
 export function getTestFilesSync(): string[] {
-  if (cachedTestFiles) return cachedTestFiles;
-  cachedTestFiles = scanTestFilesSync();
-  return cachedTestFiles;
+  return defaultTestBudgetCache.getTestFilesSync();
 }
 
-export async function getSlowTestFiles(): Promise<string[]> {
-  if (cachedSlowTestFiles) return cachedSlowTestFiles;
-  cachedSlowTestFiles = getTestFilesSync().filter(isSlowTestFile);
-  return cachedSlowTestFiles;
+export function getSlowTestFiles(): Promise<string[]> {
+  return defaultTestBudgetCache.getSlowTestFiles();
 }
 
 export function getSlowTestFilesSync(): string[] {
-  if (cachedSlowTestFiles) return cachedSlowTestFiles;
-  cachedSlowTestFiles = getTestFilesSync().filter(isSlowTestFile);
-  return cachedSlowTestFiles;
+  return defaultTestBudgetCache.getSlowTestFilesSync();
 }
 
-export async function getFastTestFiles(): Promise<string[]> {
-  if (cachedFastTestFiles) return cachedFastTestFiles;
-  cachedFastTestFiles = getTestFilesSync().filter(isFastTestFile);
-  return cachedFastTestFiles;
+export function getFastTestFiles(): Promise<string[]> {
+  return defaultTestBudgetCache.getFastTestFiles();
 }
 
 export function getFastTestFilesSync(): string[] {
-  if (cachedFastTestFiles) return cachedFastTestFiles;
-  cachedFastTestFiles = getTestFilesSync().filter(isFastTestFile);
-  return cachedFastTestFiles;
-}
-
-function buildSlowTestSuites(): SlowTestSuite[] {
-  const slowFiles = getSlowTestFilesSync();
-  const assigned = new Set<string>();
-  const suites: SlowTestSuite[] = slowTestSuiteDefinitions
-    .map((definition) => {
-      const files = slowFiles.filter((file) => definition.match.test(file));
-      for (const file of files) {
-        assigned.add(file);
-      }
-      return {
-        id: definition.id,
-        owner: definition.owner,
-        timeoutMs: definition.timeoutMs,
-        files
-      };
-    })
-    .filter((suite) => suite.files.length > 0);
-
-  const unmatched = slowFiles.filter((file) => !assigned.has(file));
-  if (unmatched.length > 0) {
-    suites.push({
-      id: 'other',
-      owner: 'unmapped-slow-e2e',
-      timeoutMs: 120_000,
-      files: unmatched
-    });
-  }
-
-  return suites;
+  return defaultTestBudgetCache.getFastTestFilesSync();
 }
 
 export function getSlowTestSuitesSync(): SlowTestSuite[] {
-  if (cachedSlowTestSuites) return cachedSlowTestSuites;
-  cachedSlowTestSuites = buildSlowTestSuites();
-  return cachedSlowTestSuites;
+  return defaultTestBudgetCache.getSlowTestSuitesSync();
 }
 
 export async function getSlowTestSuites(): Promise<SlowTestSuite[]> {
-  return getSlowTestSuitesSync();
+  return defaultTestBudgetCache.getSlowTestSuites();
 }
 
 const ALL_KNOWN_SLOW_SUITE_IDS = [...slowTestSuiteDefinitions.map((d) => d.id), 'other'];

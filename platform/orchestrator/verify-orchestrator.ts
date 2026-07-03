@@ -1,4 +1,4 @@
-import { verifyProject } from '../compiler/verify/verify-project.ts';
+import { verifyProject } from '../compiler/index.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
 import type { VerificationLane, VerificationReport } from '../shared/verification-types.ts';

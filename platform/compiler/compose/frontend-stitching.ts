@@ -1,7 +1,8 @@
 import path from 'node:path';
-import fs from 'node:fs/promises';
-import { Project, SyntaxKind, Node } from 'ts-morph';
+import { Node, Project, SyntaxKind } from 'ts-morph';
 import { pathExists, readText, writeText } from '../../shared/fs.ts';
+import type { Logger } from '../../shared/logger.ts';
+import { defaultLogger } from '../../shared/logger.ts';
 
 export function prefixClassNameString(classString: string, prefix = 'block-attachment-'): string {
   return classString
@@ -42,7 +43,7 @@ export function prefixCssContent(content: string, prefix = 'block-attachment-'):
   return content.replace(classSelectorRegex, `.${prefix}$1`);
 }
 
-export async function injectTailwindPrefix(projectRoot: string): Promise<boolean> {
+export async function injectTailwindPrefix(projectRoot: string, logger: Logger = defaultLogger): Promise<boolean> {
   const configPath = path.join(projectRoot, 'tailwind.config.ts');
   if (!(await pathExists(configPath))) return false;
 
@@ -75,12 +76,12 @@ export async function injectTailwindPrefix(projectRoot: string): Promise<boolean
       }
     }
   } catch (err) {
-    console.warn(`[Prefix Sandboxing] Failed to parse and inject prefix to tailwind.config.ts:`, err);
+    logger.warn('Failed to parse and inject prefix to tailwind.config.ts', { error: err });
   }
   return false;
 }
 
-export async function prefixJsxClassNames(filePath: string, prefix = 'block-attachment-'): Promise<boolean> {
+export async function prefixJsxClassNames(filePath: string, prefix = 'block-attachment-', logger: Logger = defaultLogger): Promise<boolean> {
   try {
     const project = new Project({
       skipLoadingLibFiles: true,
@@ -123,21 +124,19 @@ export async function prefixJsxClassNames(filePath: string, prefix = 'block-atta
     }
     return changed;
   } catch (err) {
-    console.warn(`[Prefix Sandboxing] Failed to prefix classNames in Jsx file: ${filePath}`, err);
+    logger.warn('Failed to prefix classNames in Jsx file', { filePath, error: err });
     return false;
   }
 }
 
-export async function applyPrefixSandboxing(projectRoot: string, generatedPaths: string[]): Promise<string[]> {
+export async function applyPrefixSandboxing(projectRoot: string, generatedPaths: string[], logger: Logger = defaultLogger): Promise<string[]> {
   const newGeneratedPaths: string[] = [];
 
-  // 1. Inject prefix config to tailwind.config.ts
-  const injected = await injectTailwindPrefix(projectRoot);
+  const injected = await injectTailwindPrefix(projectRoot, logger);
   if (injected) {
     newGeneratedPaths.push('tailwind.config.ts');
   }
 
-  // 2. Loop through generated files and apply prefixing
   for (const relPath of generatedPaths) {
     const filePath = path.join(projectRoot, relPath);
     if (!(await pathExists(filePath))) continue;
@@ -150,7 +149,7 @@ export async function applyPrefixSandboxing(projectRoot: string, generatedPaths:
         await writeText(filePath, updated);
       }
     } else if (ext === '.tsx' || ext === '.jsx') {
-      await prefixJsxClassNames(filePath);
+      await prefixJsxClassNames(filePath, 'block-attachment-', logger);
     }
   }
 

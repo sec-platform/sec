@@ -42,7 +42,7 @@
 | 治理产物 | done | 15 个 stable artifact paths（见 `08` §7） |
 | 开发者入口 | done | `doctor` / `deps status|warmup|relink|clean` |
 | Workbench 回写 | done | `source/views/mutations/*.json` → `source/app.yaml` |
-| **架构内聚重构** | done | Logger / CompilerPass / InstallStrategy / ManifestCache / CommandRegistry / Orchestrator 拆分 / dev-runner 拆分 / Process 增强 / YAML 验证 / Review Types 拆分 / 错误码映射 / 文件 I/O 并行化 |
+| **架构内聚重构** | done | Logger / InstallStrategy / ManifestCache / CommandRegistry / Orchestrator 拆分 / dev-runner 拆分 / Process 增强 / YAML 验证 / Review Types 拆分 / 错误码映射 / 文件 I/O 并行化 / Compiler 门面 / workbench-server 路由表化 / shared 层惰性单例 |
 
 ### 当前 active 工作包
 

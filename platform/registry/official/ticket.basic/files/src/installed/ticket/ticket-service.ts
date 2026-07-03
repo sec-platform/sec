@@ -1,3 +1,4 @@
+import { addTicketCommentDelegate, listTicketCommentsDelegate } from '../../../custom/ticket_comment_delegate.ts';
 import type {
   Database,
   TicketAttachmentInput,
@@ -135,8 +136,6 @@ export function listTicketAttachments(
   assertTenantTicket(db, ticketId, tenantId);
   return listTicketScopedRecords(db.ticketAttachments, tenantId, ticketId);
 }
-
-import { addTicketCommentDelegate, listTicketCommentsDelegate } from '../../../custom/ticket_comment_delegate.ts';
 
 export function addTicketComment(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {
   return addTicketCommentDelegate(db, session, input);
