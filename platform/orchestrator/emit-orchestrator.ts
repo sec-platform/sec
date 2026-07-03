@@ -1,8 +1,4 @@
-import { writeCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
-import { lockProject } from '../compiler/emit/lock-project.ts';
-import { writeExplainGraph } from '../compiler/emit/write-explain-graph.ts';
-import { writeLocalViews } from '../compiler/emit/write-local-views.ts';
-import { writeReviewSummary } from '../compiler/emit/write-review-summary.ts';
+import { lockProject, writeCiArtifactManifest, writeExplainGraph, writeLocalViews, writeReviewSummary } from '../compiler/index.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import { CompilerError } from '../shared/errors.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';

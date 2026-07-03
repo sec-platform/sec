@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
-import { startWorkbenchServer } from '../../platform/orchestrator/workbench-server.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { startWorkbenchServer } from '../../platform/orchestrator/workbench-server.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('workbench server serves files and APIs correctly', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -30,7 +30,7 @@ test('workbench server serves files and APIs correctly', async () => {
       // 4. Test GET /api/graph
       const resGraph = await fetch('http://localhost:8085/api/graph');
       expect(resGraph.status).toBe(200);
-      const jsonGraph = await resGraph.json();
+      const jsonGraph = await resGraph.json() as { nodes: unknown[]; edges: unknown[] };
       expect(jsonGraph.nodes).toBeDefined();
 
       // 5. Test POST /api/mutations
@@ -46,7 +46,7 @@ test('workbench server serves files and APIs correctly', async () => {
         body: JSON.stringify(mockMutations)
       });
       expect(resMutations.status).toBe(200);
-      const jsonMutations = await resMutations.json();
+      const jsonMutations = await resMutations.json() as { status: string };
       expect(jsonMutations.status).toBe('success');
 
       // Verify that graph-action.json was written
@@ -87,11 +87,11 @@ slots: []
 
       const resCatalog = await fetch('http://localhost:8085/api/blocks-catalog');
       expect(resCatalog.status).toBe(200);
-      const jsonCatalog = await resCatalog.json();
+      const jsonCatalog = await resCatalog.json() as Array<{ id: string; version: string }>;
       expect(Array.isArray(jsonCatalog)).toBe(true);
       const matchedBlock = jsonCatalog.find((b: any) => b.id === 'test-mock-block');
       expect(matchedBlock).toBeDefined();
-      expect(matchedBlock.version).toBe('0.9.9');
+      expect(matchedBlock!.version).toBe('0.9.9');
 
       // 8. Test POST /api/bootstrap-slot
       const resBootstrap = await fetch('http://localhost:8085/api/bootstrap-slot', {
@@ -100,7 +100,7 @@ slots: []
         body: JSON.stringify({ slotId: 'test_resolver_slot', block: 'test/block' })
       });
       expect(resBootstrap.status).toBe(200);
-      const jsonBootstrap = await resBootstrap.json();
+      const jsonBootstrap = await resBootstrap.json() as { status: string; path: string };
       expect(jsonBootstrap.status).toBe('success');
       expect(jsonBootstrap.path).toBe('source/code/slots/test_resolver_slot.ts');
 

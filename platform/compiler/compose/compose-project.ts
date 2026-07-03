@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { defaultLimit } from '../../shared/concurrency.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
@@ -8,21 +9,16 @@ import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { applyOverrides } from './apply-overrides.ts';
-import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
-import { defaultInstallRegistry } from './install-strategies.ts';
-import { mergePrismaTemplate } from './merge-prisma-template.ts';
-import { installOpaqueModules } from './install-opaque-modules.ts';
-import { mergeTailwindTheme } from './merge-tailwind-theme.ts';
-import { mapCustomRoutes } from './map-custom-routes.ts';
 import { formatOutputFiles } from './format-output-files.ts';
-import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
-import { lowerToMicroservices } from './microservice-lower-pass.ts';
 import { applyPrefixSandboxing } from './frontend-stitching.ts';
-
-
-
-
-
+import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
+import { installOpaqueModules } from './install-opaque-modules.ts';
+import { defaultInstallRegistry } from './install-strategies.ts';
+import { mapCustomRoutes } from './map-custom-routes.ts';
+import { mergePrismaTemplate } from './merge-prisma-template.ts';
+import { mergeTailwindTheme } from './merge-tailwind-theme.ts';
+import { lowerToMicroservices } from './microservice-lower-pass.ts';
+import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
 
 async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
   const routeEntries = await Promise.all(
@@ -44,13 +40,15 @@ function renderSlotSkeleton(task: SlotTask): string {
       for (const p of exp.params) {
         if (p.importFrom) {
           if (!imports.has(p.importFrom)) imports.set(p.importFrom, new Set());
-          imports.get(p.importFrom)!.add(p.type);
+          const importSet = imports.get(p.importFrom);
+          if (importSet) { importSet.add(p.type); }
         }
       }
       if (exp.outputImportFrom && exp.outputType) {
         const baseType = exp.outputType.replace(/\[\]$/, '');
         if (!imports.has(exp.outputImportFrom)) imports.set(exp.outputImportFrom, new Set());
-        imports.get(exp.outputImportFrom)!.add(baseType);
+        const outputImportSet = imports.get(exp.outputImportFrom);
+        if (outputImportSet) { outputImportSet.add(baseType); }
       }
     }
     const importLines = Array.from(imports.entries()).map(([src, types]) => {
@@ -121,7 +119,7 @@ export async function composeProject(
     lock.slotTasks.map((task) => defaultLimit(async () => {
       const targetPath = resolvePathInside(projectRoot, task.target);
       if (!targetPath) {
-        throw new Error(`Slot target "${task.target}" escapes project root`);
+        throw new CompilerError('SLOT-SECURITY-001', `Slot target "${task.target}" escapes project root`);
       }
       if (!(await pathExists(targetPath))) {
         await writeText(targetPath, renderSlotSkeleton(task));

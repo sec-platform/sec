@@ -46,7 +46,8 @@ export function solvePolicyAlgebra(
     if (!entityGroups.has(rule.targetEntity)) {
       entityGroups.set(rule.targetEntity, []);
     }
-    entityGroups.get(rule.targetEntity)!.push(rule);
+    const group = entityGroups.get(rule.targetEntity);
+    if (group) { group.push(rule); }
   }
 
   // 2. 逐一求解每个实体上生效的策略谓词，判定是否存在连通死锁 (Policy Deadlock)

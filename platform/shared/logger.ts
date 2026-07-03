@@ -20,7 +20,6 @@ export function createLogger(options: { level: LogLevel; json?: boolean }): Logg
   const instance = pino(
     {
       level: options.level,
-      ...(transport ? {} : {}),
     },
     transport,
   );
@@ -33,4 +32,18 @@ export function createLogger(options: { level: LogLevel; json?: boolean }): Logg
   };
 }
 
-export const defaultLogger = createLogger({ level: 'info' });
+let _defaultLogger: Logger | null = null;
+
+export function getDefaultLogger(): Logger {
+  if (_defaultLogger === null) {
+    _defaultLogger = createLogger({ level: 'info' });
+  }
+  return _defaultLogger;
+}
+
+export const defaultLogger: Logger = {
+  debug: (message, data) => getDefaultLogger().debug(message, data),
+  info: (message, data) => getDefaultLogger().info(message, data),
+  warn: (message, data) => getDefaultLogger().warn(message, data),
+  error: (message, data) => getDefaultLogger().error(message, data),
+};

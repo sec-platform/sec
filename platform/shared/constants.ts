@@ -60,14 +60,3 @@ export const ERROR_CODE_PREFIX_MAP = Object.freeze<Record<string, string>>({
   WORKBENCH: 'workbench/'
 } as const);
 
-export const PASS_DEPENDENCIES = Object.freeze<Record<string, string[]>>({
-  parse: [],
-  align: ['parse'],
-  resolve: ['align'],
-  compose: ['resolve'],
-  adapt: ['compose'],
-  verify: ['adapt'],
-  repair: ['verify'],
-  lock: ['adapt'],
-  emit: ['lock']
-} as const);

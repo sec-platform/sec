@@ -1,8 +1,4 @@
-import { alignInterfaces } from '../compiler/align/align-interfaces.ts';
-import { loadManifestById } from '../compiler/parse/load-manifest.ts';
-import { loadPlan } from '../compiler/parse/load-plan.ts';
-import { resolveGraph } from '../compiler/resolve/resolve-graph.ts';
-import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-templates.ts';
+import { alignInterfaces, loadManifestById, loadPlan, resolveGraph, validateResolvedTemplates } from '../compiler/index.ts';
 import { saveLock } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';

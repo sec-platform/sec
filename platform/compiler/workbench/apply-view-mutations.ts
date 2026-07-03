@@ -3,7 +3,7 @@ import { countMatching } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, listFilesRecursive, pathExists, readJson, writeJson } from '../../shared/fs.ts';
 import { getWorkspacePaths, posixPath, workspaceRelativePath } from '../../shared/paths.ts';
-import type { AppMode, PlanFile } from '../../shared/plan-manifest-types.ts';
+import type { AppMode, PlanFile, PlanSlot, SlotKind } from '../../shared/plan-manifest-types.ts';
 import { writeYaml } from '../../shared/yaml.ts';
 import { loadPlan } from '../parse/load-plan.ts';
 
@@ -286,33 +286,33 @@ function applyMutation(plan: PlanFile, mutation: ViewMutation, sourcePath: strin
       plan.slots = [];
     }
     const existingIndex = plan.slots.findIndex((s) => s.id === mutation.slotId);
-    const newSlot = {
+    const newSlot: PlanSlot = {
       id: mutation.slotId,
       block: mutation.block,
-      kind: mutation.slotKind,
+      kind: mutation.slotKind as SlotKind,
       target: mutation.target,
       sourcePath: mutation.sourcePath,
       symbol: mutation.symbol,
-      ...(mutation.description ? { description: mutation.description } : {})
+      description: mutation.description ?? ''
     };
 
     if (existingIndex !== -1) {
       const existing = plan.slots[existingIndex];
-      const matches = 
+      const matches =
         existing.block === newSlot.block &&
         existing.kind === newSlot.kind &&
         existing.target === newSlot.target &&
         existing.sourcePath === newSlot.sourcePath &&
         existing.symbol === newSlot.symbol &&
         existing.description === newSlot.description;
-      
+
       if (matches) {
         return result(mutation, sourcePath, 'skipped', `slot ${mutation.slotId} already bound with same config`);
       }
-      plan.slots[existingIndex] = newSlot as any;
+      plan.slots[existingIndex] = newSlot;
       return result(mutation, sourcePath, 'applied', `updated slot ${mutation.slotId} binding`);
     } else {
-      plan.slots.push(newSlot as any);
+      plan.slots.push(newSlot);
       return result(mutation, sourcePath, 'applied', `bound slot ${mutation.slotId} to ${mutation.block}`);
     }
   }
