@@ -571,9 +571,6 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
   const mutex = new Mutex();
   const processRegistry = new ProcessRegistry();
 
-  console.log(`${COLORS.blue}[Workbench Server] Starting server on http://localhost:${port}${COLORS.reset}`);
-  console.log(`${COLORS.blue}[Workbench Server] Serving views from: ${viewsDir}${COLORS.reset}`);
-
   // 构建路由表
   const routes: RouteEntry[] = [
     { method: null, path: '/api/blocks-catalog', handler: wrapHandler(handleBlocksCatalog) },
@@ -584,7 +581,7 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
     { method: 'POST', path: '/api/mutations', handler: wrapHandler(handleMutations) },
   ];
 
-  return serve({
+  const server = serve({
     port,
     async fetch(req) {
       const startTime = Date.now();
@@ -631,4 +628,10 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
       return serveStaticFile(viewsDir, reqPath, startTime);
     },
   });
+
+  const actualPort = server.port ?? port;
+  console.log(`${COLORS.blue}[Workbench Server] Listening on http://localhost:${actualPort}${COLORS.reset}`);
+  console.log(`${COLORS.blue}[Workbench Server] Serving views from: ${viewsDir}${COLORS.reset}`);
+
+  return server;
 }
