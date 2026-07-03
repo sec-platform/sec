@@ -33,11 +33,15 @@ import { NextResponse } from 'next/server';
 // 动态缝合引入被安装的模块化业务服务实体
 import * as service from '../../../../src/installed/${dirName}/index.ts';
 
+type RpcHandler = (...args: unknown[]) => unknown | Promise<unknown>;
+// service 是 barrel import，方法集合在编译期不可静态枚举；统一断言为 Record 后由 typeof 守卫保证调用安全。
+const handlers = service as unknown as Record<string, RpcHandler>;
+
 export async function POST(request: Request) {
   try {
     const { method, params } = await request.json();
-    
-    if (typeof (service as any)[method] !== 'function') {
+    const handler = handlers[method];
+    if (typeof handler !== 'function') {
       return NextResponse.json(
         { error: \`Method "\${method}" not found in block service "${block.id}"\` },
         { status: 404 }
@@ -45,11 +49,12 @@ export async function POST(request: Request) {
     }
     
     // 通过反射动态分发 RPC 调用，零硬编码业务逻辑
-    const result = await (service as any)[method](...(params || []));
+    const result = await handler(...(params || []));
     return NextResponse.json({ result });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Internal RPC execution error';
     return NextResponse.json(
-      { error: error.message || 'Internal RPC execution error' },
+      { error: message },
       { status: 500 }
     );
   }
