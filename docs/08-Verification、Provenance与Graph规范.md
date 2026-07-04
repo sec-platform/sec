@@ -1,275 +1,176 @@
 ---
-title: Verification、Provenance 与 Graph 规范
+title: Verification、Provenance 与治理投影规范
 status: active
 last-reviewed: 2026-07-04
 ---
 
-# Verification、Provenance 与 Graph 规范
+# Verification、Provenance 与治理投影规范
 
-> 目标：定义验收、Policy、来源追踪和可解释图谱。
+本文定义 Verification、Artifact Provenance、ExplainGraph、ReviewSummary 和 Evidence 边界。Engineering IR 与 Fact Provenance 见 `14`。
 
-## 1. Verification 层级
+## 1. Verification
 
-仓库测试架构的开发者入口固定为 affected / fast / slow / full 四类，具体口径见 `docs/test-architecture.md`。
+生成项目验证入口：
 
-| 入口 | 组件 | 说明 |
-| --- | --- | --- |
-| affected | typecheck + affected fast tests | 本地与 PR quick 的变更反馈入口 |
-| fast | typecheck + full fast tests | 不含 slow e2e / Playwright 的快速回归入口 |
-| slow | impact-selected slow suites / slow files | PR risk 与人工风险验证入口 |
-| full | release preflight + slow-suite matrix + workspace correctness backstop | schedule/manual/full label 的完整循环 |
+```text
+verify --lane fast|runtime|all
+```
 
-生成项目 verification 仍由平台命令 `verify --lane fast|runtime|all --json [--compact]` 输出 `control/evidence/verification-report.json`；其中 Playwright 只属于 runtime full / all 边界，不进入 affected 或 fast 入口。
+仓库开发测试的 affected/fast/slow/full 规则见测试文档，两套概念不得混用。
 
-### 1.1 Playwright 混合运行时验收机制
-
-在无头浏览器中运行 Playwright 验收测试时，为了在大规模测试中兼顾调试效率与 SCM 存储开销，系统执行混合验收方案：
-1. **像素级视觉防退化 (Visual Regression)**：测试成功通过时，Playwright 只保留特定页面或组件的关键 Baseline 像素截图，通过 `expect(page).toHaveScreenshot()` 自动检测 UI 样式破损和折行冲突。
-2. **故障 Trace ZIP 诊断**：测试失败时，Playwright 不生成大体积视频，而是保存 HTML Trace ZIP 归档并解压到本地临时目录。本地 Review 工作台在 iframe 中内嵌官方的 Trace UI，供开发者和 AI 交互式审查 DOM、控制台报错和网络请求。
-3. **录像演示仅用于终审**：仅在终审评审阶段（Review Sign-off）为通过的用例生成 WebM 录制视频，方便架构师和人类审核员进行体感走通，避免在大规模测试中生成视频并污染 Git 仓库。
-4. **调试会话挂载**：在 AI 修复沙盒或本地验证中，支持配置 `--interactive-debugger` 或 `--head` 参数，通过 CDP 端口允许开发者在真浏览器中实时监控并操纵执行流。
-5. **Block 级独立容差**：允许在 `block.manifest.yaml` 中通过 `visualVerification` 自定义配置私有的像素容差阈值（如 `maxDiffPixels` 或 `maxDiffPixelRatio`），兼顾高动态组件与强业务界面的差异。
-
-CI 质量门禁由 `platform/shared/ci-contract.ts` 统一声明；PR quick 与 release preflight 通过 `imports:organize` 收敛 TypeScript import baseline。本地可按需运行 `imports:check` 审计漂移，但 affected/fast 验证不以前者为前置条件。
+Verification 可以读取 Authoring Source、IR、Artifact 和 Runtime，但不能修改 canonical semantics。允许输出 Report、Trace、Diagnostic、Coverage 等 Evidence。
 
 ## 2. Acceptance
 
-### `source/app.yaml`
+Acceptance 表达可观察结果，不等同于单元测试文件。
 
-```yaml
-acceptance:
-  - id: user_can_login
-  - id: user_can_create_customer
-  - id: user_can_list_customers
-  - id: tenant_only_sees_own_customers
+最小关系：
+
+```text
+Acceptance
+  COVERS Block / Slot / Responsibility / Operation
+  VERIFIED_BY Test or Runtime Probe
 ```
 
-### block.manifest.yaml（扩展格式）
+当前实现已经支持 Block/Slot coverage；Responsibility/Operation coverage 在 IR 语义对象落地后扩展。
 
-```yaml
-acceptance:
-  - id: user_can_create_customer
-    dependsOn: [user_can_login]
-    covers:
-      blocks: [entity/customer-basic]
-      slots: [customer_normalizer]
-```
-
-- `id` 全局唯一，`dependsOn` 引用已声明 acceptance
-- `covers` 用于 coverage 计算
-- coverage 报告：`control/evidence/acceptance-coverage.json`
+Acceptance ID 必须稳定。测试文件路径是验证实现细节，不作为 Acceptance identity。
 
 ## 3. Policy Gate
 
-### policy.spec.yaml
+Policy 由 official/project source 合并，明确 severity 和 target。`error`/`blocker` 可使 verification failed。
 
-```yaml
-policies:
-  - id: tenant-scope-required
-    severity: error
-    appliesTo: [entity/customer-basic, ticket/basic, worklog/basic]
-    rule: tenant_context_must_flow_to_query
+现有文本/AST 规则属于验证实现；长期 Policy 应优先绑定 Semantic Fact/Effect/Permission，例如：
+
+```text
+TicketQuery REQUIRES TenantContext
+DatabaseQuery MUST_BE_SCOPED_BY tenantId
 ```
 
-Severity：`info` / `warn` / `error` / `blocker`。`error` 或 `blocker` 失败时 verification 必须失败。
+源码扫描可以证明或反驳 Contract，但不能把字符串包含关系直接升级成 canonical semantic fact。
 
-输出：`control/evidence/policy-report.json`。
+## 4. Artifact Provenance
 
-## 4. Provenance
+`control/provenance/provenance.json` 说明 Artifact 从哪里来。
 
-输出：`control/provenance/provenance.json`。每个 artifact 记录：
+当前核心字段：
 
-| 字段 | 说明 |
-| --- | --- |
-| `path` | 文件路径 |
-| `originType` | `block` / `slot` / `generated` / `override` |
-| `originId` | 来源标识 |
-| `sourceBlock` | 来源 block |
-| `sourcePath` | 源码层 slot 路径 |
-| `runtimeTarget` | v0.1 兼容物化目标 |
-| `generatedByPass` | 生成 pass |
-| `generatorTaskId` | AI task id |
-| `verifiedBy` | 通过的测试列表 |
-| `overrideStatus` | `none` / `manual` / `rule-backed` |
+- path。
+- originType/originId/sourceBlock。
+- registry source。
+- sourcePath/runtimeTarget。
+- generatedByPass/generatorTaskId。
+- verifiedBy。
+- overrideStatus。
+- hash。
 
-## 5. Explain Graph
+Artifact Provenance 和 Fact Provenance 必须分开：
 
-输出：`control/graph/explain-graph.json`。Node 类型：`app`、`block`、`capability`、`pin`、`slot`、`file`、`acceptance`、`policy`、`issue`、`repair`、`upgrade`。
-
-最终形态下，Explain Graph 必须能容纳 Engineering IR 节点：`entity`、`operation`、`view`、`event`、`permission`、`generator`。这些节点用于说明语义合约如何被降级为文件、测试、策略与验收，而不是只展示文件复制关系。
-
-### 5.1 Engineering IR (工程中间表示) 标准 Schema 规规约
-
-为了支持多维图结构表达，并方便与外部可视化工具及知识库连通，我们将 Engineering IR 标准化为**基于邻接表的有向属性图 (Property DAG)**，其标准的 JSON Schema 设计如下：
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "EngineeringIR",
-  "type": "object",
-  "required": ["formatVersion", "appId", "nodes", "edges"],
-  "properties": {
-    "formatVersion": { "type": "string", "const": "1" },
-    "appId": { "type": "string" },
-    "nodes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "type", "label", "metadata"],
-        "properties": {
-          "id": { "type": "string" },
-          "type": {
-            "type": "string",
-            "enum": [
-              "app", "block", "capability", "pin", "slot", 
-              "entity", "operation", "policy", "view", "event", 
-              "permission", "generator", "file", "acceptance", "issue"
-            ]
-          },
-          "label": { "type": "string" },
-          "metadata": {
-            "type": "object",
-            "properties": {
-              "sourcePath": { "type": "string" },
-              "signature": { "type": "string" },
-              "owner": { "type": "string" },
-              "status": { "type": "string" },
-              "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] }
-            }
-          }
-        }
-      }
-    },
-    "edges": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["source", "target", "relation"],
-        "properties": {
-          "source": { "type": "string" },
-          "target": { "type": "string" },
-          "relation": {
-            "type": "string",
-            "enum": [
-              "depends_on", "provides", "connects_to", "originates_from", 
-              "writes_to", "verified_by", "declares", "lowers_to", 
-              "generates", "enforces", "renders"
-            ]
-          },
-          "metadata": { "type": "object" }
-        }
-      }
-    }
-  }
-}
+```text
+Artifact Provenance: 这个文件从哪里来？
+Fact Provenance:      这个工程判断为什么成立？
 ```
 
-Edge 类型：`connects_to`、`depends_on`、`originates_from`、`provides`、`verified_by`、`writes_to`。语义合约扩展边类型预留：`declares`（声明）、`lowers_to`（编译降级）、`generates`（代码生成）、`enforces`（策略强制）、`renders`（界面渲染）。
+不得把文件 origin 自动当成文件内所有语义 Fact 的 authority。
 
-在 Review 工作台的可视化图谱上，当检测到开发者手写的 Override 自定义逻辑时，相关节点需标为**橘色 (Orange)** 以警示 AI 避免改写。此外，Explain Graph 会同时绘制 Policy 规约关联的 `Audited By` 有向边，以及升级迁移历史的轨迹。
+## 5. ExplainGraph
 
-## 6. Review Summary
+`control/graph/explain-graph.json` 是**治理解释投影**。
 
-输出：`control/evidence/review-summary.json`。聚合 CI 摘要、链摘要、覆盖率、provenance、repair、upgrade、policy 的全部摘要信息。
+它回答：
 
-Review Summary 是 Review Workbench 的主数据源之一。它必须优先回答人类 review 问题：哪些 block/slot/entity/operation 发生变化、哪些文件由哪些合约或 generator 产生、哪些 acceptance/policy 失败、哪些路径需要人工决策。
+- App 使用哪些 Block/Capability。
+- Pin/Slot 如何关联。
+- Artifact 来自哪里。
+- Acceptance/Policy 如何覆盖。
+- Repair/Upgrade/Override 影响哪些治理对象。
 
-### Engineering Semantic Diff
+当前公开 node/edge contract 保持兼容。新增 Engineering IR 后，ExplainGraph 应由 IR + Governance Artifact 投影构建。
 
-Engineering Semantic Diff 是 review 语义合同，不是单独的新事实源。它从 lock、Engineering IR / Explain Graph、provenance、verification、acceptance coverage、policy report、repair/upgrade plan 派生，用于把 review 从代码行差异提升为工程语义差异。
+禁止把以下关系直接塞入 ExplainGraph 作为 IR 替代：
 
-最小 diff 维度：
+```text
+OWNS
+READS
+MUTATES
+CALLS
+AWAITS
+TRANSFORMS_TO
+VALIDATES
+PERFORMS_EFFECT
+```
 
-| 维度 | 必须回答的问题 |
-| --- | --- |
-| capability / block | 能力、block、版本、来源或 trust level 是否变化 |
-| pin / slot / contract | 连接、类型、slot 边界、语义合约或 generator 是否变化 |
-| policy / acceptance | policy 约束、验收覆盖、失败链是否变化 |
-| provenance / artifact | 生成路径、人工 override、未验证 artifact 是否变化 |
-| runtime / upgrade | runtime evidence、migration、rollback、override conflict 是否变化 |
-| risk | 是否引入 failure point、regression risk、conflict hint 或人工决策点 |
+这些属于 `14` 的 Semantic Fact/Projection。
 
-在独立 stable artifact 落地前，Semantic Diff 应作为 `review-summary.json` 和 Workbench Review View 的派生 section；不得新增第二套 review schema，也不得绕过 `review-summary.json`、provenance 或 explain graph 直接从源码 diff 推断平台结论。
+Mermaid/DOT/HTML 都是 ExplainGraph 的衍生展示，不是事实源。
 
-## 7. 治理产物清单
+## 6. ReviewSummary
 
-| 产物 | 路径 |
-| --- | --- |
-| Graph lock | `control/state/graph.lock.json` |
-| Provenance | `control/provenance/provenance.json` |
-| Verification report | `control/evidence/verification-report.json` |
-| Runtime report | `control/evidence/runtime-report.json` |
-| Policy report | `control/evidence/policy-report.json` |
-| Acceptance coverage | `control/evidence/acceptance-coverage.json` |
-| Install manifest | `control/evidence/install-manifest.json` |
-| Block usage map | `control/evidence/block-usage-map.json` |
-| Explain graph | `control/graph/explain-graph.json` |
-| Explain graph Mermaid | `control/graph/explain-graph.mmd` |
-| Explain graph DOT | `control/graph/explain-graph.dot` |
-| Review summary | `control/evidence/review-summary.json` |
-| Repair plan | `control/workflow/repair-plan.json` |
-| Upgrade plan | `control/workflow/upgrade-plan.json` |
-| CI artifacts manifest | `control/ci/artifacts.json` |
-| Source view | `control/workbench/views/source-view.html` |
-| Slot rule view | `control/workbench/views/slot-rule-view.html` |
-| Graph view | `control/workbench/views/graph-view.html` |
-| Review view | `control/workbench/views/review-view.html` |
+ReviewSummary 聚合 Verification、Coverage、Policy、Artifact Provenance、Repair、Upgrade 和 Artifact 状态。
 
-## 8. 质量、架构与语义模式 evidence 预留
+它必须回答“现在最应该审查什么”，而不是复制所有 JSON。
 
-`jscpd`、`dependency-cruiser`、`scripts/discover-all.ts`、Graph-It-Live/MCP、GitNexus repo graph provider、Graphify knowledge graph provider、未来 trace 或 IDE graph 工具可以作为 evidence provider 接入治理面，但不能替代 `source/app.yaml`、block manifest、contracts、graph lock、provenance、review summary 等事实源。
+### Semantic Diff
 
-预留 evidence / overlay 类型：
+Semantic Diff 的 canonical 输入是两个 IR revision 的 Fact Set 差异，加上 Artifact/Verification delta：
 
-| 类型 | 预留路径 | 说明 | 稳定性 |
-| --- | --- | --- | --- |
-| Code quality report | `control/evidence/code-quality-report.json` | 聚合 L1/L2 重复、复杂度、死代码、候选重构 | 已定义 draft adapter，不属于当前 stable artifact |
-| Architecture boundary report | `control/evidence/architecture-boundary-report.json` | 聚合 dependency-cruiser、cycle、module boundary、layer drift | 已定义 draft adapter，不属于当前 stable artifact |
-| Semantic pattern report | `control/evidence/semantic-pattern-report.json` | L3 工程模式/意图重复候选，如 read-validate-build-write | 已定义 draft report，不属于当前 stable artifact |
-| Quality overlay | `control/graph/code-quality-overlay.json` | 将质量 finding 映射到 file/function/block/slot 节点 | 未实现，不属于当前 stable artifact |
-| Architecture overlay | `control/graph/architecture-overlay.json` | 将依赖边界和循环风险映射到 graph view | 未实现，不属于当前 stable artifact |
-| Semantic pattern overlay | `control/graph/semantic-pattern-overlay.json` | 将 L3 pattern 映射为 review suggestion 或 generator/block 候选 | 已定义 draft overlay，不属于当前 stable artifact |
+```text
+IR A facts
+vs
+IR B facts
+  → added facts
+  → removed facts
+  → changed semantic values
+  → impacted guarantees/assumptions/verification
+```
 
-实现这些路径时必须同步 contract freeze、artifact manifest、CLI compact contract 和 Workbench view；实现前不得把它们加入当前治理产物必需清单。
+在 Fact Delta 实现前，现有 Engineering Semantic Diff 只属于 artifact/governance approximation，文档和 UI 必须明确这一点。
 
-## 9. 带外门禁 (Compiler Gates) 与 SCM 约束
+## 7. Evidence 分层
 
-为了防止 AI 编写助手（如 Claude Code、Cursor）或人类开发人员绕过编译器直接改写生成的物理代码，编译链在本地 `se verify` 和 CI 阶段强制实施带外硬拦截：
-1. **SCM 物理隔离 (Gitignore)**：项目的根目录 `.gitignore` 必须将 `project/` 整体忽略。禁止在版本控制中提交生成的项目源码，使 Git 库中仅包含纯粹的开发层 `source/` 和控制面配置。
-2. **物理只读锁 (File-system Readonly Lock)**：在 `se compose --lock` 运行后，除了已声明为 Writable Zones 的插槽文件外，编译器通过操作系统文件系统属性将 `project/**` 内的文件全部设为 **只读 (Read-only)**，在物理层拦截任何外部直接编辑。
-3. **代码漂移门禁 (Reference Drift Gate)**：在 `se verify` 运行期间，验证器逐一比对 `project/` 文件与 `control/provenance/provenance.json` 记录的签名哈希。一旦在只读 Zone 检测到任何非预期修改，抛出 **`ERROR-DRIFT-001`** 并中断发布/部署。
-4. **合约冻结门禁 (Contract Freeze Gate)**：在 CI 合约审查流水线中，静态分析器对比生成代码的符号签名与已冻结的契约。如果在没有进行 Semver 版本变更的情况下接口签名发生了变化，即使测试通过，编译门禁依然予以强行拦截。
+| 层 | 示例 | Authority |
+| --- | --- | --- |
+| Authoring/Compiler | Contract、Resolver、IR builder | authoritative / derived |
+| Static Analysis | ts-morph、dependency analysis | derived evidence |
+| Runtime Observation | trace、probe、coverage | observed |
+| AI/External Provider | LLM、Graph-It-Live、GitNexus、Graphify | inferred/advisory |
 
+外部工具经 provider adapter 归一。Raw report 只能作为 Evidence 引用。
 
-## 10. Policy 冲突死锁与多属性妥协代数 (Policy Algebra) 规范
+现有 `ToolEvidenceReport` 的 `stableArtifact: false` 规则保持；Code Quality、Architecture Boundary、Semantic Pattern Report 在完整合同冻结前不进入 stable artifact 列表。
 
-当系统装配了 20 个以上的 Block 并且混合了复杂的企业级安全、通知与 ABAC 权限策略时，极易发生 **“策略死锁 (Policy Deadlock)”**（如 Block A 要求“全隔离加密存储附件”，Block B 要求“提供第三方直连公网分析链接”）。平台不允许将此冲突留到运行时坍塌，也不允许无章可循地手工硬编码，而是通过**策略代数 (Policy Algebra)** 进行编译期自治决策。
+## 8. 稳定治理产物
 
-### 10.1 多属性妥协代数定义
+稳定路径由 `CI_ARTIFACT_FILES`、路径合同和 Contract Freeze 共同决定；文档不复制会漂移的完整文件数量。
 
-策略代数将 Policy 视为图谱上的约束流属性，规定其交集（Intersection）、并集（Union）和优先级支配（Dominance）的运算规则：
+主要类别：
 
-1. **强约束优先性 (Strict Enforcement Dominance)**：
-   - 严重级别为 `blocker` 或 `error` 的 Policy，对 `warn` 和 `info` 策略具有绝对的支配与吞噬权。如果 Block A 的 `blocker` 策略与 Block B 的 `warn` 策略冲突，编译器直接强制执行 Block A 策略，并降级 Block B 的局部展示。
-2. **策略交集运算与多属性合成 (Policy Multi-Attribute Composition)**：
-   - 当多个 Block 作用于同一个实体或 Slot 时，编译器会求出所有 active policies 的交集约束集。
-   - 示例：如果 `policy1` 规定“附件只读”，`policy2` 规定“附件仅在工作时间内可访问”，代数合成后为“附件在工作时间内只读，工作时间外不可访问”。一旦策略交集为空（如“必须加密”与“绝对明文”），代数计算直接返回 `Ø (空集)` 并标记为策略冲突死锁！
+- state/lock。
+- verification/policy/coverage/review evidence。
+- artifact provenance。
+- explain graph 及其投影。
+- repair/upgrade workflow。
+- Workbench view。
+- CI artifact manifest。
 
-### 10.2 编译期冲突死锁检测与妥协决策工作流
+新增 stable artifact 必须同时接入：
 
-1. **静态依赖死锁扫描**：
-   - 在 `se resolve` 阶段，编译器构建 Policy Subgraph，利用 DAG 环路检测与布尔逻辑求解器，扫描是否有任何实体或 Slot 同时挂载了两个互斥（Mutex）的策略属性。
-2. **生成结构化妥协冲突报告**：
-   - 一旦检测到死锁冲突，编译流水线抛出 **`POLICY-DEADLOCK-005`** 错误，并输出结构化的 `control/workflow/policy-deadlock-report.json`。
-   - 报告精确指明：冲突的两个策略 ID、它们挂载的业务实体/Slot 节点、对应的 Block 来源、以及推荐的优先级妥协路径。
-3. **安全签名介入 (Signature Gate Intervention)**：
-   - 开发者或高级系统 Pass 必须在 `source/patches/override-manifest.yaml` 中显式编写一条“策略妥协规则（Policy Exemption Rule）”，声明谁占主导地位，并签署人工 Review Signature：
-     ```yaml
-     policyExemptions:
-       - id: customer_attachment_conflict_resolution
-         resolveTo: A_dominates_B
-         reason: security_policy_override_for_compliance
-         approvedBySignature: "sha256-human-architect-signature"
-     ```
-   - 编译器重新 Compose 并校验该签名。一旦无误，以受控的方式自动缝合妥协后的逻辑代码，以此确保系统在复杂策略叠加下仍能维持 100% 架构纯净与零运行故障率！
+1. path contract。
+2. CLI inspect 或明确 consumer。
+3. artifact manifest。
+4. contract freeze。
+5. targeted test。
+6. reference refresh（如属于 reference workspace）。
 
+## 9. Verification 与 IR 的关系
+
+Verification 不只验证文件存在。v0.3 后逐步增加：
+
+- IR integrity verification。
+- Contract completeness。
+- Fact authority conflict diagnostics。
+- Generator output coverage。
+- Contract → IR → Artifact traceability。
+- Semantic impact selected verification。
+
+结果仍以结构化 Report 输出；禁止 Workbench 模板自行实现验证规则。
