@@ -5,13 +5,10 @@ import type { TaskEnvelope } from '../../shared/task-envelope-types.ts';
 
 export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask): TaskEnvelope {
   const slot = plan.slots.find((candidate) => candidate.id === task.id);
-  if (!slot) {
-    throw new CompilerError('SLOT-CONFIG-001', `Missing slot configuration for ${task.id}`);
-  }
   const writablePath = task.sourcePath ?? task.target;
   return {
     taskId: `fill_slot_${task.id}`,
-    taskKind: `${slot.kind}-slot`,
+    taskKind: `${task.kind}-slot`,
     phase: 'adapt',
     targetBlock: task.block,
     targetFile: writablePath,
@@ -35,9 +32,9 @@ export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask
       'change_exports'
     ],
     inputContracts: {
-      description: slot.description,
-      inputType: 'CustomerInput',
-      outputType: 'NormalizedCustomerInput'
+      description: slot?.description ?? task.id,
+      inputType: task.inputType,
+      outputType: task.outputType
     },
     testsToPass: [
       'tests/unit/customer-normalizer.test.ts',

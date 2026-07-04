@@ -3,16 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import semver from 'semver';
 import {
-  adaptProject,
-  composeProject,
-  loadManifestById,
-  loadOverrideManifest,
-  loadWorkspacePlan,
-  lockProject,
-  resolveGraph,
-  validateResolvedTemplates,
-  verifyProject,
-  writeProvenance
+    adaptProject,
+    composeProject,
+    loadManifestById,
+    loadOverrideManifest,
+    loadWorkspacePlan,
+    lockProject,
+    resolveGraph,
+    validateResolvedTemplates,
+    verifyProject,
+    writeProvenance
 } from '../compiler/index.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../shared/collections.ts';
@@ -22,15 +22,15 @@ import type { LockFile } from '../shared/lock-types.ts';
 import { addGeneratedPaths, readLockFile, saveLock } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type {
-  ManifestSlot,
-  PlanFile,
-  UpgradeMigration,
-  UpgradeMigrationEntry
+    ManifestSlot,
+    PlanFile,
+    UpgradeMigration,
+    UpgradeMigrationEntry
 } from '../shared/plan-manifest-types.ts';
 import type {
-  UpgradeDiagnostics,
-  UpgradePlan,
-  UpgradePreflightCheck
+    UpgradeDiagnostics,
+    UpgradePlan,
+    UpgradePreflightCheck
 } from '../shared/upgrade-types.ts';
 import { writeYaml } from '../shared/yaml.ts';
 
@@ -1867,6 +1867,7 @@ type UpgradeApplyStep = (context: UpgradeApplyContext, lock: LockFile) => Promis
 const upgradeApplySteps: UpgradeApplyStep[] = [
   async ({ workspaceRoot }, lock) => {
     await composeProject(workspaceRoot, lock);
+    await writeProvenance(workspaceRoot, lock);
   },
   async ({ plan, workspaceRoot }, lock) => {
     await adaptProject(workspaceRoot, plan, lock);

@@ -4,10 +4,10 @@ import fs from 'node:fs/promises';
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
 import { explainWorkspace } from '../../platform/orchestrator.ts';
 import {
-  CI_ARTIFACT_FILES,
-  CI_ARTIFACT_MANIFEST_PATH,
-  CI_ARTIFACT_MISSING_REASON,
-  CI_ARTIFACT_PATHS
+    CI_ARTIFACT_FILES,
+    CI_ARTIFACT_MANIFEST_PATH,
+    CI_ARTIFACT_MISSING_REASON,
+    CI_ARTIFACT_PATHS
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -776,7 +776,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   const reviewView = await fs.readFile(reviewViewPath, 'utf8');
   expectContainsAll(sourceView, [
     'href="slot-rule-view.html"',
-    'href="source-view.html" aria-current="page"',
+    'href="source-view.html" class="topbar-tab active"',
     'CI Summary',
     '<td>Status</td><td>failed</td>',
     '<td>Chain Status</td><td>failed</td>',
@@ -948,7 +948,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   ]);
   expectContainsNone(sourceView, ['disk-only <failure>', 'Refresh <session>', 'unit <failed>']);
   expectContainsAll(graphView, [
-    'href="graph-view.html" aria-current="page"',
+    'href="graph-view.html" class="topbar-tab active"',
     'Graph View',
     '<td>Nodes</td><td>',
     '<td>Edges</td><td>',
@@ -991,7 +991,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   ]);
   expectContainsNone(graphView, ['disk-only <policy>']);
   expectContainsAll(reviewView, [
-    'href="review-view.html" aria-current="page"',
+    'href="review-view.html" class="topbar-tab active"',
     'Review View',
     'Review Dashboard',
     '<td>CI Status</td><td>failed</td>',
@@ -1022,7 +1022,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
   expectContainsNone(reviewView, ['disk-only <policy>', 'Override <hotfix>']);
   expectContainsAll(slotRuleView, [
     'href="source-view.html"',
-    'href="slot-rule-view.html" aria-current="page"',
+    'href="slot-rule-view.html" class="topbar-tab active"',
     'E2E Chain Summary',
     '<th>Evidence</th>',
     '<td>verification</td>',
