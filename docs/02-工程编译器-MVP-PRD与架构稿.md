@@ -48,6 +48,8 @@
 - 编译器本体：TypeScript + Node.js + ESM + CLI-first + 文件系统驱动
 - 生成项目目标栈：`nextjs-ts-prisma-sqlite`（Next.js + TS + React + Tailwind + Prisma + SQLite + Bun/Node tests + Playwright）
 - Bun 是仓库脚本与测试入口的固定执行器；生成运行时的浏览器验收边界由 Playwright 承担
+- 代码生成采用 LLVM IRBuilder 风格的 `CodeBuilder`（ts-morph Structure API）程序化构造生成源码；详见 `05` §9.10
+- 编译器 API 经 `platform/compiler/index.ts` 门面统一暴露，外部模块禁止穿透到子目录
 - 详见 `05` §0、§0.1
 
 ## 版本边界

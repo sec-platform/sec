@@ -2,16 +2,18 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import semver from 'semver';
-import { composeProject } from '../compiler/compose/compose-project.ts';
-import { lockProject } from '../compiler/emit/lock-project.ts';
-import { writeProvenance } from '../compiler/emit/write-provenance.ts';
-import { loadManifestById } from '../compiler/parse/load-manifest.ts';
-import { loadOverrideManifest } from '../compiler/parse/load-override-manifest.ts';
-import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
-import { resolveGraph } from '../compiler/resolve/resolve-graph.ts';
-import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
-import { validateResolvedTemplates } from '../compiler/verify/validate-resolved-templates.ts';
-import { verifyProject } from '../compiler/verify/verify-project.ts';
+import {
+  adaptProject,
+  composeProject,
+  loadManifestById,
+  loadOverrideManifest,
+  loadWorkspacePlan,
+  lockProject,
+  resolveGraph,
+  validateResolvedTemplates,
+  verifyProject,
+  writeProvenance
+} from '../compiler/index.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../shared/collections.ts';
 import { CompilerError } from '../shared/errors.ts';

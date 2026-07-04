@@ -1,7 +1,5 @@
 import type { Command } from 'commander';
-import { buildCiArtifactManifest } from '../compiler/emit/ci-artifacts.ts';
-import { loadManifestById } from '../compiler/parse/load-manifest.ts';
-import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
+import { buildCiArtifactManifest, loadManifestById, loadWorkspacePlan } from '../compiler/index.ts';
 import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, startWorkbenchServer, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import {

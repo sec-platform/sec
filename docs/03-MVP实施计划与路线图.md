@@ -43,6 +43,8 @@
 | 开发者入口 | done | `doctor` / `deps status|warmup|relink|clean` |
 | Workbench 回写 | done | `source/views/mutations/*.json` → `source/app.yaml` |
 | **架构内聚重构** | done | Logger / InstallStrategy / ManifestCache / CommandRegistry / Orchestrator 拆分 / dev-runner 拆分 / Process 增强 / YAML 验证 / Review Types 拆分 / 错误码映射 / 文件 I/O 并行化 / Compiler 门面 / workbench-server 路由表化 / shared 层惰性单例 |
+| **LLVM 风格代码生成** | done | `CodeBuilder` 取代 compose 层大段模板字符串拼接：RPC route / RPC client / route graph / slot skeleton 全部经 ts-morph Structure API 程序化构造；契约测试强制 compose 层必须 `import CodeBuilder`；详见 `05` §9.10 |
+| **编译器门面收敛** | done | `platform/cli/register-commands.ts` 与 `platform/upgrade/upgrade-workspace.ts` 全部走 `platform/compiler/index.ts` 门面，13 处穿透子目录的 import 已收敛为 2 处 facade import；契约测试禁止 platform 下其它模块直接 import 编译器子目录 |
 
 ### 当前 active 工作包
 
