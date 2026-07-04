@@ -92,6 +92,10 @@ export type SemanticPredicate = (typeof SEMANTIC_PREDICATES)[number];
 export type SemanticAuthority = (typeof SEMANTIC_AUTHORITIES)[number];
 export type FactProvenanceKind = (typeof FACT_PROVENANCE_KINDS)[number];
 export type SemanticPrimitive = string | number | boolean | null;
+export interface SemanticValueObject {
+  [key: string]: SemanticValue;
+}
+export type SemanticValue = SemanticPrimitive | SemanticValue[] | SemanticValueObject;
 export type SemanticAttributeValue = SemanticPrimitive | string[];
 
 export interface SemanticAttribute {
@@ -108,7 +112,7 @@ export interface SemanticEntity {
 
 export type SemanticFactObject =
   | { kind: 'entity'; entityId: SemanticEntityId }
-  | { kind: 'value'; value: SemanticPrimitive };
+  | { kind: 'value'; value: SemanticValue };
 
 export interface FactProvenance {
   kind: FactProvenanceKind;
@@ -136,11 +140,22 @@ export interface SemanticFact {
   validTo?: string;
 }
 
+export interface ScenarioStepDefinition {
+  id: string;
+  operationEntityId: SemanticEntityId;
+  afterStepIds: string[];
+  awaits: boolean;
+  retryMaxAttempts?: number;
+  onErrorStepId?: string;
+}
+
 export interface ScenarioDefinition {
   id: string;
   label: string;
   entryEntityId: SemanticEntityId;
   factIds: SemanticFactId[];
+  steps: ScenarioStepDefinition[];
+  acceptanceEntityIds: SemanticEntityId[];
 }
 
 export interface EngineeringIR {

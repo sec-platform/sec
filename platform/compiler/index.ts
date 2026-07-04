@@ -15,6 +15,10 @@ export { indexEngineeringIR, type EngineeringIRIndex } from './ir/index-engineer
 export { loadManifestById } from './parse/load-manifest.ts';
 export { loadOverrideManifest } from './parse/load-override-manifest.ts';
 export { loadPlan, loadWorkspacePlan } from './parse/load-plan.ts';
+export {
+  loadSemanticContractsForManifestEntry,
+  normalizeSemanticContract
+} from './parse/load-semantic-contract.ts';
 export { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from './repair/build-repair-plan.ts';
 export { resolveGraph } from './resolve/resolve-graph.ts';
 export { adaptProject } from './synthesize/adapt-project.ts';
