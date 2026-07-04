@@ -16,6 +16,7 @@
 - 核心编译器只理解协议：manifest、capability、pin、slot、contract、generator、acceptance、policy、provenance。
 - block 从 `manifest + files + tests` 演进为 `manifest + contracts + generators + files + tests`。
 - 工程语义先进入 Engineering IR，再降级为 project 文件、测试、视图和治理产物。
+- **代码生成 LLVM 化**：`compose` 层生成 `.ts`/`.tsx` 源码必须经 `CodeBuilder`（ts-morph Structure API，类 LLVM IRBuilder 风格）程序化构造 AST，禁止大段模板字符串拼接。具体约束与契约测试见 `05` §9.10。
 - Workbench 以 graph、provenance、review summary 为主数据源，让代码生成结果可审查、可解释、可导航。
 
 ## 2. Workbench 定位

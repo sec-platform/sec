@@ -8,6 +8,7 @@ import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
+import { CodeBuilder } from '../codegen/code-builder.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { formatOutputFiles } from './format-output-files.ts';
 import { applyPrefixSandboxing } from './frontend-stitching.ts';
@@ -20,21 +21,52 @@ import { mergeTailwindTheme } from './merge-tailwind-theme.ts';
 import { lowerToMicroservices } from './microservice-lower-pass.ts';
 import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
 
+/**
+ * 渲染路由图 TS 文件，类似 LLVM Module 的 emitter：通过 CodeBuilder 程序化构造
+ * GeneratedRoute interface 与 routes const，避免模板字符串拼接。
+ */
 async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
   const routeEntries = await Promise.all(
     lock.resolvedBlocks.map(async (block) => {
       const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
       return manifestEntry.manifest.routes.map(
-        (route) => `  { blockId: '${block.id}', path: '${route.path}', file: '${route.file}' }`
+        (route) => `{ blockId: '${block.id}', path: '${route.path}', file: '${route.file}' }`
       );
     })
   );
 
-  return `export interface GeneratedRoute {\n  blockId: string;\n  path: string;\n  file: string;\n}\n\nexport const routes: GeneratedRoute[] = [\n${routeEntries.flat().join(',\n')}\n];\n`;
+  const builder = new CodeBuilder('generated/routes.ts')
+    .addInterface(
+      'GeneratedRoute',
+      [
+        { name: 'blockId', type: 'string' },
+        { name: 'path', type: 'string' },
+        { name: 'file', type: 'string' }
+      ],
+      true
+    )
+    .addVariable({
+      name: 'routes',
+      type: 'GeneratedRoute[]',
+      isExported: true,
+      initializer: `[\n${routeEntries.flat().map(entry => `  ${entry}`).join(',\n')}\n]`
+    });
+
+  return builder.getText();
 }
 
+/**
+ * 渲染 slot 骨架文件，类似 LLVM Function declaration 的 emitter。
+ * 两条路径均通过 CodeBuilder 程序化构造：
+ * - 有 exports：聚合 import type，为每个 export 生成 throw new Error('Not implemented') 的 stub 函数
+ * - 无 exports：生成单参数 input 与可选的 inputType/outputType 类型导入
+ */
 function renderSlotSkeleton(task: SlotTask): string {
+  const builder = new CodeBuilder(task.target)
+    .addFileComment(`@generated slot-id:${task.id} block:${task.block}`);
+
   if (task.exports && task.exports.length > 0) {
+    // 聚合所有 export 需要的 type imports
     const imports = new Map<string, Set<string>>();
     for (const exp of task.exports) {
       for (const p of exp.params) {
@@ -51,27 +83,46 @@ function renderSlotSkeleton(task: SlotTask): string {
         if (outputImportSet) { outputImportSet.add(baseType); }
       }
     }
-    const importLines = Array.from(imports.entries()).map(([src, types]) => {
-      return `import type { ${Array.from(types).join(', ')} } from '${src}';`;
-    }).join('\n');
 
-    const funcLines = task.exports.map((exp) => {
-      const paramStr = exp.params.map(p => `${p.name}: ${p.type}`).join(', ');
-      return `export function ${exp.symbol}(${paramStr}): ${exp.outputType} {\n  throw new Error('Not implemented');\n}`;
-    }).join('\n\n');
+    for (const [src, types] of imports) {
+      builder.addImport({
+        moduleSpecifier: src,
+        namedImports: Array.from(types),
+        isTypeOnly: true
+      });
+    }
 
-    return `// @generated slot-id:${task.id} block:${task.block}\n${importLines}\n\n${funcLines}\n`;
+    for (const exp of task.exports) {
+      builder.addFunction({
+        name: exp.symbol,
+        isExported: true,
+        parameters: exp.params.map(p => ({ name: p.name, type: p.type })),
+        returnType: exp.outputType,
+        body: "throw new Error('Not implemented');"
+      });
+    }
+
+    return builder.getText();
   }
 
-  const importLine =
-    task.inputType && task.outputType
-      ? `import type { ${task.inputType}, ${task.outputType} } from '../src/runtime/database.ts';\n\n`
-      : '';
-  const signature =
-    task.inputType && task.outputType
-      ? `input: ${task.inputType}): ${task.outputType}`
-      : 'input: unknown): unknown';
-  return `// @generated slot-id:${task.id} block:${task.block}\n${importLine}export function ${task.symbol}(${signature} {\n  throw new Error('Not implemented');\n}\n`;
+  // 无 exports 分支：生成单参数 stub 函数
+  if (task.inputType && task.outputType) {
+    builder.addImport({
+      moduleSpecifier: '../src/runtime/database.ts',
+      namedImports: [task.inputType, task.outputType],
+      isTypeOnly: true
+    });
+  }
+
+  builder.addFunction({
+    name: task.symbol,
+    isExported: true,
+    parameters: [{ name: 'input', type: task.inputType ?? 'unknown' }],
+    returnType: task.outputType ?? 'unknown',
+    body: "throw new Error('Not implemented');"
+  });
+
+  return builder.getText();
 }
 
 export async function composeProject(
