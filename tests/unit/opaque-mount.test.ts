@@ -1,11 +1,11 @@
-import { expect, test, describe, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { withTempWorkspace } from '../testkit/workspace.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { installOpaqueModules } from '../../platform/compiler/compose/install-opaque-modules.ts';
-import { readJson, writeJson, pathExists } from '../../platform/shared/fs.ts';
+import { pathExists, readJson, writeJson } from '../../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('installOpaqueModules', () => {
   test('returns empty if opaque directory does not exist', async () => {
@@ -34,27 +34,14 @@ describe('installOpaqueModules', () => {
       });
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";', 'utf8');
 
-      // Set environment variables to simulate dev mode
-      const oldNodeEnv = process.env.NODE_ENV;
-      const oldSecBuild = process.env.SEC_BUILD_MODE;
-      const oldBuild = process.env.BUILD_MODE;
-      delete process.env.NODE_ENV;
-      delete process.env.SEC_BUILD_MODE;
-      delete process.env.BUILD_MODE;
+      // Use options to explicitly set dev mode (no process.env mutation)
+      const result = await installOpaqueModules(workspaceRoot, projectRoot, { buildMode: false });
+      expect(result).toEqual([]); // Dev mode returns no generated paths in project
 
-      try {
-        const result = await installOpaqueModules(workspaceRoot, projectRoot);
-        expect(result).toEqual([]); // Dev mode returns no generated paths in project
-
-        // Verify package.json updated
-        const packageJson = await readJson<any>(projectPackagePath);
-        expect(packageJson.dependencies['opaque-test-mod']).toBeDefined();
-        expect(packageJson.dependencies['opaque-test-mod']).toContain('link:');
-      } finally {
-        process.env.NODE_ENV = oldNodeEnv;
-        process.env.SEC_BUILD_MODE = oldSecBuild;
-        process.env.BUILD_MODE = oldBuild;
-      }
+      // Verify package.json updated
+      const packageJson = await readJson<any>(projectPackagePath);
+      expect(packageJson.dependencies['opaque-test-mod']).toBeDefined();
+      expect(packageJson.dependencies['opaque-test-mod']).toContain('link:');
     });
   });
 
@@ -72,34 +59,27 @@ describe('installOpaqueModules', () => {
       });
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";', 'utf8');
 
-      // Set environment variables to simulate build mode
-      const oldSecBuild = process.env.SEC_BUILD_MODE;
-      process.env.SEC_BUILD_MODE = 'true';
+      // Use options to explicitly set build mode (no process.env mutation)
+      const result = await installOpaqueModules(workspaceRoot, projectRoot, { buildMode: true });
 
-      try {
-        const result = await installOpaqueModules(workspaceRoot, projectRoot);
-        
-        // Build mode returns generated paths
-        expect(result).toContain('src/installed/opaque-test-mod/index.ts');
-        expect(result).toContain('src/installed/opaque-test-mod/module.yaml');
+      // Build mode returns generated paths
+      expect(result).toContain('src/installed/opaque-test-mod/index.ts');
+      expect(result).toContain('src/installed/opaque-test-mod/module.yaml');
 
-        // Verify files copied
-        const targetFile = path.join(projectRoot, 'src', 'installed', 'opaque-test-mod', 'index.ts');
-        expect(await pathExists(targetFile)).toBe(true);
+      // Verify files copied
+      const targetFile = path.join(projectRoot, 'src', 'installed', 'opaque-test-mod', 'index.ts');
+      expect(await pathExists(targetFile)).toBe(true);
 
-        // Verify package.json updated to point to the copied directory
-        const packageJson = await readJson<any>(projectPackagePath);
-        expect(packageJson.dependencies['opaque-test-mod']).toBe('link:src/installed/opaque-test-mod');
-      } finally {
-        process.env.SEC_BUILD_MODE = oldSecBuild;
-      }
+      // Verify package.json updated to point to the copied directory
+      const packageJson = await readJson<any>(projectPackagePath);
+      expect(packageJson.dependencies['opaque-test-mod']).toBe('link:src/installed/opaque-test-mod');
     });
   });
 
   test('cleans up stale opaque dependencies from package.json', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const { projectRoot, sourceCodeRoot, projectPackagePath } = getWorkspacePaths(workspaceRoot);
-      
+
       // package.json starts with a stale dependency
       await writeJson(projectPackagePath, {
         dependencies: {

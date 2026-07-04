@@ -143,6 +143,15 @@ jobs:
       - name: Contract freeze
         run: bun run test:contract-freeze
 
+      - name: Run slow e2e tests
+        if: always()
+        run: |
+          bun run test:slow -- --suite e2e-pipeline
+          bun run test:slow -- --suite e2e-verify-lock
+          bun run test:slow -- --suite e2e-upgrade-repair
+          bun run test:slow -- --suite e2e-explain-summary
+          bun run test:slow -- --suite e2e-policy-manifest
+
   compiler-release-workspace:
     if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-full'))
     runs-on: ubuntu-latest

@@ -222,7 +222,7 @@ export function slowTestSuiteFiles(suiteId: string): string[] {
 }
 
 export function slowTestExcludePattern(): string {
-  return './tests/e2e/**/*.slow.test.ts';
+  return './tests/e2e/**/*.test.ts';
 }
 
 export function isTestFile(file: string): boolean {
@@ -230,7 +230,7 @@ export function isTestFile(file: string): boolean {
 }
 
 export function isSlowTestFile(file: string): boolean {
-  return /^tests\/e2e\/.+\.slow\.(test|spec)\.tsx?$/.test(file);
+  return slowTestSuiteDefinitions.some((def) => def.match.test(file));
 }
 
 export function isFastTestFile(file: string): boolean {
