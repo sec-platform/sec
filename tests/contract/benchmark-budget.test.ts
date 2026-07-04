@@ -156,10 +156,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     laneCount: contract.lanes.length,
     slowLaneCount: contract.slowLaneIds.length,
     slowLaneIds: expect.arrayContaining(['all']),
-    slowTestFileCount: 0,
-    slowTestFiles: [],
-    slowSuiteCount: 0,
-    slowSuites: [],
+    slowTestFileCount: contract.slowTestFiles.length,
+    slowSuiteCount: contract.slowSuites.length,
     lanes: [
       {
         id: 'fast',
@@ -204,10 +202,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         laneCount: contract.laneCount,
         slowLaneCount: contract.slowLaneCount,
         slowLaneIds: expect.arrayContaining(['all']),
-        slowTestFileCount: 0,
-        slowTestFiles: [],
-        slowSuiteCount: 0,
-        slowSuites: [],
+        slowTestFileCount: contract.slowTestFileCount,
+        slowTestFiles: contract.slowTestFiles,
+        slowSuiteCount: contract.slowSuiteCount,
+        slowSuites: contract.slowSuites,
         lanes: expect.arrayContaining([
           expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
         ])
@@ -218,10 +216,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         laneCount: contract.laneCount,
         slowLaneCount: contract.slowLaneCount,
         slowLaneIds: expect.arrayContaining(['all']),
-        slowTestFileCount: 0,
-        slowTestFiles: [],
-        slowSuiteCount: 0,
-        slowSuites: []
+        slowTestFileCount: contract.slowTestFileCount,
+        slowTestFiles: contract.slowTestFiles,
+        slowSuiteCount: contract.slowSuiteCount,
+        slowSuites: contract.slowSuites
       }
     });
   });

@@ -7,6 +7,7 @@ import { runCommand } from '../shared/process.ts';
 import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
 import {
   getFastTestFilesSync,
+  getSlowTestFilesSync,
   isFastTestFile
 } from '../shared/test-budget-contract.ts';
 import { selectTestsForSources } from '../shared/test-impact-contract.ts';

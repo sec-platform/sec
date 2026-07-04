@@ -54,7 +54,7 @@ test.serial('targeted fast tests run only the requested fast files', async () =>
 
   expect(code).toBe(0);
   expect(devCommandCalls).toEqual([
-    { command: 'bun', args: ['test', 'tests/unit/test-runner.test.ts'] }
+    { command: 'bun', args: ['test', '--concurrent', 'tests/unit/test-runner.test.ts'] }
   ]);
 });
 
@@ -77,7 +77,7 @@ test.serial('affected tests skip broad fast-suite fallback for unmapped source c
 });
 
 test.serial('affected tests run changed fast test files directly', async () => {
-  changedFiles = ['tests/e2e/compiler-smoke.test.ts'];
+  changedFiles = ['tests/unit/test-runner.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -89,7 +89,7 @@ test.serial('affected tests run changed fast test files directly', async () => {
 
     expect(code).toBe(0);
     expect(devCommandCalls).toEqual([
-      { command: 'bun', args: ['test', 'tests/e2e/compiler-smoke.test.ts'] }
+      { command: 'bun', args: ['test', '--concurrent', 'tests/unit/test-runner.test.ts'] }
     ]);
   } finally {
     console.log = originalLog;

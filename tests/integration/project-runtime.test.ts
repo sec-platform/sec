@@ -100,7 +100,8 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts.test).toBe('bun ./platform/dev-runner.ts test:fast');
     expect(scripts['test:affected']).toBe('bun ./platform/dev-runner.ts test:affected');
     expect(scripts['test:fast']).toBe('bun ./platform/dev-runner.ts test:fast');
-    expect(scripts['test:full']).toBe('bun ./platform/dev-runner.ts test:fast');
+    expect(scripts['test:slow']).toBe('bun ./platform/dev-runner.ts test:slow');
+    expect(scripts['test:full']).toBe('bun ./platform/dev-runner.ts test');
 
     expect(scripts.check).toBe('bun run check:fast');
     expect(scripts['check:affected']).toBe('bun run typecheck && bun run test:affected');

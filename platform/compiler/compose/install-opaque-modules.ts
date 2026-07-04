@@ -12,7 +12,24 @@ const opaqueModuleSchema = z.object({
   entry: z.string(),
 }).passthrough();
 
-export async function installOpaqueModules(workspaceRoot: string, projectRoot: string): Promise<string[]> {
+export type InstallOpaqueModulesOptions = {
+  buildMode?: boolean;
+};
+
+function resolveBuildMode(options?: InstallOpaqueModulesOptions): boolean {
+  if (options?.buildMode !== undefined) return options.buildMode;
+  return (
+    process.env.NODE_ENV === 'production' ||
+    process.env.SEC_BUILD_MODE === 'true' ||
+    process.env.BUILD_MODE === 'true'
+  );
+}
+
+export async function installOpaqueModules(
+  workspaceRoot: string,
+  projectRoot: string,
+  options?: InstallOpaqueModulesOptions,
+): Promise<string[]> {
   const { sourceCodeRoot, projectPackagePath } = getWorkspacePaths(workspaceRoot);
   const opaqueRoot = path.join(sourceCodeRoot, 'opaque');
 
@@ -66,7 +83,7 @@ export async function installOpaqueModules(workspaceRoot: string, projectRoot: s
   }
 
   // Differentiate development vs build mode
-  const isBuildMode = process.env.NODE_ENV === 'production' || process.env.SEC_BUILD_MODE === 'true' || process.env.BUILD_MODE === 'true';
+  const isBuildMode = resolveBuildMode(options);
   const generatedPaths: string[] = [];
 
   for (const entry of moduleEntries) {
