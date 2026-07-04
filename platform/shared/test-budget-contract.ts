@@ -47,17 +47,10 @@ const TEST_FILE_GLOBS = [
   'tests/**/*.test.tsx',
   'tests/**/*.spec.tsx'
 ];
-const SLOW_TEST_GLOB = 'tests/e2e/**/*.slow.test.ts';
-const BUN_SLOW_TEST_EXCLUDE_PATTERN = `./${SLOW_TEST_GLOB}`;
 
-const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
-  { id: 'upgrade', owner: 'platform/compiler/upgrade', timeoutMs: 120_000, match: /\/(upgrade|dry-run-plan)\.slow\.test\.ts$/ },
-  { id: 'runtime', owner: 'platform/shared/runtime-dependencies', timeoutMs: 90_000, match: /\/(runtime-host|verification)\.slow\.test\.ts$/ },
-  { id: 'pipeline', owner: 'platform/compiler/pipeline', timeoutMs: 120_000, match: /\/(pipeline|end-to-end|expanded-blocks)\.slow\.test\.ts$/ },
-  { id: 'repair', owner: 'platform/compiler/repair', timeoutMs: 90_000, match: /\/repair\.slow\.test\.ts$/ },
-  { id: 'registry', owner: 'platform/registry', timeoutMs: 90_000, match: /\/(registry|private-registry)\.slow\.test\.ts$/ },
-  { id: 'explain', owner: 'platform/compiler/explain', timeoutMs: 90_000, match: /\/(explain|provenance)\.slow\.test\.ts$/ }
-];
+// All former slow e2e tests have been downgraded to fast tests.
+// No test requires a browser — they are all compiler pipeline operations on temp workspaces.
+const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [];
 
 function scanTestFilesSync(): string[] {
   const files = new Set<string>();
@@ -182,7 +175,7 @@ export async function getSlowTestSuites(): Promise<SlowTestSuite[]> {
   return defaultTestBudgetCache.getSlowTestSuites();
 }
 
-const ALL_KNOWN_SLOW_SUITE_IDS = [...slowTestSuiteDefinitions.map((d) => d.id), 'other'];
+const ALL_KNOWN_SLOW_SUITE_IDS = [...slowTestSuiteDefinitions.map((d) => d.id)];
 
 export function isKnownSlowTestSuiteId(suiteId: string): boolean {
   return ALL_KNOWN_SLOW_SUITE_IDS.includes(suiteId);
@@ -197,7 +190,7 @@ export function slowTestSuiteFiles(suiteId: string): string[] {
 }
 
 export function slowTestExcludePattern(): string {
-  return BUN_SLOW_TEST_EXCLUDE_PATTERN;
+  return './tests/e2e/**/*.slow.test.ts';
 }
 
 export function isTestFile(file: string): boolean {
@@ -230,7 +223,7 @@ export async function buildTestBudgetContract(): Promise<TestBudgetContract> {
     slowSuiteCount: slowSuites.length,
     slowSuites,
     lanes,
-    localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates',
+    localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:full or check:full for full runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
 }

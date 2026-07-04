@@ -20,7 +20,7 @@ const legacyImportSpecifiers = [
   ['..', 'helpers', 'workspace-fixtures.ts'].join('/'),
   ['.', 'workspace-fixtures.ts'].join('/')
 ];
-const canonicalPackageTestScripts = ['test', 'test:affected', 'test:fast', 'test:slow', 'test:full'];
+const canonicalPackageTestScripts = ['test', 'test:affected', 'test:fast', 'test:full'];
 const forbiddenPackageTestAliases = [
   'test:changed',
   'test:all',

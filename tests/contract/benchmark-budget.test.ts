@@ -1,26 +1,25 @@
 import { expect, test } from 'bun:test';
 import {
-  buildBenchmarkTaskSuiteContract,
-  formatBenchmarkTaskSuiteContract
+    buildBenchmarkTaskSuiteContract,
+    formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
-  buildTestBudgetContract,
-  formatTestBudgetContract,
-  getFastTestFilesSync,
-  isFastTestFile,
-  isSlowTestFile,
-  isTestFile
+    buildTestBudgetContract,
+    formatTestBudgetContract,
+    getFastTestFilesSync,
+    isFastTestFile,
+    isTestFile
 } from '../../platform/shared/test-budget-contract.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
-  expectBenchmarkTaskSuiteSelfConsistent,
-  expectTestBudgetSelfConsistent
+    expectBenchmarkTaskSuiteSelfConsistent,
+    expectTestBudgetSelfConsistent
 } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-const expectedTestBudgetLocalDefault = 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates';
+const expectedTestBudgetLocalDefault = 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:full or check:full for full runtime gates';
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();
@@ -139,8 +138,6 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
 
   expect(isTestFile('tests/repair/repair.test.ts')).toBe(true);
   expect(isFastTestFile('tests/repair/repair.test.ts')).toBe(true);
-  expect(isSlowTestFile('tests/e2e/dry-run-plan.slow.test.ts')).toBe(true);
-  expect(isFastTestFile('tests/e2e/dry-run-plan.slow.test.ts')).toBe(false);
   expect(isTestFile('platform/dev-runner/test-runner.ts')).toBe(false);
   expect(fastTestFiles).not.toContain('project/tests/runtime/acceptance/customer-flow.spec.ts');
   expect(fastTestFiles.every((file) => file.startsWith('tests/'))).toBe(true);
@@ -148,11 +145,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   expectContainsAll(formatted, [
     'Test budget default lane: fast',
     'Lane all; nextBuild=true; playwright=true; command=bun run platform -- verify --lane all',
-    `Slow test files: ${contract.slowTestFileCount}`,
-    'tests/e2e/end-to-end.slow.test.ts',
-    'Slow suites:',
-    'Slow suite upgrade; owner=platform/compiler/upgrade',
-    'Slow suite pipeline; owner=platform/compiler/pipeline'
+    `Slow test files: ${contract.slowTestFileCount}`
   ]);
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
@@ -163,29 +156,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     laneCount: contract.lanes.length,
     slowLaneCount: contract.slowLaneIds.length,
     slowLaneIds: expect.arrayContaining(['all']),
-    slowTestFiles: expect.arrayContaining([
-      'tests/e2e/artifacts.slow.test.ts',
-      'tests/e2e/end-to-end.slow.test.ts',
-      'tests/e2e/graph.slow.test.ts',
-      'tests/e2e/policy.slow.test.ts',
-      'tests/e2e/registry.slow.test.ts',
-      'tests/e2e/pipeline.slow.test.ts'
-    ]),
-    slowSuiteCount: expect.any(Number),
-    slowSuites: expect.arrayContaining([
-      expect.objectContaining({
-        id: 'upgrade',
-        owner: 'platform/compiler/upgrade',
-        timeoutMs: 120000,
-        files: expect.arrayContaining(['tests/e2e/dry-run-plan.slow.test.ts'])
-      }),
-      expect.objectContaining({
-        id: 'pipeline',
-        owner: 'platform/compiler/pipeline',
-        timeoutMs: 120000,
-        files: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts', 'tests/e2e/pipeline.slow.test.ts'])
-      })
-    ]),
+    slowTestFileCount: 0,
+    slowTestFiles: [],
+    slowSuiteCount: 0,
+    slowSuites: [],
     lanes: [
       {
         id: 'fast',
@@ -220,10 +194,6 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         `Slow lane count: ${contract.slowLaneCount}`,
         'Slow lanes: all',
         `Slow test files: ${contract.slowTestFileCount}`,
-        'Slow suites:',
-        'Slow suite upgrade; owner=platform/compiler/upgrade',
-        'Slow suite pipeline; owner=platform/compiler/pipeline',
-        'tests/e2e/end-to-end.slow.test.ts',
         `Local default: ${expectedTestBudgetLocalDefault}`,
         'Lane fast; nextBuild=false; playwright=false'
       ],
@@ -234,13 +204,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         laneCount: contract.laneCount,
         slowLaneCount: contract.slowLaneCount,
         slowLaneIds: expect.arrayContaining(['all']),
-        slowTestFileCount: contract.slowTestFileCount,
-        slowTestFiles: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts']),
-        slowSuiteCount: expect.any(Number),
-        slowSuites: expect.arrayContaining([
-          expect.objectContaining({ id: 'upgrade', owner: 'platform/compiler/upgrade' }),
-          expect.objectContaining({ id: 'pipeline', owner: 'platform/compiler/pipeline' })
-        ]),
+        slowTestFileCount: 0,
+        slowTestFiles: [],
+        slowSuiteCount: 0,
+        slowSuites: [],
         lanes: expect.arrayContaining([
           expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
         ])
@@ -251,13 +218,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         laneCount: contract.laneCount,
         slowLaneCount: contract.slowLaneCount,
         slowLaneIds: expect.arrayContaining(['all']),
-        slowTestFileCount: contract.slowTestFileCount,
-        slowTestFiles: expect.arrayContaining(['tests/e2e/end-to-end.slow.test.ts']),
-        slowSuiteCount: expect.any(Number),
-        slowSuites: expect.arrayContaining([
-          expect.objectContaining({ id: 'upgrade' }),
-          expect.objectContaining({ id: 'pipeline' })
-        ])
+        slowTestFileCount: 0,
+        slowTestFiles: [],
+        slowSuiteCount: 0,
+        slowSuites: []
       }
     });
   });
