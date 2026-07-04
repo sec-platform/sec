@@ -1,8 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { loadManifestById } from '../../platform/compiler/index.ts';
-import { loadSemanticContractsForManifestEntry } from '../../platform/compiler/parse/load-semantic-contract.ts';
-import { normalizeSemanticContract } from '../../platform/compiler/parse/load-semantic-contract.ts';
+import { loadSemanticContractsForManifestEntry, normalizeSemanticContract } from '../../platform/compiler/parse/load-semantic-contract.ts';
 import { CompilerError } from '../../platform/shared/errors.ts';
 import type { SemanticContract } from '../../platform/shared/semantic-contract-types.ts';
 
