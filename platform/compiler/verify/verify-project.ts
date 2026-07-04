@@ -301,6 +301,7 @@ export async function verifyProject(
         stderr: runtimeLane.logs?.stderr?.slice(0, 3000)
       });
     }
+    console.error('VERIFY-ACCEPTANCE-003 full report:', JSON.stringify(report, null, 2));
     throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', report);
   }
 

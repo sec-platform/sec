@@ -30,12 +30,22 @@ test('official registry blocks typecheck in their minimal resolved closure', asy
   const failures: Array<{ blockId: string; error: unknown }> = [];
   for (const entry of manifests) {
     try {
-      const plan = buildManifestValidationPlan(entry);
+      const plan = await buildManifestValidationPlan(entry);
       const lock = await resolveGraph(process.cwd(), plan);
       await validateResolvedTemplates(process.cwd(), lock);
-    } catch (caught) {
-      failures.push({ blockId: entry.manifest.id, error: caught });
+    } catch (caught: any) {
+      failures.push({
+        blockId: entry.manifest.id,
+        error: {
+          code: caught.code,
+          message: caught.message,
+          details: caught.details
+        }
+      });
     }
+  }
+  if (failures.length > 0) {
+    console.error('Typecheck failures:', JSON.stringify(failures, null, 2));
   }
   expect(failures).toHaveLength(0);
 }, 120000);

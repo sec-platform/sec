@@ -7,8 +7,8 @@ import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-type
 import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
-import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { CodeBuilder } from '../codegen/code-builder.ts';
+import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { formatOutputFiles } from './format-output-files.ts';
 import { applyPrefixSandboxing } from './frontend-stitching.ts';
@@ -57,11 +57,15 @@ async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<
 
 /**
  * 渲染 slot 骨架文件，类似 LLVM Function declaration 的 emitter。
- * 两条路径均通过 CodeBuilder 程序化构造：
+ * 优先使用 mockTemplate（如果有），否则通过 CodeBuilder 程序化构造：
  * - 有 exports：聚合 import type，为每个 export 生成 throw new Error('Not implemented') 的 stub 函数
  * - 无 exports：生成单参数 input 与可选的 inputType/outputType 类型导入
  */
 function renderSlotSkeleton(task: SlotTask): string {
+  if (task.mockTemplate) {
+    return task.mockTemplate;
+  }
+
   const builder = new CodeBuilder(task.target)
     .addFileComment(`@generated slot-id:${task.id} block:${task.block}`);
 

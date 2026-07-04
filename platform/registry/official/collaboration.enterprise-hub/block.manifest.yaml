@@ -4,8 +4,8 @@ kind: capability
 stackProfiles:
   - nextjs-ts-prisma-sqlite
 requires:
-  - auth/basic-session
-  - tenant/basic-workspace
+  - auth/session
+  - tenant/context
 provides:
   - collaboration/workflow-engine
   - collaboration/approval-flow
@@ -37,7 +37,19 @@ slots:
     symbol: handleApprovalApproval
     inputType: ApprovalRequest
     outputType: void
+    writableZones:
+      - custom/
     description: Callback executed dynamically when a workflow step is fully approved by all actors.
+    mockTemplate: |
+      interface ApprovalRequest {
+        workflowId: string;
+        stepId: string;
+        actorId: string;
+      }
+
+      export function handleApprovalApproval(input: ApprovalRequest): void {
+        throw new Error('Not implemented');
+      }
   - id: on_workflow_rejected
     block: collaboration/enterprise-hub
     kind: adapter
@@ -45,7 +57,19 @@ slots:
     symbol: handleApprovalRejection
     inputType: ApprovalRequest
     outputType: void
+    writableZones:
+      - custom/
     description: Callback executed dynamically when any actor rejects a workflow step.
+    mockTemplate: |
+      interface ApprovalRequest {
+        workflowId: string;
+        stepId: string;
+        actorId: string;
+      }
+
+      export function handleApprovalRejection(input: ApprovalRequest): void {
+        throw new Error('Not implemented');
+      }
 acceptance:
   - id: workflow_approval_chain_flow
     covers:

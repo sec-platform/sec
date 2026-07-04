@@ -86,19 +86,34 @@ slots:
       import type { Database, TicketCommentInput, TicketCommentRecord } from '../src/runtime/database.ts';
       import type { Session } from '../src/installed/auth/session.ts';
 
+      function assertTenantTicket(db: Database, ticketId: number, tenantId: string) {
+        const ticket = db.tickets.find((entry) => entry.id === ticketId);
+        if (!ticket || ticket.tenantId !== tenantId) {
+          throw new Error('Ticket is not available for this tenant');
+        }
+        return ticket;
+      }
+
       export function addTicketCommentDelegate(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {
-        return {
-          id: 1,
-          tenantId: 'mock-tenant',
+        if (!input.body || !input.body.trim()) {
+          throw new Error('Ticket comment is required');
+        }
+        assertTenantTicket(db, input.ticketId, session.tenantId);
+        const comment: TicketCommentRecord = {
+          id: db.nextTicketCommentId++,
+          tenantId: session.tenantId,
           ticketId: input.ticketId,
-          body: input.body || '',
+          body: input.body.trim(),
           authorId: session.userId,
           createdAt: new Date(0).toISOString()
         };
+        db.ticketComments.push(comment);
+        return comment;
       }
 
       export function listTicketCommentsDelegate(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {
-        return [];
+        assertTenantTicket(db, ticketId, session.tenantId);
+        return db.ticketComments.filter(c => c.tenantId === session.tenantId && c.ticketId === ticketId);
       }
 acceptance:
   - id: ticket_can_be_created
