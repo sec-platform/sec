@@ -1,9 +1,5 @@
 import { createHash } from 'node:crypto';
 
-import type { ResolvedBlock, SlotTask } from '../../shared/lock-types.ts';
-import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
-import type { ProvenanceArtifact } from '../../shared/provenance-types.ts';
-import { CompilerError } from '../../shared/errors.ts';
 import {
   ENGINEERING_IR_FORMAT_VERSION,
   type EngineeringIR,
@@ -21,6 +17,10 @@ import {
   type SemanticPredicate,
   type SemanticPrimitive
 } from '../../shared/engineering-ir-types.ts';
+import { CompilerError } from '../../shared/errors.ts';
+import type { ResolvedBlock, SlotTask } from '../../shared/lock-types.ts';
+import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
+import type { ProvenanceArtifact } from '../../shared/provenance-types.ts';
 
 export interface EngineeringIRManifestInput {
   blockId: string;

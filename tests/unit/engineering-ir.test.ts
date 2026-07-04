@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
+import type { BuildEngineeringIRInput } from '../../platform/compiler/ir/build-engineering-ir.ts';
 import { buildEngineeringIR } from '../../platform/compiler/ir/build-engineering-ir.ts';
 import { indexEngineeringIR } from '../../platform/compiler/ir/index-engineering-ir.ts';
-import type { BuildEngineeringIRInput } from '../../platform/compiler/ir/build-engineering-ir.ts';
 
 function fixture(): BuildEngineeringIRInput {
   return {
