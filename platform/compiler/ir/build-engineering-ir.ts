@@ -48,12 +48,29 @@ interface FactInput {
   confidence?: number;
 }
 
+const AUTHORITY_STRENGTH: Record<SemanticAuthority, number> = {
+  inferred: 0,
+  observed: 1,
+  derived: 2,
+  authoritative: 3
+};
+
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function uniqueSortedByKey<Value>(values: readonly Value[], keyOf: (value: Value) => string): Value[] {
+  const byKey = new Map<string, Value>();
+  for (const value of values) {
+    byKey.set(keyOf(value), value);
+  }
+  return [...byKey.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, value]) => value);
 }
 
 function normalizeAttributeValue(value: SemanticAttributeValue): SemanticAttributeValue {
@@ -76,7 +93,48 @@ function factIdentity(input: Pick<FactInput, 'subject' | 'predicate' | 'object'>
   return `${input.subject}\u0000${input.predicate}\u0000${objectKey(input.object)}`;
 }
 
+function provenanceKey(provenance: FactProvenance): string {
+  return [
+    provenance.kind,
+    provenance.sourceId,
+    provenance.sourcePath ?? '',
+    provenance.revision ?? ''
+  ].join('\u0000');
+}
+
+function evidenceKey(evidence: EvidenceReference): string {
+  return [evidence.kind, evidence.ref, evidence.digest ?? ''].join('\u0000');
+}
+
+function normalizeProvenance(provenance: readonly FactProvenance[]): FactProvenance[] {
+  return uniqueSortedByKey(provenance, provenanceKey);
+}
+
+function normalizeEvidence(evidence: readonly EvidenceReference[]): EvidenceReference[] {
+  return uniqueSortedByKey(evidence, evidenceKey);
+}
+
+function assertFactInput(input: FactInput): void {
+  const confidence = input.confidence ?? 1;
+  if (confidence < 0 || confidence > 1) {
+    throw new CompilerError('IR-AUTHORITY-001', 'Semantic fact confidence must be between 0 and 1', {
+      subject: input.subject,
+      predicate: input.predicate,
+      object: input.object,
+      confidence
+    });
+  }
+  if (input.provenance.length === 0) {
+    throw new CompilerError('IR-AUTHORITY-002', 'Semantic fact must include provenance', {
+      subject: input.subject,
+      predicate: input.predicate,
+      object: input.object
+    });
+  }
+}
+
 function buildFact(input: FactInput): SemanticFact {
+  assertFactInput(input);
   const identity = factIdentity(input);
   return {
     id: `fact:${digest(identity).slice(0, 24)}`,
@@ -85,15 +143,42 @@ function buildFact(input: FactInput): SemanticFact {
     object: input.object,
     authority: input.authority,
     confidence: input.confidence ?? 1,
-    provenance: [...input.provenance].sort((left, right) =>
-      `${left.kind}:${left.sourceId}:${left.sourcePath ?? ''}`.localeCompare(
-        `${right.kind}:${right.sourceId}:${right.sourcePath ?? ''}`
-      )
-    ),
-    evidence: [...(input.evidence ?? [])].sort((left, right) =>
-      `${left.kind}:${left.ref}`.localeCompare(`${right.kind}:${right.ref}`)
-    ),
+    provenance: normalizeProvenance(input.provenance),
+    evidence: normalizeEvidence(input.evidence ?? []),
     validFrom: 'build'
+  };
+}
+
+function mergeFacts(existing: SemanticFact, incoming: SemanticFact): SemanticFact {
+  if (factIdentity(existing) !== factIdentity(incoming)) {
+    throw new CompilerError('IR-FACT-001', `Semantic fact id "${existing.id}" collides across different triples`, {
+      existing: {
+        subject: existing.subject,
+        predicate: existing.predicate,
+        object: existing.object
+      },
+      incoming: {
+        subject: incoming.subject,
+        predicate: incoming.predicate,
+        object: incoming.object
+      }
+    });
+  }
+
+  const authorityDifference = AUTHORITY_STRENGTH[incoming.authority] - AUTHORITY_STRENGTH[existing.authority];
+  const authority = authorityDifference > 0 ? incoming.authority : existing.authority;
+  const confidence = authorityDifference > 0
+    ? incoming.confidence
+    : authorityDifference < 0
+      ? existing.confidence
+      : Math.max(existing.confidence, incoming.confidence);
+
+  return {
+    ...existing,
+    authority,
+    confidence,
+    provenance: normalizeProvenance([...existing.provenance, ...incoming.provenance]),
+    evidence: normalizeEvidence([...existing.evidence, ...incoming.evidence])
   };
 }
 
@@ -163,13 +248,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   const addFact = (factInput: FactInput): void => {
     const fact = buildFact(factInput);
     const existing = facts.get(fact.id);
-    if (existing) {
-      if (JSON.stringify(existing) !== JSON.stringify(fact)) {
-        throw new CompilerError('IR-FACT-001', `Semantic fact "${fact.id}" has conflicting definitions`);
-      }
-      return;
-    }
-    facts.set(fact.id, fact);
+    facts.set(fact.id, existing ? mergeFacts(existing, fact) : fact);
   };
 
   addEntity(semanticEntity(appId, 'app', input.app.name));

@@ -138,6 +138,42 @@ test('buildEngineeringIR is deterministic across input ordering', () => {
   expect(buildEngineeringIR(reversed)).toEqual(buildEngineeringIR(input));
 });
 
+test('buildEngineeringIR merges provenance for the same semantic triple', () => {
+  const input = fixture();
+  const ticketManifest = input.manifests[0]!;
+  const ir = buildEngineeringIR({
+    ...input,
+    manifests: [
+      ...input.manifests,
+      {
+        ...ticketManifest,
+        manifestPath: 'source/blocks/private/ticket.basic/block.manifest.yaml'
+      }
+    ]
+  });
+
+  const dependency = ir.facts.find((fact) =>
+    fact.subject === 'block:ticket/basic' &&
+    fact.predicate === 'DEPENDS_ON' &&
+    fact.object.kind === 'entity' &&
+    fact.object.entityId === 'capability:auth/session'
+  );
+
+  expect(dependency?.provenance).toEqual([
+    {
+      kind: 'contract',
+      sourceId: 'manifest:ticket/basic',
+      sourcePath: 'platform/registry/official/ticket.basic/block.manifest.yaml'
+    },
+    {
+      kind: 'contract',
+      sourceId: 'manifest:ticket/basic',
+      sourcePath: 'source/blocks/private/ticket.basic/block.manifest.yaml'
+    }
+  ]);
+  expect(ir.facts.filter((fact) => fact.id === dependency?.id)).toHaveLength(1);
+});
+
 test('buildEngineeringIR rejects a manifest for an unresolved block', () => {
   const input = fixture();
   expectCompilerError(
