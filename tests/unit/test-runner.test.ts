@@ -75,30 +75,23 @@ test('affected tests skip broad fast-suite fallback for unmapped source changes 
   }
 });
 
-test('affected tests treat changed slow files as notice-only quick-lane input', async () => {
-  changedFiles = ['tests/e2e/compiler-smoke.slow.test.ts'];
+test('affected tests run changed fast test files directly', async () => {
+  changedFiles = ['tests/e2e/compiler-smoke.test.ts'];
   const logs: string[] = [];
-  const errors: string[] = [];
   const originalLog = console.log;
-  const originalError = console.error;
   console.log = (message?: unknown) => {
     logs.push(String(message));
-  };
-  console.error = (message?: unknown) => {
-    errors.push(String(message));
   };
 
   try {
     const code = await runAffectedTests();
 
     expect(code).toBe(0);
-    expect(devCommandCalls).toEqual([]);
-    expect(errors).toEqual([]);
-    expect(logs).toContain('Changed slow test files require PR risk or release/full verification: tests/e2e/compiler-smoke.slow.test.ts');
-    expect(logs).toContain('No affected fast test files detected.');
+    expect(devCommandCalls).toEqual([
+      { command: 'bun', args: ['test', 'tests/e2e/compiler-smoke.test.ts'] }
+    ]);
   } finally {
     console.log = originalLog;
-    console.error = originalError;
   }
 });
 

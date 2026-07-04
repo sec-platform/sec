@@ -36,14 +36,14 @@ export const testImpactRules: TestImpactRule[] = [
   {
     owner: 'runtime-dependencies',
     sourcePattern: /^platform\/shared\/runtime-dependency-spec\.ts$/,
-    fast: ['tests/integration/project-runtime.test.ts'],
-    slow: ['tests/e2e/runtime-host.slow.test.ts']
+    fast: ['tests/integration/project-runtime.test.ts', 'tests/e2e/runtime-host.test.ts'],
+    slow: []
   },
   {
     owner: 'verify',
     sourcePattern: /^platform\/compiler\/verify\//,
-    fast: ['tests/unit/coverage.test.ts', 'tests/unit/policy-summary.test.ts', 'tests/integration/project-runtime.test.ts'],
-    slow: ['tests/e2e/verification.slow.test.ts']
+    fast: ['tests/unit/coverage.test.ts', 'tests/unit/policy-summary.test.ts', 'tests/integration/project-runtime.test.ts', 'tests/e2e/verification.test.ts'],
+    slow: []
   },
   {
     owner: 'upgrade',
@@ -59,27 +59,29 @@ export const testImpactRules: TestImpactRule[] = [
       'tests/integration/migration-text.test.ts',
       'tests/integration/migration-validation.test.ts',
       'tests/integration/text-migrations.test.ts',
-      'tests/integration/validation.test.ts'
+      'tests/integration/validation.test.ts',
+      'tests/e2e/upgrade.test.ts',
+      'tests/e2e/dry-run-plan.test.ts'
     ],
-    slow: ['tests/e2e/upgrade.slow.test.ts', 'tests/e2e/dry-run-plan.slow.test.ts']
+    slow: []
   },
   {
     owner: 'repair',
     sourcePattern: /^platform\/compiler\/repair\//,
-    fast: ['tests/unit/repair-plan.test.ts', 'tests/unit/repair-summary.test.ts', 'tests/integration/repair.test.ts'],
-    slow: ['tests/e2e/repair.slow.test.ts']
+    fast: ['tests/unit/repair-plan.test.ts', 'tests/unit/repair-summary.test.ts', 'tests/integration/repair.test.ts', 'tests/e2e/repair.test.ts'],
+    slow: []
   },
   {
     owner: 'pipeline',
     sourcePattern: /^platform\/compiler\/(parse|resolve|compose|adapt)\//,
-    fast: ['tests/integration/overview.test.ts', 'tests/integration/project-runtime.test.ts'],
-    slow: ['tests/e2e/pipeline.slow.test.ts', 'tests/e2e/end-to-end.slow.test.ts']
+    fast: ['tests/integration/overview.test.ts', 'tests/integration/project-runtime.test.ts', 'tests/e2e/pipeline.test.ts', 'tests/e2e/end-to-end.test.ts'],
+    slow: []
   },
   {
     owner: 'explain',
     sourcePattern: /^platform\/compiler\/explain\//,
-    fast: ['tests/unit/graph-mutation-dry-run.test.ts', 'tests/unit/project-overview.test.ts', 'tests/integration/review.test.ts'],
-    slow: ['tests/e2e/explain.slow.test.ts', 'tests/e2e/provenance.slow.test.ts']
+    fast: ['tests/unit/graph-mutation-dry-run.test.ts', 'tests/unit/project-overview.test.ts', 'tests/integration/review.test.ts', 'tests/e2e/explain.test.ts', 'tests/e2e/provenance.test.ts'],
+    slow: []
   },
   {
     owner: 'cli',
@@ -99,8 +101,8 @@ export const testImpactRules: TestImpactRule[] = [
   {
     owner: 'registry',
     sourcePattern: /^platform\/registry\//,
-    fast: ['tests/unit/path-containment.test.ts', 'tests/integration/project-runtime.test.ts'],
-    slow: ['tests/e2e/registry.slow.test.ts', 'tests/e2e/private-registry.slow.test.ts']
+    fast: ['tests/unit/path-containment.test.ts', 'tests/integration/project-runtime.test.ts', 'tests/e2e/registry.test.ts', 'tests/e2e/private-registry.test.ts'],
+    slow: []
   },
   {
     owner: 'scripts',

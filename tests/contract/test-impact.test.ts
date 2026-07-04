@@ -40,8 +40,8 @@ test('test impact selector keeps slow coverage as notice-only selection', () => 
 
   expect(selection.owners).toContain('upgrade');
   expect(selection.fast).toContain('tests/integration/migration-files.test.ts');
-  expect(selection.slow).toContain('tests/e2e/upgrade.slow.test.ts');
-  expect(selection.slow).toContain('tests/e2e/dry-run-plan.slow.test.ts');
+  expect(selection.fast).toContain('tests/e2e/upgrade.test.ts');
+  expect(selection.fast).toContain('tests/e2e/dry-run-plan.test.ts');
 });
 
 test('test impact selector does not invent broad fallback for unmapped sources', () => {

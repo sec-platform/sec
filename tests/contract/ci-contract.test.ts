@@ -7,13 +7,11 @@ import {
   ciArtifactUploadCommand
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { buildCiContract, formatCiContract } from '../../platform/shared/ci-contract.ts';
-import { slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
   expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
-  expectFullLaneCoversSlowSuites,
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -46,7 +44,6 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
   expectCiContractSelfConsistent(contract);
   expectPrFastLaneBoundary(contract);
   expectFullLaneCoversCorrectnessBackstop(contract);
-  expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds());
 
   expect(contract.verifyCommands).toEqual(
     contract.steps.filter((step) => step.phase === 'verify').map((step) => step.command)
@@ -73,13 +70,6 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
       CI_ARTIFACT_FILES.acceptanceCoverage
     ])
   });
-  for (const suiteId of slowTestSuiteIds()) {
-    expect(stepsById.get(`slow-e2e-${suiteId}`)).toMatchObject({
-      phase: 'quality',
-      command: `bun run test:slow -- --suite ${suiteId}`,
-      produces: []
-    });
-  }
   for (const kind of CI_ARTIFACT_KINDS) {
     expect(stepsById.get(`${kind}-artifacts`)).toMatchObject({
       phase: 'artifacts',
@@ -134,11 +124,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
 test('GitHub compiler CI workflow covers CI command contract gates', async () => {
   const workflow = await readCompilerFile('.github/workflows/compiler-validation.yml');
   const contract = buildCiContract();
-  const slowSuiteIds = slowTestSuiteIds();
-  const slowSuiteCommands = slowSuiteIds.map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
-  const fullLaneCommandsMaterializedInWorkflow = contract.fullLaneCommands.filter(
-    (command) => !slowSuiteCommands.includes(command)
-  );
+  const fullLaneCommandsMaterializedInWorkflow = contract.fullLaneCommands;
 
   const missingPrQuickLaneCommands = contract.prQuickLaneCommands.filter(
     (command) => !workflow.includes(command)
@@ -153,11 +139,6 @@ test('GitHub compiler CI workflow covers CI command contract gates', async () =>
   expect(missingPrQuickLaneCommands).toEqual([]);
   expect(missingPrRiskLaneCommands).toEqual([]);
   expect(missingReleaseLaneCommands).toEqual([]);
-  expect(contract.fullLaneCommands).toEqual(expect.arrayContaining(slowSuiteCommands));
-  expect(workflow).toContain("import { slowTestSuiteIds } from './platform/shared/test-budget-contract.ts'");
-  expect(workflow).toContain('suite: ${{ fromJSON(needs.compiler-release-slow-matrix.outputs.suites) }}');
-  expect(workflow).not.toContain(`suite: [${slowSuiteIds.join(', ')}]`);
-  expect(workflow).toContain('bun run test:slow -- --suite ${{ matrix.suite }}');
 
   expect(workflow).not.toContain('# bun run platform -- verify --json --compact');
   expect(workflow).not.toContain('# bun run imports:check');

@@ -46,7 +46,8 @@ export function selectCiPrRiskSlowSuites(files: string[] | null): CiPrRiskSlowSu
   const sourceFiles = files.filter(sourceFileChanged);
   const impact = selectTestsForSources(sourceFiles);
   const affectedSlowTests = uniqueSorted([...directlyChangedSlowTests, ...impact.slow]);
-  const suites = suitesForSlowTests(impact.slow);
+  const allAffectedSlow = [...directlyChangedSlowTests, ...impact.slow];
+  const suites = suitesForSlowTests(allAffectedSlow);
   const slowTests = uniqueSorted(
     directlyChangedSlowTests.filter((file) => !suites.some((suite) => slowTestSuiteFiles(suite).includes(file)))
   );
