@@ -1,113 +1,167 @@
 ---
-title: MVP 实施计划与路线图
+title: 工程编译器实施计划与路线图
 status: active
 last-reviewed: 2026-07-04
 ---
 
 # 工程编译器实施计划与路线图
 
-> 权威边界：本文只决定阶段目标、里程碑、优先级和进入/退出条件，不直接定义 schema 或实现协议。实现字段以 `05-11` 为准。
+本文只决定阶段、优先级、进入/退出条件。Schema 以实现级规范为准。
 
-## 路线总原则
+## 1. 总原则
 
-- 永远优先证明"规格 → 装配 → slot → 验收 → 来源追踪"主链。
-- 当前策略：**收敛型高速开发**。优先级从高到低：可演示闭环 → 稳定 CLI 合同 → JSON contract → E2E 矩阵 → 复杂度压缩 → 新功能。
-- 每轮新增后检查：是否形成可运行路径、是否进入稳定 contract、是否需要删除重复概念。
+当前采用**收敛型开发**：先稳定表示，再扩张业务；先形成可验证闭环，再增加操作面。
 
-## 当前进度
+优先级：
 
-### 状态图例
+```text
+Canonical Representation
+  > Correctness Contract
+  > Compiler Pipeline
+  > AI Control
+  > Projection / Review
+  > New Vertical Features
+  > UI Polish
+```
 
-`done` = 已实现并有定向验证覆盖 | `active` = 当前优先推进 | `next` = 完成 active 后的默认切口 | `later` = 已预留暂不进入
+## 2. 阶段状态
 
-### 阶段判断
-
-| 阶段 | 状态 | 依据 |
+| 阶段 | 状态 | 目标 |
 | --- | --- | --- |
-| A：文档与规格冻结 | done | `docs/00-11` 已形成分层规格栈 |
-| B：v0.1 首条闭环 | done | Customer Admin 母例 + 3 块 + 单 slot 链路已落地 |
-| C：v0.2 工程可持续化 | active | provenance/explain/policy/repair/upgrade 已具备基础设施 |
-| D：v0.5 团队可用化 | next | 私有 registry + CI 口径 + 完整块母库 |
-| E-K：平台化 → 长期研究线 | later | 等单栈平台和 provenance 机制稳定 |
+| A 文档与边界冻结 | done | 形成分层规范和 Workspace/AI/Block 边界 |
+| B v0.1 首条闭环 | done | Customer Admin：规格→Block→Slot→验收 |
+| C v0.2 工程治理 | done | Verification、Provenance、Repair、Upgrade、Policy、Explain、Review、Workbench 基础 |
+| D v0.3 Semantic Core Foundation | **active** | Engineering IR、Fact Provenance、第一条 Semantic Contract/Lowering 闭环 |
+| E v0.4 Semantic Operations | next | Semantic Mutation、Fact Delta、Impact、AI Semantic Operator |
+| F v0.5 Team/Registry | later | 私有 Registry 正式治理、CI 团队使用、多团队 Block 生命周期 |
+| G v1+ Platform | later | 多目标、远程 Registry、托管验证、Marketplace、跨栈 |
 
-### 已完成能力
+## 3. 当前事实
 
-| 能力面 | 状态 | 要点 |
-| --- | --- | --- |
-| CLI 主链 | done | `init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain` |
-| 官方块 | done | 13 个块覆盖 auth/tenant/entity/rbac/audit/export/file/notify/table/infra |
-| Slot 合成 | done | `customer_normalizer` 通过 task envelope 限定写入边界 |
-| Verification | done | affected/fast/slow/full 四入口；typecheck + Bun/Node tests + Playwright runtime full smoke + policy gate |
-| Acceptance coverage | done | 块/slot 覆盖映射，依赖满足判断 |
-| Provenance | done | `control/provenance/provenance.json`，包含 block/slot/generated/override 追踪 |
-| Explain graph | done | 58 节点 / 67 边，多类型节点和归因边 |
-| Review summary | done | CI 链摘要、覆盖率、provenance、failure/risk/conflict 结构化输出 |
-| Repair | done | verification 失败 → repair plan，可对 repairable slot 受限写回 |
-| Upgrade | done | 17 种 migration 类型，dry-run/diagnostics/verify/provenance 更新 |
-| Policy gate | done | official/project policy merge + violation report |
-| 治理产物 | done | 15 个 stable artifact paths（见 `08` §7） |
-| 开发者入口 | done | `doctor` / `deps status|warmup|relink|clean` |
-| Workbench 回写 | done | `source/views/mutations/*.json` → `source/app.yaml` |
-| **架构内聚重构** | done | Logger / InstallStrategy / ManifestCache / CommandRegistry / Orchestrator 拆分 / dev-runner 拆分 / Process 增强 / YAML 验证 / Review Types 拆分 / 错误码映射 / 文件 I/O 并行化 / Compiler 门面 / workbench-server 路由表化 / shared 层惰性单例 |
-| **LLVM 风格代码生成** | done | `CodeBuilder` 取代 compose 层大段模板字符串拼接：RPC route / RPC client / route graph / slot skeleton 全部经 ts-morph Structure API 程序化构造；契约测试强制 compose 层必须 `import CodeBuilder`；详见 `05` §9.10 |
-| **编译器门面收敛** | done | `platform/cli/register-commands.ts` 与 `platform/upgrade/upgrade-workspace.ts` 全部走 `platform/compiler/index.ts` 门面，13 处穿透子目录的 import 已收敛为 2 处 facade import；契约测试禁止 platform 下其它模块直接 import 编译器子目录 |
+已完成并应保持兼容：
 
-### 当前 active 工作包
+- CLI 主链和四根 Workspace。
+- Registry、Block、Pin、Slot 和文件装配。
+- Slot Synthesis Task Envelope。
+- affected/fast/slow/full 测试反馈模型。
+- Verification、Acceptance Coverage、Policy Gate。
+- Artifact Provenance。
+- ExplainGraph、ReviewSummary、Workbench 基础。
+- Repair、Upgrade、Migration、Override 基础。
+- CodeBuilder 和 compiler facade 边界。
+- Workbench Mutation → `source/app.yaml` 回写闭环。
 
-| 工作包 | 目标 |
-| --- | --- |
-| 产品收敛 | demo/benchmark/reference drift/contract freeze/dogfood 稳定闭环 |
-| 升级引擎增强 | migration 类型持续扩展，dry-run/diagnostics 可审查 |
-| repair 可审查化 | failure points 结构化归因，blocker 诊断完整 |
-| explain graph 归因 | policy/pin/override/repair/upgrade 归因边完善 |
-| Ticket SaaS 纵切面 | `ticket/basic` 块 + 状态流转 + 租户隔离 + 评论 + SLA |
+这些能力是 v0.3 的输入，不重写为第二套系统。
 
-### 下一步
+## 4. v0.3：Semantic Core Foundation
 
-1. Work Tracking / Ticket SaaS 完整纵切面（`ticket/basic` + `comment/basic` + `worklog/basic` + `sla/basic`）
-2. 引入最终巨型对齐模板：**企业级智能协作与审批中枢 (Enterprise Business Process Hub)**，涵盖动态工作流、ABAC权限、SaaS 计费订阅及多角色 Agent Swarm，横向扩张成品 Project 规模，用于对齐和验证编译器装配的准确度。
-3. CI 集成规范（reference drift gate + contract freeze gate + benchmark gate）
-4. 第二数据库（PostgreSQL）正式路线
-5. review assist（CI 自动评审摘要）
+### Work Package 1：Engineering IR Kernel
 
-## 开发者入口与依赖环境
+实现：
 
-核心原则：`source/` 是唯一开发工作面，`project/` 是生成目标层，`control/` 是控制平面。
+- `platform/shared/engineering-ir-types.ts`
+- `platform/compiler/ir/build-engineering-ir.ts`
+- `platform/compiler/ir/index-engineering-ir.ts`
+- compiler facade 导出
+- unit/contract tests
 
-- CLI 是一等入口，Workbench/IDE 插件补充交互体验。
-- 本地推荐布局：根 `node_modules`（编译器自身）、`.shared-deps/node_modules`（生成项目运行时共享）、`project/node_modules`（默认链接）。
-- `platform doctor` 检查 workspace 四根、依赖环境、缓存。
-- `platform deps status|warmup|relink|clean` 管理依赖环境。
-- CI：PR quick → affected/fast feedback，PR risk → impact-selected slow/workspace checks，schedule/manual/full label → full correctness backstop。
+第一版只归一当前已存在的 App、Block、Capability、Pin、Slot、Acceptance、Policy、Artifact 事实。目标是让 IR 真实进入代码，不急于增加业务语义种类。
 
-## 全局决策框架
+退出条件：相同输入确定性生成稳定排序的 IR；IR Entity ID 和 Fact ID 可重复；ExplainGraph 可以逐步从 IR 投影而不改变现有公开合同。
 
-**现在必须决定**：slot 描述正式语言、Pin 连通性验证规则、私有 registry 版本治理。
+### Work Package 2：Fact Provenance
 
-**现在不用实现但必须预留**：Kernel Block 接口、多 registry 联邦解析、AST patch engine。
+每条 Fact 支持：
 
-**现在明确不做**：图形化 IDE、社区 registry、多后端目标栈、通用 AI 编码助手模式。
+- authority：authoritative / derived / observed / inferred
+- sources：authoring path、manifest、compiler rule、analysis/runtime/tool reference
+- confidence：只用于非绝对推导强度，不代替 authority
+- evidence：可回看证据引用
+- revision validity
 
-**晚想会导致返工**：error code 协议全面机器可消费、benchmark 标准、acceptance DSL 嵌套规则、AI 介入的 signature gate。
+退出条件：平台能解释至少三条关键 Fact“为什么成立”；AI/provider 的高 confidence 不能覆盖 authoritative Contract。
 
-## 阶段详情
+### Work Package 3：Ticket Semantic Contract
 
-### 阶段 A-B：文档冻结 → v0.1 闭环（done）
+以已有 `ticket/basic` 为唯一母例，声明最小：
 
-完成了 00-11 分层规格栈，Customer Admin 母例闭环可重复运行，AI 单一 slot 填充链路可用。
+- `Ticket` Entity。
+- `Ticket.status` State。
+- create/transition/list/comment Operations。
+- TicketCreated/TicketStatusTransitioned Events。
+- tenant scope Policy/Permission。
+- database read/write Effects。
+- TicketLifecycle、TicketStateMachine、TicketQuery、TenantScopeGuard Responsibilities。
 
-### 阶段 C：v0.2 工程可持续化（active）
+不做 Enterprise Business Process Hub，不新增大规模业务块。
 
-目标：从"闭环能跑"升级到"工程可持续"。16 个官方块 + provenance + explain + repair + upgrade + policy gate 已具备。当前重点：升级引擎 17 种 migration 类型完善、repair 结构化归因、explain graph 多类型归因边、Ticket SaaS 纵切面落地。
+退出条件：Contract → IR → 至少一条 Generator/Lowering → project artifact → verify 闭环通过。
 
-退出条件：ticket vertical 主链路闭环通过；升级/repair/explain 三项对非专家可审查；私有 registry 基础通路稳定。
+### Work Package 4：前三个 Semantic View
 
-### 阶段 D：v0.5 团队可用化（next）
+顺序：
 
-私有 registry 正式版本治理、Visual Spec Builder（可视化 spec 组装）首个可操作版本（提供给 AI 开发无需管脚的接口模式，但为人类用户提供比低代码更高级细致的图形化 spec 连接与验收界面，回写 source/views/mutations 并通过 compiler 生成 100% 纯净代码）、review assist CI 集成、CI 团队口径（reference drift + contract freeze + benchmark gate）、巨型企业协作中枢 Demo 缝合。退出条件：至少 2 个独立团队可各自维护私有 block 且不互相干扰，图形化 spec 组装可用。
+1. Architecture View：Responsibility、Boundary、Contract、Effect。
+2. Scenario View：关键 Operation/Scenario 顺序、await/failure/retry。
+3. State View：Owner、Reader、Writer、Mutation、Transition。
 
-### 阶段 E-J：平台化 → 长期研究线（later）
+Workbench 只读取统一 `SemanticView` 投影合同；Vis.js/Canvas/Drawer/SSE/Mutation Server 可以复用。
 
-E（v1）：graph explorer、双视图工作台、托管验证。F（v2）：多目标编译器、marketplace。G（v3）：跨领域扩展。H：终局平台面（企业级托管）。I-J：分层自举和自维护系统。K：产品线/组织/Reality Compiler 研究线。
+退出条件：同一 IR 产生三种视图，三者不能各自读取源码推断语义。
 
-以上阶段必须在单栈平台、升级周期和 provenance 机制完全稳定后才能进入，所有自维护/自举操作必须通过权限边界、人工审批和可审计 provenance 约束。
+## 5. v0.4：Semantic Operations
+
+实现顺序：
+
+1. IR revision snapshot / digest。
+2. Fact Delta：added / removed / changed facts。
+3. Impact propagation：按 Contract、Ownership、Assumption、Lowering、Verification 边传播。
+4. Semantic Mutation：precondition、operation、expected fact delta、risk、required passes、rollback。
+5. AI Task Envelope v2：允许受限 semantic-alignment / contract-edit / repair proposal。
+
+AI 仍不得直接写 IR。所有 Semantic Mutation 必须回写 Authoring Source，再由编译器重建 IR。
+
+## 6. v0.5 以后
+
+只有满足以下条件后，才重新进入业务规模扩张：
+
+- Engineering IR 在至少一个真实纵切面稳定。
+- Fact Provenance 可审查。
+- 三视图共用同一 Projection API。
+- Semantic Diff/Impact 能解释真实变更。
+- 一个完整 Block 升级周期没有破坏 semantic identity。
+
+然后依次推进：
+
+1. Work Tracking 完整纵切面。
+2. 私有 Registry 版本/信任治理。
+3. 两个独立团队的 Block 生命周期验证。
+4. PostgreSQL 正式目标。
+5. Enterprise Business Process Hub 压力母例。
+6. 多目标/多栈。
+
+## 7. 当前禁止事项
+
+在 v0.3 退出前，不把以下工作设为主线：
+
+- 新的 Workbench 视觉特效。
+- 给 ExplainGraph 添加 State/Data/Call 等母图语义。
+- 巨型业务 Demo。
+- 大量新增文件型 Block。
+- 自动 L3 重构。
+- 让外部 graph provider 驱动 Mutation。
+- AI 整仓自主修改。
+
+允许做阻塞性 Bug、性能回归、CI 稳定性和既有公开合同修复。
+
+## 8. 每个工作包的完成定义
+
+任何工作包只有同时满足以下条件才算完成：
+
+1. 类型/Schema 有唯一权威定义。
+2. Builder/Pass 为纯逻辑或明确隔离 IO。
+3. 关键不变量有 Unit/Contract Test。
+4. CLI/Artifact/Projection 暴露边界明确。
+5. `docs:doctor`、typecheck、affected/fast 测试按影响运行。
+6. Reference Workspace 如受影响必须刷新并做 drift check。
+7. 删除或改写旧的重复概念，不只叠加新术语。
