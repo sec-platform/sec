@@ -76,7 +76,9 @@ async function cleanStaleWorkspaces(tempRoot: string): Promise<void> {
       } catch {}
     }
   } finally {
-    await fs.rm(lockPath, { force: true });
+    try {
+      await fs.rm(lockPath, { recursive: true, force: true });
+    } catch {}
   }
 }
 

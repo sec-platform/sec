@@ -191,7 +191,8 @@ describe('test budget and benchmark contracts', () => {
     ]);
     expectContainsAll(setupSource, [
       "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
-      'ensureSharedDepsReady'
+      'ensureSharedDepsReady',
+      'await fs.rm(lockPath, { recursive: true, force: true });'
     ]);
   });
 
