@@ -1,5 +1,10 @@
 import { uniqueSorted } from './collections.ts';
-import { getSlowTestSuitesSync, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds } from './test-budget-contract.ts';
+import {
+  getSlowTestSuitesSync,
+  isSlowTestFile,
+  slowTestPrRiskBaselineSuiteIds,
+  slowTestSuiteFiles
+} from './test-budget-contract.ts';
 import { selectTestsForSources } from './test-impact-contract.ts';
 
 type CiPrRiskSlowSuiteSelection = {
@@ -7,10 +12,10 @@ type CiPrRiskSlowSuiteSelection = {
   slowTests: string[];
   affectedSlowTests: string[];
   owners: string[];
-  reason: 'all' | 'impact' | 'none';
+  reason: 'baseline' | 'impact' | 'none';
 };
 
-const ALL_SLOW_SUITE_PATTERNS = [
+const BOUNDED_BASELINE_PATTERNS = [
   /^package\.json$/,
   /^bun\.lock$/,
   /^platform\/orchestrator\.ts$/,
@@ -22,8 +27,8 @@ function sourceFileChanged(file: string): boolean {
   return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
 }
 
-function allSlowSuiteIds(): string[] {
-  return slowTestSuiteIds();
+function baselineSlowSuiteIds(): string[] {
+  return slowTestPrRiskBaselineSuiteIds();
 }
 
 function suitesForSlowTests(slowTests: string[]): string[] {
@@ -35,11 +40,11 @@ function suitesForSlowTests(slowTests: string[]): string[] {
 
 export function selectCiPrRiskSlowSuites(files: string[] | null): CiPrRiskSlowSuiteSelection {
   if (!files) {
-    return { suites: allSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: [], reason: 'all' };
+    return { suites: baselineSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: ['bounded-slow-risk'], reason: 'baseline' };
   }
 
-  if (files.some((file) => ALL_SLOW_SUITE_PATTERNS.some((pattern) => pattern.test(file)))) {
-    return { suites: allSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: ['all-slow-suites'], reason: 'all' };
+  if (files.some((file) => BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)))) {
+    return { suites: baselineSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: ['bounded-slow-risk'], reason: 'baseline' };
   }
 
   const directlyChangedSlowTests = files.filter(isSlowTestFile);

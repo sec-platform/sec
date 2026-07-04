@@ -2,13 +2,14 @@ import { expect, test } from 'bun:test';
 
 import { buildCiContract, formatCiContract } from '../../platform/shared/ci-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
-import { slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
+import { slowTestPrRiskBaselineSuiteIds, slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
 import {
   expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
   expectFullLaneCoversSlowSuites,
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
+import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 test('CI contract keeps PR lanes fast and full lane complete', () => {
   const contract = buildCiContract();
@@ -60,34 +61,38 @@ test('CI PR risk gate selects slow suites from the test impact contract', () => 
   });
 });
 
-test('CI PR risk gate keeps repository-wide changes on all slow suites', () => {
+test('CI PR risk gate uses bounded baseline suites for broad risk changes', () => {
+  const baselineSuites = slowTestPrRiskBaselineSuiteIds();
+  expect(baselineSuites.length).toBeGreaterThan(0);
+  expect(baselineSuites.length).toBeLessThan(slowTestSuiteIds().length);
+
   expect(selectCiPrRiskSlowSuites(null)).toEqual({
-    suites: slowTestSuiteIds(),
+    suites: baselineSuites,
     slowTests: [],
     affectedSlowTests: [],
-    owners: [],
-    reason: 'all'
+    owners: ['bounded-slow-risk'],
+    reason: 'baseline'
   });
   expect(selectCiPrRiskSlowSuites(['package.json'])).toEqual({
-    suites: slowTestSuiteIds(),
+    suites: baselineSuites,
     slowTests: [],
     affectedSlowTests: [],
-    owners: ['all-slow-suites'],
-    reason: 'all'
+    owners: ['bounded-slow-risk'],
+    reason: 'baseline'
   });
   expect(selectCiPrRiskSlowSuites(['tests/helpers/workspace-fixtures.ts'])).toEqual({
-    suites: slowTestSuiteIds(),
+    suites: baselineSuites,
     slowTests: [],
     affectedSlowTests: [],
-    owners: ['all-slow-suites'],
-    reason: 'all'
+    owners: ['bounded-slow-risk'],
+    reason: 'baseline'
   });
   expect(selectCiPrRiskSlowSuites(['tests/setup/runtime-deps.setup.ts'])).toEqual({
-    suites: slowTestSuiteIds(),
+    suites: baselineSuites,
     slowTests: [],
     affectedSlowTests: [],
-    owners: ['all-slow-suites'],
-    reason: 'all'
+    owners: ['bounded-slow-risk'],
+    reason: 'baseline'
   });
 });
 
@@ -99,4 +104,13 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
     owners: [],
     reason: 'none'
   });
+});
+
+test('CI PR risk runner parallelizes selected slow suites', async () => {
+  const source = await readCompilerFile('scripts/ci-pr-risk.ts');
+
+  expect(source).toContain('SEC_CI_PR_RISK_SLOW_CONCURRENCY');
+  expect(source).toContain('parallelSafeSlowSuites');
+  expect(source).toContain('runBunStepsInParallel');
+  expect(source).toContain('parallel-safe slow steps with concurrency ${concurrency}');
 });

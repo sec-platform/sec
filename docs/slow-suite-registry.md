@@ -12,6 +12,10 @@ The slow lane uses a suite registry instead of ad hoc filename filtering. Every 
 
 Suites are file-granular by default. This keeps PR risk gates narrow and lets the release/full CI matrix parallelize slow e2e files at the highest useful shard level. Group files into one suite only when they must share setup, ordering, or diagnostics.
 
+The suite registry also marks whether a suite is safe to run in parallel inside the PR risk job. Resource-sensitive suites stay serial even when other lightweight suites run concurrently.
+
+For broad PR risk inputs such as package, helper, setup, or unknown diff detection, PR risk runs the registry-declared baseline slow suites only. Full all-suite coverage belongs to release/full validation.
+
 ## Commands
 
 ```text
@@ -45,7 +49,7 @@ PR quick lane:
   do not run slow e2e by default
 
 PR risk lane:
-  run impact-selected slow suites or directly changed slow files
+  run impact-selected slow suites, directly changed slow files, or bounded baseline suites for broad infrastructure risk
 
 Release/full lane:
   run slow suites for real

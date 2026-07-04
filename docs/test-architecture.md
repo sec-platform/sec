@@ -55,6 +55,7 @@ Rules:
 - Tests must not copy slow suite IDs, slow test globs, slow suite counts, complete CI command arrays, complete package script objects, or public contract shapes.
 - Use `slowTestSuiteIds()` / `getSlowTestSuitesSync()` rather than hand-written suite lists.
 - Keep slow suites file-granular unless files need shared setup, ordering, or diagnostics.
+- Mark PR-risk baseline coverage and in-job parallelism through the slow suite registry; do not infer them from file names in workflow scripts.
 - Import-graph-expressible impact should not be duplicated as semantic owner rules.
 - Contract tests verify parseability/serializability and business boundaries: count equals list length, lists are sorted unique, fast lanes exclude slow/full work, full lanes cover correctness backstops.
 
