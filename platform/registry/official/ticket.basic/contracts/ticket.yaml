@@ -91,17 +91,16 @@ states:
     values:
       - open
       - in_progress
-      - resolved
       - closed
     transitions:
       - from: open
         to: in_progress
         by: transitionTicketStatus
       - from: in_progress
-        to: resolved
-        by: transitionTicketStatus
-      - from: resolved
         to: closed
+        by: transitionTicketStatus
+      - from: closed
+        to: open
         by: transitionTicketStatus
 responsibilities:
   - id: TicketLifecycle
