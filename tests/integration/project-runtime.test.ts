@@ -6,11 +6,11 @@ import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
-    ensureProjectDependencies,
-    ensureSharedDepsReady,
-    readRuntimeDepsStamp,
-    withProjectDependencyBridge,
-    writeRuntimeDepsStamp
+  ensureProjectDependencies,
+  ensureSharedDepsReady,
+  readRuntimeDepsStamp,
+  withProjectDependencyBridge,
+  writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
 import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
