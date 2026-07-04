@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import type { BuildEngineeringIRInput } from '../../platform/compiler/ir/build-engineering-ir.ts';
 import { buildEngineeringIR } from '../../platform/compiler/ir/build-engineering-ir.ts';
 import { indexEngineeringIR } from '../../platform/compiler/ir/index-engineering-ir.ts';
+import { CompilerError } from '../../platform/shared/errors.ts';
 
 function fixture(): BuildEngineeringIRInput {
   return {
@@ -84,12 +85,23 @@ function fixture(): BuildEngineeringIRInput {
   };
 }
 
+function expectCompilerError(run: () => unknown, code: string): void {
+  try {
+    run();
+  } catch (error) {
+    expect(error).toBeInstanceOf(CompilerError);
+    expect((error as CompilerError).code).toBe(code);
+    return;
+  }
+  throw new Error(`Expected CompilerError ${code}`);
+}
+
 test('buildEngineeringIR creates stable semantic entities and facts', () => {
   const ir = buildEngineeringIR(fixture());
 
   expect(ir.formatVersion).toBe('1');
   expect(ir.appId).toBe('app:ticket-app');
-  expect(ir.revision).toStartWith('sha256:');
+  expect(ir.revision.startsWith('sha256:')).toBe(true);
   expect(ir.entities.map((entity) => entity.id)).toEqual([...ir.entities.map((entity) => entity.id)].sort());
   expect(ir.facts.map((fact) => fact.id)).toEqual([...ir.facts.map((fact) => fact.id)].sort());
 
@@ -124,6 +136,31 @@ test('buildEngineeringIR is deterministic across input ordering', () => {
   };
 
   expect(buildEngineeringIR(reversed)).toEqual(buildEngineeringIR(input));
+});
+
+test('buildEngineeringIR rejects a manifest for an unresolved block', () => {
+  const input = fixture();
+  expectCompilerError(
+    () => buildEngineeringIR({
+      ...input,
+      manifests: [...input.manifests, {
+        blockId: 'missing/block',
+        manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
+      }]
+    }),
+    'IR-IDENTITY-002'
+  );
+});
+
+test('buildEngineeringIR rejects a slot that references an unknown block', () => {
+  const input = fixture();
+  expectCompilerError(
+    () => buildEngineeringIR({
+      ...input,
+      slotTasks: [{ ...input.slotTasks[0]!, block: 'missing/block' }]
+    }),
+    'IR-IDENTITY-003'
+  );
 });
 
 test('indexEngineeringIR exposes entity and relation indexes without copying facts', () => {
