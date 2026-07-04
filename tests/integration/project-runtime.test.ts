@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
@@ -288,69 +287,53 @@ describe('error protocol and developer contracts', () => {
     ]);
   });
 
-  test('roadmap documents delivery themes and governance surface', async () => {
+  test('roadmap documents the active semantic core sequence and expansion boundary', async () => {
     const routeMap = await readCompilerFile('docs/03-MVP实施计划与路线图.md');
 
     expectContainsAll(routeMap, [
-      '`init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain`',
-      'affected/fast/slow/full',
-      'reference drift',
-      'benchmark',
-      'contract freeze',
-      'platform doctor',
-      'platform deps',
-      'CI 集成规范',
-      'provenance',
-      'policy gate',
-      'Ticket SaaS',
-      '阶段 C',
-      '阶段 D',
-      '13 个块'
+      'v0.3 Semantic Core Foundation',
+      'Engineering IR Kernel',
+      'Fact Provenance',
+      'Ticket Semantic Contract',
+      'Architecture View',
+      'Scenario View',
+      'State View',
+      'Semantic Mutation',
+      'AI Semantic Operator',
+      '当前禁止事项'
     ]);
   });
 
-  test('compiler spec documents registry source path contract', async () => {
+  test('compiler spec documents workspace ownership and canonical IR boundaries', async () => {
     const spec = await readCompilerFile('docs/05-编译器核心实现规格.md');
 
     expectContainsAll(spec, [
-      '| `registry.sources[].path` | string | 否 | 相对 `location` 根目录；禁止绝对路径、盘符、UNC、NUL 与 `..` 穿越 |',
-      'blocks/slots/registry.sources 的 id 不允许重复',
-      '`app.stack` 必须与所有块的 `stackProfiles` 兼容'
+      'source/code/slots/**',
+      'Governed Source',
+      '`graph.lock.json`',
+      '不是 Engineering IR',
+      'platform/compiler/ir/',
+      'build-engineering-ir.ts',
+      'CodeBuilder'
     ]);
   });
 
-  test('README documents closed-loop and CLI surface', async () => {
+  test('README documents the semantic compiler entry model without duplicating the CLI catalog', async () => {
     const readme = await readCompilerFile('README.md');
 
     expectContainsAll(readme, [
-      'Run the full product closed loop with `bun run demo:closed-loop`.',
-      'bun run platform -- deps status --json --compact',
-      'bun run platform -- artifacts --paths --json --compact --kind governance',
-      'bun run platform -- contract freeze --json --compact',
-      'bun run platform -- contract errors --json --compact',
-      'bun run platform -- contract ci --json --compact',
-      'per-step produced artifact counts',
-      'produced artifact paths',
-      'bun run platform -- policy report --json --compact',
-      'bun run platform -- acceptance coverage --json --compact',
-      'bun run platform -- runtime report --json --compact',
-      'bun run platform -- verification report --json --compact',
-      'bun run platform -- verify --json --compact',
-      'bun run platform -- provenance registry --json --compact',
-      'bun run platform -- review summary --json --compact',
-      'bun run platform -- review diagnostics --json --compact',
-      'bun run platform -- workbench mutations apply --json --compact',
-      'source/views/mutations/*.json',
-      CI_ARTIFACT_FILES.viewMutationReport,
-      'bun run platform -- repair --dry-run --json --compact',
-      'bun run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
-      'bun run platform -- test budget --json --compact',
-      'bun run platform -- reference check',
-      'bun run platform -- reference check --json --compact',
-      'bun run platform -- benchmark suite --json --compact',
-      'Governance contract freeze currently covers:',
-      CI_ARTIFACT_FILES.explainGraph
+      '本地优先的工程语义编译器',
+      'Authoring Source',
+      'Semantic Frontend',
+      'Engineering IR',
+      'ExplainGraph',
+      'bun run sec -- <command>',
+      'bun run demo:closed-loop',
+      'source/model/**',
+      'Task Envelope',
+      'Semantic Mutation'
     ]);
+    expect(readme).not.toContain('bun run platform --');
   });
 
   test('contract freeze contract documents runner wiring', async () => {
