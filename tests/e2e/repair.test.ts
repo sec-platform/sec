@@ -14,15 +14,12 @@ import {
   expectCliJson,
   expectCliSuccess,
   expectCliText,
-  runCliInProcess as runCli,
-  runCliPipeline
+  runCliInProcess as runCli
 } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
 
 test('CLI emits repair dry-run JSON for CI consumers', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
-
+  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
     await writeFailedFastUnitVerification(workspaceRoot, 'Unit verification failed for customer_normalizer');
 
@@ -243,9 +240,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
 }, 120000);
 
 test('CLI emits blocked repair JSON for CI consumers', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
-
+  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
     await writeFailedFastUnitVerification(workspaceRoot, 'Unit verification failed without slot ownership', {
       slotTasks: []

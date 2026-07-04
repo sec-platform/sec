@@ -18,12 +18,10 @@ import {
   runCliInProcess as runCli,
   runCliPipeline
 } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
-
+  await withWorkspaceScenario('empty-default', async (workspaceRoot) => {
     const { privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
     const blockRoot = path.join(privateRegistryRoot, 'private.text-upgrade');
     const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
@@ -126,8 +124,7 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
 }, 120000);
 
 test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
+  await withWorkspaceScenario('empty-default', async (workspaceRoot) => {
     await expectCliText(workspaceRoot, [
       'upgrade',
       'auth/basic-session',

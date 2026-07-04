@@ -38,7 +38,7 @@ type SlowTestSuiteDefinition = {
   id: string;
   owner: string;
   timeoutMs: number;
-  match: RegExp;
+  files: string[];
 };
 
 const TEST_FILE_GLOBS = [
@@ -48,40 +48,51 @@ const TEST_FILE_GLOBS = [
   'tests/**/*.spec.tsx'
 ];
 
-// Slow test suites: e2e tests that run full compiler pipeline operations.
-// These tests involve workspace preparation, compose, verify, lock, explain, etc.
-// They are separated from fast tests (unit/integration/contract) for faster feedback loops.
+function e2eTestFile(name: string): string {
+  return `tests/e2e/${name}.test.ts`;
+}
+
+function slowFileSuite(
+  id: string,
+  fileName: string,
+  owner: string,
+  timeoutMs = 180_000
+): SlowTestSuiteDefinition {
+  return {
+    id,
+    owner,
+    timeoutMs,
+    files: [e2eTestFile(fileName)]
+  };
+}
+
+// Slow e2e suites are file-granular by default so CI can shard them with the
+// highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
-  {
-    id: 'e2e-pipeline',
-    owner: 'compiler-pipeline-e2e',
-    timeoutMs: 180_000,
-    match: /^tests\/e2e\/(pipeline|compiler-smoke|end-to-end|expanded-blocks|workspace|lanes)\.test\.ts$/
-  },
-  {
-    id: 'e2e-verify-lock',
-    owner: 'compiler-verify-lock-e2e',
-    timeoutMs: 180_000,
-    match: /^tests\/e2e\/(verification|provenance|private-registry|runtime-host)\.test\.ts$/
-  },
-  {
-    id: 'e2e-upgrade-repair',
-    owner: 'compiler-upgrade-repair-e2e',
-    timeoutMs: 180_000,
-    match: /^tests\/e2e\/(upgrade|repair|conflicts|dry-run-plan)\.test\.ts$/
-  },
-  {
-    id: 'e2e-explain-summary',
-    owner: 'compiler-explain-summary-e2e',
-    timeoutMs: 120_000,
-    match: /^tests\/e2e\/(explain|summary|local-views|artifacts|demo-doctor)\.test\.ts$/
-  },
-  {
-    id: 'e2e-policy-manifest',
-    owner: 'compiler-policy-manifest-e2e',
-    timeoutMs: 180_000,
-    match: /^tests\/e2e\/(policy|manifest|prisma-merge)\.test\.ts$/
-  }
+  slowFileSuite('e2e-artifacts', 'artifacts', 'compiler-artifacts-e2e', 120_000),
+  slowFileSuite('e2e-compiler-smoke', 'compiler-smoke', 'compiler-smoke-e2e', 120_000),
+  slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e'),
+  slowFileSuite('e2e-demo-doctor', 'demo-doctor', 'compiler-demo-doctor-e2e', 120_000),
+  slowFileSuite('e2e-dry-run-plan', 'dry-run-plan', 'compiler-dry-run-plan-e2e'),
+  slowFileSuite('e2e-pipeline-end-to-end', 'end-to-end', 'compiler-pipeline-end-to-end-e2e'),
+  slowFileSuite('e2e-expanded-blocks', 'expanded-blocks', 'compiler-expanded-blocks-e2e'),
+  slowFileSuite('e2e-explain', 'explain', 'compiler-explain-e2e', 120_000),
+  slowFileSuite('e2e-graph', 'graph', 'compiler-graph-e2e', 120_000),
+  slowFileSuite('e2e-lanes', 'lanes', 'compiler-lanes-e2e', 120_000),
+  slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000),
+  slowFileSuite('e2e-manifest', 'manifest', 'compiler-manifest-e2e'),
+  slowFileSuite('e2e-pipeline', 'pipeline', 'compiler-pipeline-e2e'),
+  slowFileSuite('e2e-policy', 'policy', 'compiler-policy-e2e'),
+  slowFileSuite('e2e-prisma-merge', 'prisma-merge', 'compiler-prisma-merge-e2e'),
+  slowFileSuite('e2e-private-registry', 'private-registry', 'compiler-private-registry-e2e'),
+  slowFileSuite('e2e-provenance', 'provenance', 'compiler-provenance-e2e', 120_000),
+  slowFileSuite('e2e-registry', 'registry', 'compiler-registry-e2e'),
+  slowFileSuite('e2e-repair', 'repair', 'compiler-repair-e2e'),
+  slowFileSuite('e2e-runtime-host', 'runtime-host', 'compiler-runtime-host-e2e'),
+  slowFileSuite('e2e-summary', 'summary', 'compiler-summary-e2e', 120_000),
+  slowFileSuite('e2e-upgrade', 'upgrade', 'compiler-upgrade-e2e'),
+  slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e'),
+  slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000)
 ];
 
 function scanTestFilesSync(): string[] {
@@ -143,11 +154,15 @@ export class TestBudgetCache {
 
   private buildSlowTestSuites(): SlowTestSuite[] {
     const slowFiles = this.getSlowTestFilesSync();
+    const slowFileSet = new Set(slowFiles);
     const assigned = new Set<string>();
     const suites: SlowTestSuite[] = slowTestSuiteDefinitions
       .map((definition) => {
-        const files = slowFiles.filter((file) => definition.match.test(file));
+        const files = definition.files.filter((file) => slowFileSet.has(file));
         for (const file of files) {
+          if (assigned.has(file)) {
+            throw new Error(`Slow test file assigned to multiple suites: ${file}`);
+          }
           assigned.add(file);
         }
         return {
@@ -207,14 +222,12 @@ export async function getSlowTestSuites(): Promise<SlowTestSuite[]> {
   return defaultTestBudgetCache.getSlowTestSuites();
 }
 
-const ALL_KNOWN_SLOW_SUITE_IDS = [...slowTestSuiteDefinitions.map((d) => d.id)];
-
 export function isKnownSlowTestSuiteId(suiteId: string): boolean {
-  return ALL_KNOWN_SLOW_SUITE_IDS.includes(suiteId);
+  return slowTestSuiteIds().includes(suiteId);
 }
 
 export function slowTestSuiteIds(): string[] {
-  return [...ALL_KNOWN_SLOW_SUITE_IDS];
+  return getSlowTestSuitesSync().map((suite) => suite.id);
 }
 
 export function slowTestSuiteFiles(suiteId: string): string[] {
@@ -222,7 +235,7 @@ export function slowTestSuiteFiles(suiteId: string): string[] {
 }
 
 export function slowTestExcludePattern(): string {
-  return './tests/e2e/**/*.test.ts';
+  return './tests/e2e/**/*.{test,spec}.ts';
 }
 
 export function isTestFile(file: string): boolean {
@@ -230,7 +243,7 @@ export function isTestFile(file: string): boolean {
 }
 
 export function isSlowTestFile(file: string): boolean {
-  return slowTestSuiteDefinitions.some((def) => def.match.test(file));
+  return /^tests\/e2e\/.+\.(test|spec)\.tsx?$/.test(file);
 }
 
 export function isFastTestFile(file: string): boolean {
@@ -255,7 +268,7 @@ export async function buildTestBudgetContract(): Promise<TestBudgetContract> {
     slowSuiteCount: slowSuites.length,
     slowSuites,
     lanes,
-    localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:full or check:full for full runtime gates',
+    localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
 }

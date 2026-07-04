@@ -43,3 +43,6 @@ CLAUDE.md
 .chatgpt-handoff/
 _handoff/
 *.zip
+.claude/
+.codex/
+.agents/

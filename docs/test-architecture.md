@@ -28,7 +28,7 @@ Do not add near-synonym package scripts for new behavior. Put orchestration in t
 | --- | --- | --- | --- | --- |
 | affected | `bun run check:affected` | Daily changed + affected fast feedback | No | No |
 | fast | `bun run check:fast` | Pre-commit full fast tests | No | No |
-| slow | `bun run test:slow -- --suite <id>` | Targeted slow suite | Yes | Suite-dependent |
+| slow | `bun run test:slow -- --suite <id>` | Targeted file-granular slow suite | Yes | Suite-dependent |
 | full | `bun run check:full` | Release/scheduled full regression | Yes | Yes |
 
 Do not reintroduce `test:changed`, `test:all`, `test:quick`, `test:ci`, `test:smoke`, `check:lite`, `check:pr`, `test:runtime-full`, or `test:workspace`.
@@ -44,7 +44,7 @@ Do not reintroduce `test:changed`, `test:all`, `test:quick`, `test:ci`, `test:sm
 
 ## Fact sources
 
-1. `platform/shared/test-budget-contract.ts` owns test globs, fast/slow classification, slow suite definitions, suite IDs, test budget contract, and formatter.
+1. `platform/shared/test-budget-contract.ts` owns test globs, fast/slow classification, file-granular slow suite definitions, suite IDs, test budget contract, and formatter.
 2. `platform/shared/test-impact-contract.ts` owns changed-source to affected-fast and affected-slow selection. Prefer auto-reference import graph coverage; semantic rules are only for cross-domain product risk.
 3. `platform/shared/ci-contract.ts` owns CI lane shape. Tests assert lane boundaries and coverage invariants, not copied workflow command lists.
 4. `platform/shared/runtime-dependency-spec.ts` owns generated runtime dependencies and devDependencies, including whether Playwright belongs to runtime full validation.
@@ -54,6 +54,7 @@ Rules:
 
 - Tests must not copy slow suite IDs, slow test globs, slow suite counts, complete CI command arrays, complete package script objects, or public contract shapes.
 - Use `slowTestSuiteIds()` / `getSlowTestSuitesSync()` rather than hand-written suite lists.
+- Keep slow suites file-granular unless files need shared setup, ordering, or diagnostics.
 - Import-graph-expressible impact should not be duplicated as semantic owner rules.
 - Contract tests verify parseability/serializability and business boundaries: count equals list length, lists are sorted unique, fast lanes exclude slow/full work, full lanes cover correctness backstops.
 

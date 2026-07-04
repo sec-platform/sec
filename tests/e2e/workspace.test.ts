@@ -10,8 +10,8 @@ import type {
 } from '../../platform/shared/types.ts';
 import { readYaml } from '../../platform/shared/yaml.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
-import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli, runCliPipeline } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess as runCli } from '../testkit/cli.ts';
+import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
 
 type ViewMutationReportSnapshot = {
   formatVersion: string;
@@ -149,9 +149,7 @@ test('CLI rejects Workbench slot source mutations outside slot source', async ()
   });
 }, 180000);
 test('CLI defaults verification to the fast lane', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot);
-
+  await withWorkspaceScenario('adapted-default', async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
   });
 }, 180000);

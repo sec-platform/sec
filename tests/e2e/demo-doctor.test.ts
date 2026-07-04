@@ -8,10 +8,9 @@ import {
   expectCliJson,
   expectCliSuccess,
   expectCliText,
-  expectCliVariants,
-  runCliPipeline
+  expectCliVariants
 } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
 
 const expectedDemoChecklistItemCount = [
   'verification-report',
@@ -34,9 +33,9 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
       `${explainGraphDotArtifact.id}: missing; ${explainGraphDotArtifact.path}`,
       'Next command: bun run demo:quickstart'
     ]);
+  });
 
-    await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true, explain: true });
-
+  await withWorkspaceScenario('explained-all-default', async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['demo', 'checklist'], [
       `Demo checklist passed; items=${expectedDemoChecklistItemCount}; missing=0`,
       `review-summary: passed; ${CI_ARTIFACT_FILES.reviewSummary}`,

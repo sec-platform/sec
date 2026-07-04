@@ -31,10 +31,13 @@ export function buildPrivatePlanRegistrySource(): PlanFile['registry']['sources'
   };
 }
 
-export async function buildManifestValidationPlan(entry: ManifestEntry): Promise<PlanFile> {
-  const allManifests = await loadAllManifests();
+export async function buildManifestValidationPlan(
+  entry: ManifestEntry,
+  allManifests?: ManifestEntry[]
+): Promise<PlanFile> {
+  const manifests = allManifests ?? (await loadAllManifests());
   const manifestMap = new Map<string, ManifestEntry>();
-  for (const m of allManifests) {
+  for (const m of manifests) {
     manifestMap.set(m.manifest.id, m);
   }
 

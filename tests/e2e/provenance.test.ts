@@ -1,12 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { expectCliVariants, runCliPipeline } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { expectCliVariants } from '../testkit/cli.ts';
+import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
 test('CLI exposes provenance registry as text and JSON contracts', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true });
-
+  await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
     const { json: provenance } = await expectCliVariants<{
       formatVersion: string;
       artifacts: Array<{
