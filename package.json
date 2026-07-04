@@ -33,6 +33,7 @@
     "depcruise": "bunx --bun dependency-cruiser@17.3.10 \"platform/**/*.ts\" --config .dependency-cruiser.json",
     "jscpd": "bunx --bun jscpd@4.0.9 platform/ scripts/ -o report/jscpd --reporters html,console,json --format typescript,javascript --ignore \"**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**\" --min-lines 5 --min-tokens 50 --absolute",
     "discover": "bun scripts/discover-all.ts --json --output report/discover.json",
+    "docs:doctor": "bun docs/scripts/docs-doctor.ts",
     "gitnexus:analyze": "gitnexus analyze --skip-agents-md --no-stats",
     "gitnexus:status": "gitnexus status",
     "gitnexus:mcp": "gitnexus mcp",
@@ -44,8 +45,8 @@
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "check": "bun run check:fast",
     "check:affected": "bun run typecheck && bun run test:affected",
-    "check:fast": "bun run typecheck && bun run test:fast",
-    "check:full": "bun run typecheck && bun run test:full"
+    "check:fast": "bun run typecheck && bun run docs:doctor && bun run test:fast",
+    "check:full": "bun run typecheck && bun run docs:doctor && bun run test:full"
   },
   "dependencies": {
     "change-case": "^5.4.4",

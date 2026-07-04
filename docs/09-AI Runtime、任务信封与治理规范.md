@@ -1,3 +1,9 @@
+---
+title: AI Runtime、任务信封与治理规范
+status: active
+last-reviewed: 2026-07-04
+---
+
 # AI Runtime、任务信封与治理规范
 
 > 目标：定义 AI 角色边界、task envelope schema、写入控制、上下文组装规则。

@@ -1,6 +1,14 @@
+---
+title: Workbench 与可视化规范
+status: active
+last-reviewed: 2026-07-04
+---
+
 # Workbench 与可视化规范
 
 > 目标：定义 Review Workbench、Explain Graph 可视化、语义合约型 block 与 Engineering IR 的演进原则。本文是产品操作面与可视化实现权威；具体 schema 落地仍需同步 `05`、`06`、`08`。
+
+> **导航**：§1-2 终局原则 | §3-6 标准视图与可视化 | §7-9 语义合约与 Generator Strategy | §10 工具证据层与图上操作（10.1-10.6） | §11-12 阶段路线 | §13 只读视图渲染升级记录 | §14 Visual Spec Builder IR 转换
 
 ## 1. 终局原则
 

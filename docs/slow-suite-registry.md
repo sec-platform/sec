@@ -1,3 +1,9 @@
+---
+title: Slow Suite Registry
+status: active
+last-reviewed: 2026-07-04
+---
+
 # Slow suite registry
 
 Slow e2e tests are valuable release/full validation coverage. They are not PR quick lane defaults.
