@@ -48,7 +48,8 @@ beforeEach(() => {
   delete process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
 });
 
-test('targeted fast tests run only the requested fast files', async () => {
+// 这些测试使用全局 mock，必须串行执行以避免并发干扰
+test.serial('targeted fast tests run only the requested fast files', async () => {
   const code = await runFastTests(['tests/unit/test-runner.test.ts']);
 
   expect(code).toBe(0);
@@ -57,7 +58,7 @@ test('targeted fast tests run only the requested fast files', async () => {
   ]);
 });
 
-test('affected tests skip broad fast-suite fallback for unmapped source changes by default', async () => {
+test.serial('affected tests skip broad fast-suite fallback for unmapped source changes by default', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -75,7 +76,7 @@ test('affected tests skip broad fast-suite fallback for unmapped source changes 
   }
 });
 
-test('affected tests run changed fast test files directly', async () => {
+test.serial('affected tests run changed fast test files directly', async () => {
   changedFiles = ['tests/e2e/compiler-smoke.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
@@ -95,7 +96,7 @@ test('affected tests run changed fast test files directly', async () => {
   }
 });
 
-test('affected tests allow broad fast-suite fallback when explicitly enabled', async () => {
+test.serial('affected tests allow broad fast-suite fallback when explicitly enabled', async () => {
   process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK = '1';
   const logs: string[] = [];
   const originalLog = console.log;

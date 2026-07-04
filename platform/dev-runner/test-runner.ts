@@ -23,10 +23,10 @@ function hasBunTestOption(args: string[]): boolean {
 
 function fastTestArgs(args: string[]): string[] {
   if (hasExplicitFastTestFiles(args) || hasBunTestOption(args)) {
-    return ['test', ...args];
+    return ['test', '--concurrent', ...args];
   }
 
-  return ['test', ...getFastTestFilesSync(), ...args];
+  return ['test', '--concurrent', ...getFastTestFilesSync(), ...args];
 }
 
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
