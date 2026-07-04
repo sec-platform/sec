@@ -1,12 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { expectCliJson, expectCliText, expectCliVariants } from '../testkit/cli.ts';
+import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
 test('CLI emits explain JSON for CI consumers', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'all', lock: true });
-
+  await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
     const { json: payload } = await expectCliVariants<{
       graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
       e2eMatrix: {

@@ -3,11 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  adaptWorkspace,
   explainWorkspace,
-  lockWorkspace,
-  upgradeWorkspace,
-  verifyWorkspace
+  upgradeWorkspace
 } from '../../platform/orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson } from '../../platform/shared/fs.ts';
@@ -17,10 +14,10 @@ import {
   expectReviewConflictHint,
   expectReviewRegressionRisk
 } from '../helpers/graph-assertions.ts';
-import { prepareAdaptedWorkspace, prepareComposedWorkspace } from '../testkit/workspace.ts';
+import { prepareAdaptedWorkspace, prepareLockedWorkspace } from '../testkit/workspace.ts';
 
 test('upgrade advances an official block version and preserves a passing pipeline', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-upgrade-' });
+  const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-' });
   const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
 
   const beforeUpgrade = await fs.readFile(
@@ -28,10 +25,6 @@ test('upgrade advances an official block version and preserves a passing pipelin
     'utf8'
   );
   expect(beforeUpgrade).toMatch(/SESSION_BLOCK_VERSION = '0\.1\.0'/);
-
-  await adaptWorkspace(workspaceRoot);
-  await verifyWorkspace(workspaceRoot);
-  await lockWorkspace(workspaceRoot);
 
   const { plan, lock, upgradePlan } = await upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1');
   expect(plan.blocks.find((block) => block.id === 'auth/basic-session')?.version).toBe('0.1.1');

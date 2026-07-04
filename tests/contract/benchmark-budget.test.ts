@@ -19,7 +19,7 @@ import {
 } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-const expectedTestBudgetLocalDefault = 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:full or check:full for full runtime gates';
+const expectedTestBudgetLocalDefault = 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates';
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();
@@ -138,8 +138,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
 
   expect(isTestFile('tests/repair/repair.test.ts')).toBe(true);
   expect(isFastTestFile('tests/repair/repair.test.ts')).toBe(true);
+  expect(isFastTestFile('tests/e2e/registry.test.ts')).toBe(false);
   expect(isTestFile('platform/dev-runner/test-runner.ts')).toBe(false);
   expect(fastTestFiles).not.toContain('project/tests/runtime/acceptance/customer-flow.spec.ts');
+  expect(fastTestFiles.some((file) => file.startsWith('tests/e2e/'))).toBe(false);
   expect(fastTestFiles.every((file) => file.startsWith('tests/'))).toBe(true);
 
   expectContainsAll(formatted, [

@@ -8,7 +8,9 @@ last-reviewed: 2026-07-04
 
 Slow e2e tests are valuable release/full validation coverage. They are not PR quick lane defaults.
 
-The slow lane uses a suite registry instead of ad hoc filename filtering. Each suite has a stable id, owner, timeout budget, and file list derived from the discovered slow test files.
+The slow lane uses a suite registry instead of ad hoc filename filtering. Every `tests/e2e/**/*.test.ts` and `tests/e2e/**/*.spec.ts` file is slow by default. Each suite has a stable id, owner, timeout budget, and file list derived from the discovered slow test files.
+
+Suites are file-granular by default. This keeps PR risk gates narrow and lets the release/full CI matrix parallelize slow e2e files at the highest useful shard level. Group files into one suite only when they must share setup, ordering, or diagnostics.
 
 ## Commands
 

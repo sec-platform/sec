@@ -3,13 +3,11 @@ import { expect, test } from 'bun:test';
 import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { expectCliJson, expectCliText, expectCliVariants, runCliPipeline } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { expectCliJson, expectCliText, expectCliVariants } from '../testkit/cli.ts';
+import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
 test('CLI exposes policy report as text and JSON contracts', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
-
+  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: policyReport } = await expectCliVariants<{
       status: string;
       merged: { policies: Array<{ id: string; targets: string[] }> };
@@ -68,9 +66,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
 }, 120000);
 
 test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
-
+  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: coverageReport } = await expectCliVariants<{
       status: string;
       blocks: Array<{ id: string; coveredBy: string[]; uncovered: boolean }>;
@@ -156,9 +152,7 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
 }, 120000);
 
 test('CLI exposes runtime report as text and JSON contracts', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
-
+  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: runtimeReport } = await expectCliVariants<{
       status: string;
       build: { status: string };
@@ -214,8 +208,7 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
 }, 120000);
 
 test('CLI runs verify with JSON output for CI consumers', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot);
+  await withWorkspaceScenario('adapted-default', async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['verify', '--lane', 'fast'], ['Verification passed (fast)\n']);
 
     const directVerificationReport = await expectCliJson<VerificationReport>(
@@ -250,9 +243,7 @@ test('CLI runs verify with JSON output for CI consumers', async () => {
 }, 120000);
 
 test('CLI exposes verification report as text and JSON contracts', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { verifyLane: 'fast' });
-
+  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: verificationReport } = await expectCliVariants<VerificationReport>(workspaceRoot, ['verification', 'report'], {
       text: [
         'Verification report passed; requestedLane=fast; failedLanes=none',

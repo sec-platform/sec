@@ -5,6 +5,7 @@ import {
     adaptWorkspace,
     addBlock,
     composeWorkspace,
+    explainWorkspace,
     initWorkspace,
     lockWorkspace,
     resolveWorkspace,
@@ -16,9 +17,18 @@ import type { LockFile, VerificationReport } from '../../platform/shared/types.t
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const templateParent = path.join(workspaceParent, '.templates');
+const templateCacheVersion = 'v2-prune-transient-dirs';
 const deferredCleanupDirs = new Set<string>();
 
-export type WorkspaceTemplateKind = 'empty-default' | 'resolved-default' | 'composed-default' | 'adapted-default' | 'locked-default';
+export type WorkspaceTemplateKind =
+  | 'empty-default'
+  | 'resolved-default'
+  | 'composed-default'
+  | 'adapted-default'
+  | 'verified-fast-default'
+  | 'locked-default'
+  | 'locked-all-default'
+  | 'explained-all-default';
 export type WorkspaceScenarioKind = WorkspaceTemplateKind;
 
 afterAll(async () => {
@@ -84,13 +94,21 @@ async function prepareWorkspacePipeline(
   await adaptWorkspace(workspaceRoot);
   if (target === 'adapted-default') return;
 
-  await verifyWorkspace(workspaceRoot, { lane: 'fast' });
-  // verify --lane fast 仅产出 passStatus.verify='pending'（非 'succeeded'）。
-  // 为让后续 lockWorkspace 通过 assertPassStatus 断言，需将 verify 状态提升为 succeeded。
-  // 这等价于原 overview.test.ts 在 runCliPipeline 后手动调用 writePassingVerificationState 的做法。
-  // 注意：tests/testkit 不能依赖 tests/helpers，故此处内联实现（与 helpers/verification-fixtures.ts 保持等价）。
-  await promoteFastVerificationToPassing(workspaceRoot);
+  const verificationLane = target === 'locked-all-default' || target === 'explained-all-default' ? 'all' : 'fast';
+  await verifyWorkspace(workspaceRoot, { lane: verificationLane });
+  if (target === 'verified-fast-default') return;
+
+  if (verificationLane === 'fast') {
+    // verify --lane fast 仅产出 passStatus.verify='pending'（非 'succeeded'）。
+    // 为让后续 lockWorkspace 通过 assertPassStatus 断言，需将 verify 状态提升为 succeeded。
+    // 这等价于原 overview.test.ts 在 runCliPipeline 后手动调用 writePassingVerificationState 的做法。
+    // 注意：tests/testkit 不能依赖 tests/helpers，故此处保留私有副本以维护分层契约。
+    await promoteFastVerificationToPassing(workspaceRoot);
+  }
   await lockWorkspace(workspaceRoot);
+  if (target === 'explained-all-default') {
+    await explainWorkspace(workspaceRoot);
+  }
 }
 
 // 等价于 tests/helpers/verification-fixtures.ts 的 writePassingVerificationState。
@@ -125,7 +143,8 @@ async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
   await fs.mkdir(stagingRoot, { recursive: true });
   try {
     await prepareWorkspacePipeline(stagingRoot, {}, kind);
-    await fs.writeFile(path.join(stagingRoot, '.template-ready'), `${kind}\n`, 'utf8');
+    await pruneTransientWorkspaceState(stagingRoot);
+    await fs.writeFile(path.join(stagingRoot, '.template-ready'), templateReadyMarker(kind), 'utf8');
     await fs.rm(templateRoot, { recursive: true, force: true });
     try {
       await fs.rename(stagingRoot, templateRoot);
@@ -140,6 +159,26 @@ async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
     throw error;
   }
   return templateRoot;
+}
+
+function templateReadyMarker(kind: WorkspaceTemplateKind): string {
+  return `${kind}\n${templateCacheVersion}\n`;
+}
+
+async function templateIsReady(kind: WorkspaceTemplateKind, markerPath: string): Promise<boolean> {
+  try {
+    const marker = await fs.readFile(markerPath, 'utf8');
+    return marker === templateReadyMarker(kind);
+  } catch {
+    return false;
+  }
+}
+
+async function pruneTransientWorkspaceState(workspaceRoot: string): Promise<void> {
+  await Promise.all([
+    fs.rm(path.join(workspaceRoot, 'node_modules'), { recursive: true, force: true }),
+    fs.rm(path.join(workspaceRoot, 'project', 'node_modules'), { recursive: true, force: true })
+  ]);
 }
 
 async function withTemplateLock<T>(kind: WorkspaceTemplateKind, callback: () => Promise<T>): Promise<T> {
@@ -171,18 +210,21 @@ async function withTemplateLock<T>(kind: WorkspaceTemplateKind, callback: () => 
 async function ensureTemplate(kind: WorkspaceTemplateKind): Promise<string> {
   const templateRoot = path.join(templateParent, kind);
   const markerPath = path.join(templateRoot, '.template-ready');
-  try {
-    await fs.access(markerPath);
+  if (await templateIsReady(kind, markerPath)) {
     return templateRoot;
-  } catch {}
+  }
 
   return withTemplateLock(kind, async () => {
-    try {
-      await fs.access(markerPath);
+    if (await templateIsReady(kind, markerPath)) {
       return templateRoot;
-    } catch {}
+    }
     return createTemplate(kind);
   });
+}
+
+function shouldCloneTemplatePath(source: string): boolean {
+  const basename = path.basename(source);
+  return basename !== '.template-ready' && !source.split(path.sep).includes('node_modules');
 }
 
 export async function cloneWorkspaceTemplate(
@@ -194,7 +236,7 @@ export async function cloneWorkspaceTemplate(
   await withTemplateLock(kind, async () => {
     await fs.cp(templateRoot, workspaceRoot, {
       recursive: true,
-      filter: (source) => path.basename(source) !== '.template-ready'
+      filter: shouldCloneTemplatePath
     });
   });
   return workspaceRoot;
@@ -224,6 +266,15 @@ export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOp
   }
   const workspaceRoot = await createWorkspace(options.prefix);
   await prepareWorkspacePipeline(workspaceRoot, options, 'locked-default');
+  return workspaceRoot;
+}
+
+export async function prepareVerifiedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
+  if (defaultWorkspaceOptions(options)) {
+    return cloneWorkspaceTemplate('verified-fast-default', options.prefix ?? 'engineering-compiler-verified-');
+  }
+  const workspaceRoot = await createWorkspace(options.prefix);
+  await prepareWorkspacePipeline(workspaceRoot, options, 'verified-fast-default');
   return workspaceRoot;
 }
 

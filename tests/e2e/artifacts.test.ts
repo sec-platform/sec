@@ -25,10 +25,9 @@ import {
   expectCliJson,
   expectCliSuccess,
   expectCliText,
-  runCliInProcess as runCli,
-  runCliPipeline
+  runCliInProcess as runCli
 } from '../testkit/cli.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
 
 type ReviewArtifactSummary = CiArtifactSummary & {
   uploadGroups?: CiArtifactUploadGroup[];
@@ -111,9 +110,7 @@ function expectArtifactPathsPayload(payload: ArtifactPathsPayload, expected: Exp
 }
 
 test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await runCliPipeline(workspaceRoot, { target: 'composed' });
-
+  await withWorkspaceScenario('explained-all-default', async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['install', 'manifest'], [
       'Install manifest 7 steps',
       'Blocks: auth/basic-session, entity/customer-basic, tenant/basic-workspace',
@@ -206,10 +203,6 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       });
     });
 
-    await expectCliSuccess(workspaceRoot, ['adapt'], 'Adapted slots\n');
-    await expectCliSuccess(workspaceRoot, ['verify', '--lane', 'all']);
-    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
-
     await expectCliText(workspaceRoot, ['lock', 'inspect'], [
       'Graph lock ',
       'stack=nextjs-ts-prisma-sqlite;',
@@ -239,7 +232,6 @@ test('CLI emits artifact manifest JSON for CI upload consumers', async () => {
       });
     });
 
-    await expectCliSuccess(workspaceRoot, ['explain']);
     {
       const { overviewViewPath } = getWorkspacePaths(workspaceRoot);
       await fs.rm(overviewViewPath, { force: true });

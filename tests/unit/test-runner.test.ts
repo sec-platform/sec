@@ -39,7 +39,8 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
   }
 }));
 
-const { runAffectedTests, runFastTests } = await import('../../platform/dev-runner/test-runner.ts');
+const { runAffectedTests, runFastTests, runSlowTests } = await import('../../platform/dev-runner/test-runner.ts');
+const { slowTestSuiteFiles } = await import('../../platform/shared/test-budget-contract.ts');
 
 beforeEach(() => {
   commandCalls.length = 0;
@@ -56,6 +57,66 @@ test.serial('targeted fast tests run only the requested fast files', async () =>
   expect(devCommandCalls).toEqual([
     { command: 'bun', args: ['test', '--concurrent', 'tests/unit/test-runner.test.ts'] }
   ]);
+});
+
+test.serial('fast tests keep the fast file boundary when Bun options are provided', async () => {
+  const code = await runFastTests(['--timeout', '30000']);
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toHaveLength(1);
+  expect(devCommandCalls[0]?.command).toBe('bun');
+  expect(devCommandCalls[0]?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
+  expect(devCommandCalls[0]?.args).toContain('tests/unit/test-runner.test.ts');
+  expect(devCommandCalls[0]?.args).toContain('--timeout');
+  expect(devCommandCalls[0]?.args).toContain('30000');
+  expect(devCommandCalls[0]?.args.some((arg) => arg.startsWith('tests/e2e/'))).toBe(false);
+});
+
+test.serial('fast tests reject explicit slow file selectors', async () => {
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => {
+    errors.push(String(message));
+  };
+
+  try {
+    const code = await runFastTests(['tests/e2e/registry.test.ts']);
+
+    expect(code).toBe(1);
+    expect(devCommandCalls).toEqual([]);
+    expect(errors).toContain('Fast test runner cannot run slow test files: tests/e2e/registry.test.ts');
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test.serial('slow suite selector expands to the registered suite files', async () => {
+  const suiteFiles = slowTestSuiteFiles('e2e-pipeline');
+  const code = await runSlowTests(['--suite', 'e2e-pipeline', '--timeout', '180000']);
+
+  expect(code).toBe(0);
+  expect(suiteFiles.length).toBeGreaterThan(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', ...suiteFiles, '--timeout', '180000'] }
+  ]);
+});
+
+test.serial('slow suite selector rejects unknown suite ids', async () => {
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => {
+    errors.push(String(message));
+  };
+
+  try {
+    const code = await runSlowTests(['--suite', 'not-a-suite']);
+
+    expect(code).toBe(1);
+    expect(devCommandCalls).toEqual([]);
+    expect(errors[0]).toContain('Unknown slow test suite "not-a-suite". Available suites:');
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test.serial('affected tests skip broad fast-suite fallback for unmapped source changes by default', async () => {
@@ -93,6 +154,33 @@ test.serial('affected tests run changed fast test files directly', async () => {
     ]);
   } finally {
     console.log = originalLog;
+  }
+});
+
+test.serial('affected tests treat changed slow files as notice-only quick-lane input', async () => {
+  changedFiles = ['tests/e2e/registry.test.ts'];
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+  console.error = (message?: unknown) => {
+    errors.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests();
+
+    expect(code).toBe(0);
+    expect(devCommandCalls).toEqual([]);
+    expect(errors).toEqual([]);
+    expect(logs).toContain('Changed slow test files require PR risk or release/full verification: tests/e2e/registry.test.ts');
+    expect(logs).toContain('No affected fast test files detected.');
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
   }
 });
 

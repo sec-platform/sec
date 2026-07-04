@@ -99,8 +99,8 @@ export const testImpactRules: TestImpactRule[] = [
   {
     owner: 'registry',
     sourcePattern: /^platform\/registry\//,
-    fast: ['tests/unit/path-containment.test.ts', 'tests/integration/project-runtime.test.ts', 'tests/e2e/registry.test.ts'],
-    slow: ['tests/e2e/private-registry.test.ts']
+    fast: ['tests/unit/path-containment.test.ts', 'tests/integration/project-runtime.test.ts'],
+    slow: ['tests/e2e/registry.test.ts', 'tests/e2e/private-registry.test.ts']
   },
   {
     owner: 'scripts',
