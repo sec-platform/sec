@@ -1,3 +1,9 @@
+---
+title: Verification、Provenance 与 Graph 规范
+status: active
+last-reviewed: 2026-07-04
+---
+
 # Verification、Provenance 与 Graph 规范
 
 > 目标：定义验收、Policy、来源追踪和可解释图谱。

@@ -1,3 +1,9 @@
+---
+title: 测试架构
+status: active
+last-reviewed: 2026-07-04
+---
+
 # Test architecture
 
 This repository uses a minimal test architecture optimized for one source of truth, clear CI signal, and low long-term maintenance cost.

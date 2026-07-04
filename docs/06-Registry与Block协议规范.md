@@ -1,3 +1,9 @@
+---
+title: Registry 与 Block 协议规范
+status: stable
+last-reviewed: 2026-07-04
+---
+
 # Registry 与 Block 协议规范
 
 > 目标：定义 block 的打包、版本、兼容、安装与命名协议。

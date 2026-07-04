@@ -1,3 +1,9 @@
+---
+title: 升级迁移与 Override 规范
+status: stable
+last-reviewed: 2026-07-04
+---
+
 # 升级迁移与 Override 规范
 
 > 目标：确保 block 升级可控、人工改动不会在下次编译时丢失。

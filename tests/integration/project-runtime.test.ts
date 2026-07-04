@@ -105,8 +105,8 @@ describe('test budget and benchmark contracts', () => {
 
     expect(scripts.check).toBe('bun run check:fast');
     expect(scripts['check:affected']).toBe('bun run typecheck && bun run test:affected');
-    expect(scripts['check:fast']).toBe('bun run typecheck && bun run test:fast');
-    expect(scripts['check:full']).toBe('bun run typecheck && bun run test:full');
+    expect(scripts['check:fast']).toBe('bun run typecheck && bun run docs:doctor && bun run test:fast');
+    expect(scripts['check:full']).toBe('bun run typecheck && bun run docs:doctor && bun run test:full');
     expect(scripts['test:watch']).toBeUndefined();
     expect(scripts['test:coverage']).toBeUndefined();
 

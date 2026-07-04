@@ -1,3 +1,9 @@
+---
+title: 测试反馈与 CI 分层
+status: active
+last-reviewed: 2026-07-04
+---
+
 # Test feedback and CI lane principles
 
 This document is the source of truth for local test feedback, PR quick validation, PR risk validation, release/full validation, package script boundaries, and test contract ownership.
