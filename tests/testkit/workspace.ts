@@ -33,9 +33,7 @@ export type WorkspaceScenarioKind = WorkspaceTemplateKind;
 
 afterAll(async () => {
   for (const directory of deferredCleanupDirs) {
-    try {
-      await fs.rm(directory, { recursive: true, force: true });
-    } catch {}
+    await removeWorkspaceDirectory(directory);
   }
 }, 120000);
 
@@ -43,6 +41,24 @@ function sleepMs(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, delayMs);
   });
+}
+
+async function removeWorkspaceDirectory(directory: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.rm(directory, { recursive: true, force: true });
+      deferredCleanupDirs.delete(directory);
+      return;
+    } catch (error) {
+      const failure = error as NodeJS.ErrnoException;
+      if (failure.code !== 'EBUSY' && failure.code !== 'EPERM') {
+        throw error;
+      }
+      await sleepMs(100 * (attempt + 1));
+    }
+  }
+  await fs.rm(directory, { recursive: true, force: true });
+  deferredCleanupDirs.delete(directory);
 }
 
 export async function createWorkspace(prefix = 'engineering-compiler-test-'): Promise<string> {
@@ -61,7 +77,7 @@ export async function withTempWorkspace<T>(
   try {
     return await callback(workspaceRoot);
   } finally {
-    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await removeWorkspaceDirectory(workspaceRoot);
   }
 }
 
@@ -299,7 +315,7 @@ export async function withWorkspaceScenario<T>(
   try {
     return await callback(workspaceRoot);
   } finally {
-    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await removeWorkspaceDirectory(workspaceRoot);
   }
 }
 
