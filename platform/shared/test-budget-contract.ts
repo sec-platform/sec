@@ -48,9 +48,41 @@ const TEST_FILE_GLOBS = [
   'tests/**/*.spec.tsx'
 ];
 
-// All former slow e2e tests have been downgraded to fast tests.
-// No test requires a browser — they are all compiler pipeline operations on temp workspaces.
-const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [];
+// Slow test suites: e2e tests that run full compiler pipeline operations.
+// These tests involve workspace preparation, compose, verify, lock, explain, etc.
+// They are separated from fast tests (unit/integration/contract) for faster feedback loops.
+const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
+  {
+    id: 'e2e-pipeline',
+    owner: 'compiler-pipeline-e2e',
+    timeoutMs: 180_000,
+    match: /^tests\/e2e\/(pipeline|compiler-smoke|end-to-end|expanded-blocks|workspace|lanes)\.test\.ts$/
+  },
+  {
+    id: 'e2e-verify-lock',
+    owner: 'compiler-verify-lock-e2e',
+    timeoutMs: 180_000,
+    match: /^tests\/e2e\/(verification|provenance|private-registry|runtime-host)\.test\.ts$/
+  },
+  {
+    id: 'e2e-upgrade-repair',
+    owner: 'compiler-upgrade-repair-e2e',
+    timeoutMs: 180_000,
+    match: /^tests\/e2e\/(upgrade|repair|conflicts|dry-run-plan)\.test\.ts$/
+  },
+  {
+    id: 'e2e-explain-summary',
+    owner: 'compiler-explain-summary-e2e',
+    timeoutMs: 120_000,
+    match: /^tests\/e2e\/(explain|summary|local-views|artifacts|demo-doctor)\.test\.ts$/
+  },
+  {
+    id: 'e2e-policy-manifest',
+    owner: 'compiler-policy-manifest-e2e',
+    timeoutMs: 180_000,
+    match: /^tests\/e2e\/(policy|manifest|prisma-merge)\.test\.ts$/
+  }
+];
 
 function scanTestFilesSync(): string[] {
   const files = new Set<string>();

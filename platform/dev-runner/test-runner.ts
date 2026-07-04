@@ -36,8 +36,15 @@ function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
+function slowTestArgs(args: string[]): string[] {
+  if (args.some((arg) => arg.startsWith('-'))) {
+    return ['test', ...args];
+  }
+  return ['test', ...getSlowTestFilesSync(), ...args];
+}
+
 function fullTestInvocations(): string[][] {
-  return [fastTestArgs([])];
+  return [fastTestArgs([]), slowTestArgs([])];
 }
 
 function affectedTestsBaseRef(): string | undefined {
@@ -163,6 +170,14 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   await withTestDependencies(async ({ binPath }) => {
     exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(pathEnv(binPath)));
+  });
+  return exitCode;
+}
+
+export async function runSlowTests(args: string[] = []): Promise<number> {
+  let exitCode = 1;
+  await withTestDependencies(async ({ binPath }) => {
+    exitCode = await runDevCommand('bun', slowTestArgs(args), pathEnv(binPath));
   });
   return exitCode;
 }

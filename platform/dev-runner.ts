@@ -4,7 +4,7 @@ import { runAffectedTests, runContractFreeze, runFastTests, runTests } from './d
 import { runTypecheck } from './dev-runner/typecheck-runner.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:affected|test:fast|contract-freeze|imports:check|imports:organize|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check|imports:organize|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -38,7 +38,9 @@ async function main(): Promise<void> {
           ? await runAffectedTests(args)
           : target === 'test:fast'
             ? await runFastTests(args)
-            : usage();
+            : target === 'test:slow'
+              ? await runSlowTests(args)
+              : usage();
 
   process.exitCode = code;
 }
