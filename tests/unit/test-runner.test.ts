@@ -63,13 +63,26 @@ test.serial('fast tests keep the fast file boundary when Bun options are provide
   const code = await runFastTests(['--timeout', '30000']);
 
   expect(code).toBe(0);
-  expect(devCommandCalls).toHaveLength(1);
+  expect(devCommandCalls).toHaveLength(2);
   expect(devCommandCalls[0]?.command).toBe('bun');
   expect(devCommandCalls[0]?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
   expect(devCommandCalls[0]?.args).toContain('tests/unit/test-runner.test.ts');
   expect(devCommandCalls[0]?.args).toContain('--timeout');
   expect(devCommandCalls[0]?.args).toContain('30000');
   expect(devCommandCalls[0]?.args.some((arg) => arg.startsWith('tests/e2e/'))).toBe(false);
+  expect(devCommandCalls[1]).toEqual({
+    command: 'bun',
+    args: ['test', 'tests/integration/project-runtime.test.ts', '--timeout', '30000']
+  });
+});
+
+test.serial('serial fast test files run outside the concurrent invocation', async () => {
+  const code = await runFastTests(['tests/integration/project-runtime.test.ts']);
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', 'tests/integration/project-runtime.test.ts'] }
+  ]);
 });
 
 test.serial('fast tests reject explicit slow file selectors', async () => {
@@ -196,9 +209,13 @@ test.serial('affected tests allow broad fast-suite fallback when explicitly enab
     const code = await runAffectedTests();
 
     expect(code).toBe(0);
-    expect(devCommandCalls).toHaveLength(1);
+    expect(devCommandCalls).toHaveLength(2);
     expect(devCommandCalls[0]?.command).toBe('bun');
     expect(devCommandCalls[0]?.args[0]).toBe('test');
+    expect(devCommandCalls[1]).toEqual({
+      command: 'bun',
+      args: ['test', 'tests/integration/project-runtime.test.ts']
+    });
     expect(logs).toContain('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
   } finally {
     console.log = originalLog;
