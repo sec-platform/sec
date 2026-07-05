@@ -49,7 +49,8 @@ export type CiContract = {
 const prQuickLaneCommands = [
   'bun install --frozen-lockfile',
   'bun run imports:check',
-  'bun scripts/ci-pr-quick.ts'
+  'bun run typecheck',
+  'bun run test:affected'
 ];
 
 const prRiskLaneCommands = [
