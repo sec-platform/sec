@@ -30,8 +30,9 @@ function renderStateTransitionMap(task: SemanticLoweringTask, loaded: LoadedSema
 
   const valueInitializer = `${JSON.stringify(values)} as const satisfies readonly ${boundType}[]`;
   const transitionInitializer = `${JSON.stringify(transitions, null, 2)} as const`;
+  const nextEntries = values.map((value) => [value, nextByValue.get(value)!] as const);
   const nextInitializer = `${JSON.stringify(
-    Object.fromEntries(values.map((value) => [value, nextByValue.get(value)])),
+    Object.fromEntries(nextEntries),
     null,
     2
   )} as const satisfies Record<${boundType}, ${boundType}>`;
