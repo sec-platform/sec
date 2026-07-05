@@ -17,6 +17,7 @@ import {
 import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
+import { partitionFastTestFiles } from './fast-test-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -96,14 +97,27 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
   return selected;
 }
 
-function fastTestArgs(args: string[]): string[] {
+function fastTestArgs(files: string[], options: string[]): string[] {
+  return ['test', '--concurrent', ...files, ...options];
+}
+
+function fastTestInvocations(args: string[]): string[][] {
   const { options, selectors } = partitionBunTestArgs(args);
   const slowSelectors = selectors.filter(isSlowTestFile);
   if (slowSelectors.length > 0) {
     throw new Error(`Fast test runner cannot run slow test files: ${slowSelectors.join(', ')}`);
   }
 
-  return ['test', '--concurrent', ...selectMatchingTestFiles(getFastTestFilesSync(), selectors, 'fast'), ...options];
+  const selectedFiles = selectMatchingTestFiles(getFastTestFilesSync(), selectors, 'fast');
+  const partition = partitionFastTestFiles(selectedFiles);
+  const invocations: string[][] = [];
+  if (partition.concurrent.length > 0) {
+    invocations.push(fastTestArgs(partition.concurrent, options));
+  }
+  for (const file of partition.serial) {
+    invocations.push(['test', file, ...options]);
+  }
+  return invocations;
 }
 
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -184,7 +198,7 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
 function fullTestInvocations(): string[][] {
   const slowSelection = slowTestArgSelection([]);
   return [
-    fastTestArgs([]),
+    ...fastTestInvocations([]),
     slowSelection.kind === 'run' ? slowSelection.args : []
   ].filter((invocation) => invocation.length > 0);
 }
@@ -335,7 +349,10 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   await withTestDependencies(async ({ binPath }) => {
     try {
-      exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(pathEnv(binPath)));
+      for (const invocation of fastTestInvocations(args)) {
+        exitCode = await runDevCommand('bun', invocation, fastTestEnv(pathEnv(binPath)));
+        if (exitCode !== 0) return;
+      }
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       exitCode = 1;
