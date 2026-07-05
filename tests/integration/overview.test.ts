@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
-    expectCliJson,
-    expectCliSuccess,
-    expectCliText,
-    runCliInProcess
+  expectCliJson,
+  expectCliSuccess,
+  expectCliText,
+  runCliInProcess
 } from '../testkit/cli.ts';
 import { prepareLockedWorkspace, withTempWorkspace } from '../testkit/workspace.ts';
 

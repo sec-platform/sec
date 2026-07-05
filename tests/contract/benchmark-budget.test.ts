@@ -1,21 +1,21 @@
 import { expect, test } from 'bun:test';
 import {
-    buildBenchmarkTaskSuiteContract,
-    formatBenchmarkTaskSuiteContract
+  buildBenchmarkTaskSuiteContract,
+  formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
-    buildTestBudgetContract,
-    formatTestBudgetContract,
-    getFastTestFilesSync,
-    isFastTestFile,
-    isTestFile
+  buildTestBudgetContract,
+  formatTestBudgetContract,
+  getFastTestFilesSync,
+  isFastTestFile,
+  isTestFile
 } from '../../platform/shared/test-budget-contract.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
-    expectBenchmarkTaskSuiteSelfConsistent,
-    expectTestBudgetSelfConsistent
+  expectBenchmarkTaskSuiteSelfConsistent,
+  expectTestBudgetSelfConsistent
 } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
