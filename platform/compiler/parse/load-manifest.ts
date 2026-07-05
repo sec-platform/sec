@@ -75,7 +75,7 @@ export function resolveRegistrySources(
 
 function manifestEntryFromPath(
   registrySource: ResolvedRegistrySource,
-  manifest: BlockManifest,
+  manifest: ManifestEntry['manifest'],
   manifestPath: string
 ): ManifestEntry {
   return {
@@ -90,7 +90,7 @@ function manifestEntryFromPath(
   };
 }
 
-export function validateManifest(manifest: BlockManifest): void {
+export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {
   if (!manifest?.id || !manifest?.version || !manifest?.kind) {
     throw new CompilerError('MANIFEST-SCHEMA-001', 'Manifest missing id/version/kind');
   }
