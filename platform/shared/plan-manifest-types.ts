@@ -88,7 +88,7 @@ export interface ManifestUiHook {
   renderSnippet?: string;
 }
 
-export interface BlockManifest {
+interface BlockManifestBase {
   id: string;
   version: string;
   kind: ManifestKind;
@@ -97,8 +97,6 @@ export interface BlockManifest {
   requires: string[];
   provides: string[];
   conflicts: string[];
-  contracts: ManifestContractReference[];
-  generators: ManifestGenerator[];
   installs: InstallInstruction[];
   pins: ManifestPins;
   slots: ManifestSlot[];
@@ -108,6 +106,11 @@ export interface BlockManifest {
   uiPortals?: ManifestUiPortal[];
   uiHooks?: ManifestUiHook[];
 }
+
+export type BlockManifest = BlockManifestBase & Partial<{
+  contracts: ManifestContractReference[];
+  generators: ManifestGenerator[];
+}>;
 
 export interface ManifestEntry {
   manifest: BlockManifest;
