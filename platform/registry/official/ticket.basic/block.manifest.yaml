@@ -5,6 +5,22 @@ stackProfiles:
   - nextjs-ts-prisma-sqlite
 contracts:
   - path: contracts/ticket.yaml
+generators:
+  - id: ticket-status-runtime-contract
+    kind: generate-state-transition-map
+    contract: ticket-core
+    state: ticket-status
+    target: src/installed/ticket/ticket-semantic-contract.ts
+    consumes:
+      - state
+      - transition
+    produces: typescript-runtime-contract
+    typeBinding:
+      name: TicketStatus
+      importFrom: ../../runtime/database.ts
+    verification:
+      - typecheck
+      - ticket_status_can_transition
 requires:
   - auth/session
   - tenant/context
