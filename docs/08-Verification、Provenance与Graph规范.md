@@ -1,7 +1,7 @@
 ---
 title: Verification、Provenance 与治理投影规范
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-05
 ---
 
 # Verification、Provenance 与治理投影规范
@@ -72,6 +72,48 @@ Fact Provenance:      这个工程判断为什么成立？
 ```
 
 不得把文件 origin 自动当成文件内所有语义 Fact 的 authority。
+
+### 4.1 Project Baseline 与只读区完整性
+
+`.sec/cache/project-baseline.json` 是**本地、本轮编译链的项目只读区完整性快照**。它不是 stable artifact，不是 Provenance，不是 Evidence，也不进入 Engineering IR。
+
+它只回答：
+
+```text
+最后一个授权写阶段结束后，Verify 前的 project 只读输出是否仍保持原样？
+```
+
+阶段顺序必须是：
+
+```text
+previous Artifact Provenance / previous Project Baseline
+  ↓ pre-compile drift guard
+enter Compose writable phase
+  ↓
+Compose
+  ↓
+Adapt + adapt overrides
+  ↓ write current Project Baseline
+Verify
+  ↓ verify current Project Baseline
+Artifact Provenance / Verification Evidence
+```
+
+进入 Compose 可写阶段前，Compiler 必须先验证上一版 Artifact Provenance；没有 Provenance 时才回退上一 Project Baseline。这样人工或 Agent 对旧只读区的修改不会被下一次 Compose 静默覆盖。
+
+Compose 和 Adapt 都属于授权写阶段。Adapt 完成 Slot 写入和所有 adapt override 后，Compiler 从以下路径并集建立本轮 baseline：
+
+```text
+installPlan.to
+∪ generatedPaths
+∪ override targets
+```
+
+随后排除 Slot writable target、`control/**`、`source/**`、`.sec/**`、`next-env.d.ts` 和 `tsconfig.json`。baseline 声明的只读文件缺失时必须 fail fast，不允许静默少记录一个 hash。
+
+Verify 优先检查本轮 Project Baseline；只有 baseline 不存在时才兼容性回退 Artifact Provenance。Compiler 合法重生成不会再被上一编译 revision 的 Provenance hash 误判为 drift，但 Adapt 后对只读输出的额外修改仍必须产生 `ERROR-DRIFT-001`。
+
+Project Baseline 使用 `.sec/cache` 是因为它只服务本地 Pass 间完整性；禁止把它加入 `CI_ARTIFACT_FILES`、Artifact Manifest、Contract Freeze 或审计证据链。
 
 ## 5. ExplainGraph
 
