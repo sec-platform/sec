@@ -3,6 +3,8 @@ import { CompilerError } from '../shared/errors.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 import type { LoadedSemanticContract } from '../shared/semantic-contract-types.ts';
 import type { SemanticGeneratorTask as SemanticLoweringTask } from '../shared/semantic-generator-types.ts';
+import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
+import { assertStateTransitionFunctions } from './state-transition-plan.ts';
 
 export function resolveSemanticPlanTasks(
   manifestEntries: readonly ManifestEntry[],
@@ -47,4 +49,14 @@ export function resolveSemanticPlanTasks(
   }
 
   return tasks.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export function buildSemanticGeneratorPlan(
+  manifestEntries: readonly ManifestEntry[],
+  semanticContracts: readonly LoadedSemanticContract[]
+): SemanticLoweringTask[] {
+  const tasks = resolveSemanticPlanTasks(manifestEntries, semanticContracts);
+  assertStateTransitionFunctions(tasks, semanticContracts);
+  assertUniqueSemanticOutputPaths(tasks);
+  return tasks;
 }
