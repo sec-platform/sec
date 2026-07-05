@@ -60,8 +60,8 @@ export function expectFullLaneCoversCorrectnessBackstop(contract: CiContract): v
   expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
     'bun run typecheck',
     'bun run test:contract-freeze',
-    'bun run platform -- verify --lane all --json --compact',
-    'bun run platform -- reference check --json --compact'
+    'bun run sec -- verify --lane all --json --compact',
+    'bun run sec -- reference check --json --compact'
   ]));
 }
 

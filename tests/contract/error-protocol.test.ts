@@ -20,7 +20,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   expect(contract).toMatchObject({
     formatVersion: '1',
     status: 'active',
-    command: 'bun run platform -- contract errors --json',
+    command: 'bun run sec -- contract errors --json',
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
     artifactPaths: [
       CI_ARTIFACT_FILES.reviewSummary,

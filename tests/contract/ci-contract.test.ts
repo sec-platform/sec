@@ -38,7 +38,7 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
 
   expect(contract.formatVersion).toBe('1');
   expect(contract.status).toBe('active');
-  expect(contract.command).toBe('bun run platform -- contract ci --json');
+  expect(contract.command).toBe('bun run sec -- contract ci --json');
   expect(contract.defaultGate).toBe('fast-runtime-verify');
   expect(contract.fullRuntimeGate).toBe('full-runtime-verify');
   expectCiContractSelfConsistent(contract);
@@ -58,12 +58,12 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
 
   expect(defaultGate).toMatchObject({
     phase: 'verify',
-    command: 'bun run platform -- verify --json --compact',
+    command: 'bun run sec -- verify --json --compact',
     produces: [CI_ARTIFACT_FILES.verificationReport]
   });
   expect(fullRuntimeGate).toMatchObject({
     phase: 'verify',
-    command: 'bun run platform -- verify --lane all --json --compact',
+    command: 'bun run sec -- verify --lane all --json --compact',
     produces: expect.arrayContaining([
       CI_ARTIFACT_FILES.verificationReport,
       CI_ARTIFACT_FILES.runtimeReport,
@@ -96,9 +96,9 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
         `Step ${contract.defaultGate}; phase=verify; command=${defaultGate.command}; producesCount=${defaultGate.producesCount}`,
         `Step ${contract.fullRuntimeGate}; phase=verify; command=${fullRuntimeGate.command}; producesCount=${fullRuntimeGate.producesCount}`,
         'Step contract-freeze; phase=quality; command=bun run test:contract-freeze',
-        'Step reference-drift; phase=quality; command=bun run platform -- reference check --json --compact',
-        'Step diagnostic-review-matrix; phase=diagnostics; command=bun run platform -- review matrix --json --compact',
-        'Step contract-artifacts; phase=artifacts; command=bun run platform -- artifacts --paths --json --compact --kind contract'
+        'Step reference-drift; phase=quality; command=bun run sec -- reference check --json --compact',
+        'Step diagnostic-review-matrix; phase=diagnostics; command=bun run sec -- review matrix --json --compact',
+        'Step contract-artifacts; phase=artifacts; command=bun run sec -- artifacts --paths --json --compact --kind contract'
       ],
       json: {
         status: 'active',
@@ -148,6 +148,6 @@ test('GitHub compiler CI workflow covers CI command contract gates', async () =>
   expect(workflow).toContain('suite: ${{ fromJSON(needs.compiler-release-slow-matrix.outputs.suites) }}');
   expect(workflow).toContain('bun run test:slow -- --suite ${{ matrix.suite }}');
 
-  expect(workflow).not.toContain('# bun run platform -- verify --json --compact');
+  expect(workflow).not.toContain('# bun run sec -- verify --json --compact');
   expect(workflow).not.toContain('# bun run imports:check');
 });

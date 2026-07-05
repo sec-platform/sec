@@ -45,7 +45,7 @@ test('CLI exposes project overview as text summary and reports missing governanc
     expect(missingArtifactResult.code).toBe(1);
     expect(missingArtifactResult.stdout).toBe('');
     expect(missingArtifactResult.stderr).toContain('Provenance report is missing');
-    expect(missingArtifactResult.stderr).toContain('run the refresh chain, then bun run platform -- explain');
+    expect(missingArtifactResult.stderr).toContain('run the refresh chain, then bun run sec -- explain');
   });
 }, 120000);
 
@@ -83,6 +83,6 @@ test('CLI overview reports missing required artifacts with refresh guidance', as
 
     expect(result.code).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('run the refresh chain, then bun run platform -- explain');
+    expect(result.stderr).toContain('run the refresh chain, then bun run sec -- explain');
   });
 });
