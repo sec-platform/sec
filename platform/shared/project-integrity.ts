@@ -1,7 +1,7 @@
+import { assertCompositionBaseline, readCompositionBaseline } from './composition-baseline.ts';
 import { CompilerError } from './errors.ts';
 import { pathExists, readJson } from './fs.ts';
 import { getWorkspacePaths, posixPath, resolvePathInside } from './paths.ts';
-import { assertCompositionBaseline, readCompositionBaseline } from './composition-baseline.ts';
 import { calculateProjectFileHash } from './project-file-hash.ts';
 import type { ProvenanceFile } from './provenance-types.ts';
 
