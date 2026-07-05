@@ -3,9 +3,9 @@ import { checkReferenceDrift } from './project-integrity.ts';
 
 export async function checkProjectWriteBoundary(workspaceRoot: string): Promise<void> {
   const baseline = await readProjectBaseline(workspaceRoot);
-  if (baseline) {
-    await assertProjectBaseline(workspaceRoot, baseline);
+  if (!baseline) {
+    await checkReferenceDrift(workspaceRoot);
     return;
   }
-  await checkReferenceDrift(workspaceRoot);
+  await assertProjectBaseline(workspaceRoot, baseline);
 }
