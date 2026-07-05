@@ -10,9 +10,9 @@ import type { EngineeringIR } from '../shared/engineering-ir-types.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, posixPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
+import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
-import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 
 function stableManifestPath(entry: ManifestEntry): string {
   const relativePath = posixPath(path.relative(entry.registryRoot, entry.manifestPath));

@@ -6,5 +6,5 @@ export { buildWorkspaceEngineeringIR } from './orchestrator/semantic-orchestrato
 export { upgradeWorkspace } from './orchestrator/upgrade-orchestrator.ts';
 export { verifyWorkspace } from './orchestrator/verify-orchestrator.ts';
 export { applyWorkbenchMutations } from './orchestrator/workbench-orchestrator.ts';
-export { initWorkspace } from './orchestrator/workspace-orchestrator.ts';
 export { startWorkbenchServer } from './orchestrator/workbench-server.ts';
+export { initWorkspace } from './orchestrator/workspace-orchestrator.ts';
