@@ -1,5 +1,6 @@
 export const SERIAL_FAST_TEST_FILES = [
-  'tests/integration/project-runtime.test.ts'
+  'tests/integration/project-runtime.test.ts',
+  'tests/unit/test-runner.test.ts'
 ] as const;
 
 const serialFastTestFiles = new Set<string>(SERIAL_FAST_TEST_FILES);
