@@ -10,7 +10,7 @@ import {
 function validateContractReferences(manifest: BlockManifest): void {
   const seenPaths = new Set<string>();
 
-  for (const contract of manifest.contracts) {
+  for (const contract of manifest.contracts ?? []) {
     if (!contract?.path || !isSafeRelativePath(contract.path)) {
       throw new CompilerError(
         'MANIFEST-SCHEMA-011',
@@ -30,7 +30,7 @@ function validateContractReferences(manifest: BlockManifest): void {
 function validateGenerators(manifest: BlockManifest): void {
   const seenIds = new Set<string>();
 
-  for (const generator of manifest.generators) {
+  for (const generator of manifest.generators ?? []) {
     if (!generator?.id?.trim()) {
       throw new CompilerError('MANIFEST-SCHEMA-013', `Manifest "${manifest.id}" generators require an id`);
     }
