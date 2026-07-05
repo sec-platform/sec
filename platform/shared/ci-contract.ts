@@ -48,7 +48,7 @@ export type CiContract = {
 
 const prQuickLaneCommands = [
   'bun install --frozen-lockfile',
-  'bun run imports:organize',
+  'bun run imports:check',
   'bun scripts/ci-pr-quick.ts'
 ];
 
@@ -61,7 +61,7 @@ const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:
 
 const fullLaneCommands = [
   'bun install --frozen-lockfile',
-  'bun run imports:organize',
+  'bun run imports:check',
   'bun run typecheck',
   platformCommand('test', 'budget', '--json', '--compact'),
   'bun run test:contract-freeze',
