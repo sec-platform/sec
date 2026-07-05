@@ -77,6 +77,8 @@ test('manifest validation rejects install paths that traverse outside allowed ro
     requires: [],
     provides: ['private/path-test'],
     conflicts: [],
+    contracts: [],
+    generators: [],
     installs: [
       {
         kind: 'copy',
@@ -122,11 +124,7 @@ test('install strategy rejects persisted lock targets that escape project root',
       projectRoot,
       lock: {
         formatVersion: '1',
-        app: {
-          name: 'customer-admin',
-          stack: 'nextjs-ts-prisma-sqlite',
-          mode: 'single-tenant'
-        },
+        app: { name: 'customer-admin', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
         resolvedBlocks: [],
         resolvedCapabilities: [],
         installPlan: [],
@@ -145,6 +143,6 @@ test('install strategy rejects persisted lock targets that escape project root',
           emit: 'pending'
         }
       }
-    })).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
-  }, 'engineering-compiler-path-install-');
+    })).rejects.toMatchObject({ code: 'INSTALL-SECURITY-001' });
+  }, 'engineering-compiler-path-install-target-');
 });
