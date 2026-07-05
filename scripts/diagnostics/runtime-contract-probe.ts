@@ -11,7 +11,8 @@ import {
 } from '../../platform/orchestrator.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 
-const phase = process.argv[2];
+const requestedPhase = process.argv[2];
+const phase = requestedPhase === 'resolve' ? 'compose' : requestedPhase;
 if (!phase) throw new Error('Probe phase is required');
 
 const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), `sec-runtime-probe-${phase}-`));
