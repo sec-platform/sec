@@ -3,7 +3,7 @@ import { runFastTests } from '../platform/dev-runner/test-runner.ts';
 const tests = [
   'tests/integration/project-runtime.test.ts',
   '--test-name-pattern',
-  'ensureSharedDepsReady|demo scripts|dogfood scripts|reference:refresh|root package exposes|external graph provider|MCP config|architecture tools workflow|dev-runner does not expose|fast test runner|test budget contract|benchmark contract|reference check contract'
+  'types define input/output|envelope builder wires|contract scripts bypass|demo:closed-loop covers|roadmap documents|compiler spec documents|README documents|contract freeze contract documents|error protocol defines|error protocol contract documents|CLI surfaces protocol fields|process module avoids'
 ];
 
 process.exit(await runFastTests(tests));
