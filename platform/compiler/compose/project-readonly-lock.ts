@@ -1,8 +1,11 @@
-import { globby } from 'globby';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+import { globby } from 'globby';
+
 import { pathExists } from '../../shared/fs.ts';
 import { defaultLogger } from '../../shared/logger.ts';
+import { checkProjectBeforeCompile } from '../../shared/project-integrity.ts';
 
 function isIgnorableChmodError(error: unknown): boolean {
   if (!(error instanceof Error) || !('code' in error)) return false;
@@ -44,6 +47,9 @@ export async function setProjectReadOnlyLock(
   writable: boolean,
   slotTargets: string[] = []
 ): Promise<void> {
+  if (writable) {
+    await checkProjectBeforeCompile(path.dirname(projectRoot));
+  }
   if (!(await pathExists(projectRoot))) return;
 
   // Resolve absolute paths for slots
