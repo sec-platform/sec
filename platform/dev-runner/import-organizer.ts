@@ -4,6 +4,8 @@ import ts from 'typescript';
 
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
 
+type ImportSelectionEnvironment = Record<string, string | undefined>;
+
 function formatDiagnostic(diagnostic: ts.Diagnostic): string {
   const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
   if (!diagnostic.file || diagnostic.start === undefined) {
@@ -64,8 +66,22 @@ function applyTextChanges(source: string, changes: readonly ts.TextChange[]): st
     ), source);
 }
 
-function changedTypeScriptFiles(): Set<string> | null {
-  const baseRef = process.env.SEC_CHANGED_BASE ?? 'HEAD^1';
+export function selectChangedImportsOnly(env: ImportSelectionEnvironment = process.env): boolean {
+  if (env.SEC_IMPORTS_CHANGED_ONLY === '1') return true;
+  if (env.SEC_IMPORTS_CHANGED_ONLY === '0') return false;
+  return env.CI === 'true' && env.GITHUB_EVENT_NAME === 'pull_request';
+}
+
+export function resolveImportDiffBase(env: ImportSelectionEnvironment = process.env): string {
+  if (env.SEC_CHANGED_BASE) return env.SEC_CHANGED_BASE;
+  if (env.GITHUB_EVENT_NAME === 'pull_request' && env.GITHUB_BASE_REF) {
+    return `origin/${env.GITHUB_BASE_REF}`;
+  }
+  return 'HEAD^1';
+}
+
+function changedTypeScriptFiles(env: ImportSelectionEnvironment = process.env): Set<string> | null {
+  const baseRef = resolveImportDiffBase(env);
   const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
     cwd: compilerRoot,
     encoding: 'utf8'
@@ -83,7 +99,7 @@ function changedTypeScriptFiles(): Set<string> | null {
 }
 
 function selectedFileNames(config: ts.ParsedCommandLine): string[] {
-  if (process.env.SEC_IMPORTS_CHANGED_ONLY !== '1') {
+  if (!selectChangedImportsOnly()) {
     return config.fileNames;
   }
 
