@@ -12,7 +12,7 @@ import {
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 
 const requestedPhase = process.argv[2];
-const phase = requestedPhase === 'resolve' ? 'compose' : requestedPhase;
+const phase = requestedPhase === 'resolve' ? 'runtime' : requestedPhase;
 if (!phase) throw new Error('Probe phase is required');
 
 const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), `sec-runtime-probe-${phase}-`));
