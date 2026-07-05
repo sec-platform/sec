@@ -14,7 +14,10 @@ function constantPrefix(stateId: string): string {
   return stateId.replace(/[^a-zA-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').toUpperCase();
 }
 
-function renderStateTransitionMap(task: SemanticLoweringTask, loaded: LoadedSemanticContract): string {
+export function renderStateTransitionMapSource(
+  task: SemanticLoweringTask,
+  loaded: LoadedSemanticContract
+): string {
   const state = loaded.contract.states.find((entry) => entry.id === task.stateId);
   if (!state) {
     throw new CompilerError('GENERATOR-LOWER-001', `State "${task.stateId}" is unavailable for task "${task.id}"`);
@@ -80,7 +83,7 @@ export async function lowerSemanticTasks(workspaceRoot: string, lock: LockFile):
 
     const loaded = await loadTaskContract(workspaceRoot, block, task);
     const source = task.kind === 'generate-state-transition-map'
-      ? renderStateTransitionMap(task, loaded)
+      ? renderStateTransitionMapSource(task, loaded)
       : null;
     if (source === null) {
       throw new CompilerError('GENERATOR-LOWER-005', `Unsupported semantic lowering kind "${String(task.kind)}"`);
