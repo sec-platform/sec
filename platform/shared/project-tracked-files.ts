@@ -1,5 +1,5 @@
 import { uniqueSortedLines } from './collections.ts';
-import { projectRelativePath, posixPath } from './paths.ts';
+import { posixPath, projectRelativePath } from './paths.ts';
 import { runCommand } from './process.ts';
 
 export async function listTrackedProjectPaths(workspaceRoot: string): Promise<Set<string> | null> {
