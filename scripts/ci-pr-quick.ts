@@ -36,7 +36,7 @@ function runBunStep(step: QuickStep): number {
 
 const steps: QuickStep[] = [
   { id: 'typecheck', args: ['run', 'typecheck'] },
-  { id: 'affected-tests', args: ['scripts/ci-pr-affected-probe.ts'] }
+  { id: 'affected-tests', args: ['run', 'test:affected'] }
 ];
 
 const startedAt = Date.now();
