@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
@@ -12,9 +16,6 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
-import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;
@@ -30,6 +31,28 @@ function buildSlotArtifact(task: LockFile['slotTasks'][number], artifactPath: st
     generatedByPass: task.status === 'generated' ? 'compose' : 'adapt',
     generatorTaskId: buildTaskGeneratorId(task.id),
     verifiedBy: uniqueSorted(task.provenanceHints.verifiedBy),
+    overrideStatus: 'none'
+  };
+}
+
+function buildSemanticArtifact(
+  task: NonNullable<LockFile['semanticLoweringTasks']>[number],
+  verifiedBy: string[]
+): ProvenanceArtifact {
+  return {
+    path: task.target,
+    originType: 'generated',
+    originId: task.id,
+    sourceBlock: task.blockId,
+    registrySourceId: task.registrySourceId,
+    registryKind: task.registryKind,
+    registryLocation: task.registryLocation,
+    registryPath: task.registryPath,
+    sourcePath: task.contractPath,
+    runtimeTarget: task.target,
+    generatedByPass: 'compose',
+    generatorTaskId: task.id,
+    verifiedBy,
     overrideStatus: 'none'
   };
 }
@@ -132,6 +155,13 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
     });
   }
 
+  for (const task of lock.semanticLoweringTasks ?? []) {
+    artifacts.set(task.target, buildSemanticArtifact(
+      task,
+      blockVerificationMap.get(task.blockId) ?? []
+    ));
+  }
+
   for (const task of lock.slotTasks) {
     if (task.sourcePath) {
       artifacts.set(task.sourcePath, buildSlotArtifact(task, task.sourcePath));
@@ -161,11 +191,11 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
   }
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  for (const [artPath, artifact] of artifacts.entries()) {
-    const absPath = artPath.startsWith('source/') || artPath.startsWith('control/')
-      ? path.join(workspaceRoot, artPath)
-      : path.join(projectRoot, artPath);
-    const hash = await calculateFileHash(absPath);
+  for (const [artifactPath, artifact] of artifacts.entries()) {
+    const absolutePath = artifactPath.startsWith('source/') || artifactPath.startsWith('control/')
+      ? path.join(workspaceRoot, artifactPath)
+      : path.join(projectRoot, artifactPath);
+    const hash = await calculateFileHash(absolutePath);
     if (hash) {
       artifact.hash = hash;
     }
