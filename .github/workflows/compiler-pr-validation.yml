@@ -57,8 +57,11 @@ jobs:
           SEC_IMPORTS_CHANGED_ONLY: '1'
         run: bun run imports:check
 
-      - name: PR quick gate
-        run: bun scripts/ci-pr-quick.ts
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Affected fast tests
+        run: bun run test:affected
 
   compiler-pr-risk:
     runs-on: ubuntu-latest
