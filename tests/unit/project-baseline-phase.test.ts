@@ -46,6 +46,21 @@ function lockFor(generatedPath: string): LockFile {
   };
 }
 
+function provenanceFor(artifactPath: string, content: string): ProvenanceFile {
+  return {
+    formatVersion: '1',
+    artifacts: [{
+      path: artifactPath,
+      originType: 'generated',
+      originId: artifactPath,
+      generatedByPass: 'compose',
+      verifiedBy: [],
+      overrideStatus: 'none',
+      hash: digest(content)
+    }]
+  };
+}
+
 test('current baseline accepts compiler output changes and detects later project drift', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
@@ -56,18 +71,7 @@ test('current baseline accepts compiler output changes and detects later project
 
     await ensureDir(path.dirname(absolutePath));
     await writeText(absolutePath, previousContent);
-    await writeJson(provenancePath, {
-      formatVersion: '1',
-      artifacts: [{
-        path: artifactPath,
-        originType: 'generated',
-        originId: artifactPath,
-        generatedByPass: 'compose',
-        verifiedBy: [],
-        overrideStatus: 'none',
-        hash: digest(previousContent)
-      }]
-    } satisfies ProvenanceFile);
+    await writeJson(provenancePath, provenanceFor(artifactPath, previousContent));
 
     await checkProjectBeforeCompile(workspaceRoot);
 
@@ -80,4 +84,24 @@ test('current baseline accepts compiler output changes and detects later project
       code: 'ERROR-DRIFT-001'
     });
   }, 'engineering-compiler-project-baseline-phase-');
+});
+
+test('verify falls back to artifact provenance when no current project baseline exists', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
+    const artifactPath = 'app/page.tsx';
+    const absolutePath = path.join(projectRoot, artifactPath);
+    const expectedContent = 'export const value = 1;';
+
+    await ensureDir(path.dirname(absolutePath));
+    await writeText(absolutePath, expectedContent);
+    await writeJson(provenancePath, provenanceFor(artifactPath, expectedContent));
+
+    await checkProjectBeforeVerify(workspaceRoot);
+
+    await writeText(absolutePath, 'export const value = 9;');
+    await expect(checkProjectBeforeVerify(workspaceRoot)).rejects.toMatchObject({
+      code: 'ERROR-DRIFT-001'
+    });
+  }, 'engineering-compiler-project-baseline-fallback-');
 });
