@@ -2,8 +2,8 @@ import { runFastTests } from '../platform/dev-runner/test-runner.ts';
 
 const tests = [
   'tests/integration/project-runtime.test.ts',
-  '--test-name-pattern',
-  'links shared cache without copying when project deps are cold'
+  '--max-concurrency',
+  '1'
 ];
 
 process.exit(await runFastTests(tests));
