@@ -1,5 +1,5 @@
-import { CompilerError } from '../../shared/errors.ts';
 import type { EngineeringIR, SemanticFact, SemanticValueObject } from '../../shared/engineering-ir-types.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewEdge, type ViewNode } from '../../shared/semantic-view-types.ts';
 import { indexEngineeringIR } from '../ir/index-engineering-ir.ts';
 import {

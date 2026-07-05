@@ -5,14 +5,14 @@ import {
   projectScenarioView,
   projectStateView
 } from '../../platform/compiler/index.ts';
-import type { EngineeringIR } from '../../platform/shared/engineering-ir-types.ts';
-import { INSPECTOR_SECTION_IDS } from '../../platform/shared/semantic-view-types.ts';
 import {
   addBlock,
   buildWorkspaceEngineeringIR,
   initWorkspace,
   resolveWorkspace
 } from '../../platform/orchestrator.ts';
+import type { EngineeringIR } from '../../platform/shared/engineering-ir-types.ts';
+import { INSPECTOR_SECTION_IDS } from '../../platform/shared/semantic-view-types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function buildTicketIR(workspaceRoot: string): Promise<EngineeringIR> {

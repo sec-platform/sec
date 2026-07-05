@@ -1,4 +1,3 @@
-import { CompilerError } from '../../shared/errors.ts';
 import type {
   EngineeringIR,
   SemanticAttributeValue,
@@ -6,6 +5,7 @@ import type {
   SemanticPredicate,
   SemanticValue
 } from '../../shared/engineering-ir-types.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import {
   INSPECTOR_SECTION_IDS,
   type InspectorItem,
