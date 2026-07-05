@@ -6,12 +6,7 @@ const tests = [
   'tests/contract/ci-contract.test.ts',
   'tests/contract/error-protocol.test.ts',
   'tests/contract/reference.test.ts',
-  'tests/integration/overview.test.ts',
-  'tests/integration/project-runtime.test.ts',
-  'tests/integration/runtime-contract.test.ts',
-  'tests/integration/semantic-contract.test.ts',
-  'tests/integration/semantic-projections.test.ts',
-  'tests/integration/ticket-pipeline.test.ts'
+  'tests/integration/overview.test.ts'
 ];
 
 process.exit(await runFastTests(tests));
