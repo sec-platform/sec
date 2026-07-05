@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { buildProvenance } from '../../platform/compiler/emit/write-provenance.ts';
 import {
   addBlock,
   composeWorkspace,
@@ -35,6 +36,10 @@ test('ticket state contract produces the runtime transition contract', async () 
       path.join(projectRoot, 'components', 'ticket-status-form.tsx'),
       'utf8'
     );
+    const provenance = await buildProvenance(workspaceRoot, composedLock);
+    const runtimeContractProvenance = provenance.artifacts.find((artifact) =>
+      artifact.path === 'src/installed/ticket/ticket-semantic-contract.ts'
+    );
 
     expect(composedLock.semanticLoweringTasks?.[0]?.status).toBe('generated');
     expect(composedLock.generatedPaths).toContain('src/installed/ticket/ticket-semantic-contract.ts');
@@ -47,5 +52,16 @@ test('ticket state contract produces the runtime transition contract', async () 
     expect(runtimeContract).toContain('"open": "in_progress"');
     expect(ticketForm).toContain('NEXT_TICKET_STATUS[currentStatus]');
     expect(ticketForm).not.toContain('const NEXT_STATUS');
+    expect(runtimeContractProvenance).toMatchObject({
+      originType: 'generated',
+      originId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      sourceBlock: 'ticket/basic',
+      sourcePath: 'platform/registry/official/ticket.basic/contracts/ticket.yaml',
+      runtimeTarget: 'src/installed/ticket/ticket-semantic-contract.ts',
+      generatedByPass: 'compose',
+      generatorTaskId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      overrideStatus: 'none'
+    });
+    expect(runtimeContractProvenance?.hash).toBeDefined();
   }, 'engineering-compiler-runtime-contract-');
 });
