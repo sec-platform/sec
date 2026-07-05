@@ -19,6 +19,10 @@ export {
   loadSemanticContractsForManifestEntry,
   normalizeSemanticContract
 } from './parse/load-semantic-contract.ts';
+export { projectArchitectureView } from './projection/project-architecture-view.ts';
+export { projectScenarioView } from './projection/project-scenario-view.ts';
+export { projectStateView } from './projection/project-state-view.ts';
+export { buildSemanticInspector } from './projection/semantic-view-utils.ts';
 export { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from './repair/build-repair-plan.ts';
 export { resolveGraph } from './resolve/resolve-graph.ts';
 export { adaptProject } from './synthesize/adapt-project.ts';
