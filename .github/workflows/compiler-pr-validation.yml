@@ -60,21 +60,8 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Probe contract fast tests
-        if: always()
-        run: bun run test:fast -- tests/contract/benchmark-budget.test.ts tests/contract/ci-command-contract.test.ts tests/contract/ci-contract.test.ts tests/contract/error-protocol.test.ts tests/contract/reference.test.ts
-
-      - name: Probe runtime semantic fast tests
-        if: always()
-        run: bun run test:fast -- tests/integration/runtime-contract.test.ts tests/integration/semantic-contract.test.ts tests/integration/semantic-projections.test.ts tests/integration/ticket-pipeline.test.ts tests/integration/workspace-engineering-ir.test.ts tests/unit/engineering-ir.test.ts tests/unit/semantic-contract-ir.test.ts
-
-      - name: Probe integrity fast tests
-        if: always()
-        run: bun run test:fast -- tests/unit/import-organizer-selection.test.ts tests/unit/path-containment.test.ts tests/unit/project-baseline-paths.test.ts tests/unit/project-baseline-phase.test.ts tests/unit/project-provenance-fallback.test.ts tests/unit/project-write-boundary-fallback.test.ts tests/unit/project-write-boundary.test.ts
-
-      - name: Probe overview runtime fast tests
-        if: always()
-        run: bun run test:fast -- tests/integration/overview.test.ts tests/integration/project-runtime.test.ts tests/integration/semantic-contract.test.ts tests/unit/project-overview.test.ts
+      - name: Affected fast tests
+        run: bun run test:affected
 
   compiler-pr-risk:
     runs-on: ubuntu-latest
