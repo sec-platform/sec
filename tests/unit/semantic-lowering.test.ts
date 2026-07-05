@@ -1,61 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import { renderStateTransitionMapSource } from '../../platform/compiler/semantic-lowering.ts';
-import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
-import type { SemanticGeneratorTask } from '../../platform/shared/semantic-generator-types.ts';
+import { ticketLoadedContract, ticketSemanticGeneratorTask } from '../testkit/semantic.ts';
 
-const task: SemanticGeneratorTask = {
-  id: 'generator:ticket/basic:ticket-status-runtime-contract',
-  blockId: 'ticket/basic',
-  generatorId: 'ticket-status-runtime-contract',
-  kind: 'generate-state-transition-map',
-  contractId: 'ticket-core',
-  contractPath: 'platform/registry/official/ticket.basic/contracts/ticket.yaml',
-  contractNamespace: 'ticket',
-  stateId: 'ticket-status',
-  target: 'src/installed/ticket/ticket-semantic-contract.ts',
-  consumes: ['state', 'transition'],
-  produces: 'typescript-runtime-contract',
-  typeBinding: {
-    name: 'TicketStatus',
-    importFrom: '../../runtime/database.ts'
-  },
-  verification: ['ticket_status_can_transition', 'typecheck'],
-  registrySourceId: 'official',
-  registryKind: 'official',
-  registryLocation: 'compiler',
-  registryPath: 'platform/registry/official/ticket.basic',
-  status: 'pending'
-};
-
-function loadedContract(values: string[], transitions: Array<{ from: string; to: string; by: string }>): LoadedSemanticContract {
-  return {
-    blockId: 'ticket/basic',
-    contractPath: task.contractPath,
-    contract: {
-      formatVersion: '1',
-      id: 'ticket-core',
-      namespace: 'ticket',
-      entities: [],
-      states: [{
-        id: 'ticket-status',
-        entity: 'Ticket',
-        field: 'status',
-        owner: 'TicketStateMachine',
-        values,
-        transitions
-      }],
-      responsibilities: [],
-      operations: [],
-      events: [],
-      policies: [],
-      permissions: [],
-      effects: [],
-      scenarios: []
-    }
-  };
-}
-
+const task = ticketSemanticGeneratorTask();
 const transitions = [
   { from: 'open', to: 'in_progress', by: 'transitionTicketStatus' },
   { from: 'in_progress', to: 'closed', by: 'transitionTicketStatus' },
@@ -65,11 +13,11 @@ const transitions = [
 test('semantic transition renderer emits deterministic typed runtime source', () => {
   const source = renderStateTransitionMapSource(
     task,
-    loadedContract(['open', 'closed', 'in_progress'], transitions)
+    ticketLoadedContract(['open', 'closed', 'in_progress'], transitions)
   );
   const reversed = renderStateTransitionMapSource(
     task,
-    loadedContract(['in_progress', 'closed', 'open'], [...transitions].reverse())
+    ticketLoadedContract(['in_progress', 'closed', 'open'], [...transitions].reverse())
   );
 
   expect(source).toBe(reversed);
@@ -85,6 +33,6 @@ test('semantic transition renderer emits deterministic typed runtime source', ()
 test('semantic transition renderer rejects an unavailable state', () => {
   expect(() => renderStateTransitionMapSource(
     { ...task, stateId: 'missing-state' },
-    loadedContract(['open'], [])
+    ticketLoadedContract(['open'], [])
   )).toThrow('State "missing-state" is unavailable');
 });
