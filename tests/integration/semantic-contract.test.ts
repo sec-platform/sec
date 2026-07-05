@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 import { loadManifestById, loadSemanticContractsForManifestEntry, normalizeSemanticContract } from '../../platform/compiler/index.ts';
 import { CompilerError } from '../../platform/shared/errors.ts';
 import type { SemanticContract } from '../../platform/shared/semantic-contract-types.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 function minimalContract(): SemanticContract {
   return {
@@ -35,13 +34,6 @@ function minimalContract(): SemanticContract {
   };
 }
 
-function ticketTransitionsFromUi(source: string): string[] {
-  const block = source.match(/const NEXT_STATUS:[\s\S]*?= \{([\s\S]*?)\};/u)?.[1] ?? '';
-  return [...block.matchAll(/([a-z_]+):\s*'([a-z_]+)'/gu)]
-    .map((match) => `${match[1]}->${match[2]}`)
-    .sort((left, right) => left.localeCompare(right));
-}
-
 test('ticket/basic loads one normalized semantic contract', async () => {
   const manifestEntry = await loadManifestById('ticket/basic');
   const contracts = await loadSemanticContractsForManifestEntry(manifestEntry);
@@ -66,20 +58,9 @@ test('ticket/basic loads one normalized semantic contract', async () => {
     'list-tenant-tickets',
     'transition-ticket-status'
   ]);
-});
-
-test('ticket status contract stays aligned with the generated runtime transition map', async () => {
-  const manifestEntry = await loadManifestById('ticket/basic');
-  const [loaded] = await loadSemanticContractsForManifestEntry(manifestEntry);
-  const state = loaded?.contract.states.find((entry) => entry.id === 'ticket-status');
-  const runtimeSource = await readCompilerFile('platform/compiler/compose/templates/components/ticket-status-form.tsx.template');
-  const runtimeTransitions = ticketTransitionsFromUi(runtimeSource);
-  const contractTransitions = state?.transitions
-    .map((transition) => `${transition.from}->${transition.to}`)
-    .sort((left, right) => left.localeCompare(right));
-
-  expect(contractTransitions).toEqual(runtimeTransitions);
-  expect(state?.values).toEqual([...new Set(runtimeTransitions.flatMap((transition) => transition.split('->')))].sort());
+  expect(manifestEntry.manifest.generators?.map((entry) => entry.id)).toEqual([
+    'ticket-status-runtime-contract'
+  ]);
 });
 
 test('semantic contract validation rejects unknown target references', () => {
