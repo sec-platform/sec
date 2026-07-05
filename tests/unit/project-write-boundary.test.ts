@@ -7,8 +7,8 @@ import { ensureDir, writeJson, writeText } from '../../platform/shared/fs.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { writeProjectBaseline } from '../../platform/shared/project-baseline.ts';
-import type { ProvenanceFile } from '../../platform/shared/provenance-types.ts';
 import { checkProjectWriteBoundary } from '../../platform/shared/project-write-boundary.ts';
+import type { ProvenanceFile } from '../../platform/shared/provenance-types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function digest(content: string): string {
