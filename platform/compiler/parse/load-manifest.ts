@@ -1,6 +1,7 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { CompilerError } from '../../shared/errors.ts';
 import { isFileNotFoundError } from '../../shared/fs.ts';
 import type { ResolvedBlock } from '../../shared/lock-types.ts';
@@ -11,13 +12,10 @@ import {
   posixPath,
   resolveRegistryRoot
 } from '../../shared/paths.ts';
-import type {
-  BlockManifest,
-  ManifestEntry,
-  PlanRegistrySource
-} from '../../shared/plan-manifest-types.ts';
+import type { BlockManifest, ManifestEntry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
 import { readOptionalYaml, readYaml } from '../../shared/yaml.ts';
+import { normalizeAndValidateSemanticManifestFields } from './validate-semantic-manifest.ts';
 
 export interface ResolvedRegistrySource {
   id: string;
@@ -59,14 +57,12 @@ export function resolveRegistrySources(
 ): ResolvedRegistrySource[] {
   const effectiveSources = sources.length > 0
     ? sources
-    : [
-        {
-          id: 'official',
-          kind: 'official',
-          location: 'compiler',
-          path: posixPath(officialRegistryRelativePath)
-        } satisfies PlanRegistrySource
-      ];
+    : [{
+        id: 'official',
+        kind: 'official',
+        location: 'compiler',
+        path: posixPath(officialRegistryRelativePath)
+      } satisfies PlanRegistrySource];
 
   return effectiveSources.map((source) => ({
     id: source.id,
@@ -108,6 +104,7 @@ export function validateManifest(manifest: BlockManifest): void {
   manifest.requires ??= [];
   manifest.provides ??= [];
   manifest.conflicts ??= [];
+  normalizeAndValidateSemanticManifestFields(manifest);
   manifest.installs ??= [];
   manifest.pins = {
     inputs: manifest.pins?.inputs ?? [],
@@ -118,10 +115,7 @@ export function validateManifest(manifest: BlockManifest): void {
   manifest.routes ??= [];
   manifest.uiPortals ??= [];
   manifest.uiHooks ??= [];
-  manifest.upgrade ??= {
-    from: [],
-    migrations: []
-  };
+  manifest.upgrade ??= { from: [], migrations: [] };
   manifest.upgrade.from ??= [];
   manifest.upgrade.migrations ??= [];
 
@@ -131,6 +125,7 @@ export function validateManifest(manifest: BlockManifest): void {
   if (!Array.isArray(manifest.installs) || manifest.installs.length === 0) {
     throw new CompilerError('MANIFEST-SCHEMA-003', `Manifest "${manifest.id}" must declare installs`);
   }
+
   for (const install of manifest.installs) {
     if (!install.kind || !install.from || !install.to) {
       throw new CompilerError('MANIFEST-SCHEMA-005', `Manifest "${manifest.id}" install entries require kind/from/to`);
@@ -139,6 +134,7 @@ export function validateManifest(manifest: BlockManifest): void {
       throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest "${manifest.id}" install paths must stay inside their allowed roots`);
     }
   }
+
   for (const slot of manifest.slots) {
     if (!slot.target || !isSafeRelativePath(slot.target)) {
       throw new CompilerError('MANIFEST-SCHEMA-007', `Manifest "${manifest.id}" slot targets must stay inside the project tree`);
@@ -181,13 +177,9 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
     }
 
     const manifest = await tryReadManifest(rootPath);
-    if (!manifest) {
-      continue;
-    }
+    if (!manifest) continue;
     validateManifest(manifest);
-    if (version && manifest.version !== version) {
-      continue;
-    }
+    if (version && manifest.version !== version) continue;
     return manifestEntryFromPath(registrySource, manifest, rootPath);
   }
 
@@ -204,14 +196,12 @@ export async function loadManifestForResolvedBlock(
   return loadManifestById(block.id, {
     workspaceRoot,
     version: block.version,
-    registrySources: [
-      {
-        id: block.registrySourceId,
-        kind: block.registryKind,
-        location: block.registryLocation,
-        path: block.registryPath
-      }
-    ]
+    registrySources: [{
+      id: block.registrySourceId,
+      kind: block.registryKind,
+      location: block.registryLocation,
+      path: block.registryPath
+    }]
   });
 }
 
@@ -224,22 +214,16 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
     try {
       entries = await fs.readdir(registrySource.root, { withFileTypes: true });
     } catch (error) {
-      if (isFileNotFoundError(error)) {
-        continue;
-      }
+      if (isFileNotFoundError(error)) continue;
       throw error;
     }
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
+      if (!entry.isDirectory()) continue;
       const manifestPath = path.join(registrySource.root, entry.name, 'block.manifest.yaml');
       const manifest = await readYaml<BlockManifest>(manifestPath);
       validateManifest(manifest);
-      if (seenIds.has(manifest.id)) {
-        continue;
-      }
+      if (seenIds.has(manifest.id)) continue;
       seenIds.add(manifest.id);
       manifests.push(manifestEntryFromPath(registrySource, manifest, manifestPath));
     }
