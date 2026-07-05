@@ -12,6 +12,12 @@ import {
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
+function expectTransitionMapping(source: string, from: string, to: string): void {
+  const key = `['\"]?${from}['\"]?`;
+  const value = `['\"]${to}['\"]`;
+  expect(source).toMatch(new RegExp(`${key}:\\s*${value}`));
+}
+
 test('ticket state contract produces the runtime transition contract', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });
@@ -47,9 +53,9 @@ test('ticket state contract produces the runtime transition contract', async () 
     expect(runtimeContract).toContain('export const TICKET_STATUS_TRANSITIONS');
     expect(runtimeContract).toContain('export const NEXT_TICKET_STATUS');
     expect(runtimeContract).toContain('satisfies Record<TicketStatus, TicketStatus>');
-    expect(runtimeContract).toContain('"closed": "open"');
-    expect(runtimeContract).toContain('"in_progress": "closed"');
-    expect(runtimeContract).toContain('"open": "in_progress"');
+    expectTransitionMapping(runtimeContract, 'closed', 'open');
+    expectTransitionMapping(runtimeContract, 'in_progress', 'closed');
+    expectTransitionMapping(runtimeContract, 'open', 'in_progress');
     expect(ticketForm).toContain('NEXT_TICKET_STATUS[currentStatus]');
     expect(ticketForm).not.toContain('const NEXT_STATUS');
     expect(runtimeContractProvenance).toMatchObject({
