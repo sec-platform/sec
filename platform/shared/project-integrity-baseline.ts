@@ -1,11 +1,11 @@
-export const COMPOSITION_BASELINE_FORMAT_VERSION = '1' as const;
+export const PROJECT_BASELINE_FORMAT_VERSION = '1' as const;
 
-export interface CompositionBaselineArtifact {
+export interface ProjectBaselineArtifact {
   path: string;
   hash: string;
 }
 
-export interface CompositionBaselineFile {
-  formatVersion: typeof COMPOSITION_BASELINE_FORMAT_VERSION;
-  artifacts: CompositionBaselineArtifact[];
+export interface ProjectBaselineFile {
+  formatVersion: typeof PROJECT_BASELINE_FORMAT_VERSION;
+  artifacts: ProjectBaselineArtifact[];
 }
