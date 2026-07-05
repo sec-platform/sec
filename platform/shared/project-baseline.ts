@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { uniqueSorted } from './collections.ts';
+import { createConcurrencyLimit } from './concurrency.ts';
 import { CompilerError } from './errors.ts';
 import { readOptionalJson, writeJson } from './fs.ts';
 import type { LockFile } from './lock-types.ts';
@@ -42,6 +43,18 @@ export function currentReadOnlyProjectPaths(
   ]).filter((artifactPath) => isReadOnlyProjectPath(artifactPath, slotTargets));
 }
 
+async function calculateArtifactHashes(
+  projectRoot: string,
+  artifactPaths: readonly string[]
+): Promise<Array<{ path: string; hash: string | undefined }>> {
+  const limit = createConcurrencyLimit();
+  return Promise.all(artifactPaths.map((artifactPath) => limit(async () => {
+    const absolutePath = resolvePathInside(projectRoot, artifactPath);
+    const hash = absolutePath ? await calculateProjectFileHash(absolutePath) : undefined;
+    return { path: artifactPath, hash };
+  })));
+}
+
 export async function readProjectBaseline(workspaceRoot: string): Promise<ProjectBaselineFile | null> {
   const baseline = await readOptionalJson<ProjectBaselineFile>(getProjectBaselinePath(workspaceRoot));
   if (baseline && baseline.formatVersion !== PROJECT_BASELINE_FORMAT_VERSION) {
@@ -58,19 +71,24 @@ export async function assertProjectBaseline(
   baseline: ProjectBaselineFile
 ): Promise<void> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  for (const artifact of baseline.artifacts) {
-    const absolutePath = resolvePathInside(projectRoot, artifact.path);
-    const currentHash = absolutePath ? await calculateProjectFileHash(absolutePath) : undefined;
-    if (!currentHash) {
+  const currentArtifacts = await calculateArtifactHashes(
+    projectRoot,
+    baseline.artifacts.map((artifact) => artifact.path)
+  );
+
+  for (let index = 0; index < baseline.artifacts.length; index += 1) {
+    const expected = baseline.artifacts[index];
+    const current = currentArtifacts[index];
+    if (!expected || !current?.hash) {
       throw new CompilerError(
         'ERROR-DRIFT-001',
-        `Project drift detected: Read-only project file is missing after adapt: ${artifact.path}`
+        `Project drift detected: Read-only project file is missing after adapt: ${expected?.path ?? current?.path}`
       );
     }
-    if (currentHash !== artifact.hash) {
+    if (current.hash !== expected.hash) {
       throw new CompilerError(
         'ERROR-DRIFT-001',
-        `Project drift detected: Read-only project file modified after adapt: ${artifact.path}`
+        `Project drift detected: Read-only project file modified after adapt: ${expected.path}`
       );
     }
   }
@@ -82,18 +100,18 @@ export async function writeProjectBaseline(
   additionalPaths: readonly string[] = []
 ): Promise<ProjectBaselineFile> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const artifactPaths = currentReadOnlyProjectPaths(lock, additionalPaths);
+  const calculated = await calculateArtifactHashes(projectRoot, artifactPaths);
   const artifacts: ProjectBaselineArtifact[] = [];
 
-  for (const artifactPath of currentReadOnlyProjectPaths(lock, additionalPaths)) {
-    const absolutePath = resolvePathInside(projectRoot, artifactPath);
-    const hash = absolutePath ? await calculateProjectFileHash(absolutePath) : undefined;
-    if (!hash) {
+  for (const artifact of calculated) {
+    if (!artifact.hash) {
       throw new CompilerError(
         'ERROR-DRIFT-001',
-        `Project baseline failed: Declared read-only project file is missing: ${artifactPath}`
+        `Project baseline failed: Declared read-only project file is missing: ${artifact.path}`
       );
     }
-    artifacts.push({ path: artifactPath, hash });
+    artifacts.push({ path: artifact.path, hash: artifact.hash });
   }
 
   const baseline: ProjectBaselineFile = {
