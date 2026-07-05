@@ -1,13 +1,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { CompilerError } from '../../shared/errors.ts';
 import { isFileNotFoundError } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { assertPassStatus, saveLock } from '../../shared/lock-utils.ts';
 import { rebaseRelativeImports } from '../../shared/path-imports.ts';
+import { writeProjectBaseline } from '../../shared/project-baseline.ts';
 import { resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import { applyOverrides } from '../compose/apply-overrides.ts';
+import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { buildTaskEnvelope } from './build-task-envelope.ts';
 import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
 
@@ -37,6 +40,12 @@ export async function adaptProject(workspaceRoot: string, plan: PlanFile, lock: 
   }
 
   await applyOverrides(workspaceRoot, 'adapt');
+  const overrideManifest = await loadOverrideManifest(workspaceRoot);
+  await writeProjectBaseline(
+    workspaceRoot,
+    lock,
+    overrideManifest.overrides.map((entry) => entry.target)
+  );
 
   lock.passStatus.adapt = 'succeeded';
   await saveLock(workspaceRoot, lock);
