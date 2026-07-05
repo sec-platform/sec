@@ -18,14 +18,6 @@ export const SEMANTIC_EFFECT_KINDS = [
 
 export type SemanticEffectKind = (typeof SEMANTIC_EFFECT_KINDS)[number];
 
-export interface ManifestContractReference {
-  path: string;
-}
-
-export interface SemanticContractManifestExtension {
-  contracts?: ManifestContractReference[];
-}
-
 export interface SemanticContractField {
   id: string;
   type: string;

@@ -3,16 +3,14 @@ import path from 'node:path';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { isSafeRelativePath, posixPath } from '../../shared/paths.ts';
-import type { BlockManifest, ManifestEntry } from '../../shared/plan-manifest-types.ts';
+import type { ManifestEntry } from '../../shared/plan-manifest-types.ts';
 import {
   SEMANTIC_CONTRACT_FORMAT_VERSION,
   SEMANTIC_EFFECT_KINDS,
   type LoadedSemanticContract,
-  type ManifestContractReference,
   type SemanticContract,
   type SemanticContractEffect,
   type SemanticContractEntity,
-  type SemanticContractManifestExtension,
   type SemanticContractOperation,
   type SemanticContractResponsibility,
   type SemanticContractScenario,
@@ -21,8 +19,6 @@ import {
   type SemanticContractTransition
 } from '../../shared/semantic-contract-types.ts';
 import { readYaml } from '../../shared/yaml.ts';
-
-type ContractAwareManifest = BlockManifest & SemanticContractManifestExtension;
 
 function stableById<Value extends { id: string }>(values: readonly Value[]): Value[] {
   return [...values].sort((left, right) => left.id.localeCompare(right.id));
@@ -253,22 +249,16 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
   return contract;
 }
 
-function contractReferences(manifest: BlockManifest): ManifestContractReference[] {
-  const extension = manifest as ContractAwareManifest;
-  return extension.contracts ?? [];
-}
-
 function stableContractPath(entry: ManifestEntry, absolutePath: string): string {
   const relative = posixPath(path.relative(entry.registryRoot, absolutePath));
   return posixPath(path.posix.join(posixPath(entry.registryPath), relative));
 }
 
 export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry): Promise<LoadedSemanticContract[]> {
-  const references = contractReferences(entry.manifest);
   const seenPaths = new Set<string>();
   const loaded: LoadedSemanticContract[] = [];
 
-  for (const reference of [...references].sort((left, right) => left.path.localeCompare(right.path))) {
+  for (const reference of [...entry.manifest.contracts].sort((left, right) => left.path.localeCompare(right.path))) {
     if (!reference?.path || !isSafeRelativePath(reference.path)) {
       throw new CompilerError('CONTRACT-SEMANTIC-015', `Manifest "${entry.manifest.id}" contract paths must stay inside the block root`);
     }
