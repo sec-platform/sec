@@ -113,7 +113,10 @@ export type BlockManifest = BlockManifestBase & Partial<{
 }>;
 
 export interface ManifestEntry {
-  manifest: BlockManifest;
+  manifest: BlockManifest & {
+    contracts: ManifestContractReference[];
+    generators: ManifestGenerator[];
+  };
   manifestPath: string;
   manifestRoot: string;
   registryRoot: string;
