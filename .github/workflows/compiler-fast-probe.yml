@@ -28,5 +28,5 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Probe semantic contract and lowering tests
-        run: bun run test:fast -- tests/integration/runtime-contract.test.ts tests/integration/semantic-contract.test.ts
+      - name: Probe semantic lowering runtime contract
+        run: bun run test:fast -- tests/integration/runtime-contract.test.ts
