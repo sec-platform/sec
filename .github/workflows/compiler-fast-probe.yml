@@ -28,5 +28,5 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Probe runtime resolve
-        run: bun scripts/diagnostics/runtime-contract-probe.ts resolve
+      - name: Probe runtime contract test
+        run: bun run test:fast -- tests/integration/runtime-contract.test.ts
