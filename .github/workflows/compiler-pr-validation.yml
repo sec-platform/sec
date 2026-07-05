@@ -60,8 +60,8 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Probe serial affected tests
-        run: bun scripts/ci-pr-affected-probe.ts
+      - name: Affected fast tests
+        run: bun run test:affected
 
   compiler-pr-risk:
     runs-on: ubuntu-latest
