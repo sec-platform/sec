@@ -1,6 +1,8 @@
 import { alignInterfaces, loadManifestById, loadPlan, resolveGraph, validateResolvedTemplates } from '../compiler/index.ts';
 import { saveLock } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
+import { executePipelineStage } from '../shared/pipeline-kernel.ts';
+import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
 import { writeYaml } from '../shared/yaml.ts';
@@ -27,9 +29,7 @@ export async function addBlock(workspaceRoot = process.cwd(), blockId: string): 
   return plan;
 }
 
-export async function resolveWorkspace(
-  workspaceRoot = process.cwd()
-): Promise<{ plan: PlanFile; lock: LockFile }> {
+async function resolveWorkspaceCore(workspaceRoot: string): Promise<{ plan: PlanFile; lock: LockFile }> {
   const { planPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   const manifestMap = new Map<string, ManifestEntry>();
@@ -48,4 +48,17 @@ export async function resolveWorkspace(
   await validateResolvedTemplates(workspaceRoot, lock);
   await saveLock(workspaceRoot, lock);
   return { plan, lock };
+}
+
+export async function resolveWorkspace(
+  workspaceRoot = process.cwd(),
+  context?: PipelineExecutionContext
+): Promise<{ plan: PlanFile; lock: LockFile }> {
+  return executePipelineStage(
+    workspaceRoot,
+    'resolve',
+    context,
+    () => resolveWorkspaceCore(workspaceRoot),
+    { extractLock: (result) => result.lock }
+  );
 }

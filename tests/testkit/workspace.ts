@@ -1,23 +1,18 @@
 import { afterAll, expect } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import {
-    adaptWorkspace,
-    addBlock,
-    composeWorkspace,
-    explainWorkspace,
-    initWorkspace,
-    lockWorkspace,
-    resolveWorkspace,
-    verifyWorkspace
+  addBlock,
+  compileWorkspace,
+  initWorkspace,
+  verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile, VerificationReport } from '../../platform/shared/types.ts';
+import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const templateParent = path.join(workspaceParent, '.templates');
-const templateCacheVersion = 'v2-prune-transient-dirs';
+const templateCacheVersion = 'v3-pipeline-kernel';
 const deferredCleanupDirs = new Set<string>();
 
 export type WorkspaceTemplateKind =
@@ -90,65 +85,47 @@ function defaultWorkspaceOptions(options: WorkspacePipelineFixtureOptions): bool
   return (options.blockIds?.length ?? 0) === 0;
 }
 
+function templatePipelineTarget(target: WorkspaceTemplateKind): {
+  through: PipelineStageId;
+  verificationLane: 'fast' | 'all';
+} | null {
+  switch (target) {
+    case 'empty-default':
+      return null;
+    case 'resolved-default':
+      return { through: 'resolve', verificationLane: 'all' };
+    case 'composed-default':
+      return { through: 'compose', verificationLane: 'all' };
+    case 'adapted-default':
+      return { through: 'adapt', verificationLane: 'all' };
+    case 'verified-fast-default':
+      return { through: 'verify', verificationLane: 'fast' };
+    case 'locked-default':
+    case 'locked-all-default':
+      return { through: 'lock', verificationLane: 'all' };
+    case 'explained-all-default':
+      return { through: 'emit', verificationLane: 'all' };
+  }
+}
+
 async function prepareWorkspacePipeline(
   workspaceRoot: string,
   options: WorkspacePipelineFixtureOptions,
   target: WorkspaceTemplateKind
 ): Promise<void> {
   await initWorkspace(workspaceRoot, { reset: true });
-  if (target === 'empty-default') return;
+  const pipelineTarget = templatePipelineTarget(target);
+  if (!pipelineTarget) return;
 
   for (const blockId of options.blockIds ?? []) {
     await addBlock(workspaceRoot, blockId);
   }
-  await resolveWorkspace(workspaceRoot);
-  if (target === 'resolved-default') return;
 
-  await composeWorkspace(workspaceRoot);
-  if (target === 'composed-default') return;
-
-  await adaptWorkspace(workspaceRoot);
-  if (target === 'adapted-default') return;
-
-  const verificationLane = target === 'locked-all-default' || target === 'explained-all-default' ? 'all' : 'fast';
-  await verifyWorkspace(workspaceRoot, { lane: verificationLane });
-  if (target === 'verified-fast-default') return;
-
-  if (verificationLane === 'fast') {
-    // verify --lane fast 仅产出 passStatus.verify='pending'（非 'succeeded'）。
-    // 为让后续 lockWorkspace 通过 assertPassStatus 断言，需将 verify 状态提升为 succeeded。
-    // 这等价于原 overview.test.ts 在 runCliPipeline 后手动调用 writePassingVerificationState 的做法。
-    // 注意：tests/testkit 不能依赖 tests/helpers，故此处保留私有副本以维护分层契约。
-    await promoteFastVerificationToPassing(workspaceRoot);
-  }
-  await lockWorkspace(workspaceRoot);
-  if (target === 'explained-all-default') {
-    await explainWorkspace(workspaceRoot);
-  }
-}
-
-// 等价于 tests/helpers/verification-fixtures.ts 的 writePassingVerificationState。
-// 由于 testkit 不能依赖 helpers 层，此处保留私有副本以维护分层契约。
-async function promoteFastVerificationToPassing(workspaceRoot: string): Promise<void> {
-  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
-  lock.passStatus.verify = 'succeeded';
-  await writeJson(lockPath, lock);
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  report.unit.status = 'passed';
-  report.unit.passed = [];
-  report.acceptance.status = 'passed';
-  report.acceptance.passed = [];
-  report.acceptance.failed = [];
-  report.policy.status = 'passed';
-  report.policy.violations = [];
-  report.fast.status = 'passed';
-  report.fast.unit.status = 'passed';
-  report.summary.status = 'passed';
-  report.summary.requestedLane = 'all';
-  report.summary.failedLanes = [];
-  await writeJson(verificationReportPath, report);
+  await compileWorkspace(workspaceRoot, {
+    source: 'api',
+    through: pipelineTarget.through,
+    verificationLane: pipelineTarget.verificationLane
+  });
 }
 
 async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
@@ -170,7 +147,6 @@ async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
       await fs.rm(stagingRoot, { recursive: true, force: true });
     }
   } catch (error) {
-    // 防止 staging 残留为孤儿
     await fs.rm(stagingRoot, { recursive: true, force: true });
     throw error;
   }
