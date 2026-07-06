@@ -31,6 +31,7 @@ export interface WorkspacePaths {
   controlAuditRoot: string;
   controlCiRoot: string;
   localStateRoot: string;
+  pipelineJournalPath: string;
   generatedViewsDir: string;
   planPath: string;
   legacyPlanPath: string;
