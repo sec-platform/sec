@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 
 import { compileWorkspace } from '../orchestrator.ts';
+import { CompilerError } from '../shared/errors.ts';
 import { readPipelineJournal } from '../shared/pipeline-journal.ts';
 import {
   PIPELINE_STAGE_IDS,
@@ -12,14 +13,17 @@ import { formatJson, printJsonOrText } from './format-utils.ts';
 function pipelineStage(value: string | undefined, option: string): PipelineStageId | undefined {
   if (value === undefined) return undefined;
   if (!PIPELINE_STAGE_IDS.includes(value as PipelineStageId)) {
-    throw new Error(`${option} must be one of: ${PIPELINE_STAGE_IDS.join(', ')}`);
+    throw new CompilerError(
+      'PIPELINE-USAGE-001',
+      `${option} must be one of: ${PIPELINE_STAGE_IDS.join(', ')}`
+    );
   }
   return value as PipelineStageId;
 }
 
 function verificationLane(value: string): VerificationLane {
   if (value !== 'fast' && value !== 'runtime' && value !== 'all') {
-    throw new Error('--lane must be fast, runtime, or all');
+    throw new CompilerError('PIPELINE-USAGE-002', '--lane must be fast, runtime, or all');
   }
   return value;
 }
@@ -27,7 +31,7 @@ function verificationLane(value: string): VerificationLane {
 function outputOptions(opts: Record<string, unknown>): { json: boolean; compact: boolean } {
   const output = { json: !!opts.json, compact: !!opts.compact };
   if (output.compact && !output.json) {
-    throw new Error('--compact requires --json');
+    throw new CompilerError('PIPELINE-USAGE-003', '--compact requires --json');
   }
   return output;
 }
@@ -42,14 +46,12 @@ export function registerPipelineCommands(program: Command): void {
     .option('--compact', 'Compact JSON output')
     .action(async (opts: Record<string, unknown>) => {
       const output = outputOptions(opts);
+      const from = pipelineStage(opts.from as string | undefined, '--from');
+      const through = pipelineStage(opts.through as string | undefined, '--through');
       const result = await compileWorkspace(process.cwd(), {
         source: 'cli',
-        ...(pipelineStage(opts.from as string | undefined, '--from') ? {
-          from: pipelineStage(opts.from as string | undefined, '--from')
-        } : {}),
-        ...(pipelineStage(opts.through as string | undefined, '--through') ? {
-          through: pipelineStage(opts.through as string | undefined, '--through')
-        } : {}),
+        ...(from ? { from } : {}),
+        ...(through ? { through } : {}),
         verificationLane: verificationLane(String(opts.lane))
       });
 
