@@ -138,6 +138,59 @@ test('buildEngineeringIR is deterministic across input ordering', () => {
   expect(buildEngineeringIR(reversed)).toEqual(buildEngineeringIR(input));
 });
 
+test('buildEngineeringIR keeps same-named slot artifact provenance block-qualified', () => {
+  const input = fixture();
+  const ticketSlot = input.slotTasks[0]!;
+  const authSlot = {
+    ...ticketSlot,
+    block: 'auth/basic-session',
+    target: 'custom/auth/ticket_comment_delegate.ts',
+    sourcePath: 'source/code/slots/auth_ticket_comment_delegate.ts',
+    symbol: 'normalizeSessionComment'
+  };
+  const ir = buildEngineeringIR({
+    ...input,
+    slotTasks: [ticketSlot, authSlot],
+    provenanceArtifacts: [
+      ...input.provenanceArtifacts,
+      {
+        path: ticketSlot.target,
+        originType: 'slot',
+        originId: ticketSlot.id,
+        sourceBlock: ticketSlot.block,
+        generatedByPass: 'adapt',
+        verifiedBy: [],
+        overrideStatus: 'none'
+      },
+      {
+        path: authSlot.target,
+        originType: 'slot',
+        originId: authSlot.id,
+        sourceBlock: authSlot.block,
+        generatedByPass: 'adapt',
+        verifiedBy: [],
+        overrideStatus: 'none'
+      }
+    ]
+  });
+
+  const ticketOrigin = ir.facts.find((fact) =>
+    fact.subject === `artifact:${ticketSlot.target}` && fact.predicate === 'ORIGINATES_FROM'
+  );
+  const authOrigin = ir.facts.find((fact) =>
+    fact.subject === `artifact:${authSlot.target}` && fact.predicate === 'ORIGINATES_FROM'
+  );
+
+  expect(ticketOrigin?.object).toEqual({
+    kind: 'entity',
+    entityId: 'slot:ticket/basic:ticket_comment_delegate'
+  });
+  expect(authOrigin?.object).toEqual({
+    kind: 'entity',
+    entityId: 'slot:auth/basic-session:ticket_comment_delegate'
+  });
+});
+
 test('buildEngineeringIR merges provenance for the same semantic triple', () => {
   const input = fixture();
   const ticketManifest = input.manifests[0]!;
