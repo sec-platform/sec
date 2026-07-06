@@ -223,8 +223,8 @@ async function gitChangedFiles(): Promise<string[] | null> {
     .map(posixPath);
 }
 
-function sourceFileChanged(file: string): boolean {
-  return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
+function impactSourceFile(file: string): boolean {
+  return /^(platform|scripts)\//.test(file);
 }
 
 function allowFullFastFallback(): boolean {
@@ -273,15 +273,15 @@ interface AffectedTestSelection {
 async function affectedTestSelection(): Promise<AffectedTestSelection | null> {
   const files = await gitChangedFiles();
   if (!files) return null;
-  const sourceFiles = files.filter(sourceFileChanged);
-  const impact = selectTestsForSources(sourceFiles);
+  const impactSourceFiles = files.filter(impactSourceFile);
+  const impact = selectTestsForSources(impactSourceFiles);
   return {
     tests: files.filter(isFastTestFile),
     slowTests: files.filter(isSlowTestFile),
     affectedTests: impact.fast.filter(isFastTestFile),
     affectedSlowTests: impact.slow.filter(isSlowTestFile),
     affectedOwners: impact.owners,
-    sourceChanged: sourceFiles.length > 0
+    sourceChanged: impactSourceFiles.length > 0
   };
 }
 
