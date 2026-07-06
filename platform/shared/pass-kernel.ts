@@ -37,6 +37,14 @@ function diagnosticId(pass: PassId, diagnostic: PassFailureDiagnostic): string {
   return `${pass}:${diagnostic.code}:${diagnostic.message}`;
 }
 
+function retainedMetadata(current: PassExecutionState | undefined): Partial<PassExecutionState> {
+  return {
+    ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
+    ...(current?.inputRevision ? { inputRevision: current.inputRevision } : {}),
+    ...(current?.outputRevision ? { outputRevision: current.outputRevision } : {})
+  };
+}
+
 export function invalidateDownstreamPasses(lock: LockFile, pass: PassId): void {
   const ledger = ensureLedger(lock);
   for (const downstream of downstreamPasses(pass)) {
@@ -71,11 +79,10 @@ export function completePass(
   const state: PassExecutionState = {
     status: 'succeeded',
     transactionId: current?.transactionId ?? transactionId(pass),
-    startedAt: current?.startedAt,
+    ...retainedMetadata(current),
     completedAt: nowIso(),
     diagnosticIds: [],
-    ...(current?.inputRevision ? { inputRevision: current.inputRevision } : {}),
-    ...(options.outputRevision ? { outputRevision: options.outputRevision } : current?.outputRevision ? { outputRevision: current.outputRevision } : {})
+    ...(options.outputRevision ? { outputRevision: options.outputRevision } : {})
   };
   lock.passStatus[pass] = 'succeeded';
   ensureLedger(lock)[pass] = state;
@@ -91,11 +98,9 @@ export function failPass(
   const state: PassExecutionState = {
     status: 'failed',
     transactionId: current?.transactionId ?? transactionId(pass),
-    startedAt: current?.startedAt,
+    ...retainedMetadata(current),
     completedAt: nowIso(),
-    diagnosticIds: [diagnosticId(pass, diagnostic)],
-    ...(current?.inputRevision ? { inputRevision: current.inputRevision } : {}),
-    ...(current?.outputRevision ? { outputRevision: current.outputRevision } : {})
+    diagnosticIds: [diagnosticId(pass, diagnostic)]
   };
   lock.passStatus[pass] = 'failed';
   ensureLedger(lock)[pass] = state;
