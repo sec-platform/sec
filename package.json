@@ -13,7 +13,7 @@
     "build": "bun ./scripts/build-release.ts",
     "publish": "bun ./scripts/publish-public.ts",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
-    "reference:refresh": "bun run sec -- resolve && bun run sec -- compose && bun run sec -- adapt && bun run sec -- verify --lane all && bun run sec -- lock && bun run sec -- explain",
+    "reference:refresh": "bun ./scripts/compile-reference-workspace.ts",
     "reference:check": "bun run sec -- reference check",
     "demo:quickstart": "bun run sec -- init --reset && bun run reference:refresh",
     "demo:governance": "bun run demo:quickstart && bun run sec -- artifacts --paths --kind governance",

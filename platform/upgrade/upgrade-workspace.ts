@@ -3,34 +3,29 @@ import os from 'node:os';
 import path from 'node:path';
 import semver from 'semver';
 import {
-    adaptProject,
-    composeProject,
-    loadManifestById,
-    loadOverrideManifest,
-    loadWorkspacePlan,
-    lockProject,
-    resolveGraph,
-    validateResolvedTemplates,
-    verifyProject,
-    writeProvenance
+  loadManifestById,
+  loadOverrideManifest,
+  loadWorkspacePlan,
+  writeProvenance
 } from '../compiler/index.ts';
+import { compileWorkspace } from '../orchestrator/pipeline-orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../shared/collections.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { copyRecursive, ensureDir, isFileNotFoundError, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
-import { addGeneratedPaths, readLockFile, saveLock } from '../shared/lock-utils.ts';
+import { addGeneratedPaths, readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type {
-    ManifestSlot,
-    PlanFile,
-    UpgradeMigration,
-    UpgradeMigrationEntry
+  ManifestSlot,
+  PlanFile,
+  UpgradeMigration,
+  UpgradeMigrationEntry
 } from '../shared/plan-manifest-types.ts';
 import type {
-    UpgradeDiagnostics,
-    UpgradePlan,
-    UpgradePreflightCheck
+  UpgradeDiagnostics,
+  UpgradePlan,
+  UpgradePreflightCheck
 } from '../shared/upgrade-types.ts';
 import { writeYaml } from '../shared/yaml.ts';
 
@@ -1862,37 +1857,6 @@ type UpgradeApplyContext = PlannedWorkspaceUpgrade & {
   workspaceRoot: string;
 };
 
-type UpgradeApplyStep = (context: UpgradeApplyContext, lock: LockFile) => Promise<void>;
-
-const upgradeApplySteps: UpgradeApplyStep[] = [
-  async ({ workspaceRoot }, lock) => {
-    await composeProject(workspaceRoot, lock);
-    await writeProvenance(workspaceRoot, lock);
-  },
-  async ({ plan, workspaceRoot }, lock) => {
-    await adaptProject(workspaceRoot, plan, lock);
-  },
-  async ({ workspaceRoot }, lock) => {
-    await verifyProject(workspaceRoot, lock);
-  },
-  async ({ workspaceRoot }, lock) => {
-    await lockProject(workspaceRoot, lock);
-  }
-];
-
-async function readWorkspaceLock(workspaceRoot: string): Promise<LockFile> {
-  return readLockFile(workspaceRoot);
-}
-
-async function runUpgradeApplySteps(context: UpgradeApplyContext, lock: LockFile): Promise<LockFile> {
-  let currentLock = lock;
-  for (const step of upgradeApplySteps) {
-    await step(context, currentLock);
-    currentLock = await readWorkspaceLock(context.workspaceRoot);
-  }
-  return currentLock;
-}
-
 async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promise<LockFile> {
   const {
     impacts,
@@ -1912,11 +1876,11 @@ async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promi
   await writeYaml(planPath, plan);
   await applyMigrationEntries(projectRoot, targetManifestRoot, impacts, migrationEntries);
 
-  let lock = await resolveGraph(workspaceRoot, plan);
-  await validateResolvedTemplates(workspaceRoot, lock);
-  await saveLock(workspaceRoot, lock);
-
-  lock = await runUpgradeApplySteps(context, lock);
+  const { lock } = await compileWorkspace(workspaceRoot, {
+    source: 'upgrade',
+    through: 'lock',
+    verificationLane: 'all'
+  });
   await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
 
   upgradePlan.status = 'applied';

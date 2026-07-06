@@ -18,7 +18,6 @@ export async function lockProject(workspaceRoot: string, lock: LockFile): Promis
 
   lock.passStatus.lock = 'succeeded';
   await writeProvenance(workspaceRoot, lock);
-  lock.passStatus.emit = 'succeeded';
   await saveLock(workspaceRoot, lock);
   return lock;
 }

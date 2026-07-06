@@ -44,6 +44,7 @@ export const DEFAULT_ACCEPTANCE: readonly AcceptanceItem[] = Object.freeze([
 ]);
 
 export const ERROR_CODE_PREFIX_MAP = Object.freeze<Record<string, string>>({
+  PIPELINE: 'pipeline/',
   PARSE: 'parse/',
   MANIFEST: 'parse/',
   ALIGN: 'align/',
@@ -59,4 +60,3 @@ export const ERROR_CODE_PREFIX_MAP = Object.freeze<Record<string, string>>({
   OVERRIDE: 'compose/',
   WORKBENCH: 'workbench/'
 } as const);
-
