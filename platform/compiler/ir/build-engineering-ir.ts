@@ -99,7 +99,7 @@ function normalizeFactObject(object: SemanticFactObject): SemanticFactObject {
 }
 
 function normalizeAttributeValue(value: SemanticAttributeValue): SemanticAttributeValue {
-  return Array.isArray(value) ? uniqueSorted(value) : value;
+  return Array.isArray(value) ? [...value] : value;
 }
 
 function normalizeAttributes(attributes: readonly SemanticAttribute[]): SemanticAttribute[] {
@@ -276,6 +276,10 @@ function contractTargetId(contract: SemanticContract, target: string): string {
     : contractEntityId(contract.namespace, entityId!);
 }
 
+function slotTaskKey(blockId: string, taskId: string): string {
+  return `${blockId}\u0000${taskId}`;
+}
+
 function addDeclaredEntity(sink: BuildSink, blockId: string, provenance: FactProvenance[], entity: SemanticEntity): void {
   sink.addEntity(entity);
   sink.addFact({
@@ -377,7 +381,7 @@ function appendSemanticContract(input: LoadedSemanticContract, sink: BuildSink):
       contractStateId(contract.namespace, state.id),
       'state',
       state.label ?? state.id,
-      [valueAttribute('values', state.values)]
+      [valueAttribute('values', uniqueSorted(state.values))]
     ));
   }
 
@@ -571,12 +575,12 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
     }
   }
 
-  const slotEntityByTaskId = new Map<string, string>();
+  const slotEntityByTaskKey = new Map<string, string>();
   for (const task of [...input.slotTasks].sort((left, right) => `${left.block}:${left.id}`.localeCompare(`${right.block}:${right.id}`))) {
     const blockId = `block:${task.block}`;
     if (!entities.has(blockId)) throw new CompilerError('IR-IDENTITY-003', `Slot "${task.id}" references unknown block "${task.block}"`);
     const slotId = `slot:${task.block}:${task.id}`;
-    slotEntityByTaskId.set(task.id, slotId);
+    slotEntityByTaskKey.set(slotTaskKey(task.block, task.id), slotId);
     addEntity(semanticEntity(slotId, 'slot', task.id, [
       valueAttribute('slotKind', task.kind),
       valueAttribute('target', task.target),
@@ -603,7 +607,9 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
       valueAttribute('overrideStatus', artifact.overrideStatus),
       ...(artifact.generatedByPass ? [valueAttribute('generatedByPass', artifact.generatedByPass)] : [])
     ]));
-    const slotOrigin = artifact.originType === 'slot' ? slotEntityByTaskId.get(artifact.originId) : undefined;
+    const slotOrigin = artifact.originType === 'slot' && artifact.sourceBlock
+      ? slotEntityByTaskKey.get(slotTaskKey(artifact.sourceBlock, artifact.originId))
+      : undefined;
     const blockOrigin = artifact.sourceBlock && entities.has(`block:${artifact.sourceBlock}`)
       ? `block:${artifact.sourceBlock}`
       : artifact.originType === 'block' && entities.has(`block:${artifact.originId}`)
