@@ -1,4 +1,5 @@
 import { alignInterfaces, loadManifestById, loadPlan, resolveGraph, validateResolvedTemplates } from '../compiler/index.ts';
+import { completePass, failPass } from '../shared/pass-kernel.ts';
 import { saveLock } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
@@ -33,19 +34,34 @@ export async function resolveWorkspace(
   const { planPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   const manifestMap = new Map<string, ManifestEntry>();
-  for (const block of plan.blocks) {
-    manifestMap.set(
-      block.id,
-      await loadManifestById(block.id, {
-        workspaceRoot,
-        version: block.version,
-        registrySources: plan.registry.sources
-      })
-    );
+  let lock: LockFile | null = null;
+  try {
+    for (const block of plan.blocks) {
+      manifestMap.set(
+        block.id,
+        await loadManifestById(block.id, {
+          workspaceRoot,
+          version: block.version,
+          registrySources: plan.registry.sources
+        })
+      );
+    }
+    alignInterfaces(plan, manifestMap);
+    lock = await resolveGraph(workspaceRoot, plan);
+    completePass(lock, 'parse');
+    completePass(lock, 'align');
+    completePass(lock, 'resolve');
+    await validateResolvedTemplates(workspaceRoot, lock);
+    await saveLock(workspaceRoot, lock);
+    return { plan, lock };
+  } catch (error) {
+    if (lock) {
+      failPass(lock, 'resolve', {
+        code: error instanceof Error && 'code' in error ? String((error as { code?: string }).code ?? 'UNEXPECTED') : 'UNEXPECTED',
+        message: error instanceof Error ? error.message : String(error)
+      });
+      await saveLock(workspaceRoot, lock);
+    }
+    throw error;
   }
-  alignInterfaces(plan, manifestMap);
-  const lock = await resolveGraph(workspaceRoot, plan);
-  await validateResolvedTemplates(workspaceRoot, lock);
-  await saveLock(workspaceRoot, lock);
-  return { plan, lock };
 }
