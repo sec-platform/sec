@@ -239,7 +239,6 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     for (const operation of responsibility.implements) assertReference(operationIds, operation, `Responsibility "${responsibility.id}" implements`);
     for (const dependency of responsibility.dependsOn) assertReference(responsibilityIds, dependency, `Responsibility "${responsibility.id}" dependsOn`);
   }
-  assertOperationResponsibilityConsistency(contract);
 
   for (const operation of contract.operations) {
     assertReference(responsibilityIds, operation.responsibility, `Operation "${operation.id}" responsibility`);
@@ -252,6 +251,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     for (const event of operation.emits) assertReference(eventIds, event, `Operation "${operation.id}" emits`);
     for (const invoked of [...operation.invokes, ...operation.awaits]) assertReference(operationIds, invoked, `Operation "${operation.id}" execution relation`);
   }
+  assertOperationResponsibilityConsistency(contract);
 
   for (const effect of contract.effects) {
     if (!SEMANTIC_EFFECT_KINDS.includes(effect.kind)) {
