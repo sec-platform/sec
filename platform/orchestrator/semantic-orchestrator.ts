@@ -2,9 +2,7 @@ import path from 'node:path';
 
 import {
   buildEngineeringIR,
-  loadManifestForResolvedBlock,
-  loadPlan,
-  loadSemanticContractsForManifestEntry
+  loadPlan
 } from '../compiler/index.ts';
 import type { EngineeringIR } from '../shared/engineering-ir-types.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
@@ -13,6 +11,7 @@ import { getWorkspacePaths, posixPath, resolveWorkspaceProvenancePath } from '..
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
+import { loadWorkspaceSemanticInputs } from './semantic-inputs.ts';
 
 function stableManifestPath(entry: ManifestEntry): string {
   const relativePath = posixPath(path.relative(entry.registryRoot, entry.manifestPath));
@@ -36,15 +35,10 @@ export async function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd())
   const { planPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   const lock = await readLockFile(workspaceRoot);
-  const manifestEntries: ManifestEntry[] = [];
-
-  for (const block of lock.resolvedBlocks) {
-    manifestEntries.push(await loadManifestForResolvedBlock(workspaceRoot, block));
-  }
-
-  const semanticContracts = (await Promise.all(
-    manifestEntries.map((entry) => loadSemanticContractsForManifestEntry(entry))
-  )).flat();
+  const { manifestEntries, semanticContracts } = await loadWorkspaceSemanticInputs(
+    workspaceRoot,
+    lock.resolvedBlocks
+  );
 
   return buildEngineeringIR({
     app: { name: plan.app.name },
