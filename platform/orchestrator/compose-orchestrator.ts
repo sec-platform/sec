@@ -2,9 +2,9 @@ import { adaptProject, composeProject, loadWorkspacePlan } from '../compiler/ind
 import { CompilerError } from '../shared/errors.ts';
 import { pathExists } from '../shared/fs.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
+import { resolveWorkspaceLockPath } from '../shared/paths.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
-import { resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
 
 async function composeWorkspaceCore(

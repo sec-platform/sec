@@ -1,8 +1,8 @@
 import { alignInterfaces, loadManifestById, loadPlan, resolveGraph, validateResolvedTemplates } from '../compiler/index.ts';
 import { saveLock } from '../shared/lock-utils.ts';
+import { getWorkspacePaths } from '../shared/paths.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
-import { getWorkspacePaths } from '../shared/paths.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
 import { writeYaml } from '../shared/yaml.ts';

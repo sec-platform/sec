@@ -2,6 +2,7 @@ import { CompilerError } from './errors.ts';
 import { pathExists, readJson } from './fs.ts';
 import type { LockFile, PassState } from './lock-types.ts';
 import { saveLock } from './lock-utils.ts';
+import { resolveWorkspaceLockPath } from './paths.ts';
 import {
   commitPipelineTransaction,
   failPipelineTransaction,
@@ -19,7 +20,6 @@ import type {
   PipelineSource,
   PipelineStageId
 } from './pipeline-types.ts';
-import { resolveWorkspaceLockPath } from './paths.ts';
 
 interface StageExecutionOptions<T> {
   extractLock?: (result: T) => LockFile | Promise<LockFile>;
