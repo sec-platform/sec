@@ -143,6 +143,6 @@ test('install strategy rejects persisted lock targets that escape project root',
           emit: 'pending'
         }
       }
-    })).rejects.toMatchObject({ code: 'INSTALL-SECURITY-001' });
+    })).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
   }, 'engineering-compiler-path-install-target-');
 });
