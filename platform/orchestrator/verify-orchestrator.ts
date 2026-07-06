@@ -1,17 +1,16 @@
+import { verifyProject } from '../compiler/index.ts';
+import { buildAcceptanceCoverage } from '../compiler/verify/build-acceptance-coverage.ts';
+import { createSkippedRuntimeLane } from '../compiler/verify/run-runtime-verification.ts';
+import { writePolicySnapshot } from '../compiler/verify/write-policy-snapshot.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { formatCompilerFailure } from '../shared/errors.ts';
 import { writeJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
-import { addGeneratedPaths } from '../shared/lock-utils.ts';
+import { addGeneratedPaths, readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
 import type { VerificationLane, VerificationReport } from '../shared/verification-types.ts';
-import { buildAcceptanceCoverage } from '../compiler/verify/build-acceptance-coverage.ts';
-import { createSkippedRuntimeLane } from '../compiler/verify/run-runtime-verification.ts';
-import { writePolicySnapshot } from '../compiler/verify/write-policy-snapshot.ts';
-import { verifyProject } from '../compiler/index.ts';
-import { readLockFile } from '../shared/lock-utils.ts';
 
 async function writeBlockedVerificationSnapshot(
   workspaceRoot: string,
