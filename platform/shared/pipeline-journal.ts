@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 
 import { readOptionalJson, writeJson } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
@@ -15,7 +16,12 @@ import {
 } from './pipeline-types.ts';
 
 const MAX_RETAINED_TRANSACTIONS = 50;
+const PIPELINE_JOURNAL_FILE = 'pipeline-journal.json';
 let journalMutationQueue: Promise<void> = Promise.resolve();
+
+function pipelineJournalPath(workspaceRoot: string): string {
+  return path.join(getWorkspacePaths(workspaceRoot).localStateRoot, PIPELINE_JOURNAL_FILE);
+}
 
 function emptyJournal(): PipelineJournal {
   return {
@@ -34,8 +40,7 @@ async function emitEvent(handler: PipelineEventHandler | undefined, event: Pipel
 }
 
 async function readJournal(workspaceRoot: string): Promise<PipelineJournal> {
-  const { pipelineJournalPath } = getWorkspacePaths(workspaceRoot);
-  const journal = await readOptionalJson<PipelineJournal>(pipelineJournalPath);
+  const journal = await readOptionalJson<PipelineJournal>(pipelineJournalPath(workspaceRoot));
   if (!journal || journal.formatVersion !== PIPELINE_JOURNAL_FORMAT_VERSION) {
     return emptyJournal();
   }
@@ -50,7 +55,7 @@ async function mutateJournal(
     const journal = await readJournal(workspaceRoot);
     await mutate(journal);
     journal.transactions = journal.transactions.slice(-MAX_RETAINED_TRANSACTIONS);
-    await writeJson(getWorkspacePaths(workspaceRoot).pipelineJournalPath, journal);
+    await writeJson(pipelineJournalPath(workspaceRoot), journal);
   };
   const current = journalMutationQueue.then(run, run);
   journalMutationQueue = current.catch(() => undefined);
