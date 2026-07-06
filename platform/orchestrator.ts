@@ -10,5 +10,5 @@ export { repairWorkspace } from './orchestrator/repair-orchestrator.ts';
 export { upgradeWorkspace } from './orchestrator/upgrade-orchestrator.ts';
 export { verifyWorkspace } from './orchestrator/verify-orchestrator.ts';
 export { applyWorkbenchMutations } from './orchestrator/workbench-orchestrator.ts';
-export { startWorkbenchServer } from './orchestrator/workbench-server.ts';
+export { startWorkbenchServer } from './orchestrator/workbench-server-v2.ts';
 export { initWorkspace } from './orchestrator/workspace-orchestrator.ts';
