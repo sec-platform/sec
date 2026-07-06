@@ -4,6 +4,7 @@ import { cli } from '../shared/cli-output.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
 import { formatJson } from './format-utils.ts';
 import { registerCommands } from './register-commands.ts';
+import { registerPipelineCommands } from './register-pipeline-commands.ts';
 
 const program = new Command();
 program
@@ -12,6 +13,7 @@ program
   .version('0.1.0');
 
 registerCommands(program);
+registerPipelineCommands(program);
 
 program.action(() => {
   program.help();
