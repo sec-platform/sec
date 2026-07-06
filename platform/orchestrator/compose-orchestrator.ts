@@ -2,6 +2,7 @@ import { adaptProject, composeProject, loadWorkspacePlan } from '../compiler/ind
 import { CompilerError } from '../shared/errors.ts';
 import { pathExists } from '../shared/fs.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
+import { runPassWithLock } from '../shared/pass-kernel.ts';
 import { resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
 
@@ -15,7 +16,9 @@ export async function composeWorkspace(
   }
   const plan = await loadWorkspacePlan(workspaceRoot);
   const lock = await readLockFile(workspaceRoot);
-  await composeProject(workspaceRoot, lock, { lockFiles: !!options?.lock });
+  await runPassWithLock(workspaceRoot, lock, 'compose', async () => {
+    await composeProject(workspaceRoot, lock, { lockFiles: !!options?.lock });
+  });
   return { plan, lock };
 }
 
@@ -24,6 +27,8 @@ export async function adaptWorkspace(
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const plan = await loadWorkspacePlan(workspaceRoot);
   const lock = await readLockFile(workspaceRoot);
-  await adaptProject(workspaceRoot, plan, lock);
+  await runPassWithLock(workspaceRoot, lock, 'adapt', async () => {
+    await adaptProject(workspaceRoot, plan, lock);
+  });
   return { plan, lock };
 }
