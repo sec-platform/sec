@@ -93,6 +93,17 @@ function contract(): LoadedSemanticContract {
   };
 }
 
+function expectCompilerError(run: () => unknown, code: string): void {
+  try {
+    run();
+  } catch (error) {
+    expect(error).toBeInstanceOf(CompilerError);
+    expect((error as CompilerError).code).toBe(code);
+    return;
+  }
+  throw new Error(`Expected CompilerError ${code}`);
+}
+
 test('semantic contract becomes authoritative entities, facts, transitions, and scenario steps', () => {
   const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
 
@@ -147,17 +158,49 @@ test('semantic operation input sequence remains ordered in Engineering IR attrib
   });
 });
 
+test('distinct semantic contracts cannot implicitly merge through a shared namespace', () => {
+  const first = contract();
+  const second = contract();
+  second.contractPath = 'registry/item.basic/contracts/item-extension.yaml';
+  second.contract = {
+    ...second.contract,
+    id: 'item-extension',
+    entities: [],
+    states: [],
+    responsibilities: [],
+    operations: [],
+    events: [],
+    policies: [],
+    permissions: [],
+    effects: [],
+    scenarios: []
+  };
+
+  expectCompilerError(
+    () => buildEngineeringIR({ ...baseInput(), semanticContracts: [first, second] }),
+    'IR-IDENTITY-006'
+  );
+});
+
+test('duplicate semantic contract input remains idempotent', () => {
+  const semanticContract = contract();
+
+  expect(buildEngineeringIR({
+    ...baseInput(),
+    semanticContracts: [semanticContract, semanticContract]
+  })).toEqual(buildEngineeringIR({
+    ...baseInput(),
+    semanticContracts: [semanticContract]
+  }));
+});
+
 test('semantic contract scenario cannot reference undeclared acceptance', () => {
   const input = baseInput();
   const semanticContract = contract();
   semanticContract.contract.scenarios[0]!.acceptance = ['missing_acceptance'];
 
-  try {
-    buildEngineeringIR({ ...input, semanticContracts: [semanticContract] });
-  } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe('IR-FACT-003');
-    return;
-  }
-  throw new Error('Expected missing acceptance to fail referential integrity');
+  expectCompilerError(
+    () => buildEngineeringIR({ ...input, semanticContracts: [semanticContract] }),
+    'IR-FACT-003'
+  );
 });
