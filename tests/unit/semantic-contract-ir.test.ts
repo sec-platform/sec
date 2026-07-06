@@ -134,6 +134,19 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
   });
 });
 
+test('semantic operation input sequence remains ordered in Engineering IR attributes', () => {
+  const semanticContract = contract();
+  semanticContract.contract.operations[0]!.inputs = ['number', 'string', 'number'];
+
+  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [semanticContract] });
+  const operation = ir.entities.find((entity) => entity.id === 'operation:item:closeItem');
+
+  expect(operation?.attributes).toContainEqual({
+    key: 'inputs',
+    value: ['number', 'string', 'number']
+  });
+});
+
 test('semantic contract scenario cannot reference undeclared acceptance', () => {
   const input = baseInput();
   const semanticContract = contract();
