@@ -64,7 +64,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
 
   const locked = await lockWorkspace(workspaceRoot);
   expect(locked.passStatus.lock).toBe('succeeded');
-  expect(locked.passStatus.emit).toBe('succeeded');
+  expect(locked.passStatus.emit).toBe('pending');
   expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.runtimeReport);
   expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.policyReport);
   expect(locked.generatedPaths).toContain(CI_ARTIFACT_FILES.acceptanceCoverage);
@@ -115,6 +115,8 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   });
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
+  const explainedLockState = await readJson<{ passStatus: { emit: string } }>(lockPath);
+  expect(explainedLockState.passStatus.emit).toBe('succeeded');
   expectGraphNode(graph, { id: 'slot:customer_normalizer' });
   expectGraphNode(graph, { type: 'pin' });
   expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
