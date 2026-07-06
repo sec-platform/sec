@@ -1,4 +1,5 @@
 import { alignInterfaces, loadManifestById, loadPlan, resolveGraph, validateResolvedTemplates } from '../compiler/index.ts';
+import { buildSemanticGeneratorPlan } from '../compiler/semantic-plan.ts';
 import { saveLock } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
@@ -6,6 +7,7 @@ import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
 import { writeYaml } from '../shared/yaml.ts';
+import { loadWorkspaceSemanticInputs } from './semantic-inputs.ts';
 
 export async function addBlock(workspaceRoot = process.cwd(), blockId: string): Promise<PlanFile> {
   const { planPath } = getWorkspacePaths(workspaceRoot);
@@ -45,6 +47,11 @@ async function resolveWorkspaceCore(workspaceRoot: string): Promise<{ plan: Plan
   }
   alignInterfaces(plan, manifestMap);
   const lock = await resolveGraph(workspaceRoot, plan);
+  const semanticInputs = await loadWorkspaceSemanticInputs(workspaceRoot, lock.resolvedBlocks);
+  lock.semanticLoweringTasks = buildSemanticGeneratorPlan(
+    semanticInputs.manifestEntries,
+    semanticInputs.semanticContracts
+  );
   await validateResolvedTemplates(workspaceRoot, lock);
   await saveLock(workspaceRoot, lock);
   return { plan, lock };
