@@ -39,7 +39,7 @@ test('beginPass records a transaction and invalidates downstream passes', () => 
   const execution = beginPass(lock, 'compose');
 
   expect(lock.passStatus.compose).toBe('running');
-  expect(execution.transactionId).toStartWith('pass:compose:');
+  expect(execution.transactionId?.startsWith('pass:compose:')).toBe(true);
   expect(lock.passExecutions?.compose?.status).toBe('running');
   expect(lock.passStatus.adapt).toBe('pending');
   expect(lock.passStatus.verify).toBe('pending');
