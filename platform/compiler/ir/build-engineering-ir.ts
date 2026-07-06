@@ -55,6 +55,7 @@ interface BuildSink {
   addEntity(entity: SemanticEntity): void;
   addFact(input: FactInput): string;
   addScenario(scenario: ScenarioDefinition): void;
+  claimSemanticNamespace(input: LoadedSemanticContract): void;
 }
 
 const AUTHORITY_STRENGTH: Record<SemanticAuthority, number> = {
@@ -276,6 +277,18 @@ function contractTargetId(contract: SemanticContract, target: string): string {
     : contractEntityId(contract.namespace, entityId!);
 }
 
+function semanticContractOwnerIdentity(input: LoadedSemanticContract): string {
+  return digest(JSON.stringify({
+    blockId: input.blockId,
+    contractPath: input.contractPath,
+    contract: input.contract
+  }));
+}
+
+function semanticContractOwnerLabel(input: LoadedSemanticContract): string {
+  return `${input.blockId}:${input.contract.id}@${input.contractPath}`;
+}
+
 function slotTaskKey(blockId: string, taskId: string): string {
   return `${blockId}\u0000${taskId}`;
 }
@@ -292,6 +305,7 @@ function addDeclaredEntity(sink: BuildSink, blockId: string, provenance: FactPro
 }
 
 function appendSemanticContract(input: LoadedSemanticContract, sink: BuildSink): void {
+  sink.claimSemanticNamespace(input);
   const { contract } = input;
   const blockId = `block:${input.blockId}`;
   const provenance = contractProvenance(input);
@@ -504,6 +518,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   const entities = new Map<string, SemanticEntity>();
   const facts = new Map<string, SemanticFact>();
   const scenarios = new Map<string, ScenarioDefinition>();
+  const semanticNamespaceOwnerByNamespace = new Map<string, { identity: string; label: string }>();
   const appId = `app:${input.app.name}`;
   const graphId = `engineering-ir:${input.app.name}`;
 
@@ -534,7 +549,24 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
     scenarios.set(normalized.id, normalized);
   };
 
-  const sink: BuildSink = { addEntity, addFact, addScenario };
+  const claimSemanticNamespace = (contractInput: LoadedSemanticContract): void => {
+    const namespace = contractInput.contract.namespace;
+    const owner = {
+      identity: semanticContractOwnerIdentity(contractInput),
+      label: semanticContractOwnerLabel(contractInput)
+    };
+    const existing = semanticNamespaceOwnerByNamespace.get(namespace);
+    if (existing && existing.identity !== owner.identity) {
+      throw new CompilerError(
+        'IR-IDENTITY-006',
+        `Semantic namespace "${namespace}" is claimed by distinct contracts "${existing.label}" and "${owner.label}"`,
+        { namespace, existingOwner: existing.label, incomingOwner: owner.label }
+      );
+    }
+    semanticNamespaceOwnerByNamespace.set(namespace, owner);
+  };
+
+  const sink: BuildSink = { addEntity, addFact, addScenario, claimSemanticNamespace };
   addEntity(semanticEntity(appId, 'app', input.app.name));
 
   for (const block of [...input.resolvedBlocks].sort((left, right) => left.id.localeCompare(right.id))) {
