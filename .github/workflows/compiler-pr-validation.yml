@@ -7,6 +7,7 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+      - labeled
   push:
     branches:
       - main
@@ -25,6 +26,7 @@ env:
 
 jobs:
   compiler-pr-quick:
+    if: github.event.action != 'labeled' || github.event.label.name == 'run-quick' || github.event.label.name == 'run-full'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -80,6 +82,7 @@ jobs:
           cat "$log_file"
 
   compiler-pr-risk:
+    if: github.event.action != 'labeled' || github.event.label.name == 'run-full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: compiler-pr-quick
