@@ -63,6 +63,15 @@ test('ticket/basic loads one normalized semantic contract', async () => {
   ]);
 });
 
+test('semantic contract normalization preserves operation input order and duplicates', () => {
+  const contract = minimalContract();
+  contract.operations[0]!.inputs = ['number', 'string', 'number'];
+
+  const normalized = normalizeSemanticContract(contract);
+
+  expect(normalized.operations[0]!.inputs).toEqual(['number', 'string', 'number']);
+});
+
 test('semantic contract validation rejects unknown target references', () => {
   const contract = minimalContract();
   contract.operations[0]!.reads = ['Missing.field'];
