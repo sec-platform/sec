@@ -61,7 +61,22 @@ jobs:
         run: bun run typecheck
 
       - name: Affected fast tests
-        run: bun run test:affected
+        shell: bash
+        run: |
+          log_file="$RUNNER_TEMP/affected-fast-tests.log"
+          set +e
+          bun run test:affected >"$log_file" 2>&1
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "::group::Affected fast test failure tail"
+            tail -n 180 "$log_file"
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
+          cat "$log_file"
 
   compiler-pr-risk:
     runs-on: ubuntu-latest
