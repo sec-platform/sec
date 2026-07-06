@@ -1,7 +1,7 @@
 ---
 title: Engineering IR 与语义事实规范
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-06
 ---
 
 # Engineering IR 与语义事实规范
@@ -54,7 +54,7 @@ interface EngineeringIR {
 }
 ```
 
-v1 Kernel 初始提交允许 `scenarios: []`，但字段保留，避免 Scenario 另建第二事实容器。
+`scenarios` 是 canonical IR 的组成部分，不另建第二事实容器。
 
 ## 4. Semantic Entity
 
@@ -91,7 +91,7 @@ artifact
 acceptance
 ```
 
-第一批 Builder 只需要真实产生：
+当前 Builder 已真实产生：
 
 ```text
 app
@@ -99,12 +99,21 @@ block
 capability
 port
 slot
+entity
+field
+responsibility
+operation
+scenario
+state
+event
 policy
+permission
+effect
 artifact
 acceptance
 ```
 
-其他 kind 为类型层预留，必须通过真实 Contract/Builder 才能进入 IR；不允许仅为了 UI Demo 制造伪节点。
+`boundary`、`generator` 仍为类型层预留，必须通过真实 Contract/Builder 才能进入 IR；不允许仅为了 UI Demo 制造伪节点。
 
 ### Entity ID
 
@@ -366,9 +375,11 @@ IR 是版本化事实集。
 
 `revision` 表示 canonical semantic revision identity，不使用 `generatedAt`。
 
-第一版 revision 可由规范化 entities/facts/scenarios 的 digest 构造。需要：
+第一版 revision 由规范化 entities/facts/scenarios 的 digest 构造。规范化规则必须按字段语义区分 **集合** 与 **序列**：
 
-- 排除数组原始顺序。
+- 对无序集合语义字段，由字段自己的 normalization boundary 去重并稳定排序；source array order 不进入 revision。
+- 对有序序列语义字段，必须保留顺序与重复项；`operation.inputs` 等位置序列的原始顺序属于语义，必须进入 revision。
+- 通用 IR Attribute 层不得假设“数组就是集合”，不得全局排序或去重数组。
 - 排除时间戳。
 - 排除 UI metadata。
 - 排除 volatile runtime metric。
@@ -378,29 +389,33 @@ Runtime Observation 绑定所观察的 canonical revision。
 
 ## 12. Builder v1
 
-`buildEngineeringIR(input)` 第一版输入对象：
+`buildEngineeringIR(input)` 当前输入对象：
 
 ```ts
 interface BuildEngineeringIRInput {
   app: { name: string };
   resolvedBlocks: ResolvedBlock[];
-  manifests: ResolvedManifestInput[];
+  manifests: EngineeringIRManifestInput[];
   slotTasks: SlotTask[];
   acceptanceIds: string[];
   policyIds: string[];
   provenanceArtifacts: ProvenanceArtifact[];
+  semanticContracts?: LoadedSemanticContract[];
 }
 ```
 
-Builder v1 产生：
+Builder 当前产生：
 
 - App Entity。
 - Block Entity。
 - Capability Entity + `DEPENDS_ON/PROVIDES` Fact。
 - Port Entity + `REQUIRES/PROVIDES` Fact。
 - Slot Entity + `CONTAINS` Fact。
+- Semantic Contract 的 Entity/Field/Responsibility/Operation/State/Event/Policy/Permission/Effect/Scenario Entity。
+- Contract authoritative `DECLARES/IMPLEMENTS/OWNS/READS/WRITES/MUTATES/REQUIRES/REQUIRES_PERMISSION/PERFORMS_EFFECT/EMITS/INVOKES/AWAITS/TRANSITIONS_TO/VERIFIED_BY` 等 Fact。
+- canonical `ScenarioDefinition`。
 - Artifact Entity + `ORIGINATES_FROM` Fact。
-- Acceptance Entity + 后续 Coverage Fact 接入点。
+- Acceptance Entity。
 - Policy Entity。
 
 Builder 必须：
@@ -411,6 +426,19 @@ Builder 必须：
 - 稳定排序。
 - 校验 Entity 引用。
 - 产生稳定 Fact ID。
+- 保持字段自己的集合/序列语义，不在通用 Attribute 层篡改数组。
+- 在 Workspace Semantic Linker 未实现前禁止 distinct Contract 隐式共享 namespace。
+
+### Semantic Namespace Ownership
+
+当前没有 Workspace Semantic Linker、Contract import 或 qualified external reference。因此 namespace 只是单个 Loaded Contract 的 canonical identity scope，不是隐式跨 Contract merge channel。
+
+规则：
+
+- exact duplicate Loaded Contract input 允许幂等去重。
+- distinct Contract identity/content 共享 namespace：`IR-IDENTITY-006` hard fail。
+- 在 Semantic Linker 正式实现前，不允许通过复用 namespace 达成跨 Contract Responsibility/Operation/Entity linkage。
+- 未来 Linker 必须显式定义 import、qualified reference、ownership、冲突与版本规则；不得删除 hard fail 后直接恢复隐式合并。
 
 ## 13. IR Index
 
@@ -431,8 +459,13 @@ Index 是内存派生对象，不持久化为第二份 canonical artifact。
 
 v1 冲突处理：
 
-- 同 Entity ID 不同 kind：hard fail。
-- 同 Fact ID 内容不同：hard fail。
+- 同 Entity ID 不同定义：`IR-IDENTITY-001` hard fail。
+- unresolved Block Manifest：`IR-IDENTITY-002` hard fail。
+- Slot 引用未知 Block：`IR-IDENTITY-003` hard fail。
+- 同 Scenario ID 不同定义：`IR-IDENTITY-004` hard fail。
+- Semantic Contract 引用 unresolved Block：`IR-IDENTITY-005` hard fail。
+- distinct Semantic Contract 共享 namespace：`IR-IDENTITY-006` hard fail。
+- 同 Fact ID 内容不同：`IR-FACT-001` hard fail。
 - Fact entity object 引用不存在：hard fail。
 - authoritative facts 语义互斥：需要 predicate-specific validator；未实现 validator 前输出 explicit diagnostic，不能偷偷选一个。
 - inferred vs authoritative conflict：保留 authoritative，记录 conflict evidence/diagnostic。
@@ -496,7 +529,7 @@ control/semantic/engineering-ir.json
 ## 18. v1 Kernel 完成条件
 
 - TypeScript 类型落地。
-- Builder 归一当前 App/Block/Capability/Port/Slot/Artifact/Acceptance/Policy。
+- Builder 归一当前 App/Block/Capability/Port/Slot/Artifact/Acceptance/Policy 与 Loaded Semantic Contract。
 - Stable Entity/Fact ID。
 - Authority/Provenance/Evidence 字段。
 - Referential integrity。
