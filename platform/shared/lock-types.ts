@@ -1,4 +1,4 @@
-import type { ManifestKind, SlotKind, ManifestSlotExport } from './plan-manifest-types.ts';
+import type { ManifestKind, ManifestSlotExport, SlotKind } from './plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from './registry-types.ts';
 
 export type PassState = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
@@ -61,6 +61,18 @@ export interface PassStatus {
   emit: PassState;
 }
 
+export interface PassExecutionState {
+  status: PassState;
+  transactionId?: string;
+  inputRevision?: string;
+  outputRevision?: string;
+  startedAt?: string;
+  completedAt?: string;
+  diagnosticIds: string[];
+}
+
+export type PassExecutionLedger = Partial<Record<keyof PassStatus, PassExecutionState>>;
+
 export interface LockFile {
   formatVersion: string;
   app: {
@@ -76,4 +88,5 @@ export interface LockFile {
   generatedPaths: string[];
   acceptancePlan: string[];
   passStatus: PassStatus;
+  passExecutions?: PassExecutionLedger;
 }
