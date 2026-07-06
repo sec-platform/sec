@@ -20,6 +20,10 @@ type ErrorProtocolRule = {
 };
 
 const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
+  { prefix: 'PIPELINE-USAGE-', recoverable: true, issueType: 'usage', suggestedActions: ['retry-with-supported-pipeline-arguments'], artifactPaths: [] },
+  { prefix: 'PIPELINE-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-pipeline-journal', 'run-required-upstream-stage', 'retry-pipeline'], artifactPaths: [] },
+  { prefix: 'PIPELINE-INTERRUPTED-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-pipeline-journal', 'retry-pipeline'], artifactPaths: [] },
+  { prefix: 'PIPELINE-', recoverable: false, issueType: 'kernel', suggestedActions: ['inspect-pipeline-journal', 'collect-error-output', 'report-bug'], artifactPaths: [] },
   { prefix: 'RESOLVE-CONFLICT-', recoverable: true, issueType: 'composition', suggestedActions: ['remove-conflicting-block', 'choose-alternative-block', 'run-platform-resolve'], artifactPaths: [CI_ARTIFACT_FILES.blockUsageMap] },
   { prefix: 'RESOLVE-MISSING-', recoverable: true, issueType: 'composition', suggestedActions: ['add-required-block', 'run-platform-add', 'run-platform-resolve'], artifactPaths: [CI_ARTIFACT_FILES.blockUsageMap] },
   { prefix: 'RESOLVE-CYCLE-', recoverable: false, issueType: 'composition', suggestedActions: ['resolve-dependency-cycle', 'inspect-block-manifests'], artifactPaths: [CI_ARTIFACT_FILES.blockUsageMap] },

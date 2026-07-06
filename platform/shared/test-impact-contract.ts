@@ -6,6 +6,7 @@ import { Node, Project, SyntaxKind } from 'ts-morph';
 import { uniqueSorted } from './collections.ts';
 import { compilerRoot, posixPath } from './paths.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
+import { pipelineTestImpactRules } from './test-impact-rules/pipeline.ts';
 
 export type TestImpactRule = {
   sourcePattern: RegExp;
@@ -21,6 +22,7 @@ export type TestImpactSelection = {
 };
 
 export const testImpactRules: TestImpactRule[] = [
+  ...pipelineTestImpactRules,
   {
     owner: 'test-impact',
     sourcePattern: /^platform\/shared\/test-impact-contract\.ts$/,
