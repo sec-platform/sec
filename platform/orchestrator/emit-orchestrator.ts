@@ -5,19 +5,34 @@ import type { ExplainGraph } from '../shared/explain-types.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { assertPassStatus, readLockFile } from '../shared/lock-utils.ts';
+import { executePipelineStage } from '../shared/pipeline-kernel.ts';
+import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
 import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import type { VerificationReport } from '../shared/verification-types.ts';
 
-export async function lockWorkspace(workspaceRoot = process.cwd()): Promise<LockFile> {
+async function lockWorkspaceCore(workspaceRoot: string): Promise<LockFile> {
   const lock = await readLockFile(workspaceRoot);
   await lockProject(workspaceRoot, lock);
   return lock;
 }
 
-export async function explainWorkspace(
-  workspaceRoot = process.cwd()
+export async function lockWorkspace(
+  workspaceRoot = process.cwd(),
+  context?: PipelineExecutionContext
+): Promise<LockFile> {
+  return executePipelineStage(
+    workspaceRoot,
+    'lock',
+    context,
+    () => lockWorkspaceCore(workspaceRoot),
+    { extractLock: (lock) => lock }
+  );
+}
+
+async function explainWorkspaceCore(
+  workspaceRoot: string
 ): Promise<{
   lock: LockFile;
   provenance: ProvenanceFile;
@@ -41,6 +56,25 @@ export async function explainWorkspace(
   const reviewSummary = await writeReviewSummary(workspaceRoot, lock, refreshedProvenance, report, coverage);
   await writeLocalViews(workspaceRoot);
   return { lock, provenance: refreshedProvenance, report, graph, reviewSummary };
+}
+
+export async function explainWorkspace(
+  workspaceRoot = process.cwd(),
+  context?: PipelineExecutionContext
+): Promise<{
+  lock: LockFile;
+  provenance: ProvenanceFile;
+  report: VerificationReport;
+  graph: ExplainGraph;
+  reviewSummary: ReviewSummary;
+}> {
+  return executePipelineStage(
+    workspaceRoot,
+    'emit',
+    context,
+    () => explainWorkspaceCore(workspaceRoot),
+    { extractLock: (result) => result.lock }
+  );
 }
 
 async function refreshReviewArtifacts(workspaceRoot: string, lock: LockFile): Promise<ReviewSummary | null> {
