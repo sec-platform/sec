@@ -160,6 +160,18 @@ test.serial('affected tests skip broad fast-suite fallback for unmapped source c
   }
 });
 
+test.serial('affected tests map declarative registry files through impact rules', async () => {
+  changedFiles = ['platform/registry/official/ticket.basic/contracts/ticket.yaml'];
+
+  const code = await runAffectedTests();
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts'] },
+    { command: 'bun', args: ['test', 'tests/integration/project-runtime.test.ts'] }
+  ]);
+});
+
 test.serial('affected tests run changed concurrent-safe fast files directly', async () => {
   changedFiles = ['tests/unit/path-containment.test.ts'];
   const logs: string[] = [];
