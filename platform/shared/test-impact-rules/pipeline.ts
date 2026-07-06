@@ -3,7 +3,7 @@ import type { TestImpactRule } from '../test-impact-contract.ts';
 export const pipelineTestImpactRules: TestImpactRule[] = [
   {
     owner: 'pipeline-kernel',
-    sourcePattern: /^platform\/shared\/pipeline-(?:types|pass-registry|journal|kernel)\.ts$/,
+    sourcePattern: /^platform\/shared\/(?:pipeline-(?:types|pass-registry|journal|kernel)\.ts|test-impact-rules\/pipeline\.ts)$/,
     fast: [
       'tests/unit/pipeline-pass-registry.test.ts',
       'tests/integration/pipeline-kernel.test.ts'
