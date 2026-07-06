@@ -5,6 +5,7 @@ import { saveLock } from './lock-utils.ts';
 import {
   commitPipelineTransaction,
   failPipelineTransaction,
+  recordPipelinePassBlocked,
   recordPipelinePassFailure,
   recordPipelinePassStart,
   recordPipelinePassSuccess,
@@ -71,6 +72,15 @@ function beginStageState(lock: LockFile, ownedPasses: readonly PassId[], invalid
   }
 }
 
+function blockStageState(lock: LockFile, ownedPasses: readonly PassId[], invalidates: readonly PassId[]): void {
+  for (const passId of ownedPasses) {
+    lock.passStatus[passId] = 'blocked';
+  }
+  for (const passId of invalidates) {
+    lock.passStatus[passId] = 'blocked';
+  }
+}
+
 function completeStageState(lock: LockFile, ownedPasses: readonly PassId[]): void {
   for (const passId of ownedPasses) {
     lock.passStatus[passId] = 'succeeded';
@@ -119,7 +129,25 @@ async function executeStageWithContext<T>(
 ): Promise<T> {
   const definition = getPipelineStageDefinition(stageId);
   const previousLock = await readExistingLock(workspaceRoot);
-  assertStageRequirements(previousLock, stageId, definition.requires);
+
+  try {
+    assertStageRequirements(previousLock, stageId, definition.requires);
+  } catch (error) {
+    const failure = normalizeFailure(error);
+    if (previousLock) {
+      blockStageState(previousLock, definition.ownedPasses, definition.invalidates);
+      await saveLock(workspaceRoot, previousLock);
+    }
+    await recordPipelinePassBlocked(
+      workspaceRoot,
+      context.transactionId,
+      definition.primaryPass,
+      failure.code,
+      failure.message,
+      context.onEvent
+    );
+    throw error;
+  }
 
   if (previousLock) {
     beginStageState(previousLock, definition.ownedPasses, definition.invalidates);
