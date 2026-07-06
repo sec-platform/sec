@@ -153,6 +153,34 @@ export async function recordPipelinePassStart(
   });
 }
 
+export async function recordPipelinePassBlocked(
+  workspaceRoot: string,
+  transactionId: string,
+  passId: PassId,
+  errorCode: string,
+  message: string,
+  onEvent?: PipelineEventHandler
+): Promise<void> {
+  const timestamp = new Date().toISOString();
+  await mutateJournal(workspaceRoot, (journal) => {
+    const transaction = findTransaction(journal, transactionId);
+    transaction.passRecords.push({
+      passId,
+      status: 'blocked',
+      startedAt: timestamp,
+      completedAt: timestamp,
+      errorCode,
+      message
+    });
+  });
+  await emitEvent(onEvent, {
+    type: 'pass-blocked',
+    transactionId,
+    passId,
+    message: `Pass ${passId} blocked: ${message}`
+  });
+}
+
 export async function recordPipelinePassSuccess(
   workspaceRoot: string,
   transactionId: string,
