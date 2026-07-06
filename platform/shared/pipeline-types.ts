@@ -49,6 +49,7 @@ export type PipelineEventType =
   | 'transaction-start'
   | 'pass-start'
   | 'pass-success'
+  | 'pass-blocked'
   | 'pass-failure'
   | 'transaction-success'
   | 'transaction-failure';
