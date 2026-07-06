@@ -130,6 +130,32 @@ function assertTargetReference(entities: Map<string, SemanticContractEntity>, va
   }
 }
 
+function assertOperationResponsibilityConsistency(contract: SemanticContract): void {
+  const responsibilityByOperation = new Map<string, string>();
+  for (const responsibility of contract.responsibilities) {
+    for (const operationId of responsibility.implements) {
+      const existing = responsibilityByOperation.get(operationId);
+      if (existing && existing !== responsibility.id) {
+        throw new CompilerError(
+          'CONTRACT-SEMANTIC-017',
+          `Operation "${operationId}" is listed by multiple responsibilities: "${existing}" and "${responsibility.id}"`
+        );
+      }
+      responsibilityByOperation.set(operationId, responsibility.id);
+    }
+  }
+
+  for (const operation of contract.operations) {
+    const listedResponsibility = responsibilityByOperation.get(operation.id);
+    if (listedResponsibility !== operation.responsibility) {
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-017',
+        `Operation "${operation.id}" responsibility "${operation.responsibility}" does not match implements owner "${listedResponsibility ?? 'none'}"`
+      );
+    }
+  }
+}
+
 export function normalizeSemanticContract(input: SemanticContract): SemanticContract {
   if (input?.formatVersion !== SEMANTIC_CONTRACT_FORMAT_VERSION) {
     throw new CompilerError(
@@ -213,6 +239,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     for (const operation of responsibility.implements) assertReference(operationIds, operation, `Responsibility "${responsibility.id}" implements`);
     for (const dependency of responsibility.dependsOn) assertReference(responsibilityIds, dependency, `Responsibility "${responsibility.id}" dependsOn`);
   }
+  assertOperationResponsibilityConsistency(contract);
 
   for (const operation of contract.operations) {
     assertReference(responsibilityIds, operation.responsibility, `Operation "${operation.id}" responsibility`);
