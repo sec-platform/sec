@@ -3,10 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import semver from 'semver';
 import {
-    loadManifestById,
-    loadOverrideManifest,
-    loadWorkspacePlan,
-    writeProvenance
+  loadManifestById,
+  loadOverrideManifest,
+  loadWorkspacePlan,
+  writeProvenance
 } from '../compiler/index.ts';
 import { compileWorkspace } from '../orchestrator/pipeline-orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
@@ -17,15 +17,15 @@ import type { LockFile } from '../shared/lock-types.ts';
 import { addGeneratedPaths, readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath } from '../shared/paths.ts';
 import type {
-    ManifestSlot,
-    PlanFile,
-    UpgradeMigration,
-    UpgradeMigrationEntry
+  ManifestSlot,
+  PlanFile,
+  UpgradeMigration,
+  UpgradeMigrationEntry
 } from '../shared/plan-manifest-types.ts';
 import type {
-    UpgradeDiagnostics,
-    UpgradePlan,
-    UpgradePreflightCheck
+  UpgradeDiagnostics,
+  UpgradePlan,
+  UpgradePreflightCheck
 } from '../shared/upgrade-types.ts';
 import { writeYaml } from '../shared/yaml.ts';
 
