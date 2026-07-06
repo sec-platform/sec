@@ -78,7 +78,7 @@ function normalizeResponsibility(responsibility: SemanticContractResponsibility)
 function normalizeOperation(operation: SemanticContractOperation): SemanticContractOperation {
   return {
     ...operation,
-    inputs: uniqueSorted(operation.inputs ?? []),
+    inputs: [...(operation.inputs ?? [])],
     reads: uniqueSorted(operation.reads ?? []),
     writes: uniqueSorted(operation.writes ?? []),
     mutates: uniqueSorted(operation.mutates ?? []),
