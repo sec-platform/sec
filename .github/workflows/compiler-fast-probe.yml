@@ -41,26 +41,34 @@ jobs:
           printf '\nNON_IGNORED_UNTRACKED\n' >> reference-commit-final.log
           git ls-files --others --exclude-standard -- source project control >> reference-commit-final.log 2>&1
 
-          git add -u -- source project control >> reference-commit-final.log 2>&1
+          git add -u -- . >> reference-commit-final.log 2>&1
           add_status=$?
           printf '\nADD_STATUS=%s\n' "$add_status" >> reference-commit-final.log
 
-          printf '\nSTAGED_PATHS\n' >> reference-commit-final.log
-          git diff --cached --name-only >> reference-commit-final.log 2>&1
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore(reference): refresh canonical workspace snapshot" >> reference-commit-final.log 2>&1
-          commit_status=$?
-          printf '\nCOMMIT_STATUS=%s\n' "$commit_status" >> reference-commit-final.log
-
-          if [ "$commit_status" -eq 0 ]; then
-            git push origin HEAD:validation/reference-refresh-output >> reference-commit-final.log 2>&1
-            push_status=$?
-          else
+          staged=$(git diff --cached --name-only)
+          printf '\nSTAGED_PATHS\n%s\n' "$staged" >> reference-commit-final.log
+          expected=$(printf '%s\n' \
+            'control/graph/explain-graph.json' \
+            'control/provenance/provenance.json' \
+            'control/workbench/views/graph-view.html')
+          if [ "$refresh_status" -ne 0 ] || [ "$add_status" -ne 0 ] || [ "$staged" != "$expected" ]; then
+            printf '\nSURFACE_VALIDATION_STATUS=1\n' >> reference-commit-final.log
+            commit_status=98
             push_status=99
+          else
+            printf '\nSURFACE_VALIDATION_STATUS=0\n' >> reference-commit-final.log
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore(reference): refresh canonical workspace snapshot" >> reference-commit-final.log 2>&1
+            commit_status=$?
+            if [ "$commit_status" -eq 0 ]; then
+              git push origin HEAD:validation/reference-refresh-output >> reference-commit-final.log 2>&1
+              push_status=$?
+            else
+              push_status=99
+            fi
           fi
-          printf '\nPUSH_STATUS=%s\n' "$push_status" >> reference-commit-final.log
+          printf '\nCOMMIT_STATUS=%s\nPUSH_STATUS=%s\n' "$commit_status" "$push_status" >> reference-commit-final.log
           cat reference-commit-final.log
           set -e
 
