@@ -5,29 +5,39 @@ export interface CompileStreamContext {
   acquire: () => Promise<() => void>;
 }
 
+const WORKBENCH_COMPILE_HEARTBEAT_MS = 5_000;
+
 function encodeSse(event: string, data: string): Uint8Array {
   return new TextEncoder().encode(`event: ${event}\ndata: ${data}\n\n`);
 }
 
 export function createWorkbenchCompileStream(context: CompileStreamContext): ReadableStream<Uint8Array> {
   let release: (() => void) | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   let released = false;
   const releaseOnce = (): void => {
     if (released) return;
     released = true;
     release?.();
   };
+  const stopHeartbeat = (): void => {
+    if (!heartbeat) return;
+    clearInterval(heartbeat);
+    heartbeat = undefined;
+  };
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       release = await context.acquire();
-      const log = (message: string): void => {
+      const emit = (event: string, data: string): void => {
         try {
-          controller.enqueue(encodeSse('log', message));
+          controller.enqueue(encodeSse(event, data));
         } catch {
           // Stream already closed.
         }
       };
+      const log = (message: string): void => emit('log', message);
+      heartbeat = setInterval(() => emit('heartbeat', 'keep-alive'), WORKBENCH_COMPILE_HEARTBEAT_MS);
 
       try {
         log('Starting canonical compilation pipeline...');
@@ -38,16 +48,13 @@ export function createWorkbenchCompileStream(context: CompileStreamContext): Rea
           onEvent: (event) => log(`[${event.type}] ${event.message}`)
         });
         log(`Compilation transaction ${result.transactionId} finished successfully.`);
-        controller.enqueue(encodeSse('success', 'done'));
+        emit('success', 'done');
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         log(`[ERROR] Compilation failed: ${message}`);
-        try {
-          controller.enqueue(encodeSse('failure', message));
-        } catch {
-          // Stream already closed.
-        }
+        emit('failure', message);
       } finally {
+        stopHeartbeat();
         releaseOnce();
         try {
           controller.close();
@@ -57,6 +64,7 @@ export function createWorkbenchCompileStream(context: CompileStreamContext): Rea
       }
     },
     cancel() {
+      stopHeartbeat();
       releaseOnce();
     }
   });
