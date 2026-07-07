@@ -8,9 +8,10 @@ import {
   initWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { getTestWorkspaceTempRoot } from '../../platform/dev-runner/env-manager.ts';
 import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
 
-const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
+const workspaceParent = getTestWorkspaceTempRoot();
 const templateParent = path.join(workspaceParent, '.templates');
 const templateCacheVersion = 'v5-typescript-incremental-pruning';
 const deferredCleanupDirs = new Set<string>();
