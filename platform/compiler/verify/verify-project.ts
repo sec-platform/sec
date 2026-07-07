@@ -12,17 +12,16 @@ import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
 import type {
-    FastVerificationLaneReport,
-    RuntimeVerificationLaneReport,
-    VerificationLane,
-    VerificationReport
+  FastVerificationLaneReport,
+  RuntimeVerificationLaneReport,
+  VerificationLane,
+  VerificationReport
 } from '../../shared/verification-types.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import { typecheckProject } from './typecheck-project.ts';
 import { validateSlotSecurity } from './validate-slot-security.ts';
-
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;
