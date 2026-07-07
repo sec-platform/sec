@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
 import { compilerRoot } from '../shared/paths.ts';
+import { applyDefaultFastTestConcurrency } from './test-concurrency-policy.ts';
 
 export function runDevCommand(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(command, applyDefaultFastTestConcurrency(command, args), {
       cwd: compilerRoot,
       env: Object.fromEntries(
         Object.entries({
