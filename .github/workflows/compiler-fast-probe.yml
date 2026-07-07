@@ -1,4 +1,4 @@
-name: compiler-reference-probe
+name: compiler-project-runtime-probe
 
 on:
   pull_request:
@@ -7,17 +7,17 @@ on:
       - synchronize
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  reference-refresh-output:
+  project-runtime-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Checkout refresh output branch
+      - name: Checkout integration head
         uses: actions/checkout@v5
         with:
-          ref: validation/reference-refresh-output
+          ref: integration/main-into-semantic
           fetch-depth: 0
 
       - name: Setup Bun
@@ -28,19 +28,22 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Refresh reference workspace
-        run: bun run reference:refresh
-
-      - name: Commit canonical reference refresh
+      - name: Capture project runtime test
+        id: test
         shell: bash
         run: |
-          git add -u -- source control
-          git diff --cached --name-only
-          if git diff --cached --quiet; then
-            echo "No reference changes."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit --no-verify -m "chore(reference): refresh canonical workspace snapshot"
-          git push origin HEAD:refs/heads/validation/reference-refresh-output
+          status=0
+          bun test tests/integration/project-runtime.test.ts > project-runtime-test.log 2>&1 || status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          tail -n 60 project-runtime-test.log
+
+      - name: Upload project runtime test log
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-runtime-test-log
+          path: project-runtime-test.log
+          retention-days: 1
+
+      - name: Preserve test result
+        if: steps.test.outputs.status != '0'
+        run: exit ${{ steps.test.outputs.status }}
