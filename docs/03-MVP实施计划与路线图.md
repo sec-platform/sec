@@ -1,7 +1,7 @@
 ---
 title: MVP 实施计划与路线图
 status: active
-last-reviewed: 2026-07-06
+last-reviewed: 2026-07-07
 ---
 
 # MVP 实施计划与路线图
@@ -65,7 +65,9 @@ Engineering IR 成为 canonical representation 之前，v0.4 Semantic Mutation�
 - Repair、Upgrade、Migration、Override 基础。
 - CodeBuilder 和 compiler facade 边界。
 - Semantic Contract parser / normalizer prototype。
-- Engineering IR deterministic builder / index prototype。
+- **Ticket Semantic Contract**：当前首个真实业务 Semantic Contract 母例，authoritative contract 位于 `platform/registry/official/ticket.basic/contracts/ticket.yaml`。
+- **Engineering IR Kernel**：`platform/compiler/ir/**` 下的 deterministic builder、index 与 identity boundary。
+- **Fact Provenance**：保存 Fact assertion 的 authority、confidence、provenance 与 evidence；与生成物来源的 Artifact Provenance 分工，不互相替代。
 - Architecture / Scenario / State projector prototype。
 
 这些模块不是全部重写。后续工作以“接入唯一主链、删除重复解释器、补 canonical identity 与 transaction ownership”为目标。
