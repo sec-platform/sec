@@ -2,12 +2,12 @@ import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
 import { compilerRoot } from './paths.ts';
 import { platformCommand } from './platform-command.ts';
+import { runCommand } from './process.ts';
 import {
   REFERENCE_TRACKED_DIFF_ARGS,
   REFERENCE_UNTRACKED_SCAN_ARGS,
   scanReferenceDrift
 } from './reference-drift-scan.ts';
-import { runCommand } from './process.ts';
 
 export type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'diff-failed';
 export type ReferenceCheckFailedStage = 'none' | 'refresh' | 'diff';
