@@ -1,14 +1,72 @@
-name: compiler-fast-probe-retired
+name: compiler-reference-commit-final
 
 on:
-  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  retired:
+  reference-commit-final:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Retired probe notice
-        run: echo "Temporary fast probe retired. Use compiler-pr-validation."
+      - name: Checkout reference output branch
+        uses: actions/checkout@v5
+        with:
+          ref: validation/reference-refresh-output
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Refresh and commit reference snapshot
+        shell: bash
+        run: |
+          set +e
+          : > reference-commit-final.log
+
+          bun run reference:refresh >> reference-commit-final.log 2>&1
+          refresh_status=$?
+          printf '\nREFRESH_STATUS=%s\n' "$refresh_status" >> reference-commit-final.log
+
+          printf '\nNON_IGNORED_UNTRACKED\n' >> reference-commit-final.log
+          git ls-files --others --exclude-standard -- source project control >> reference-commit-final.log 2>&1
+
+          git add -u -- source project control >> reference-commit-final.log 2>&1
+          add_status=$?
+          printf '\nADD_STATUS=%s\n' "$add_status" >> reference-commit-final.log
+
+          printf '\nSTAGED_PATHS\n' >> reference-commit-final.log
+          git diff --cached --name-only >> reference-commit-final.log 2>&1
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(reference): refresh canonical workspace snapshot" >> reference-commit-final.log 2>&1
+          commit_status=$?
+          printf '\nCOMMIT_STATUS=%s\n' "$commit_status" >> reference-commit-final.log
+
+          if [ "$commit_status" -eq 0 ]; then
+            git push origin HEAD:validation/reference-refresh-output >> reference-commit-final.log 2>&1
+            push_status=$?
+          else
+            push_status=99
+          fi
+          printf '\nPUSH_STATUS=%s\n' "$push_status" >> reference-commit-final.log
+          cat reference-commit-final.log
+          set -e
+
+      - name: Upload reference commit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-commit-final-evidence
+          path: reference-commit-final.log
+          retention-days: 1
