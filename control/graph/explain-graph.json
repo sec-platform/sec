@@ -411,6 +411,11 @@
       "label": "src/installed/tenant/context.ts"
     },
     {
+      "id": "file:src/installed/ticket/ticket-semantic-contract.ts",
+      "type": "file",
+      "label": "src/installed/ticket/ticket-semantic-contract.ts"
+    },
+    {
       "id": "file:src/installed/ticket/ticket-service.ts",
       "type": "file",
       "label": "src/installed/ticket/ticket-service.ts"
@@ -1278,6 +1283,11 @@
       "type": "originates_from"
     },
     {
+      "from": "file:src/installed/ticket/ticket-semantic-contract.ts",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:src/installed/ticket/ticket-service.ts",
       "to": "block:ticket/basic",
       "type": "originates_from"
@@ -1604,7 +1614,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "577beff3d47c962fad2b99ab64c404087e8627ba1bcdaf9e52ef758974daf353"
+        "hash": "c3df872657768710b5ca9fd22e6a32f94b30643ad8a60c1a7b13b91bc5608d7f"
       },
       {
         "path": "control/evidence/acceptance-coverage.json",
@@ -1676,7 +1686,7 @@
         "generatedByPass": "explain",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "6c2e913a3e769f6cd575bf321b210d96c91f4d76ca2ac72940cb950053ccd9fd"
+        "hash": "05fbcf4971a6a5f48503655163141f1c8d9e017aa709d783f05ee4468d54ded0"
       },
       {
         "path": "control/graph/explain-graph.mmd",
@@ -1694,7 +1704,7 @@
         "generatedByPass": "lock",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "32c02500fe590d66024c7fbe4ddf2c16b51b68c80b312c563e80364ece26bfcb"
+        "hash": "9834cc628d66fc87367f26ffd214e16184e9939908eaef42b745554914d7b39c"
       },
       {
         "path": "custom/customer_normalizer.ts",
@@ -1720,7 +1730,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "3a02059902faa9201206432c95fcc3e2543173fbae9b93d878333e73be2923dd"
+        "hash": "2d5b987a39ce1df7aea9c631dc4a766cbd9780c669e2c649f6dfc70414345e20"
       },
       {
         "path": "custom/ticket_comment_delegate.ts",
@@ -1746,7 +1756,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "58e680dd98dab79bd43d248ba06b1d289dc67c3b21315661d2e7dce7c234953b"
+        "hash": "7045e6af8742233991c3eb75e2d13e77c2b92a66d0a14730fa8706fb6da007a2"
       },
       {
         "path": "generated/routes.ts",
@@ -1817,7 +1827,7 @@
           "tests/unit/comment-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "990ed3f9a1831b6eb6ab945122c3a0da4e8f6b767964ee84638eae370c1c1f3c"
+        "hash": "7fa56711963865fde8290c0cd6ac383b9ddfc208078942ad2ffb7da30f394157"
       },
       {
         "path": "source/code/slots/customer_normalizer.ts",
@@ -1843,7 +1853,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "614b7d912abd4f28b4dddb3f583a606c78a1b151f81a02733ab3672ce12016e3"
+        "hash": "b3b60886ce4fee55d52c3ef8744a7c394baf89f7b5d547f1b6bce6ac68d7aeae"
       },
       {
         "path": "source/code/slots/ticket_comment_delegate.ts",
@@ -1869,7 +1879,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "1fdd0316f4e0eb669b80cc8120f055060598ab3b0fe82718ddcdf941fd0bd15b"
+        "hash": "ca9a14c6399b773bdd56597b691b38f5ae240a6ffee44b0e90d7b2a0401ff35d"
       },
       {
         "path": "src/installed/agent/executor-service.ts",
@@ -1980,6 +1990,26 @@
         "hash": "88010a9157dee88a28742be9dc3528aed26980594bdb05621bda8c6f405e3a98"
       },
       {
+        "path": "src/installed/ticket/ticket-semantic-contract.ts",
+        "originType": "generated",
+        "originId": "generator:ticket/basic:ticket-status-runtime-contract",
+        "sourceBlock": "ticket/basic",
+        "registrySourceId": "official",
+        "registryKind": "official",
+        "registryLocation": "compiler",
+        "registryPath": "platform/registry/official",
+        "sourcePath": "platform/registry/official/ticket.basic/contracts/ticket.yaml",
+        "runtimeTarget": "src/installed/ticket/ticket-semantic-contract.ts",
+        "generatedByPass": "compose",
+        "generatorTaskId": "generator:ticket/basic:ticket-status-runtime-contract",
+        "verifiedBy": [
+          "tests/acceptance/ticket-flow.test.ts",
+          "tests/unit/ticket-service.test.ts"
+        ],
+        "overrideStatus": "none",
+        "hash": "5ffb3c9183f2e6285885f0ef17b64ba726170a4db26c7f2612ac2284e35df92b"
+      },
+      {
         "path": "src/installed/ticket/ticket-service.ts",
         "originType": "block",
         "originId": "ticket/basic",
@@ -1994,7 +2024,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "ed8f0591bb4ce6948f63e3c6f5e0435b8f191ce577e1878e23ba93b575717dd1"
+        "hash": "5b08e59d860a299114a0b75b33325a555b2fcb0d880909aed21876b0adb31c96"
       },
       {
         "path": "tests/acceptance/agent-classifier-flow.test.ts",
@@ -2044,7 +2074,7 @@
           "tests/unit/customer-normalizer.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "1cbf4989bbae79d15a2bee35935763d149cef5c4457523b0b1fe3ea9ba675e8e"
+        "hash": "1162326ce3799b748605f94994721624933ca9a2096917d37ec709d15a8f363b"
       },
       {
         "path": "tests/acceptance/ticket-flow.test.ts",
@@ -2061,7 +2091,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "0cefdb727fbcec37b87c2048ade4ae905bb9a8f443d25aa9d9e6e67c57021546"
+        "hash": "919e6f9446b4e0487506da0b89745ed04e3b304a228b0591f62e23b8bc86b9f8"
       },
       {
         "path": "tests/runtime/acceptance/customer-flow.spec.ts",
@@ -2111,7 +2141,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "3d91c1a5bba5bc1b44943c34da8a9cfc00ff1cbea2e776f13f011c1c0a9457db"
+        "hash": "5905448671aea902e5ddabd58ab99df1649dacb1a9fe9e17b136da82a0086349"
       },
       {
         "path": "tests/shared/ticket-service-suite.ts",
@@ -2128,7 +2158,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "f48da33b70c8af291a6399f0d142efb2a1253734cdbe6749c925baf59f832ae8"
+        "hash": "f4df55e6e4c15686bbb817882ac8815ba64a6118d4c37812490be963ea883a3c"
       },
       {
         "path": "tests/unit/comment-service.test.ts",
@@ -2161,7 +2191,7 @@
           "tests/unit/customer-attachments.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "be94b72c8079147ddb4296c9c0d44acd523f18f9f4a493afc5934b0713c205aa"
+        "hash": "3fe344d7e39c9a326c50fb5d1a8ed83cb290cbc307690fa3f0ed5355d7fa69e7"
       },
       {
         "path": "tests/unit/customer-normalizer.test.ts",
@@ -2195,7 +2225,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "a1df0d924681207943a7a43494e5f666bc99d38e4b4a58646f5729034eb9e1e3"
+        "hash": "25bbb2f0b27c9ec88d643a32dc3a4ce48241365945a244c509cae9f17dbfd396"
       },
       {
         "path": "tsconfig.json",
