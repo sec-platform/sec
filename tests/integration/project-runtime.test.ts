@@ -235,13 +235,19 @@ describe('test budget and benchmark contracts', () => {
 
   test('reference check contract documents drift detection commands', async () => {
     const source = await readCompilerFile('platform/shared/reference-check.ts');
+    const scanSource = await readCompilerFile('platform/shared/reference-drift-scan.ts');
 
     expectContainsAll(source, [
       "command: platformCommand('reference', 'check', '--json')",
       "runnerCommand: 'bun run reference:check'",
-      "['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']",
-      "['run', 'reference:refresh']",
+      'REFERENCE_TRACKED_DIFF_ARGS',
+      'REFERENCE_UNTRACKED_SCAN_ARGS',
+      'scanReferenceDrift',
       'failedStage: ReferenceCheckFailedStage'
+    ]);
+    expectContainsAll(scanSource, [
+      "['diff', '--name-only', '--exit-code', '--', ...REFERENCE_PATHS]",
+      "['ls-files', '--others', '--exclude-standard', '--', ...REFERENCE_PATHS]"
     ]);
   });
 });
