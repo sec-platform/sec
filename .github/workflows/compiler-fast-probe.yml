@@ -31,6 +31,7 @@ jobs:
       - name: Capture pipeline end-to-end suite
         shell: bash
         run: |
+          # Revalidate after the Emit final-lock persistence fix.
           set +e
           bun run test:slow -- --suite e2e-pipeline-end-to-end > pipeline-e2e.log 2>&1
           status=$?
