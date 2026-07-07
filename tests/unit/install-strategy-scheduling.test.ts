@@ -24,7 +24,7 @@ function mergePrismaStep(stepId: string, from: string, to = 'prisma/schema.prism
   };
 }
 
-test('install strategy registry serializes read-modify-write steps sharing a normalized target', async () => {
+test('install strategy registry serializes read-modify-write steps sharing one target', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await Promise.all([
       writeText(path.join(workspaceRoot, 'registry', 'alpha.prisma'), `model Alpha {
@@ -40,7 +40,7 @@ test('install strategy registry serializes read-modify-write steps sharing a nor
     const { projectRoot } = getWorkspacePaths(workspaceRoot);
     await defaultInstallRegistry.executeAll([
       mergePrismaStep('alpha', 'alpha.prisma'),
-      mergePrismaStep('beta', 'beta.prisma', 'prisma\\schema.prisma')
+      mergePrismaStep('beta', 'beta.prisma')
     ], {
       workspaceRoot,
       projectRoot,
