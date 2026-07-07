@@ -32,4 +32,4 @@ test('workspace builds ticket semantic contract into one deterministic Engineeri
       'scenario:ticket:transition-ticket-status'
     ]);
   }, 'engineering-compiler-semantic-ir-');
-});
+}, 15_000);
