@@ -1,5 +1,7 @@
 export const SERIAL_FAST_TEST_FILES = [
   'tests/integration/project-runtime.test.ts',
+  'tests/integration/semantic-core-vertical.test.ts',
+  'tests/integration/ticket-pipeline.test.ts',
   'tests/unit/test-runner.test.ts'
 ] as const;
 
