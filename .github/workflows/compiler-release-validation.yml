@@ -1,6 +1,7 @@
 name: compiler-release-validation
 
 on:
+  workflow_call:
   pull_request:
     types:
       - labeled
@@ -20,7 +21,7 @@ env:
 
 jobs:
   compiler-release-preflight:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'run-full'
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -57,7 +58,7 @@ jobs:
         run: bun run test:contract-freeze
 
   compiler-release-slow-matrix:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'run-full'
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -81,7 +82,7 @@ jobs:
           echo "suites=$suites" >> "$GITHUB_OUTPUT"
 
   compiler-release-slow:
-    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'run-full')
+    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
     needs:
@@ -110,7 +111,7 @@ jobs:
         run: bun run test:slow -- --suite ${{ matrix.suite }}
 
   compiler-release-workspace:
-    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'run-full')
+    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
     needs: compiler-release-preflight
@@ -166,7 +167,7 @@ jobs:
         run: bun run sec -- reference check --json --compact
 
   compiler-release-full:
-    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'run-full')
+    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs:
