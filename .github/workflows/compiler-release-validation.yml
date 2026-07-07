@@ -22,7 +22,7 @@ jobs:
   compiler-release-preflight:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'run-full'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -43,6 +43,12 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
+
+      - name: Documentation doctor
+        run: bun run docs:doctor
+
+      - name: Full fast test inventory
+        run: bun run test:fast
 
       - name: Test budget contract
         run: bun run sec -- test budget --json --compact
