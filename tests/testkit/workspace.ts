@@ -12,7 +12,7 @@ import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
 
 const workspaceParent = path.join(process.cwd(), '.tmp', 'test-workspaces');
 const templateParent = path.join(workspaceParent, '.templates');
-const templateCacheVersion = 'v3-pipeline-kernel';
+const templateCacheVersion = 'v4-runtime-transient-pruning';
 const deferredCleanupDirs = new Set<string>();
 
 export type WorkspaceTemplateKind =
@@ -169,7 +169,11 @@ async function templateIsReady(kind: WorkspaceTemplateKind, markerPath: string):
 async function pruneTransientWorkspaceState(workspaceRoot: string): Promise<void> {
   await Promise.all([
     fs.rm(path.join(workspaceRoot, 'node_modules'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', 'node_modules'), { recursive: true, force: true })
+    fs.rm(path.join(workspaceRoot, 'project', 'node_modules'), { recursive: true, force: true }),
+    fs.rm(path.join(workspaceRoot, 'project', '.next'), { recursive: true, force: true }),
+    fs.rm(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true, force: true }),
+    fs.rm(path.join(workspaceRoot, 'project', 'playwright-report'), { recursive: true, force: true }),
+    fs.rm(path.join(workspaceRoot, 'project', 'coverage'), { recursive: true, force: true })
   ]);
 }
 
