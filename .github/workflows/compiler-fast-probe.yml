@@ -1,4 +1,4 @@
-name: compiler-reference-surface-evidence
+name: compiler-reference-final-refresh
 
 on:
   pull_request:
@@ -7,10 +7,10 @@ on:
       - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  capture-reference-surface:
+  refresh-canonical-reference:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -31,20 +31,23 @@ jobs:
       - name: Refresh reference workspace
         run: bun run reference:refresh
 
-      - name: Capture reference surface
+      - name: Commit canonical reference snapshot
         shell: bash
         run: |
-          git status --short --untracked-files=all --ignored source project control > reference-status.txt
-          git ls-files --others --exclude-standard -- source project control > reference-untracked.txt
-          git ls-files --others --ignored --exclude-standard -- source project control > reference-ignored.txt
-          cat reference-status.txt
+          untracked=$(git ls-files --others --exclude-standard -- source project control)
+          if [ -n "$untracked" ]; then
+            printf 'Unexpected non-ignored untracked reference surface:\n%s\n' "$untracked"
+            exit 1
+          fi
 
-      - name: Upload reference surface evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: reference-surface-evidence
-          path: |
-            reference-status.txt
-            reference-untracked.txt
-            reference-ignored.txt
-          retention-days: 1
+          git add -u -- source project control
+          staged=$(git diff --cached --name-only)
+          printf 'Staged canonical reference surface:\n%s\n' "$staged"
+          if git diff --cached --quiet; then
+            echo "No reference changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(reference): refresh canonical workspace snapshot"
+          git push origin HEAD:validation/reference-refresh-output
