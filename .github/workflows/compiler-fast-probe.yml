@@ -1,14 +1,44 @@
-name: compiler-fast-probe-retired
+name: compiler-upgrade-stage-trace
 
 on:
-  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
 
 permissions:
   contents: read
 
 jobs:
-  retired:
+  upgrade-stage-trace:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Retired probe notice
-        run: echo "Temporary fast probe retired. Use compiler-pr-validation."
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Capture exact upgrade stage trace
+        shell: bash
+        run: |
+          set +e
+          bun ./platform/dev-runner.ts test:fast tests/integration/upgrade-pipeline-kernel.test.ts --timeout 120000 > upgrade-stage-trace.log 2>&1
+          status=$?
+          set -e
+          printf '\nEXIT_STATUS=%s\n' "$status" >> upgrade-stage-trace.log
+
+      - name: Upload trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-stage-trace
+          path: upgrade-stage-trace.log
+          retention-days: 1
