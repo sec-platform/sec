@@ -4,6 +4,7 @@ import { upgradeWorkspace } from '../../platform/orchestrator.ts';
 import { readPipelineJournal } from '../../platform/shared/pipeline-journal.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
+// Exact validation for the impact-scoped upgrade write boundary.
 test('upgrade apply recompiles through one canonical upgrade transaction', async () => {
   await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
     const result = await upgradeWorkspace(
