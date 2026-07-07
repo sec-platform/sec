@@ -3,13 +3,13 @@ import { expect, test } from 'bun:test';
 import { buildCiContract, formatCiContract } from '../../platform/shared/ci-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { slowTestPrRiskBaselineSuiteIds, slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
+import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import {
   expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
   expectFullLaneCoversSlowSuites,
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 test('CI contract keeps PR lanes fast and full lane complete', () => {
   const contract = buildCiContract();
@@ -106,11 +106,13 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
   });
 });
 
-test('CI PR risk runner parallelizes selected slow suites', async () => {
+test('CI PR risk runner parallelizes slow suites with isolated workspace roots', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
 
   expect(source).toContain('SEC_CI_PR_RISK_SLOW_CONCURRENCY');
   expect(source).toContain('parallelSafeSlowSuites');
   expect(source).toContain('runBunStepsInParallel');
   expect(source).toContain('parallel-safe slow steps with concurrency ${concurrency}');
+  expect(source).toContain('SEC_TEST_WORKSPACE_NAMESPACE');
+  expect(source).toContain('gateStepEnvironment(step)');
 });
