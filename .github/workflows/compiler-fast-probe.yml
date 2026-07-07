@@ -44,7 +44,7 @@ jobs:
       - name: Commit affected test log
         shell: bash
         run: |
-          git add report/affected-fast.log
+          git add -f report/affected-fast.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "test(diagnostics): capture affected fast log"
