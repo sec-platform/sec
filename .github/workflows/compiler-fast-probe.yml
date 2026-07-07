@@ -31,6 +31,7 @@ jobs:
       - name: Capture canonical reference check
         shell: bash
         run: |
+          # Revalidate after the exact four-file canonical refresh was merged into integration.
           set +e
           bun run sec -- reference check --json --compact > reference-check.log 2>&1
           status=$?
