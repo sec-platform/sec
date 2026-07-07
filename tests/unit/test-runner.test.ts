@@ -188,6 +188,22 @@ test.serial('affected tests map declarative registry files through impact rules'
   ]);
 });
 
+test.serial('affected tests combine changed fast tests with source-owned coverage', async () => {
+  changedFiles = [
+    'scripts/release-helper.ts',
+    'tests/unit/path-containment.test.ts'
+  ];
+
+  const code = await runAffectedTests();
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toHaveLength(1);
+  expect(devCommandCalls[0]?.command).toBe('bun');
+  expect(devCommandCalls[0]?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
+  expect(devCommandCalls[0]?.args).toContain('tests/contract/usage.test.ts');
+  expect(devCommandCalls[0]?.args).toContain('tests/unit/path-containment.test.ts');
+});
+
 test.serial('affected tests run changed concurrent-safe fast files directly', async () => {
   changedFiles = ['tests/unit/path-containment.test.ts'];
   const logs: string[] = [];
