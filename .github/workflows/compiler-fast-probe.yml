@@ -31,13 +31,13 @@ jobs:
       - name: Refresh reference workspace
         run: bun run reference:refresh
 
-      - name: Commit tracked reference refresh
+      - name: Commit canonical reference refresh
         shell: bash
         run: |
-          git add -u -- source project control
+          git add -- source project control
           git diff --cached --name-only
           if git diff --cached --quiet; then
-            echo "No tracked reference changes."
+            echo "No reference changes."
             exit 0
           fi
           git config user.name "github-actions[bot]"
