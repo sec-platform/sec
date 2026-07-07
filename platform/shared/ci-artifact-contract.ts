@@ -93,6 +93,17 @@ export const CI_ARTIFACT_PATHS = {
   ]
 } as const;
 
+export const CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS: readonly string[] = [
+  CI_ARTIFACT_FILES.provenance,
+  ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
+  CI_ARTIFACT_FILES.reviewSummary,
+  ...CI_ARTIFACT_PATHS.view
+];
+
+export const CI_EMIT_ARTIFACT_PATHS: readonly string[] = [
+  ...CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
+];
+
 export function normalizeCiArtifactPath(value: string): string {
   return posixPath(value);
 }
