@@ -1,4 +1,4 @@
-export const DEFAULT_FAST_TEST_MAX_CONCURRENCY = 1;
+export const DEFAULT_FAST_TEST_MAX_CONCURRENCY = 4;
 
 function hasOption(args: readonly string[], option: string): boolean {
   return args.some((arg) => arg === option || arg.startsWith(`${option}=`));
