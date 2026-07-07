@@ -1,9 +1,13 @@
-import { uniqueSortedLines } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
 import { compilerRoot } from './paths.ts';
 import { platformCommand } from './platform-command.ts';
-import { runCommand, type CommandResult } from './process.ts';
+import {
+  REFERENCE_TRACKED_DIFF_ARGS,
+  REFERENCE_UNTRACKED_SCAN_ARGS,
+  scanReferenceDrift
+} from './reference-drift-scan.ts';
+import { runCommand } from './process.ts';
 
 export type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'diff-failed';
 export type ReferenceCheckFailedStage = 'none' | 'refresh' | 'diff';
@@ -19,12 +23,19 @@ export type ReferenceCheckReport = {
   refreshExitCode: number;
   diffCommand: string;
   diffExitCode: number;
+  trackedDiffExitCode: number;
+  untrackedScanCommand: string;
+  untrackedScanExitCode: number;
   changedPathCount: number;
   changedPaths: string[];
   recommendedAction: string;
 };
 
 type ReferenceCommandRunner = typeof runCommand;
+
+function commandText(args: readonly string[]): string {
+  return `git ${args.join(' ')}`;
+}
 
 export async function buildReferenceCheckReport(options: {
   root?: string;
@@ -33,19 +44,22 @@ export async function buildReferenceCheckReport(options: {
   const root = options.root ?? compilerRoot;
   const commandRunner = options.commandRunner ?? runCommand;
   const refreshArgs = ['run', 'reference:refresh'];
-  const diffArgs = ['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control'];
   const refreshResult = await commandRunner('bun', refreshArgs, {
     cwd: root
   });
-  const diffResult: CommandResult = refreshResult.code === 0
-    ? await commandRunner('git', diffArgs, { cwd: root })
-    : { code: -1, stdout: '', stderr: '' };
-  const changedPaths = uniqueSortedLines(diffResult.stdout);
+  const drift = refreshResult.code === 0
+    ? await scanReferenceDrift(root, commandRunner)
+    : {
+        exitCode: -1,
+        trackedExitCode: -1,
+        untrackedExitCode: -1,
+        changedPaths: []
+      };
   const status: ReferenceCheckStatus = refreshResult.code !== 0
     ? 'refresh-failed'
-    : diffResult.code === 0
+    : drift.exitCode === 0
       ? 'clean'
-      : diffResult.code === 1
+      : drift.exitCode === 1
         ? 'drifted'
         : 'diff-failed';
   const failedStage: ReferenceCheckFailedStage = status === 'clean'
@@ -63,10 +77,13 @@ export async function buildReferenceCheckReport(options: {
     runnerCommand: 'bun run reference:check',
     refreshCommand: 'bun run reference:refresh',
     refreshExitCode: refreshResult.code,
-    diffCommand: 'git diff --name-only --exit-code -- source project control',
-    diffExitCode: diffResult.code,
-    changedPathCount: changedPaths.length,
-    changedPaths,
+    diffCommand: commandText(REFERENCE_TRACKED_DIFF_ARGS),
+    diffExitCode: drift.exitCode,
+    trackedDiffExitCode: drift.trackedExitCode,
+    untrackedScanCommand: commandText(REFERENCE_UNTRACKED_SCAN_ARGS),
+    untrackedScanExitCode: drift.untrackedExitCode,
+    changedPathCount: drift.changedPaths.length,
+    changedPaths: drift.changedPaths,
     recommendedAction:
       status === 'clean'
         ? 'none'
@@ -84,8 +101,8 @@ export function formatReferenceCheck(report: ReferenceCheckReport): string {
     `Failed stage: ${report.failedStage}`,
     `Command: ${report.command}`,
     `Runner command: ${report.runnerCommand}`,
-    `Commands: refresh=${report.refreshCommand}; diff=${report.diffCommand}`,
-    `Refresh: exit=${report.refreshExitCode}; diff: exit=${report.diffExitCode}`,
+    `Commands: refresh=${report.refreshCommand}; diff=${report.diffCommand}; untracked=${report.untrackedScanCommand}`,
+    `Refresh: exit=${report.refreshExitCode}; diff: exit=${report.diffExitCode}; tracked=${report.trackedDiffExitCode}; untracked=${report.untrackedScanExitCode}`,
     `Changed paths: ${report.changedPathCount > 0 ? report.changedPaths.join(', ') : 'none'}`,
     `Recommended action: ${report.recommendedAction}`
   ].join('\n');
