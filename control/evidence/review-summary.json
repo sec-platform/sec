@@ -192,12 +192,12 @@
     ]
   },
   "provenanceSummary": {
-    "artifactCount": 68,
-    "verifiedArtifactCount": 19,
+    "artifactCount": 69,
+    "verifiedArtifactCount": 20,
     "unverifiedArtifactCount": 49,
     "overrideArtifactCount": 0,
-    "registryArtifactCount": 19,
-    "generatedArtifactCount": 68,
+    "registryArtifactCount": 20,
+    "generatedArtifactCount": 69,
     "generatedPassCount": 5,
     "originSummaryCount": 3,
     "originSummaries": [
@@ -228,7 +228,7 @@
       },
       {
         "originType": "generated",
-        "count": 45,
+        "count": 46,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -270,6 +270,7 @@
           "next-env.d.ts",
           "next.config.mjs",
           "package.json",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
           "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
@@ -292,7 +293,7 @@
     "overrideSummaries": [
       {
         "overrideStatus": "none",
-        "count": 68,
+        "count": 69,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -346,6 +347,7 @@
           "src/installed/entity/customer-service.ts",
           "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "src/installed/ticket/ticket-service.ts",
           "tests/acceptance/agent-classifier-flow.test.ts",
           "tests/acceptance/comment-flow.test.ts",
@@ -371,7 +373,7 @@
         "registrySourceId": "official",
         "registryKind": "official",
         "registryLocation": "compiler",
-        "count": 19,
+        "count": 20,
         "paths": [
           "prisma/schema.prisma",
           "src/installed/agent/executor-service.ts",
@@ -381,6 +383,7 @@
           "src/installed/entity/customer-service.ts",
           "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "src/installed/ticket/ticket-service.ts",
           "tests/acceptance/agent-classifier-flow.test.ts",
           "tests/acceptance/comment-flow.test.ts",
@@ -408,7 +411,7 @@
       },
       {
         "pass": "compose",
-        "count": 56,
+        "count": 57,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -450,6 +453,7 @@
           "src/installed/entity/customer-service.ts",
           "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "src/installed/ticket/ticket-service.ts",
           "tests/acceptance/agent-classifier-flow.test.ts",
           "tests/acceptance/comment-flow.test.ts",
@@ -583,7 +587,7 @@
     ],
     "violationSummaries": []
   },
-  "changeSourceCount": 68,
+  "changeSourceCount": 69,
   "runtimeEntryCount": 14,
   "installImpactCount": 8,
   "changeSources": [
@@ -927,6 +931,16 @@
       "path": "src/installed/tenant/context.ts",
       "originType": "block",
       "originId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "src/installed/ticket/ticket-semantic-contract.ts",
+      "originType": "generated",
+      "originId": "generator:ticket/basic:ticket-status-runtime-contract",
+      "sourcePath": "platform/registry/official/ticket.basic/contracts/ticket.yaml",
+      "runtimeTarget": "src/installed/ticket/ticket-semantic-contract.ts",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler"

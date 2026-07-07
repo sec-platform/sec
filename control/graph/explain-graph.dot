@@ -81,6 +81,7 @@ digraph ExplainGraph {
   "file:src/installed/entity/customer-service.ts" [label="src/installed/entity/customer-service.ts (file)"];
   "file:src/installed/file/customer-attachments.ts" [label="src/installed/file/customer-attachments.ts (file)"];
   "file:src/installed/tenant/context.ts" [label="src/installed/tenant/context.ts (file)"];
+  "file:src/installed/ticket/ticket-semantic-contract.ts" [label="src/installed/ticket/ticket-semantic-contract.ts (file)"];
   "file:src/installed/ticket/ticket-service.ts" [label="src/installed/ticket/ticket-service.ts (file)"];
   "file:tests/acceptance/agent-classifier-flow.test.ts" [label="tests/acceptance/agent-classifier-flow.test.ts (file)"];
   "file:tests/acceptance/comment-flow.test.ts" [label="tests/acceptance/comment-flow.test.ts (file)"];
@@ -254,6 +255,7 @@ digraph ExplainGraph {
   "file:src/installed/entity/customer-service.ts" -> "block:entity/customer-basic" [label="originates_from"];
   "file:src/installed/file/customer-attachments.ts" -> "block:file/upload" [label="originates_from"];
   "file:src/installed/tenant/context.ts" -> "block:tenant/basic-workspace" [label="originates_from"];
+  "file:src/installed/ticket/ticket-semantic-contract.ts" -> "app:customer-admin" [label="originates_from"];
   "file:src/installed/ticket/ticket-service.ts" -> "block:ticket/basic" [label="originates_from"];
   "file:tests/acceptance/agent-classifier-flow.test.ts" -> "block:agent/executor" [label="originates_from"];
   "file:tests/acceptance/comment-flow.test.ts" -> "block:comment/basic" [label="originates_from"];

@@ -81,6 +81,7 @@ flowchart TD
   file_src_installed_entity_customer_service_ts["src/installed/entity/customer-service.ts (file)"]
   file_src_installed_file_customer_attachments_ts["src/installed/file/customer-attachments.ts (file)"]
   file_src_installed_tenant_context_ts["src/installed/tenant/context.ts (file)"]
+  file_src_installed_ticket_ticket_semantic_contract_ts["src/installed/ticket/ticket-semantic-contract.ts (file)"]
   file_src_installed_ticket_ticket_service_ts["src/installed/ticket/ticket-service.ts (file)"]
   file_tests_acceptance_agent_classifier_flow_test_ts["tests/acceptance/agent-classifier-flow.test.ts (file)"]
   file_tests_acceptance_comment_flow_test_ts["tests/acceptance/comment-flow.test.ts (file)"]
@@ -254,6 +255,7 @@ flowchart TD
   file_src_installed_entity_customer_service_ts -- originates_from --> block_entity_customer_basic
   file_src_installed_file_customer_attachments_ts -- originates_from --> block_file_upload
   file_src_installed_tenant_context_ts -- originates_from --> block_tenant_basic_workspace
+  file_src_installed_ticket_ticket_semantic_contract_ts -- originates_from --> app_customer_admin
   file_src_installed_ticket_ticket_service_ts -- originates_from --> block_ticket_basic
   file_tests_acceptance_agent_classifier_flow_test_ts -- originates_from --> block_agent_executor
   file_tests_acceptance_comment_flow_test_ts -- originates_from --> block_comment_basic
