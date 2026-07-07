@@ -112,6 +112,14 @@ export function uniqueSortedCiArtifactPaths(values: readonly string[]): string[]
   return uniqueSorted(values.map(normalizeCiArtifactPath));
 }
 
+export function expandCiGeneratedArtifactPaths(values: readonly string[]): string[] {
+  const paths = uniqueSortedCiArtifactPaths(values);
+  const startsEmitBundle = paths.some((artifactPath) => CI_EXPLAIN_GRAPH_ARTIFACT_PATHS.includes(artifactPath));
+  return startsEmitBundle
+    ? uniqueSortedCiArtifactPaths([...paths, ...CI_EMIT_ARTIFACT_PATHS])
+    : paths;
+}
+
 export function ciArtifactUploadName(artifactPath: string): string {
   return artifactPath.replaceAll('/', '__');
 }
