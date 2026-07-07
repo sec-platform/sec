@@ -11,4 +11,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Retired probe notice
-        run: echo "Temporary fast probe retired. Use compiler-pr-validation."
+        run: echo "Temporary fast probe retired. Use compiler-pr-validation. Full release validation is exercised separately."
