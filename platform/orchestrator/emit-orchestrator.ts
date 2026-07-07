@@ -55,7 +55,8 @@ async function explainWorkspaceCore(
   const refreshedProvenance = await readJson<ProvenanceFile>(await resolveWorkspaceProvenancePath(workspaceRoot));
   const reviewSummary = await writeReviewSummary(workspaceRoot, lock, refreshedProvenance, report, coverage);
   await writeLocalViews(workspaceRoot);
-  return { lock, provenance: refreshedProvenance, report, graph, reviewSummary };
+  const finalLock = await readLockFile(workspaceRoot);
+  return { lock: finalLock, provenance: refreshedProvenance, report, graph, reviewSummary };
 }
 
 export async function explainWorkspace(
