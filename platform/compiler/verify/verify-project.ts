@@ -10,6 +10,7 @@ import type { Logger } from '../../shared/logger.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
+import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
 import type {
     FastVerificationLaneReport,
     RuntimeVerificationLaneReport,
@@ -17,7 +18,6 @@ import type {
     VerificationReport
 } from '../../shared/verification-types.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
-import { checkReferenceDrift } from './check-drift.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import { typecheckProject } from './typecheck-project.ts';
@@ -245,8 +245,8 @@ export async function verifyProject(
   options: { emitTiming?: boolean; logger?: Logger } = {}
 ): Promise<VerificationReport> {
   const logger = options.logger ?? defaultLogger;
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const {
-    projectRoot,
     acceptanceCoveragePath,
     lockPath,
     policyReportPath,
@@ -256,7 +256,7 @@ export async function verifyProject(
 
   assertPassStatus(lock, 'adapt', 'succeeded', new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify'));
 
-  await checkReferenceDrift(workspaceRoot);
+  await checkProjectBeforeVerify(workspaceRoot);
   await validateSlotSecurity(workspaceRoot, lock);
 
   const fastResult =
