@@ -190,7 +190,13 @@ test('repair blocks lock until verification reruns', async () => {
 
     await repairWorkspace(workspaceRoot);
 
-    await expect(lockWorkspace(workspaceRoot)).rejects.toMatchObject({ code: 'LOCK-BLOCKED-001' });
+    await expect(lockWorkspace(workspaceRoot)).rejects.toMatchObject({
+      code: 'PIPELINE-BLOCKED-002',
+      details: {
+        stageId: 'lock',
+        blockers: [{ passId: 'verify', state: 'pending' }]
+      }
+    });
   });
 });
 
