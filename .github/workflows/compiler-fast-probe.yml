@@ -1,4 +1,4 @@
-name: compiler-project-runtime-probe
+name: compiler-affected-tests-probe
 
 on:
   pull_request:
@@ -10,9 +10,12 @@ permissions:
   contents: read
 
 jobs:
-  project-runtime-probe:
+  affected-tests-probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
+    env:
+      SEC_CHANGED_BASE: 7829670781e2f8b5d6485656bc78352192372863
+      SEC_AFFECTED_TESTS_BASE: 7829670781e2f8b5d6485656bc78352192372863
     steps:
       - name: Checkout integration head
         uses: actions/checkout@v5
@@ -28,22 +31,22 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Capture project runtime test
-        id: test
+      - name: Capture affected fast tests
+        id: affected
         shell: bash
         run: |
           status=0
-          bun test tests/integration/project-runtime.test.ts > project-runtime-test.log 2>&1 || status=$?
+          bun run test:affected > affected-fast-tests.log 2>&1 || status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
-          tail -n 80 project-runtime-test.log
+          tail -n 120 affected-fast-tests.log
 
-      - name: Upload project runtime test log
+      - name: Upload affected fast test log
         uses: actions/upload-artifact@v4
         with:
-          name: project-runtime-test-log-current
-          path: project-runtime-test.log
+          name: affected-fast-tests-current
+          path: affected-fast-tests.log
           retention-days: 1
 
-      - name: Preserve test result
-        if: steps.test.outputs.status != '0'
-        run: exit ${{ steps.test.outputs.status }}
+      - name: Preserve affected test result
+        if: steps.affected.outputs.status != '0'
+        run: exit ${{ steps.affected.outputs.status }}
