@@ -1,1 +1,1 @@
-export { checkProjectBeforeVerify as checkReferenceDrift } from '../../shared/project-integrity.ts';
+export { checkReferenceDrift } from '../../shared/project-integrity.ts';
