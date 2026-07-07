@@ -285,6 +285,10 @@ async function affectedTestSelection(): Promise<AffectedTestSelection | null> {
   };
 }
 
+function unionTestFiles(...groups: string[][]): string[] {
+  return uniqueSortedLines(groups.flat().join('\n'));
+}
+
 export async function runAffectedTests(args: string[] = []): Promise<number> {
   if (args.length > 0) {
     return runTests(args);
@@ -297,21 +301,23 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
   if (selection.slowTests.length > 0) {
     console.log(`Changed slow test files require PR risk or release/full verification: ${selection.slowTests.join(', ')}`);
   }
-  if (selection.tests.length > 0) {
-    return runFastTests(selection.tests);
-  }
-  if (selection.affectedTests.length > 0) {
-    console.log(`Running affected fast tests for ${selection.affectedOwners.join(', ') || 'changed sources'}: ${selection.affectedTests.join(', ')}`);
-    const code = await runFastTests(selection.affectedTests);
+
+  const selectedFastTests = unionTestFiles(selection.tests, selection.affectedTests);
+  if (selectedFastTests.length > 0) {
+    if (selection.affectedTests.length > 0) {
+      console.log(`Running changed and affected fast tests for ${selection.affectedOwners.join(', ') || 'changed sources'}: ${selectedFastTests.join(', ')}`);
+    }
+    const code = await runFastTests(selectedFastTests);
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
-        fast: selection.affectedTests,
+        fast: selectedFastTests,
         slow: selection.affectedSlowTests,
         owners: selection.affectedOwners
       }));
     }
     return code;
   }
+
   if (selection.sourceChanged) {
     if (!allowFullFastFallback()) {
       console.log('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR quick lane. Full/manual/scheduled validation covers unmapped changes.');
