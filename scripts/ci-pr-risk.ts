@@ -49,13 +49,20 @@ function slowTestStepId(file: string): string {
   return file.replace(/[^a-z0-9]+/giu, '-').replace(/^-|-$/g, '').toLowerCase();
 }
 
+function gateStepEnvironment(step: GateStep): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    SEC_TEST_WORKSPACE_NAMESPACE: `pr-risk-${slowTestStepId(step.id)}`
+  };
+}
+
 function runBunStep(step: GateStep): number {
   const startedAt = Date.now();
   groupStart(`CI PR risk: ${step.id}`);
   console.log(`CI PR risk: ${step.id} started`);
   try {
     const result = spawnSync('bun', step.args, {
-      env: process.env,
+      env: gateStepEnvironment(step),
       stdio: 'inherit'
     });
     const code = result.status ?? 1;
@@ -76,7 +83,7 @@ function runBunStepBuffered(step: GateStep): Promise<GateStepResult> {
   const startedAt = Date.now();
   return new Promise((resolve) => {
     const child = spawn('bun', step.args, {
-      env: process.env,
+      env: gateStepEnvironment(step),
       stdio: ['ignore', 'pipe', 'pipe']
     });
     const stdoutChunks: Buffer[] = [];
