@@ -2,13 +2,13 @@ import { afterAll, expect } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { getTestWorkspaceTempRoot } from '../../platform/dev-runner/env-manager.ts';
 import {
   addBlock,
   compileWorkspace,
   initWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
-import { getTestWorkspaceTempRoot } from '../../platform/dev-runner/env-manager.ts';
 import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
 
 const workspaceParent = getTestWorkspaceTempRoot();
