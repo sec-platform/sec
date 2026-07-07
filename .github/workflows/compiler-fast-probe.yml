@@ -1,4 +1,4 @@
-name: compiler-import-final-evidence
+name: compiler-import-fix-final
 
 on:
   pull_request:
@@ -7,10 +7,10 @@ on:
       - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  import-final-evidence:
+  organize-latest-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,29 +28,29 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Capture organizer and checks
+      - name: Organize full project imports
+        env:
+          SEC_IMPORTS_CHANGED_ONLY: '0'
+        run: bun run imports:organize
+
+      - name: Verify full and PR import contracts
         shell: bash
         run: |
-          set +e
-          : > import-final-evidence.log
-          bun run imports:organize >> import-final-evidence.log 2>&1
-          printf '\nORGANIZE_STATUS=%s\n' "$?" >> import-final-evidence.log
-          printf '\nORGANIZER_DIFF_FILES\n' >> import-final-evidence.log
-          git diff --name-only >> import-final-evidence.log 2>&1
-          bun run imports:check >> import-final-evidence.log 2>&1
-          printf '\nFULL_CHECK_STATUS=%s\n' "$?" >> import-final-evidence.log
+          SEC_IMPORTS_CHANGED_ONLY=0 bun run imports:check
           SEC_IMPORTS_CHANGED_ONLY=1 \
           SEC_CHANGED_BASE=7829670781e2f8b5d6485656bc78352192372863 \
-          bun run imports:check >> import-final-evidence.log 2>&1
-          printf '\nCHANGED_CHECK_STATUS=%s\n' "$?" >> import-final-evidence.log
-          printf '\nFINAL_DIFF\n' >> import-final-evidence.log
-          git diff >> import-final-evidence.log 2>&1
-          cat import-final-evidence.log
-          set -e
+          bun run imports:check
 
-      - name: Upload import evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: import-final-evidence
-          path: import-final-evidence.log
-          retention-days: 1
+      - name: Commit canonical organizer output
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No import changes."
+            exit 0
+          fi
+          git diff --name-only
+          git add -- '*.ts' '*.tsx'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style(imports): apply canonical organizer"
+          git push origin HEAD:integration/main-into-semantic
