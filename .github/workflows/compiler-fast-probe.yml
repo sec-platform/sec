@@ -1,4 +1,4 @@
-name: compiler-import-evidence-probe
+name: compiler-import-fix-final
 
 on:
   pull_request:
@@ -7,10 +7,10 @@ on:
       - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  changed-import-evidence:
+  organize-latest-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,21 +28,27 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Capture PR changed-only import check
-        shell: bash
-        env:
-          SEC_IMPORTS_CHANGED_ONLY: '1'
-          SEC_CHANGED_BASE: 7829670781e2f8b5d6485656bc78352192372863
-        run: |
-          set +e
-          bun run imports:check > changed-imports.log 2>&1
-          status=$?
-          set -e
-          printf '\nEXIT_STATUS=%s\n' "$status" >> changed-imports.log
+      - name: Organize imports
+        run: bun run imports:organize
 
-      - name: Upload import evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: changed-import-evidence
-          path: changed-imports.log
-          retention-days: 1
+      - name: Verify full and PR import contracts
+        shell: bash
+        run: |
+          bun run imports:check
+          SEC_IMPORTS_CHANGED_ONLY=1 \
+          SEC_CHANGED_BASE=7829670781e2f8b5d6485656bc78352192372863 \
+          bun run imports:check
+
+      - name: Commit canonical organizer output
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No import changes."
+            exit 0
+          fi
+          git diff --name-only
+          git add -- '*.ts' '*.tsx'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style(imports): apply canonical organizer"
+          git push origin HEAD:integration/main-into-semantic
