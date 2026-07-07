@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
@@ -9,6 +11,8 @@ import {
   type PipelineStageId
 } from '../shared/pipeline-types.ts';
 import type { PlanFile } from '../shared/plan-manifest-types.ts';
+import { getWorkspacePaths } from '../shared/paths.ts';
+import { calculateProjectFileHash } from '../shared/project-file-hash.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import type { VerificationLane, VerificationReport } from '../shared/verification-types.ts';
 import { resolveWorkspace } from './block-orchestrator.ts';
@@ -46,6 +50,12 @@ function selectStages(options: CompileWorkspaceOptions): PipelineStageId[] {
     throw new Error(`Invalid pipeline stage range: ${options.from ?? PIPELINE_STAGE_IDS[0]} -> ${options.through ?? PIPELINE_STAGE_IDS.at(-1)}`);
   }
   return PIPELINE_STAGE_IDS.slice(fromIndex, throughIndex + 1);
+}
+
+async function traceUpgradeSessionHash(workspaceRoot: string, stage: PipelineStageId): Promise<void> {
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const hash = await calculateProjectFileHash(path.join(projectRoot, 'src', 'installed', 'auth', 'session.ts'));
+  console.error(`UPGRADE_STAGE_HASH ${stage} ${hash ?? 'missing'}`);
 }
 
 export async function compileWorkspace(
@@ -96,6 +106,9 @@ export async function compileWorkspace(
           const result = await explainWorkspace(workspaceRoot, context);
           explainGraph = result.graph;
           reviewSummary = result.reviewSummary;
+        }
+        if (options.source === 'upgrade') {
+          await traceUpgradeSessionHash(workspaceRoot, stage);
         }
         completedStages.push(stage);
       }
