@@ -13,6 +13,10 @@ import {
   type ProjectBaselineFile
 } from './project-integrity-baseline.ts';
 
+export interface ProjectBaselineAssertionOptions {
+  allowedChangedPaths?: readonly string[];
+}
+
 export function getProjectBaselinePath(workspaceRoot: string): string {
   const { localStateRoot } = getWorkspacePaths(workspaceRoot);
   return path.join(localStateRoot, 'cache', 'project-baseline.json');
@@ -55,6 +59,10 @@ async function calculateArtifactHashes(
   })));
 }
 
+function allowedChangedPathSet(options: ProjectBaselineAssertionOptions): ReadonlySet<string> {
+  return new Set((options.allowedChangedPaths ?? []).map(posixPath));
+}
+
 export async function readProjectBaseline(workspaceRoot: string): Promise<ProjectBaselineFile | null> {
   const baseline = await readOptionalJson<ProjectBaselineFile>(getProjectBaselinePath(workspaceRoot));
   if (baseline && baseline.formatVersion !== PROJECT_BASELINE_FORMAT_VERSION) {
@@ -68,9 +76,11 @@ export async function readProjectBaseline(workspaceRoot: string): Promise<Projec
 
 export async function assertProjectBaseline(
   workspaceRoot: string,
-  baseline: ProjectBaselineFile
+  baseline: ProjectBaselineFile,
+  options: ProjectBaselineAssertionOptions = {}
 ): Promise<void> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const allowedChangedPaths = allowedChangedPathSet(options);
   const currentArtifacts = await calculateArtifactHashes(
     projectRoot,
     baseline.artifacts.map((artifact) => artifact.path)
@@ -79,18 +89,21 @@ export async function assertProjectBaseline(
   for (let index = 0; index < baseline.artifacts.length; index += 1) {
     const expected = baseline.artifacts[index];
     const current = currentArtifacts[index];
+    const artifactPath = posixPath(expected?.path ?? current?.path ?? '');
     if (!expected || !current?.hash) {
+      if (allowedChangedPaths.has(artifactPath)) continue;
       throw new CompilerError(
         'ERROR-DRIFT-001',
-        `Project drift detected: Read-only project file is missing after adapt: ${expected?.path ?? current?.path}`,
+        `Project drift detected: Read-only project file is missing after adapt: ${artifactPath}`,
         {
-          path: expected?.path ?? current?.path,
+          path: artifactPath,
           expectedHash: expected?.hash,
           actualHash: current?.hash
         }
       );
     }
     if (current.hash !== expected.hash) {
+      if (allowedChangedPaths.has(artifactPath)) continue;
       throw new CompilerError(
         'ERROR-DRIFT-001',
         `Project drift detected: Read-only project file modified after adapt: ${expected.path}`,
