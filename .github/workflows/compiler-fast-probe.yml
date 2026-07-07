@@ -37,6 +37,7 @@ jobs:
       - name: Commit organizer output
         shell: bash
         run: |
+          # Re-run against the latest integration head after Upgrade/testkit changes.
           if git diff --quiet; then
             echo "No import changes."
             exit 0
