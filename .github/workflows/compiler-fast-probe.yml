@@ -34,7 +34,15 @@ jobs:
       - name: Commit canonical reference snapshot
         shell: bash
         run: |
-          git add -- source project control
+          expected_untracked='project/src/installed/ticket/ticket-semantic-contract.ts'
+          untracked=$(git ls-files --others --exclude-standard -- source project control)
+          if [ "$untracked" != "$expected_untracked" ]; then
+            printf 'Unexpected untracked reference surface:\n%s\n' "$untracked"
+            exit 1
+          fi
+
+          git add -u -- source project control
+          git add -f -- "$expected_untracked"
           git diff --cached --name-only
           if git diff --cached --quiet; then
             echo "No reference changes."
