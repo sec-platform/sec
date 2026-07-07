@@ -1,14 +1,45 @@
-name: compiler-fast-probe-retired
+name: compiler-pipeline-e2e-evidence
 
 on:
-  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
 
 permissions:
   contents: read
 
 jobs:
-  retired:
+  pipeline-e2e-evidence:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
-      - name: Retired probe notice
-        run: echo "Temporary fast probe retired. Use compiler-pr-validation."
+      - name: Checkout current integration head
+        uses: actions/checkout@v5
+        with:
+          ref: integration/main-into-semantic
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Capture pipeline end-to-end suite
+        shell: bash
+        run: |
+          set +e
+          bun run test:slow -- --suite e2e-pipeline-end-to-end > pipeline-e2e.log 2>&1
+          status=$?
+          set -e
+          printf '\nEXIT_STATUS=%s\n' "$status" >> pipeline-e2e.log
+
+      - name: Upload pipeline evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-e2e-evidence
+          path: pipeline-e2e.log
+          retention-days: 1
