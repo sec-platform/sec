@@ -7,17 +7,18 @@ on:
       - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  reference-probe:
+  reference-refresh-output:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Checkout
+      - name: Checkout refresh output branch
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.head_ref }}
+          ref: validation/reference-refresh-output
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -27,25 +28,19 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Upload baseline reference workspace
-        uses: actions/upload-artifact@v4
-        with:
-          name: baseline-reference-workspace
-          path: |
-            source
-            project
-            control
-          retention-days: 1
-
       - name: Refresh reference workspace
         run: bun run reference:refresh
 
-      - name: Upload refreshed reference workspace
-        uses: actions/upload-artifact@v4
-        with:
-          name: refreshed-reference-workspace
-          path: |
-            source
-            project
-            control
-          retention-days: 1
+      - name: Commit tracked reference refresh
+        shell: bash
+        run: |
+          git add -u -- source project control
+          git diff --cached --name-only
+          if git diff --cached --quiet; then
+            echo "No tracked reference changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(reference): refresh canonical workspace snapshot"
+          git push origin HEAD:validation/reference-refresh-output
