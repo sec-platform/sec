@@ -34,7 +34,7 @@ jobs:
       - name: Commit canonical reference refresh
         shell: bash
         run: |
-          git add -- source project control
+          git add -u -- source control
           git diff --cached --name-only
           if git diff --cached --quiet; then
             echo "No reference changes."
@@ -42,5 +42,5 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore(reference): refresh canonical workspace snapshot"
-          git push origin HEAD:validation/reference-refresh-output
+          git commit --no-verify -m "chore(reference): refresh canonical workspace snapshot"
+          git push origin HEAD:refs/heads/validation/reference-refresh-output
