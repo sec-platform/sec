@@ -8,6 +8,7 @@ import { readLockFile } from '../../platform/shared/lock-utils.ts';
 import { readPipelineJournal } from '../../platform/shared/pipeline-journal.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
+// Exact current-head validation for the Workbench compile stream.
 test('workbench compile SSE uses one all-lane canonical pipeline transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });
