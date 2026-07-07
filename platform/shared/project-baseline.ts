@@ -82,13 +82,23 @@ export async function assertProjectBaseline(
     if (!expected || !current?.hash) {
       throw new CompilerError(
         'ERROR-DRIFT-001',
-        `Project drift detected: Read-only project file is missing after adapt: ${expected?.path ?? current?.path}`
+        `Project drift detected: Read-only project file is missing after adapt: ${expected?.path ?? current?.path}`,
+        {
+          path: expected?.path ?? current?.path,
+          expectedHash: expected?.hash,
+          actualHash: current?.hash
+        }
       );
     }
     if (current.hash !== expected.hash) {
       throw new CompilerError(
         'ERROR-DRIFT-001',
-        `Project drift detected: Read-only project file modified after adapt: ${expected.path}`
+        `Project drift detected: Read-only project file modified after adapt: ${expected.path}`,
+        {
+          path: expected.path,
+          expectedHash: expected.hash,
+          actualHash: current.hash
+        }
       );
     }
   }
