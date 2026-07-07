@@ -1,8 +1,8 @@
 import { readOptionalJson } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
+import { readPipelineJournal } from './pipeline-journal.ts';
 import { assertProjectBaseline, readProjectBaseline } from './project-baseline.ts';
 import { checkProvenanceFallback } from './project-integrity.ts';
-import { readPipelineJournal } from './pipeline-journal.ts';
 import type { UpgradePlan } from './upgrade-types.ts';
 
 async function activeUpgradeImpactPaths(workspaceRoot: string): Promise<string[]> {
