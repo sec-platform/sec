@@ -6,7 +6,8 @@ import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
   CI_ARTIFACT_PATHS,
-  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
+  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
+  CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { readOptionalJson, writeJson } from '../../shared/fs.ts';
@@ -16,6 +17,8 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
+
+const provenanceProjectionArtifacts = new Set(CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS);
 
 function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;
@@ -192,6 +195,9 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   for (const [artifactPath, artifact] of artifacts.entries()) {
+    if (provenanceProjectionArtifacts.has(artifactPath)) {
+      continue;
+    }
     const absolutePath = artifactPath.startsWith('source/') || artifactPath.startsWith('control/')
       ? path.join(workspaceRoot, artifactPath)
       : path.join(projectRoot, artifactPath);

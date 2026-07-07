@@ -3,7 +3,7 @@ import { defaultLimit } from '../../shared/concurrency.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { copyRecursive, pathExists, readText, writeText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
-import { resolvePathInside, resolveRegistryRoot } from '../../shared/paths.ts';
+import { posixPath, resolvePathInside, resolveRegistryRoot } from '../../shared/paths.ts';
 
 export interface InstallContext {
   workspaceRoot: string;
@@ -70,6 +70,20 @@ export class MergePrismaInstallStrategy implements InstallStrategy {
   }
 }
 
+function groupInstallStepsByTarget(steps: readonly InstallPlanStep[]): InstallPlanStep[][] {
+  const groups = new Map<string, InstallPlanStep[]>();
+  for (const step of steps) {
+    const target = posixPath(step.to);
+    const group = groups.get(target);
+    if (group) {
+      group.push(step);
+    } else {
+      groups.set(target, [step]);
+    }
+  }
+  return [...groups.values()];
+}
+
 const BUILTIN_STRATEGIES: InstallStrategy[] = [
   new CopyInstallStrategy(),
   new MergePrismaInstallStrategy()
@@ -92,8 +106,13 @@ export class InstallStrategyRegistry {
   }
 
   async executeAll(steps: InstallPlanStep[], context: InstallContext): Promise<void> {
+    const targetGroups = groupInstallStepsByTarget(steps);
     await Promise.all(
-      steps.map((step) => defaultLimit(() => this.resolve(step).execute(step, context)))
+      targetGroups.map((group) => defaultLimit(async () => {
+        for (const step of group) {
+          await this.resolve(step).execute(step, context);
+        }
+      }))
     );
   }
 }
