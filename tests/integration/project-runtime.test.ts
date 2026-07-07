@@ -72,19 +72,16 @@ describe('root package scripts', () => {
     );
   });
 
-  test('reference:refresh chains the full pipeline', async () => {
+  test('reference:refresh delegates to the canonical pipeline compiler', async () => {
     const { scripts } = await readCompilerPackageJson();
+    const source = await readCompilerFile('scripts/compile-reference-workspace.ts');
 
-    expect(scripts['reference:refresh']).toBe(
-      [
-        'bun run sec -- resolve',
-        'bun run sec -- compose',
-        'bun run sec -- adapt',
-        'bun run sec -- verify --lane all',
-        'bun run sec -- lock',
-        'bun run sec -- explain'
-      ].join(' && ')
-    );
+    expect(scripts['reference:refresh']).toBe('bun ./scripts/compile-reference-workspace.ts');
+    expectContainsAll(source, [
+      "import { compileWorkspace } from '../platform/orchestrator.ts';",
+      'await compileWorkspace(process.cwd(), {',
+      "source: 'reference'"
+    ]);
   });
 });
 
@@ -244,7 +241,7 @@ describe('test budget and benchmark contracts', () => {
       "runnerCommand: 'bun run reference:check'",
       "['diff', '--name-only', '--exit-code', '--', 'source', 'project', 'control']",
       "['run', 'reference:refresh']",
-      "failedStage: ReferenceCheckFailedStage"
+      'failedStage: ReferenceCheckFailedStage'
     ]);
   });
 });
