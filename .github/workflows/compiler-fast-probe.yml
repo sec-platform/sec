@@ -1,4 +1,4 @@
-name: compiler-fixpoint-risk-evidence
+name: compiler-risk-resource-diagnostics
 
 on:
   pull_request:
@@ -10,12 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  fixpoint-risk-evidence:
+  risk-resource-diagnostics:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
-      SEC_AFFECTED_TESTS_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+    timeout-minutes: 35
     steps:
       - name: Checkout validated fix head
         uses: actions/checkout@v5
@@ -31,18 +28,51 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Capture exact PR risk gate
+      - name: Run serial cold-namespace controls
         shell: bash
         run: |
           set +e
-          bun scripts/ci-pr-risk.ts > pr-risk.log 2>&1
-          status=$?
+          /usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-serial-conflicts bun run test:slow -- --suite e2e-conflicts > serial-conflicts.log 2>&1
+          printf 'EXIT_STATUS=%s\n' "$?" >> serial-conflicts.log
+          /usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-serial-local-views bun run test:slow -- --suite e2e-local-views > serial-local-views.log 2>&1
+          printf 'EXIT_STATUS=%s\n' "$?" >> serial-local-views.log
           set -e
-          printf '\nEXIT_STATUS=%s\n' "$status" >> pr-risk.log
 
-      - name: Upload exact risk evidence
+      - name: Run two-way cold-namespace pressure
+        shell: bash
+        run: |
+          set +e
+          (/usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-pair-conflicts bun run test:slow -- --suite e2e-conflicts > pair-conflicts.log 2>&1; printf 'EXIT_STATUS=%s\n' "$?" >> pair-conflicts.log) &
+          p1=$!
+          (/usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-pair-local-views bun run test:slow -- --suite e2e-local-views > pair-local-views.log 2>&1; printf 'EXIT_STATUS=%s\n' "$?" >> pair-local-views.log) &
+          p2=$!
+          wait "$p1"
+          wait "$p2"
+          set -e
+
+      - name: Run original four-way first-wave pressure
+        shell: bash
+        run: |
+          set +e
+          suites=(e2e-conflicts e2e-dry-run-plan e2e-graph e2e-local-views)
+          pids=()
+          for suite in "${suites[@]}"; do
+            log="wave-${suite}.log"
+            ns="diag-wave-${suite}"
+            (/usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE="$ns" bun run test:slow -- --suite "$suite" > "$log" 2>&1; printf 'EXIT_STATUS=%s\n' "$?" >> "$log") &
+            pids+=("$!")
+          done
+          for pid in "${pids[@]}"; do
+            wait "$pid"
+          done
+          set -e
+
+      - name: Upload resource diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: fixpoint-risk-evidence
-          path: pr-risk.log
+          name: risk-resource-diagnostics
+          path: |
+            serial-*.log
+            pair-*.log
+            wave-*.log
           retention-days: 1
