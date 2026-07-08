@@ -3,13 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { CompilerError } from '../../shared/errors.ts';
-import { isFileNotFoundError } from '../../shared/fs.ts';
+import { isFileNotFoundError, pathExists } from '../../shared/fs.ts';
 import type { ResolvedBlock } from '../../shared/lock-types.ts';
 import {
   blockDirName,
   isSafeRelativePath,
   officialRegistryRelativePath,
   posixPath,
+  resolvePathInside,
   resolveRegistryRoot
 } from '../../shared/paths.ts';
 import type { BlockManifest, ManifestEntry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
@@ -76,18 +77,42 @@ export function resolveRegistrySources(
 function manifestEntryFromPath(
   registrySource: ResolvedRegistrySource,
   manifest: ManifestEntry['manifest'],
-  manifestPath: string
+  manifestPath: string,
+  resourceRoots: string[] = [path.dirname(manifestPath)]
 ): ManifestEntry {
   return {
     manifest,
     manifestPath,
     manifestRoot: path.dirname(manifestPath),
+    resourceRoots,
     registryRoot: registrySource.root,
     registrySourceId: registrySource.id,
     registryKind: registrySource.kind,
     registryLocation: registrySource.location,
     registryPath: registrySource.path
   };
+}
+
+export async function resolveManifestResource(
+  entry: ManifestEntry,
+  resourcePath: string
+): Promise<{ root: string; path: string }> {
+  const roots = entry.resourceRoots.length > 0 ? entry.resourceRoots : [entry.manifestRoot];
+  for (const root of roots) {
+    const candidate = resolvePathInside(root, resourcePath);
+    if (!candidate) {
+      throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+    }
+    if (await pathExists(candidate)) {
+      return { root, path: candidate };
+    }
+  }
+  const root = roots[0] ?? entry.manifestRoot;
+  const candidate = resolvePathInside(root, resourcePath);
+  if (!candidate) {
+    throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+  }
+  return { root, path: candidate };
 }
 
 export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {
@@ -168,10 +193,15 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
       const manifestPath = versionedManifestPath(registrySource.root, blockId, version);
       const versionedManifest = await tryReadManifest(manifestPath);
       if (versionedManifest) {
-        const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);
+        const rootManifest = await tryReadManifest(rootPath);
+        const manifest = mergeVersionedManifest(rootManifest, versionedManifest);
         validateManifest(manifest);
         if (manifest.version === version) {
-          return manifestEntryFromPath(registrySource, manifest, manifestPath);
+          const versionRoot = path.dirname(manifestPath);
+const resourceRoots = rootManifest
+  ? [versionRoot, path.dirname(rootPath)]
+  : [versionRoot];
+return manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
         }
       }
     }

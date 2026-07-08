@@ -4,7 +4,7 @@ import { CompilerError } from '../../shared/errors.ts';
 import type { LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { relativePosixPath } from '../../shared/paths.ts';
 import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
-import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';
+import { loadAllManifests, loadManifestById, resolveManifestResource } from '../parse/load-manifest.ts';
 
 function buildCapabilityProviders(entries: ManifestEntry[]): Map<string, ManifestEntry[]> {
   const providers = new Map<string, ManifestEntry[]>();
@@ -236,6 +236,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
   const installPlan: LockFile['installPlan'] = [];
   for (const block of sortedEntries) {
     for (const install of block.manifest.installs) {
+      const resource = await resolveManifestResource(block, install.from);
       installPlan.push({
         stepId: `${block.manifest.id}:${installPlan.length + 1}`,
         blockId: block.manifest.id,
@@ -243,7 +244,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
         registryKind: block.registryKind,
         registryLocation: block.registryLocation,
         registryPath: block.registryPath,
-        sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),
+        sourceRoot: relativePosixPath(block.registryRoot, resource.root),
         action: install.kind,
         from: install.from,
         to: install.to

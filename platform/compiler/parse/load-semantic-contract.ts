@@ -19,6 +19,7 @@ import {
   type SemanticContractTransition
 } from '../../shared/semantic-contract-types.ts';
 import { readYaml } from '../../shared/yaml.ts';
+import { resolveManifestResource } from './load-manifest.ts';
 
 function stableById<Value extends { id: string }>(values: readonly Value[]): Value[] {
   return [...values].sort((left, right) => left.id.localeCompare(right.id));
@@ -294,7 +295,7 @@ export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry
     }
     seenPaths.add(reference.path);
 
-    const absolutePath = path.join(entry.manifestRoot, reference.path);
+    const { path: absolutePath } = await resolveManifestResource(entry, reference.path);
     const contract = normalizeSemanticContract(await readYaml<SemanticContract>(absolutePath));
     loaded.push({
       blockId: entry.manifest.id,
