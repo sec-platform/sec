@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Apply exact layered resource overlay and budget fixes
+      - name: Apply layered resource overlay and budget fixes by stable anchors
         shell: bash
         run: |
           python - <<'PY'
@@ -42,18 +42,13 @@ jobs:
               text = path.read_text()
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f'{file_path}: expected one exact match, found {count}: {old!r}')
+                  raise SystemExit(f'{file_path}: expected one match, found {count}: {old!r}')
               path.write_text(text.replace(old, new, 1))
 
           replace_once(
               'platform/shared/plan-manifest-types.ts',
-              """  manifestPath: string;
-            manifestRoot: string;
-            registryRoot: string;""",
-              """  manifestPath: string;
-            manifestRoot: string;
-            resourceRoots: string[];
-            registryRoot: string;"""
+              '  manifestRoot: string;\n',
+              '  manifestRoot: string;\n  resourceRoots: string[];\n'
           )
 
           replace_once(
@@ -63,65 +58,44 @@ jobs:
           )
           replace_once(
               'platform/compiler/parse/load-manifest.ts',
-              """  posixPath,
-            resolveRegistryRoot
-          } from '../../shared/paths.ts';""",
-              """  posixPath,
-            resolvePathInside,
-            resolveRegistryRoot
-          } from '../../shared/paths.ts';"""
+              '  resolveRegistryRoot\n',
+              '  resolvePathInside,\n  resolveRegistryRoot\n'
           )
           replace_once(
               'platform/compiler/parse/load-manifest.ts',
-              """function manifestEntryFromPath(
-            registrySource: ResolvedRegistrySource,
-            manifest: ManifestEntry['manifest'],
-            manifestPath: string
-          ): ManifestEntry {
-            return {
-              manifest,
-              manifestPath,
-              manifestRoot: path.dirname(manifestPath),
-              registryRoot: registrySource.root,""",
-              """function manifestEntryFromPath(
-            registrySource: ResolvedRegistrySource,
-            manifest: ManifestEntry['manifest'],
-            manifestPath: string,
-            resourceRoots: string[] = [path.dirname(manifestPath)]
-          ): ManifestEntry {
-            return {
-              manifest,
-              manifestPath,
-              manifestRoot: path.dirname(manifestPath),
-              resourceRoots,
-              registryRoot: registrySource.root,"""
+              '  manifestPath: string\n): ManifestEntry {',
+              '  manifestPath: string,\n  resourceRoots: string[] = [path.dirname(manifestPath)]\n): ManifestEntry {'
+          )
+          replace_once(
+              'platform/compiler/parse/load-manifest.ts',
+              '    manifestRoot: path.dirname(manifestPath),\n',
+              '    manifestRoot: path.dirname(manifestPath),\n    resourceRoots,\n'
           )
 
           path = Path('platform/compiler/parse/load-manifest.ts')
           text = path.read_text()
-          merge_line = "const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);"
+          merge_line = 'const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);'
           if text.count(merge_line) != 1:
               raise SystemExit(f'load-manifest merge line count={text.count(merge_line)}')
           text = text.replace(
               merge_line,
-              """const rootManifest = await tryReadManifest(rootPath);
-                const manifest = mergeVersionedManifest(rootManifest, versionedManifest);""",
+              'const rootManifest = await tryReadManifest(rootPath);\n        const manifest = mergeVersionedManifest(rootManifest, versionedManifest);',
               1
           )
           marker_index = text.index('const manifest = mergeVersionedManifest(rootManifest, versionedManifest);')
           return_line = 'return manifestEntryFromPath(registrySource, manifest, manifestPath);'
           return_index = text.index(return_line, marker_index)
           replacement = """const versionRoot = path.dirname(manifestPath);
-                  const resourceRoots = rootManifest
-                    ? [versionRoot, path.dirname(rootPath)]
-                    : [versionRoot];
-                  return manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);"""
+          const resourceRoots = rootManifest
+            ? [versionRoot, path.dirname(rootPath)]
+            : [versionRoot];
+          return manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);"""
           text = text[:return_index] + replacement + text[return_index + len(return_line):]
           path.write_text(text)
 
           replace_once(
               'platform/compiler/parse/load-manifest.ts',
-              """export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {""",
+              "export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {",
               """export async function resolveManifestResource(
             entry: ManifestEntry,
             resourcePath: string
@@ -155,8 +129,8 @@ jobs:
           )
           replace_once(
               'platform/compiler/parse/load-semantic-contract.ts',
-              "const absolutePath = path.join(entry.manifestRoot, reference.path);",
-              "const { path: absolutePath } = await resolveManifestResource(entry, reference.path);"
+              '    const absolutePath = path.join(entry.manifestRoot, reference.path);\n',
+              '    const { path: absolutePath } = await resolveManifestResource(entry, reference.path);\n'
           )
 
           replace_once(
@@ -166,18 +140,13 @@ jobs:
           )
           replace_once(
               'platform/compiler/resolve/resolve-graph.ts',
-              """  for (const block of sortedEntries) {
-            for (const install of block.manifest.installs) {
-              installPlan.push({""",
-              """  for (const block of sortedEntries) {
-            for (const install of block.manifest.installs) {
-              const resource = await resolveManifestResource(block, install.from);
-              installPlan.push({"""
+              '    for (const install of block.manifest.installs) {\n',
+              '    for (const install of block.manifest.installs) {\n      const resource = await resolveManifestResource(block, install.from);\n'
           )
           replace_once(
               'platform/compiler/resolve/resolve-graph.ts',
-              "sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),",
-              "sourceRoot: relativePosixPath(block.registryRoot, resource.root),"
+              '        sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),\n',
+              '        sourceRoot: relativePosixPath(block.registryRoot, resource.root),\n'
           )
 
           replace_once(
