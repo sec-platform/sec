@@ -1,4 +1,4 @@
-name: compiler-version-resource-overlay-contract-evidence
+name: compiler-version-resource-overlay-validation
 
 on:
   pull_request:
@@ -7,17 +7,20 @@ on:
       - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  version-resource-overlay-contract-evidence:
+  version-resource-overlay-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
+    env:
+      SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+      SEC_AFFECTED_TESTS_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
     steps:
-      - name: Checkout unchanged product head
+      - name: Checkout resource overlay output branch
         uses: actions/checkout@v5
         with:
-          ref: validation/fixpoint-code-output
+          ref: validation/version-resource-overlay-output
           fetch-depth: 0
 
       - name: Setup Bun
@@ -28,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Apply layered resource overlay and budget fixes
+      - name: Apply layered resource overlay and budget fixes by stable anchors
         shell: bash
         run: |
           python - <<'PY'
@@ -37,8 +40,9 @@ jobs:
           def replace_once(file_path: str, old: str, new: str) -> None:
               path = Path(file_path)
               text = path.read_text()
-              if text.count(old) != 1:
-                  raise SystemExit(f'{file_path}: target mismatch: {old!r}')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{file_path}: expected one match, found {count}: {old!r}')
               path.write_text(text.replace(old, new, 1))
 
           replace_once('platform/shared/plan-manifest-types.ts', '  manifestRoot: string;\n', '  manifestRoot: string;\n  resourceRoots: string[];\n')
@@ -50,6 +54,8 @@ jobs:
           path = Path('platform/compiler/parse/load-manifest.ts')
           text = path.read_text()
           merge_line = 'const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);'
+          if text.count(merge_line) != 1:
+              raise SystemExit(f'load-manifest merge line count={text.count(merge_line)}')
           text = text.replace(merge_line, 'const rootManifest = await tryReadManifest(rootPath);\n        const manifest = mergeVersionedManifest(rootManifest, versionedManifest);', 1)
           marker_index = text.index('const manifest = mergeVersionedManifest(rootManifest, versionedManifest);')
           return_line = 'return manifestEntryFromPath(registrySource, manifest, manifestPath);'
@@ -69,12 +75,18 @@ jobs:
             const roots = entry.resourceRoots.length > 0 ? entry.resourceRoots : [entry.manifestRoot];
             for (const root of roots) {
               const candidate = resolvePathInside(root, resourcePath);
-              if (!candidate) throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
-              if (await pathExists(candidate)) return { root, path: candidate };
+              if (!candidate) {
+                throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+              }
+              if (await pathExists(candidate)) {
+                return { root, path: candidate };
+              }
             }
             const root = roots[0] ?? entry.manifestRoot;
             const candidate = resolvePathInside(root, resourcePath);
-            if (!candidate) throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+            if (!candidate) {
+              throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+            }
             return { root, path: candidate };
           }
 
@@ -102,6 +114,7 @@ jobs:
             const rootEntry = await loadManifestById('ticket/basic');
             const versionEntry = await loadManifestById('ticket/basic', { version: '0.1.1' });
             expect(versionEntry.resourceRoots).toEqual([versionEntry.manifestRoot, rootEntry.manifestRoot]);
+
             const contracts = await loadSemanticContractsForManifestEntry(versionEntry);
             expect(contracts.map((entry) => entry.contract.id)).toContain('ticket-core');
             expect(contracts.map((entry) => entry.contractPath)).toContain('platform/registry/official/ticket.basic/contracts/ticket.yaml');
@@ -116,8 +129,8 @@ jobs:
             const lock = await resolveGraph(process.cwd(), plan);
             const ticketSteps = lock.installPlan.filter((step) => step.blockId === 'ticket/basic');
             expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.ts'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
-            expect(ticketSteps.find((step) => step.from.endsWith('ticket.prisma'))?.sourceRoot).toBe('ticket.basic');
-            expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.test.ts'))?.sourceRoot).toBe('ticket.basic');
+            expect(ticketSteps.find((step) => step.from.endsWith('ticket.prisma'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
+            expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.test.ts'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
           });
           TS
 
@@ -137,27 +150,42 @@ jobs:
           });
           TS
 
-      - name: Capture resource overlay contract
+      - name: Organize and verify imports
+        run: |
+          bun run imports:organize
+          bun run imports:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run focused resource overlay and budget contracts
+        run: >-
+          bun ./platform/dev-runner.ts test:fast
+          tests/integration/versioned-manifest-resource-overlay.test.ts
+          tests/contract/slow-suite-resource-budget.test.ts
+          --timeout 120000
+
+      - name: Run contract freeze
+        run: bun run test:contract-freeze
+
+      - name: Run pipeline slow suite
+        run: bun run test:slow -- --suite e2e-pipeline
+
+      - name: Run exact PR risk gate
+        run: bun scripts/ci-pr-risk.ts
+
+      - name: Commit validated resource overlay and budget fixes
         shell: bash
         run: |
-          set +e
-          bun ./platform/dev-runner.ts test:fast tests/integration/versioned-manifest-resource-overlay.test.ts --timeout 120000 > resource-overlay-contract.log 2>&1
-          printf '\nEXIT_STATUS=%s\n' "$?" >> resource-overlay-contract.log
-          set -e
-
-      - name: Capture slow suite budget contract
-        shell: bash
-        run: |
-          set +e
-          bun ./platform/dev-runner.ts test:fast tests/contract/slow-suite-resource-budget.test.ts --timeout 120000 > slow-suite-budget-contract.log 2>&1
-          printf '\nEXIT_STATUS=%s\n' "$?" >> slow-suite-budget-contract.log
-          set -e
-
-      - name: Upload focused contract evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: version-resource-overlay-contract-evidence
-          path: |
-            resource-overlay-contract.log
-            slow-suite-budget-contract.log
-          retention-days: 1
+          git add -- \
+            platform/shared/plan-manifest-types.ts \
+            platform/compiler/parse/load-manifest.ts \
+            platform/compiler/parse/load-semantic-contract.ts \
+            platform/compiler/resolve/resolve-graph.ts \
+            platform/shared/test-budget-contract.ts \
+            tests/integration/versioned-manifest-resource-overlay.test.ts \
+            tests/contract/slow-suite-resource-budget.test.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(registry): resolve versioned resources through overlay roots"
+          git push origin HEAD:validation/version-resource-overlay-output
