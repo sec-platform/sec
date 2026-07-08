@@ -1,4 +1,4 @@
-name: compiler-current-import-evidence
+name: compiler-current-native-import-evidence
 
 on:
   pull_request:
@@ -10,9 +10,12 @@ permissions:
   contents: read
 
 jobs:
-  current-import-evidence:
+  current-native-import-evidence:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+      SEC_AFFECTED_TESTS_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
     steps:
       - name: Checkout current PR 62 product head
         uses: actions/checkout@v5
@@ -28,30 +31,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Capture exact changed import check
+      - name: Capture native changed import check
         shell: bash
         env:
-          SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+          SEC_IMPORTS_CHANGED_ONLY: '1'
         run: |
           set +e
-          changed_ts="$(git diff --name-only "$SEC_CHANGED_BASE"...HEAD -- '*.ts' '*.tsx')"
-          printf '%s\n' "$changed_ts" > changed-ts.txt
-          if [ -n "$changed_ts" ]; then
-            mapfile -t changed_ts_files <<< "$changed_ts"
-            bun scripts/check-imports.ts "${changed_ts_files[@]}" > import-check.log 2>&1
-            status=$?
-          else
-            printf 'No changed TypeScript files\n' > import-check.log
-            status=0
-          fi
+          bun run imports:check > native-import-check.log 2>&1
+          status=$?
           set -e
-          printf '\nEXIT_STATUS=%s\n' "$status" >> import-check.log
+          printf '\nEXIT_STATUS=%s\n' "$status" >> native-import-check.log
 
-      - name: Upload import evidence
+      - name: Upload native import evidence
         uses: actions/upload-artifact@v4
         with:
-          name: current-import-evidence
-          path: |
-            changed-ts.txt
-            import-check.log
+          name: current-native-import-evidence
+          path: native-import-check.log
           retention-days: 1
