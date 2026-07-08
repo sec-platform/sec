@@ -1,4 +1,4 @@
-name: compiler-version-resource-overlay-validation
+name: compiler-version-resource-overlay-contract-evidence
 
 on:
   pull_request:
@@ -7,20 +7,17 @@ on:
       - synchronize
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  version-resource-overlay-validation:
+  version-resource-overlay-contract-evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
-      SEC_AFFECTED_TESTS_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+    timeout-minutes: 15
     steps:
-      - name: Checkout resource overlay output branch
+      - name: Checkout unchanged product head
         uses: actions/checkout@v5
         with:
-          ref: validation/version-resource-overlay-output
+          ref: validation/fixpoint-code-output
           fetch-depth: 0
 
       - name: Setup Bun
@@ -31,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Apply layered resource overlay and budget fixes by stable anchors
+      - name: Apply layered resource overlay and budget fixes
         shell: bash
         run: |
           python - <<'PY'
@@ -40,48 +37,20 @@ jobs:
           def replace_once(file_path: str, old: str, new: str) -> None:
               path = Path(file_path)
               text = path.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{file_path}: expected one match, found {count}: {old!r}')
+              if text.count(old) != 1:
+                  raise SystemExit(f'{file_path}: target mismatch: {old!r}')
               path.write_text(text.replace(old, new, 1))
 
-          replace_once(
-              'platform/shared/plan-manifest-types.ts',
-              '  manifestRoot: string;\n',
-              '  manifestRoot: string;\n  resourceRoots: string[];\n'
-          )
-
-          replace_once(
-              'platform/compiler/parse/load-manifest.ts',
-              "import { isFileNotFoundError } from '../../shared/fs.ts';",
-              "import { isFileNotFoundError, pathExists } from '../../shared/fs.ts';"
-          )
-          replace_once(
-              'platform/compiler/parse/load-manifest.ts',
-              '  resolveRegistryRoot\n',
-              '  resolvePathInside,\n  resolveRegistryRoot\n'
-          )
-          replace_once(
-              'platform/compiler/parse/load-manifest.ts',
-              '  manifestPath: string\n): ManifestEntry {',
-              '  manifestPath: string,\n  resourceRoots: string[] = [path.dirname(manifestPath)]\n): ManifestEntry {'
-          )
-          replace_once(
-              'platform/compiler/parse/load-manifest.ts',
-              '    manifestRoot: path.dirname(manifestPath),\n',
-              '    manifestRoot: path.dirname(manifestPath),\n    resourceRoots,\n'
-          )
+          replace_once('platform/shared/plan-manifest-types.ts', '  manifestRoot: string;\n', '  manifestRoot: string;\n  resourceRoots: string[];\n')
+          replace_once('platform/compiler/parse/load-manifest.ts', "import { isFileNotFoundError } from '../../shared/fs.ts';", "import { isFileNotFoundError, pathExists } from '../../shared/fs.ts';")
+          replace_once('platform/compiler/parse/load-manifest.ts', '  resolveRegistryRoot\n', '  resolvePathInside,\n  resolveRegistryRoot\n')
+          replace_once('platform/compiler/parse/load-manifest.ts', '  manifestPath: string\n): ManifestEntry {', '  manifestPath: string,\n  resourceRoots: string[] = [path.dirname(manifestPath)]\n): ManifestEntry {')
+          replace_once('platform/compiler/parse/load-manifest.ts', '    manifestRoot: path.dirname(manifestPath),\n', '    manifestRoot: path.dirname(manifestPath),\n    resourceRoots,\n')
 
           path = Path('platform/compiler/parse/load-manifest.ts')
           text = path.read_text()
           merge_line = 'const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);'
-          if text.count(merge_line) != 1:
-              raise SystemExit(f'load-manifest merge line count={text.count(merge_line)}')
-          text = text.replace(
-              merge_line,
-              'const rootManifest = await tryReadManifest(rootPath);\n        const manifest = mergeVersionedManifest(rootManifest, versionedManifest);',
-              1
-          )
+          text = text.replace(merge_line, 'const rootManifest = await tryReadManifest(rootPath);\n        const manifest = mergeVersionedManifest(rootManifest, versionedManifest);', 1)
           marker_index = text.index('const manifest = mergeVersionedManifest(rootManifest, versionedManifest);')
           return_line = 'return manifestEntryFromPath(registrySource, manifest, manifestPath);'
           return_index = text.index(return_line, marker_index)
@@ -93,78 +62,30 @@ jobs:
           text = text[:return_index] + replacement + text[return_index + len(return_line):]
           path.write_text(text)
 
-          replace_once(
-              'platform/compiler/parse/load-manifest.ts',
-              "export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {",
-              """export async function resolveManifestResource(
+          replace_once('platform/compiler/parse/load-manifest.ts', "export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {", """export async function resolveManifestResource(
             entry: ManifestEntry,
             resourcePath: string
           ): Promise<{ root: string; path: string }> {
             const roots = entry.resourceRoots.length > 0 ? entry.resourceRoots : [entry.manifestRoot];
             for (const root of roots) {
               const candidate = resolvePathInside(root, resourcePath);
-              if (!candidate) {
-                throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
-              }
-              if (await pathExists(candidate)) {
-                return { root, path: candidate };
-              }
+              if (!candidate) throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+              if (await pathExists(candidate)) return { root, path: candidate };
             }
-
             const root = roots[0] ?? entry.manifestRoot;
             const candidate = resolvePathInside(root, resourcePath);
-            if (!candidate) {
-              throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
-            }
+            if (!candidate) throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
             return { root, path: candidate };
           }
 
-          export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {"""
-          )
-
-          replace_once(
-              'platform/compiler/parse/load-semantic-contract.ts',
-              "import { readYaml } from '../../shared/yaml.ts';",
-              "import { readYaml } from '../../shared/yaml.ts';\nimport { resolveManifestResource } from './load-manifest.ts';"
-          )
-          replace_once(
-              'platform/compiler/parse/load-semantic-contract.ts',
-              '    const absolutePath = path.join(entry.manifestRoot, reference.path);\n',
-              '    const { path: absolutePath } = await resolveManifestResource(entry, reference.path);\n'
-          )
-
-          replace_once(
-              'platform/compiler/resolve/resolve-graph.ts',
-              "import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';",
-              "import { loadAllManifests, loadManifestById, resolveManifestResource } from '../parse/load-manifest.ts';"
-          )
-          replace_once(
-              'platform/compiler/resolve/resolve-graph.ts',
-              '    for (const install of block.manifest.installs) {\n',
-              '    for (const install of block.manifest.installs) {\n      const resource = await resolveManifestResource(block, install.from);\n'
-          )
-          replace_once(
-              'platform/compiler/resolve/resolve-graph.ts',
-              '        sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),\n',
-              '        sourceRoot: relativePosixPath(block.registryRoot, resource.root),\n'
-          )
-
-          replace_once(
-              'platform/shared/test-budget-contract.ts',
-              "slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),",
-              """slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, {
-              parallelSafe: true,
-              resourceClass: 'runtime-heavy'
-            }),"""
-          )
-          replace_once(
-              'platform/shared/test-budget-contract.ts',
-              "slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),",
-              """slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, {
-              parallelSafe: true,
-              resourceClass: 'runtime-heavy'
-            }),"""
-          )
+          export function validateManifest(manifest: BlockManifest): asserts manifest is ManifestEntry['manifest'] {""")
+          replace_once('platform/compiler/parse/load-semantic-contract.ts', "import { readYaml } from '../../shared/yaml.ts';", "import { readYaml } from '../../shared/yaml.ts';\nimport { resolveManifestResource } from './load-manifest.ts';")
+          replace_once('platform/compiler/parse/load-semantic-contract.ts', '    const absolutePath = path.join(entry.manifestRoot, reference.path);\n', '    const { path: absolutePath } = await resolveManifestResource(entry, reference.path);\n')
+          replace_once('platform/compiler/resolve/resolve-graph.ts', "import { loadAllManifests, loadManifestById } from '../parse/load-manifest.ts';", "import { loadAllManifests, loadManifestById, resolveManifestResource } from '../parse/load-manifest.ts';")
+          replace_once('platform/compiler/resolve/resolve-graph.ts', '    for (const install of block.manifest.installs) {\n', '    for (const install of block.manifest.installs) {\n      const resource = await resolveManifestResource(block, install.from);\n')
+          replace_once('platform/compiler/resolve/resolve-graph.ts', '        sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),\n', '        sourceRoot: relativePosixPath(block.registryRoot, resource.root),\n')
+          replace_once('platform/shared/test-budget-contract.ts', "slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),", "slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),")
+          replace_once('platform/shared/test-budget-contract.ts', "slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),", "slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),")
           PY
 
           cat > tests/integration/versioned-manifest-resource-overlay.test.ts <<'TS'
@@ -180,106 +101,63 @@ jobs:
           test('versioned manifest resources resolve through version-first block fallback roots', async () => {
             const rootEntry = await loadManifestById('ticket/basic');
             const versionEntry = await loadManifestById('ticket/basic', { version: '0.1.1' });
-
-            expect(versionEntry.resourceRoots).toEqual([
-              versionEntry.manifestRoot,
-              rootEntry.manifestRoot
-            ]);
-
+            expect(versionEntry.resourceRoots).toEqual([versionEntry.manifestRoot, rootEntry.manifestRoot]);
             const contracts = await loadSemanticContractsForManifestEntry(versionEntry);
             expect(contracts.map((entry) => entry.contract.id)).toContain('ticket-core');
-            expect(contracts.map((entry) => entry.contractPath)).toContain(
-              'platform/registry/official/ticket.basic/contracts/ticket.yaml'
-            );
+            expect(contracts.map((entry) => entry.contractPath)).toContain('platform/registry/official/ticket.basic/contracts/ticket.yaml');
 
             const plan: PlanFile = {
-              app: {
-                name: 'versioned-ticket-resource-overlay',
-                stack: SUPPORTED_STACK,
-                packageManager: 'pnpm',
-                mode: 'single-tenant'
-              },
-              registry: {
-                sources: [{
-                  id: 'official',
-                  kind: 'official',
-                  location: 'compiler',
-                  path: officialRegistryRelativePath.replaceAll('\\', '/')
-                }]
-              },
+              app: { name: 'versioned-ticket-resource-overlay', stack: SUPPORTED_STACK, packageManager: 'pnpm', mode: 'single-tenant' },
+              registry: { sources: [{ id: 'official', kind: 'official', location: 'compiler', path: officialRegistryRelativePath.replaceAll('\\', '/') }] },
               blocks: [{ id: 'ticket/basic', version: '0.1.1' }],
               slots: [],
               acceptance: []
             };
             const lock = await resolveGraph(process.cwd(), plan);
             const ticketSteps = lock.installPlan.filter((step) => step.blockId === 'ticket/basic');
-            expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.ts'))?.sourceRoot)
-              .toBe('ticket.basic/versions/0.1.1');
-            expect(ticketSteps.find((step) => step.from.endsWith('ticket.prisma'))?.sourceRoot)
-              .toBe('ticket.basic');
-            expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.test.ts'))?.sourceRoot)
-              .toBe('ticket.basic');
+            expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.ts'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
+            expect(ticketSteps.find((step) => step.from.endsWith('ticket.prisma'))?.sourceRoot).toBe('ticket.basic');
+            expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.test.ts'))?.sourceRoot).toBe('ticket.basic');
           });
           TS
 
           cat > tests/contract/slow-suite-resource-budget.test.ts <<'TS'
           import fs from 'node:fs';
           import path from 'node:path';
-
           import { expect, test } from 'bun:test';
-
           import { getSlowTestSuitesSync } from '../../platform/shared/test-budget-contract.ts';
           import { compilerRoot } from '../../platform/shared/paths.ts';
 
           test('locked workspace cold-build suites do not run in the standard parallel PR risk pool', () => {
             const offenders = getSlowTestSuitesSync()
-              .filter((suite) => suite.files.some((file) => {
-                const source = fs.readFileSync(path.join(compilerRoot, file), 'utf8');
-                return source.includes('prepareLockedWorkspace');
-              }))
+              .filter((suite) => suite.files.some((file) => fs.readFileSync(path.join(compilerRoot, file), 'utf8').includes('prepareLockedWorkspace')))
               .filter((suite) => suite.parallelSafe && suite.resourceClass === 'standard')
               .map((suite) => suite.id);
-
             expect(offenders).toEqual([]);
           });
           TS
 
-      - name: Organize and verify imports
-        run: |
-          bun run imports:organize
-          bun run imports:check
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Run focused resource overlay and budget contracts
-        run: >-
-          bun ./platform/dev-runner.ts test:fast
-          tests/integration/versioned-manifest-resource-overlay.test.ts
-          tests/contract/slow-suite-resource-budget.test.ts
-          --timeout 120000
-
-      - name: Run contract freeze
-        run: bun run test:contract-freeze
-
-      - name: Run pipeline slow suite
-        run: bun run test:slow -- --suite e2e-pipeline
-
-      - name: Run exact PR risk gate
-        run: bun scripts/ci-pr-risk.ts
-
-      - name: Commit validated resource overlay and budget fixes
+      - name: Capture resource overlay contract
         shell: bash
         run: |
-          git add -- \
-            platform/shared/plan-manifest-types.ts \
-            platform/compiler/parse/load-manifest.ts \
-            platform/compiler/parse/load-semantic-contract.ts \
-            platform/compiler/resolve/resolve-graph.ts \
-            platform/shared/test-budget-contract.ts \
-            tests/integration/versioned-manifest-resource-overlay.test.ts \
-            tests/contract/slow-suite-resource-budget.test.ts
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix(registry): resolve versioned resources through overlay roots"
-          git push origin HEAD:validation/version-resource-overlay-output
+          set +e
+          bun ./platform/dev-runner.ts test:fast tests/integration/versioned-manifest-resource-overlay.test.ts --timeout 120000 > resource-overlay-contract.log 2>&1
+          printf '\nEXIT_STATUS=%s\n' "$?" >> resource-overlay-contract.log
+          set -e
+
+      - name: Capture slow suite budget contract
+        shell: bash
+        run: |
+          set +e
+          bun ./platform/dev-runner.ts test:fast tests/contract/slow-suite-resource-budget.test.ts --timeout 120000 > slow-suite-budget-contract.log 2>&1
+          printf '\nEXIT_STATUS=%s\n' "$?" >> slow-suite-budget-contract.log
+          set -e
+
+      - name: Upload focused contract evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-resource-overlay-contract-evidence
+          path: |
+            resource-overlay-contract.log
+            slow-suite-budget-contract.log
+          retention-days: 1
