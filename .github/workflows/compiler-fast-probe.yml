@@ -1,4 +1,4 @@
-name: compiler-manifest-patch-context-evidence
+name: compiler-manifest-resource-roots-validation
 
 on:
   pull_request:
@@ -7,43 +7,115 @@ on:
       - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  manifest-patch-context-evidence:
+  manifest-resource-roots-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
+    env:
+      SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+      SEC_AFFECTED_TESTS_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
     steps:
-      - name: Checkout unchanged output branch
+      - name: Checkout resource-root output branch
         uses: actions/checkout@v5
         with:
           ref: validation/manifest-resource-roots-output
           fetch-depth: 0
 
-      - name: Count exact patch targets
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply exact manifest resource-origin fixes
         shell: bash
         run: |
           python - <<'PY'
-          import json
           from pathlib import Path
 
-          targets = [
-              ('types-entry', 'platform/shared/plan-manifest-types.ts', """export interface ManifestEntry {
+          def replace_once(file_path: str, old: str, new: str) -> None:
+              path = Path(file_path)
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{file_path}: expected one exact match, found {count}')
+              path.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'platform/shared/plan-manifest-types.ts',
+              """export interface ManifestEntry {
             manifest: BlockManifest & {
               contracts: ManifestContractReference[];
               generators: ManifestGenerator[];
             };
             manifestPath: string;
             manifestRoot: string;
-            registryRoot: string;"""),
-              ('load-options', 'platform/compiler/parse/load-manifest.ts', """interface ManifestLoadOptions {
+            registryRoot: string;""",
+              """export interface ManifestResourceRoots {
+            contracts: string;
+            installs: string;
+            upgrade: string;
+          }
+
+          export interface ManifestEntry {
+            manifest: BlockManifest & {
+              contracts: ManifestContractReference[];
+              generators: ManifestGenerator[];
+            };
+            manifestPath: string;
+            manifestRoot: string;
+            resourceRoots: ManifestResourceRoots;
+            registryRoot: string;"""
+          )
+
+          replace_once(
+              'platform/compiler/parse/load-manifest.ts',
+              """interface ManifestLoadOptions {
             workspaceRoot?: string;
             version?: string;
             registrySources?: PlanRegistrySource[];
           }
 
-          function registryBlockRoot"""),
-              ('entry-builder', 'platform/compiler/parse/load-manifest.ts', """function manifestEntryFromPath(
+          function registryBlockRoot""",
+              """interface ManifestLoadOptions {
+            workspaceRoot?: string;
+            version?: string;
+            registrySources?: PlanRegistrySource[];
+          }
+
+          function resourceRootsAt(root: string): ManifestEntry['resourceRoots'] {
+            return {
+              contracts: root,
+              installs: root,
+              upgrade: root
+            };
+          }
+
+          function mergedManifestResourceRoots(
+            rootManifest: BlockManifest | null,
+            versionedManifest: BlockManifest,
+            rootManifestPath: string,
+            versionedManifestPath: string
+          ): ManifestEntry['resourceRoots'] {
+            const versionRoot = path.dirname(versionedManifestPath);
+            const inheritedRoot = rootManifest ? path.dirname(rootManifestPath) : versionRoot;
+            return {
+              contracts: versionedManifest.contracts !== undefined ? versionRoot : inheritedRoot,
+              installs: versionedManifest.installs !== undefined ? versionRoot : inheritedRoot,
+              upgrade: versionedManifest.upgrade !== undefined ? versionRoot : inheritedRoot
+            };
+          }
+
+          function registryBlockRoot"""
+          )
+
+          replace_once(
+              'platform/compiler/parse/load-manifest.ts',
+              """function manifestEntryFromPath(
             registrySource: ResolvedRegistrySource,
             manifest: ManifestEntry['manifest'],
             manifestPath: string
@@ -52,31 +124,186 @@ jobs:
               manifest,
               manifestPath,
               manifestRoot: path.dirname(manifestPath),
-              registryRoot: registrySource.root,"""),
-              ('version-branch', 'platform/compiler/parse/load-manifest.ts', """      if (versionedManifest) {
-                const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);
-                validateManifest(manifest);
-                if (manifest.version === version) {
+              registryRoot: registrySource.root,""",
+              """function manifestEntryFromPath(
+            registrySource: ResolvedRegistrySource,
+            manifest: ManifestEntry['manifest'],
+            manifestPath: string,
+            resourceRoots: ManifestEntry['resourceRoots'] = resourceRootsAt(path.dirname(manifestPath))
+          ): ManifestEntry {
+            return {
+              manifest,
+              manifestPath,
+              manifestRoot: path.dirname(manifestPath),
+              resourceRoots,
+              registryRoot: registrySource.root,"""
+          )
+
+          replace_once(
+              'platform/compiler/parse/load-manifest.ts',
+              "const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);",
+              """const rootManifest = await tryReadManifest(rootPath);
+                const manifest = mergeVersionedManifest(rootManifest, versionedManifest);
+                const resourceRoots = mergedManifestResourceRoots(
+                  rootManifest,
+                  versionedManifest,
+                  rootPath,
+                  manifestPath
+                );"""
+          )
+          replace_once(
+              'platform/compiler/parse/load-manifest.ts',
+              """if (manifest.version === version) {
                   return manifestEntryFromPath(registrySource, manifest, manifestPath);
-                }
-              }"""),
-              ('semantic-root', 'platform/compiler/parse/load-semantic-contract.ts', "const absolutePath = path.join(entry.manifestRoot, reference.path);"),
-              ('install-root', 'platform/compiler/resolve/resolve-graph.ts', "sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),"),
-              ('upgrade-root', 'platform/upgrade/upgrade-workspace.ts', "const targetManifestRoot = path.dirname(targetEntry.manifestPath);"),
-              ('conflicts-budget', 'platform/shared/test-budget-contract.ts', "slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),"),
-              ('views-budget', 'platform/shared/test-budget-contract.ts', "slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),")
-          ]
-          results = []
-          for target_id, file_path, needle in targets:
-              text = Path(file_path).read_text()
-              results.append({'id': target_id, 'file': file_path, 'count': text.count(needle)})
-          Path('patch-context-counts.json').write_text(json.dumps(results, indent=2) + '\n')
-          print(json.dumps(results, indent=2))
+                }""",
+              """if (manifest.version === version) {
+                  return manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
+                }"""
+          )
+
+          replace_once(
+              'platform/compiler/parse/load-semantic-contract.ts',
+              "const absolutePath = path.join(entry.manifestRoot, reference.path);",
+              "const absolutePath = path.join(entry.resourceRoots.contracts, reference.path);"
+          )
+          replace_once(
+              'platform/compiler/resolve/resolve-graph.ts',
+              "sourceRoot: relativePosixPath(block.registryRoot, block.manifestRoot),",
+              "sourceRoot: relativePosixPath(block.registryRoot, block.resourceRoots.installs),"
+          )
+          replace_once(
+              'platform/upgrade/upgrade-workspace.ts',
+              "const targetManifestRoot = path.dirname(targetEntry.manifestPath);",
+              "const targetManifestRoot = targetEntry.resourceRoots.upgrade;"
+          )
+          replace_once(
+              'platform/shared/test-budget-contract.ts',
+              "slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),",
+              """slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, {
+              parallelSafe: true,
+              resourceClass: 'runtime-heavy'
+            }),"""
+          )
+          replace_once(
+              'platform/shared/test-budget-contract.ts',
+              "slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),",
+              """slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, {
+              parallelSafe: true,
+              resourceClass: 'runtime-heavy'
+            }),"""
+          )
           PY
 
-      - name: Upload patch context counts
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-patch-context-counts
-          path: patch-context-counts.json
-          retention-days: 1
+          cat > tests/integration/versioned-manifest-resource-roots.test.ts <<'TS'
+          import { expect, test } from 'bun:test';
+
+          import { loadManifestById } from '../../platform/compiler/parse/load-manifest.ts';
+          import { loadSemanticContractsForManifestEntry } from '../../platform/compiler/parse/load-semantic-contract.ts';
+          import { resolveGraph } from '../../platform/compiler/resolve/resolve-graph.ts';
+          import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
+          import { officialRegistryRelativePath } from '../../platform/shared/paths.ts';
+          import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
+
+          test('version overlays preserve the resource root of inherited manifest fields', async () => {
+            const rootEntry = await loadManifestById('ticket/basic');
+            const versionEntry = await loadManifestById('ticket/basic', { version: '0.1.1' });
+
+            expect(versionEntry.resourceRoots.contracts).toBe(rootEntry.manifestRoot);
+            expect(versionEntry.resourceRoots.installs).toBe(rootEntry.manifestRoot);
+            expect(versionEntry.resourceRoots.upgrade).toBe(versionEntry.manifestRoot);
+
+            const contracts = await loadSemanticContractsForManifestEntry(versionEntry);
+            expect(contracts.map((entry) => entry.contract.id)).toContain('ticket-core');
+            expect(contracts.map((entry) => entry.contractPath)).toContain(
+              'platform/registry/official/ticket.basic/contracts/ticket.yaml'
+            );
+
+            const plan: PlanFile = {
+              app: {
+                name: 'versioned-ticket-resource-roots',
+                stack: SUPPORTED_STACK,
+                packageManager: 'pnpm',
+                mode: 'single-tenant'
+              },
+              registry: {
+                sources: [{
+                  id: 'official',
+                  kind: 'official',
+                  location: 'compiler',
+                  path: officialRegistryRelativePath.replaceAll('\\', '/')
+                }]
+              },
+              blocks: [{ id: 'ticket/basic', version: '0.1.1' }],
+              slots: [],
+              acceptance: []
+            };
+            const lock = await resolveGraph(process.cwd(), plan);
+            const ticketSourceRoots = [...new Set(lock.installPlan
+              .filter((step) => step.blockId === 'ticket/basic')
+              .map((step) => step.sourceRoot))];
+            expect(ticketSourceRoots).toEqual(['ticket.basic']);
+          });
+          TS
+
+          cat > tests/contract/slow-suite-resource-budget.test.ts <<'TS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          import { expect, test } from 'bun:test';
+
+          import { getSlowTestSuitesSync } from '../../platform/shared/test-budget-contract.ts';
+          import { compilerRoot } from '../../platform/shared/paths.ts';
+
+          test('locked workspace cold-build suites do not run in the standard parallel PR risk pool', () => {
+            const offenders = getSlowTestSuitesSync()
+              .filter((suite) => suite.files.some((file) => {
+                const source = fs.readFileSync(path.join(compilerRoot, file), 'utf8');
+                return source.includes('prepareLockedWorkspace');
+              }))
+              .filter((suite) => suite.parallelSafe && suite.resourceClass === 'standard')
+              .map((suite) => suite.id);
+
+            expect(offenders).toEqual([]);
+          });
+          TS
+
+      - name: Organize and verify imports
+        run: |
+          bun run imports:organize
+          bun run imports:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run focused resource-origin and budget contracts
+        run: >-
+          bun ./platform/dev-runner.ts test:fast
+          tests/integration/versioned-manifest-resource-roots.test.ts
+          tests/contract/slow-suite-resource-budget.test.ts
+          --timeout 120000
+
+      - name: Run contract freeze
+        run: bun run test:contract-freeze
+
+      - name: Run pipeline slow suite
+        run: bun run test:slow -- --suite e2e-pipeline
+
+      - name: Run exact PR risk gate
+        run: bun scripts/ci-pr-risk.ts
+
+      - name: Commit validated manifest and budget fixes
+        shell: bash
+        run: |
+          git add -- \
+            platform/shared/plan-manifest-types.ts \
+            platform/compiler/parse/load-manifest.ts \
+            platform/compiler/parse/load-semantic-contract.ts \
+            platform/compiler/resolve/resolve-graph.ts \
+            platform/upgrade/upgrade-workspace.ts \
+            platform/shared/test-budget-contract.ts \
+            tests/integration/versioned-manifest-resource-roots.test.ts \
+            tests/contract/slow-suite-resource-budget.test.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(registry): preserve versioned manifest resource origins"
+          git push origin HEAD:validation/manifest-resource-roots-output
