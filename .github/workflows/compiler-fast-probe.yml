@@ -1,4 +1,4 @@
-name: compiler-risk-resource-diagnostics
+name: compiler-risk-budget-fix-validation
 
 on:
   pull_request:
@@ -7,17 +7,20 @@ on:
       - synchronize
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  risk-resource-diagnostics:
+  risk-budget-fix-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
+    env:
+      SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+      SEC_AFFECTED_TESTS_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
     steps:
-      - name: Checkout validated fix head
+      - name: Checkout budget fix output
         uses: actions/checkout@v5
         with:
-          ref: validation/fixpoint-code-output
+          ref: validation/risk-budget-fix-output
           fetch-depth: 0
 
       - name: Setup Bun
@@ -28,51 +31,73 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run serial cold-namespace controls
+      - name: Apply exact resource budget metadata fix
         shell: bash
         run: |
-          set +e
-          /usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-serial-conflicts bun run test:slow -- --suite e2e-conflicts > serial-conflicts.log 2>&1
-          printf 'EXIT_STATUS=%s\n' "$?" >> serial-conflicts.log
-          /usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-serial-local-views bun run test:slow -- --suite e2e-local-views > serial-local-views.log 2>&1
-          printf 'EXIT_STATUS=%s\n' "$?" >> serial-local-views.log
-          set -e
+          python - <<'PY'
+          from pathlib import Path
 
-      - name: Run two-way cold-namespace pressure
+          path = Path('platform/shared/test-budget-contract.ts')
+          text = path.read_text()
+          replacements = {
+              "slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),": """slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, {
+              parallelSafe: true,
+              resourceClass: 'runtime-heavy'
+            }),""",
+              "slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),": """slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, {
+              parallelSafe: true,
+              resourceClass: 'runtime-heavy'
+            }),"""
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match for {old!r}, found {count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+          cat > tests/contract/slow-suite-resource-budget.test.ts <<'TS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          import { expect, test } from 'bun:test';
+
+          import { getSlowTestSuitesSync } from '../../platform/shared/test-budget-contract.ts';
+          import { compilerRoot } from '../../platform/shared/paths.ts';
+
+          test('locked workspace cold-build suites do not run in the standard parallel PR risk pool', () => {
+            const offenders = getSlowTestSuitesSync()
+              .filter((suite) => suite.files.some((file) => {
+                const source = fs.readFileSync(path.join(compilerRoot, file), 'utf8');
+                return source.includes('prepareLockedWorkspace');
+              }))
+              .filter((suite) => suite.parallelSafe && suite.resourceClass === 'standard')
+              .map((suite) => suite.id);
+
+            expect(offenders).toEqual([]);
+          });
+          TS
+
+      - name: Check imports and types
+        run: |
+          bun run imports:check
+          bun run typecheck
+
+      - name: Run resource budget contract
+        run: bun ./platform/dev-runner.ts test:fast tests/contract/slow-suite-resource-budget.test.ts --timeout 120000
+
+      - name: Run contract freeze
+        run: bun run test:contract-freeze
+
+      - name: Run exact PR risk gate
+        run: bun scripts/ci-pr-risk.ts
+
+      - name: Commit validated budget fix
         shell: bash
         run: |
-          set +e
-          (/usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-pair-conflicts bun run test:slow -- --suite e2e-conflicts > pair-conflicts.log 2>&1; printf 'EXIT_STATUS=%s\n' "$?" >> pair-conflicts.log) &
-          p1=$!
-          (/usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE=diag-pair-local-views bun run test:slow -- --suite e2e-local-views > pair-local-views.log 2>&1; printf 'EXIT_STATUS=%s\n' "$?" >> pair-local-views.log) &
-          p2=$!
-          wait "$p1"
-          wait "$p2"
-          set -e
-
-      - name: Run original four-way first-wave pressure
-        shell: bash
-        run: |
-          set +e
-          suites=(e2e-conflicts e2e-dry-run-plan e2e-graph e2e-local-views)
-          pids=()
-          for suite in "${suites[@]}"; do
-            log="wave-${suite}.log"
-            ns="diag-wave-${suite}"
-            (/usr/bin/time -v env SEC_TEST_WORKSPACE_NAMESPACE="$ns" bun run test:slow -- --suite "$suite" > "$log" 2>&1; printf 'EXIT_STATUS=%s\n' "$?" >> "$log") &
-            pids+=("$!")
-          done
-          for pid in "${pids[@]}"; do
-            wait "$pid"
-          done
-          set -e
-
-      - name: Upload resource diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: risk-resource-diagnostics
-          path: |
-            serial-*.log
-            pair-*.log
-            wave-*.log
-          retention-days: 1
+          git add -- platform/shared/test-budget-contract.ts tests/contract/slow-suite-resource-budget.test.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(ci): serialize locked-workspace heavy slow suites"
+          git push origin HEAD:validation/risk-budget-fix-output
