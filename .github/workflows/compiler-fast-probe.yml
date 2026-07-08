@@ -1,4 +1,4 @@
-name: compiler-version-overlay-root-validation
+name: compiler-version-overlay-pipeline-evidence
 
 on:
   pull_request:
@@ -7,20 +7,17 @@ on:
       - synchronize
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  version-overlay-root-validation:
+  version-overlay-pipeline-evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      SEC_CHANGED_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
-      SEC_AFFECTED_TESTS_BASE: 0a3ea2cf8cc118e2d00859cf1adae9cf65f86067
+    timeout-minutes: 15
     steps:
-      - name: Checkout overlay fix output branch
+      - name: Checkout unchanged product head
         uses: actions/checkout@v5
         with:
-          ref: validation/version-overlay-root-fix-output
+          ref: validation/fixpoint-code-output
           fetch-depth: 0
 
       - name: Setup Bun
@@ -31,26 +28,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Apply exact version overlay and risk budget fixes
+      - name: Apply version overlay root semantics in runner
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(file_path: str, old: str, new: str) -> None:
-              path = Path(file_path)
-              text = path.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{file_path}: expected one exact match, found {count}')
-              path.write_text(text.replace(old, new, 1))
-
-          replace_once(
-              'platform/compiler/parse/load-manifest.ts',
-              """function mergeVersionedManifest(rootManifest: BlockManifest | null, versionedManifest: BlockManifest): BlockManifest {
+          path = Path('platform/compiler/parse/load-manifest.ts')
+          text = path.read_text()
+          old = """function mergeVersionedManifest(rootManifest: BlockManifest | null, versionedManifest: BlockManifest): BlockManifest {
             return rootManifest ? { ...rootManifest, ...versionedManifest } : versionedManifest;
-          }""",
-              """const VERSION_MANIFEST_OVERLAY_FIELDS = new Set<keyof BlockManifest>(['version', 'upgrade']);
+          }"""
+          new = """const VERSION_MANIFEST_OVERLAY_FIELDS = new Set<keyof BlockManifest>(['version', 'upgrade']);
 
           function assertVersionManifestOverlay(rootManifest: BlockManifest | null, versionedManifest: BlockManifest): void {
             if (!rootManifest) return;
@@ -69,21 +58,15 @@ jobs:
             assertVersionManifestOverlay(rootManifest, versionedManifest);
             return rootManifest ? { ...rootManifest, ...versionedManifest } : versionedManifest;
           }"""
-          )
-
-          path = Path('platform/compiler/parse/load-manifest.ts')
-          text = path.read_text()
+          if text.count(old) != 1:
+              raise SystemExit('merge function target mismatch')
+          text = text.replace(old, new, 1)
           merge_line = "const manifest = mergeVersionedManifest(await tryReadManifest(rootPath), versionedManifest);"
           if text.count(merge_line) != 1:
-              raise SystemExit(f'load-manifest merge line count={text.count(merge_line)}')
-          text = text.replace(
-              merge_line,
-              """const rootManifest = await tryReadManifest(rootPath);
-                const manifest = mergeVersionedManifest(rootManifest, versionedManifest);""",
-              1
-          )
-          marker = 'const manifest = mergeVersionedManifest(rootManifest, versionedManifest);'
-          marker_index = text.index(marker)
+              raise SystemExit('version merge target mismatch')
+          text = text.replace(merge_line, """const rootManifest = await tryReadManifest(rootPath);
+                const manifest = mergeVersionedManifest(rootManifest, versionedManifest);""", 1)
+          marker_index = text.index('const manifest = mergeVersionedManifest(rootManifest, versionedManifest);')
           return_line = 'return manifestEntryFromPath(registrySource, manifest, manifestPath);'
           return_index = text.index(return_line, marker_index)
           replacement = """const entry = manifestEntryFromPath(registrySource, manifest, manifestPath);
@@ -91,137 +74,20 @@ jobs:
                   return entry;"""
           text = text[:return_index] + replacement + text[return_index + len(return_line):]
           path.write_text(text)
-
-          replace_once(
-              'tests/e2e/registry.test.ts',
-              "expect(entry.manifestRoot.replaceAll('\\\\', '/')).toContain('/versions/0.1.1');",
-              "expect(entry.manifestRoot).toBe(rootEntry.manifestRoot);"
-          )
-
-          replace_once(
-              'platform/shared/test-budget-contract.ts',
-              "slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),",
-              """slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, {
-              parallelSafe: true,
-              resourceClass: 'runtime-heavy'
-            }),"""
-          )
-          replace_once(
-              'platform/shared/test-budget-contract.ts',
-              "slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),",
-              """slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, {
-              parallelSafe: true,
-              resourceClass: 'runtime-heavy'
-            }),"""
-          )
           PY
 
-          cat > tests/integration/versioned-manifest-inheritance.test.ts <<'TS'
-          import { expect, test } from 'bun:test';
-
-          import { loadManifestById } from '../../platform/compiler/parse/load-manifest.ts';
-          import { loadSemanticContractsForManifestEntry } from '../../platform/compiler/parse/load-semantic-contract.ts';
-          import { resolveGraph } from '../../platform/compiler/resolve/resolve-graph.ts';
-          import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-          import { officialRegistryRelativePath } from '../../platform/shared/paths.ts';
-          import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
-
-          test('version overlays keep inherited resources rooted at the block manifest', async () => {
-            const rootEntry = await loadManifestById('ticket/basic');
-            const versionEntry = await loadManifestById('ticket/basic', { version: '0.1.1' });
-
-            expect(versionEntry.manifestRoot).toBe(rootEntry.manifestRoot);
-            expect(versionEntry.manifestPath.replaceAll('\\', '/')).toContain('/versions/0.1.1/block.manifest.yaml');
-
-            const contracts = await loadSemanticContractsForManifestEntry(versionEntry);
-            expect(contracts.map((entry) => entry.contract.id)).toContain('ticket-core');
-            expect(contracts.map((entry) => entry.contractPath)).toContain(
-              'platform/registry/official/ticket.basic/contracts/ticket.yaml'
-            );
-
-            const plan: PlanFile = {
-              app: {
-                name: 'versioned-ticket-inheritance',
-                stack: SUPPORTED_STACK,
-                packageManager: 'pnpm',
-                mode: 'single-tenant'
-              },
-              registry: {
-                sources: [{
-                  id: 'official',
-                  kind: 'official',
-                  location: 'compiler',
-                  path: officialRegistryRelativePath.replaceAll('\\', '/')
-                }]
-              },
-              blocks: [{ id: 'ticket/basic', version: '0.1.1' }],
-              slots: [],
-              acceptance: []
-            };
-            const lock = await resolveGraph(process.cwd(), plan);
-            const ticketSourceRoots = [...new Set(lock.installPlan
-              .filter((step) => step.blockId === 'ticket/basic')
-              .map((step) => step.sourceRoot))];
-            expect(ticketSourceRoots).toEqual(['ticket.basic']);
-          });
-          TS
-
-          cat > tests/contract/slow-suite-resource-budget.test.ts <<'TS'
-          import fs from 'node:fs';
-          import path from 'node:path';
-
-          import { expect, test } from 'bun:test';
-
-          import { getSlowTestSuitesSync } from '../../platform/shared/test-budget-contract.ts';
-          import { compilerRoot } from '../../platform/shared/paths.ts';
-
-          test('locked workspace cold-build suites do not run in the standard parallel PR risk pool', () => {
-            const offenders = getSlowTestSuitesSync()
-              .filter((suite) => suite.files.some((file) => {
-                const source = fs.readFileSync(path.join(compilerRoot, file), 'utf8');
-                return source.includes('prepareLockedWorkspace');
-              }))
-              .filter((suite) => suite.parallelSafe && suite.resourceClass === 'standard')
-              .map((suite) => suite.id);
-
-            expect(offenders).toEqual([]);
-          });
-          TS
-
-      - name: Organize and verify imports
-        run: |
-          bun run imports:organize
-          bun run imports:check
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Run focused overlay and budget contracts
-        run: >-
-          bun ./platform/dev-runner.ts test:fast
-          tests/integration/versioned-manifest-inheritance.test.ts
-          tests/contract/slow-suite-resource-budget.test.ts
-          --timeout 120000
-
-      - name: Run contract freeze
-        run: bun run test:contract-freeze
-
-      - name: Run pipeline slow suite
-        run: bun run test:slow -- --suite e2e-pipeline
-
-      - name: Run exact PR risk gate
-        run: bun scripts/ci-pr-risk.ts
-
-      - name: Commit validated overlay and budget fixes
+      - name: Capture pipeline slow suite
         shell: bash
         run: |
-          git add -- \
-            platform/compiler/parse/load-manifest.ts \
-            platform/shared/test-budget-contract.ts \
-            tests/e2e/registry.test.ts \
-            tests/integration/versioned-manifest-inheritance.test.ts \
-            tests/contract/slow-suite-resource-budget.test.ts
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix(registry): keep inherited resources rooted at block manifests"
-          git push origin HEAD:validation/version-overlay-root-fix-output
+          set +e
+          bun run test:slow -- --suite e2e-pipeline > e2e-pipeline-after-overlay-root.log 2>&1
+          status=$?
+          set -e
+          printf '\nEXIT_STATUS=%s\n' "$status" >> e2e-pipeline-after-overlay-root.log
+
+      - name: Upload pipeline evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-overlay-pipeline-evidence
+          path: e2e-pipeline-after-overlay-root.log
+          retention-days: 1
