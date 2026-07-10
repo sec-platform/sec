@@ -1,21 +1,21 @@
 import { expect, test } from 'bun:test';
 import {
-    buildBenchmarkTaskSuiteContract,
-    formatBenchmarkTaskSuiteContract
+  buildBenchmarkTaskSuiteContract,
+  formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import {
-    buildTestBudgetContract,
-    formatTestBudgetContract,
-    getFastTestFilesSync,
-    isFastTestFile,
-    isTestFile
+  buildTestBudgetContract,
+  formatTestBudgetContract,
+  getFastTestFilesSync,
+  isFastTestFile,
+  isTestFile
 } from '../../platform/shared/test-budget-contract.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
-    expectBenchmarkTaskSuiteSelfConsistent,
-    expectTestBudgetSelfConsistent
+  expectBenchmarkTaskSuiteSelfConsistent,
+  expectTestBudgetSelfConsistent
 } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -40,7 +40,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     formatVersion: '1',
     suiteId: 'engineering-compiler-core',
     status: 'active',
-    command: 'bun run platform -- benchmark suite --json',
+    command: 'bun run sec -- benchmark suite --json',
     runnerCommand: 'bun run test:benchmark-contract',
     tasks: expect.arrayContaining([
       expect.objectContaining({
@@ -57,7 +57,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       expect.objectContaining({
         id: 'repair-slot',
         gate: 'repair verify',
-        command: 'bun run platform -- repair --dry-run --json --compact',
+        command: 'bun run sec -- repair --dry-run --json --compact',
         artifactPaths: expect.arrayContaining([
           CI_ARTIFACT_FILES.repairPlan,
           CI_ARTIFACT_FILES.provenance
@@ -67,7 +67,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       expect.objectContaining({
         id: 'override-conflict',
         gate: 'upgrade --dry-run',
-        command: 'bun run platform -- upgrade <block-id> <target-version> --dry-run --json --compact',
+        command: 'bun run sec -- upgrade <block-id> <target-version> --dry-run --json --compact',
         artifactPaths: expect.arrayContaining([
           'source/patches/override-manifest.yaml',
           CI_ARTIFACT_FILES.upgradeDiagnostics
@@ -87,7 +87,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     await expectCliVariants(workspaceRoot, ['benchmark', 'suite'], {
       text: [
         'Benchmark suite engineering-compiler-core (active)',
-        'Command: bun run platform -- benchmark suite --json',
+        'Command: bun run sec -- benchmark suite --json',
         'Runner command: bun run test:benchmark-contract',
         `Artifact paths: ${contract.artifactPathCount}`,
         `Score dimension count: ${contract.scoreDimensionCount}`,
@@ -99,7 +99,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
       ],
       json: {
         suiteId: 'engineering-compiler-core',
-        command: 'bun run platform -- benchmark suite --json',
+        command: 'bun run sec -- benchmark suite --json',
         runnerCommand: 'bun run test:benchmark-contract',
         taskCount: contract.taskCount,
         artifactPathCount: contract.artifactPathCount,
@@ -146,13 +146,13 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
 
   expectContainsAll(formatted, [
     'Test budget default lane: fast',
-    'Lane all; nextBuild=true; playwright=true; command=bun run platform -- verify --lane all',
+    'Lane all; nextBuild=true; playwright=true; command=bun run sec -- verify --lane all',
     `Slow test files: ${contract.slowTestFileCount}`
   ]);
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
-    command: 'bun run platform -- test budget --json',
+    command: 'bun run sec -- test budget --json',
     runnerCommand: 'bun run test:budget',
     defaultLane: 'fast',
     laneCount: contract.lanes.length,
@@ -165,19 +165,19 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         id: 'fast',
         nextBuild: false,
         playwright: false,
-        command: 'bun run platform -- verify'
+        command: 'bun run sec -- verify'
       },
       {
         id: 'runtime',
         nextBuild: false,
         playwright: false,
-        command: 'bun run platform -- verify --lane runtime'
+        command: 'bun run sec -- verify --lane runtime'
       },
       {
         id: 'all',
         nextBuild: true,
         playwright: true,
-        command: 'bun run platform -- verify --lane all'
+        command: 'bun run sec -- verify --lane all'
       }
     ],
     localDefault: expectedTestBudgetLocalDefault,
@@ -188,7 +188,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     await expectCliVariants(workspaceRoot, ['test', 'budget'], {
       text: [
         'Test budget default lane: fast',
-        'Command: bun run platform -- test budget --json',
+        'Command: bun run sec -- test budget --json',
         'Runner command: bun run test:budget',
         `Lanes: ${contract.laneCount}`,
         `Slow lane count: ${contract.slowLaneCount}`,
@@ -198,7 +198,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         'Lane fast; nextBuild=false; playwright=false'
       ],
       json: {
-        command: 'bun run platform -- test budget --json',
+        command: 'bun run sec -- test budget --json',
         runnerCommand: 'bun run test:budget',
         defaultLane: 'fast',
         laneCount: contract.laneCount,

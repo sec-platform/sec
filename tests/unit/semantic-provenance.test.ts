@@ -1,0 +1,32 @@
+import path from 'node:path';
+
+import { expect, test } from 'bun:test';
+
+import { buildProvenance } from '../../platform/compiler/emit/write-provenance.ts';
+import { writeText } from '../../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
+
+test('semantic provenance preserves generator identity for a runtime artifact', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const target = 'src/installed/ticket/ticket-semantic-contract.ts';
+    const { projectRoot } = getWorkspacePaths(workspaceRoot);
+    await writeText(path.join(projectRoot, target), 'export const generated = true;\n');
+
+    const provenance = await buildProvenance(workspaceRoot, semanticArtifactLock(target));
+    const artifact = provenance.artifacts.find((entry) => entry.path === target);
+
+    expect(artifact).toMatchObject({
+      originType: 'generated',
+      originId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      sourceBlock: 'ticket/basic',
+      sourcePath: 'platform/registry/official/ticket.basic/contracts/ticket.yaml',
+      runtimeTarget: target,
+      generatedByPass: 'compose',
+      generatorTaskId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      overrideStatus: 'none'
+    });
+    expect(artifact?.hash).toBeDefined();
+  }, 'engineering-compiler-semantic-provenance-');
+});

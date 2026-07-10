@@ -1,3 +1,4 @@
+import { expandCiGeneratedArtifactPaths } from './ci-artifact-contract.ts';
 import { uniqueSorted } from './collections.ts';
 import { readJson, writeJson } from './fs.ts';
 import type { LockFile, PassState, PassStatus } from './lock-types.ts';
@@ -35,7 +36,7 @@ export async function writeGeneratedArtifactWithLock<T>(
   paths: readonly string[],
   writeArtifact: () => Promise<T>
 ): Promise<T> {
-  addGeneratedPaths(lock, paths);
+  addGeneratedPaths(lock, expandCiGeneratedArtifactPaths(paths));
   const artifact = await writeArtifact();
   await writeJson(lockPath, lock);
   return artifact;

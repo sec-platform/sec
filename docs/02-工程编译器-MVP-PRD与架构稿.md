@@ -1,130 +1,171 @@
 ---
-title: 工程编译器 MVP PRD 与架构稿
+title: 工程编译器产品与总体架构
 status: active
 last-reviewed: 2026-07-04
 ---
 
-# 工程编译器 PRD 与架构总稿
+# Engineering Compiler 产品与总体架构
 
-> 权威边界：产品定位、架构分层和版本边界以本文为准。实现字段、schema 与协议以 `05-11` 为准。
+本文是产品定位和总体架构权威。字段、Schema 和实现细节以 `05–11`、`14` 为准。
 
-## 规范栈
+## 1. 产品定位
 
-## 产品定位
+产品工作名 `SpecEngineer`，底层品类描述为 Engineering Compiler；仓库和 CLI 当前使用 SEC。
 
-- 产品名建议 `SpecEngineer`，方法论为 `Spec Engineering`；"工程编译器（Engineering Compiler）"是底层品类描述。
-- 这不是 IDE、低代码工具、模板市场，也不是自由生成式 AI 结对编程工具。
-- 系统的权威输入是工程规格、块接口、连接关系、slot 描述和验收要求；最终源码是可审查、可部署、可修改的编译产物。
-- 这套产品不是"让 AI 多写代码"，而是"把 AI 收束为编译链中的受限综合 pass"。
-- 当前开发必须以最终形态为目标：v0.x 可以采用文件装载型 block 作为过渡，但所有实现都必须能演进到语义合约型 block、Engineering IR、可解释 Review Workbench。
-- **轻量化本地化产品形态**：SpecEngineer 拒绝采用重度云端 SaaS 平台架构，而是通过轻量化的“本地编译器 + 本地 Sidecar”模式运作：
-  1. **本地命令行 CLI 编译器 (`@spec-engineer/cli`)**：作为主执行入口，直接运行在开发者本地或 CI Runner 容器中。
-  2. **本地 Review 工作台 (Local Workbench)**：运行 `se workbench` 在本地 `127.0.0.1` 启动 Web UI，直接以本地的 `explain-graph.json` 和 `provenance.json` 为数据源，进行双向回写和失败 Trace 审计，不上传代码至云端。
-  3. **本地 MCP 服务 (Local MCP Server)**：启动本地 `spec-engineer mcp` 后端，为 Claude Code 或 Cursor 等外部 AI 编程助手提供只读的代码结构感知、任务信封和沙盒指令代理。
-- **全平台核心架构与服务划分**：
-  平台整体划分为以下 4 个有机联动的核心架构和服务组件：
-  1. **Sec Platform CLI (编译器/平台核心工具)**：本地开发套件与核心引擎。执行依赖解析（resolve）、单体拼装（compose）、代码综合（adapt）、验证拦截（verify）、状态锁定（lock）与图谱解释（explain），并提供 `sec workbench mutations apply` 将图形画布变动回写入主规格事实源 `source/app.yaml`。
-  2. **Visual Spec Builder & Workbench UI (画布服务与工作台)**：浏览器端多语言交互式 Spec 画布与工作区（通过 Vis.js/React Flow 渲染视图及 EJS 模板提供本地 Web 伺服）。负责直观展示系统各模块的管脚连接、依赖拓扑及策略规则覆盖。用户在画布上进行的 Block 卡片增删或 Slot 连线操作会被实时捕获并生成 Mutations JSON 片段。
-  3. **Runtime Web & API Services (运行期微服务群)**：最终发射出的多目标分布式运行时。当编译器将 target 设置为 `microservices` 时，强内聚的单体应用将被自动降级（Lowering）派发为多个正交的 Next.js API 微服务容器（如 Auth、Tenant、Ticket 和协作 Hub），并在内部调用点物理织入带有熔断三态转换（Circuit Breaker）与指数退避重试（Exponential Backoff Retry）的 RPC 客户端韧性桩代理，防止雪崩。
-  4. **AI Agent Harness & Executor (治理与执行沙盒)**：分布式治理与自动流转微服务。包含 Event 信封机制、安全沙盒隔离策略与 Mock-LLM 决策链，负责常驻后台监听工单创建事件并运行自动化打标、分类与高情商评论，同时严密拦截越权与数据溢出。
-- 终局五层架构：Authoring Layer（规格/图/slot/规则/验收）→ Semantic Contract Layer（block 语义合约、capability、pin、policy、view/entity/operation IR）→ Compilation Layer（解析/对齐/求解/装配/综合/验证/修复/发射）→ Artifact Layer（源码/测试/lock/provenance）→ Review/Platform Layer（Workbench、registry、升级、治理、观测、托管）
+SEC 是本地优先的工程语义编译器：读取工程规格、Block Contract、策略、验收和受治理源码，构建统一 Engineering IR，经确定性 Pass 与受限 AI Pass 生成项目并形成 Verification、Provenance、Review 和 Workbench 投影。
 
-### 核心问题
+SEC 不是：
 
-- 隐性专家劳动 → 结构化规格 → 语义合约型标准模块 → 管脚连接 → Engineering IR → AI 填 slot/局部综合 → 验收验证 → 可解释 Review Workbench → 可持续维护
+- 通用 IDE。
+- 低代码运行时。
+- 模板市场。
+- 自由式整仓 AI 编码器。
+- 仅从源码逆向生成调用图的代码知识图工具。
 
-### 与相邻物种的边界
+## 2. 核心价值
 
-| 相邻系统 | 差异 |
-| --- | --- |
-| 模板/脚手架 | 模板只管初始生成；本产品覆盖组合、验证、来源追踪、升级、override |
-| 低代码 | 锁用户在运行时；本产品输出真实源码 |
-| AI 编程助手 | 助手面对整仓；本产品要求 AI 先面对结构化规格 |
-| SDK/库 | SDK 复用调用点；本产品复用能力块、接口合同、验收协议 |
-| n8n/Temporal | 偏运行时编排；本产品在其上的工程编译层 |
+最小价值链：
 
-## 项目形态适配
+```text
+Specification
+  → Semantic Contract
+  → Engineering IR
+  → Composition / Synthesis
+  → Verification
+  → Explainable Artifact
+  → Upgrade / Impact / Review
+```
 
-- **优先切入**：标准业务后台、B2B SaaS、管理台、工单系统、CRM/ERP 子域、内部工具
-- **中期扩展**：产品型 Web/App、平台控制面、AI Agent 应用层
-- **谨慎切入**：高性能内核、数据库、编译器后端、实时渲染 → Outer Shell / Hybrid Kernel Mode
+平台要降低的是三类成本：
 
-## 技术栈分层
+1. **理解成本**：把分散在源码中的关键工程事实投影为 Architecture、Scenario、Data、State、Contract、Effect、Impact 视图。
+2. **实现成本**：通过 Block、Generator 和受限 Synthesis 复用工程能力。
+3. **维护成本**：通过 Fact Provenance、Semantic Diff、Verification 和 Upgrade/Migration 控制长期漂移。
 
-- 编译器本体：TypeScript + Node.js + ESM + CLI-first + 文件系统驱动
-- 生成项目目标栈：`nextjs-ts-prisma-sqlite`（Next.js + TS + React + Tailwind + Prisma + SQLite + Bun/Node tests + Playwright）
-- Bun 是仓库脚本与测试入口的固定执行器；生成运行时的浏览器验收边界由 Playwright 承担
-- 代码生成采用 LLVM IRBuilder 风格的 `CodeBuilder`（ts-morph Structure API）程序化构造生成源码；详见 `05` §9.10
-- 编译器 API 经 `platform/compiler/index.ts` 门面统一暴露，外部模块禁止穿透到子目录
-- 详见 `05` §0、§0.1
-
-## 版本边界
-
-### v0.1（✅ 已完成）
-- 证明首条闭环：开发者写 `source/app.yaml`，系统解析并安装官方块，AI 填受控 slot，Playwright 验收通过
-
-### v0.2（当前阶段）
-- provenance ✅、upgrade/migrate ✅、16 个官方块 ✅、policy gate ✅、repair ✅、override ✅、explain graph ✅、review summary ✅、架构内聚重构 ✅
-- 补齐 review workbench 与 graph visualization 的只读操作面，避免治理产物只停留在 JSON/CLI。
-
-### v0.3
-- 在保持 v0.2 文件装载能力的同时，引入语义合约型 block 的最小闭环：entity/operation/policy/view 合约先进入 Engineering IR，再降级生成文件、测试和验证产物。
-- 新增 generator 类安装策略必须按工程动作扩展，不允许按业务 block hardcode。
-
-### v1.x
-- 私有 registry、策略/治理块体系化、acceptance graph、CI/CD 集成、Workbench review dashboard、语义合约 registry。
-
-### v2.x+
-- 多目标编译器、marketplace、托管验证/观测、多栈代码生成、远程 registry、交互式 Workbench。
-
-## 五层世界
+## 3. 六层架构
 
 ### Authoring Layer
-`source/app.yaml`、block graph、slot description、acceptance/policy/override spec
+
+开发者声明工程意图和受治理实现：`source/app.yaml`、`source/model/**`、`source/code/**`、`source/patches/**`、私有 Block 和 Mutation。
 
 ### Semantic Contract Layer
-block 不只是文件包，而是语义合约入口。v0.x 允许 `installs` 作为低级 escape hatch；最终形态要求 block 能声明 entity、operation、policy、view、event、permission、pin、slot，并被降级为 Engineering IR。
 
-### Compilation Layer
-`parse → align → resolve → compose → adapt → verify → repair → lock → emit`（详见 `07`）。pass 操作的目标应逐步从文件清单升级为 Engineering IR，再生成项目文件。
+Block 和 Workspace 声明 Entity、Operation、State、Event、Policy、Permission、View、Effect、Port、Acceptance 等语义。
+
+### Semantic Frontend / Engineering IR
+
+Parser、Normalizer、Alignment、Resolver 将多种 Authoring Source 归一为版本化 Engineering IR。IR 由 Semantic Entity、Semantic Fact、Scenario 和 Provenance 构成。
+
+### Compilation & Verification Layer
+
+确定性 Pass 负责 Resolve、Lower、Generate、Compose、Verify、Lock、Emit；AI 只能在 Task Envelope 授权的综合、对齐或修复任务中运行。
 
 ### Artifact Layer
-源码、测试、lock files、provenance、explain graph、governance reports（详见 `08`）
 
-### Review/Workbench Layer
-以 `explain-graph.json`、`review-summary.json`、`provenance.json` 为数据源，提供 graph view、review view、Mermaid/DOT 导出和后续交互式操作面，详见 `11`。
+输出真实源码、测试、数据库 Schema、部署所需文件和稳定治理 Artifact。
 
-## 模块分类
+### Projection & Platform Layer
 
-| 类型 | 说明 | 例 |
-| --- | --- | --- |
-| Capability Block | 用户可感知功能 | `auth/basic-session`、`entity/customer-basic` |
-| Strategy Pack | 非功能策略 | `rbac/basic`、`audit/basic` |
-| Infra Pack | 基础设施接入 | `infra/postgres` |
-| Governance Pack | 验证/审计/升级治理 | policy gate、acceptance runner |
+ExplainGraph、ReviewSummary、SemanticView、Workbench、CLI、IDE/MCP Adapter 从 IR 与治理 Artifact 投影信息。Projection 不拥有新事实。
 
-详见 `06` §2。
+## 4. 本地产品形态
 
-## Compile Contract
+### SEC CLI
 
-1. 输入：`source/app.yaml`、block graph、slot descriptions、acceptance spec；最终形态还包括 entity/operation/policy/view 等语义合约。
-2. 可综合部分：adapter、policy rule、局部 UX、repair patch；最终形态扩展到由 Engineering IR 派生的 service/API/DB/view/test 骨架。
-3. AI 权限：文件可写范围、符号保留、测试通过要求。
-4. 输出：repo、tests、lockfiles、provenance、deployable artifact、review workbench views。
-5. 编译成功：依赖解析 + 接口连通 + pin/slot 合同满足 + acceptance 通过 + policy gate + provenance/review 可解释。
+主执行入口，运行在开发者机器或 CI Runner。CLI 调用相同 compiler facade 和合同，不维护独立业务规则。
 
-详见 `05` §2、`07`、`08`。
+### Local Workbench
 
-## 相关文档
+本地 Web 操作面，用于多视图理解、风险审查、Mutation 预览和受控编译。Workbench 不直接写 `project/**` 或 `control/**`。
 
-| 层次 | 文档 |
-| --- | --- |
-| 概念 | [01](01-用户能力模块化开发-主题整理稿.md) |
-| 路线图 | [03](03-MVP实施计划与路线图.md) |
-| 实现规格 | [05](05-编译器核心实现规格.md) |
-| Block 协议 | [06](06-Registry与Block协议规范.md) |
-| Pass 状态机 | [07](07-Pass状态机、错误码与恢复机制.md) |
-| 验证与图谱 | [08](08-Verification、Provenance与Graph规范.md) |
-| AI Runtime | [09](09-AI Runtime、任务信封与治理规范.md) |
-| 升级 Override | [10](10-升级迁移与Override规范.md) |
-| Workbench 与可视化 | [11](11-Workbench与可视化规范.md) |
+### Local AI/MCP Adapter
+
+向外部 Agent 暴露只读 Semantic View/Context Packet 和 Task Envelope 操作入口。外部工具 Evidence 不得提升为 authoring truth。
+
+### Registry
+
+分发官方、私有和未来远程 Block。Registry 的长期主资产是 Contract + Generator + Verification + Migration，而不是文件模板数量。
+
+## 5. Canonical 数据关系
+
+```text
+source/** + registry contracts
+          ↓
+   Semantic Frontend
+          ↓
+     Engineering IR
+       /     |      \
+      /      |       \
+Compiler  Verification  AI Runtime
+   ↓          ↓            ↓
+project/**  evidence    bounded proposal
+      \        |          /
+       \       |         /
+        governance artifacts
+                 ↓
+      projections / workbench
+```
+
+硬边界：
+
+- `Engineering IR` 是 canonical semantic representation。
+- `graph.lock.json` 锁定解析/装配状态，不替代 IR。
+- `provenance.json` 当前负责 Artifact Provenance；Fact Provenance 属于 IR。
+- `ExplainGraph` 负责“为什么当前工程状态如此”的治理解释。
+- 外部 graph/provider 只能成为 Evidence/Overlay。
+
+## 6. Block 与 Responsibility
+
+Block 负责：
+
+```text
+distribution
+version
+trust
+upgrade
+asset ownership
+```
+
+Semantic Responsibility 负责：
+
+```text
+architecture role
+state ownership
+operation responsibility
+impact propagation
+human understanding
+```
+
+一个 Block 可声明多个 Responsibility；一个 Responsibility 在有明确 Contract 的情况下可跨 Block。Workbench 的 Assembly View 可以显示 Block 卡片，但 Architecture View 必须以 Responsibility 和 Boundary 为主要对象。
+
+## 7. 支持范围
+
+优先适配：
+
+- B2B SaaS。
+- 管理后台与控制面。
+- 工单、CRM/ERP 子域。
+- 内部工具。
+- AI Agent 应用层。
+
+中期扩展：多服务应用、多数据库目标、移动/Web 产品。
+
+谨慎适配：数据库内核、编译器后端、实时渲染、高性能数值内核。此类系统使用 Kernel/Hybrid 模式，只治理接口、Effect、Ownership、Benchmark 和 Verification Boundary，不强行把内部算法降级为通用业务 IR。
+
+## 8. 非目标与禁止方向
+
+- 不为 `Customer`、`Ticket`、`Order` 增加核心编译器专用分支。
+- 不把所有自定义逻辑强塞进 Slot；复杂开发者源码可作为 Governed Source 或 Opaque Boundary 接入。
+- 不允许 ExplainGraph 扩张成事实母图。
+- 不允许 Workbench 前端独立计算工程语义。
+- 不允许 AI 直接修改 canonical IR 或 governance artifact。
+- 不在 Semantic Representation 稳定前继续用巨型业务 Demo 放大文件装配抽象。
+
+## 9. 产品成功的工程判据
+
+1. `Ticket` 语义纵切面能从 Contract 构建 IR 并 Lower 到至少一条完整运行链。
+2. 同一 IR 能生成至少 Architecture、Scenario、State 三类不同投影。
+3. Fact Provenance 能区分 authoritative、derived、observed、inferred。
+4. Semantic Mutation 能经预条件、Fact Delta、Verification 和回滚边界合流。
+5. AI 能以小 Context Packet 完成受限任务，且不能扩大自身权限。
+6. 新增同类业务实体无需修改 compiler core 的业务名称分支。

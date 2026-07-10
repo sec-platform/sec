@@ -1,0 +1,189 @@
+name: compiler-release-validation
+
+on:
+  workflow_call:
+  pull_request:
+    types:
+      - labeled
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  compiler-release-preflight:
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check imports
+        run: bun run imports:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Documentation doctor
+        run: bun run docs:doctor
+
+      - name: Full fast test inventory
+        run: bun run test:fast
+
+      - name: Test budget contract
+        run: bun run sec -- test budget --json --compact
+
+      - name: Contract freeze
+        run: bun run test:contract-freeze
+
+  compiler-release-slow-matrix:
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      suites: ${{ steps.slow_suites.outputs.suites }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Emit slow suite matrix
+        id: slow_suites
+        run: |
+          suites=$(bun -e "import { slowTestSuiteIds } from './platform/shared/test-budget-contract.ts'; console.log(JSON.stringify(slowTestSuiteIds()))")
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+
+  compiler-release-slow:
+    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs:
+      - compiler-release-preflight
+      - compiler-release-slow-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.compiler-release-slow-matrix.outputs.suites) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Slow e2e suite
+        run: bun run test:slow -- --suite ${{ matrix.suite }}
+
+  compiler-release-workspace:
+    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: compiler-release-preflight
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Benchmark task suite contract
+        if: always()
+        run: bun run sec -- benchmark suite --json --compact
+
+      - name: Warm runtime dependency cache
+        if: always()
+        run: bun run sec -- deps warmup
+
+      - name: Resolve graph
+        if: always()
+        run: bun run sec -- resolve
+
+      - name: Compose project
+        if: always()
+        run: bun run sec -- compose
+
+      - name: Adapt project
+        if: always()
+        run: bun run sec -- adapt
+
+      - name: Verify all lanes
+        if: always()
+        run: bun run sec -- verify --lane all --json --compact
+
+      - name: Lock project
+        if: always()
+        run: bun run sec -- lock
+
+      - name: Explain project
+        if: always()
+        run: bun run sec -- explain
+
+      - name: Reference drift check
+        if: always()
+        run: bun run sec -- reference check --json --compact
+
+  compiler-release-full:
+    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - compiler-release-preflight
+      - compiler-release-slow
+      - compiler-release-workspace
+    steps:
+      - name: Full validation summary
+        shell: pwsh
+        run: |
+          $failedJobs = @()
+          if ('${{ needs.compiler-release-preflight.result }}' -ne 'success') { $failedJobs += 'preflight' }
+          if ('${{ needs.compiler-release-slow.result }}' -ne 'success') { $failedJobs += 'slow suites' }
+          if ('${{ needs.compiler-release-workspace.result }}' -ne 'success') { $failedJobs += 'workspace' }
+          if ($failedJobs.Count -gt 0) {
+            Write-Error "Full validation failed: $($failedJobs -join ', ')"
+            exit 1
+          }
+          Write-Host 'Full validation summary passed.'

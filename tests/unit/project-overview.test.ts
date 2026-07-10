@@ -22,7 +22,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 test('buildProjectOverviewFromWorkspace reports missing required artifacts with recovery command', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expect(buildProjectOverviewFromWorkspace(workspaceRoot)).rejects.toThrow(
-      'run the refresh chain, then bun run platform -- explain'
+      'run the refresh chain, then bun run sec -- explain'
     );
   });
 });

@@ -57,12 +57,18 @@ flowchart TD
   file_control_evidence_block_usage_map_json["control/evidence/block-usage-map.json (file)"]
   file_control_evidence_install_manifest_json["control/evidence/install-manifest.json (file)"]
   file_control_evidence_policy_report_json["control/evidence/policy-report.json (file)"]
+  file_control_evidence_review_summary_json["control/evidence/review-summary.json (file)"]
   file_control_evidence_runtime_report_json["control/evidence/runtime-report.json (file)"]
   file_control_evidence_verification_report_json["control/evidence/verification-report.json (file)"]
   file_control_graph_explain_graph_dot["control/graph/explain-graph.dot (file)"]
   file_control_graph_explain_graph_json["control/graph/explain-graph.json (file)"]
   file_control_graph_explain_graph_mmd["control/graph/explain-graph.mmd (file)"]
   file_control_provenance_provenance_json["control/provenance/provenance.json (file)"]
+  file_control_workbench_views_graph_view_html["control/workbench/views/graph-view.html (file)"]
+  file_control_workbench_views_overview_view_html["control/workbench/views/overview-view.html (file)"]
+  file_control_workbench_views_review_view_html["control/workbench/views/review-view.html (file)"]
+  file_control_workbench_views_slot_rule_view_html["control/workbench/views/slot-rule-view.html (file)"]
+  file_control_workbench_views_source_view_html["control/workbench/views/source-view.html (file)"]
   file_custom_customer_normalizer_ts["custom/customer_normalizer.ts (file)"]
   file_custom_ticket_comment_delegate_ts["custom/ticket_comment_delegate.ts (file)"]
   file_generated_routes_ts["generated/routes.ts (file)"]
@@ -81,6 +87,7 @@ flowchart TD
   file_src_installed_entity_customer_service_ts["src/installed/entity/customer-service.ts (file)"]
   file_src_installed_file_customer_attachments_ts["src/installed/file/customer-attachments.ts (file)"]
   file_src_installed_tenant_context_ts["src/installed/tenant/context.ts (file)"]
+  file_src_installed_ticket_ticket_semantic_contract_ts["src/installed/ticket/ticket-semantic-contract.ts (file)"]
   file_src_installed_ticket_ticket_service_ts["src/installed/ticket/ticket-service.ts (file)"]
   file_tests_acceptance_agent_classifier_flow_test_ts["tests/acceptance/agent-classifier-flow.test.ts (file)"]
   file_tests_acceptance_comment_flow_test_ts["tests/acceptance/comment-flow.test.ts (file)"]
@@ -228,12 +235,18 @@ flowchart TD
   file_control_evidence_block_usage_map_json -- originates_from --> app_customer_admin
   file_control_evidence_install_manifest_json -- originates_from --> app_customer_admin
   file_control_evidence_policy_report_json -- originates_from --> app_customer_admin
+  file_control_evidence_review_summary_json -- originates_from --> app_customer_admin
   file_control_evidence_runtime_report_json -- originates_from --> app_customer_admin
   file_control_evidence_verification_report_json -- originates_from --> app_customer_admin
   file_control_graph_explain_graph_dot -- originates_from --> app_customer_admin
   file_control_graph_explain_graph_json -- originates_from --> app_customer_admin
   file_control_graph_explain_graph_mmd -- originates_from --> app_customer_admin
   file_control_provenance_provenance_json -- originates_from --> app_customer_admin
+  file_control_workbench_views_graph_view_html -- originates_from --> app_customer_admin
+  file_control_workbench_views_overview_view_html -- originates_from --> app_customer_admin
+  file_control_workbench_views_review_view_html -- originates_from --> app_customer_admin
+  file_control_workbench_views_slot_rule_view_html -- originates_from --> app_customer_admin
+  file_control_workbench_views_source_view_html -- originates_from --> app_customer_admin
   file_custom_customer_normalizer_ts -- originates_from --> slot_customer_normalizer
   file_custom_ticket_comment_delegate_ts -- originates_from --> slot_ticket_comment_delegate
   file_generated_routes_ts -- originates_from --> app_customer_admin
@@ -254,6 +267,7 @@ flowchart TD
   file_src_installed_entity_customer_service_ts -- originates_from --> block_entity_customer_basic
   file_src_installed_file_customer_attachments_ts -- originates_from --> block_file_upload
   file_src_installed_tenant_context_ts -- originates_from --> block_tenant_basic_workspace
+  file_src_installed_ticket_ticket_semantic_contract_ts -- originates_from --> app_customer_admin
   file_src_installed_ticket_ticket_service_ts -- originates_from --> block_ticket_basic
   file_tests_acceptance_agent_classifier_flow_test_ts -- originates_from --> block_agent_executor
   file_tests_acceptance_comment_flow_test_ts -- originates_from --> block_comment_basic

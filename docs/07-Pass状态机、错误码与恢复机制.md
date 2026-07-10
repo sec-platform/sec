@@ -1,88 +1,136 @@
 ---
 title: Pass 状态机、错误码与恢复机制
-status: stable
+status: active
 last-reviewed: 2026-07-04
 ---
 
 # Pass 状态机、错误码与恢复机制
 
-> 目标：定义编译器状态转移、失败处理、错误码与恢复边界。
+本文定义 Compiler Pass 的职责、依赖、失败语义和恢复边界。
 
-## 1. Pass 列表与依赖关系
+## 1. Pass 模型
 
-| Pass | 依赖 | 状态 | 说明 |
-| --- | --- | --- | --- |
-| `parse` | — | 已实现 | 解析 `source/app.yaml`、block manifest |
-| `align` | `parse` | 已实现 | 校验 stack/Slot 兼容性、接口对齐 |
-| `resolve` | `align` | 已实现 | 拓扑排序依赖图、生成 lock |
-| `compose` | `resolve` | 已实现 | 安装 block 文件、生成骨架 |
-| `adapt` | `compose` | 已实现 | AI 填充 slot、物化 runtime target |
-| `verify` | `adapt` | 已实现 | typecheck + 单元测试 + 验收 + policy gate |
-| `repair` | `verify` | 已实现 | 基于失败点生成修复计划 |
-| `lock` | `adapt` | 已实现 | 固化最终 pass 状态 |
-| `emit` | `lock` | 已实现 | 输出 governance artifacts、explain graph |
-
-依赖关系由 orchestrator 调用顺序与 `assertPassStatus` 守卫保证（`platform/shared/lock-utils.ts`）；`shared/constants.ts` 仅保留 `PASS_SEQUENCE` 与 `PASS_STATUS_PENDING`，不再集中表达 pass 间依赖字典。
-
-## 2. 状态机
-
-### 通用状态
-
-`pending` → `running` → `succeeded` | `failed` | `blocked`
-
-- `failed` → 只能通过重新执行或 `repair` 回到 `pending`
-- `blocked` → 前置条件缺失，不得自动跳过
-- `skipped` → 本阶段未启用
-
-### 正常路径
+目标管道：
 
 ```text
-parse → align → resolve → compose → adapt → verify → lock → emit
+parse
+→ normalize
+→ align
+→ resolve
+→ build-ir
+→ lower/compose
+→ adapt
+→ verify
+→ repair? / upgrade?
+→ lock
+→ emit
 ```
 
-### 失败路径
+当前代码已经实现 parse/align/resolve/compose/adapt/verify/repair/lock/emit；`normalize`、`build-ir` 和正式 `lower` 是 v0.3 演进目标。
 
-- `parse` / `align` / `resolve` 失败 → 停止全链
-- `compose` / `adapt` 失败 → 允许重试
-- `verify` 失败 → 进入 `repair`
-- `repair` 失败 → 停止全链并输出最小失败报告
+在正式接入 orchestrator 前，IR builder 可以作为 resolve 之后的独立纯函数被测试和投影消费。不得伪造 passStatus 中不存在的 pass 为“已实现”。
 
-## 3. 错误码命名
+## 2. Pass 职责
 
-格式：`<DOMAIN>-<CATEGORY>-<NUMBER>`
+| Pass | 输入 | 输出 | 性质 |
+| --- | --- | --- | --- |
+| parse | YAML/JSON/public source | typed authoring objects | deterministic |
+| normalize | parsed sources | normalized semantic inputs | deterministic, planned |
+| align | Plan/Manifest/Contract | compatibility diagnostics | deterministic |
+| resolve | Block dependency inputs | Lock/resolution state | deterministic |
+| build-ir | normalized inputs + resolution | Engineering IR | deterministic, active development |
+| lower | IR selectors | generator/install plan | deterministic, planned |
+| compose | current install/lowering plan | project artifact | deterministic/reentrant |
+| adapt | bounded synthesis task | governed source/runtime materialization | AI may participate |
+| verify | artifact + contract + policy | evidence/diagnostics | read-only semantics |
+| repair | structured failure | bounded repair proposal/apply | AI may participate |
+| lock | accepted state | locked revision/state | deterministic |
+| emit | canonical/governance state | projection/artifact | deterministic projection |
 
-错误码前缀映射（`ERROR_CODE_PREFIX_MAP`）：
+## 3. 状态
 
-| 前缀 | 对应 pass 模块 |
-| --- | --- |
-| `PARSE` / `MANIFEST` | `parse/` |
-| `ALIGN` | `align/` |
-| `RESOLVE` | `resolve/` |
-| `COMPOSE` / `OVERRIDE` | `compose/` |
-| `SLOT` / `ADAPT` | `synthesize/` |
-| `VERIFY` | `verify/` |
-| `REPAIR` | `repair/` |
-| `UPGRADE` | `upgrade/` |
-| `LOCK` / `EMIT` | `emit/` |
-| `WORKBENCH` | `workbench/` |
-| `EXPLAIN` | `emit/` |
+通用状态：
 
-## 4. Issue 分层
+```text
+pending → running → succeeded
+                  ↘ failed
+                  ↘ blocked
+                  ↘ skipped
+```
 
-| Issue 类型 | 典型错误域 | AI 可自主修复 |
+- `failed`：Pass 已执行但不满足合同。
+- `blocked`：前置条件不成立。
+- `skipped`：功能未启用或当前分支无需执行；不得用 skipped 隐藏失败。
+- 重试前必须确认 Pass 是否可重放以及外部 Effect 是否幂等。
+
+## 4. 失败传播
+
+- parse/normalize/align/resolve/build-ir 失败：停止后续语义管道。
+- lower/compose 失败：不得进入 adapt/verify；允许在安全 IO 边界重试。
+- adapt 失败：Task 失败，不自动扩大 Context 或权限。
+- verify 失败：生成结构化 Failure Point；满足 repairability 时进入 repair。
+- repair 失败：保留原失败，不覆盖原始 Evidence。
+- lock 只接受允许锁定的状态。
+- emit/projection 失败不能回写 canonical state。
+
+## 5. Issue 分类
+
+| Issue | 典型来源 | 默认责任 |
 | --- | --- | --- |
-| Spec Issue | `PLAN` / `ALIGN` / `VERIFY` policy | 否，需人工确认 |
-| Composition Issue | `MANIFEST` / `RESOLVE` / `COMPOSE` | 否，优先修编译器或 block 元数据 |
-| Slot Issue | `SLOT` / `VERIFY` unit / acceptance | 是，但限于 task envelope |
-| Kernel Issue | perf / correctness / external harness | 否，返回维护者 |
+| Spec | Authoring/Contract 冲突 | 用户/显式 Mutation |
+| Semantic | Fact conflict、identity、authority、IR invariant | Semantic Frontend/IR |
+| Composition | dependency、generator、install、lowering | Compiler/Block |
+| Synthesis | Slot/AI 输出不满足 Task | bounded AI/repair |
+| Verification | test/policy/acceptance/drift | Verification/repair |
+| Kernel | performance/correctness/external runtime | Maintainer |
 
-## 5. Slot task 状态机
+## 6. 错误码
 
-`pending` → `generated` → `filled` → `verified`（可 `overridden`）
-`filled` → `failed`（验收未通过）
+格式：
 
-## 6. 恢复策略
+```text
+<DOMAIN>-<CATEGORY>-<NUMBER>
+```
 
-- **可重试**：临时 I/O 失败、可重放 slot task、非副作用 verify
-- **不可重试**：schema 错误、依赖冲突、环依赖、非法写入路径
-- **repair 前置条件**：`verify` 已失败，失败项可映射到有限文件集合
+现有前缀继续保持；v0.3 新增语义错误域时使用：
+
+```text
+IR-SCHEMA-xxx
+IR-IDENTITY-xxx
+IR-FACT-xxx
+IR-AUTHORITY-xxx
+CONTRACT-SEMANTIC-xxx
+LOWER-GENERATOR-xxx
+```
+
+错误码必须映射到稳定 issue type、message 和可选 diagnostics artifact。不要把原始异常字符串当机器合同。
+
+## 7. IR 构建失败
+
+以下必须 hard fail：
+
+- duplicate semantic entity id 且定义不一致。
+- duplicate fact id 且内容不一致。
+- fact 引用不存在的 subject/object entity。
+- authoritative facts 发生不可调和冲突。
+- invalid predicate/object kind combination。
+- revision/validity range 非法。
+
+以下默认只产生 diagnostics/evidence：
+
+- inferred fact 与 authoritative fact 冲突。
+- provider evidence stale/partial。
+- static analysis 无法解析调用。
+- runtime evidence 不完整。
+
+## 8. 恢复原则
+
+恢复不是“继续跑”。每次恢复必须明确：
+
+- 从哪个 accepted revision 开始。
+- 哪个输入发生变化。
+- 哪些 Pass 需要失效重算。
+- 哪些 artifact 可删除重建。
+- 哪些外部 Effect 不可重放。
+
+IR 与 Projection 都应支持整体重建；不要把修补 canonical JSON 文件作为恢复方式。

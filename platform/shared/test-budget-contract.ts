@@ -10,11 +10,14 @@ export type TestBudgetLane = {
   command: string;
 };
 
+export type SlowTestResourceClass = 'standard' | 'runtime-heavy';
+
 export type SlowTestSuite = {
   id: string;
   owner: string;
   timeoutMs: number;
   parallelSafe: boolean;
+  resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
   files: string[];
 };
@@ -41,6 +44,7 @@ type SlowTestSuiteDefinition = {
   owner: string;
   timeoutMs: number;
   parallelSafe: boolean;
+  resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
   files: string[];
 };
@@ -61,13 +65,18 @@ function slowFileSuite(
   fileName: string,
   owner: string,
   timeoutMs = 180_000,
-  options: { parallelSafe?: boolean; prRiskBaseline?: boolean } = {}
+  options: {
+    parallelSafe?: boolean;
+    resourceClass?: SlowTestResourceClass;
+    prRiskBaseline?: boolean;
+  } = {}
 ): SlowTestSuiteDefinition {
   return {
     id,
     owner,
     timeoutMs,
     parallelSafe: options.parallelSafe ?? false,
+    resourceClass: options.resourceClass ?? 'standard',
     prRiskBaseline: options.prRiskBaseline ?? false,
     files: [e2eTestFile(fileName)]
   };
@@ -76,23 +85,37 @@ function slowFileSuite(
 // Slow e2e suites are file-granular by default so CI can shard them with the
 // highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
-  slowFileSuite('e2e-artifacts', 'artifacts', 'compiler-artifacts-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true }),
+  slowFileSuite('e2e-artifacts', 'artifacts', 'compiler-artifacts-e2e', 120_000, {
+    parallelSafe: true,
+    resourceClass: 'runtime-heavy',
+    prRiskBaseline: true
+  }),
   slowFileSuite('e2e-compiler-smoke', 'compiler-smoke', 'compiler-smoke-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true }),
-  slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-demo-doctor', 'demo-doctor', 'compiler-demo-doctor-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),
+  slowFileSuite('e2e-demo-doctor', 'demo-doctor', 'compiler-demo-doctor-e2e', 120_000, {
+    parallelSafe: true,
+    resourceClass: 'runtime-heavy'
+  }),
   slowFileSuite('e2e-dry-run-plan', 'dry-run-plan', 'compiler-dry-run-plan-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-pipeline-end-to-end', 'end-to-end', 'compiler-pipeline-end-to-end-e2e'),
   slowFileSuite('e2e-expanded-blocks', 'expanded-blocks', 'compiler-expanded-blocks-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-explain', 'explain', 'compiler-explain-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-explain', 'explain', 'compiler-explain-e2e', 120_000, {
+    parallelSafe: true,
+    resourceClass: 'runtime-heavy'
+  }),
   slowFileSuite('e2e-graph', 'graph', 'compiler-graph-e2e', 120_000, { parallelSafe: true }),
   slowFileSuite('e2e-lanes', 'lanes', 'compiler-lanes-e2e', 120_000, { parallelSafe: true }),
-  slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),
   slowFileSuite('e2e-manifest', 'manifest', 'compiler-manifest-e2e'),
   slowFileSuite('e2e-pipeline', 'pipeline', 'compiler-pipeline-e2e'),
   slowFileSuite('e2e-policy', 'policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-prisma-merge', 'prisma-merge', 'compiler-prisma-merge-e2e'),
   slowFileSuite('e2e-private-registry', 'private-registry', 'compiler-private-registry-e2e'),
-  slowFileSuite('e2e-provenance', 'provenance', 'compiler-provenance-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true }),
+  slowFileSuite('e2e-provenance', 'provenance', 'compiler-provenance-e2e', 120_000, {
+    parallelSafe: true,
+    resourceClass: 'runtime-heavy',
+    prRiskBaseline: true
+  }),
   slowFileSuite('e2e-registry', 'registry', 'compiler-registry-e2e'),
   slowFileSuite('e2e-repair', 'repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-runtime-host', 'runtime-host', 'compiler-runtime-host-e2e', 180_000, { parallelSafe: true }),
@@ -177,6 +200,7 @@ export class TestBudgetCache {
           owner: definition.owner,
           timeoutMs: definition.timeoutMs,
           parallelSafe: definition.parallelSafe,
+          resourceClass: definition.resourceClass,
           prRiskBaseline: definition.prRiskBaseline,
           files
         };
@@ -190,6 +214,7 @@ export class TestBudgetCache {
         owner: 'unmapped-slow-e2e',
         timeoutMs: 120_000,
         parallelSafe: false,
+        resourceClass: 'standard',
         prRiskBaseline: false,
         files: unmatched
       });
@@ -304,6 +329,7 @@ export function formatTestBudgetContract(contract: TestBudgetContract): string {
       `owner=${suite.owner}`,
       `timeoutMs=${suite.timeoutMs}`,
       `parallelSafe=${suite.parallelSafe}`,
+      `resourceClass=${suite.resourceClass}`,
       `prRiskBaseline=${suite.prRiskBaseline}`,
       `files=${suite.files.join(', ')}`
     ].join('; ')),

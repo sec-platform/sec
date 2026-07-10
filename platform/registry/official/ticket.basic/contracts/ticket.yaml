@@ -1,0 +1,371 @@
+formatVersion: '1'
+id: ticket-core
+namespace: ticket
+entities:
+  - id: Ticket
+    label: Ticket
+    fields:
+      - id: id
+        type: number
+        required: true
+      - id: tenantId
+        type: string
+        required: true
+      - id: title
+        type: string
+        required: true
+      - id: description
+        type: string
+        required: true
+      - id: status
+        type: TicketStatus
+        required: true
+        mutable: true
+      - id: assigneeId
+        type: string
+        required: true
+        mutable: true
+      - id: dueDate
+        type: string
+        required: true
+        mutable: true
+      - id: createdBy
+        type: string
+        required: true
+      - id: updatedAt
+        type: string
+        required: true
+        mutable: true
+  - id: TicketAttachment
+    fields:
+      - id: id
+        type: number
+        required: true
+      - id: tenantId
+        type: string
+        required: true
+      - id: ticketId
+        type: number
+        required: true
+      - id: fileName
+        type: string
+        required: true
+      - id: contentType
+        type: string
+        required: true
+      - id: size
+        type: number
+        required: true
+      - id: contentText
+        type: string
+        required: true
+      - id: createdAt
+        type: string
+        required: true
+  - id: TicketComment
+    fields:
+      - id: id
+        type: number
+        required: true
+      - id: tenantId
+        type: string
+        required: true
+      - id: ticketId
+        type: number
+        required: true
+      - id: body
+        type: string
+        required: true
+      - id: authorId
+        type: string
+        required: true
+      - id: createdAt
+        type: string
+        required: true
+states:
+  - id: ticket-status
+    label: Ticket status lifecycle
+    entity: Ticket
+    field: status
+    owner: TicketStateMachine
+    values:
+      - open
+      - in_progress
+      - closed
+    transitions:
+      - from: open
+        to: in_progress
+        by: transitionTicketStatus
+      - from: in_progress
+        to: closed
+        by: transitionTicketStatus
+      - from: closed
+        to: open
+        by: transitionTicketStatus
+responsibilities:
+  - id: TicketLifecycle
+    role: Ticket creation and lifecycle orchestration
+    owns:
+      - Ticket
+    implements:
+      - createTicket
+      - addTicketAttachment
+      - addTicketComment
+    dependsOn:
+      - TenantScopeGuard
+  - id: TicketStateMachine
+    role: Ticket status ownership and transition control
+    owns:
+      - Ticket.status
+    implements:
+      - transitionTicketStatus
+    dependsOn:
+      - TenantScopeGuard
+  - id: TicketQuery
+    role: Tenant-scoped ticket and child-record queries
+    owns: []
+    implements:
+      - listTickets
+      - listTicketsWithFilters
+      - listTicketAttachments
+      - listTicketComments
+    dependsOn:
+      - TenantScopeGuard
+  - id: TenantScopeGuard
+    role: Tenant context derivation and ticket visibility guard
+    owns: []
+    implements: []
+    dependsOn: []
+operations:
+  - id: createTicket
+    responsibility: TicketLifecycle
+    inputs:
+      - Database
+      - Session
+      - TicketInput
+    output: TicketRecord
+    reads: []
+    writes:
+      - Ticket
+    mutates: []
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-write
+    performsEffects:
+      - ticket-db-write
+      - clock-read
+    emits:
+      - TicketCreated
+    invokes: []
+    awaits: []
+  - id: transitionTicketStatus
+    responsibility: TicketStateMachine
+    inputs:
+      - Database
+      - Session
+      - number
+      - TicketStatus
+    output: TicketRecord
+    reads:
+      - Ticket
+    writes: []
+    mutates:
+      - Ticket.status
+      - Ticket.updatedAt
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-write
+    performsEffects:
+      - ticket-db-read
+      - ticket-db-write
+      - clock-read
+    emits:
+      - TicketStatusTransitioned
+    invokes: []
+    awaits: []
+  - id: listTickets
+    responsibility: TicketQuery
+    inputs:
+      - Database
+      - Session
+    output: TicketRecord[]
+    reads:
+      - Ticket
+    writes: []
+    mutates: []
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-read
+    performsEffects:
+      - ticket-db-read
+    emits: []
+    invokes: []
+    awaits: []
+  - id: listTicketsWithFilters
+    responsibility: TicketQuery
+    inputs:
+      - Database
+      - Session
+      - TicketFilters
+    output: TicketRecord[]
+    reads:
+      - Ticket
+    writes: []
+    mutates: []
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-read
+    performsEffects:
+      - ticket-db-read
+    emits: []
+    invokes:
+      - listTickets
+    awaits: []
+  - id: addTicketAttachment
+    responsibility: TicketLifecycle
+    inputs:
+      - Database
+      - Session
+      - TicketAttachmentInput
+    output: TicketAttachmentRecord
+    reads:
+      - Ticket
+    writes:
+      - TicketAttachment
+    mutates: []
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-write
+    performsEffects:
+      - ticket-db-read
+      - ticket-db-write
+      - clock-read
+    emits:
+      - TicketAttachmentUploaded
+    invokes: []
+    awaits: []
+  - id: listTicketAttachments
+    responsibility: TicketQuery
+    inputs:
+      - Database
+      - Session
+      - number
+    output: TicketAttachmentRecord[]
+    reads:
+      - Ticket
+      - TicketAttachment
+    writes: []
+    mutates: []
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-read
+    performsEffects:
+      - ticket-db-read
+    emits: []
+    invokes: []
+    awaits: []
+  - id: addTicketComment
+    responsibility: TicketLifecycle
+    inputs:
+      - Database
+      - Session
+      - TicketCommentInput
+    output: TicketCommentRecord
+    reads:
+      - Ticket
+    writes:
+      - TicketComment
+    mutates: []
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-write
+    performsEffects:
+      - ticket-db-read
+      - ticket-db-write
+      - clock-read
+    emits:
+      - TicketCommentAdded
+    invokes: []
+    awaits: []
+  - id: listTicketComments
+    responsibility: TicketQuery
+    inputs:
+      - Database
+      - Session
+      - number
+    output: TicketCommentRecord[]
+    reads:
+      - Ticket
+      - TicketComment
+    writes: []
+    mutates: []
+    requiresPolicies:
+      - tenant-scope
+    requiresPermissions:
+      - ticket-read
+    performsEffects:
+      - ticket-db-read
+    emits: []
+    invokes: []
+    awaits: []
+events:
+  - id: TicketCreated
+    payloadType: TicketRecord
+  - id: TicketStatusTransitioned
+    payloadType: TicketRecord
+  - id: TicketAttachmentUploaded
+    payloadType: TicketAttachmentRecord
+  - id: TicketCommentAdded
+    payloadType: TicketCommentRecord
+policies:
+  - id: tenant-scope
+    rule: tenant_context_must_flow_to_query
+permissions:
+  - id: ticket-read
+    scope: tenant
+  - id: ticket-write
+    scope: tenant
+effects:
+  - id: ticket-db-read
+    kind: database-read
+    target: Ticket storage
+  - id: ticket-db-write
+    kind: database-write
+    target: Ticket storage
+  - id: clock-read
+    kind: clock-read
+scenarios:
+  - id: create-ticket
+    label: Create a tenant-scoped ticket
+    entry: createTicket
+    steps:
+      - id: create
+        operation: createTicket
+        after: []
+    acceptance:
+      - ticket_can_be_created
+  - id: transition-ticket-status
+    label: Transition ticket status
+    entry: transitionTicketStatus
+    steps:
+      - id: transition
+        operation: transitionTicketStatus
+        after: []
+    acceptance:
+      - ticket_status_can_transition
+  - id: list-tenant-tickets
+    label: List tenant-scoped tickets
+    entry: listTickets
+    steps:
+      - id: list
+        operation: listTickets
+        after: []
+    acceptance:
+      - tenant_only_sees_own_tickets

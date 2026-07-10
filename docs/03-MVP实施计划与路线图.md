@@ -1,113 +1,294 @@
 ---
 title: MVP 实施计划与路线图
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-07
 ---
 
-# 工程编译器实施计划与路线图
+# MVP 实施计划与路线图
 
-> 权威边界：本文只决定阶段目标、里程碑、优先级和进入/退出条件，不直接定义 schema 或实现协议。实现字段以 `05-11` 为准。
+本文只维护当前实施阶段、退出条件和主线顺序。产品定义见 `02`；编译器边界见 `05`；IR 规范见 `14`。
 
-## 路线总原则
+## 1. 当前阶段判定
 
-- 永远优先证明"规格 → 装配 → slot → 验收 → 来源追踪"主链。
-- 当前策略：**收敛型高速开发**。优先级从高到低：可演示闭环 → 稳定 CLI 合同 → JSON contract → E2E 矩阵 → 复杂度压缩 → 新功能。
-- 每轮新增后检查：是否形成可运行路径、是否进入稳定 contract、是否需要删除重复概念。
+当前工程仍处于 **v0.3 Semantic Core Foundation 重构期**，且尚未满足 v0.3 退出条件。
 
-## 当前进度
+当前真实形态：
 
-### 状态图例
+```text
+Governed File Compiler 主干
+  + Semantic Contract prototype
+  + Engineering IR prototype（旁路构建）
+  + Architecture / Scenario / State Projection prototype
+  + Contract-derived State Transition Generator
+  + Slot Mock Synthesis
+```
 
-`done` = 已实现并有定向验证覆盖 | `active` = 当前优先推进 | `next` = 完成 active 后的默认切口 | `later` = 已预留暂不进入
+禁止把“类型、builder、projector 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-### 阶段判断
+## 2. 当前最高优先级：语义主权收敛
 
-| 阶段 | 状态 | 依据 |
-| --- | --- | --- |
-| A：文档与规格冻结 | done | `docs/00-11` 已形成分层规格栈 |
-| B：v0.1 首条闭环 | done | Customer Admin 母例 + 3 块 + 单 slot 链路已落地 |
-| C：v0.2 工程可持续化 | active | provenance/explain/policy/repair/upgrade 已具备基础设施 |
-| D：v0.5 团队可用化 | next | 私有 registry + CI 口径 + 完整块母库 |
-| E-K：平台化 → 长期研究线 | later | 等单栈平台和 provenance 机制稳定 |
+当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，而是消除多套语义执行路径。
 
-### 已完成能力
+必须收敛到：
 
-| 能力面 | 状态 | 要点 |
-| --- | --- | --- |
-| CLI 主链 | done | `init/add/resolve/compose/adapt/verify/repair/upgrade/lock/explain` |
-| 官方块 | done | 13 个块覆盖 auth/tenant/entity/rbac/audit/export/file/notify/table/infra |
-| Slot 合成 | done | `customer_normalizer` 通过 task envelope 限定写入边界 |
-| Verification | done | affected/fast/slow/full 四入口；typecheck + Bun/Node tests + Playwright runtime full smoke + policy gate |
-| Acceptance coverage | done | 块/slot 覆盖映射，依赖满足判断 |
-| Provenance | done | `control/provenance/provenance.json`，包含 block/slot/generated/override 追踪 |
-| Explain graph | done | 58 节点 / 67 边，多类型节点和归因边 |
-| Review summary | done | CI 链摘要、覆盖率、provenance、failure/risk/conflict 结构化输出 |
-| Repair | done | verification 失败 → repair plan，可对 repairable slot 受限写回 |
-| Upgrade | done | 17 种 migration 类型，dry-run/diagnostics/verify/provenance 更新 |
-| Policy gate | done | official/project policy merge + violation report |
-| 治理产物 | done | 15 个 stable artifact paths（见 `08` §7） |
-| 开发者入口 | done | `doctor` / `deps status|warmup|relink|clean` |
-| Workbench 回写 | done | `source/views/mutations/*.json` → `source/app.yaml` |
-| **架构内聚重构** | done | Logger / InstallStrategy / ManifestCache / CommandRegistry / Orchestrator 拆分 / dev-runner 拆分 / Process 增强 / YAML 验证 / Review Types 拆分 / 错误码映射 / 文件 I/O 并行化 / Compiler 门面 / workbench-server 路由表化 / shared 层惰性单例 |
-| **LLVM 风格代码生成** | done | `CodeBuilder` 取代 compose 层大段模板字符串拼接：RPC route / RPC client / route graph / slot skeleton 全部经 ts-morph Structure API 程序化构造；契约测试强制 compose 层必须 `import CodeBuilder`；详见 `05` §9.10 |
-| **编译器门面收敛** | done | `platform/cli/register-commands.ts` 与 `platform/upgrade/upgrade-workspace.ts` 全部走 `platform/compiler/index.ts` 门面，13 处穿透子目录的 import 已收敛为 2 处 facade import；契约测试禁止 platform 下其它模块直接 import 编译器子目录 |
+```text
+Authoring Source / Registry Contracts
+  → Semantic Frontend
+  → Validated Engineering IR Snapshot
+  → Pass Kernel
+  → Lowering / Verification / Projection
+  → Project / Governance Artifacts
+```
 
-### 当前 active 工作包
+以下路径不得继续长期并存：
 
-| 工作包 | 目标 |
-| --- | --- |
-| 产品收敛 | demo/benchmark/reference drift/contract freeze/dogfood 稳定闭环 |
-| 升级引擎增强 | migration 类型持续扩展，dry-run/diagnostics 可审查 |
-| repair 可审查化 | failure points 结构化归因，blocker 诊断完整 |
-| explain graph 归因 | policy/pin/override/repair/upgrade 归因边完善 |
-| Ticket SaaS 纵切面 | `ticket/basic` 块 + 状态流转 + 租户隔离 + 评论 + SLA |
+```text
+Contract → IR → Projection
+Contract → Semantic Plan → Lowering
+Lock / Manifest → ExplainGraph
+Lock / Manifest → Workbench View
+```
 
-### 下一步
+Engineering IR 成为 canonical representation 之前，v0.4 Semantic Mutation、Fact Delta、Impact Propagation 和 AI Semantic Operator 不进入主线。
 
-1. Work Tracking / Ticket SaaS 完整纵切面（`ticket/basic` + `comment/basic` + `worklog/basic` + `sla/basic`）
-2. 引入最终巨型对齐模板：**企业级智能协作与审批中枢 (Enterprise Business Process Hub)**，涵盖动态工作流、ABAC权限、SaaS 计费订阅及多角色 Agent Swarm，横向扩张成品 Project 规模，用于对齐和验证编译器装配的准确度。
-3. CI 集成规范（reference drift gate + contract freeze gate + benchmark gate）
-4. 第二数据库（PostgreSQL）正式路线
-5. review assist（CI 自动评审摘要）
+## 3. 已有能力：保留但重新归位
 
-## 开发者入口与依赖环境
+保留：
 
-核心原则：`source/` 是唯一开发工作面，`project/` 是生成目标层，`control/` 是控制平面。
+- deterministic Resolver 与 Lock 基础。
+- Registry source / Block version / compatibility 基础。
+- Slot Synthesis Task Envelope v1。
+- affected / fast / slow / full 测试执行器基础。
+- Verification、Acceptance Coverage、Policy Gate。
+- Artifact Provenance。
+- ExplainGraph、ReviewSummary、Workbench 基础。
+- Repair、Upgrade、Migration、Override 基础。
+- CodeBuilder 和 compiler facade 边界。
+- Semantic Contract parser / normalizer prototype。
+- **Ticket Semantic Contract**：当前首个真实业务 Semantic Contract 母例，authoritative contract 位于 `platform/registry/official/ticket.basic/contracts/ticket.yaml`。
+- **Engineering IR Kernel**：`platform/compiler/ir/**` 下的 deterministic builder、index 与 identity boundary。
+- **Fact Provenance**：保存 Fact assertion 的 authority、confidence、provenance 与 evidence；与生成物来源的 Artifact Provenance 分工，不互相替代。
+- Architecture / Scenario / State projector prototype。
 
-- CLI 是一等入口，Workbench/IDE 插件补充交互体验。
-- 本地推荐布局：根 `node_modules`（编译器自身）、`.shared-deps/node_modules`（生成项目运行时共享）、`project/node_modules`（默认链接）。
-- `platform doctor` 检查 workspace 四根、依赖环境、缓存。
-- `platform deps status|warmup|relink|clean` 管理依赖环境。
-- CI：PR quick → affected/fast feedback，PR risk → impact-selected slow/workspace checks，schedule/manual/full label → full correctness backstop。
+这些模块不是全部重写。后续工作以“接入唯一主链、删除重复解释器、补 canonical identity 与 transaction ownership”为目标。
 
-## 全局决策框架
+## 4. v0.3 重构 Work Package 0：Pipeline Kernel
 
-**现在必须决定**：slot 描述正式语言、Pin 连通性验证规则、私有 registry 版本治理。
+这是新的第一优先级。
 
-**现在不用实现但必须预留**：Kernel Block 接口、多 registry 联邦解析、AST patch engine。
+实现：
 
-**现在明确不做**：图形化 IDE、社区 registry、多后端目标栈、通用 AI 编码助手模式。
+1. 建立唯一 `compileWorkspace` / Pipeline Coordinator。
+2. 所有 CLI、Workbench、Reference Refresh、Upgrade 重编译、Repair recovery 通过同一 Pipeline API。
+3. 建立 Pass Registry 与依赖图。
+4. Pass 状态至少支持 `pending / running / succeeded / failed / skipped`。
+5. Pass 开始前统一失效下游状态。
+6. Pass failure 统一落 Lock / Journal diagnostics。
+7. 引入 compilation transaction identity。
+8. Project Baseline / write boundary 绑定 transaction 与 pass ownership。
+9. `lock` 与 `emit` 拆成独立 pass，不再由 `lockProject()` 同时标记成功。
 
-**晚想会导致返工**：error code 协议全面机器可消费、benchmark 标准、acceptance DSL 嵌套规则、AI 介入的 signature gate。
+退出条件：
 
-## 阶段详情
+- 不存在第二条手写完整编译链。
+- Upgrade 不能绕过 Semantic Frontend / IR build。
+- 任意 Pass 中断后可安全重跑，不把编译器自身半完成写入误判为人工 drift。
+- 下游 pass 不得保留来自旧 input revision 的 succeeded 状态。
 
-### 阶段 A-B：文档冻结 → v0.1 闭环（done）
+## 5. Work Package 1：Canonical Identity 与 IR Validation
 
-完成了 00-11 分层规格栈，Customer Admin 母例闭环可重复运行，AI 单一 slot 填充链路可用。
+实现：
 
-### 阶段 C：v0.2 工程可持续化（active）
+1. App 使用稳定 `app.id`；`app.name` 只作为 label。
+2. Engineering IR 增加显式 input revision / semantic revision。
+3. Governance artifact、runtime evidence 不进入 semantic revision digest。
+4. Fact identity 与 Fact assertion 分离。
+5. 每个 assertion 独立保存 authority / confidence / provenance / evidence。
+6. 建立 Predicate Signature Registry：合法 subject kinds、object kind、object entity kinds、value schema。
+7. 建立 `validateEngineeringIR()`。
+8. Projector、Lowerer、Mutation engine 只接受 validated snapshot。
+9. Scenario 的 order / await / retry / error handler 归一为 Facts；删除第二 authoritative semantics container，或明确降级为由 Facts 派生的 index。
 
-目标：从"闭环能跑"升级到"工程可持续"。16 个官方块 + provenance + explain + repair + upgrade + policy gate 已具备。当前重点：升级引擎 17 种 migration 类型完善、repair 结构化归因、explain graph 多类型归因边、Ticket SaaS 纵切面落地。
+退出条件：
 
-退出条件：ticket vertical 主链路闭环通过；升级/repair/explain 三项对非专家可审查；私有 registry 基础通路稳定。
+- 修改 app label 不改变 app identity / graph identity。
+- 同一语义输入在不同治理产物阶段得到相同 semantic revision。
+- 手工修改 IR 内容但保留旧 revision 必须被拒绝。
+- 所有 Predicate/Object kind 组合经过统一 validator。
 
-### 阶段 D：v0.5 团队可用化（next）
+## 6. Work Package 2：Semantic Linker
 
-私有 registry 正式版本治理、Visual Spec Builder（可视化 spec 组装）首个可操作版本（提供给 AI 开发无需管脚的接口模式，但为人类用户提供比低代码更高级细致的图形化 spec 连接与验收界面，回写 source/views/mutations 并通过 compiler 生成 100% 纯净代码）、review assist CI 集成、CI 团队口径（reference drift + contract freeze + benchmark gate）、巨型企业协作中枢 Demo 缝合。退出条件：至少 2 个独立团队可各自维护私有 block 且不互相干扰，图形化 spec 组装可用。
+当前 Contract loader 只支持单 Contract 本地引用。下一阶段增加 Workspace Semantic Linker。
 
-### 阶段 E-J：平台化 → 长期研究线（later）
+实现：
 
-E（v1）：graph explorer、双视图工作台、托管验证。F（v2）：多目标编译器、marketplace。G（v3）：跨领域扩展。H：终局平台面（企业级托管）。I-J：分层自举和自维护系统。K：产品线/组织/Reality Compiler 研究线。
+1. Contract parse / local normalization。
+2. 建立 namespace / contract identity registry。
+3. 支持显式 qualified reference / import。
+4. Workspace-level entity/responsibility/operation/policy/effect resolution。
+5. 检测 duplicate namespace、ambiguous reference、cross-contract conflict。
+6. 跨 Block Responsibility 只有通过显式 Contract linkage 才成立。
+7. Semantic Policy 与 Verification Policy 建立显式 `ENFORCES / VERIFIED_BY` 映射。
 
-以上阶段必须在单栈平台、升级周期和 provenance 机制完全稳定后才能进入，所有自维护/自举操作必须通过权限边界、人工审批和可审计 provenance 约束。
+退出条件：
+
+- 文档中的跨 Block Responsibility 能被真实 Schema 表达和 linker 校验。
+- 同名 Semantic Policy 与 Verification Policy 不再靠字符串猜测是否同一对象。
+
+## 7. Work Package 3：IR-owned Generator / Lowering
+
+当前 Generator v1 只有 state-transition-map，且 Lowering 直接读取 Contract。必须改为 IR-owned lowering。
+
+实现：
+
+1. Generator declaration 使用 discriminated union 或 per-kind schema registry。
+2. `GeneratorPlan` 从 validated IR + generator declarations 构建。
+3. Generator 成为 IR Entity。
+4. 生成 `CONSUMES / LOWERS_TO / GENERATES / VERIFIED_BY` Facts。
+5. Lowerer 不再重新读取 Semantic Contract 解释业务语义。
+6. 第一条母例只保留 `generate-state-transition-map`。
+7. Ticket service 的状态变更必须消费同一 generated transition contract，禁止 Contract 与 runtime service各自维护状态机。
+
+退出条件：
+
+```text
+Ticket Contract
+  → Semantic Frontend
+  → Validated IR
+  → Generator Plan from IR
+  → Runtime transition contract
+  → Ticket service enforcement
+  → positive + forbidden-transition verification
+```
+
+必须证明 `open → closed` 在 Contract 禁止时 runtime 同样拒绝。
+
+## 8. Work Package 4：Semantic Projection 接管 View
+
+顺序：
+
+1. Architecture View。
+2. Scenario View。
+3. State View。
+
+要求：
+
+- Projection 只消费 validated IR snapshot。
+- Projection 不创造 authoritative relations。
+- Architecture View 至少覆盖 Responsibility / Boundary / Contract-or-Port / Effect / Permission。
+- Scenario View 的 PRECEDES / AWAITS / RETRIES / HANDLES 必须来自 Facts。
+- Authority overlay 不使用 strongest-wins 把整个 target 染成 authoritative；必须暴露 mixed/inferred/conflict 状态。
+- Workbench 读取统一 `SemanticView`，legacy governance tabs 作为兼容视图保留。
+
+退出条件：
+
+- Workbench 至少真实消费三种 SemanticView。
+- ExplainGraph 不再重新解释 semantic Contract / ownership / effect。
+- 同一 Fact 在三种视图中引用同一 Fact ID。
+
+## 9. Work Package 5：Verification 与 CI 闭环
+
+实现：
+
+1. Contract Verification 使用稳定 `contractId` 注册，不依赖 test title regex。
+2. Test Impact source classification 覆盖 TypeScript、Manifest、Semantic Contract YAML、Source Model。
+3. Test ownership 从架构 owner / pass / contract 显式声明生成，路径正则只作 fallback。
+4. PR Quick 恢复 canonical `test:affected`。
+5. PR Risk 运行受影响 slow suites。
+6. Full Validation 必须运行完整 fast suite + 完整 slow suites + workspace pipeline。
+7. `run-full` label存在时，PR synchronize 必须对最新 head 重跑 Full Validation。
+8. Ordered workspace pass 失败后停止后续 mutating pass；`always()` 只用于 diagnostics / artifact collection。
+9. CI Contract 验证 step order、trigger freshness 和 exact head SHA，不只检查 command string 是否出现在 YAML。
+
+退出条件：
+
+- latest PR head 同时有 Quick / Risk / Full correctness evidence。
+- 没有 fast test 只依赖 affected selector而永远不进入 full gate。
+- Workflow 与 CI Contract 不允许手工漂移。
+
+## 10. v0.3 完成定义
+
+必须同时满足：
+
+```text
+One Authoring Authority
++ One Semantic Frontend
++ One Validated Engineering IR Snapshot
++ One Pipeline Coordinator
++ IR-owned Lowering
++ Fact-grounded Projection
++ Transaction-owned Project Integrity
++ Latest-head Full Validation
+```
+
+并完成 Ticket 母例真实纵切面：
+
+```text
+Ticket Contract
+  → validated semantic link
+  → Engineering IR
+  → state transition Facts
+  → Generator Plan
+  → generated runtime contract
+  → ticket service enforcement
+  → verification
+  → Artifact Provenance
+  → Architecture / Scenario / State View
+  → Workbench consumption
+```
+
+任何环节存在旁路，不算完成。
+
+## 11. v0.4：Semantic Operations
+
+只有 v0.3 完成后进入：
+
+1. Fact Delta。
+2. Impact Propagation。
+3. Semantic Mutation。
+4. AI Task Envelope v2。
+5. AI Semantic Operator。
+
+AI 仍不得直接写 IR。Semantic Mutation 回写 Authoring Source，由 Compiler 重建 IR。
+
+## 12. 后续阶段
+
+v0.3 稳定后：
+
+1. Work Tracking 完整纵切面。
+2. Private Registry 版本 / Trust 治理。
+3. 两个独立团队 Block 生命周期验证。
+4. PostgreSQL 正式目标。
+5. Enterprise Business Process Hub 压力母例。
+6. 多目标 / 多栈。
+
+## 13. 当前禁止事项
+
+在 v0.3 退出前，不把以下工作设为主线：
+
+- Workbench 新视觉效果。
+- 新增更多业务 Block。
+- 新增第二种业务母例。
+- Enterprise Business Process Hub。
+- 自动 L3 重构。
+- 整仓 Autonomous Agent。
+- Fact Delta / Semantic Mutation 的正式实现。
+- AI Semantic Operator。
+- stable `engineering-ir.json` 持久化。
+
+## 14. 下一执行顺序
+
+严格执行：
+
+```text
+P0-1  Pipeline Kernel
+→ P0-2 Canonical Identity / IR Validation
+→ P0-3 Semantic Linker
+→ P0-4 IR-owned Generator / Ticket enforcement
+→ P0-5 Semantic Projection takeover
+→ P0-6 Verification / CI closure
+→ latest-head full validation
+→ v0.3 exit review
+```
+
+禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。

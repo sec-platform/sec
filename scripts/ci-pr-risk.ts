@@ -16,7 +16,17 @@ type GateStepResult = GateStep & {
 };
 
 const slowSuites = slowTestSuiteIds();
-const parallelSafeSlowSuites = new Set(getSlowTestSuitesSync().filter((suite) => suite.parallelSafe).map((suite) => suite.id));
+const slowSuiteContracts = getSlowTestSuitesSync();
+const parallelSafeSlowSuites = new Set(
+  slowSuiteContracts
+    .filter((suite) => suite.parallelSafe && suite.resourceClass === 'standard')
+    .map((suite) => suite.id)
+);
+const runtimeHeavySlowSuites = new Set(
+  slowSuiteContracts
+    .filter((suite) => suite.resourceClass === 'runtime-heavy')
+    .map((suite) => suite.id)
+);
 
 function changedFiles(): string[] | null {
   const baseRef = process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE ?? 'HEAD^1';
@@ -49,13 +59,24 @@ function slowTestStepId(file: string): string {
   return file.replace(/[^a-z0-9]+/giu, '-').replace(/^-|-$/g, '').toLowerCase();
 }
 
+function gateStepEnvironment(step: GateStep): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    SEC_TEST_WORKSPACE_NAMESPACE: `pr-risk-${slowTestStepId(step.id)}`
+  };
+}
+
+function slowSuiteIdForStep(step: GateStep): string | undefined {
+  return step.id.startsWith('slow-suite-') ? step.id.slice('slow-suite-'.length) : undefined;
+}
+
 function runBunStep(step: GateStep): number {
   const startedAt = Date.now();
   groupStart(`CI PR risk: ${step.id}`);
   console.log(`CI PR risk: ${step.id} started`);
   try {
     const result = spawnSync('bun', step.args, {
-      env: process.env,
+      env: gateStepEnvironment(step),
       stdio: 'inherit'
     });
     const code = result.status ?? 1;
@@ -76,7 +97,7 @@ function runBunStepBuffered(step: GateStep): Promise<GateStepResult> {
   const startedAt = Date.now();
   return new Promise((resolve) => {
     const child = spawn('bun', step.args, {
-      env: process.env,
+      env: gateStepEnvironment(step),
       stdio: ['ignore', 'pipe', 'pipe']
     });
     const stdoutChunks: Buffer[] = [];
@@ -171,10 +192,17 @@ const slowSteps: GateStep[] = [
     args: ['run', 'test:slow', '--', file]
   }))
 ];
-const parallelSafeSlowSteps = slowSteps.filter((step) => (
-  step.id.startsWith('slow-suite-') && parallelSafeSlowSuites.has(step.id.slice('slow-suite-'.length))
+const parallelSafeSlowSteps = slowSteps.filter((step) => {
+  const suiteId = slowSuiteIdForStep(step);
+  return suiteId !== undefined && parallelSafeSlowSuites.has(suiteId);
+});
+const runtimeHeavySlowSteps = slowSteps.filter((step) => {
+  const suiteId = slowSuiteIdForStep(step);
+  return suiteId !== undefined && runtimeHeavySlowSuites.has(suiteId);
+});
+const serialSlowSteps = slowSteps.filter((step) => (
+  !parallelSafeSlowSteps.includes(step) && !runtimeHeavySlowSteps.includes(step)
 ));
-const serialSlowSteps = slowSteps.filter((step) => !parallelSafeSlowSteps.includes(step));
 const postSlowSteps: GateStep[] = [
   { id: 'workspace-fast', args: ['scripts/ci-workspace-fast.ts'] }
 ];
@@ -190,7 +218,7 @@ for (const step of preSlowSteps) {
 
 if (parallelSafeSlowSteps.length > 0) {
   const concurrency = slowSuiteConcurrency();
-  console.log(`CI PR risk: running ${parallelSafeSlowSteps.length} parallel-safe slow steps with concurrency ${concurrency}`);
+  console.log(`CI PR risk: running ${parallelSafeSlowSteps.length} parallel-safe standard slow steps with concurrency ${concurrency}`);
   const results = await runBunStepsInParallel(parallelSafeSlowSteps, concurrency);
   for (const result of results) {
     printBufferedResult(result);
@@ -207,6 +235,17 @@ for (const step of serialSlowSteps) {
   if (code !== 0) {
     console.error(`CI PR risk failed at ${step.id} with exit code ${code}`);
     process.exit(code);
+  }
+}
+
+if (runtimeHeavySlowSteps.length > 0) {
+  console.log(`CI PR risk: running runtime-heavy slow steps serially [${runtimeHeavySlowSteps.map((step) => step.id).join(', ')}]`);
+  for (const step of runtimeHeavySlowSteps) {
+    const code = runBunStep(step);
+    if (code !== 0) {
+      console.error(`CI PR risk failed at ${step.id} with exit code ${code}`);
+      process.exit(code);
+    }
   }
 }
 

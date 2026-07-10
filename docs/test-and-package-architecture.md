@@ -1,16 +1,20 @@
-# Test and package architecture design record
+---
+title: 测试与 Package 架构历史记录
+status: historical
+last-reviewed: 2026-07-04
+---
 
-This document is a historical entry point for the test architecture refactor. It must not repeat active test facts, package script lists, slow suite IDs, CI command arrays, or testkit APIs.
+# 测试与 Package 架构历史记录
 
-Use the active authorities instead:
+本文仅保留测试架构重构的历史入口，不维护当前事实。
 
-| Topic | Authority |
+当前权威：
+
+| 主题 | 文档 |
 | --- | --- |
-| Final test model, layers, fact sources, testkit primitives, Playwright boundary | [test-architecture.md](test-architecture.md) |
-| Local feedback, PR quick, PR risk, release/full behavior, `test:affected`, package script boundary, remote import automation | [test-feedback-and-ci-lanes.md](test-feedback-and-ci-lanes.md) |
-| Slow suite ownership, slow commands, sharding policy | [slow-suite-registry.md](slow-suite-registry.md) |
-| Generated project verification, provenance, graph, policy, coverage | [08-Verification、Provenance与Graph规范.md](08-Verification、Provenance与Graph规范.md) |
+| 测试层级、事实源、Testkit、Playwright 边界 | [test-architecture.md](test-architecture.md) |
+| 本地反馈、PR Quick/Risk、Release/Full、Package Script 边界 | [test-feedback-and-ci-lanes.md](test-feedback-and-ci-lanes.md) |
+| Slow Suite 运行和分片 | [slow-suite-registry.md](slow-suite-registry.md) |
+| 生成项目 Verification、Provenance、治理投影 | [08-Verification、Provenance与Graph规范.md](08-Verification、Provenance与Graph规范.md) |
 
-## Maintenance rule
-
-When a test fact changes, update the authority above and add or adjust a contract test. Do not add a second copy here.
+历史结论：测试事实列表不应复制到多个测试、Workflow 和 Markdown；稳定列表由 `platform/shared` 合同维护，测试只验证公共 Shape 与不变量。

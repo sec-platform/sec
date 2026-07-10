@@ -50,26 +50,65 @@ beforeEach(() => {
 });
 
 // 这些测试使用全局 mock，必须串行执行以避免并发干扰
-test.serial('targeted fast tests run only the requested fast files', async () => {
-  const code = await runFastTests(['tests/unit/test-runner.test.ts']);
+test.serial('targeted concurrent-safe fast tests run only the requested files', async () => {
+  const code = await runFastTests(['tests/unit/path-containment.test.ts']);
 
   expect(code).toBe(0);
   expect(devCommandCalls).toEqual([
-    { command: 'bun', args: ['test', '--concurrent', 'tests/unit/test-runner.test.ts'] }
+    { command: 'bun', args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts'] }
   ]);
 });
 
-test.serial('fast tests keep the fast file boundary when Bun options are provided', async () => {
+test.serial('fast tests preserve options across concurrent and serial invocations', async () => {
   const code = await runFastTests(['--timeout', '30000']);
 
   expect(code).toBe(0);
-  expect(devCommandCalls).toHaveLength(1);
+  expect(devCommandCalls).toHaveLength(5);
   expect(devCommandCalls[0]?.command).toBe('bun');
   expect(devCommandCalls[0]?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
-  expect(devCommandCalls[0]?.args).toContain('tests/unit/test-runner.test.ts');
+  expect(devCommandCalls[0]?.args).toContain('tests/unit/path-containment.test.ts');
+  expect(devCommandCalls[0]?.args).not.toContain('tests/integration/project-runtime.test.ts');
+  expect(devCommandCalls[0]?.args).not.toContain('tests/integration/semantic-core-vertical.test.ts');
+  expect(devCommandCalls[0]?.args).not.toContain('tests/integration/ticket-pipeline.test.ts');
+  expect(devCommandCalls[0]?.args).not.toContain('tests/unit/test-runner.test.ts');
   expect(devCommandCalls[0]?.args).toContain('--timeout');
   expect(devCommandCalls[0]?.args).toContain('30000');
   expect(devCommandCalls[0]?.args.some((arg) => arg.startsWith('tests/e2e/'))).toBe(false);
+  expect(devCommandCalls).toEqual(expect.arrayContaining([
+    {
+      command: 'bun',
+      args: ['test', 'tests/integration/project-runtime.test.ts', '--timeout', '30000']
+    },
+    {
+      command: 'bun',
+      args: ['test', 'tests/integration/semantic-core-vertical.test.ts', '--timeout', '30000']
+    },
+    {
+      command: 'bun',
+      args: ['test', 'tests/integration/ticket-pipeline.test.ts', '--timeout', '30000']
+    },
+    {
+      command: 'bun',
+      args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', '30000']
+    }
+  ]));
+});
+
+test.serial('serial fast test files run outside the concurrent invocation', async () => {
+  const code = await runFastTests([
+    'tests/integration/project-runtime.test.ts',
+    'tests/integration/semantic-core-vertical.test.ts',
+    'tests/integration/ticket-pipeline.test.ts',
+    'tests/unit/test-runner.test.ts'
+  ]);
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', 'tests/integration/project-runtime.test.ts'] },
+    { command: 'bun', args: ['test', 'tests/integration/semantic-core-vertical.test.ts'] },
+    { command: 'bun', args: ['test', 'tests/integration/ticket-pipeline.test.ts'] },
+    { command: 'bun', args: ['test', 'tests/unit/test-runner.test.ts'] }
+  ]);
 });
 
 test.serial('fast tests reject explicit slow file selectors', async () => {
@@ -137,8 +176,36 @@ test.serial('affected tests skip broad fast-suite fallback for unmapped source c
   }
 });
 
-test.serial('affected tests run changed fast test files directly', async () => {
-  changedFiles = ['tests/unit/test-runner.test.ts'];
+test.serial('affected tests map declarative registry files through impact rules', async () => {
+  changedFiles = ['platform/registry/official/ticket.basic/contracts/ticket.yaml'];
+
+  const code = await runAffectedTests();
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts'] },
+    { command: 'bun', args: ['test', 'tests/integration/project-runtime.test.ts'] }
+  ]);
+});
+
+test.serial('affected tests combine changed fast tests with source-owned coverage', async () => {
+  changedFiles = [
+    'scripts/release-helper.ts',
+    'tests/unit/path-containment.test.ts'
+  ];
+
+  const code = await runAffectedTests();
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toHaveLength(1);
+  expect(devCommandCalls[0]?.command).toBe('bun');
+  expect(devCommandCalls[0]?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
+  expect(devCommandCalls[0]?.args).toContain('tests/contract/usage.test.ts');
+  expect(devCommandCalls[0]?.args).toContain('tests/unit/path-containment.test.ts');
+});
+
+test.serial('affected tests run changed concurrent-safe fast files directly', async () => {
+  changedFiles = ['tests/unit/path-containment.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -150,11 +217,22 @@ test.serial('affected tests run changed fast test files directly', async () => {
 
     expect(code).toBe(0);
     expect(devCommandCalls).toEqual([
-      { command: 'bun', args: ['test', '--concurrent', 'tests/unit/test-runner.test.ts'] }
+      { command: 'bun', args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts'] }
     ]);
   } finally {
     console.log = originalLog;
   }
+});
+
+test.serial('affected tests isolate changed serial fast files', async () => {
+  changedFiles = ['tests/unit/test-runner.test.ts'];
+
+  const code = await runAffectedTests();
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', 'tests/unit/test-runner.test.ts'] }
+  ]);
 });
 
 test.serial('affected tests treat changed slow files as notice-only quick-lane input', async () => {
@@ -196,9 +274,15 @@ test.serial('affected tests allow broad fast-suite fallback when explicitly enab
     const code = await runAffectedTests();
 
     expect(code).toBe(0);
-    expect(devCommandCalls).toHaveLength(1);
+    expect(devCommandCalls).toHaveLength(5);
     expect(devCommandCalls[0]?.command).toBe('bun');
-    expect(devCommandCalls[0]?.args[0]).toBe('test');
+    expect(devCommandCalls[0]?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
+    expect(devCommandCalls).toEqual(expect.arrayContaining([
+      { command: 'bun', args: ['test', 'tests/integration/project-runtime.test.ts'] },
+      { command: 'bun', args: ['test', 'tests/integration/semantic-core-vertical.test.ts'] },
+      { command: 'bun', args: ['test', 'tests/integration/ticket-pipeline.test.ts'] },
+      { command: 'bun', args: ['test', 'tests/unit/test-runner.test.ts'] }
+    ]));
     expect(logs).toContain('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
   } finally {
     console.log = originalLog;
