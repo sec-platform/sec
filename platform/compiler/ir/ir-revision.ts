@@ -8,6 +8,7 @@ import {
 } from '../../shared/engineering-ir-types.ts';
 import type { ResolvedBlock, SlotTask } from '../../shared/lock-types.ts';
 import type { BlockManifest, ManifestPin } from '../../shared/plan-manifest-types.ts';
+import type { PolicyRule } from '../../shared/policy-types.ts';
 import type {
   LoadedSemanticContract,
   SemanticContract
@@ -24,7 +25,7 @@ export interface InputRevisionDomain {
   manifests: readonly InputRevisionManifest[];
   slotTasks: readonly SlotTask[];
   acceptanceIds: readonly string[];
-  policyIds: readonly string[];
+  policyDeclarations: readonly PolicyRule[];
   semanticContracts?: readonly LoadedSemanticContract[];
 }
 
@@ -190,6 +191,16 @@ function canonicalSlotTasks(slotTasks: readonly SlotTask[]): object[] {
   return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
 }
 
+function canonicalPolicyDeclarations(policies: readonly PolicyRule[]): object[] {
+  const declarations = policies.map((policy) => ({
+    id: policy.id,
+    severity: policy.severity,
+    appliesTo: uniqueSorted(policy.appliesTo),
+    rule: policy.rule
+  }));
+  return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
+}
+
 export function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -206,7 +217,7 @@ export function inputRevisionPayload(input: InputRevisionDomain): string {
     semanticContracts: canonicalSemanticContractDeclarations(input.semanticContracts ?? []),
     slotTasks: canonicalSlotTasks(input.slotTasks),
     acceptanceIds: uniqueSorted(input.acceptanceIds),
-    policyIds: uniqueSorted(input.policyIds)
+    policyDeclarations: canonicalPolicyDeclarations(input.policyDeclarations)
   });
 }
 
