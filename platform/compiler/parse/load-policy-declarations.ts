@@ -25,6 +25,7 @@ export interface LoadedPolicyDeclarations {
   official: LoadedPolicyScope;
   project: LoadedPolicyScope;
   definitions: ReadonlyMap<string, LoadedPolicyDefinition>;
+  policies: PolicyRule[];
   policyIds: string[];
 }
 
@@ -137,11 +138,15 @@ export async function loadPolicyDeclarations(workspaceRoot: string): Promise<Loa
     await loadPolicyScope('project', legacySourcePoliciesRoot, 'project/source/policies')
   ]);
   const definitions = mergePolicies(official, project);
+  const policies = [...definitions.values()]
+    .map((definition) => definition.policy)
+    .sort((left, right) => left.id.localeCompare(right.id));
 
   return {
     official,
     project,
     definitions,
-    policyIds: uniqueSorted([...definitions.keys()])
+    policies,
+    policyIds: policies.map((policy) => policy.id)
   };
 }
