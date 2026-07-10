@@ -26,12 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
-      - name: Dedupe exact-head verification key
+      - name: Validate current base freshness and dedupe verification key
         id: verification
         uses: actions/github-script@v7
         env:
           VERIFY_LABEL: ${{ github.event.label.name }}
           VERIFY_HEAD: ${{ github.event.pull_request.head.sha }}
+          VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
         with:
           script: |
             const label = process.env.VERIFY_LABEL;
@@ -41,7 +42,17 @@ jobs:
               return;
             }
             const headSha = process.env.VERIFY_HEAD;
-            const statusContext = `sec-verification/${profile}/ci-verification-v2`;
+            const baseSha = process.env.VERIFY_BASE;
+            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              basehead: `${baseSha}...${headSha}`
+            });
+            if (comparison.behind_by !== 0) {
+              core.setFailed(`PR head ${headSha} is behind current base ${baseSha} by ${comparison.behind_by} commit(s); update the branch before verification.`);
+              return;
+            }
+            const statusContext = `sec-verification/${profile}/ci-verification-v2/base-${baseSha}`;
             const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -99,18 +110,19 @@ jobs:
           VERIFY_PROFILE: ${{ steps.verification.outputs.profile }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           VERIFY_HEAD: ${{ github.event.pull_request.head.sha }}
+          VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
         with:
           script: |
             const profile = process.env.VERIFY_PROFILE;
             const state = process.env.VERIFY_OUTCOME === 'success' ? 'success' : 'failure';
-            const statusContext = `sec-verification/${profile}/ci-verification-v2`;
+            const statusContext = `sec-verification/${profile}/ci-verification-v2/base-${process.env.VERIFY_BASE}`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha: process.env.VERIFY_HEAD,
               state,
               context: statusContext,
-              description: `${profile} ${state} for exact frozen head`
+              description: `${profile} ${state} for exact frozen head and current base`
             });
 
       - name: Fail failed verification
