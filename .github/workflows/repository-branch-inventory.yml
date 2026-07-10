@@ -1,0 +1,24 @@
+name: repository-branch-inventory
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/repository-branch-inventory.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enumerate remote branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          echo '=== SEC REMOTE BRANCH INVENTORY ==='
+          gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" \
+            --jq '.[] | [.name, .commit.sha] | @tsv' \
+            | sort
+          echo '=== END INVENTORY ==='
