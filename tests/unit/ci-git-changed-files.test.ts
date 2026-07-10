@@ -2,10 +2,11 @@ import { expect, test } from 'bun:test';
 
 import {
   gitChangedFileDiffArgs,
+  gitUntrackedFileArgs,
   parseGitChangedFileOutput
 } from '../../platform/shared/ci-git-changed-files.ts';
 
-test('Git changed-file diff disables quotePath and binds base to HEAD', () => {
+test('Git changed-file commands disable quotePath for tracked and untracked paths', () => {
   expect(gitChangedFileDiffArgs('main')).toEqual([
     '-c',
     'core.quotepath=false',
@@ -22,6 +23,13 @@ test('Git changed-file diff disables quotePath and binds base to HEAD', () => {
     '--name-only',
     '--diff-filter=ACMR',
     'HEAD'
+  ]);
+  expect(gitUntrackedFileArgs()).toEqual([
+    '-c',
+    'core.quotepath=false',
+    'ls-files',
+    '--others',
+    '--exclude-standard'
   ]);
 });
 
