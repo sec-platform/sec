@@ -15,6 +15,7 @@ test('applyViewMutations handles graphical mutations correctly', async () => {
 
     const initialAppYaml = `
 app:
+  id: test-app
   name: test-app
   stack: nextjs-ts-prisma-sqlite
   mode: single-tenant
