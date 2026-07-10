@@ -81,10 +81,15 @@ function mergeAssertion(existing: FactAssertion, incoming: FactAssertion): FactA
   ) {
     throw new CompilerError('IR-AUTHORITY-003', `Fact assertion id "${existing.id}" collides across different assertion identities`);
   }
+  if (existing.confidence !== incoming.confidence) {
+    throw new CompilerError('IR-AUTHORITY-003', `Fact assertion "${existing.id}" has conflicting confidence`, {
+      existingConfidence: existing.confidence,
+      incomingConfidence: incoming.confidence
+    });
+  }
 
   return {
     ...existing,
-    confidence: Math.max(existing.confidence, incoming.confidence),
     evidence: normalizeEvidence([...existing.evidence, ...incoming.evidence])
   };
 }
