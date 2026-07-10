@@ -4,11 +4,14 @@ import path from 'node:path';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
 import { normalizePlan, validatePlan } from '../../platform/compiler/parse/load-plan.ts';
+import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
 import { buildWorkspaceEngineeringIR } from '../../platform/orchestrator.ts';
 import { CompilerError } from '../../platform/shared/errors.ts';
+import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
 import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
+import { writeYaml } from '../../platform/shared/yaml.ts';
 import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 function semanticContract(): LoadedSemanticContract {
@@ -322,4 +325,45 @@ test('provenance and ExplainGraph artifact changes cannot feed canonical revisio
 
   expect(afterExplainGraph.inputRevision).toBe(before.inputRevision);
   expect(afterExplainGraph.semanticRevision).toBe(before.semanticRevision);
+});
+
+test('policy report materialization cannot feed canonical policy identity or revisions', async () => {
+  const workspaceRoot = await prepareResolvedWorkspace({
+    blockIds: ['ticket/basic'],
+    prefix: 'engineering-compiler-policy-revision-domain-'
+  });
+  const { sourcePoliciesRoot, policyReportPath } = getWorkspacePaths(workspaceRoot);
+  await fs.mkdir(sourcePoliciesRoot, { recursive: true });
+  await writeYaml(path.join(sourcePoliciesRoot, 'canonical-policy.yaml'), {
+    policies: [{
+      id: 'canonical-source-policy',
+      severity: 'warn',
+      appliesTo: ['ticket/basic'],
+      rule: 'declaration_only_for_revision_stability'
+    }]
+  });
+
+  const before = await buildWorkspaceEngineeringIR(workspaceRoot);
+  const beforePolicyEntities = before.entities.filter((entity) => entity.kind === 'policy');
+  const beforePolicyEntityIds = new Set(beforePolicyEntities.map((entity) => entity.id));
+  const beforePolicyFacts = before.facts.filter((fact) =>
+    beforePolicyEntityIds.has(fact.subject) ||
+    (fact.object.kind === 'entity' && beforePolicyEntityIds.has(fact.object.entityId))
+  );
+  expect(beforePolicyEntities.map((entity) => entity.id)).toContain('policy:canonical-source-policy');
+
+  const report = await runPolicyGate(workspaceRoot);
+  await writeJson(policyReportPath, report);
+  const after = await buildWorkspaceEngineeringIR(workspaceRoot);
+  const afterPolicyEntities = after.entities.filter((entity) => entity.kind === 'policy');
+  const afterPolicyEntityIds = new Set(afterPolicyEntities.map((entity) => entity.id));
+  const afterPolicyFacts = after.facts.filter((fact) =>
+    afterPolicyEntityIds.has(fact.subject) ||
+    (fact.object.kind === 'entity' && afterPolicyEntityIds.has(fact.object.entityId))
+  );
+
+  expect(after.inputRevision).toBe(before.inputRevision);
+  expect(after.semanticRevision).toBe(before.semanticRevision);
+  expect(afterPolicyEntities).toEqual(beforePolicyEntities);
+  expect(afterPolicyFacts).toEqual(beforePolicyFacts);
 });
