@@ -25,6 +25,13 @@ test('versioned manifest resources resolve through version-first block fallback 
   };
   const lock = await resolveGraph(process.cwd(), plan);
   const ticketSteps = lock.installPlan.filter((step) => step.blockId === 'ticket/basic');
+  expect(lock.semanticLoweringTasks).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      blockId: 'ticket/basic',
+      contractId: 'ticket-core',
+      target: 'src/installed/ticket/ticket-semantic-contract.ts'
+    })
+  ]));
   expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.ts'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
   expect(ticketSteps.find((step) => step.from.endsWith('ticket.prisma'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
   expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.test.ts'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
