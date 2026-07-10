@@ -8,6 +8,7 @@ import {
 import { CompilerError } from '../../shared/errors.ts';
 import type { ResolvedBlock, SlotTask } from '../../shared/lock-types.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
+import type { PolicyRule } from '../../shared/policy-types.ts';
 import type { LoadedSemanticContract } from '../../shared/semantic-contract-types.ts';
 import { appendSemanticContract, type BuildSink } from './append-semantic-contract.ts';
 import { addFact as addFactToStore } from './ir-fact-store.ts';
@@ -42,7 +43,7 @@ export interface BuildEngineeringIRInput extends InputRevisionDomain {
   manifests: readonly EngineeringIRManifestInput[];
   slotTasks: readonly SlotTask[];
   acceptanceIds: readonly string[];
-  policyIds: readonly string[];
+  policyDeclarations: readonly PolicyRule[];
   semanticContracts?: readonly LoadedSemanticContract[];
 }
 
@@ -117,7 +118,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   }
 
   for (const acceptanceId of uniqueSorted(input.acceptanceIds)) addEntity(semanticEntity(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId));
-  for (const policyId of uniqueSorted(input.policyIds)) addEntity(semanticEntity(`policy:${policyId}`, 'policy', policyId));
+  for (const policyId of uniqueSorted(input.policyDeclarations.map((policy) => policy.id))) addEntity(semanticEntity(`policy:${policyId}`, 'policy', policyId));
 
   for (const contract of [...(input.semanticContracts ?? [])].sort((left, right) => `${left.blockId}:${left.contract.namespace}:${left.contract.id}`.localeCompare(`${right.blockId}:${right.contract.namespace}:${right.contract.id}`))) {
     if (!resolvedBlockIds.has(contract.blockId)) throw new CompilerError('IR-IDENTITY-005', `Semantic contract "${contract.contract.id}" references unresolved block "${contract.blockId}"`);
