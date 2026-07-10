@@ -28,11 +28,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Capture stable reference outputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          paths=(
+      - name: Refresh stable reference outputs
+        run: bun run reference:refresh
+
+      - name: Upload stable reference outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-fixed-point
+          retention-days: 1
+          if-no-files-found: error
+          path: |
             control/evidence/review-summary.json
             control/graph/explain-graph.dot
             control/graph/explain-graph.json
@@ -42,11 +47,3 @@ jobs:
             control/workbench/views/overview-view.html
             control/workbench/views/review-view.html
             control/workbench/views/source-view.html
-          )
-          bun run reference:refresh
-          for path in "${paths[@]}"; do
-            echo "SEC_REFERENCE_BEGIN ${path}"
-            base64 -w 4096 "${path}"
-            echo
-            echo "SEC_REFERENCE_END ${path}"
-          done
