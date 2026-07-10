@@ -108,8 +108,10 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
 
   expect(runtimeHeavy).toEqual([
     'e2e-artifacts',
+    'e2e-conflicts',
     'e2e-demo-doctor',
     'e2e-explain',
+    'e2e-local-views',
     'e2e-provenance'
   ]);
   expect(
