@@ -1,4 +1,4 @@
-name: repository-branch-inventory
+name: repository-branch-cleanup
 
 on:
   pull_request:
@@ -6,25 +6,123 @@ on:
       - .github/workflows/repository-branch-inventory.yml
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: read
 
 jobs:
-  inventory:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Enumerate remote branches
+      - name: Delete audited stale branch refs
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" \
-            --jq '.[] | [.name, .commit.sha] | @tsv' \
-            | sort \
-            | tee branches.tsv
+          set -euo pipefail
+          cat > expected-delete.txt <<'EOF'
+          architecture/pipeline-kernel
+          architecture/resolve-freshness
+          architecture/semantic-ir-docs-and-kernel
+          chore/branch-ref-inventory
+          chore/repository-governance-cleanup
+          diagnostics/fast-ci-contracts
+          diagnostics/fast-project-baseline
+          diagnostics/fast-semantic-core
+          integration/main-into-semantic
+          pipeline-kernel-v0-3
+          semantic-core-ticket-v0-3
+          validation/affected-log-output
+          validation/affected-log-probe
+          validation/apply-fast-fixes
+          validation/audit-extra-1
+          validation/audit-extra-2
+          validation/audit-project-runtime
+          validation/audit-reference
+          validation/audit-runner-contract
+          validation/case-21
+          validation/case-22
+          validation/case-23
+          validation/case-26
+          validation/case-27
+          validation/case-51
+          validation/case-52
+          validation/case-53
+          validation/current-concurrent
+          validation/current-runner
+          validation/current-runtime
+          validation/docs-authority-output
+          validation/exact-pr-runtime
+          validation/exact-sem-vertical
+          validation/exact-test-runner
+          validation/exact-ticket-pipeline
+          validation/exact-upgrade-current
+          validation/extra-current
+          validation/final-affected-evidence
+          validation/fixpoint-code-output
+          validation/fixpoint-code-probe
+          validation/fixpoint-idempotency-final
+          validation/fixpoint-idempotency-probe
+          validation/fixpoint-linear-output
+          validation/fixpoint-risk-evidence
+          validation/import-fix-probe
+          validation/manifest-resource-roots-output
+          validation/pipeline-e2e-evidence
+          validation/reference-commit-final
+          validation/reference-evidence-current
+          validation/reference-final-probe
+          validation/reference-fixpoint-output
+          validation/reference-fixpoint-probe
+          validation/reference-probe
+          validation/reference-refresh-current-output
+          validation/reference-refresh-current-probe
+          validation/reference-refresh-output
+          validation/release-full-current
+          validation/risk-budget-fix-output
+          validation/risk-evidence-probe
+          validation/risk-final-evidence
+          validation/risk-namespace-exact
+          validation/risk-resource-exact
+          validation/sem-a
+          validation/sem-b1
+          validation/sem-workspace
+          validation/semantic-core-full-gate
+          validation/semantic-core-full-gate-2
+          validation/semantic-core-vertical
+          validation/slow-b
+          validation/upgrade-final-exact
+          validation/upgrade-fix-exact
+          validation/upgrade-hash-evidence
+          validation/upgrade-stage-trace
+          validation/version-overlay-root-fix-output
+          validation/version-resource-overlay-output
+          validation/wb-current
+          EOF
 
-      - name: Upload branch inventory
-        uses: actions/upload-artifact@v4
-        with:
-          name: repository-branch-inventory
-          path: branches.tsv
-          if-no-files-found: error
+          gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name' | sort > actual.txt
+          { echo main; cat expected-delete.txt; } | sort > expected.txt
+          diff -u expected.txt actual.txt
+
+          open_prs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq '.[] | [.number, .head.ref] | @tsv')
+          if [ "$open_prs" != $'67\tchore/branch-ref-inventory' ]; then
+            echo "Unexpected open PR set:" >&2
+            printf '%s\n' "$open_prs" >&2
+            exit 1
+          fi
+
+          while IFS= read -r branch; do
+            [ -n "$branch" ] || continue
+            [ "$branch" = "chore/branch-ref-inventory" ] && continue
+            echo "Deleting $branch"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+          done < expected-delete.txt
+
+          echo "Deleting chore/branch-ref-inventory last"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/chore/branch-ref-inventory"
+
+          remaining=$(gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name')
+          if [ "$remaining" != "main" ]; then
+            echo "Unexpected remaining branches:" >&2
+            printf '%s\n' "$remaining" >&2
+            exit 1
+          fi
+          echo "Repository branch cleanup complete: main only."
