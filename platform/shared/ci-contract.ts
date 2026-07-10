@@ -11,6 +11,10 @@ import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts'
 import { platformCommand } from './platform-command.ts';
 import { slowTestSuiteIds } from './test-budget-contract.ts';
 
+export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v2' as const;
+export const CI_VERIFICATION_EXECUTION_MODEL = 'frozen-delivery-single-runner' as const;
+export const CI_VERIFICATION_TRIGGER_LABELS = ['run-full', 'run-quick'] as const;
+
 export type CiContractStep = {
   id: string;
   phase: 'verify' | 'quality' | 'diagnostics' | 'artifacts';
@@ -26,6 +30,14 @@ export type CiContract = {
   command: string;
   defaultGate: string;
   fullRuntimeGate: string;
+  verificationContractRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
+  executionModel: typeof CI_VERIFICATION_EXECUTION_MODEL;
+  triggerLabelCount: number;
+  triggerLabels: string[];
+  prWorkflowCommandCount: number;
+  prWorkflowCommands: string[];
+  releaseWorkflowCommandCount: number;
+  releaseWorkflowCommands: string[];
   prQuickLaneCommandCount: number;
   prQuickLaneCommands: string[];
   prRiskLaneCommandCount: number;
@@ -46,22 +58,29 @@ export type CiContract = {
   steps: CiContractStep[];
 };
 
-const prQuickLaneCommands = [
+const prWorkflowCommands = [
   'bun install --frozen-lockfile',
+  'bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"'
+];
+
+const releaseWorkflowCommands = [
+  'bun install --frozen-lockfile',
+  'bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"'
+];
+
+const prQuickLaneCommands = [
   'bun run imports:check',
   'bun run typecheck',
   'bun run test:affected'
 ];
 
 const prRiskLaneCommands = [
-  'bun install --frozen-lockfile',
   'bun scripts/ci-pr-risk.ts'
 ];
 
 const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
 
 const fullLaneCommands = [
-  'bun install --frozen-lockfile',
   'bun run imports:check',
   'bun run typecheck',
   'bun run docs:doctor',
@@ -135,7 +154,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     id: 'full-runtime-verify',
     phase: 'verify',
     command: platformCommand('verify', '--lane', 'all', '--json', '--compact'),
-    purpose: 'Run the full runtime gate for release, demo, or scheduled CI.',
+    purpose: 'Run the full runtime gate for release or explicit full verification.',
     produces: [
       CI_ARTIFACT_FILES.verificationReport,
       CI_ARTIFACT_FILES.runtimeReport,
@@ -162,7 +181,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
       id: `slow-e2e-${suiteId}`,
       phase: 'quality' as const,
       command,
-      purpose: 'Run one slow e2e suite in full/manual/scheduled validation.',
+      purpose: 'Run one slow e2e suite in explicit full verification.',
       produces: []
     };
   }),
@@ -170,7 +189,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     id: 'benchmark-task-suite',
     phase: 'quality',
     command: platformCommand('benchmark', 'suite', '--json', '--compact'),
-    purpose: 'Expose the benchmark task-suite contract and scoring dimensions for scheduled quality jobs.',
+    purpose: 'Expose the benchmark task-suite contract and scoring dimensions for release quality jobs.',
     produces: []
   },
   {
@@ -242,6 +261,14 @@ export function buildCiContract(): CiContract {
     command: platformCommand('contract', 'ci', '--json'),
     defaultGate: 'fast-runtime-verify',
     fullRuntimeGate: 'full-runtime-verify',
+    verificationContractRevision: CI_VERIFICATION_CONTRACT_REVISION,
+    executionModel: CI_VERIFICATION_EXECUTION_MODEL,
+    triggerLabelCount: CI_VERIFICATION_TRIGGER_LABELS.length,
+    triggerLabels: [...CI_VERIFICATION_TRIGGER_LABELS],
+    prWorkflowCommandCount: prWorkflowCommands.length,
+    prWorkflowCommands: [...prWorkflowCommands],
+    releaseWorkflowCommandCount: releaseWorkflowCommands.length,
+    releaseWorkflowCommands: [...releaseWorkflowCommands],
     prQuickLaneCommandCount: prQuickLaneCommands.length,
     prQuickLaneCommands: [...prQuickLaneCommands],
     prRiskLaneCommandCount: prRiskLaneCommands.length,
@@ -273,6 +300,14 @@ export function formatCiContract(contract: CiContract): string {
     `Command: ${contract.command}`,
     `Default gate: ${contract.defaultGate}`,
     `Full runtime gate: ${contract.fullRuntimeGate}`,
+    `Verification contract revision: ${contract.verificationContractRevision}`,
+    `Execution model: ${contract.executionModel}`,
+    `Trigger label count: ${contract.triggerLabelCount}`,
+    `Trigger labels: ${contract.triggerLabels.join(', ')}`,
+    `PR workflow command count: ${contract.prWorkflowCommandCount}`,
+    `PR workflow commands: ${contract.prWorkflowCommands.join(', ')}`,
+    `Release workflow command count: ${contract.releaseWorkflowCommandCount}`,
+    `Release workflow commands: ${contract.releaseWorkflowCommands.join(', ')}`,
     `PR quick lane command count: ${contract.prQuickLaneCommandCount}`,
     `PR quick lane commands: ${contract.prQuickLaneCommands.join(', ')}`,
     `PR risk lane command count: ${contract.prRiskLaneCommandCount}`,

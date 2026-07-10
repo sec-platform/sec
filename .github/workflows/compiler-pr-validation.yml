@@ -1,105 +1,134 @@
 name: compiler-pr-validation
+run-name: verify PR #${{ github.event.pull_request.number }} ${{ github.event.label.name }} @ ${{ github.event.pull_request.head.sha }}
 
 on:
   pull_request:
     types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
       - labeled
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  SEC_CHANGED_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^1' }}
-  SEC_AFFECTED_TESTS_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^1' }}
+  SEC_CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
+  SEC_AFFECTED_TESTS_BASE: ${{ github.event.pull_request.base.sha }}
+  SEC_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 jobs:
-  compiler-pr-quick:
-    if: github.event.action != 'labeled' || github.event.label.name == 'run-quick' || github.event.label.name == 'run-full'
+  compiler-pr-verification:
+    if: github.event.label.name == 'run-quick' || github.event.label.name == 'run-full'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 75
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
-          fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.6
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Detect changed TypeScript files
-        id: changed_ts
-        run: |
-          if git diff --name-only --diff-filter=ACMR "$SEC_AFFECTED_TESTS_BASE" HEAD | grep -E '\.[cm]?tsx?$' >/dev/null; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No changed TypeScript files."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check changed imports
-        if: steps.changed_ts.outputs.changed == 'true'
+      - name: Validate current base freshness and dedupe verification key
+        id: verification
+        uses: actions/github-script@v7
         env:
-          SEC_IMPORTS_CHANGED_ONLY: '1'
-        run: bun run imports:check
+          VERIFY_LABEL: ${{ github.event.label.name }}
+          VERIFY_HEAD: ${{ github.event.pull_request.head.sha }}
+          VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
+        with:
+          script: |
+            const label = process.env.VERIFY_LABEL;
+            const profile = label === 'run-full' ? 'full' : label === 'run-quick' ? 'quick' : null;
+            if (!profile) {
+              core.setFailed(`Unsupported verification label: ${label}`);
+              return;
+            }
+            const headSha = process.env.VERIFY_HEAD;
+            const baseSha = process.env.VERIFY_BASE;
+            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              basehead: `${baseSha}...${headSha}`
+            });
+            if (comparison.behind_by !== 0) {
+              core.setFailed(`PR head ${headSha} is behind current base ${baseSha} by ${comparison.behind_by} commit(s); update the branch before verification.`);
+              return;
+            }
+            const statusContext = `sec-verification/${profile}/ci-verification-v2/base-${baseSha}`;
+            const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: headSha,
+              per_page: 100
+            });
+            const trustedSuccess = statuses.some((status) => (
+              status.context === statusContext && status.state === 'success'
+            ));
+            core.setOutput('profile', profile);
+            core.setOutput('skip', trustedSuccess ? 'true' : 'false');
+            if (trustedSuccess) {
+              core.notice(`Trusted ${statusContext} success already exists for ${headSha}; expensive verification skipped.`);
+            }
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Affected fast tests
-        shell: bash
-        run: |
-          log_file="$RUNNER_TEMP/affected-fast-tests.log"
-          set +e
-          bun run test:affected >"$log_file" 2>&1
-          status=$?
-          set -e
-
-          if [ "$status" -ne 0 ]; then
-            echo "::group::Affected fast test failure tail"
-            tail -n 180 "$log_file"
-            echo "::endgroup::"
-            exit "$status"
-          fi
-
-          cat "$log_file"
-
-  compiler-pr-risk:
-    if: github.event.action != 'labeled' || github.event.label.name == 'run-full'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: compiler-pr-quick
-    steps:
-      - name: Checkout
+      - name: Checkout exact PR head
+        if: steps.verification.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Setup Bun
+        if: steps.verification.outputs.skip != 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.6
 
-      - name: Install dependencies
+      - name: Install dependencies once
+        if: steps.verification.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
-      - name: PR risk gate
-        run: bun scripts/ci-pr-risk.ts
+      - name: Run exact-head verification
+        if: steps.verification.outputs.skip != 'true'
+        id: verify
+        continue-on-error: true
+        shell: bash
+        run: bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"
+        env:
+          profile: ${{ steps.verification.outputs.profile }}
+
+      - name: Upload compact verification evidence
+        id: evidence
+        if: always() && steps.verification.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-verification-${{ steps.verification.outputs.profile }}-${{ github.event.pull_request.head.sha }}
+          path: .tmp/ci-verification-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Record exact-head verification status
+        if: always() && steps.verification.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          VERIFY_PROFILE: ${{ steps.verification.outputs.profile }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          VERIFY_HEAD: ${{ github.event.pull_request.head.sha }}
+          VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
+        with:
+          script: |
+            const profile = process.env.VERIFY_PROFILE;
+            const state = process.env.VERIFY_OUTCOME === 'success' && process.env.EVIDENCE_OUTCOME === 'success'
+              ? 'success'
+              : 'failure';
+            const statusContext = `sec-verification/${profile}/ci-verification-v2/base-${process.env.VERIFY_BASE}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.VERIFY_HEAD,
+              state,
+              context: statusContext,
+              description: `${profile} ${state} for exact frozen head and current base`
+            });
+
+      - name: Fail failed verification
+        if: always() && steps.verification.outputs.skip != 'true' && (steps.verify.outcome != 'success' || steps.evidence.outcome != 'success')
+        run: exit 1

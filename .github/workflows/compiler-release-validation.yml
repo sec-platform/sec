@@ -1,189 +1,122 @@
 name: compiler-release-validation
+run-name: release verify ${{ inputs.ref || github.sha }}
 
 on:
   workflow_call:
-  pull_request:
-    types:
-      - labeled
+    inputs:
+      ref:
+        required: false
+        type: string
   workflow_dispatch:
-  schedule:
-    - cron: '17 3 * * *'
+    inputs:
+      ref:
+        description: Exact branch, tag, or commit to verify
+        required: false
+        type: string
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
-  compiler-release-preflight:
-    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full')
+  compiler-release-verification:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 90
     steps:
-      - name: Checkout
+      - name: Resolve and dedupe exact full verification key
+        id: verification
+        uses: actions/github-script@v7
+        env:
+          REQUESTED_REF: ${{ inputs.ref || github.sha }}
+        with:
+          script: |
+            const requestedRef = process.env.REQUESTED_REF;
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: requestedRef
+            });
+            const headSha = commit.sha;
+            const statusContext = 'sec-verification/full/ci-verification-v2';
+            const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: headSha,
+              per_page: 100
+            });
+            const trustedSuccess = statuses.some((status) => (
+              status.context === statusContext && status.state === 'success'
+            ));
+            core.setOutput('sha', headSha);
+            core.setOutput('skip', trustedSuccess ? 'true' : 'false');
+            if (trustedSuccess) {
+              core.notice(`Trusted ${statusContext} success already exists for ${headSha}; expensive verification skipped.`);
+            }
+
+      - name: Checkout exact release head
+        if: steps.verification.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          ref: ${{ steps.verification.outputs.sha }}
           fetch-depth: 0
 
       - name: Setup Bun
+        if: steps.verification.outputs.skip != 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.6
 
-      - name: Install dependencies
+      - name: Install dependencies once
+        if: steps.verification.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
-      - name: Check imports
-        run: bun run imports:check
+      - name: Run exact-head full verification
+        if: steps.verification.outputs.skip != 'true'
+        id: verify
+        continue-on-error: true
+        shell: bash
+        env:
+          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
+        run: bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Documentation doctor
-        run: bun run docs:doctor
-
-      - name: Full fast test inventory
-        run: bun run test:fast
-
-      - name: Test budget contract
-        run: bun run sec -- test budget --json --compact
-
-      - name: Contract freeze
-        run: bun run test:contract-freeze
-
-  compiler-release-slow-matrix:
-    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      suites: ${{ steps.slow_suites.outputs.suites }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Upload compact full verification evidence
+        id: evidence
+        if: always() && steps.verification.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
-          fetch-depth: 0
+          name: sec-verification-full-${{ steps.verification.outputs.sha }}
+          path: .tmp/ci-verification-evidence.json
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Record exact-head full verification status
+        if: always() && steps.verification.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          VERIFY_HEAD: ${{ steps.verification.outputs.sha }}
         with:
-          bun-version: 1.3.6
+          script: |
+            const state = process.env.VERIFY_OUTCOME === 'success' && process.env.EVIDENCE_OUTCOME === 'success'
+              ? 'success'
+              : 'failure';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.VERIFY_HEAD,
+              state,
+              context: 'sec-verification/full/ci-verification-v2',
+              description: `full ${state} for exact frozen head`
+            });
 
-      - name: Emit slow suite matrix
-        id: slow_suites
-        run: |
-          suites=$(bun -e "import { slowTestSuiteIds } from './platform/shared/test-budget-contract.ts'; console.log(JSON.stringify(slowTestSuiteIds()))")
-          echo "suites=$suites" >> "$GITHUB_OUTPUT"
-
-  compiler-release-slow:
-    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    needs:
-      - compiler-release-preflight
-      - compiler-release-slow-matrix
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: ${{ fromJSON(needs.compiler-release-slow-matrix.outputs.suites) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
-          fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.6
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Slow e2e suite
-        run: bun run test:slow -- --suite ${{ matrix.suite }}
-
-  compiler-release-workspace:
-    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    needs: compiler-release-preflight
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
-          fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.6
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Benchmark task suite contract
-        if: always()
-        run: bun run sec -- benchmark suite --json --compact
-
-      - name: Warm runtime dependency cache
-        if: always()
-        run: bun run sec -- deps warmup
-
-      - name: Resolve graph
-        if: always()
-        run: bun run sec -- resolve
-
-      - name: Compose project
-        if: always()
-        run: bun run sec -- compose
-
-      - name: Adapt project
-        if: always()
-        run: bun run sec -- adapt
-
-      - name: Verify all lanes
-        if: always()
-        run: bun run sec -- verify --lane all --json --compact
-
-      - name: Lock project
-        if: always()
-        run: bun run sec -- lock
-
-      - name: Explain project
-        if: always()
-        run: bun run sec -- explain
-
-      - name: Reference drift check
-        if: always()
-        run: bun run sec -- reference check --json --compact
-
-  compiler-release-full:
-    if: always() && (github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-full'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs:
-      - compiler-release-preflight
-      - compiler-release-slow
-      - compiler-release-workspace
-    steps:
-      - name: Full validation summary
-        shell: pwsh
-        run: |
-          $failedJobs = @()
-          if ('${{ needs.compiler-release-preflight.result }}' -ne 'success') { $failedJobs += 'preflight' }
-          if ('${{ needs.compiler-release-slow.result }}' -ne 'success') { $failedJobs += 'slow suites' }
-          if ('${{ needs.compiler-release-workspace.result }}' -ne 'success') { $failedJobs += 'workspace' }
-          if ($failedJobs.Count -gt 0) {
-            Write-Error "Full validation failed: $($failedJobs -join ', ')"
-            exit 1
-          }
-          Write-Host 'Full validation summary passed.'
+      - name: Fail failed verification
+        if: always() && steps.verification.outputs.skip != 'true' && (steps.verify.outcome != 'success' || steps.evidence.outcome != 'success')
+        run: exit 1
