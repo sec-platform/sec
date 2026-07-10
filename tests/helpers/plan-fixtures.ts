@@ -5,6 +5,7 @@ import { loadAllManifests } from '../../platform/compiler/parse/load-manifest.ts
 
 export function buildSingleTenantPlanApp(options: Partial<PlanFile['app']> = {}): PlanFile['app'] {
   return {
+    id: 'customer-admin',
     name: 'customer-admin',
     stack: SUPPORTED_STACK,
     packageManager: 'pnpm',
@@ -73,7 +74,10 @@ export async function buildManifestValidationPlan(
   collectDependencies(entry.manifest.id);
 
   return {
-    app: buildSingleTenantPlanApp({ name: `validate-${entry.manifest.id.replaceAll('/', '-')}` }),
+    app: buildSingleTenantPlanApp({
+      id: `validate-${entry.manifest.id.replaceAll('/', '-')}`,
+      name: `validate-${entry.manifest.id.replaceAll('/', '-')}`
+    }),
     registry: {
       sources: [buildOfficialPlanRegistrySource(), buildPrivatePlanRegistrySource()]
     },
