@@ -57,6 +57,15 @@ jobs:
           SEC_EXPECTED_HEAD_SHA: ${{ steps.head.outputs.sha }}
         run: bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
 
+      - name: Upload compact full verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-verification-full-${{ steps.head.outputs.sha }}
+          path: .tmp/ci-verification-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Record exact-head full verification status
         if: always()
         uses: actions/github-script@v7
