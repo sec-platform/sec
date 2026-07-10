@@ -192,12 +192,12 @@
     ]
   },
   "provenanceSummary": {
-    "artifactCount": 69,
+    "artifactCount": 75,
     "verifiedArtifactCount": 20,
-    "unverifiedArtifactCount": 49,
+    "unverifiedArtifactCount": 55,
     "overrideArtifactCount": 0,
     "registryArtifactCount": 20,
-    "generatedArtifactCount": 69,
+    "generatedArtifactCount": 75,
     "generatedPassCount": 5,
     "originSummaryCount": 3,
     "originSummaries": [
@@ -228,7 +228,7 @@
       },
       {
         "originType": "generated",
-        "count": 46,
+        "count": 52,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -258,12 +258,18 @@
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json",
           "control/graph/explain-graph.dot",
           "control/graph/explain-graph.json",
           "control/graph/explain-graph.mmd",
           "control/provenance/provenance.json",
+          "control/workbench/views/graph-view.html",
+          "control/workbench/views/overview-view.html",
+          "control/workbench/views/review-view.html",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html",
           "generated/routes.ts",
           "lib/session.ts",
           "lib/store.ts",
@@ -293,7 +299,7 @@
     "overrideSummaries": [
       {
         "overrideStatus": "none",
-        "count": 69,
+        "count": 75,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -323,12 +329,18 @@
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json",
           "control/graph/explain-graph.dot",
           "control/graph/explain-graph.json",
           "control/graph/explain-graph.mmd",
           "control/provenance/provenance.json",
+          "control/workbench/views/graph-view.html",
+          "control/workbench/views/overview-view.html",
+          "control/workbench/views/review-view.html",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html",
           "custom/customer_normalizer.ts",
           "custom/ticket_comment_delegate.ts",
           "generated/routes.ts",
@@ -474,11 +486,16 @@
       },
       {
         "pass": "explain",
-        "count": 3,
+        "count": 8,
         "paths": [
           "control/graph/explain-graph.dot",
           "control/graph/explain-graph.json",
-          "control/graph/explain-graph.mmd"
+          "control/graph/explain-graph.mmd",
+          "control/workbench/views/graph-view.html",
+          "control/workbench/views/overview-view.html",
+          "control/workbench/views/review-view.html",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html"
         ]
       },
       {
@@ -490,10 +507,11 @@
       },
       {
         "pass": "verify",
-        "count": 4,
+        "count": 5,
         "paths": [
           "control/evidence/acceptance-coverage.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json"
         ]
@@ -528,12 +546,18 @@
       "control/evidence/block-usage-map.json",
       "control/evidence/install-manifest.json",
       "control/evidence/policy-report.json",
+      "control/evidence/review-summary.json",
       "control/evidence/runtime-report.json",
       "control/evidence/verification-report.json",
       "control/graph/explain-graph.dot",
       "control/graph/explain-graph.json",
       "control/graph/explain-graph.mmd",
       "control/provenance/provenance.json",
+      "control/workbench/views/graph-view.html",
+      "control/workbench/views/overview-view.html",
+      "control/workbench/views/review-view.html",
+      "control/workbench/views/slot-rule-view.html",
+      "control/workbench/views/source-view.html",
       "generated/routes.ts",
       "lib/session.ts",
       "lib/store.ts",
@@ -587,7 +611,7 @@
     ],
     "violationSummaries": []
   },
-  "changeSourceCount": 69,
+  "changeSourceCount": 75,
   "runtimeEntryCount": 14,
   "installImpactCount": 8,
   "changeSources": [
@@ -784,6 +808,11 @@
       "originId": "control/evidence/policy-report.json"
     },
     {
+      "path": "control/evidence/review-summary.json",
+      "originType": "generated",
+      "originId": "control/evidence/review-summary.json"
+    },
+    {
       "path": "control/evidence/runtime-report.json",
       "originType": "generated",
       "originId": "control/evidence/runtime-report.json"
@@ -812,6 +841,31 @@
       "path": "control/provenance/provenance.json",
       "originType": "generated",
       "originId": "control/provenance/provenance.json"
+    },
+    {
+      "path": "control/workbench/views/graph-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/graph-view.html"
+    },
+    {
+      "path": "control/workbench/views/overview-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/overview-view.html"
+    },
+    {
+      "path": "control/workbench/views/review-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/review-view.html"
+    },
+    {
+      "path": "control/workbench/views/slot-rule-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/slot-rule-view.html"
+    },
+    {
+      "path": "control/workbench/views/source-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/source-view.html"
     },
     {
       "path": "custom/customer_normalizer.ts",
