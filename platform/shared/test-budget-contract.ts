@@ -91,7 +91,7 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
     prRiskBaseline: true
   }),
   slowFileSuite('e2e-compiler-smoke', 'compiler-smoke', 'compiler-smoke-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true }),
-  slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true }),
+  slowFileSuite('e2e-conflicts', 'conflicts', 'compiler-conflicts-e2e', 180_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),
   slowFileSuite('e2e-demo-doctor', 'demo-doctor', 'compiler-demo-doctor-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
@@ -105,7 +105,7 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
   }),
   slowFileSuite('e2e-graph', 'graph', 'compiler-graph-e2e', 120_000, { parallelSafe: true }),
   slowFileSuite('e2e-lanes', 'lanes', 'compiler-lanes-e2e', 120_000, { parallelSafe: true }),
-  slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),
   slowFileSuite('e2e-manifest', 'manifest', 'compiler-manifest-e2e'),
   slowFileSuite('e2e-pipeline', 'pipeline', 'compiler-pipeline-e2e'),
   slowFileSuite('e2e-policy', 'policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),

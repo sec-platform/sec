@@ -291,6 +291,11 @@
       "label": "control/evidence/policy-report.json"
     },
     {
+      "id": "file:control/evidence/review-summary.json",
+      "type": "file",
+      "label": "control/evidence/review-summary.json"
+    },
+    {
       "id": "file:control/evidence/runtime-report.json",
       "type": "file",
       "label": "control/evidence/runtime-report.json"
@@ -319,6 +324,31 @@
       "id": "file:control/provenance/provenance.json",
       "type": "file",
       "label": "control/provenance/provenance.json"
+    },
+    {
+      "id": "file:control/workbench/views/graph-view.html",
+      "type": "file",
+      "label": "control/workbench/views/graph-view.html"
+    },
+    {
+      "id": "file:control/workbench/views/overview-view.html",
+      "type": "file",
+      "label": "control/workbench/views/overview-view.html"
+    },
+    {
+      "id": "file:control/workbench/views/review-view.html",
+      "type": "file",
+      "label": "control/workbench/views/review-view.html"
+    },
+    {
+      "id": "file:control/workbench/views/slot-rule-view.html",
+      "type": "file",
+      "label": "control/workbench/views/slot-rule-view.html"
+    },
+    {
+      "id": "file:control/workbench/views/source-view.html",
+      "type": "file",
+      "label": "control/workbench/views/source-view.html"
     },
     {
       "id": "file:custom/customer_normalizer.ts",
@@ -1153,6 +1183,11 @@
       "type": "originates_from"
     },
     {
+      "from": "file:control/evidence/review-summary.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
       "from": "file:control/evidence/runtime-report.json",
       "to": "app:customer-admin",
       "type": "originates_from"
@@ -1179,6 +1214,31 @@
     },
     {
       "from": "file:control/provenance/provenance.json",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:control/workbench/views/graph-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:control/workbench/views/overview-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:control/workbench/views/review-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:control/workbench/views/slot-rule-view.html",
+      "to": "app:customer-admin",
+      "type": "originates_from"
+    },
+    {
+      "from": "file:control/workbench/views/source-view.html",
       "to": "app:customer-admin",
       "type": "originates_from"
     },
@@ -1653,6 +1713,14 @@
         "hash": "fcfaf985b355a8e2e212eba261e7eeaf6b4bf7e3fb05551e159cbfccf9ce3130"
       },
       {
+        "path": "control/evidence/review-summary.json",
+        "originType": "generated",
+        "originId": "control/evidence/review-summary.json",
+        "generatedByPass": "verify",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
         "path": "control/evidence/runtime-report.json",
         "originType": "generated",
         "originId": "control/evidence/runtime-report.json",
@@ -1676,8 +1744,7 @@
         "originId": "control/graph/explain-graph.dot",
         "generatedByPass": "explain",
         "verifiedBy": [],
-        "overrideStatus": "none",
-        "hash": "1b02dbc7c1b6c644bc6a82c1f52d7ed83484302c7748821f98f641941606a6b8"
+        "overrideStatus": "none"
       },
       {
         "path": "control/graph/explain-graph.json",
@@ -1685,8 +1752,7 @@
         "originId": "control/graph/explain-graph.json",
         "generatedByPass": "explain",
         "verifiedBy": [],
-        "overrideStatus": "none",
-        "hash": "f84173474d03ffb8d798f55abf737299ae645308afddfe56db4d81be70ac2f6c"
+        "overrideStatus": "none"
       },
       {
         "path": "control/graph/explain-graph.mmd",
@@ -1694,8 +1760,7 @@
         "originId": "control/graph/explain-graph.mmd",
         "generatedByPass": "explain",
         "verifiedBy": [],
-        "overrideStatus": "none",
-        "hash": "4d43c03da66048d3dc6fff644d0e27e60433a6b464b50bb2d8355f078adebaa6"
+        "overrideStatus": "none"
       },
       {
         "path": "control/provenance/provenance.json",
@@ -1703,8 +1768,47 @@
         "originId": "control/provenance/provenance.json",
         "generatedByPass": "lock",
         "verifiedBy": [],
-        "overrideStatus": "none",
-        "hash": "18ccd4bb30d21d906bb40852ea8eafcf60b65e63b7a4d4c0459b0ce413f4c1d6"
+        "overrideStatus": "none"
+      },
+      {
+        "path": "control/workbench/views/graph-view.html",
+        "originType": "generated",
+        "originId": "control/workbench/views/graph-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "control/workbench/views/overview-view.html",
+        "originType": "generated",
+        "originId": "control/workbench/views/overview-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "control/workbench/views/review-view.html",
+        "originType": "generated",
+        "originId": "control/workbench/views/review-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "control/workbench/views/slot-rule-view.html",
+        "originType": "generated",
+        "originId": "control/workbench/views/slot-rule-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
+      },
+      {
+        "path": "control/workbench/views/source-view.html",
+        "originType": "generated",
+        "originId": "control/workbench/views/source-view.html",
+        "generatedByPass": "explain",
+        "verifiedBy": [],
+        "overrideStatus": "none"
       },
       {
         "path": "custom/customer_normalizer.ts",
@@ -1827,7 +1931,7 @@
           "tests/unit/comment-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "a7a01ec2655c133a0df692724f37f3445049ea3d83d83637f36c3480f4616f96"
+        "hash": "55d6b2bf629c57d91a33bf23aec10738b7a5e129f30f93c58684ccc9dac55486"
       },
       {
         "path": "source/code/slots/customer_normalizer.ts",

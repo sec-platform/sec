@@ -119,6 +119,7 @@ export interface ManifestEntry {
   };
   manifestPath: string;
   manifestRoot: string;
+  resourceRoots: string[];
   registryRoot: string;
   registrySourceId: string;
   registryKind: RegistryKind;
