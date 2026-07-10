@@ -5,6 +5,8 @@ import type { LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { relativePosixPath } from '../../shared/paths.ts';
 import type { ManifestEntry, PlanFile } from '../../shared/plan-manifest-types.ts';
 import { loadAllManifests, loadManifestById, resolveManifestResource } from '../parse/load-manifest.ts';
+import { loadSemanticContractsForManifestEntry } from '../parse/load-semantic-contract.ts';
+import { buildSemanticGeneratorPlan } from '../semantic-plan.ts';
 
 function buildCapabilityProviders(entries: ManifestEntry[]): Map<string, ManifestEntry[]> {
   const providers = new Map<string, ManifestEntry[]>();
@@ -220,6 +222,10 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
   const providerMap = buildCapabilityProviders(resolvedEntries);
   detectConflicts(resolvedEntries, providerMap);
   const sortedEntries = topologicalSort(resolvedEntries, providerMap);
+  const semanticContracts = (await Promise.all(
+    sortedEntries.map((entry) => loadSemanticContractsForManifestEntry(entry))
+  )).flat();
+  const semanticLoweringTasks = buildSemanticGeneratorPlan(sortedEntries, semanticContracts);
 
   const resolvedBlocks = sortedEntries.map((entry, index) => ({
     id: entry.manifest.id,
@@ -263,6 +269,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     resolvedCapabilities: [...providerMap.keys()].sort(),
     installPlan,
     slotTasks: buildSlotTasks(plan, manifestMap),
+    semanticLoweringTasks,
     generatedPaths: [
       'generated/routes.ts',
       CI_ARTIFACT_FILES.blockUsageMap,
