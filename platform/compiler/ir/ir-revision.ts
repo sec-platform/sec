@@ -32,6 +32,14 @@ function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+function uniqueSortedByKey<Value>(values: readonly Value[], keyOf: (value: Value) => string): Value[] {
+  const byKey = new Map<string, Value>();
+  for (const value of values) byKey.set(keyOf(value), value);
+  return [...byKey.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, value]) => value);
+}
+
 function stableById<Value extends { id: string }>(values: readonly Value[]): Value[] {
   return [...values].sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -124,6 +132,39 @@ function canonicalSemanticContract(contract: SemanticContract): object {
   };
 }
 
+function canonicalManifest(entry: InputRevisionManifest): object {
+  return {
+    blockId: entry.blockId,
+    requires: uniqueSorted(entry.manifest.requires),
+    provides: uniqueSorted(entry.manifest.provides),
+    pins: {
+      inputs: stableById(entry.manifest.pins.inputs).map((pin) => ({
+        id: pin.id,
+        type: pin.type,
+        required: pin.required ?? false
+      })),
+      outputs: stableById(entry.manifest.pins.outputs).map((pin) => ({
+        id: pin.id,
+        type: pin.type,
+        required: pin.required ?? false
+      }))
+    }
+  };
+}
+
+function canonicalManifestDeclarations(manifests: readonly InputRevisionManifest[]): object[] {
+  const declarations = manifests.map(canonicalManifest);
+  return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
+}
+
+function canonicalSemanticContractDeclarations(contracts: readonly LoadedSemanticContract[]): object[] {
+  const declarations = contracts.map((entry) => ({
+    blockId: entry.blockId,
+    contract: canonicalSemanticContract(entry.contract)
+  }));
+  return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
+}
+
 export function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -143,31 +184,8 @@ export function inputRevisionPayload(input: InputRevisionDomain): string {
         kind: block.kind,
         registrySourceId: block.registrySourceId
       })),
-    manifests: [...input.manifests]
-      .sort((left, right) => left.blockId.localeCompare(right.blockId))
-      .map((entry) => ({
-        blockId: entry.blockId,
-        requires: uniqueSorted(entry.manifest.requires),
-        provides: uniqueSorted(entry.manifest.provides),
-        pins: {
-          inputs: stableById(entry.manifest.pins.inputs).map((pin) => ({
-            id: pin.id,
-            type: pin.type,
-            required: pin.required ?? false
-          })),
-          outputs: stableById(entry.manifest.pins.outputs).map((pin) => ({
-            id: pin.id,
-            type: pin.type,
-            required: pin.required ?? false
-          }))
-        }
-      })),
-    semanticContracts: [...(input.semanticContracts ?? [])]
-      .sort((left, right) => `${left.blockId}:${left.contract.namespace}:${left.contract.id}`.localeCompare(`${right.blockId}:${right.contract.namespace}:${right.contract.id}`))
-      .map((entry) => ({
-        blockId: entry.blockId,
-        contract: canonicalSemanticContract(entry.contract)
-      })),
+    manifests: canonicalManifestDeclarations(input.manifests),
+    semanticContracts: canonicalSemanticContractDeclarations(input.semanticContracts ?? []),
     slotTasks: [...input.slotTasks]
       .sort((left, right) => `${left.block}:${left.id}`.localeCompare(`${right.block}:${right.id}`))
       .map((task) => ({
