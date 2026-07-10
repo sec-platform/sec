@@ -7,6 +7,7 @@ import {
   buildViewNode,
   mergeViewEdge,
   referencesForFacts,
+  summarizeFactAssertions,
   viewEdgeId
 } from './semantic-view-utils.ts';
 
@@ -34,7 +35,7 @@ export function projectArchitectureView(ir: EngineeringIR, subjectId?: string): 
     if (operationFacts.some((fact) => fact.predicate === 'PERFORMS_EFFECT')) badges.push('io');
     if (operationFacts.some((fact) => fact.predicate === 'AWAITS')) badges.push('async');
     if (operationFacts.some((fact) => fact.predicate === 'REQUIRES_PERMISSION')) badges.push('permission');
-    if (relevantFacts.some((fact) => fact.authority === 'inferred')) badges.push('inferred');
+    if (relevantFacts.some((fact) => summarizeFactAssertions(fact).hasInferred)) badges.push('inferred');
     nodes.set(responsibility.id, buildViewNode(index, responsibility.id, { badges, facts: relevantFacts }));
 
     for (const dependencyFact of responsibilityFacts.filter((fact) => fact.predicate === 'DEPENDS_ON')) {
