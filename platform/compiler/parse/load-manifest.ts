@@ -198,10 +198,10 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
         validateManifest(manifest);
         if (manifest.version === version) {
           const versionRoot = path.dirname(manifestPath);
-const resourceRoots = rootManifest
-  ? [versionRoot, path.dirname(rootPath)]
-  : [versionRoot];
-return manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
+          const resourceRoots = rootManifest
+            ? [versionRoot, path.dirname(rootPath)]
+            : [versionRoot];
+          return manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
         }
       }
     }
