@@ -7,6 +7,7 @@ import {
   buildSemanticInspector,
   buildViewNode,
   mergeViewEdge,
+  summarizeFactAssertions,
   uniqueReferences,
   viewEdgeId
 } from './semantic-view-utils.ts';
@@ -32,7 +33,7 @@ export function projectScenarioView(ir: EngineeringIR, scenarioId: string): Sema
     if (step.retryMaxAttempts !== undefined) badges.push('retry');
     if (operationFacts.some((fact) => fact.predicate === 'PERFORMS_EFFECT')) badges.push('io');
     if (operationFacts.some((fact) => fact.predicate === 'REQUIRES_PERMISSION')) badges.push('permission');
-    if (operationFacts.some((fact) => fact.authority === 'inferred')) badges.push('inferred');
+    if (operationFacts.some((fact) => summarizeFactAssertions(fact).hasInferred)) badges.push('inferred');
     nodes.set(nodeId, buildViewNode(index, step.operationEntityId, {
       id: nodeId,
       badges,
