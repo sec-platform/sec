@@ -69,7 +69,7 @@ export function normalizePlan(plan: PlanFile): PlanFile {
 }
 
 export function validatePlan(plan: PlanFile): void {
-  if (!plan?.app?.id) {
+  if (!plan?.app?.id?.trim()) {
     throw new CompilerError('PLAN-VALIDATION-014', 'Missing app.id');
   }
 
