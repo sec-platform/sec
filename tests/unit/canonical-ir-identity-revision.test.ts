@@ -334,7 +334,7 @@ test('plan validation hard fails when app.id is absent', () => {
     blocks: [],
     slots: [],
     acceptance: []
-  } as PlanFile);
+  } as unknown as PlanFile);
 
   expectCompilerError(() => validatePlan(normalized), 'PLAN-VALIDATION-014');
 });
