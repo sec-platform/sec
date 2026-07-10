@@ -19,9 +19,13 @@ const BOUNDED_BASELINE_PATTERNS = [
   /^package\.json$/,
   /^bun\.lock$/,
   /^platform\/orchestrator\.ts$/,
-  /^tests\/helpers\//,
+  /^scripts\/ci-pr-risk\.ts$/,
+  /^platform\/dev-runner\/test-runner\.ts$/,
+  /^platform\/shared\/ci-pr-risk-selection\.ts$/,
+  /^platform\/shared\/test-budget-contract\.ts$/,
+  /^tests\/helpers\/workspace-fixtures\.ts$/,
   /^tests\/setup\//,
-  /^tests\/testkit\//
+  /^tests\/testkit\/workspace\.ts$/
 ];
 
 function baselineSlowSuiteIds(): string[] {
