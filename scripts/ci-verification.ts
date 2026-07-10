@@ -1,4 +1,6 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-contract.ts';
@@ -10,7 +12,10 @@ import {
   selectTestsForSources
 } from '../platform/shared/test-impact-contract.ts';
 
+const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
+
 type VerificationProfile = 'quick' | 'full';
+type VerificationStatus = 'passed' | 'failed';
 
 type GateStep = {
   id: string;
@@ -21,6 +26,16 @@ type GateResult = {
   id: string;
   code: number;
   durationMs: number;
+};
+
+type VerificationEvidence = {
+  contractRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
+  profile: VerificationProfile;
+  headSha: string;
+  status: VerificationStatus;
+  changedFiles: string[] | null;
+  failedGate?: string;
+  results: GateResult[];
 };
 
 function argumentValue(name: string): string | undefined {
@@ -155,6 +170,14 @@ function formatDuration(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(2)}s`;
 }
 
+function writeEvidence(evidence: VerificationEvidence): void {
+  const evidencePath = path.resolve(VERIFICATION_EVIDENCE_PATH);
+  mkdirSync(path.dirname(evidencePath), { recursive: true });
+  writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
+  console.log(`SEC verification evidence: ${VERIFICATION_EVIDENCE_PATH}`);
+  console.log(`SEC_VERIFICATION_SUMMARY ${JSON.stringify(evidence)}`);
+}
+
 function runGate(step: GateStep): GateResult {
   const startedAt = Date.now();
   console.log(`::group::SEC verification: ${step.id}`);
@@ -194,23 +217,25 @@ for (const step of steps) {
   results.push(result);
   if (result.code !== 0) {
     console.error(`SEC verification failed at ${result.id} with exit code ${result.code}.`);
-    console.log(`SEC_VERIFICATION_SUMMARY ${JSON.stringify({
+    writeEvidence({
       contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
       profile,
       headSha,
       status: 'failed',
+      changedFiles: files,
       failedGate: result.id,
       results
-    })}`);
+    });
     process.exit(result.code);
   }
 }
 
 console.log(`SEC verification completed in ${formatDuration(Date.now() - startedAt)}.`);
-console.log(`SEC_VERIFICATION_SUMMARY ${JSON.stringify({
+writeEvidence({
   contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
   profile,
   headSha,
   status: 'passed',
+  changedFiles: files,
   results
-})}`);
+});
