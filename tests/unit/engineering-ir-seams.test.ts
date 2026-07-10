@@ -71,7 +71,12 @@ function ticketFixture(): BuildEngineeringIRInput {
       provenanceHints: { generator: null, verifiedBy: [] }
     }],
     acceptanceIds: ['ticket_can_be_created', 'user_can_login'],
-    policyIds: ['tenant-scope-required']
+    policyDeclarations: [{
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['ticket/basic'],
+      rule: 'tenant_context_must_flow_to_query'
+    }]
   };
 }
 
