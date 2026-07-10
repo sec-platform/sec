@@ -28,6 +28,11 @@ test('active GitHub validation workflows execute frozen heads once and retired l
   expect(prWorkflow).toContain('github.event.pull_request.base.sha');
   expect(prWorkflow).toContain('github.event.pull_request.head.sha');
   expect(prWorkflow).toContain("github.event.label.name == 'run-quick' || github.event.label.name == 'run-full'");
+  expect(prWorkflow).toContain('Dedupe exact-head verification key');
+  expect(prWorkflow).toContain('listCommitStatusesForRef');
+  expect(prWorkflow).toContain("status.context === statusContext && status.state === 'success'");
+  expect(prWorkflow).toContain("core.setOutput('skip', trustedSuccess ? 'true' : 'false')");
+  expect(prWorkflow).toContain("if: steps.verification.outputs.skip != 'true'\n        uses: actions/checkout@v5");
   expect(prWorkflow).toContain('ref: ${{ github.event.pull_request.head.sha }}');
   expect(prWorkflow).toContain('actions/upload-artifact@v4');
   expect(prWorkflow).toContain('.tmp/ci-verification-evidence.json');
@@ -47,6 +52,14 @@ test('active GitHub validation workflows execute frozen heads once and retired l
   expect(releaseWorkflow).toContain('statuses: write');
   expect(releaseWorkflow).toContain('workflow_dispatch:');
   expect(releaseWorkflow).toContain('workflow_call:');
+  expect(releaseWorkflow).toContain('Resolve and dedupe exact full verification key');
+  expect(releaseWorkflow).toContain('getCommit');
+  expect(releaseWorkflow).toContain('listCommitStatusesForRef');
+  expect(releaseWorkflow).toContain("status.context === statusContext && status.state === 'success'");
+  expect(releaseWorkflow).toContain("core.setOutput('sha', headSha)");
+  expect(releaseWorkflow).toContain("core.setOutput('skip', trustedSuccess ? 'true' : 'false')");
+  expect(releaseWorkflow).toContain("if: steps.verification.outputs.skip != 'true'\n        uses: actions/checkout@v5");
+  expect(releaseWorkflow).toContain('ref: ${{ steps.verification.outputs.sha }}');
   expect(releaseWorkflow).toContain('--profile full');
   expect(releaseWorkflow).toContain('actions/upload-artifact@v4');
   expect(releaseWorkflow).toContain('.tmp/ci-verification-evidence.json');
