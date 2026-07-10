@@ -95,6 +95,7 @@ jobs:
           profile: ${{ steps.verification.outputs.profile }}
 
       - name: Upload compact verification evidence
+        id: evidence
         if: always() && steps.verification.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -109,12 +110,15 @@ jobs:
         env:
           VERIFY_PROFILE: ${{ steps.verification.outputs.profile }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
           VERIFY_HEAD: ${{ github.event.pull_request.head.sha }}
           VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
         with:
           script: |
             const profile = process.env.VERIFY_PROFILE;
-            const state = process.env.VERIFY_OUTCOME === 'success' ? 'success' : 'failure';
+            const state = process.env.VERIFY_OUTCOME === 'success' && process.env.EVIDENCE_OUTCOME === 'success'
+              ? 'success'
+              : 'failure';
             const statusContext = `sec-verification/${profile}/ci-verification-v2/base-${process.env.VERIFY_BASE}`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
@@ -126,5 +130,5 @@ jobs:
             });
 
       - name: Fail failed verification
-        if: steps.verification.outputs.skip != 'true' && steps.verify.outcome != 'success'
+        if: always() && steps.verification.outputs.skip != 'true' && (steps.verify.outcome != 'success' || steps.evidence.outcome != 'success')
         run: exit 1
