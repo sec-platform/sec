@@ -7,7 +7,11 @@ import type {
   SemanticFactObject,
   SemanticValue
 } from '../../shared/engineering-ir-types.ts';
-import type { EngineeringIRManifestInput } from './build-engineering-ir.ts';
+
+interface ManifestProvenanceInput {
+  blockId: string;
+  manifestPath?: string;
+}
 
 export function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -76,7 +80,7 @@ export function normalizeScenario(scenario: ScenarioDefinition): ScenarioDefinit
   };
 }
 
-export function manifestProvenance(entry: EngineeringIRManifestInput): FactProvenance[] {
+export function manifestProvenance(entry: ManifestProvenanceInput): FactProvenance[] {
   return [{
     kind: 'contract',
     sourceId: `manifest:${entry.blockId}`,
