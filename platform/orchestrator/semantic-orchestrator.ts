@@ -2,14 +2,13 @@ import path from 'node:path';
 
 import {
   buildEngineeringIR,
-  loadPlan
+  loadPlan,
+  loadPolicyDeclarations
 } from '../compiler/index.ts';
 import type { EngineeringIR } from '../shared/engineering-ir-types.ts';
-import { pathExists, readJson } from '../shared/fs.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, posixPath } from '../shared/paths.ts';
 import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
-import type { PolicyReport } from '../shared/policy-types.ts';
 import { loadWorkspaceSemanticInputs } from './semantic-inputs.ts';
 
 function stableManifestPath(entry: ManifestEntry): string {
@@ -17,21 +16,14 @@ function stableManifestPath(entry: ManifestEntry): string {
   return posixPath(path.posix.join(posixPath(entry.registryPath), relativePath));
 }
 
-async function readPolicyIds(workspaceRoot: string): Promise<string[]> {
-  const { policyReportPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(policyReportPath))) return [];
-  const report = await readJson<PolicyReport>(policyReportPath);
-  return report.merged.policies.map((policy) => policy.id);
-}
-
 export async function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd()): Promise<EngineeringIR> {
   const { planPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   const lock = await readLockFile(workspaceRoot);
-  const { manifestEntries, semanticContracts } = await loadWorkspaceSemanticInputs(
-    workspaceRoot,
-    lock.resolvedBlocks
-  );
+  const [{ manifestEntries, semanticContracts }, policyDeclarations] = await Promise.all([
+    loadWorkspaceSemanticInputs(workspaceRoot, lock.resolvedBlocks),
+    loadPolicyDeclarations(workspaceRoot)
+  ]);
 
   return buildEngineeringIR({
     app: { id: plan.app.id, name: plan.app.name },
@@ -43,7 +35,7 @@ export async function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd())
     })),
     slotTasks: lock.slotTasks,
     acceptanceIds: plan.acceptance.map((acceptance) => acceptance.id),
-    policyIds: await readPolicyIds(workspaceRoot),
+    policyIds: policyDeclarations.policyIds,
     semanticContracts
   });
 }
