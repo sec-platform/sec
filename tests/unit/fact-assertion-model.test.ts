@@ -51,7 +51,7 @@ test('same triple and normalized assertion identity dedupe idempotently', () => 
   }));
 
   expect(secondId).toBe(firstId);
-  expect(facts).toHaveLength(1);
+  expect(facts.size).toBe(1);
   expect(facts.get(firstId)?.assertions).toHaveLength(1);
 });
 
@@ -66,7 +66,7 @@ test('same triple with distinct provenance retains one Fact and two Assertions',
 
   const fact = facts.get(contractFactId)!;
   expect(aiFactId).toBe(contractFactId);
-  expect(facts).toHaveLength(1);
+  expect(facts.size).toBe(1);
   expect(fact.assertions).toHaveLength(2);
   expect(new Set(fact.assertions.map((assertion) => assertion.id)).size).toBe(2);
   expect(fact.assertions.map((assertion) => assertion.authority)).toEqual(expect.arrayContaining([
