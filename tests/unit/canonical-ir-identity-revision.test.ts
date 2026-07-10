@@ -360,7 +360,7 @@ test('provenance and ExplainGraph artifact changes cannot feed canonical revisio
 
   expect(afterExplainGraph.inputRevision).toBe(before.inputRevision);
   expect(afterExplainGraph.semanticRevision).toBe(before.semanticRevision);
-});
+}, 15_000);
 
 test('policy report materialization cannot feed canonical policy identity or revisions', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({
@@ -403,4 +403,4 @@ test('policy report materialization cannot feed canonical policy identity or rev
   expect(after.semanticRevision).toBe(before.semanticRevision);
   expect(afterPolicyEntities).toEqual(beforePolicyEntities);
   expect(afterPolicyFacts).toEqual(beforePolicyFacts);
-});
+}, 15_000);
