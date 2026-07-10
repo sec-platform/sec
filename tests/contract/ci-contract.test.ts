@@ -11,7 +11,7 @@ function occurrenceCount(source: string, value: string): number {
   return source.split(value).length - 1;
 }
 
-test('active GitHub validation workflows execute frozen heads once and retired legacy entry stays absent', async () => {
+test('active GitHub validation workflows execute fresh frozen heads once and retired legacy entry stays absent', async () => {
   const prWorkflow = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
   const releaseWorkflow = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
   const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
@@ -28,8 +28,13 @@ test('active GitHub validation workflows execute frozen heads once and retired l
   expect(prWorkflow).toContain('github.event.pull_request.base.sha');
   expect(prWorkflow).toContain('github.event.pull_request.head.sha');
   expect(prWorkflow).toContain("github.event.label.name == 'run-quick' || github.event.label.name == 'run-full'");
-  expect(prWorkflow).toContain('Dedupe exact-head verification key');
+  expect(prWorkflow).toContain('Validate current base freshness and dedupe verification key');
+  expect(prWorkflow).toContain('compareCommitsWithBasehead');
+  expect(prWorkflow).toContain('basehead: `${baseSha}...${headSha}`');
+  expect(prWorkflow).toContain('comparison.behind_by !== 0');
+  expect(prWorkflow).toContain('update the branch before verification');
   expect(prWorkflow).toContain('listCommitStatusesForRef');
+  expect(prWorkflow).toContain('sec-verification/${profile}/ci-verification-v2/base-${baseSha}');
   expect(prWorkflow).toContain("status.context === statusContext && status.state === 'success'");
   expect(prWorkflow).toContain("core.setOutput('skip', trustedSuccess ? 'true' : 'false')");
   expect(prWorkflow).toContain("if: steps.verification.outputs.skip != 'true'\n        uses: actions/checkout@v5");
@@ -37,7 +42,7 @@ test('active GitHub validation workflows execute frozen heads once and retired l
   expect(prWorkflow).toContain('actions/upload-artifact@v4');
   expect(prWorkflow).toContain('.tmp/ci-verification-evidence.json');
   expect(prWorkflow).toContain('retention-days: 7');
-  expect(prWorkflow).toContain('sec-verification/${profile}/ci-verification-v2');
+  expect(prWorkflow).toContain('base-${process.env.VERIFY_BASE}');
   expect(prWorkflow).not.toContain('- opened');
   expect(prWorkflow).not.toContain('- synchronize');
   expect(prWorkflow).not.toContain('- reopened');
