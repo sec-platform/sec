@@ -7,7 +7,7 @@ import { CompilerError } from '../../platform/shared/errors.ts';
 
 function fixture(): BuildEngineeringIRInput {
   return {
-    app: { name: 'ticket-app' },
+    app: { id: 'ticket-app', name: 'ticket-app' },
     resolvedBlocks: [
       {
         id: 'ticket/basic',
@@ -70,18 +70,7 @@ function fixture(): BuildEngineeringIRInput {
       }
     ],
     acceptanceIds: ['ticket_can_be_created', 'user_can_login'],
-    policyIds: ['tenant-scope-required'],
-    provenanceArtifacts: [
-      {
-        path: 'src/installed/ticket/ticket-service.ts',
-        originType: 'block',
-        originId: 'ticket/basic',
-        sourceBlock: 'ticket/basic',
-        generatedByPass: 'compose',
-        verifiedBy: ['ticket-service.test.ts'],
-        overrideStatus: 'none'
-      }
-    ]
+    policyIds: ['tenant-scope-required']
   };
 }
 
@@ -96,12 +85,13 @@ function expectCompilerError(run: () => unknown, code: string): void {
   throw new Error(`Expected CompilerError ${code}`);
 }
 
-test('buildEngineeringIR creates stable semantic entities and facts', () => {
+test('buildEngineeringIR creates stable semantic entities, facts, and revision domains', () => {
   const ir = buildEngineeringIR(fixture());
 
-  expect(ir.formatVersion).toBe('1');
+  expect(ir.formatVersion).toBe('2');
   expect(ir.appId).toBe('app:ticket-app');
-  expect(ir.revision.startsWith('sha256:')).toBe(true);
+  expect(ir.inputRevision.startsWith('sha256:')).toBe(true);
+  expect(ir.semanticRevision.startsWith('sha256:')).toBe(true);
   expect(ir.entities.map((entity) => entity.id)).toEqual([...ir.entities.map((entity) => entity.id)].sort());
   expect(ir.facts.map((fact) => fact.id)).toEqual([...ir.facts.map((fact) => fact.id)].sort());
 
@@ -113,14 +103,8 @@ test('buildEngineeringIR creates stable semantic entities and facts', () => {
   );
   expect(dependency?.authority).toBe('authoritative');
   expect(dependency?.provenance[0]?.kind).toBe('contract');
-  expect(dependency?.validFrom).toBe(ir.revision);
-
-  const artifactOrigin = ir.facts.find((fact) =>
-    fact.subject === 'artifact:src/installed/ticket/ticket-service.ts' &&
-    fact.predicate === 'ORIGINATES_FROM'
-  );
-  expect(artifactOrigin?.object).toEqual({ kind: 'entity', entityId: 'block:ticket/basic' });
-  expect(artifactOrigin?.authority).toBe('derived');
+  expect(dependency?.validFrom).toBe(ir.semanticRevision);
+  expect(ir.entities.some((entity) => entity.kind === 'artifact')).toBe(false);
 });
 
 test('buildEngineeringIR is deterministic across input ordering', () => {
@@ -131,64 +115,10 @@ test('buildEngineeringIR is deterministic across input ordering', () => {
     manifests: [...input.manifests].reverse(),
     slotTasks: [...input.slotTasks].reverse(),
     acceptanceIds: [...input.acceptanceIds].reverse(),
-    policyIds: [...input.policyIds].reverse(),
-    provenanceArtifacts: [...input.provenanceArtifacts].reverse()
+    policyIds: [...input.policyIds].reverse()
   };
 
   expect(buildEngineeringIR(reversed)).toEqual(buildEngineeringIR(input));
-});
-
-test('buildEngineeringIR keeps same-named slot artifact provenance block-qualified', () => {
-  const input = fixture();
-  const ticketSlot = input.slotTasks[0]!;
-  const authSlot = {
-    ...ticketSlot,
-    block: 'auth/basic-session',
-    target: 'custom/auth/ticket_comment_delegate.ts',
-    sourcePath: 'source/code/slots/auth_ticket_comment_delegate.ts',
-    symbol: 'normalizeSessionComment'
-  };
-  const ir = buildEngineeringIR({
-    ...input,
-    slotTasks: [ticketSlot, authSlot],
-    provenanceArtifacts: [
-      ...input.provenanceArtifacts,
-      {
-        path: ticketSlot.target,
-        originType: 'slot',
-        originId: ticketSlot.id,
-        sourceBlock: ticketSlot.block,
-        generatedByPass: 'adapt',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      },
-      {
-        path: authSlot.target,
-        originType: 'slot',
-        originId: authSlot.id,
-        sourceBlock: authSlot.block,
-        generatedByPass: 'adapt',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      }
-    ]
-  });
-
-  const ticketOrigin = ir.facts.find((fact) =>
-    fact.subject === `artifact:${ticketSlot.target}` && fact.predicate === 'ORIGINATES_FROM'
-  );
-  const authOrigin = ir.facts.find((fact) =>
-    fact.subject === `artifact:${authSlot.target}` && fact.predicate === 'ORIGINATES_FROM'
-  );
-
-  expect(ticketOrigin?.object).toEqual({
-    kind: 'entity',
-    entityId: 'slot:ticket/basic:ticket_comment_delegate'
-  });
-  expect(authOrigin?.object).toEqual({
-    kind: 'entity',
-    entityId: 'slot:auth/basic-session:ticket_comment_delegate'
-  });
 });
 
 test('buildEngineeringIR merges provenance for the same semantic triple', () => {
@@ -249,6 +179,17 @@ test('buildEngineeringIR rejects a slot that references an unknown block', () =>
       slotTasks: [{ ...input.slotTasks[0]!, block: 'missing/block' }]
     }),
     'IR-IDENTITY-003'
+  );
+});
+
+test('buildEngineeringIR rejects a missing app id without falling back to app name', () => {
+  const input = fixture();
+  expectCompilerError(
+    () => buildEngineeringIR({
+      ...input,
+      app: { id: '', name: 'ticket-app' }
+    }),
+    'IR-IDENTITY-007'
   );
 });
 
