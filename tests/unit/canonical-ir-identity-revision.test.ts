@@ -26,7 +26,14 @@ function semanticContract(): LoadedSemanticContract {
           { id: 'id', type: 'number', required: true, mutable: false }
         ]
       }],
-      states: [],
+      states: [{
+        id: 'item-status',
+        entity: 'Item',
+        field: 'status',
+        owner: 'ItemWorker',
+        values: ['open', 'closed'],
+        transitions: [{ from: 'open', to: 'closed', by: 'processItem' }]
+      }],
       responsibilities: [{
         id: 'ItemWorker',
         role: 'Process item',
@@ -41,7 +48,7 @@ function semanticContract(): LoadedSemanticContract {
         output: 'Item',
         reads: ['Item.status', 'Item.id'],
         writes: ['Item.status'],
-        mutates: [],
+        mutates: ['Item.status'],
         requiresPolicies: ['item-policy'],
         requiresPermissions: ['item-write'],
         performsEffects: ['item-write-effect'],
@@ -167,6 +174,11 @@ test('unordered semantic input collections do not change either revision', () =>
         ...entity,
         fields: [...entity.fields].reverse()
       })),
+      states: [...contract.contract.states].reverse().map((state) => ({
+        ...state,
+        values: [...state.values].reverse(),
+        transitions: [...state.transitions].reverse()
+      })),
       responsibilities: [...contract.contract.responsibilities].reverse().map((responsibility) => ({
         ...responsibility,
         owns: [...responsibility.owns].reverse(),
@@ -214,6 +226,48 @@ test('unordered semantic input collections do not change either revision', () =>
 
   const before = buildEngineeringIR(input);
   const after = buildEngineeringIR(reordered);
+  expect(after.inputRevision).toBe(before.inputRevision);
+  expect(after.semanticRevision).toBe(before.semanticRevision);
+});
+
+test('exact duplicate unordered semantic declarations do not change revisions', () => {
+  const input = fixture();
+  const contract = semanticContract();
+  const duplicatedContract: LoadedSemanticContract = {
+    ...contract,
+    contract: {
+      ...contract.contract,
+      states: contract.contract.states.map((state) => ({
+        ...state,
+        transitions: [...state.transitions, ...state.transitions]
+      }))
+    }
+  };
+  const itemManifest = input.manifests[0]!;
+  const duplicatedManifest = {
+    ...itemManifest,
+    manifest: {
+      ...itemManifest.manifest,
+      requires: [...itemManifest.manifest.requires, ...itemManifest.manifest.requires],
+      provides: [...itemManifest.manifest.provides, ...itemManifest.manifest.provides],
+      pins: {
+        inputs: [...itemManifest.manifest.pins.inputs, ...itemManifest.manifest.pins.inputs],
+        outputs: [...itemManifest.manifest.pins.outputs, ...itemManifest.manifest.pins.outputs]
+      }
+    }
+  };
+  const duplicated: BuildEngineeringIRInput = {
+    ...input,
+    resolvedBlocks: [...input.resolvedBlocks, input.resolvedBlocks[0]!],
+    manifests: [...input.manifests, duplicatedManifest],
+    slotTasks: [...input.slotTasks, input.slotTasks[0]!],
+    acceptanceIds: [...input.acceptanceIds, input.acceptanceIds[0]!],
+    policyIds: [...input.policyIds, input.policyIds[0]!],
+    semanticContracts: [duplicatedContract, duplicatedContract]
+  };
+
+  const before = buildEngineeringIR(input);
+  const after = buildEngineeringIR(duplicated);
   expect(after.inputRevision).toBe(before.inputRevision);
   expect(after.semanticRevision).toBe(before.semanticRevision);
 });
