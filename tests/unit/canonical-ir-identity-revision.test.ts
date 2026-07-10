@@ -7,7 +7,7 @@ import { normalizePlan, validatePlan } from '../../platform/compiler/parse/load-
 import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
 import { buildWorkspaceEngineeringIR } from '../../platform/orchestrator.ts';
 import { CompilerError } from '../../platform/shared/errors.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
+import { pathExists, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
 import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
@@ -378,6 +378,7 @@ test('policy report materialization cannot feed canonical policy identity or rev
     }]
   });
 
+  expect(await pathExists(policyReportPath)).toBe(false);
   const before = await buildWorkspaceEngineeringIR(workspaceRoot);
   const beforePolicyEntities = before.entities.filter((entity) => entity.kind === 'policy');
   const beforePolicyEntityIds = new Set(beforePolicyEntities.map((entity) => entity.id));
@@ -389,6 +390,7 @@ test('policy report materialization cannot feed canonical policy identity or rev
 
   const report = await runPolicyGate(workspaceRoot);
   await writeJson(policyReportPath, report);
+  expect(await pathExists(policyReportPath)).toBe(true);
   const after = await buildWorkspaceEngineeringIR(workspaceRoot);
   const afterPolicyEntities = after.entities.filter((entity) => entity.kind === 'policy');
   const afterPolicyEntityIds = new Set(afterPolicyEntities.map((entity) => entity.id));
