@@ -181,7 +181,7 @@ test('local affected runner shares canonical changed-file parsing and impact own
   expect(source).not.toContain("['diff', '--name-only', '--diff-filter=ACMR'");
 });
 
-test('CI risk runner reuses bounded concurrency for impact-selected and all-slow profiles', async () => {
+test('CI risk runner reuses bounded concurrency and stops scheduling after the first parallel failure', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
 
   expect(source).toContain("process.argv.includes('--all-slow')");
@@ -190,6 +190,11 @@ test('CI risk runner reuses bounded concurrency for impact-selected and all-slow
   expect(source).toContain("suite.parallelSafe && suite.resourceClass === 'standard'");
   expect(source).toContain("suite.resourceClass === 'runtime-heavy'");
   expect(source).toContain('runBunStepsInParallel');
+  expect(source).toContain('let stopScheduling = false');
+  expect(source).toContain('while (!stopScheduling && nextIndex < steps.length)');
+  expect(source).toContain('if (result.code !== 0)');
+  expect(source).toContain('stopScheduling = true');
+  expect(source).toContain('stopped scheduling after failure');
   expect(source).toContain('parallel-safe standard slow steps with concurrency ${concurrency}');
   expect(source).toContain('runtime-heavy slow steps serially');
   expect(source).toContain('SEC_TEST_WORKSPACE_NAMESPACE');
