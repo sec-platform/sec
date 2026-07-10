@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 
+import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
 
@@ -31,17 +32,10 @@ const runtimeHeavySlowSuites = new Set(
 
 function changedFiles(): string[] | null {
   const baseRef = process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE ?? 'HEAD^1';
-  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
     encoding: 'utf8'
   });
-  if (result.status !== 0) {
-    return null;
-  }
-
-  return result.stdout
-    .split(/\r?\n/u)
-    .map((line) => line.trim().replace(/\\/g, '/'))
-    .filter(Boolean);
+  return result.status === 0 ? parseGitChangedFileOutput(result.stdout) : null;
 }
 
 function formatDuration(durationMs: number): string {
