@@ -70,7 +70,12 @@ function fixture(): BuildEngineeringIRInput {
       }
     ],
     acceptanceIds: ['ticket_can_be_created', 'user_can_login'],
-    policyIds: ['tenant-scope-required']
+    policyDeclarations: [{
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['ticket/basic'],
+      rule: 'tenant_context_must_flow_to_query'
+    }]
   };
 }
 
@@ -115,7 +120,7 @@ test('buildEngineeringIR is deterministic across input ordering', () => {
     manifests: [...input.manifests].reverse(),
     slotTasks: [...input.slotTasks].reverse(),
     acceptanceIds: [...input.acceptanceIds].reverse(),
-    policyIds: [...input.policyIds].reverse()
+    policyDeclarations: [...input.policyDeclarations].reverse()
   };
 
   expect(buildEngineeringIR(reversed)).toEqual(buildEngineeringIR(input));
