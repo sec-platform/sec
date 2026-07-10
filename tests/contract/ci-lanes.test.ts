@@ -170,6 +170,17 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
   });
 });
 
+test('local affected runner shares canonical changed-file parsing and impact ownership', async () => {
+  const source = await readCompilerFile('platform/dev-runner/test-runner.ts');
+
+  expect(source).toContain('gitChangedFileDiffArgs');
+  expect(source).toContain('gitUntrackedFileArgs');
+  expect(source).toContain('parseGitChangedFileOutput');
+  expect(source).toContain('files.filter(isTestImpactSourceFile)');
+  expect(source).not.toContain('function impactSourceFile');
+  expect(source).not.toContain("['diff', '--name-only', '--diff-filter=ACMR'");
+});
+
 test('CI risk runner reuses bounded concurrency for impact-selected and all-slow profiles', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
 
