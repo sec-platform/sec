@@ -139,21 +139,31 @@ function printBufferedResult(result: GateStepResult): void {
 }
 
 async function runBunStepsInParallel(steps: GateStep[], concurrency: number): Promise<GateStepResult[]> {
-  const results = new Array<GateStepResult>(steps.length);
+  const results = new Array<GateStepResult | undefined>(steps.length);
   let nextIndex = 0;
+  let stopScheduling = false;
 
   async function worker(): Promise<void> {
-    while (nextIndex < steps.length) {
+    while (!stopScheduling && nextIndex < steps.length) {
       const currentIndex = nextIndex;
       nextIndex += 1;
       const step = steps[currentIndex];
       console.log(`CI risk: ${step.id} queued in parallel slow gate`);
-      results[currentIndex] = await runBunStepBuffered(step);
+      const result = await runBunStepBuffered(step);
+      results[currentIndex] = result;
+      if (result.code !== 0) {
+        stopScheduling = true;
+      }
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, steps.length) }, () => worker()));
-  return results;
+  const completedResults = results.filter((result): result is GateStepResult => result !== undefined);
+  const unscheduledCount = steps.length - completedResults.length;
+  if (unscheduledCount > 0) {
+    console.log(`CI risk: stopped scheduling after failure; ${unscheduledCount} parallel slow step(s) were not started.`);
+  }
+  return completedResults;
 }
 
 const files = changedFiles();
