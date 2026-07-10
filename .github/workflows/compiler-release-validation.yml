@@ -30,48 +30,77 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Checkout exact release ref
+      - name: Resolve and dedupe exact full verification key
+        id: verification
+        uses: actions/github-script@v7
+        env:
+          REQUESTED_REF: ${{ inputs.ref || github.sha }}
+        with:
+          script: |
+            const requestedRef = process.env.REQUESTED_REF;
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: requestedRef
+            });
+            const headSha = commit.sha;
+            const statusContext = 'sec-verification/full/ci-verification-v2';
+            const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: headSha,
+              per_page: 100
+            });
+            const trustedSuccess = statuses.some((status) => (
+              status.context === statusContext && status.state === 'success'
+            ));
+            core.setOutput('sha', headSha);
+            core.setOutput('skip', trustedSuccess ? 'true' : 'false');
+            if (trustedSuccess) {
+              core.notice(`Trusted ${statusContext} success already exists for ${headSha}; expensive verification skipped.`);
+            }
+
+      - name: Checkout exact release head
+        if: steps.verification.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ steps.verification.outputs.sha }}
           fetch-depth: 0
 
       - name: Setup Bun
+        if: steps.verification.outputs.skip != 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.6
 
       - name: Install dependencies once
+        if: steps.verification.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
-      - name: Capture exact head
-        id: head
-        shell: bash
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Run exact-head full verification
+        if: steps.verification.outputs.skip != 'true'
         id: verify
         continue-on-error: true
         shell: bash
         env:
-          SEC_EXPECTED_HEAD_SHA: ${{ steps.head.outputs.sha }}
+          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
         run: bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
 
       - name: Upload compact full verification evidence
-        if: always()
+        if: always() && steps.verification.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: sec-verification-full-${{ steps.head.outputs.sha }}
+          name: sec-verification-full-${{ steps.verification.outputs.sha }}
           path: .tmp/ci-verification-evidence.json
           if-no-files-found: error
           retention-days: 7
 
       - name: Record exact-head full verification status
-        if: always()
+        if: always() && steps.verification.outputs.skip != 'true'
         uses: actions/github-script@v7
         env:
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          VERIFY_HEAD: ${{ steps.head.outputs.sha }}
+          VERIFY_HEAD: ${{ steps.verification.outputs.sha }}
         with:
           script: |
             const state = process.env.VERIFY_OUTCOME === 'success' ? 'success' : 'failure';
@@ -85,5 +114,5 @@ jobs:
             });
 
       - name: Fail failed verification
-        if: steps.verify.outcome != 'success'
+        if: steps.verification.outputs.skip != 'true' && steps.verify.outcome != 'success'
         run: exit 1
