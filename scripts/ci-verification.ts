@@ -1,10 +1,11 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-contract.ts';
+import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { uniqueSorted } from '../platform/shared/collections.ts';
+import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/git-changed-files.ts';
 import { isFastTestFile } from '../platform/shared/test-budget-contract.ts';
 import {
   isTestImpactSourceFile,
@@ -74,12 +75,8 @@ function assertExpectedHead(actualHeadSha: string): void {
 
 function changedFiles(): string[] | null {
   const baseRef = process.env.SEC_CHANGED_BASE ?? process.env.SEC_AFFECTED_TESTS_BASE ?? 'HEAD^1';
-  const output = gitOutput(['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD']);
-  if (output === null) return null;
-  return output
-    .split(/\r?\n/u)
-    .map((line) => line.trim().replace(/\\/g, '/'))
-    .filter(Boolean);
+  const output = gitOutput(gitChangedFileDiffArgs(baseRef));
+  return output === null ? null : parseGitChangedFileOutput(output);
 }
 
 function hasTypeScriptChange(files: string[] | null): boolean {
