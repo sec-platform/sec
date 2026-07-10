@@ -1,6 +1,7 @@
 import type { TestImpactRule } from '../test-impact-contract.ts';
 
 const SEMANTIC_IR_FAST_TESTS = [
+  'tests/unit/canonical-ir-identity-revision.test.ts',
   'tests/unit/engineering-ir.test.ts',
   'tests/unit/semantic-contract-ir.test.ts',
   'tests/unit/semantic-contract-responsibility.test.ts',
@@ -34,6 +35,12 @@ export const semanticTestImpactRules: TestImpactRule[] = [
     sourcePattern: /^(?:platform\/compiler\/parse\/(?:load-semantic-contract|validate-semantic-manifest)\.ts|platform\/orchestrator\/(?:semantic-inputs|semantic-orchestrator)\.ts|platform\/shared\/(?:engineering-ir-types|semantic-contract-types)\.ts)$/,
     fast: SEMANTIC_IR_FAST_TESTS,
     slow: ['tests/e2e/semantic-runtime-contract.test.ts']
+  },
+  {
+    owner: 'policy-declarations',
+    sourcePattern: /^platform\/compiler\/parse\/load-policy-declarations\.ts$/,
+    fast: SEMANTIC_IR_FAST_TESTS,
+    slow: ['tests/e2e/policy.test.ts']
   },
   {
     owner: 'semantic-projection',

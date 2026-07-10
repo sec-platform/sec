@@ -15,6 +15,7 @@ export { indexEngineeringIR, type EngineeringIRIndex } from './ir/index-engineer
 export { loadManifestById, loadManifestForResolvedBlock } from './parse/load-manifest.ts';
 export { loadOverrideManifest } from './parse/load-override-manifest.ts';
 export { loadPlan, loadWorkspacePlan } from './parse/load-plan.ts';
+export { loadPolicyDeclarations } from './parse/load-policy-declarations.ts';
 export {
   loadSemanticContractsForManifestEntry,
   normalizeSemanticContract

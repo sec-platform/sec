@@ -53,6 +53,7 @@ export function normalizePlan(plan: PlanFile): PlanFile {
   const normalized = structuredClone((plan ?? {}) as Partial<PlanFile>);
   return {
     app: {
+      id: normalized.app?.id ?? '',
       name: normalized.app?.name ?? '',
       stack: normalized.app?.stack ?? '',
       packageManager: normalized.app?.packageManager ?? 'pnpm',
@@ -68,6 +69,10 @@ export function normalizePlan(plan: PlanFile): PlanFile {
 }
 
 export function validatePlan(plan: PlanFile): void {
+  if (!plan?.app?.id?.trim()) {
+    throw new CompilerError('PLAN-VALIDATION-014', 'Missing app.id');
+  }
+
   if (!plan?.app?.name) {
     throw new CompilerError('PLAN-VALIDATION-001', 'Missing app.name');
   }

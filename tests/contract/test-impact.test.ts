@@ -40,12 +40,21 @@ test('test impact selector owns canonical IR changes as semantic core changes', 
 
   expect(selection.owners).toContain('semantic-ir');
   expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/canonical-ir-identity-revision.test.ts',
     'tests/unit/engineering-ir.test.ts',
     'tests/unit/semantic-contract-ir.test.ts',
     'tests/integration/semantic-projections.test.ts',
     'tests/integration/workspace-engineering-ir.test.ts',
     'tests/integration/semantic-core-vertical.test.ts'
   ]));
+});
+
+test('test impact selector binds policy declaration loading to revision and policy coverage', () => {
+  const selection = selectTestsForSources(['platform/compiler/parse/load-policy-declarations.ts']);
+
+  expect(selection.owners).toContain('policy-declarations');
+  expect(selection.fast).toContain('tests/unit/canonical-ir-identity-revision.test.ts');
+  expect(selection.slow).toContain('tests/e2e/policy.test.ts');
 });
 
 test('test impact selector isolates semantic projection ownership', () => {

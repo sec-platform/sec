@@ -11,6 +11,7 @@ export type SlotKind = 'adapter' | 'policy' | 'ux' | 'repair';
 export type ManifestKind = 'capability' | 'strategy' | 'infra' | 'governance';
 
 export interface PlanApp {
+  id: string;
   name: string;
   stack: string;
   packageManager: PackageManager;

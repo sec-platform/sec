@@ -6,7 +6,7 @@ import type { LoadedSemanticContract } from '../../platform/shared/semantic-cont
 
 function baseInput(): BuildEngineeringIRInput {
   return {
-    app: { name: 'semantic-app' },
+    app: { id: 'semantic-app', name: 'semantic-app' },
     resolvedBlocks: [{
       id: 'item/basic',
       version: '0.1.0',
@@ -29,8 +29,7 @@ function baseInput(): BuildEngineeringIRInput {
     }],
     slotTasks: [],
     acceptanceIds: ['item_can_transition'],
-    policyIds: [],
-    provenanceArtifacts: []
+    policyDeclarations: []
   };
 }
 

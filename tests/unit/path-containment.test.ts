@@ -14,6 +14,7 @@ test('plan validation rejects registry paths that traverse outside their base ro
 
     await writeYaml(planPath, {
       app: {
+        id: 'customer-admin',
         name: 'customer-admin',
         stack: 'nextjs-ts-prisma-sqlite',
         packageManager: 'pnpm',
@@ -44,6 +45,7 @@ test('plan validation rejects slot targets that traverse outside custom', async 
 
     await writeYaml(planPath, {
       app: {
+        id: 'customer-admin',
         name: 'customer-admin',
         stack: 'nextjs-ts-prisma-sqlite',
         packageManager: 'pnpm',

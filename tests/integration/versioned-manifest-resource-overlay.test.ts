@@ -17,7 +17,7 @@ test('versioned manifest resources resolve through version-first block fallback 
   expect(contracts.map((entry) => entry.contractPath)).toContain('platform/registry/official/ticket.basic/contracts/ticket.yaml');
 
   const plan: PlanFile = {
-    app: { name: 'versioned-ticket-resource-overlay', stack: SUPPORTED_STACK, packageManager: 'pnpm', mode: 'single-tenant' },
+    app: { id: 'versioned-ticket-resource-overlay', name: 'versioned-ticket-resource-overlay', stack: SUPPORTED_STACK, packageManager: 'pnpm', mode: 'single-tenant' },
     registry: { sources: [{ id: 'official', kind: 'official', location: 'compiler', path: officialRegistryRelativePath.replaceAll('\\', '/') }] },
     blocks: [{ id: 'ticket/basic', version: '0.1.1' }],
     slots: [],

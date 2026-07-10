@@ -1,5 +1,6 @@
 app:
-  name: customer-admin
+  id: sec-reference
+  name: SEC Reference
   stack: nextjs-ts-prisma-sqlite
   packageManager: pnpm
   mode: multi-tenant
@@ -61,4 +62,3 @@ acceptance:
   - id: ticket_comment_can_be_added
   - id: agent_can_be_registered
   - id: agent_can_automatically_classify_ticket
-

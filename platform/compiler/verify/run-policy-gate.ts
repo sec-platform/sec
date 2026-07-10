@@ -1,125 +1,23 @@
 import path from 'node:path';
+
 import { uniqueSorted } from '../../shared/collections.ts';
-import { listFilesRecursive, pathExists, readJson, readText } from '../../shared/fs.ts';
+import { pathExists, readJson, readText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
-import { getWorkspacePaths, relativePosixPath, resolveWorkspaceLockPath } from '../../shared/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import type {
   MergedPolicyReportEntry,
   PolicyReport,
   PolicyRule,
-  PolicySourceFileReport,
-  PolicySourceScope,
-  PolicySpec,
   PolicyViolation
 } from '../../shared/policy-types.ts';
-import { readYaml } from '../../shared/yaml.ts';
-
-interface LoadedPolicyDefinition {
-  policy: PolicyRule;
-  sourceScope: PolicySourceScope;
-  sourcePath: string;
-}
-
-interface LoadedPolicyScope {
-  policies: string[];
-  sources: PolicySourceFileReport[];
-  definitions: LoadedPolicyDefinition[];
-}
-
-function normalizePolicies(spec: PolicySpec | null | undefined): PolicySpec {
-  return {
-    policies: spec?.policies ?? []
-  };
-}
-
-function normalizeRelativePath(rootPath: string, filePath: string): string {
-  return relativePosixPath(rootPath, filePath);
-}
-
-function withinScopePath(scope: PolicySourceScope, rootPath: string, filePath: string, sourcePrefix?: string): string {
-  const relativePath = normalizeRelativePath(rootPath, filePath);
-  return scope === 'official' ? `platform/policies/official/${relativePath}` : `${sourcePrefix ?? 'project/policies'}/${relativePath}`;
-}
-
-function isPolicySpecPath(filePath: string): boolean {
-  const normalized = filePath.toLowerCase();
-  return normalized.endsWith('.yaml') || normalized.endsWith('.yml');
-}
-
-async function loadPolicyScope(
-  scope: PolicySourceScope,
-  rootPath: string,
-  sourcePrefix?: string
-): Promise<LoadedPolicyScope> {
-  if (!(await pathExists(rootPath))) {
-    return {
-      policies: [],
-      sources: [],
-      definitions: []
-    };
-  }
-
-  const files = (await listFilesRecursive(rootPath))
-    .filter((filePath) => isPolicySpecPath(filePath))
-    .map((filePath) => ({
-      absolutePath: filePath,
-      normalizedPath: withinScopePath(scope, rootPath, filePath, sourcePrefix)
-    }))
-    .sort((left, right) => left.normalizedPath.localeCompare(right.normalizedPath));
-
-  const declaredPolicyIds = new Set<string>();
-  const sources: PolicySourceFileReport[] = [];
-  const definitions: LoadedPolicyDefinition[] = [];
-
-  for (const file of files) {
-    const spec = normalizePolicies(await readYaml<PolicySpec>(file.absolutePath));
-    const policyIds = uniqueSorted(spec.policies.map((policy) => policy.id));
-
-    for (const policy of spec.policies) {
-      declaredPolicyIds.add(policy.id);
-      definitions.push({
-        policy,
-        sourceScope: scope,
-        sourcePath: file.normalizedPath
-      });
-    }
-
-    sources.push({
-      path: file.normalizedPath,
-      policyIds
-    });
-  }
-
-  return {
-    policies: uniqueSorted([...declaredPolicyIds]),
-    sources,
-    definitions
-  };
-}
-
-function mergePolicyScopes(scopes: LoadedPolicyScope[]): LoadedPolicyScope {
-  return {
-    policies: uniqueSorted(scopes.flatMap((scope) => scope.policies)),
-    sources: scopes.flatMap((scope) => scope.sources).sort((left, right) => left.path.localeCompare(right.path)),
-    definitions: scopes.flatMap((scope) => scope.definitions)
-  };
-}
-
-function mergePolicies(
-  official: LoadedPolicyScope,
-  project: LoadedPolicyScope
-): Map<string, LoadedPolicyDefinition> {
-  const merged = new Map<string, LoadedPolicyDefinition>();
-
-  for (const definition of [...official.definitions, ...project.definitions]) {
-    merged.set(definition.policy.id, definition);
-  }
-
-  return merged;
-}
+import {
+  loadPolicyDeclarations,
+  type LoadedPolicyDefinition,
+  type LoadedPolicyScope
+} from '../parse/load-policy-declarations.ts';
 
 function buildMergedPolicyEntries(
-  definitions: Map<string, LoadedPolicyDefinition>,
+  definitions: ReadonlyMap<string, LoadedPolicyDefinition>,
   lock: LockFile | null
 ): MergedPolicyReportEntry[] {
   return [...definitions.values()]
@@ -178,7 +76,7 @@ function evaluateTenantScopeRule(
 function buildPolicyReport(
   official: LoadedPolicyScope,
   project: LoadedPolicyScope,
-  mergedPolicies: Map<string, LoadedPolicyDefinition>,
+  mergedPolicies: ReadonlyMap<string, LoadedPolicyDefinition>,
   lock: LockFile | null,
   violations: PolicyViolation[]
 ): PolicyReport {
@@ -208,14 +106,12 @@ function buildPolicyReport(
 }
 
 export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport> {
-  const { officialPoliciesRoot, projectPoliciesRoot, sourcePoliciesRoot, legacySourcePoliciesRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
-  const official = await loadPolicyScope('official', officialPoliciesRoot);
-  const project = mergePolicyScopes([
-    await loadPolicyScope('project', projectPoliciesRoot, 'project/policies'),
-    await loadPolicyScope('project', sourcePoliciesRoot, 'source/model/policies'),
-    await loadPolicyScope('project', legacySourcePoliciesRoot, 'project/source/policies')
-  ]);
-  const mergedPolicies = mergePolicies(official, project);
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const {
+    official,
+    project,
+    definitions: mergedPolicies
+  } = await loadPolicyDeclarations(workspaceRoot);
 
   if (mergedPolicies.size === 0) {
     return buildPolicyReport(official, project, mergedPolicies, null, []);
