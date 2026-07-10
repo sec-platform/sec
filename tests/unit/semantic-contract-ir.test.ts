@@ -29,7 +29,7 @@ function baseInput(): BuildEngineeringIRInput {
     }],
     slotTasks: [],
     acceptanceIds: ['item_can_transition'],
-    policyIds: []
+    policyDeclarations: []
   };
 }
 
