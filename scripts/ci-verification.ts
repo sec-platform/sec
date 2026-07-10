@@ -3,9 +3,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-contract.ts';
+import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { uniqueSorted } from '../platform/shared/collections.ts';
-import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/git-changed-files.ts';
 import { isFastTestFile } from '../platform/shared/test-budget-contract.ts';
 import {
   isTestImpactSourceFile,
