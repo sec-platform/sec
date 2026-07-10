@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'bun:test';
+
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import { getSlowTestSuitesSync } from '../../platform/shared/test-budget-contract.ts';
 
