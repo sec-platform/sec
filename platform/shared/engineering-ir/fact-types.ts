@@ -64,6 +64,7 @@ export const FACT_PROVENANCE_KINDS = [
 ] as const;
 
 export type SemanticFactId = string;
+export type FactAssertionId = string;
 export type SemanticPredicate = (typeof SEMANTIC_PREDICATES)[number];
 export type SemanticAuthority = (typeof SEMANTIC_AUTHORITIES)[number];
 export type FactProvenanceKind = (typeof FACT_PROVENANCE_KINDS)[number];
@@ -91,15 +92,20 @@ export interface EvidenceReference {
   digest?: string;
 }
 
+export interface FactAssertion {
+  id: FactAssertionId;
+  authority: SemanticAuthority;
+  confidence: number;
+  provenance: FactProvenance[];
+  evidence: EvidenceReference[];
+  validFromRevision: string;
+  validToRevision?: string;
+}
+
 export interface SemanticFact {
   id: SemanticFactId;
   subject: SemanticEntityId;
   predicate: SemanticPredicate;
   object: SemanticFactObject;
-  authority: SemanticAuthority;
-  confidence: number;
-  provenance: FactProvenance[];
-  evidence: EvidenceReference[];
-  validFrom: string;
-  validTo?: string;
+  assertions: FactAssertion[];
 }
