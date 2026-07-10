@@ -15,27 +15,41 @@ import {
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
 
-test('CI contract keeps PR lanes fast and full lane complete', () => {
+test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
   const contract = buildCiContract();
 
   expectPrFastLaneBoundary(contract);
   expectFullLaneCoversCorrectnessBackstop(contract);
   expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds());
+  expect(contract.executionModel).toBe('frozen-delivery-single-runner');
+  expect(contract.triggerLabels).toEqual(['run-full', 'run-quick']);
+  expect(contract.prWorkflowCommands).toEqual([
+    'bun install --frozen-lockfile',
+    'bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"'
+  ]);
+  expect(contract.releaseWorkflowCommands).toEqual([
+    'bun install --frozen-lockfile',
+    'bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"'
+  ]);
 });
 
 test('CI contract counts and produced paths are self-consistent', () => {
   expectCiContractSelfConsistent(buildCiContract());
 });
 
-test('CI contract text exposes lane command split for workflow audits', () => {
+test('CI contract text exposes execution and logical lane split for workflow audits', () => {
   const formatted = formatCiContract(buildCiContract());
 
+  expect(formatted).toContain('Verification contract revision: ci-verification-v2');
+  expect(formatted).toContain('Execution model: frozen-delivery-single-runner');
+  expect(formatted).toContain('Trigger labels: run-full, run-quick');
+  expect(formatted).toContain('PR workflow command count:');
+  expect(formatted).toContain('PR workflow commands:');
+  expect(formatted).toContain('Release workflow command count:');
+  expect(formatted).toContain('Release workflow commands:');
   expect(formatted).toContain('PR quick lane command count:');
-  expect(formatted).toContain('PR quick lane commands:');
   expect(formatted).toContain('PR risk lane command count:');
-  expect(formatted).toContain('PR risk lane commands:');
   expect(formatted).toContain('Full lane command count:');
-  expect(formatted).toContain('Full lane commands:');
 });
 
 test('CI PR risk gate selects slow suites from the test impact contract', () => {
@@ -62,6 +76,24 @@ test('CI PR risk gate selects slow suites from the test impact contract', () => 
     slowTests: [],
     affectedSlowTests: ['tests/e2e/dry-run-plan.test.ts'],
     reason: 'impact'
+  });
+});
+
+test('CI impact ownership includes validation workflows and roadmap authority', () => {
+  expect(selectCiPrRiskSlowSuites(['.github/workflows/compiler-pr-validation.yml'])).toEqual({
+    suites: [],
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['verification-infrastructure'],
+    reason: 'none'
+  });
+
+  expect(selectCiPrRiskSlowSuites(['docs/03-MVP实施计划与路线图.md'])).toEqual({
+    suites: [],
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['roadmap-authority'],
+    reason: 'none'
   });
 });
 
@@ -92,6 +124,13 @@ test('CI PR risk gate uses bounded baseline suites for broad risk changes', () =
     reason: 'baseline'
   });
   expect(selectCiPrRiskSlowSuites(['tests/setup/runtime-deps.setup.ts'])).toEqual({
+    suites: baselineSuites,
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['bounded-slow-risk'],
+    reason: 'baseline'
+  });
+  expect(selectCiPrRiskSlowSuites(['tests/testkit/workspace.ts'])).toEqual({
     suites: baselineSuites,
     slowTests: [],
     affectedSlowTests: [],
@@ -131,9 +170,11 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
   });
 });
 
-test('CI PR risk runner parallelizes standard suites with isolated workspace roots and serializes runtime-heavy suites', async () => {
+test('CI risk runner reuses bounded concurrency for impact-selected and all-slow profiles', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
 
+  expect(source).toContain("process.argv.includes('--all-slow')");
+  expect(source).toContain('runAllSlow ? slowSuites : slowSuiteSelection.suites');
   expect(source).toContain('SEC_CI_PR_RISK_SLOW_CONCURRENCY');
   expect(source).toContain("suite.parallelSafe && suite.resourceClass === 'standard'");
   expect(source).toContain("suite.resourceClass === 'runtime-heavy'");
