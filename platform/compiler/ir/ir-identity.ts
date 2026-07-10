@@ -170,8 +170,11 @@ export function assertEngineeringIRReferences(
   for (const fact of facts) {
     if (!entityIds.has(fact.subject)) throw new CompilerError('IR-FACT-002', `Fact "${fact.id}" references missing subject "${fact.subject}"`);
     if (fact.object.kind === 'entity' && !entityIds.has(fact.object.entityId)) throw new CompilerError('IR-FACT-003', `Fact "${fact.id}" references missing object "${fact.object.entityId}"`);
-    if (fact.confidence < 0 || fact.confidence > 1) throw new CompilerError('IR-AUTHORITY-001', `Fact "${fact.id}" confidence must be between 0 and 1`);
-    if (fact.provenance.length === 0) throw new CompilerError('IR-AUTHORITY-002', `Fact "${fact.id}" must include provenance`);
+    if (fact.assertions.length === 0) throw new CompilerError('IR-AUTHORITY-004', `Fact "${fact.id}" must include at least one assertion`);
+    for (const assertion of fact.assertions) {
+      if (assertion.confidence < 0 || assertion.confidence > 1) throw new CompilerError('IR-AUTHORITY-001', `Fact assertion "${assertion.id}" confidence must be between 0 and 1`);
+      if (assertion.provenance.length === 0) throw new CompilerError('IR-AUTHORITY-002', `Fact assertion "${assertion.id}" must include provenance`);
+    }
   }
 
   for (const scenario of scenarios) {
