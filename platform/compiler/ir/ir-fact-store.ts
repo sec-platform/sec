@@ -1,5 +1,6 @@
 import type {
   EvidenceReference,
+  FactAssertion,
   FactProvenance,
   SemanticAuthority,
   SemanticEntityId,
@@ -22,17 +23,10 @@ export interface FactInput {
   confidence?: number;
 }
 
-const AUTHORITY_STRENGTH: Record<SemanticAuthority, number> = {
-  inferred: 0,
-  observed: 1,
-  derived: 2,
-  authoritative: 3
-};
-
 function assertFactInput(input: FactInput): void {
   const confidence = input.confidence ?? 1;
   if (confidence < 0 || confidence > 1) {
-    throw new CompilerError('IR-AUTHORITY-001', 'Semantic fact confidence must be between 0 and 1', {
+    throw new CompilerError('IR-AUTHORITY-001', 'Semantic fact assertion confidence must be between 0 and 1', {
       subject: input.subject,
       predicate: input.predicate,
       object: input.object,
@@ -40,7 +34,7 @@ function assertFactInput(input: FactInput): void {
     });
   }
   if (input.provenance.length === 0) {
-    throw new CompilerError('IR-AUTHORITY-002', 'Semantic fact must include provenance', {
+    throw new CompilerError('IR-AUTHORITY-002', 'Semantic fact assertion must include provenance', {
       subject: input.subject,
       predicate: input.predicate,
       object: input.object
@@ -48,24 +42,54 @@ function assertFactInput(input: FactInput): void {
   }
 }
 
+function assertionId(factId: string, authority: SemanticAuthority, provenance: readonly FactProvenance[]): string {
+  const identity = [factId, authority, JSON.stringify(provenance)].join('\u0000');
+  return `assertion:${digest(identity).slice(0, 24)}`;
+}
+
+function buildAssertion(factId: string, input: FactInput): FactAssertion {
+  const provenance = normalizeProvenance(input.provenance);
+  return {
+    id: assertionId(factId, input.authority, provenance),
+    authority: input.authority,
+    confidence: input.confidence ?? 1,
+    provenance,
+    evidence: normalizeEvidence(input.evidence ?? []),
+    validFromRevision: 'build'
+  };
+}
+
 function buildFact(input: FactInput): SemanticFact {
   assertFactInput(input);
   const normalizedObject = normalizeFactObject(input.object);
   const identity = factIdentity({ ...input, object: normalizedObject });
+  const id = `fact:${digest(identity).slice(0, 24)}`;
   return {
-    id: `fact:${digest(identity).slice(0, 24)}`,
+    id,
     subject: input.subject,
     predicate: input.predicate,
     object: normalizedObject,
-    authority: input.authority,
-    confidence: input.confidence ?? 1,
-    provenance: normalizeProvenance(input.provenance),
-    evidence: normalizeEvidence(input.evidence ?? []),
-    validFrom: 'build'
+    assertions: [buildAssertion(id, input)]
   };
 }
 
-export function mergeFacts(existing: SemanticFact, incoming: SemanticFact): SemanticFact {
+function mergeAssertion(existing: FactAssertion, incoming: FactAssertion): FactAssertion {
+  if (
+    existing.id !== incoming.id ||
+    existing.authority !== incoming.authority ||
+    JSON.stringify(existing.provenance) !== JSON.stringify(incoming.provenance)
+  ) {
+    throw new CompilerError('IR-AUTHORITY-003', `Fact assertion id "${existing.id}" collides across different assertion identities`);
+  }
+
+  return {
+    ...existing,
+    confidence: Math.max(existing.confidence, incoming.confidence),
+    evidence: normalizeEvidence([...existing.evidence, ...incoming.evidence])
+  };
+}
+
+function appendFactAssertions(existing: SemanticFact, incoming: SemanticFact): SemanticFact {
   if (factIdentity(existing) !== factIdentity(incoming)) {
     throw new CompilerError('IR-FACT-001', `Semantic fact id "${existing.id}" collides across different triples`, {
       existing: { subject: existing.subject, predicate: existing.predicate, object: existing.object },
@@ -73,26 +97,21 @@ export function mergeFacts(existing: SemanticFact, incoming: SemanticFact): Sema
     });
   }
 
-  const authorityDifference = AUTHORITY_STRENGTH[incoming.authority] - AUTHORITY_STRENGTH[existing.authority];
-  const authority = authorityDifference > 0 ? incoming.authority : existing.authority;
-  const confidence = authorityDifference > 0
-    ? incoming.confidence
-    : authorityDifference < 0
-      ? existing.confidence
-      : Math.max(existing.confidence, incoming.confidence);
+  const assertions = new Map(existing.assertions.map((assertion) => [assertion.id, assertion]));
+  for (const assertion of incoming.assertions) {
+    const current = assertions.get(assertion.id);
+    assertions.set(assertion.id, current ? mergeAssertion(current, assertion) : assertion);
+  }
 
   return {
     ...existing,
-    authority,
-    confidence,
-    provenance: normalizeProvenance([...existing.provenance, ...incoming.provenance]),
-    evidence: normalizeEvidence([...existing.evidence, ...incoming.evidence])
+    assertions: [...assertions.values()].sort((left, right) => left.id.localeCompare(right.id))
   };
 }
 
 export function addFact(facts: Map<string, SemanticFact>, factInput: FactInput): string {
   const fact = buildFact(factInput);
   const existing = facts.get(fact.id);
-  facts.set(fact.id, existing ? mergeFacts(existing, fact) : fact);
+  facts.set(fact.id, existing ? appendFactAssertions(existing, fact) : fact);
   return fact.id;
 }
