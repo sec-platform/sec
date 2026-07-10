@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
-import { applyViewMutations } from '../../platform/compiler/workbench/apply-view-mutations.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { readYaml } from '../../platform/shared/yaml.ts';
+import { applyViewMutations } from '../../platform/compiler/workbench/apply-view-mutations.ts';
 import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
+import { readYaml } from '../../platform/shared/yaml.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('applyViewMutations handles graphical mutations correctly', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
