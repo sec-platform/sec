@@ -35,7 +35,7 @@ export async function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd())
     })),
     slotTasks: lock.slotTasks,
     acceptanceIds: plan.acceptance.map((acceptance) => acceptance.id),
-    policyIds: policyDeclarations.policyIds,
+    policyDeclarations: policyDeclarations.policies,
     semanticContracts
   });
 }
