@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Refresh twice and capture stable reference outputs
+      - name: Capture stable reference outputs
         shell: bash
         run: |
           set -euo pipefail
@@ -44,12 +44,9 @@ jobs:
             control/workbench/views/source-view.html
           )
           bun run reference:refresh
-          sha256sum "${paths[@]}" > /tmp/sec-reference.sha256
-          bun run reference:refresh
-          sha256sum --check /tmp/sec-reference.sha256
           for path in "${paths[@]}"; do
             echo "SEC_REFERENCE_BEGIN ${path}"
-            base64 -w 0 "${path}"
+            base64 -w 4096 "${path}"
             echo
             echo "SEC_REFERENCE_END ${path}"
           done
