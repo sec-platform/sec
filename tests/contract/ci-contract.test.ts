@@ -29,6 +29,9 @@ test('active GitHub validation workflows execute frozen heads once and retired l
   expect(prWorkflow).toContain('github.event.pull_request.head.sha');
   expect(prWorkflow).toContain("github.event.label.name == 'run-quick' || github.event.label.name == 'run-full'");
   expect(prWorkflow).toContain('ref: ${{ github.event.pull_request.head.sha }}');
+  expect(prWorkflow).toContain('actions/upload-artifact@v4');
+  expect(prWorkflow).toContain('.tmp/ci-verification-evidence.json');
+  expect(prWorkflow).toContain('retention-days: 7');
   expect(prWorkflow).toContain('sec-verification/${profile}/ci-verification-v2');
   expect(prWorkflow).not.toContain('- opened');
   expect(prWorkflow).not.toContain('- synchronize');
@@ -45,6 +48,9 @@ test('active GitHub validation workflows execute frozen heads once and retired l
   expect(releaseWorkflow).toContain('workflow_dispatch:');
   expect(releaseWorkflow).toContain('workflow_call:');
   expect(releaseWorkflow).toContain('--profile full');
+  expect(releaseWorkflow).toContain('actions/upload-artifact@v4');
+  expect(releaseWorkflow).toContain('.tmp/ci-verification-evidence.json');
+  expect(releaseWorkflow).toContain('retention-days: 7');
   expect(releaseWorkflow).toContain('sec-verification/full/ci-verification-v2');
   expect(releaseWorkflow).not.toContain('pull_request:');
   expect(releaseWorkflow).not.toContain('schedule:');
@@ -57,6 +63,9 @@ test('active GitHub validation workflows execute frozen heads once and retired l
   expect(occurrenceCount(releaseWorkflow, 'bun install --frozen-lockfile')).toBe(1);
 
   expect(verificationSource).toContain('CI_VERIFICATION_CONTRACT_REVISION');
+  expect(verificationSource).toContain('VERIFICATION_EVIDENCE_PATH');
+  expect(verificationSource).toContain('writeEvidence({');
+  expect(verificationSource).toContain('failedGate: result.id');
   expect(verificationSource).toContain('assertExpectedHead(headSha)');
   expect(verificationSource).toContain('files.some(isVerificationInfrastructureFile)');
   expect(verificationSource).toContain('full-fast-verification-infrastructure');
