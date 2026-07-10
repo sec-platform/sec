@@ -75,6 +75,16 @@ test('same triple with distinct provenance retains one Fact and two Assertions',
   ]));
 });
 
+test('same assertion identity rejects conflicting confidence instead of strongest-wins merge', () => {
+  const facts = new Map<string, SemanticFact>();
+  addFact(facts, factInput({ confidence: 0.4 }));
+
+  expectCompilerError(
+    () => addFact(facts, factInput({ confidence: 0.9 })),
+    'IR-AUTHORITY-003'
+  );
+});
+
 test('inferred confidence 1 does not overwrite an authoritative assertion', () => {
   const facts = new Map<string, SemanticFact>();
   const factId = addFact(facts, factInput({ confidence: 0.4 }));
