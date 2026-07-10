@@ -22,9 +22,59 @@ export type TestImpactSelection = {
   owners: string[];
 };
 
+const VERIFICATION_INFRASTRUCTURE_PATTERNS = [
+  /^\.github\/workflows\//,
+  /^scripts\/ci-[^/]+\.ts$/,
+  /^platform\/dev-runner\//,
+  /^platform\/shared\/ci-[^/]+\.ts$/,
+  /^platform\/shared\/test-(?:budget|impact)-contract\.ts$/,
+  /^platform\/shared\/test-impact-rules\//
+];
+
+const TEST_IMPACT_SOURCE_PATTERNS = [
+  /^(platform|scripts)\//,
+  /^\.github\/workflows\//,
+  /^docs\/03-MVP实施计划与路线图\.md$/,
+  /^(package\.json|bun\.lock)$/,
+  /^tests\/(?:helpers|setup|testkit)\//
+];
+
+export function isVerificationInfrastructureFile(file: string): boolean {
+  return VERIFICATION_INFRASTRUCTURE_PATTERNS.some((pattern) => pattern.test(file));
+}
+
+export function isTestImpactSourceFile(file: string): boolean {
+  return TEST_IMPACT_SOURCE_PATTERNS.some((pattern) => pattern.test(file));
+}
+
 export const testImpactRules: TestImpactRule[] = [
   ...pipelineTestImpactRules,
   ...semanticTestImpactRules,
+  {
+    owner: 'verification-infrastructure',
+    sourcePattern: /^(?:\.github\/workflows\/|scripts\/ci-[^/]+\.ts$|platform\/dev-runner\/|platform\/shared\/ci-[^/]+\.ts$|platform\/shared\/test-(?:budget|impact)-contract\.ts$|platform\/shared\/test-impact-rules\/)/,
+    fast: [
+      'tests/contract/benchmark-budget.test.ts',
+      'tests/contract/ci-contract.test.ts',
+      'tests/contract/ci-lanes.test.ts',
+      'tests/contract/slow-suite-resource-budget.test.ts',
+      'tests/integration/project-runtime.test.ts',
+      'tests/unit/test-runner.test.ts'
+    ],
+    slow: []
+  },
+  {
+    owner: 'roadmap-authority',
+    sourcePattern: /^docs\/03-MVP实施计划与路线图\.md$/,
+    fast: ['tests/integration/project-runtime.test.ts'],
+    slow: []
+  },
+  {
+    owner: 'repository-runtime-contract',
+    sourcePattern: /^(?:package\.json|bun\.lock)$/,
+    fast: ['tests/contract/benchmark-budget.test.ts', 'tests/integration/project-runtime.test.ts'],
+    slow: []
+  },
   {
     owner: 'test-impact',
     sourcePattern: /^platform\/shared\/test-impact-contract\.ts$/,
@@ -197,10 +247,6 @@ function readTestSource(testFile: string): string | null {
   }
 }
 
-// 测试文件的 import specifier 列表在进程内不会变化（test 集合在启动时确定），
-// memoize 一次解析结果可让 selectTestsForSources 在多次调用时复用，避免反复
-// 读盘 + ts-morph 解析。ci-lanes.test.ts / test-impact.test.ts 等多次调用场景
-// 可由 ~4-6x 解析降到 1x 解析 + 廉价查表。
 const testImportSpecifiersCache = new Map<string, string[]>();
 
 function readTestImportSpecifiers(testFile: string): string[] {

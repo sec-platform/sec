@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { gitChangedFileDiffArgs, gitUntrackedFileArgs, parseGitChangedFileOutput } from '../shared/ci-git-changed-files.ts';
 import { uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
 import { pathExists } from '../shared/fs.ts';
@@ -14,7 +15,7 @@ import {
   slowTestSuiteFiles,
   slowTestSuiteIds
 } from '../shared/test-budget-contract.ts';
-import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
+import { formatSlowImpactNotice, isTestImpactSourceFile, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 import { partitionFastTestFiles } from './fast-test-policy.ts';
@@ -209,22 +210,14 @@ function affectedTestsBaseRef(): string | undefined {
 
 async function gitChangedFiles(): Promise<string[] | null> {
   const baseRef = affectedTestsBaseRef();
-  const trackedArgs = baseRef
-    ? ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD']
-    : ['diff', '--name-only', '--diff-filter=ACMR', 'HEAD'];
   const [tracked, untracked] = await Promise.all([
-    runCommand('git', trackedArgs, { cwd: compilerRoot }),
-    runCommand('git', ['ls-files', '--others', '--exclude-standard'], { cwd: compilerRoot })
+    runCommand('git', gitChangedFileDiffArgs(baseRef), { cwd: compilerRoot }),
+    runCommand('git', gitUntrackedFileArgs(), { cwd: compilerRoot })
   ]);
   if (tracked.code !== 0 || untracked.code !== 0) {
     return null;
   }
-  return uniqueSortedLines(`${tracked.stdout}\n${untracked.stdout}`)
-    .map(posixPath);
-}
-
-function impactSourceFile(file: string): boolean {
-  return /^(platform|scripts)\//.test(file);
+  return parseGitChangedFileOutput(`${tracked.stdout}\n${untracked.stdout}`);
 }
 
 function allowFullFastFallback(): boolean {
@@ -273,7 +266,7 @@ interface AffectedTestSelection {
 async function affectedTestSelection(): Promise<AffectedTestSelection | null> {
   const files = await gitChangedFiles();
   if (!files) return null;
-  const impactSourceFiles = files.filter(impactSourceFile);
+  const impactSourceFiles = files.filter(isTestImpactSourceFile);
   const impact = selectTestsForSources(impactSourceFiles);
   return {
     tests: files.filter(isFastTestFile),

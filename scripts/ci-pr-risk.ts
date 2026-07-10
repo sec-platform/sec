@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 
+import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
 
@@ -17,6 +18,7 @@ type GateStepResult = GateStep & {
 
 const slowSuites = slowTestSuiteIds();
 const slowSuiteContracts = getSlowTestSuitesSync();
+const runAllSlow = process.argv.includes('--all-slow');
 const parallelSafeSlowSuites = new Set(
   slowSuiteContracts
     .filter((suite) => suite.parallelSafe && suite.resourceClass === 'standard')
@@ -30,17 +32,10 @@ const runtimeHeavySlowSuites = new Set(
 
 function changedFiles(): string[] | null {
   const baseRef = process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE ?? 'HEAD^1';
-  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
     encoding: 'utf8'
   });
-  if (result.status !== 0) {
-    return null;
-  }
-
-  return result.stdout
-    .split(/\r?\n/u)
-    .map((line) => line.trim().replace(/\\/g, '/'))
-    .filter(Boolean);
+  return result.status === 0 ? parseGitChangedFileOutput(result.stdout) : null;
 }
 
 function formatDuration(durationMs: number): string {
@@ -62,7 +57,7 @@ function slowTestStepId(file: string): string {
 function gateStepEnvironment(step: GateStep): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    SEC_TEST_WORKSPACE_NAMESPACE: `pr-risk-${slowTestStepId(step.id)}`
+    SEC_TEST_WORKSPACE_NAMESPACE: `ci-risk-${slowTestStepId(step.id)}`
   };
 }
 
@@ -72,15 +67,15 @@ function slowSuiteIdForStep(step: GateStep): string | undefined {
 
 function runBunStep(step: GateStep): number {
   const startedAt = Date.now();
-  groupStart(`CI PR risk: ${step.id}`);
-  console.log(`CI PR risk: ${step.id} started`);
+  groupStart(`CI risk: ${step.id}`);
+  console.log(`CI risk: ${step.id} started`);
   try {
     const result = spawnSync('bun', step.args, {
       env: gateStepEnvironment(step),
       stdio: 'inherit'
     });
     const code = result.status ?? 1;
-    console.log(`CI PR risk: ${step.id} finished with exit code ${code} in ${formatDuration(Date.now() - startedAt)}`);
+    console.log(`CI risk: ${step.id} finished with exit code ${code} in ${formatDuration(Date.now() - startedAt)}`);
     return code;
   } finally {
     groupEnd();
@@ -102,6 +97,7 @@ function runBunStepBuffered(step: GateStep): Promise<GateStepResult> {
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    let settled = false;
 
     child.stdout?.on('data', (chunk: Buffer) => {
       stdoutChunks.push(chunk);
@@ -109,31 +105,30 @@ function runBunStepBuffered(step: GateStep): Promise<GateStepResult> {
     child.stderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
     });
+
+    const finish = (code: number): void => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        ...step,
+        code,
+        durationMs: Date.now() - startedAt,
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf8')
+      });
+    };
+
     child.on('error', (error) => {
       stderrChunks.push(Buffer.from(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`));
-      resolve({
-        ...step,
-        code: 1,
-        durationMs: Date.now() - startedAt,
-        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr: Buffer.concat(stderrChunks).toString('utf8')
-      });
+      finish(1);
     });
-    child.on('close', (code) => {
-      resolve({
-        ...step,
-        code: code ?? 1,
-        durationMs: Date.now() - startedAt,
-        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr: Buffer.concat(stderrChunks).toString('utf8')
-      });
-    });
+    child.on('close', (code) => finish(code ?? 1));
   });
 }
 
 function printBufferedResult(result: GateStepResult): void {
-  groupStart(`CI PR risk: ${result.id}`);
-  console.log(`CI PR risk: ${result.id} finished with exit code ${result.code} in ${formatDuration(result.durationMs)}`);
+  groupStart(`CI risk: ${result.id}`);
+  console.log(`CI risk: ${result.id} finished with exit code ${result.code} in ${formatDuration(result.durationMs)}`);
   if (result.stdout) {
     process.stdout.write(result.stdout);
   }
@@ -144,40 +139,51 @@ function printBufferedResult(result: GateStepResult): void {
 }
 
 async function runBunStepsInParallel(steps: GateStep[], concurrency: number): Promise<GateStepResult[]> {
-  const results = new Array<GateStepResult>(steps.length);
+  const results = new Array<GateStepResult | undefined>(steps.length);
   let nextIndex = 0;
+  let stopScheduling = false;
 
   async function worker(): Promise<void> {
-    while (nextIndex < steps.length) {
+    while (!stopScheduling && nextIndex < steps.length) {
       const currentIndex = nextIndex;
       nextIndex += 1;
       const step = steps[currentIndex];
-      console.log(`CI PR risk: ${step.id} queued in parallel slow gate`);
-      results[currentIndex] = await runBunStepBuffered(step);
+      console.log(`CI risk: ${step.id} queued in parallel slow gate`);
+      const result = await runBunStepBuffered(step);
+      results[currentIndex] = result;
+      if (result.code !== 0) {
+        stopScheduling = true;
+      }
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, steps.length) }, () => worker()));
-  return results;
+  const completedResults = results.filter((result): result is GateStepResult => result !== undefined);
+  const unscheduledCount = steps.length - completedResults.length;
+  if (unscheduledCount > 0) {
+    console.log(`CI risk: stopped scheduling after failure; ${unscheduledCount} parallel slow step(s) were not started.`);
+  }
+  return completedResults;
 }
 
 const files = changedFiles();
 if (files) {
-  console.log(`CI PR risk: latest-commit changed file count ${files.length}`);
+  console.log(`CI risk: latest-commit changed file count ${files.length}`);
 } else {
-  console.log('CI PR risk: changed file detection failed; running all slow suites.');
+  console.log('CI risk: changed file detection failed.');
 }
 
-console.log('CI PR risk: typecheck is owned by CI PR quick.');
+console.log('CI risk: typecheck is owned by the verification coordinator.');
 const slowSuiteSelection = selectCiPrRiskSlowSuites(files);
-const selectedSlowSuites = slowSuiteSelection.suites;
-const selectedSlowTests = slowSuiteSelection.slowTests;
-console.log(`CI PR risk: slow suite selection reason ${slowSuiteSelection.reason}`);
-console.log(`CI PR risk: affected owners [${slowSuiteSelection.owners.join(', ')}]`);
-console.log(`CI PR risk: affected slow tests [${slowSuiteSelection.affectedSlowTests.join(', ')}]`);
-console.log(`CI PR risk: slow suites run [${selectedSlowSuites.join(', ')}]`);
-console.log(`CI PR risk: slow test files run [${selectedSlowTests.join(', ')}]`);
-console.log(`CI PR risk: slow suites skipped [${slowSuites.filter((suite) => !selectedSlowSuites.includes(suite)).join(', ')}]`);
+const selectedSlowSuites = runAllSlow ? slowSuites : slowSuiteSelection.suites;
+const selectedSlowTests = runAllSlow ? [] : slowSuiteSelection.slowTests;
+console.log(`CI risk: execution mode ${runAllSlow ? 'all-slow' : 'impact-selected'}`);
+console.log(`CI risk: slow suite selection reason ${slowSuiteSelection.reason}`);
+console.log(`CI risk: affected owners [${slowSuiteSelection.owners.join(', ')}]`);
+console.log(`CI risk: affected slow tests [${slowSuiteSelection.affectedSlowTests.join(', ')}]`);
+console.log(`CI risk: slow suites run [${selectedSlowSuites.join(', ')}]`);
+console.log(`CI risk: slow test files run [${selectedSlowTests.join(', ')}]`);
+console.log(`CI risk: slow suites skipped [${slowSuites.filter((suite) => !selectedSlowSuites.includes(suite)).join(', ')}]`);
 
 const preSlowSteps: GateStep[] = [
   { id: 'contract-freeze', args: ['run', 'test:contract-freeze'] }
@@ -211,21 +217,21 @@ const startedAt = Date.now();
 for (const step of preSlowSteps) {
   const code = runBunStep(step);
   if (code !== 0) {
-    console.error(`CI PR risk failed at ${step.id} with exit code ${code}`);
+    console.error(`CI risk failed at ${step.id} with exit code ${code}`);
     process.exit(code);
   }
 }
 
 if (parallelSafeSlowSteps.length > 0) {
   const concurrency = slowSuiteConcurrency();
-  console.log(`CI PR risk: running ${parallelSafeSlowSteps.length} parallel-safe standard slow steps with concurrency ${concurrency}`);
+  console.log(`CI risk: running ${parallelSafeSlowSteps.length} parallel-safe standard slow steps with concurrency ${concurrency}`);
   const results = await runBunStepsInParallel(parallelSafeSlowSteps, concurrency);
   for (const result of results) {
     printBufferedResult(result);
   }
   const failed = results.find((result) => result.code !== 0);
   if (failed) {
-    console.error(`CI PR risk failed at ${failed.id} with exit code ${failed.code}`);
+    console.error(`CI risk failed at ${failed.id} with exit code ${failed.code}`);
     process.exit(failed.code);
   }
 }
@@ -233,17 +239,17 @@ if (parallelSafeSlowSteps.length > 0) {
 for (const step of serialSlowSteps) {
   const code = runBunStep(step);
   if (code !== 0) {
-    console.error(`CI PR risk failed at ${step.id} with exit code ${code}`);
+    console.error(`CI risk failed at ${step.id} with exit code ${code}`);
     process.exit(code);
   }
 }
 
 if (runtimeHeavySlowSteps.length > 0) {
-  console.log(`CI PR risk: running runtime-heavy slow steps serially [${runtimeHeavySlowSteps.map((step) => step.id).join(', ')}]`);
+  console.log(`CI risk: running runtime-heavy slow steps serially [${runtimeHeavySlowSteps.map((step) => step.id).join(', ')}]`);
   for (const step of runtimeHeavySlowSteps) {
     const code = runBunStep(step);
     if (code !== 0) {
-      console.error(`CI PR risk failed at ${step.id} with exit code ${code}`);
+      console.error(`CI risk failed at ${step.id} with exit code ${code}`);
       process.exit(code);
     }
   }
@@ -252,9 +258,9 @@ if (runtimeHeavySlowSteps.length > 0) {
 for (const step of postSlowSteps) {
   const code = runBunStep(step);
   if (code !== 0) {
-    console.error(`CI PR risk failed at ${step.id} with exit code ${code}`);
+    console.error(`CI risk failed at ${step.id} with exit code ${code}`);
     process.exit(code);
   }
 }
 
-console.log(`CI PR risk: total time ${formatDuration(Date.now() - startedAt)}`);
+console.log(`CI risk: total time ${formatDuration(Date.now() - startedAt)}`);

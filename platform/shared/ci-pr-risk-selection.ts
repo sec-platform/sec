@@ -5,7 +5,7 @@ import {
   slowTestPrRiskBaselineSuiteIds,
   slowTestSuiteFiles
 } from './test-budget-contract.ts';
-import { selectTestsForSources } from './test-impact-contract.ts';
+import { isTestImpactSourceFile, selectTestsForSources } from './test-impact-contract.ts';
 
 type CiPrRiskSlowSuiteSelection = {
   suites: string[];
@@ -19,13 +19,14 @@ const BOUNDED_BASELINE_PATTERNS = [
   /^package\.json$/,
   /^bun\.lock$/,
   /^platform\/orchestrator\.ts$/,
-  /^tests\/helpers\//,
-  /^tests\/setup\//
+  /^scripts\/ci-pr-risk\.ts$/,
+  /^platform\/dev-runner\/test-runner\.ts$/,
+  /^platform\/shared\/ci-pr-risk-selection\.ts$/,
+  /^platform\/shared\/test-budget-contract\.ts$/,
+  /^tests\/helpers\/workspace-fixtures\.ts$/,
+  /^tests\/setup\//,
+  /^tests\/testkit\/workspace\.ts$/
 ];
-
-function sourceFileChanged(file: string): boolean {
-  return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
-}
 
 function baselineSlowSuiteIds(): string[] {
   return slowTestPrRiskBaselineSuiteIds();
@@ -48,7 +49,7 @@ export function selectCiPrRiskSlowSuites(files: string[] | null): CiPrRiskSlowSu
   }
 
   const directlyChangedSlowTests = files.filter(isSlowTestFile);
-  const sourceFiles = files.filter(sourceFileChanged);
+  const sourceFiles = files.filter(isTestImpactSourceFile);
   const impact = selectTestsForSources(sourceFiles);
   const affectedSlowTests = uniqueSorted([...directlyChangedSlowTests, ...impact.slow]);
   const allAffectedSlow = [...directlyChangedSlowTests, ...impact.slow];
