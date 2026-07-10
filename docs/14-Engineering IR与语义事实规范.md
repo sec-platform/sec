@@ -1,12 +1,12 @@
 ---
 title: Engineering IR 与语义事实规范
 status: active
-last-reviewed: 2026-07-06
+last-reviewed: 2026-07-10
 ---
 
 # Engineering IR 与语义事实规范
 
-本文是 SEC Engineering IR、Semantic Entity、Semantic Fact、Fact Provenance、Revision 和 Fact Delta 的实现级权威。
+本文是 SEC Engineering IR、Semantic Entity、Semantic Fact、Fact Assertion、Fact Provenance、Revision 和 Fact Delta 的实现级权威。
 
 ## 1. 定位
 
@@ -22,7 +22,7 @@ Engineering IR 是 SEC 的 canonical semantic representation。
 - Workbench View Model。
 - AI Knowledge Graph。
 
-IR 表达被平台接受的工程实体和工程事实，并保留事实 authority/provenance/evidence。
+IR 表达平台接受的工程实体、工程事实，以及不同来源对事实的独立声明。Fact 负责 triple identity；Assertion 负责 authority、confidence、provenance、evidence 与有效 revision。
 
 ## 2. 数学模型
 
@@ -36,11 +36,11 @@ TicketQuery REQUIRES TenantContext
 TicketQuery READS TenantContext
 ```
 
-IR 不是 DAG。State Loop、Retry、Recursive Dependency Evidence、Workflow Cycle 都可能形成环。具体 Pass 可对某种 Predicate 子图要求 acyclic，但不能把整个 IR 定义为 DAG。
+IR 不是 DAG。State Loop、Retry、Recursive Dependency Evidence、Workflow Cycle 都可能形成环。具体 Pass 可以对某种 Predicate 子图要求 acyclic，但不能把整个 IR 定义为 DAG。
+
+同一个规范化 triple 在 canonical IR 中只有一个 `SemanticFact`。多个来源声明同一 triple 时，不复制 Fact，也不把来源元数据熔成一个“最强 Fact”；它们作为独立 `FactAssertion` 嵌套在该 Fact 下。
 
 ## 3. 顶层结构 v1
-
-第一版正式目标类型：
 
 ```ts
 interface EngineeringIR {
@@ -55,6 +55,16 @@ interface EngineeringIR {
 ```
 
 `scenarios` 是 canonical IR 的组成部分，不另建第二事实容器。
+
+Fact Assertion 也不建立 root-level `assertions[]`。Canonical ownership 是：
+
+```text
+EngineeringIR
+  └─ facts[]
+       └─ assertions[]
+```
+
+禁止同时维护 `fact.assertionIds + root.assertions[]` 两套 canonical 索引。
 
 ## 4. Semantic Entity
 
@@ -142,7 +152,9 @@ policy:<policy-id>
 - 使用 UI 坐标。
 - 仅使用显示 label。
 
-## 5. Semantic Fact
+## 5. Semantic Fact 与 Fact Assertion
+
+### Semantic Fact
 
 ```ts
 interface SemanticFact {
@@ -150,14 +162,53 @@ interface SemanticFact {
   subject: SemanticEntityId;
   predicate: SemanticPredicate;
   object: SemanticFactObject;
+  assertions: FactAssertion[];
+}
+```
+
+Fact 只定义一个规范化 triple 的 canonical identity：
+
+```text
+subject --predicate--> object
+```
+
+Fact 不直接拥有 `authority`、`confidence`、`provenance`、`evidence` 或 validity 字段。
+
+### Fact Assertion
+
+```ts
+interface FactAssertion {
+  id: FactAssertionId;
   authority: SemanticAuthority;
   confidence: number;
   provenance: FactProvenance[];
   evidence: EvidenceReference[];
-  validFrom: string;
-  validTo?: string;
+  validFromRevision: string;
+  validToRevision?: string;
 }
 ```
+
+Assertion 表示“某来源以某 authority 对这个 exact triple 作出声明”。
+
+例如：
+
+```text
+Fact:
+TicketService OWNS TicketState
+
+Assertions:
+1. Contract authoritative claim
+2. AI inferred claim
+```
+
+结果必须是：
+
+```text
+facts.length = 1
+fact.assertions.length = 2
+```
+
+禁止把它压缩为一个 authoritative Fact 后混合 Contract 与 AI provenance。
 
 ### Fact Object
 
@@ -171,7 +222,7 @@ type SemanticFactObject =
 
 ### Fact ID
 
-Fact ID 从规范化的：
+Fact ID 只从规范化的：
 
 ```text
 subject + predicate + normalized object
@@ -179,11 +230,36 @@ subject + predicate + normalized object
 
 确定性派生。
 
-第一版可以使用稳定可读 key；后续可附加 digest，但 digest 不替代 canonical key 语义。
+Authority、confidence、provenance、evidence 和 assertion 数量均不得进入 Fact identity。
+
+因此同一 triple 的 authoritative 与 inferred 声明必须得到同一个 Fact ID。
+
+### Assertion ID
+
+Assertion ID 从：
+
+```text
+factId
++ authority
++ normalized provenance identity
+```
+
+确定性 digest 派生。
+
+禁止随机 UUID。
+
+规则：
+
+- provenance 顺序差异经过 normalization 后不得产生不同 Assertion ID。
+- same triple + same normalized assertion identity：幂等去重。
+- same triple + distinct provenance identity：同一 Fact 下保留多个 Assertions。
+- same triple + distinct authority：同一 Fact 下保留多个 Assertions。
+- evidence 不参与 Assertion ID；同一 assertion identity 的 evidence 可稳定去重合并。
+- 同一 assertion identity 出现不同 confidence：hard fail，不静默取最大值或最后值。
 
 ## 6. Predicate 分类
 
-Predicate 使用大写 snake case。v1 类型集合按职责分组：
+Predicate 使用大写 snake case。v1 类型集合按职责分组。
 
 ### Structure / Responsibility
 
@@ -257,6 +333,8 @@ VIOLATES
 
 ## 7. Authority
 
+Authority 属于 `FactAssertion`，不属于 `SemanticFact`。
+
 ```ts
 type SemanticAuthority =
   | 'authoritative'
@@ -287,20 +365,48 @@ Authority 是权力层级，不是概率。
 inferred confidence=1.0
 ```
 
-也不能覆盖 conflicting authoritative fact。
+不能覆盖 authoritative assertion，也不能让 authoritative assertion 删除 inferred assertion。两者作为独立 claims 保留，冲突由 predicate-specific validator、source policy 和 diagnostic 处理。
+
+### Assertion Summary
+
+Projection 需要聚合展示时统一调用：
+
+```ts
+summarizeFactAssertions(fact)
+```
+
+返回：
+
+```ts
+{
+  highestAuthority,
+  authorities,
+  hasConflict,
+  hasInferred,
+  assertionCount
+}
+```
+
+这是只读 summary，不是新的 canonical fact shape，也不得回写 IR。
+
+当前一个 Fact 内的 Assertions 都声明同一个 exact triple，因此 fact-local `hasConflict` 为 `false`。Predicate-specific contradiction 通常存在于不同 Fact 之间，需要 graph-context validator 才能判定；Projection 不得凭 authority 混合自行制造 conflict 结论。
 
 ## 8. Confidence
 
-`confidence` 范围 `[0, 1]`。
+`confidence` 属于 `FactAssertion`，范围 `[0, 1]`。
 
 规则：
 
 - authoritative/derived 默认 1；若推导本身可能不完备，不应伪装为 derived，应使用 inferred。
 - observed 表示 observation completeness/association certainty，不表示全路径真实性。
 - inferred 表示推断可信度。
-- 冲突解决首先看 authority，再看 source policy/evidence；不能简单取最高 confidence。
+- 冲突解决首先看 authority、source policy 与 evidence；不能简单取最高 confidence。
+- inferred confidence=1 不能覆盖 authoritative assertion。
+- 同一 assertion identity 的 confidence 不一致说明输入对同一 claim 自相矛盾，当前 Builder hard fail，不静默 strongest-wins。
 
 ## 9. Fact Provenance
+
+Provenance 属于 `FactAssertion`。
 
 ```ts
 interface FactProvenance {
@@ -318,13 +424,14 @@ interface FactProvenance {
 }
 ```
 
-Fact 必须至少有一条 provenance。
+每个 Fact Assertion 必须至少有一条 provenance。Fact 本身不维护 provenance 汇总。
 
 示例：
 
 ```text
 TicketQuery REQUIRES TenantContext
 
+Assertion:
 authority: authoritative
 provenance:
   contract ticket/basic/contracts/ticket.yaml
@@ -333,6 +440,7 @@ provenance:
 ```text
 normalizeCustomerInput TRANSFORMS_TO NormalizedCustomerInput
 
+Assertion:
 authority: derived
 provenance:
   static-analysis TypeChecker signature
@@ -341,6 +449,7 @@ provenance:
 ```text
 TicketService role Ticket orchestration
 
+Assertion:
 authority: inferred
 provenance:
   ai semantic-cluster-v1
@@ -349,7 +458,7 @@ confidence: 0.87
 
 ## 10. Evidence Reference
 
-Evidence 是可回看引用，不把 Raw Payload 全塞进 IR：
+Evidence 属于 `FactAssertion`。它是可回看引用，不把 Raw Payload 全塞进 IR：
 
 ```ts
 interface EvidenceReference {
@@ -369,6 +478,8 @@ tool:gitnexus/<query-id>
 verification:acceptance/ticket_can_be_created
 ```
 
+Projection 可以汇总多个 Assertions 的 evidence refs 用于展示，但不得把该汇总写回 Fact。
+
 ## 11. Revision
 
 IR 是版本化事实集。
@@ -384,6 +495,18 @@ IR 是版本化事实集。
 - 排除 UI metadata。
 - 排除 volatile runtime metric。
 - 对 Entity/Fact 稳定排序。
+- 对 Fact 内 Assertions 使用确定性 identity 与稳定排序。
+
+Assertion validity 不能参与产生其自身 `validFromRevision` 的 revision digest，否则形成自引用。
+
+因此 revision payload 排除：
+
+```text
+assertion.validFromRevision
+assertion.validToRevision
+```
+
+Builder 计算 canonical revision 后，再把该 revision 绑定到本轮 Assertions 的 `validFromRevision`。
 
 Runtime Observation 绑定所观察的 canonical revision。
 
@@ -412,9 +535,9 @@ Builder 当前产生：
 - Port Entity + `REQUIRES/PROVIDES` Fact。
 - Slot Entity + `CONTAINS` Fact。
 - Semantic Contract 的 Entity/Field/Responsibility/Operation/State/Event/Policy/Permission/Effect/Scenario Entity。
-- Contract authoritative `DECLARES/IMPLEMENTS/OWNS/READS/WRITES/MUTATES/REQUIRES/REQUIRES_PERMISSION/PERFORMS_EFFECT/EMITS/INVOKES/AWAITS/TRANSITIONS_TO/VERIFIED_BY` 等 Fact。
+- Contract authoritative `DECLARES/IMPLEMENTS/OWNS/READS/WRITES/MUTATES/REQUIRES/REQUIRES_PERMISSION/PERFORMS_EFFECT/EMITS/INVOKES/AWAITS/TRANSITIONS_TO/VERIFIED_BY` 等 Fact Assertions。
 - canonical `ScenarioDefinition`。
-- Artifact Entity + `ORIGINATES_FROM` Fact。
+- Artifact Entity + `ORIGINATES_FROM` Fact Assertion。
 - Acceptance Entity。
 - Policy Entity。
 
@@ -425,7 +548,12 @@ Builder 必须：
 - 去重。
 - 稳定排序。
 - 校验 Entity 引用。
-- 产生稳定 Fact ID。
+- 每个 Fact 至少保留一个 Assertion。
+- 校验每个 Assertion 的 provenance 与 confidence。
+- 产生稳定 Fact ID 和 Assertion ID。
+- 同 triple 聚合到同一个 Fact。
+- distinct Assertion 不丢失。
+- 不执行 authority strongest-wins merge。
 - 保持字段自己的集合/序列语义，不在通用 Attribute 层篡改数组。
 - 在 Workspace Semantic Linker 未实现前禁止 distinct Contract 隐式共享 namespace。
 
@@ -455,6 +583,8 @@ incomingFactsByEntityObject
 
 Index 是内存派生对象，不持久化为第二份 canonical artifact。
 
+当前不建立独立 assertion index。查询 Fact 后直接读取 `fact.assertions`，避免 `fact.assertionIds + root.assertions[]` 或第二份 assertion store 的一致性负担。只有出现有证据的跨 Fact assertion 查询性能需求时，才允许增加派生 read-only index；该 index 也不得成为 canonical ownership。
+
 ## 14. Conflict
 
 v1 冲突处理：
@@ -465,10 +595,14 @@ v1 冲突处理：
 - 同 Scenario ID 不同定义：`IR-IDENTITY-004` hard fail。
 - Semantic Contract 引用 unresolved Block：`IR-IDENTITY-005` hard fail。
 - distinct Semantic Contract 共享 namespace：`IR-IDENTITY-006` hard fail。
-- 同 Fact ID 内容不同：`IR-FACT-001` hard fail。
+- 同 Fact ID 对应不同 triple：`IR-FACT-001` hard fail。
 - Fact entity object 引用不存在：hard fail。
-- authoritative facts 语义互斥：需要 predicate-specific validator；未实现 validator 前输出 explicit diagnostic，不能偷偷选一个。
-- inferred vs authoritative conflict：保留 authoritative，记录 conflict evidence/diagnostic。
+- Fact 没有 Assertion：`IR-AUTHORITY-004` hard fail。
+- Assertion confidence 超出 `[0, 1]`：`IR-AUTHORITY-001` hard fail。
+- Assertion provenance 为空：`IR-AUTHORITY-002` hard fail。
+- 同 Assertion identity 出现不一致 identity metadata 或 confidence：`IR-AUTHORITY-003` hard fail。
+- authoritative assertions 语义互斥：需要 predicate-specific validator；未实现 validator 前输出 explicit diagnostic，不能偷偷选一个。
+- inferred 与 authoritative 对同一 triple 的正向声明：两个 Assertions 都保留；inferred 不覆盖 authoritative，authoritative 也不删除 inferred evidence trail。
 
 ## 15. Fact Delta
 
@@ -484,7 +618,11 @@ interface FactDelta {
 }
 ```
 
-由于 Fact ID 由 subject/predicate/object 派生，Object 改变通常表现为 remove + add；`changed` 主要用于 identity-preserving attributes/authority/evidence changes。实现时必须明确规则，不用模糊 deep-diff。
+由于 Fact ID 由 subject/predicate/object 派生，Object 改变通常表现为 remove + add。
+
+`changed` 主要承载 identity-preserving assertion set 变化，例如 Assertion add/remove、evidence 变化或 validity 变化。实现时必须明确 canonical diff 规则，不使用模糊 deep-diff。
+
+Authority 改变不是“Fact authority changed”；它通常表现为旧 Assertion 与新 Assertion 的集合变化，因为 authority 属于 Assertion identity。
 
 ## 16. Projection
 
@@ -493,6 +631,8 @@ Projection API 接受 IR/selected evidence，返回 View/Explain contract。
 Projection 可以：
 
 - 选择 Fact。
+- 读取 Fact Assertions。
+- 使用 `summarizeFactAssertions` 生成只读 authority summary。
 - 聚合多个 Entity 为显示节点。
 - 隐藏低价值细节。
 - 重新标注 label/badge。
@@ -500,15 +640,18 @@ Projection 可以：
 
 Projection 不可以：
 
-- 创造 authoritative Fact。
+- 创造 authoritative Fact/Assertion。
 - 回写 IR。
+- 把 assertion summary 熔回 Fact。
 - 根据 UI state 改变 semantic identity。
+
+`inferred` badge 必须依据 Assertion summary 的 `hasInferred`，禁止再写 `fact.authority === 'inferred'`。
+
+Provenance Overlay 可以选择 `highestAuthority` 作为展示摘要，并在该 authority 的 Assertions 中计算展示 confidence；这不表示低 authority Assertions 被删除或覆盖。
 
 ## 17. 持久化策略
 
 v1 Kernel 先以内存 IR 为主；不要立即新增 stable `engineering-ir.json` artifact。
-
-原因：类型和 identity 仍在第一条 Ticket Semantic Contract 中验证。
 
 满足以下条件后再稳定持久化：
 
@@ -530,8 +673,10 @@ control/semantic/engineering-ir.json
 
 - TypeScript 类型落地。
 - Builder 归一当前 App/Block/Capability/Port/Slot/Artifact/Acceptance/Policy 与 Loaded Semantic Contract。
-- Stable Entity/Fact ID。
-- Authority/Provenance/Evidence 字段。
+- Stable Entity/Fact/Assertion ID。
+- Fact identity 与 Assertion claim metadata 分离。
+- Authority/Confidence/Provenance/Evidence 位于 Assertion。
+- Same triple 的 distinct Assertions 无损保留。
 - Referential integrity。
 - Stable sort/revision digest。
 - Read-only Index。
