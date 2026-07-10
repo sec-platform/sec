@@ -1,6 +1,7 @@
 import type {
   EngineeringIR,
   SemanticAttributeValue,
+  SemanticAuthority,
   SemanticFact,
   SemanticPredicate,
   SemanticValue
@@ -18,15 +19,42 @@ import {
 } from '../../shared/semantic-view-types.ts';
 import { indexEngineeringIR, type EngineeringIRIndex } from '../ir/index-engineering-ir.ts';
 
-const AUTHORITY_STRENGTH = {
+const AUTHORITY_STRENGTH: Record<SemanticAuthority, number> = {
   inferred: 0,
   observed: 1,
   derived: 2,
   authoritative: 3
-} as const;
+};
+
+export interface FactAssertionSummary {
+  highestAuthority: SemanticAuthority;
+  authorities: SemanticAuthority[];
+  hasConflict: boolean;
+  hasInferred: boolean;
+  assertionCount: number;
+}
 
 export function uniqueSorted<Value extends string>(values: readonly Value[]): Value[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+export function summarizeFactAssertions(fact: SemanticFact): FactAssertionSummary {
+  const authorities = [...new Set(fact.assertions.map((assertion) => assertion.authority))]
+    .sort((left, right) => AUTHORITY_STRENGTH[right] - AUTHORITY_STRENGTH[left] || left.localeCompare(right));
+  const highestAuthority = authorities[0];
+  if (!highestAuthority) {
+    throw new CompilerError('IR-AUTHORITY-004', `Semantic fact "${fact.id}" must include at least one assertion`);
+  }
+
+  return {
+    highestAuthority,
+    authorities,
+    // FactAssertion currently represents positive claims about one exact triple.
+    // Predicate-specific contradictions live across Facts and require a validator with graph context.
+    hasConflict: false,
+    hasInferred: authorities.includes('inferred'),
+    assertionCount: fact.assertions.length
+  };
 }
 
 function predicates(...values: SemanticPredicate[]): ReadonlySet<SemanticPredicate> {
@@ -44,7 +72,10 @@ export function uniqueReferences(references: readonly ViewReference[]): ViewRefe
 export function referencesForFacts(facts: readonly SemanticFact[]): ViewReference[] {
   return uniqueReferences(facts.flatMap((fact) => [
     { kind: 'fact' as const, ref: fact.id },
-    ...fact.evidence.map((evidence) => ({ kind: 'evidence' as const, ref: `${evidence.kind}:${evidence.ref}` }))
+    ...fact.assertions.flatMap((assertion) => assertion.evidence.map((evidence) => ({
+      kind: 'evidence' as const,
+      ref: `${evidence.kind}:${evidence.ref}`
+    })))
   ]));
 }
 
@@ -152,16 +183,29 @@ export function buildSemanticInspector(ir: EngineeringIR, subjectId: string): In
     ...relationItems(outgoing, new Set(outgoing.map((fact) => fact.predicate)), 'outgoing'),
     ...relationItems(incoming, new Set(incoming.map((fact) => fact.predicate)), 'incoming')
   ]);
-  set('EVIDENCE', allFacts.map((fact) => ({
-    key: fact.id,
-    value: {
-      authority: fact.authority,
-      confidence: fact.confidence,
-      provenance: fact.provenance.map((entry) => `${entry.kind}:${entry.sourceId}`),
-      evidence: fact.evidence.map((entry) => `${entry.kind}:${entry.ref}`)
-    },
-    references: referencesForFacts([fact])
-  })));
+  set('EVIDENCE', allFacts.map((fact) => {
+    const summary = summarizeFactAssertions(fact);
+    return {
+      key: fact.id,
+      value: {
+        highestAuthority: summary.highestAuthority,
+        authorities: summary.authorities,
+        hasConflict: summary.hasConflict,
+        hasInferred: summary.hasInferred,
+        assertionCount: summary.assertionCount,
+        assertions: fact.assertions.map((assertion) => ({
+          id: assertion.id,
+          authority: assertion.authority,
+          confidence: assertion.confidence,
+          provenance: assertion.provenance.map((entry) => `${entry.kind}:${entry.sourceId}`),
+          evidence: assertion.evidence.map((entry) => `${entry.kind}:${entry.ref}`),
+          validFromRevision: assertion.validFromRevision,
+          ...(assertion.validToRevision ? { validToRevision: assertion.validToRevision } : {})
+        }))
+      },
+      references: referencesForFacts([fact])
+    };
+  }));
 
   return INSPECTOR_SECTION_IDS.map((id) => ({
     id,
@@ -182,16 +226,18 @@ export function buildProvenanceOverlay(
     });
     if (facts.length === 0) return [];
 
-    const authority = [...facts]
-      .sort((left, right) => AUTHORITY_STRENGTH[right.authority] - AUTHORITY_STRENGTH[left.authority])[0]!.authority;
-    const authorityFacts = facts.filter((fact) => fact.authority === authority);
+    const authority = facts
+      .map((fact) => summarizeFactAssertions(fact).highestAuthority)
+      .sort((left, right) => AUTHORITY_STRENGTH[right] - AUTHORITY_STRENGTH[left] || left.localeCompare(right))[0]!;
+    const assertions = facts.flatMap((fact) => fact.assertions);
+    const authorityAssertions = assertions.filter((assertion) => assertion.authority === authority);
     return [{
       targetId: target.id,
       factIds,
       authority,
-      confidence: Math.max(...authorityFacts.map((fact) => fact.confidence)),
-      provenanceKinds: uniqueSorted(facts.flatMap((fact) => fact.provenance.map((entry) => entry.kind))),
-      evidenceRefs: uniqueSorted(facts.flatMap((fact) => fact.evidence.map((entry) => `${entry.kind}:${entry.ref}`)))
+      confidence: Math.max(...authorityAssertions.map((assertion) => assertion.confidence)),
+      provenanceKinds: uniqueSorted(assertions.flatMap((assertion) => assertion.provenance.map((entry) => entry.kind))),
+      evidenceRefs: uniqueSorted(assertions.flatMap((assertion) => assertion.evidence.map((entry) => `${entry.kind}:${entry.ref}`)))
     }];
   });
 
