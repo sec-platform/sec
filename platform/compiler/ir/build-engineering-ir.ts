@@ -19,8 +19,8 @@ import {
   claimSemanticNamespace as claimSemanticNamespaceForStore,
   semanticEntity,
   slotTaskKey,
-  type SemanticNamespaceOwner,
-  valueAttribute
+  valueAttribute,
+  type SemanticNamespaceOwner
 } from './ir-identity.ts';
 import { compilerProvenance, manifestProvenance, uniqueSorted } from './ir-normalization.ts';
 import { digest, revisionPayload } from './ir-revision.ts';
