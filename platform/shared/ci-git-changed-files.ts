@@ -12,6 +12,16 @@ export function gitChangedFileDiffArgs(baseRef?: string): string[] {
   ];
 }
 
+export function gitUntrackedFileArgs(): string[] {
+  return [
+    '-c',
+    'core.quotepath=false',
+    'ls-files',
+    '--others',
+    '--exclude-standard'
+  ];
+}
+
 export function parseGitChangedFileOutput(stdout: string): string[] {
   return uniqueSortedLines(stdout)
     .map(posixPath);
