@@ -137,7 +137,20 @@ function fixture(): BuildEngineeringIRInput {
       provenanceHints: { generator: null, verifiedBy: [] }
     }],
     acceptanceIds: ['item_can_update', 'item_can_create'],
-    policyIds: ['tenant-scope-required', 'item-write-required'],
+    policyDeclarations: [
+      {
+        id: 'tenant-scope-required',
+        severity: 'error',
+        appliesTo: ['item/basic'],
+        rule: 'tenant_context_must_flow_to_query'
+      },
+      {
+        id: 'item-write-required',
+        severity: 'warn',
+        appliesTo: ['item/basic'],
+        rule: 'item_write_must_be_authorized'
+      }
+    ],
     semanticContracts: [semanticContract()]
   };
 }
@@ -223,7 +236,7 @@ test('unordered semantic input collections do not change either revision', () =>
     })),
     slotTasks: [...input.slotTasks].reverse(),
     acceptanceIds: [...input.acceptanceIds].reverse(),
-    policyIds: [...input.policyIds].reverse(),
+    policyDeclarations: [...input.policyDeclarations].reverse(),
     semanticContracts: [reversedContract]
   };
 
@@ -265,7 +278,7 @@ test('exact duplicate unordered semantic declarations do not change revisions', 
     manifests: [...input.manifests, duplicatedManifest],
     slotTasks: [...input.slotTasks, input.slotTasks[0]!],
     acceptanceIds: [...input.acceptanceIds, input.acceptanceIds[0]!],
-    policyIds: [...input.policyIds, input.policyIds[0]!],
+    policyDeclarations: [...input.policyDeclarations, input.policyDeclarations[0]!],
     semanticContracts: [duplicatedContract, duplicatedContract]
   };
 
@@ -285,6 +298,28 @@ test('operation input sequence changes canonical semantic revision', () => {
 
   expect(after.inputRevision).not.toBe(before.inputRevision);
   expect(after.semanticRevision).not.toBe(before.semanticRevision);
+});
+
+test('policy declaration content changes input revision without changing semantic graph identity', () => {
+  const input = fixture();
+  const changedPolicy = {
+    ...input.policyDeclarations[0]!,
+    severity: 'blocker' as const,
+    appliesTo: ['auth/basic-session', 'item/basic'],
+    rule: 'tenant_context_must_be_explicit'
+  };
+
+  const before = buildEngineeringIR(input);
+  const after = buildEngineeringIR({
+    ...input,
+    policyDeclarations: [changedPolicy, ...input.policyDeclarations.slice(1)]
+  });
+
+  expect(after.inputRevision).not.toBe(before.inputRevision);
+  expect(after.semanticRevision).toBe(before.semanticRevision);
+  expect(after.entities.filter((entity) => entity.kind === 'policy')).toEqual(
+    before.entities.filter((entity) => entity.kind === 'policy')
+  );
 });
 
 test('plan validation hard fails when app.id is absent', () => {
