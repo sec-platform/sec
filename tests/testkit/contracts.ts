@@ -24,6 +24,9 @@ export function expectListCount<T extends object>(contract: T, countKey: CountKe
 }
 
 export function expectCiContractSelfConsistent(contract: CiContract): void {
+  expectListCount(contract, 'triggerLabelCount', 'triggerLabels');
+  expectListCount(contract, 'prWorkflowCommandCount', 'prWorkflowCommands');
+  expectListCount(contract, 'releaseWorkflowCommandCount', 'releaseWorkflowCommands');
   expectListCount(contract, 'prQuickLaneCommandCount', 'prQuickLaneCommands');
   expectListCount(contract, 'prRiskLaneCommandCount', 'prRiskLaneCommands');
   expectListCount(contract, 'fullLaneCommandCount', 'fullLaneCommands');
@@ -33,6 +36,7 @@ export function expectCiContractSelfConsistent(contract: CiContract): void {
   expectListCount(contract, 'artifactUploadCommandCount', 'artifactUploadCommands');
   expectListCount(contract, 'artifactPathCount', 'artifactPaths');
   expectListCount(contract, 'stepCount', 'steps');
+  expectSortedUnique(contract.triggerLabels);
   expectSortedUnique(contract.artifactPaths);
   for (const step of contract.steps) {
     expectListCount(step, 'producesCount', 'produces');
