@@ -20,11 +20,11 @@ mock.module('../../platform/shared/process.ts', () => ({
   runCommand: async (command: string, args: string[]) => {
     commandCalls.push({ command, args });
 
-    if (command === 'git' && args[0] === 'diff') {
+    if (command === 'git' && args.includes('diff')) {
       return { code: 0, stdout: `${changedFiles.join('\n')}\n`, stderr: '' };
     }
 
-    if (command === 'git' && args[0] === 'ls-files') {
+    if (command === 'git' && args.includes('ls-files')) {
       return { code: 0, stdout: '', stderr: '' };
     }
 
