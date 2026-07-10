@@ -3,10 +3,9 @@ import { expect, test } from 'bun:test';
 import { buildCiContract } from '../../platform/shared/ci-contract.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
-test('GitHub validation workflows cover CI gates with read-only responsibilities', async () => {
+test('active GitHub validation workflows cover CI gates and retired legacy entry stays absent', async () => {
   const prWorkflow = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
   const releaseWorkflow = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
-  const legacyWorkflow = await readCompilerFile('.github/workflows/compiler-validation.yml');
   const contract = buildCiContract();
   const slowSuiteCommands = contract.fullLaneCommands.filter((command) => command.startsWith('bun run test:slow -- --suite '));
   const materializedReleaseCommands = contract.fullLaneCommands.filter(
@@ -33,8 +32,7 @@ test('GitHub validation workflows cover CI gates with read-only responsibilities
   expect(releaseWorkflow).not.toContain('contents: write');
   expect(releaseWorkflow).not.toContain('imports:organize');
 
-  expect(legacyWorkflow).toContain('compiler-validation-legacy');
-  expect(legacyWorkflow).toContain('Retired. Use compiler-pr-validation or compiler-release-validation.');
-  expect(legacyWorkflow).not.toContain('compiler-pr-quick');
-  expect(legacyWorkflow).not.toContain('compiler-release-preflight');
+  await expect(readCompilerFile('.github/workflows/compiler-validation.yml')).rejects.toMatchObject({
+    code: 'ENOENT'
+  });
 });
