@@ -39,10 +39,14 @@ test('active GitHub validation workflows execute fresh frozen heads once and ret
   expect(prWorkflow).toContain("core.setOutput('skip', trustedSuccess ? 'true' : 'false')");
   expect(prWorkflow).toContain("if: steps.verification.outputs.skip != 'true'\n        uses: actions/checkout@v5");
   expect(prWorkflow).toContain('ref: ${{ github.event.pull_request.head.sha }}');
+  expect(prWorkflow).toContain('id: evidence');
   expect(prWorkflow).toContain('actions/upload-artifact@v4');
   expect(prWorkflow).toContain('.tmp/ci-verification-evidence.json');
   expect(prWorkflow).toContain('retention-days: 7');
+  expect(prWorkflow).toContain('EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}');
+  expect(prWorkflow).toContain("process.env.VERIFY_OUTCOME === 'success' && process.env.EVIDENCE_OUTCOME === 'success'");
   expect(prWorkflow).toContain('base-${process.env.VERIFY_BASE}');
+  expect(prWorkflow).toContain("steps.verify.outcome != 'success' || steps.evidence.outcome != 'success'");
   expect(prWorkflow).not.toContain('- opened');
   expect(prWorkflow).not.toContain('- synchronize');
   expect(prWorkflow).not.toContain('- reopened');
@@ -66,9 +70,13 @@ test('active GitHub validation workflows execute fresh frozen heads once and ret
   expect(releaseWorkflow).toContain("if: steps.verification.outputs.skip != 'true'\n        uses: actions/checkout@v5");
   expect(releaseWorkflow).toContain('ref: ${{ steps.verification.outputs.sha }}');
   expect(releaseWorkflow).toContain('--profile full');
+  expect(releaseWorkflow).toContain('id: evidence');
   expect(releaseWorkflow).toContain('actions/upload-artifact@v4');
   expect(releaseWorkflow).toContain('.tmp/ci-verification-evidence.json');
   expect(releaseWorkflow).toContain('retention-days: 7');
+  expect(releaseWorkflow).toContain('EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}');
+  expect(releaseWorkflow).toContain("process.env.VERIFY_OUTCOME === 'success' && process.env.EVIDENCE_OUTCOME === 'success'");
+  expect(releaseWorkflow).toContain("steps.verify.outcome != 'success' || steps.evidence.outcome != 'success'");
   expect(releaseWorkflow).toContain('sec-verification/full/ci-verification-v2');
   expect(releaseWorkflow).not.toContain('pull_request:');
   expect(releaseWorkflow).not.toContain('schedule:');
