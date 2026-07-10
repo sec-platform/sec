@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -14,6 +14,7 @@ import {
 } from '../platform/shared/test-impact-contract.ts';
 
 const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
+const FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
 
 type VerificationProfile = 'quick' | 'full';
 type VerificationStatus = 'passed' | 'failed';
@@ -27,6 +28,7 @@ type GateResult = {
   id: string;
   code: number;
   durationMs: number;
+  failureTail?: string;
 };
 
 type VerificationEvidence = {
@@ -175,25 +177,60 @@ function writeEvidence(evidence: VerificationEvidence): void {
   console.log(`SEC_VERIFICATION_SUMMARY ${JSON.stringify(evidence)}`);
 }
 
-function runGate(step: GateStep): GateResult {
+function appendFailureTail(current: string, chunk: Buffer): string {
+  const combined = `${current}${chunk.toString('utf8')}`;
+  return combined.length > FAILURE_TAIL_CHARACTER_LIMIT
+    ? combined.slice(-FAILURE_TAIL_CHARACTER_LIMIT)
+    : combined;
+}
+
+function runGate(step: GateStep): Promise<GateResult> {
   const startedAt = Date.now();
   console.log(`::group::SEC verification: ${step.id}`);
   console.log(`SEC verification: ${step.id} started`);
-  try {
-    const result = spawnSync('bun', step.args, {
+
+  return new Promise((resolve) => {
+    const child = spawn('bun', step.args, {
       env: {
         ...process.env,
         SEC_TEST_WORKSPACE_NAMESPACE: `verification-${step.id.replace(/[^a-z0-9]+/giu, '-').toLowerCase()}`
       },
-      stdio: 'inherit'
+      stdio: ['ignore', 'pipe', 'pipe']
     });
-    const code = result.status ?? 1;
-    const durationMs = Date.now() - startedAt;
-    console.log(`SEC verification: ${step.id} finished with exit code ${code} in ${formatDuration(durationMs)}`);
-    return { id: step.id, code, durationMs };
-  } finally {
-    console.log('::endgroup::');
-  }
+    let failureTail = '';
+    let settled = false;
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      process.stdout.write(chunk);
+      failureTail = appendFailureTail(failureTail, chunk);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      process.stderr.write(chunk);
+      failureTail = appendFailureTail(failureTail, chunk);
+    });
+
+    const finish = (code: number): void => {
+      if (settled) return;
+      settled = true;
+      const durationMs = Date.now() - startedAt;
+      console.log(`SEC verification: ${step.id} finished with exit code ${code} in ${formatDuration(durationMs)}`);
+      console.log('::endgroup::');
+      resolve({
+        id: step.id,
+        code,
+        durationMs,
+        ...(code === 0 ? {} : { failureTail })
+      });
+    };
+
+    child.on('error', (error) => {
+      const message = `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`;
+      process.stderr.write(message);
+      failureTail = appendFailureTail(failureTail, Buffer.from(message));
+      finish(1);
+    });
+    child.on('close', (code) => finish(code ?? 1));
+  });
 }
 
 const profile = verificationProfile();
@@ -210,7 +247,7 @@ console.log(`SEC verification exact head: ${headSha}`);
 console.log(`SEC verification changed files: ${files === null ? 'unavailable' : files.join(', ')}`);
 
 for (const step of steps) {
-  const result = runGate(step);
+  const result = await runGate(step);
   results.push(result);
   if (result.code !== 0) {
     console.error(`SEC verification failed at ${result.id} with exit code ${result.code}.`);
