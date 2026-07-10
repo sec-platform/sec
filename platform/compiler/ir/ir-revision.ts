@@ -233,7 +233,10 @@ export function semanticRevisionPayload(
     graphId,
     appId,
     entities,
-    facts: facts.map(({ validFrom: _validFrom, validTo: _validTo, ...fact }) => fact),
+    facts: facts.map((fact) => ({
+      ...fact,
+      assertions: fact.assertions.map(({ validFromRevision: _validFromRevision, validToRevision: _validToRevision, ...assertion }) => assertion)
+    })),
     scenarios
   });
 }
