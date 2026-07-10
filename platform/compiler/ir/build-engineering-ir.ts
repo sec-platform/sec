@@ -133,7 +133,10 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   assertEngineeringIRReferences(entityIds, sortedFacts, sortedScenarios);
 
   const semanticRevision = `sha256:${digest(semanticRevisionPayload(graphId, appId, sortedEntities, sortedFacts, sortedScenarios))}`;
-  const factsWithRevision = sortedFacts.map((fact) => ({ ...fact, validFrom: semanticRevision }));
+  const factsWithRevision = sortedFacts.map((fact) => ({
+    ...fact,
+    assertions: fact.assertions.map((assertion) => ({ ...assertion, validFromRevision: semanticRevision }))
+  }));
 
   return {
     formatVersion: ENGINEERING_IR_FORMAT_VERSION,
