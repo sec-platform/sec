@@ -19,6 +19,22 @@ export interface SemanticNamespaceOwner {
   label: string;
 }
 
+function assertAppIdentity(id: string | undefined): asserts id is string {
+  if (!id?.trim()) {
+    throw new CompilerError('IR-IDENTITY-007', 'Engineering IR requires a non-empty app.id');
+  }
+}
+
+export function appEntityId(id: string | undefined): string {
+  assertAppIdentity(id);
+  return `app:${id}`;
+}
+
+export function engineeringGraphId(id: string | undefined): string {
+  assertAppIdentity(id);
+  return `engineering-ir:${id}`;
+}
+
 function objectKey(object: SemanticFactObject): string {
   const normalized = normalizeFactObject(object);
   return normalized.kind === 'entity'

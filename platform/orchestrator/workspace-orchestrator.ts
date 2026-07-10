@@ -10,6 +10,7 @@ import { writeYaml } from '../shared/yaml.ts';
 function defaultPlan(): PlanFile {
   return {
     app: {
+      id: 'customer-admin',
       name: 'customer-admin',
       stack: SUPPORTED_STACK,
       packageManager: 'pnpm',
