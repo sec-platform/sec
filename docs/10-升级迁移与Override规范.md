@@ -1,22 +1,33 @@
 ---
 title: 升级迁移与 Override 规范
-status: stable
+status: active
 last-reviewed: 2026-07-04
 ---
 
 # 升级迁移与 Override 规范
 
-> 目标：确保 block 升级可控、人工改动不会在下次编译时丢失。
+本文定义 Block/Contract/Artifact 升级、Migration、Override 和 Rollback 边界。
 
-## 1. Override 体系
+## 1. 原则
 
-| 类型 | 说明 |
-| --- | --- |
-| Manual Override | 人工直接改生成产物，不作为权威源 |
-| Rule-backed Override | 通过规则文件/slot 描述产生，可回写为长期配置 |
-| Emergency Patch | 热修复产生，必须后续固化 |
+升级必须回答四件事：
 
-### 默认结构
+1. **Identity**：升级前后哪些 Block、Entity、Fact 保持同一身份。
+2. **Compatibility**：哪些 Contract 保持，哪些发生 breaking change。
+3. **Migration**：Authoring Source、Artifact、State/Data 如何迁移。
+4. **Verification**：用什么证据证明新 Revision 可接受。
+
+Upgrade 不是文件替换命令集合；文件 Migration 是当前实现基础，Semantic Migration 是 v0.4 演进方向。
+
+## 2. Override
+
+| 类型 | 含义 | 长期处理 |
+| --- | --- | --- |
+| Manual Override | 人工直接修改 Generated Target | 识别 Drift，要求显式保留/回收/丢弃 |
+| Rule-backed Override | 受治理规则或 Patch | 可重放、可版本化 |
+| Emergency Patch | 紧急修复 | 必须有过期/回收计划 |
+
+默认 Authoring 入口：
 
 ```text
 source/patches/
@@ -26,103 +37,141 @@ source/patches/
   manifests/
 ```
 
-`project/overrides/**` 仅保留为兼容期入口。
+规则：
 
-### override-manifest.yaml
+- Override 不得修改 `control/**`。
+- Manual Override 不能成为 canonical semantic source。
+- Rule-backed Override 需要 Artifact Provenance。
+- 若 Override 改变 Contract、Effect、Permission、Ownership，应形成显式 Semantic Mutation/Contract Patch，而不是只留下源码 Patch。
 
-```yaml
-overrides:
-  - id: customer-list-hotfix
-    entry: patches/customer-list.override.ts
-    target: src/app/customers/page.tsx
-    reason: emergency-ui-fix
-    source: manual
-    appliesAfter: [compose]
-    conflictsWith: [entity/customer-basic@>=0.2.0]
+## 3. 当前升级流程
+
+```text
+read current lock
+→ validate target version
+→ load migrations
+→ compute file/install impact
+→ detect override conflicts
+→ build upgrade plan
+→ dry-run / apply migration
+→ compose/adapt
+→ verify
+→ update provenance/lock
+→ explain/review
 ```
 
-### 规则
+当前实现主要围绕文件、配置、Slot Contract 和 DB expand/contract 辅助 Migration。
 
-- override 不得直接替换 `control/**` artifact。
-- 人工修改 `project/**` 应识别为 drift，引导回写到 `source/**`。
+## 4. 当前 Migration 类型
 
-## 2. 升级流程
+稳定类型以 `UpgradeMigrationEntry` TypeScript union 为事实源。文档只归类：
 
-1. 读取当前 lock → 2. 检查目标版本兼容性 → 3. 读取 migration plan → 4. 评估受影响文件 → 5. 检查 override 冲突 → 6. 生成 upgrade plan → 7. 执行 migration → 8. 重新 compose → 9. 重新 verify → 10. 更新 provenance 与 lock
+- file/directory copy、replace、rename、create、delete。
+- JSON config/array/object rewrite。
+- text append/replace/regex replace。
+- slot contract update。
+- DB expand/contract 辅助操作。
 
-## 3. 冲突优先级
+新增 Migration kind 必须：
 
-| 优先级 | 类型 |
-| --- | --- |
-| 1 | 显式安全/政策限制 |
-| 2 | 数据迁移要求 |
-| 3 | Rule-backed Override |
-| 4 | 官方 block 升级 |
-| 5 | Manual Override |
+1. 加入 union/type。
+2. 明确 dry-run summary。
+3. 明确 apply/rollback 语义。
+4. 加 targeted integration test。
+5. 进入 upgrade diagnostics。
 
-官方升级若破坏 manual override → 阻塞升级，要求显式决策。Rule-backed override 可自动重放。
+## 5. Semantic Migration 目标
 
-## 4. Migration 类型
+IR Revision 稳定后，Upgrade Plan 增加 Semantic Delta：
 
-| 类型 | 说明 |
-| --- | --- |
-| `file-replace` | 替换单个文件 |
-| `copy-file` / `copy-directory` | 从 manifest 根目录复制 |
-| `rename-file` / `rename-directory` | 移动重命名 |
-| `create-directory` | 创建目录 |
-| `delete-file` / `delete-directory` | 删除 |
-| `config-rewrite` | JSON 配置 set/delete |
-| `json-array-append` / `json-array-remove` | JSON 数组操作 |
-| `json-object-merge` | JSON 对象递归合并 |
-| `text-append` / `text-replace` / `text-replace-regex` | 文本操作 |
-| `slot-contract-update` | Slot 类型/合同变更 |
-| `codemod` | AST 级迁移（预留） |
-| `prisma-migration` | 数据库 schema 迁移（预留） |
+```text
+Block version delta
+Contract schema delta
+Entity identity mapping
+Fact add/remove/change
+State ownership delta
+Permission/effect delta
+Generator/artifact delta
+Verification impact
+```
 
-## 5. 有状态数据的“无损升级与平滑迁移 (Zero-Downtime DB Migration)”
+例如：
 
-代码在编译层是无状态的，写坏了可以一键 Compose 重新生成。但生产环境的真实数据库（SQLite/PostgreSQL）是有状态的。当 Block 发生 Major 版本升级，需要增加非空字段，或者将一对一关系重构为多对多关系时，编译器和升级引擎在物理执行 schema 漂移时，强制实施 **零停机无损数据迁移标准 (Zero-downtime DB Schema Migration)**：
+```text
+Ticket.status enum adds PAUSED
+```
 
-### 5.1 数据库结构双写过渡模式 (Expand & Contract Pattern)
+平台需要判断：
 
-升级引擎执行 `prisma-migration` 动作时，严禁直接对有状态的生产库表执行破坏性字段覆盖或直接 Drop，必须遵循以下 3 步平滑演进：
+- State identity 是否保持。
+- 哪些 transition contract 受影响。
+- 哪些 view/API serializer 依赖 enum。
+- 数据库是否需要 expand/backfill。
+- Acceptance 是否覆盖新状态。
 
-1. **第一步：结构扩张与双写 (Expand Phase)**：
-   - 升级引擎读取 upgrade plan，在数据库中先新增目标新字段（如新版本所需的 `new_email`），并将其暂时设为 `Nullable`。
-   - 编译器在此期间生成的过渡代码，在业务层自动对该字段执行 **双写逻辑 (Dual Writing)**，即：每次新增或更新数据时，将数据同时写入 `old_email` 与 `new_email`。
-2. **第二步：数据异步平滑搬迁 (Migrate Phase)**：
-   - 升级引擎调用后台异步迁移数据服务，在不锁表、不停机的情况下，分批次（Batching）将历史旧字段的数据清洗并搬迁至新字段。
-3. **第三步：结构收缩与旧模式废弃 (Contract Phase)**：
-   - 当检测到历史数据迁移校验 coverage 达到 100% 后，编译器生成新版本的生产代码，将数据读取端完全切换到 `new_email` 字段，并在业务层去除双写代理逻辑。
-   - 最后，升级引擎在下一次平滑维护周期中，安全地在物理表中 Drop 掉老旧的 `old_email` 字段，完成物理结构收缩。
+不能只报告“schema.prisma changed”。
 
-这一规范保证了在大中枢系统的复杂数据漂移中，任何版本升级绝不会发生生产级数据丢失或停机瘫痪。
+## 6. 数据迁移
 
+生产级零停机迁移是目标能力，不是当前已完成保证。
 
-## 6. Migration 合同字段
+对有状态生产数据，目标标准采用 Expand → Migrate → Contract：
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `id` | 是 | 唯一标识 |
-| `kind` | 是 | migration 类型 |
-| `entry` | 是 | 执行入口路径 |
-| `fromVersion` | 是 | 起始版本范围 |
-| `toVersion` | 是 | 目标版本 |
-| `requiresVerification` | 否 | 默认 true |
+1. **Expand**：新增兼容结构；必要时引入双写/兼容读取。
+2. **Migrate**：分批 Backfill，记录进度、失败和校验。
+3. **Contract**：确认 Coverage/Consistency 后切换读取，最后删除旧结构。
 
-## 7. 回写策略
+实现该能力前必须补齐：
 
-按优先级：slot description → model / view mutation → rule-backed patch → code patch → private block。
+- 数据库 target adapter。
+- migration job identity/idempotency。
+- checkpoint/resume。
+- data verification contract。
+- rollback boundary。
+- deployment coordination。
+- production safety tests。
 
-不推荐长期依赖 manual override 留在生成区源码中。
+在这些机制没有完成前，文档和 CLI 不得声称“保证零停机、绝不丢数据”。
 
-## 8. 升级安全门槛
+## 7. 冲突优先级
 
-- 支持至少一个 block 的 minor 升级 ✅
-- 支持冲突检测 ✅
-- 支持 dry-run plan 预览 ✅
-- 支持 upgrade diagnostics ✅
-- 支持重新 verify 和 provenance 更新 ✅
-- `platform upgrade <block-id> <target-version> [--dry-run] --json [--compact]` ✅
-- `platform upgrade plan [--json --compact]`（只读检查）✅
-- `platform upgrade diagnostics [--json --compact]`（只读诊断）✅
+```text
+Safety / Policy
+> Data integrity
+> Authoritative Contract
+> Rule-backed Override
+> Official Block upgrade
+> Manual Override
+```
+
+Manual Override 被升级覆盖时默认阻塞并要求决策。
+
+Authoritative Contract 冲突不能由 AI confidence 或自动 merge 解决。
+
+## 8. Rollback
+
+Rollback 分三层：
+
+- Authoring rollback：恢复 mutation/contract/plan revision。
+- Artifact rollback：从 accepted canonical revision 重新生成。
+- Data rollback：依赖具体 migration strategy；不可假设所有数据操作可逆。
+
+每个 Migration 必须声明或推导：
+
+```text
+reversible
+forward-only
+requires-backup
+requires-explicit-operator
+```
+
+## 9. Upgrade 与 Fact Provenance
+
+升级后 Fact 不直接“继承 confidence”。必须根据来源重建：
+
+- Contract Fact 从新 Contract 重新产生。
+- Compiler-derived Fact 从新 IR 规则重算。
+- Observed Fact 绑定 Runtime Revision。
+- Inferred Fact 可失效并重新推断。
+
+Semantic Identity 保持，不等于所有 Fact 永久有效。

@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { NEXT_TICKET_STATUS } from '../src/installed/ticket/ticket-semantic-contract.ts';
 import type { TicketStatus } from '../src/runtime/database.ts';
 
 interface TicketStatusFormProps {
@@ -9,12 +10,6 @@ interface TicketStatusFormProps {
   ticketTitle: string;
   currentStatus: TicketStatus;
 }
-
-const NEXT_STATUS: Record<TicketStatus, TicketStatus> = {
-  open: 'in_progress',
-  in_progress: 'closed',
-  closed: 'open'
-};
 
 const STATUS_LABEL: Record<TicketStatus, string> = {
   open: 'Start progress',
@@ -26,7 +21,7 @@ export function TicketStatusForm({ ticketId, ticketTitle, currentStatus }: Ticke
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const nextStatus = NEXT_STATUS[currentStatus];
+  const nextStatus = NEXT_TICKET_STATUS[currentStatus];
 
   async function transitionStatus() {
     setPending(true);

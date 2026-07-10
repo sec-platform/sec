@@ -17,6 +17,7 @@ import {
 import { formatSlowImpactNotice, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
+import { partitionFastTestFiles } from './fast-test-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -96,14 +97,27 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
   return selected;
 }
 
-function fastTestArgs(args: string[]): string[] {
+function fastTestArgs(files: string[], options: string[]): string[] {
+  return ['test', '--concurrent', ...files, ...options];
+}
+
+function fastTestInvocations(args: string[]): string[][] {
   const { options, selectors } = partitionBunTestArgs(args);
   const slowSelectors = selectors.filter(isSlowTestFile);
   if (slowSelectors.length > 0) {
     throw new Error(`Fast test runner cannot run slow test files: ${slowSelectors.join(', ')}`);
   }
 
-  return ['test', '--concurrent', ...selectMatchingTestFiles(getFastTestFilesSync(), selectors, 'fast'), ...options];
+  const selectedFiles = selectMatchingTestFiles(getFastTestFilesSync(), selectors, 'fast');
+  const partition = partitionFastTestFiles(selectedFiles);
+  const invocations: string[][] = [];
+  if (partition.concurrent.length > 0) {
+    invocations.push(fastTestArgs(partition.concurrent, options));
+  }
+  for (const file of partition.serial) {
+    invocations.push(['test', file, ...options]);
+  }
+  return invocations;
 }
 
 function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -184,7 +198,7 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
 function fullTestInvocations(): string[][] {
   const slowSelection = slowTestArgSelection([]);
   return [
-    fastTestArgs([]),
+    ...fastTestInvocations([]),
     slowSelection.kind === 'run' ? slowSelection.args : []
   ].filter((invocation) => invocation.length > 0);
 }
@@ -209,8 +223,8 @@ async function gitChangedFiles(): Promise<string[] | null> {
     .map(posixPath);
 }
 
-function sourceFileChanged(file: string): boolean {
-  return /^(platform|scripts)\/.+\.[cm]?[tj]sx?$/.test(file);
+function impactSourceFile(file: string): boolean {
+  return /^(platform|scripts)\//.test(file);
 }
 
 function allowFullFastFallback(): boolean {
@@ -259,16 +273,20 @@ interface AffectedTestSelection {
 async function affectedTestSelection(): Promise<AffectedTestSelection | null> {
   const files = await gitChangedFiles();
   if (!files) return null;
-  const sourceFiles = files.filter(sourceFileChanged);
-  const impact = selectTestsForSources(sourceFiles);
+  const impactSourceFiles = files.filter(impactSourceFile);
+  const impact = selectTestsForSources(impactSourceFiles);
   return {
     tests: files.filter(isFastTestFile),
     slowTests: files.filter(isSlowTestFile),
     affectedTests: impact.fast.filter(isFastTestFile),
     affectedSlowTests: impact.slow.filter(isSlowTestFile),
     affectedOwners: impact.owners,
-    sourceChanged: sourceFiles.length > 0
+    sourceChanged: impactSourceFiles.length > 0
   };
+}
+
+function unionTestFiles(...groups: string[][]): string[] {
+  return uniqueSortedLines(groups.flat().join('\n'));
 }
 
 export async function runAffectedTests(args: string[] = []): Promise<number> {
@@ -283,21 +301,23 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
   if (selection.slowTests.length > 0) {
     console.log(`Changed slow test files require PR risk or release/full verification: ${selection.slowTests.join(', ')}`);
   }
-  if (selection.tests.length > 0) {
-    return runFastTests(selection.tests);
-  }
-  if (selection.affectedTests.length > 0) {
-    console.log(`Running affected fast tests for ${selection.affectedOwners.join(', ') || 'changed sources'}: ${selection.affectedTests.join(', ')}`);
-    const code = await runFastTests(selection.affectedTests);
+
+  const selectedFastTests = unionTestFiles(selection.tests, selection.affectedTests);
+  if (selectedFastTests.length > 0) {
+    if (selection.affectedTests.length > 0) {
+      console.log(`Running changed and affected fast tests for ${selection.affectedOwners.join(', ') || 'changed sources'}: ${selectedFastTests.join(', ')}`);
+    }
+    const code = await runFastTests(selectedFastTests);
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
-        fast: selection.affectedTests,
+        fast: selectedFastTests,
         slow: selection.affectedSlowTests,
         owners: selection.affectedOwners
       }));
     }
     return code;
   }
+
   if (selection.sourceChanged) {
     if (!allowFullFastFallback()) {
       console.log('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR quick lane. Full/manual/scheduled validation covers unmapped changes.');
@@ -335,7 +355,10 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   await withTestDependencies(async ({ binPath }) => {
     try {
-      exitCode = await runDevCommand('bun', fastTestArgs(args), fastTestEnv(pathEnv(binPath)));
+      for (const invocation of fastTestInvocations(args)) {
+        exitCode = await runDevCommand('bun', invocation, fastTestEnv(pathEnv(binPath)));
+        if (exitCode !== 0) return;
+      }
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       exitCode = 1;

@@ -1,5 +1,6 @@
-import type { ManifestKind, SlotKind, ManifestSlotExport } from './plan-manifest-types.ts';
+import type { ManifestKind, ManifestSlotExport, SlotKind } from './plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from './registry-types.ts';
+import type { SemanticGeneratorTask as SemanticLoweringTask } from './semantic-generator-types.ts';
 
 export type PassState = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
 
@@ -73,6 +74,7 @@ export interface LockFile {
   resolvedCapabilities: string[];
   installPlan: InstallPlanStep[];
   slotTasks: SlotTask[];
+  semanticLoweringTasks?: SemanticLoweringTask[];
   generatedPaths: string[];
   acceptancePlan: string[];
   passStatus: PassStatus;

@@ -40,8 +40,11 @@ export function expectCiContractSelfConsistent(contract: CiContract): void {
 }
 
 export function expectPrFastLaneBoundary(contract: CiContract): void {
-  expect(contract.prQuickLaneCommands).toContain('bun scripts/ci-pr-quick.ts');
-  expect(contract.prQuickLaneCommands).not.toContain('bun run imports:check');
+  expect(contract.prQuickLaneCommands).toContain('bun run imports:check');
+  expect(contract.prQuickLaneCommands).toContain('bun run typecheck');
+  expect(contract.prQuickLaneCommands).toContain('bun run test:affected');
+  expect(contract.prQuickLaneCommands).not.toContain('bun scripts/ci-pr-quick.ts');
+  expect(contract.prQuickLaneCommands).not.toContain('bun run imports:organize');
   expect(contract.prQuickLaneCommands).not.toContain('bun run test:slow');
   expect(contract.prQuickLaneCommands.every((command) => !command.includes('--lane all'))).toBe(true);
 
@@ -58,10 +61,13 @@ export function expectFullLaneCoversSlowSuites(contract: CiContract, suiteIds: r
 
 export function expectFullLaneCoversCorrectnessBackstop(contract: CiContract): void {
   expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
+    'bun run imports:check',
     'bun run typecheck',
+    'bun run docs:doctor',
+    'bun run test:fast',
     'bun run test:contract-freeze',
-    'bun run platform -- verify --lane all --json --compact',
-    'bun run platform -- reference check --json --compact'
+    'bun run sec -- verify --lane all --json --compact',
+    'bun run sec -- reference check --json --compact'
   ]));
 }
 

@@ -7,6 +7,7 @@ import { uniqueSorted } from './collections.ts';
 import { compilerRoot, posixPath } from './paths.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
 import { pipelineTestImpactRules } from './test-impact-rules/pipeline.ts';
+import { semanticTestImpactRules } from './test-impact-rules/semantic.ts';
 
 export type TestImpactRule = {
   sourcePattern: RegExp;
@@ -23,6 +24,7 @@ export type TestImpactSelection = {
 
 export const testImpactRules: TestImpactRule[] = [
   ...pipelineTestImpactRules,
+  ...semanticTestImpactRules,
   {
     owner: 'test-impact',
     sourcePattern: /^platform\/shared\/test-impact-contract\.ts$/,

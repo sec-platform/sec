@@ -35,6 +35,51 @@ test('test impact selector uses auto-reference for test budget coverage', () => 
   expect(selection.fast).toContain('tests/contract/benchmark-budget.test.ts');
 });
 
+test('test impact selector owns canonical IR changes as semantic core changes', () => {
+  const selection = selectTestsForSources(['platform/compiler/ir/build-engineering-ir.ts']);
+
+  expect(selection.owners).toContain('semantic-ir');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/engineering-ir.test.ts',
+    'tests/unit/semantic-contract-ir.test.ts',
+    'tests/integration/semantic-projections.test.ts',
+    'tests/integration/workspace-engineering-ir.test.ts',
+    'tests/integration/semantic-core-vertical.test.ts'
+  ]));
+});
+
+test('test impact selector isolates semantic projection ownership', () => {
+  const selection = selectTestsForSources(['platform/compiler/projection/project-state-view.ts']);
+
+  expect(selection.owners).toContain('semantic-projection');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/integration/semantic-projections.test.ts',
+    'tests/integration/semantic-core-vertical.test.ts'
+  ]));
+  expect(selection.slow).toEqual([]);
+});
+
+test('test impact selector maps semantic lowering into runtime contract coverage', () => {
+  const selection = selectTestsForSources(['platform/compiler/semantic-lowering.ts']);
+
+  expect(selection.owners).toContain('semantic-lowering');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/semantic-lowering.test.ts',
+    'tests/integration/semantic-core-vertical.test.ts'
+  ]));
+  expect(selection.slow).toContain('tests/e2e/semantic-runtime-contract.test.ts');
+});
+
+test('test impact selector keeps declarative registry files visible to registry rules', () => {
+  const selection = selectTestsForSources([
+    'platform/registry/official/ticket.basic/contracts/ticket.yaml'
+  ]);
+
+  expect(selection.owners).toContain('registry');
+  expect(selection.fast).toContain('tests/unit/path-containment.test.ts');
+  expect(selection.slow).toContain('tests/e2e/registry.test.ts');
+});
+
 test('test impact selector keeps slow coverage as notice-only selection', () => {
   const selection = selectTestsForSources(['platform/compiler/upgrade/plan.ts']);
 

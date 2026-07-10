@@ -192,12 +192,12 @@
     ]
   },
   "provenanceSummary": {
-    "artifactCount": 68,
-    "verifiedArtifactCount": 19,
-    "unverifiedArtifactCount": 49,
+    "artifactCount": 75,
+    "verifiedArtifactCount": 20,
+    "unverifiedArtifactCount": 55,
     "overrideArtifactCount": 0,
-    "registryArtifactCount": 19,
-    "generatedArtifactCount": 68,
+    "registryArtifactCount": 20,
+    "generatedArtifactCount": 75,
     "generatedPassCount": 5,
     "originSummaryCount": 3,
     "originSummaries": [
@@ -228,7 +228,7 @@
       },
       {
         "originType": "generated",
-        "count": 45,
+        "count": 52,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -258,18 +258,25 @@
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json",
           "control/graph/explain-graph.dot",
           "control/graph/explain-graph.json",
           "control/graph/explain-graph.mmd",
           "control/provenance/provenance.json",
+          "control/workbench/views/graph-view.html",
+          "control/workbench/views/overview-view.html",
+          "control/workbench/views/review-view.html",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html",
           "generated/routes.ts",
           "lib/session.ts",
           "lib/store.ts",
           "next-env.d.ts",
           "next.config.mjs",
           "package.json",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "tests/runtime/acceptance/customer-flow.spec.ts",
           "tests/runtime/acceptance/ticket-flow.spec.ts",
           "tests/runtime/unit/customer-runtime.test.ts",
@@ -292,7 +299,7 @@
     "overrideSummaries": [
       {
         "overrideStatus": "none",
-        "count": 68,
+        "count": 75,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -322,12 +329,18 @@
           "control/evidence/block-usage-map.json",
           "control/evidence/install-manifest.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json",
           "control/graph/explain-graph.dot",
           "control/graph/explain-graph.json",
           "control/graph/explain-graph.mmd",
           "control/provenance/provenance.json",
+          "control/workbench/views/graph-view.html",
+          "control/workbench/views/overview-view.html",
+          "control/workbench/views/review-view.html",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html",
           "custom/customer_normalizer.ts",
           "custom/ticket_comment_delegate.ts",
           "generated/routes.ts",
@@ -346,6 +359,7 @@
           "src/installed/entity/customer-service.ts",
           "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "src/installed/ticket/ticket-service.ts",
           "tests/acceptance/agent-classifier-flow.test.ts",
           "tests/acceptance/comment-flow.test.ts",
@@ -371,7 +385,7 @@
         "registrySourceId": "official",
         "registryKind": "official",
         "registryLocation": "compiler",
-        "count": 19,
+        "count": 20,
         "paths": [
           "prisma/schema.prisma",
           "src/installed/agent/executor-service.ts",
@@ -381,6 +395,7 @@
           "src/installed/entity/customer-service.ts",
           "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "src/installed/ticket/ticket-service.ts",
           "tests/acceptance/agent-classifier-flow.test.ts",
           "tests/acceptance/comment-flow.test.ts",
@@ -408,7 +423,7 @@
       },
       {
         "pass": "compose",
-        "count": 56,
+        "count": 57,
         "paths": [
           "app/api/customers/[customerId]/attachments/route.ts",
           "app/api/customers/route.ts",
@@ -450,6 +465,7 @@
           "src/installed/entity/customer-service.ts",
           "src/installed/file/customer-attachments.ts",
           "src/installed/tenant/context.ts",
+          "src/installed/ticket/ticket-semantic-contract.ts",
           "src/installed/ticket/ticket-service.ts",
           "tests/acceptance/agent-classifier-flow.test.ts",
           "tests/acceptance/comment-flow.test.ts",
@@ -470,11 +486,16 @@
       },
       {
         "pass": "explain",
-        "count": 3,
+        "count": 8,
         "paths": [
           "control/graph/explain-graph.dot",
           "control/graph/explain-graph.json",
-          "control/graph/explain-graph.mmd"
+          "control/graph/explain-graph.mmd",
+          "control/workbench/views/graph-view.html",
+          "control/workbench/views/overview-view.html",
+          "control/workbench/views/review-view.html",
+          "control/workbench/views/slot-rule-view.html",
+          "control/workbench/views/source-view.html"
         ]
       },
       {
@@ -486,10 +507,11 @@
       },
       {
         "pass": "verify",
-        "count": 4,
+        "count": 5,
         "paths": [
           "control/evidence/acceptance-coverage.json",
           "control/evidence/policy-report.json",
+          "control/evidence/review-summary.json",
           "control/evidence/runtime-report.json",
           "control/evidence/verification-report.json"
         ]
@@ -524,12 +546,18 @@
       "control/evidence/block-usage-map.json",
       "control/evidence/install-manifest.json",
       "control/evidence/policy-report.json",
+      "control/evidence/review-summary.json",
       "control/evidence/runtime-report.json",
       "control/evidence/verification-report.json",
       "control/graph/explain-graph.dot",
       "control/graph/explain-graph.json",
       "control/graph/explain-graph.mmd",
       "control/provenance/provenance.json",
+      "control/workbench/views/graph-view.html",
+      "control/workbench/views/overview-view.html",
+      "control/workbench/views/review-view.html",
+      "control/workbench/views/slot-rule-view.html",
+      "control/workbench/views/source-view.html",
       "generated/routes.ts",
       "lib/session.ts",
       "lib/store.ts",
@@ -583,7 +611,7 @@
     ],
     "violationSummaries": []
   },
-  "changeSourceCount": 68,
+  "changeSourceCount": 75,
   "runtimeEntryCount": 14,
   "installImpactCount": 8,
   "changeSources": [
@@ -780,6 +808,11 @@
       "originId": "control/evidence/policy-report.json"
     },
     {
+      "path": "control/evidence/review-summary.json",
+      "originType": "generated",
+      "originId": "control/evidence/review-summary.json"
+    },
+    {
       "path": "control/evidence/runtime-report.json",
       "originType": "generated",
       "originId": "control/evidence/runtime-report.json"
@@ -808,6 +841,31 @@
       "path": "control/provenance/provenance.json",
       "originType": "generated",
       "originId": "control/provenance/provenance.json"
+    },
+    {
+      "path": "control/workbench/views/graph-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/graph-view.html"
+    },
+    {
+      "path": "control/workbench/views/overview-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/overview-view.html"
+    },
+    {
+      "path": "control/workbench/views/review-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/review-view.html"
+    },
+    {
+      "path": "control/workbench/views/slot-rule-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/slot-rule-view.html"
+    },
+    {
+      "path": "control/workbench/views/source-view.html",
+      "originType": "generated",
+      "originId": "control/workbench/views/source-view.html"
     },
     {
       "path": "custom/customer_normalizer.ts",
@@ -927,6 +985,16 @@
       "path": "src/installed/tenant/context.ts",
       "originType": "block",
       "originId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler"
+    },
+    {
+      "path": "src/installed/ticket/ticket-semantic-contract.ts",
+      "originType": "generated",
+      "originId": "generator:ticket/basic:ticket-status-runtime-contract",
+      "sourcePath": "platform/registry/official/ticket.basic/contracts/ticket.yaml",
+      "runtimeTarget": "src/installed/ticket/ticket-semantic-contract.ts",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler"

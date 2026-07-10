@@ -93,12 +93,31 @@ export const CI_ARTIFACT_PATHS = {
   ]
 } as const;
 
+export const CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS: readonly string[] = [
+  CI_ARTIFACT_FILES.provenance,
+  ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
+  CI_ARTIFACT_FILES.reviewSummary,
+  ...CI_ARTIFACT_PATHS.view
+];
+
+export const CI_EMIT_ARTIFACT_PATHS: readonly string[] = [
+  ...CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
+];
+
 export function normalizeCiArtifactPath(value: string): string {
   return posixPath(value);
 }
 
 export function uniqueSortedCiArtifactPaths(values: readonly string[]): string[] {
   return uniqueSorted(values.map(normalizeCiArtifactPath));
+}
+
+export function expandCiGeneratedArtifactPaths(values: readonly string[]): string[] {
+  const paths = uniqueSortedCiArtifactPaths(values);
+  const startsEmitBundle = paths.some((artifactPath) => CI_EXPLAIN_GRAPH_ARTIFACT_PATHS.includes(artifactPath));
+  return startsEmitBundle
+    ? uniqueSortedCiArtifactPaths([...paths, ...CI_EMIT_ARTIFACT_PATHS])
+    : paths;
 }
 
 export function ciArtifactUploadName(artifactPath: string): string {

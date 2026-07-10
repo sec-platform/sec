@@ -4,137 +4,107 @@ status: active
 last-reviewed: 2026-07-04
 ---
 
-# Test architecture
+# 测试架构
 
-This repository uses a minimal test architecture optimized for one source of truth, clear CI signal, and low long-term maintenance cost.
+本文定义 SEC 仓库的测试层级、测试事实源和 Testkit 边界。CI lane 见 `test-feedback-and-ci-lanes.md`。
 
-## Final model
+## 1. 稳定模型
 
-The stable shape is:
+测试架构固定为：
 
-- 4 entry flows: affected, fast, slow, full.
-- 4 test layers: unit, contract, integration, e2e slow.
-- 5 fact sources: test budget, test impact, CI contract, runtime dependencies, public schema near contract builders.
-- 3 thin testkit primitives: `tests/testkit/contracts.ts`, `tests/testkit/cli.ts`, `tests/testkit/workspace.ts`.
-- 0 new test libraries.
+- 4 类反馈入口：affected、fast、slow、full。
+- 4 个测试层：unit、contract、integration、e2e slow。
+- 公共测试事实优先放在 `platform/shared/*-contract.ts` 或紧邻 production builder 的公共 Schema。
+- Testkit 保持薄层，不引入第二套业务模型。
 
-Tests should read like specifications. Test files write business invariants; execution details and repeated contract checks live in the thin testkit primitives; source-of-truth lists and public shapes live under `platform/shared`.
+测试代码应读起来像规格：测试写不变量和场景，重复执行细节由 Testkit/Builder 统一。
 
-## Entry flows
+## 2. 测试层
 
-Do not add near-synonym package scripts for new behavior. Put orchestration in the runner or CI layer.
+| 层 | 职责 | 禁止 |
+| --- | --- | --- |
+| `tests/unit` | 纯 Builder、Selector、Index、Formatter、安全边界 | 完整 Workspace/CLI/浏览器流程 |
+| `tests/contract` | 公共 CLI/JSON/Package/CI/Error/IR Shape | 复制完整命令表、脚本对象、Slow Suite 列表 |
+| `tests/integration` | Workspace Pipeline、Artifact Flow、IR/Projection 集成 | 大型浏览器矩阵 |
+| `tests/e2e` | 明确的慢产品路径和单一浏览器 Smoke | 成为全部业务逻辑测试仓库 |
 
-| Flow | Command | Purpose | Slow | Playwright |
-| --- | --- | --- | --- | --- |
-| affected | `bun run check:affected` | Daily changed + affected fast feedback | No | No |
-| fast | `bun run check:fast` | Pre-commit full fast tests | No | No |
-| slow | `bun run test:slow -- --suite <id>` | Targeted file-granular slow suite | Yes | Suite-dependent |
-| full | `bun run check:full` | Release/scheduled full regression | Yes | Yes |
+### IR 测试归属
 
-Do not reintroduce `test:changed`, `test:all`, `test:quick`, `test:ci`, `test:smoke`, `check:lite`, `check:pr`, `test:runtime-full`, or `test:workspace`.
+- Entity/Fact ID、排序、引用完整性、revision digest、index：unit。
+- IR public JSON/schema：contract。
+- Plan/Lock/Manifest → IR → Projection：integration。
+- Ticket observable runtime：unit/integration/API；只保留关键浏览器 smoke。
 
-## Test layers
+## 3. 事实源
 
-| Layer | Responsibility | Allowed | Forbidden |
-| --- | --- | --- | --- |
-| `tests/unit` | Pure logic, selectors, formatters, registries, path/security boundaries | No I/O or light mocks | Workspace pipeline, CLI/browser execution |
-| `tests/contract` | Public CLI/JSON/package/CI/error/runtime manifest protocol | Shape parsing and business invariants | Full command arrays, full script objects, slow suite list copies |
-| `tests/integration` | Workspace pipeline, runtime service, orchestrator, artifact flow | Real temp/cached workspace behavior | Large UI/browser matrices |
-| `tests/e2e` | Slow product paths and the single browser smoke boundary | Explicit slow suites | Becoming the business test matrix |
+主要事实源：
 
-## Fact sources
+- `test-budget-contract.ts`：测试发现、fast/slow 分类、slow suite model。
+- `test-impact-contract.ts`：变更到 affected test 的选择。
+- `ci-contract.ts`：CI lane contract。
+- `runtime-dependency-spec.ts`：生成运行时依赖。
+- `*-schema.ts` / production contract builder：公共数据 shape。
 
-1. `platform/shared/test-budget-contract.ts` owns test globs, fast/slow classification, file-granular slow suite definitions, suite IDs, test budget contract, and formatter.
-2. `platform/shared/test-impact-contract.ts` owns changed-source to affected-fast and affected-slow selection. Prefer auto-reference import graph coverage; semantic rules are only for cross-domain product risk.
-3. `platform/shared/ci-contract.ts` owns CI lane shape. Tests assert lane boundaries and coverage invariants, not copied workflow command lists.
-4. `platform/shared/runtime-dependency-spec.ts` owns generated runtime dependencies and devDependencies, including whether Playwright belongs to runtime full validation.
-5. Public schema belongs next to production contract builders, for example `platform/shared/*-schema.ts`. Use zod only at public JSON/CLI/artifact boundaries, not for every internal TypeScript object.
+规则：
 
-Rules:
+- 测试不得复制 slow suite IDs、glob、完整 CI command array、完整 package scripts。
+- 优先测试“count 与 list 一致、sorted unique、lane boundary、coverage invariant”等语义不变量。
+- Import Graph 能表达的 impact 不再额外维护 semantic owner table。
+- Cross-domain 风险才使用显式 semantic impact rule。
 
-- Tests must not copy slow suite IDs, slow test globs, slow suite counts, complete CI command arrays, complete package script objects, or public contract shapes.
-- Use `slowTestSuiteIds()` / `getSlowTestSuitesSync()` rather than hand-written suite lists.
-- Keep slow suites file-granular unless files need shared setup, ordering, or diagnostics.
-- Mark PR-risk baseline coverage and in-job parallelism through the slow suite registry; do not infer them from file names in workflow scripts.
-- Import-graph-expressible impact should not be duplicated as semantic owner rules.
-- Contract tests verify parseability/serializability and business boundaries: count equals list length, lists are sorted unique, fast lanes exclude slow/full work, full lanes cover correctness backstops.
+## 4. Testkit
 
-## Testkit primitives
+当前核心 primitive：
 
-Start and stay with these three files unless a fourth primitive clearly replaces at least three duplicated call sites, deletes more test code than it adds, or collapses one public contract rule into a single reusable invariant.
+- `tests/testkit/contracts.ts`：合同不变量。
+- `tests/testkit/cli.ts`：CLI text/JSON/compact JSON。
+- `tests/testkit/workspace.ts`：Workspace 场景创建、清理和 Pipeline。
 
-### `tests/testkit/contracts.ts`
+新增 Testkit helper 的门槛：必须替换至少多个真实重复点、减少测试代码，或把一个公共不变量集中到唯一实现。
 
-Contract invariant helpers only.
+Testkit 不能自己维护 Product/IR Schema。
 
-Allowed examples:
+## 5. Playwright 边界
 
-- `expectListCount(contract, 'slowTestFileCount', 'slowTestFiles')`
-- `expectSortedUnique(contract.slowTestFiles)`
-- `expectTestBudgetSelfConsistent(contract)`
-- `expectPrFastLaneBoundary(contract)`
-- `expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds())`
-- `expectPackageSurfaceMinimal(packageJson)`
+Playwright 只证明生成 Runtime 的浏览器 Smoke：
 
-Forbidden: spawning CLI, creating workspaces, Playwright, filesystem-heavy flows, and business fixtures.
+- Next App 能启动。
+- 登录路径可用。
+- 一个关键页面可打开。
+- 一个租户隔离路径可通过浏览器验证。
 
-### `tests/testkit/cli.ts`
+业务状态机、Contract、Fact Delta 和 Impact 不放进浏览器矩阵。
 
-CLI text / JSON / compact JSON behavior only. CLI launch, stderr normalization, compact JSON parsing, exit code, and workspace cwd should be defined once here.
+## 6. 依赖策略
 
-### `tests/testkit/workspace.ts`
+当前测试栈：
 
-Workspace scenario behavior only. Workspace creation, cleanup, template cache, resolve/compose/adapt/verify, artifact paths, and report parsing should be defined once here.
+- Bun test。
+- `bun:test` mocking。
+- Zod 仅用于公共边界。
+- ts-morph 用于 AST/import graph。
+- Playwright 用于单一 Runtime browser smoke。
+- Bun snapshot 只用于稳定协议 JSON。
 
-## Playwright boundary
+不通过增加 Jest/Vitest/Sinon/happy-dom 等近义工具解决测试结构问题。
 
-Keep Playwright, but only as the generated runtime full browser smoke. It must not enter affected or fast lanes, and it must not become a broad business E2E matrix.
+## 7. 新能力测试清单
 
-The browser smoke proves:
+任何新 compiler capability 至少检查：
 
-- the generated Next app starts,
-- the login path works,
-- one key page opens,
-- one tenant-isolation path can be exercised through the browser.
+1. 同输入是否确定性。
+2. 重复执行是否幂等。
+3. ID/排序是否稳定。
+4. Invalid input 是否产生稳定错误域。
+5. Public shape 是否可解析/序列化。
+6. 是否意外复制事实源。
+7. 是否需要 integration 闭环。
+8. 是否扩大 slow/browser 边界。
 
-Business logic belongs in unit, contract, integration, or API tests.
+## 8. 完成标准
 
-## Dependency policy
-
-The test stack is fixed unless there is a new explicit architectural decision:
-
-- Runner: Bun test.
-- Mocking: `bun:test` / `mock.module`.
-- Schema: zod only for public boundaries.
-- Import graph: ts-morph.
-- Browser smoke: Playwright single smoke.
-- Snapshots: Bun built-in only for stable protocol JSON.
-
-Do not add Vitest, Jest, Sinon, fast-check, Testing Library, happy-dom, execa, mock-fs, memfs, or extra golden/snapshot libraries to solve structure problems.
-
-## Migration order
-
-1. Add `tests/testkit/contracts.ts`; migrate `ci-lanes` and `benchmark-budget` contract tests to invariant helpers without changing production behavior, CI, or package scripts.
-2. Split any remaining god contract tests into small contract-family files with 2-5 semantic tests each.
-3. Add `tests/testkit/cli.ts`; migrate repeated text/JSON/compact JSON CLI assertions.
-4. Add `tests/testkit/workspace.ts`; migrate repeated workspace scenario setup and pipeline assertions.
-5. Slim `test-impact-contract.ts` by proving auto-reference coverage before deleting duplicate semantic owner rules.
-6. Freeze Playwright as one runtime browser smoke and prevent expansion into fast/affected lanes.
-
-## Acceptance checks
-
-The target state is satisfied when:
-
-1. No old `test:changed` / `test:all` / `check:changed` aliases remain.
-2. No god `contracts.test.ts` remains.
-3. `tests/testkit` starts with only `contracts.ts`, `cli.ts`, and `workspace.ts`.
-4. Tests do not copy slow suite IDs or complete slow suite lists.
-5. Contract tests do not copy complete CI command arrays or complete package script objects.
-6. Contract tests assert public shape plus invariants.
-7. Workspace tests write scenarios rather than repeated pipelines.
-8. CLI tests do not reimplement text/JSON/compact JSON runners.
-9. Playwright is only runtime browser smoke.
-10. zod schemas only guard public JSON/CLI/artifact boundaries.
-11. Affected selection prefers auto-reference, with semantic rules only for cross-domain risk.
-12. New tests reuse contract builders, registries, selectors, or testkit primitives.
-13. Changing one fact source does not require synchronizing three copied expectations.
+- 测试表达不变量而不是复制实现。
+- Testkit 只负责执行 primitive。
+- Playwright 不进入 affected/fast。
+- Slow suite 数据只由代码 Registry 维护。
+- 改一个事实源不要求同步三份数组和文档。

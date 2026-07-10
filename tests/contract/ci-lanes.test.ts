@@ -2,14 +2,18 @@ import { expect, test } from 'bun:test';
 
 import { buildCiContract, formatCiContract } from '../../platform/shared/ci-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
-import { slowTestPrRiskBaselineSuiteIds, slowTestSuiteIds } from '../../platform/shared/test-budget-contract.ts';
+import {
+  getSlowTestSuitesSync,
+  slowTestPrRiskBaselineSuiteIds,
+  slowTestSuiteIds
+} from '../../platform/shared/test-budget-contract.ts';
+import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import {
   expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
   expectFullLaneCoversSlowSuites,
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 test('CI contract keeps PR lanes fast and full lane complete', () => {
   const contract = buildCiContract();
@@ -96,6 +100,27 @@ test('CI PR risk gate uses bounded baseline suites for broad risk changes', () =
   });
 });
 
+test('slow suite budget distinguishes state safety from runtime resource pressure', () => {
+  const suites = getSlowTestSuitesSync();
+  const runtimeHeavy = suites
+    .filter((suite) => suite.resourceClass === 'runtime-heavy')
+    .map((suite) => suite.id);
+
+  expect(runtimeHeavy).toEqual([
+    'e2e-artifacts',
+    'e2e-conflicts',
+    'e2e-demo-doctor',
+    'e2e-explain',
+    'e2e-local-views',
+    'e2e-provenance'
+  ]);
+  expect(
+    suites
+      .filter((suite) => suite.resourceClass === 'runtime-heavy')
+      .every((suite) => suite.parallelSafe)
+  ).toBe(true);
+});
+
 test('CI PR risk gate skips slow suites when no source or slow test impact exists', () => {
   expect(selectCiPrRiskSlowSuites(['docs/usage.md'])).toEqual({
     suites: [],
@@ -106,11 +131,15 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
   });
 });
 
-test('CI PR risk runner parallelizes selected slow suites', async () => {
+test('CI PR risk runner parallelizes standard suites with isolated workspace roots and serializes runtime-heavy suites', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
 
   expect(source).toContain('SEC_CI_PR_RISK_SLOW_CONCURRENCY');
-  expect(source).toContain('parallelSafeSlowSuites');
+  expect(source).toContain("suite.parallelSafe && suite.resourceClass === 'standard'");
+  expect(source).toContain("suite.resourceClass === 'runtime-heavy'");
   expect(source).toContain('runBunStepsInParallel');
-  expect(source).toContain('parallel-safe slow steps with concurrency ${concurrency}');
+  expect(source).toContain('parallel-safe standard slow steps with concurrency ${concurrency}');
+  expect(source).toContain('runtime-heavy slow steps serially');
+  expect(source).toContain('SEC_TEST_WORKSPACE_NAMESPACE');
+  expect(source).toContain('gateStepEnvironment(step)');
 });

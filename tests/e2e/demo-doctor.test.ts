@@ -58,7 +58,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
             id: artifact.id,
             status: 'passed',
             artifactPath: artifact.path,
-            command: 'bun run platform -- explain'
+            command: 'bun run sec -- explain'
           }))
         )
       },

@@ -48,8 +48,9 @@ export type CiContract = {
 
 const prQuickLaneCommands = [
   'bun install --frozen-lockfile',
-  'bun run imports:organize',
-  'bun scripts/ci-pr-quick.ts'
+  'bun run imports:check',
+  'bun run typecheck',
+  'bun run test:affected'
 ];
 
 const prRiskLaneCommands = [
@@ -61,8 +62,10 @@ const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:
 
 const fullLaneCommands = [
   'bun install --frozen-lockfile',
-  'bun run imports:organize',
+  'bun run imports:check',
   'bun run typecheck',
+  'bun run docs:doctor',
+  'bun run test:fast',
   platformCommand('test', 'budget', '--json', '--compact'),
   'bun run test:contract-freeze',
   ...fullSlowSuiteCommands,
@@ -105,6 +108,20 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     phase: 'quality',
     command: 'bun run imports:check',
     purpose: 'Ensure TypeScript import declarations are normalized by the shared organizer.',
+    produces: []
+  },
+  {
+    id: 'docs-doctor',
+    phase: 'quality',
+    command: 'bun run docs:doctor',
+    purpose: 'Validate active engineering documentation before release validation.',
+    produces: []
+  },
+  {
+    id: 'full-fast-tests',
+    phase: 'quality',
+    command: 'bun run test:fast',
+    purpose: 'Run the complete fast test inventory as the release correctness backstop.',
     produces: []
   },
   {
