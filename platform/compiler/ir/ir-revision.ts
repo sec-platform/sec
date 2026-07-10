@@ -7,7 +7,7 @@ import {
   type SemanticFact
 } from '../../shared/engineering-ir-types.ts';
 import type { ResolvedBlock, SlotTask } from '../../shared/lock-types.ts';
-import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
+import type { BlockManifest, ManifestPin } from '../../shared/plan-manifest-types.ts';
 import type {
   LoadedSemanticContract,
   SemanticContract
@@ -66,9 +66,10 @@ function canonicalSemanticContract(contract: SemanticContract): object {
       field: state.field,
       owner: state.owner,
       values: uniqueSorted(state.values),
-      transitions: [...state.transitions]
-        .map((transition) => ({ from: transition.from, to: transition.to, by: transition.by }))
-        .sort((left, right) => `${left.from}:${left.to}:${left.by}`.localeCompare(`${right.from}:${right.to}:${right.by}`))
+      transitions: uniqueSortedByKey(
+        state.transitions.map((transition) => ({ from: transition.from, to: transition.to, by: transition.by })),
+        (transition) => `${transition.from}\u0000${transition.to}\u0000${transition.by}`
+      )
     })),
     responsibilities: stableById(contract.responsibilities).map((responsibility) => ({
       id: responsibility.id,
@@ -132,24 +133,35 @@ function canonicalSemanticContract(contract: SemanticContract): object {
   };
 }
 
+function canonicalPins(pins: readonly ManifestPin[]): object[] {
+  const declarations = pins.map((pin) => ({
+    id: pin.id,
+    type: pin.type,
+    required: pin.required ?? false
+  }));
+  return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
+}
+
 function canonicalManifest(entry: InputRevisionManifest): object {
   return {
     blockId: entry.blockId,
     requires: uniqueSorted(entry.manifest.requires),
     provides: uniqueSorted(entry.manifest.provides),
     pins: {
-      inputs: stableById(entry.manifest.pins.inputs).map((pin) => ({
-        id: pin.id,
-        type: pin.type,
-        required: pin.required ?? false
-      })),
-      outputs: stableById(entry.manifest.pins.outputs).map((pin) => ({
-        id: pin.id,
-        type: pin.type,
-        required: pin.required ?? false
-      }))
+      inputs: canonicalPins(entry.manifest.pins.inputs),
+      outputs: canonicalPins(entry.manifest.pins.outputs)
     }
   };
+}
+
+function canonicalResolvedBlocks(blocks: readonly ResolvedBlock[]): object[] {
+  const declarations = blocks.map((block) => ({
+    id: block.id,
+    version: block.version,
+    kind: block.kind,
+    registrySourceId: block.registrySourceId
+  }));
+  return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
 }
 
 function canonicalManifestDeclarations(manifests: readonly InputRevisionManifest[]): object[] {
@@ -165,6 +177,19 @@ function canonicalSemanticContractDeclarations(contracts: readonly LoadedSemanti
   return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
 }
 
+function canonicalSlotTasks(slotTasks: readonly SlotTask[]): object[] {
+  const declarations = slotTasks.map((task) => ({
+    id: task.id,
+    block: task.block,
+    kind: task.kind,
+    target: task.target,
+    symbol: task.symbol,
+    inputType: task.inputType ?? null,
+    outputType: task.outputType ?? null
+  }));
+  return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
+}
+
 export function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -176,27 +201,10 @@ export function inputRevisionPayload(input: InputRevisionDomain): string {
       id: input.app.id,
       name: input.app.name
     },
-    resolvedBlocks: [...input.resolvedBlocks]
-      .sort((left, right) => left.id.localeCompare(right.id))
-      .map((block) => ({
-        id: block.id,
-        version: block.version,
-        kind: block.kind,
-        registrySourceId: block.registrySourceId
-      })),
+    resolvedBlocks: canonicalResolvedBlocks(input.resolvedBlocks),
     manifests: canonicalManifestDeclarations(input.manifests),
     semanticContracts: canonicalSemanticContractDeclarations(input.semanticContracts ?? []),
-    slotTasks: [...input.slotTasks]
-      .sort((left, right) => `${left.block}:${left.id}`.localeCompare(`${right.block}:${right.id}`))
-      .map((task) => ({
-        id: task.id,
-        block: task.block,
-        kind: task.kind,
-        target: task.target,
-        symbol: task.symbol,
-        inputType: task.inputType ?? null,
-        outputType: task.outputType ?? null
-      })),
+    slotTasks: canonicalSlotTasks(input.slotTasks),
     acceptanceIds: uniqueSorted(input.acceptanceIds),
     policyIds: uniqueSorted(input.policyIds)
   });
