@@ -17,8 +17,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          echo '=== SEC REMOTE BRANCH INVENTORY ==='
           gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" \
             --jq '.[] | [.name, .commit.sha] | @tsv' \
-            | sort
-          echo '=== END INVENTORY ==='
+            | sort \
+            | tee branches.tsv
+
+      - name: Upload branch inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository-branch-inventory
+          path: branches.tsv
+          if-no-files-found: error
