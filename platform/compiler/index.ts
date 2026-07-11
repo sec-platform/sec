@@ -11,7 +11,15 @@ export {
   type BuildEngineeringIRInput,
   type EngineeringIRManifestInput
 } from './ir/build-engineering-ir.ts';
-export { indexEngineeringIR, type EngineeringIRIndex } from './ir/index-engineering-ir.ts';
+export {
+  indexEngineeringIR,
+  indexValidatedEngineeringIR,
+  type EngineeringIRIndex
+} from './ir/index-engineering-ir.ts';
+export {
+  buildValidatedEngineeringIR,
+  validateEngineeringIR
+} from './ir/validate-engineering-ir.ts';
 export { loadManifestById, loadManifestForResolvedBlock } from './parse/load-manifest.ts';
 export { loadOverrideManifest } from './parse/load-override-manifest.ts';
 export { loadPlan, loadWorkspacePlan } from './parse/load-plan.ts';

@@ -3,7 +3,8 @@ import type {
   SemanticEntity,
   SemanticEntityKind,
   SemanticFact,
-  SemanticPredicate
+  SemanticPredicate,
+  ValidatedEngineeringIRSnapshot
 } from '../../shared/engineering-ir-types.ts';
 
 export interface EngineeringIRIndex {
@@ -52,4 +53,10 @@ export function indexEngineeringIR(ir: EngineeringIR): EngineeringIRIndex {
     outgoingFactsBySubject,
     incomingFactsByEntityObject
   };
+}
+
+export function indexValidatedEngineeringIR(
+  snapshot: ValidatedEngineeringIRSnapshot
+): EngineeringIRIndex {
+  return indexEngineeringIR(snapshot.ir);
 }
