@@ -44,5 +44,8 @@ CLAUDE.md
 _handoff/
 *.zip
 .claude/
-.codex/
+.codex/*
+!.codex/config.toml
+!.codex/agents/
+!.codex/agents/*.toml
 .agents/
