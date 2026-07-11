@@ -39,7 +39,7 @@ Pipeline Kernel 基础设施已完成
 
 ## 2. 当前唯一 ACTIVE NEXT：Workspace Semantic Linker
 
-当前唯一 active next 是 **P0-4 Workspace Semantic Linker**。P0-3 Semantic Pipeline Spine 已完成本地退出审计，待本分支经 PR 进入 `main`。
+当前唯一 active next 是 **P0-4 Workspace Semantic Linker**。P0-3 Semantic Pipeline Spine 已由 PR #89 进入 `main`。
 
 当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；canonical Engineering IR、validated boundary 与 transaction-owned Pipeline Semantic Context 已经固定，当前任务是建立显式 Workspace Semantic Link。
 
