@@ -37,11 +37,11 @@ Pipeline Kernel 基础设施已完成
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前唯一 ACTIVE NEXT：Validated IR Boundary
+## 2. 当前唯一 ACTIVE NEXT：Semantic Pipeline Spine
 
-当前唯一 active next 是 **P0-2B Validated IR Boundary**。P0-2A Canonical IR Invariants 已由 PR #86 进入 `main`。
+当前唯一 active next 是 **P0-3 Semantic Pipeline Spine**。P0-2B Validated IR Boundary 已由 PR #88 进入 `main`。
 
-当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；canonical Engineering IR 的身份、revision、Fact、Assertion、Predicate Signature 与 Scenario Fact 不变量已经固定，当前任务是建立唯一 validated boundary，随后把 Semantic IR 接入统一 Pipeline。
+当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；canonical Engineering IR 的身份、revision、Fact、Assertion、Predicate Signature、Scenario Fact 与 validated boundary 已经固定，当前任务是把 Semantic IR 接入统一 Pipeline。
 
 目标主链：
 
@@ -166,7 +166,7 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 
 ## 6. P0-2B Validated IR Boundary
 
-状态：**ACTIVE NEXT**。
+状态：**COMPLETED**。
 
 ### Prerequisite
 
@@ -190,9 +190,11 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 - validated snapshot 只能由 canonical validator 成功路径产生。
 - 现存 legacy semantic consumers 均被明确归属到 P0-3、P0-5 或 P0-6，不存在“先要求 Lowerer 消费 validated snapshot、后续才把 Lowerer 改为 IR-owned”的执行依赖环。
 
+以上退出条件由 PR #88 收敛。实现、focused tests 与验证复用判断分别由 `docs/14-Engineering IR与语义事实规范.md`、`tests/unit/validated-engineering-ir.test.ts` 与 `docs/test-feedback-and-ci-lanes.md` 持有。
+
 ## 7. P0-3 Semantic Pipeline Spine
 
-状态：**BLOCKED BY P0-2B**。
+状态：**ACTIVE NEXT**。
 
 ### Prerequisite
 
@@ -432,9 +434,9 @@ P0-1  Pipeline Kernel Foundation                         COMPLETED
   ↓
 P0-2A Canonical IR Invariants                            COMPLETED
   ↓
-P0-2B Validated IR Boundary                              ACTIVE NEXT
+P0-2B Validated IR Boundary                              COMPLETED
   ↓
-P0-3  Semantic Pipeline Spine
+P0-3  Semantic Pipeline Spine                            ACTIVE NEXT
   ↓
 P0-4  Workspace Semantic Linker
   ↓
@@ -449,6 +451,6 @@ latest-head full validation
 v0.3 exit review
 ```
 
-只有 **P0-2B Validated IR Boundary** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改下游 semantic consumer 来伪造进度。
+只有 **P0-3 Semantic Pipeline Spine** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改下游 semantic consumer 来伪造进度。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。
