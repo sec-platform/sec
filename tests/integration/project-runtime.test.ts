@@ -443,11 +443,13 @@ describe('project base', () => {
 
       expect(runtimeSpec.devDependencies['@playwright/test']).toBeDefined();
       expect(projectPackage.devDependencies['@playwright/test']).toBe(runtimeSpec.devDependencies['@playwright/test']);
+      expect(projectPackage.scripts.dev).toBe('next dev --webpack');
       expect(projectPackage.scripts['test:acceptance']).toBe('playwright test --config playwright.config.ts');
       expect(projectPackage.scripts['verify:runtime:full']).toBe('bun run build && bun run test:unit && bun run test:acceptance');
       expect(projectPackage.scripts['test:fast']).not.toContain('playwright');
       expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
       expect(playwrightConfig).toContain('workers: 1');
+      expect(playwrightConfig).toContain('next dev --webpack --hostname 127.0.0.1');
     }, 'engineering-compiler-runtime-trace-');
   });
 });

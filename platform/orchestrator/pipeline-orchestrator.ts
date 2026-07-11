@@ -2,9 +2,11 @@ import type { ExplainGraph } from '../shared/explain-types.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
 import { withPipelineTransaction } from '../shared/pipeline-kernel.ts';
+import { requirePipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
 import {
   PIPELINE_STAGE_IDS,
   type PipelineEventHandler,
+  type PipelineSemanticContext,
   type PipelineSource,
   type PipelineStageId
 } from '../shared/pipeline-types.ts';
@@ -16,6 +18,7 @@ import { adaptWorkspace, composeWorkspace } from './compose-orchestrator.ts';
 import { explainWorkspace, lockWorkspace } from './emit-orchestrator.ts';
 import { verifyWorkspace } from './verify-orchestrator.ts';
 import { applyWorkbenchMutations } from './workbench-orchestrator.ts';
+import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 
 export interface CompileWorkspaceOptions {
   source?: PipelineSource;
@@ -29,6 +32,7 @@ export interface CompileWorkspaceOptions {
 export interface CompileWorkspaceResult {
   transactionId: string;
   completedStages: PipelineStageId[];
+  semanticContext?: PipelineSemanticContext;
   plan?: PlanFile;
   lock: LockFile;
   verificationReport?: VerificationReport;
@@ -45,7 +49,9 @@ function selectStages(options: CompileWorkspaceOptions): PipelineStageId[] {
   if (fromIndex < 0 || throughIndex < 0 || fromIndex > throughIndex) {
     throw new Error(`Invalid pipeline stage range: ${options.from ?? PIPELINE_STAGE_IDS[0]} -> ${options.through ?? PIPELINE_STAGE_IDS.at(-1)}`);
   }
-  return PIPELINE_STAGE_IDS.slice(fromIndex, throughIndex + 1);
+  const selected = PIPELINE_STAGE_IDS.slice(fromIndex, throughIndex + 1);
+  const semanticIndex = PIPELINE_STAGE_IDS.indexOf('semantic');
+  return fromIndex > semanticIndex ? ['semantic', ...selected] : selected;
 }
 
 export async function compileWorkspace(
@@ -71,19 +77,25 @@ export async function compileWorkspace(
       let verificationReport: VerificationReport | undefined;
       let explainGraph: ExplainGraph | undefined;
       let reviewSummary: ReviewSummary | undefined;
+      let semanticContext: PipelineSemanticContext | undefined;
       const completedStages: PipelineStageId[] = [];
 
       for (const stage of stages) {
         if (stage === 'resolve') {
           const result = await resolveWorkspace(workspaceRoot, context);
           plan = result.plan;
+        } else if (stage === 'semantic') {
+          semanticContext = await runWorkspaceSemanticFrontend(workspaceRoot, context);
         } else if (stage === 'compose') {
+          requirePipelineSemanticContext(context);
           const result = await composeWorkspace(workspaceRoot, undefined, context);
           plan = result.plan;
         } else if (stage === 'adapt') {
+          requirePipelineSemanticContext(context);
           const result = await adaptWorkspace(workspaceRoot, context);
           plan = result.plan;
         } else if (stage === 'verify') {
+          requirePipelineSemanticContext(context);
           const result = await verifyWorkspace(
             workspaceRoot,
             { lane: options.verificationLane ?? 'all' },
@@ -91,8 +103,10 @@ export async function compileWorkspace(
           );
           verificationReport = result.report;
         } else if (stage === 'lock') {
+          requirePipelineSemanticContext(context);
           await lockWorkspace(workspaceRoot, context);
         } else if (stage === 'emit') {
+          requirePipelineSemanticContext(context);
           const result = await explainWorkspace(workspaceRoot, context);
           explainGraph = result.graph;
           reviewSummary = result.reviewSummary;
@@ -104,6 +118,7 @@ export async function compileWorkspace(
       return {
         transactionId: context.transactionId,
         completedStages,
+        ...(semanticContext ? { semanticContext } : {}),
         ...(plan ? { plan } : {}),
         lock,
         ...(verificationReport ? { verificationReport } : {}),

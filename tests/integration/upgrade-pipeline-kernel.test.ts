@@ -18,6 +18,7 @@ test('upgrade apply recompiles through one canonical upgrade transaction', async
       parse: 'succeeded',
       align: 'succeeded',
       resolve: 'succeeded',
+      'build-ir': 'succeeded',
       compose: 'succeeded',
       adapt: 'succeeded',
       verify: 'succeeded',
@@ -30,11 +31,12 @@ test('upgrade apply recompiles through one canonical upgrade transaction', async
       .reverse()
       .find((transaction) => transaction.source === 'upgrade');
     expect(upgradeTransaction).toMatchObject({
-      requestedStages: ['resolve', 'compose', 'adapt', 'verify', 'lock'],
+      requestedStages: ['resolve', 'semantic', 'compose', 'adapt', 'verify', 'lock'],
       status: 'succeeded'
     });
     expect(upgradeTransaction?.passRecords.map((entry) => [entry.passId, entry.status])).toEqual([
       ['resolve', 'succeeded'],
+      ['build-ir', 'succeeded'],
       ['compose', 'succeeded'],
       ['adapt', 'succeeded'],
       ['verify', 'succeeded'],

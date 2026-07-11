@@ -6,11 +6,13 @@ const SEMANTIC_IR_FAST_TESTS = [
   "tests/unit/predicate-signatures.test.ts",
   "tests/unit/semantic-contract-ir.test.ts",
   "tests/unit/semantic-contract-responsibility.test.ts",
+  "tests/unit/validated-engineering-ir.test.ts",
   "tests/integration/semantic-contract.test.ts",
   "tests/integration/p0-2a-ir-invariants.test.ts",
   "tests/integration/semantic-projections.test.ts",
   "tests/integration/workspace-engineering-ir.test.ts",
   "tests/integration/semantic-core-vertical.test.ts",
+  "tests/integration/semantic-pipeline-spine.test.ts",
 ];
 
 const SEMANTIC_PROJECTION_FAST_TESTS = [
