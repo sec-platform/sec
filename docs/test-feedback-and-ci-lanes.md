@@ -211,3 +211,13 @@ GitHub Actions 使用 group 展开边界，失败日志必须能快速定位负�
 | 同上 | 本地 `reference:check` | refresh + tracked diff + untracked scan | PASS（约 46s；changed paths 0） | reference inputs、生成逻辑或受管 `source project control` artifacts 变化时失效。 |
 
 Windows 首次运行曾暴露 raw-byte provenance hash 随 CRLF 漂移。最终修复保留 baseline 的 byte-exact hash，并只对跨平台持久化的 provenance 文本 hash 规范化 EOL；因此不能再用手工回填 `provenance.json` 作为 reference-check 证据。
+
+### 2026-07-11 P0-2B Validated IR Boundary delta evidence
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `0d94fca83b2d1de5cc4a67e6c8e3079518775dcd`（base `9385b94fd2cf875a5abc329f46ca11982f887e06`） | 本地 `bun test tests/unit/validated-engineering-ir.test.ts tests/unit/engineering-ir.test.ts tests/unit/predicate-signatures.test.ts tests/unit/scenario-fact-canonicalization.test.ts --timeout 180000` | validated snapshot 签发、deep freeze、revision、Entity / Fact / Assertion identity、运行时枚举诊断、Predicate Signature 与 Scenario canonical cache | PASS（23/23，约 1.4s） | Validator、IR identity/revision/normalization、Predicate Registry、Scenario Fact 或 validated consumer boundary 变化时失效；只重跑本 focused set 及新增受影响 seam。 |
+| 同上 | 本地 `typecheck`、`docs:doctor`、`git diff --check` | 类型边界、authority docs 与 patch hygiene | PASS（typecheck 约 6.7s；docs doctor 约 0.5s） | 类型导出或 authority docs 变化时只重跑对应 Gate。 |
+| 同上 | 本地 `SEC_IMPORTS_CHANGED_ONLY=1`、`SEC_CHANGED_BASE=9385b94fd2cf875a5abc329f46ca11982f887e06`、`imports:organize` + `imports:check` | P0-2B changed TypeScript files | PASS（约 9.3s；organizer 无内容 diff） | import 规则、base 或 changed TypeScript files 变化时失效。 |
+
+P0-2B delta 新增尚未接入 legacy Pipeline / Projection 的 validator、branded snapshot 与只接受 validated snapshot 的 index consumer；现有 `indexEngineeringIR(rawIR)` 及 canonical Builder 输出未改变，也未修改 artifact/reference producer、测试选择器、slow implementation、fixtures、依赖锁或运行时工具链。因此继续复用 P0-2A baseline 的 full-fast、all-slow-risk、test-budget、benchmark、dependency warmup、resolve/compose/adapt、verify-all、lock/explain 与已经 clean 的 `reference:check`，不重复全量或 GitHub Actions。
