@@ -221,3 +221,19 @@ Windows 首次运行曾暴露 raw-byte provenance hash 随 CRLF 漂移。最终�
 | 同上 | 本地 `SEC_IMPORTS_CHANGED_ONLY=1`、`SEC_CHANGED_BASE=9385b94fd2cf875a5abc329f46ca11982f887e06`、`imports:organize` + `imports:check` | P0-2B changed TypeScript files | PASS（约 9.3s；organizer 无内容 diff） | import 规则、base 或 changed TypeScript files 变化时失效。 |
 
 P0-2B delta 新增尚未接入 legacy Pipeline / Projection 的 validator、branded snapshot 与只接受 validated snapshot 的 index consumer；现有 `indexEngineeringIR(rawIR)` 及 canonical Builder 输出未改变，也未修改 artifact/reference producer、测试选择器、slow implementation、fixtures、依赖锁或运行时工具链。因此继续复用 P0-2A baseline 的 full-fast、all-slow-risk、test-budget、benchmark、dependency warmup、resolve/compose/adapt、verify-all、lock/explain 与已经 clean 的 `reference:check`，不重复全量或 GitHub Actions。
+
+### 2026-07-11 P0-3 Semantic Pipeline Spine delta evidence
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `a702dfdc2eed00979274cef8e935a1f29ce95c31`（base `0fc25479fe5ccee0cda2320c5d9e4c08405e2208`） | 本地 `bun test tests/integration/semantic-pipeline-spine.test.ts tests/integration/pipeline-kernel.test.ts tests/unit/pipeline-pass-registry.test.ts tests/unit/validated-engineering-ir.test.ts --timeout 180000` | Ticket resolve → semantic/build-ir → compose、transaction-owned snapshot、partial compile semantic prelude、failure/block/retry、validated boundary | PASS（14/14，约 20s） | Pipeline stage/pass/context、workspace semantic input、validator 或 Ticket semantic contract 变化时失效。 |
+| `b3e24e55f20fba8053c0ba9953a647ae4a71d482` | 本地 Workbench + Upgrade pipeline focused set | 两个 all-lane 完整重编译入口 | PASS（2/2，约 158s） | Workbench compile handler、Upgrade recompile、Pipeline stage order 或 runtime verification 变化时失效。 |
+| 同上 | 本地 raw IR regression set | legacy `buildWorkspaceEngineeringIR()` 与 P0-2A invariants | PASS（9/9，约 13s） | workspace input loader、raw compatibility builder 或 P0-2A identity invariants 变化时失效。 |
+| 同上 | 本地 test-impact / pass-registry focused set、project-base contract | selector ownership、physical pass ownership、Webpack local runtime bridge | PASS（16/16 + 1/1） | test-impact rules、pass registry 或 project base/runtime server contract 变化时失效。 |
+| `048598d86e290f225d466dd58606d7d1d640d724` | 本地 `reference:refresh` 后 `reference:check` | reference full compile、`build-ir` Lock state、Ticket acceptance、ExplainGraph/Workbench/provenance drift | PASS（refresh 约 72s；check 约 64s；changed paths 0） | reference input、Pipeline/Lock、project-base、artifact/provenance producer 变化时失效。 |
+| 同上 | 本地 `test:budget` 与 `tests/e2e/runtime-host.test.ts` | selector/test budget contract 与 generated runtime host | PASS（runtime-host 1/1，约 7s） | suite registry/budget、project-base 或 compose runtime host 变化时失效。 |
+| 同上及其代码祖先 | 本地 changed-only imports、`typecheck`、`docs:doctor`、`git diff --check` | P0-3 静态与文档门禁 | PASS | imports/type/doc authority 变化时只重跑对应 Gate。 |
+
+第一次 Workbench/Upgrade probe 在 `build-ir` 已成功后因 Windows Turbopack 拒绝共享 `node_modules` junction 而失败；生成项目 dev/Playwright server 改为与 build 一致的 Webpack 后，同一组 all-lane tests 通过。第一次 reference refresh 随后暴露 reference Plan 漏声明 `tenant_only_sees_own_tickets`（`IR-FACT-003`）；保留 validator hard fail，补齐 Plan acceptance 并执行真实 refresh，最终 exact-head clean。两次失败均为已定位并关闭的 delta evidence，不得在后续误记为当前失败。
+
+P0-3 改变 Pipeline stage/pass/context、Lock `build-ir` 状态、reference input 与本地 runtime server contract，因此旧 baseline 在这些表面失效，已由以上 focused/all-lane/reference 证据替代。依赖版本/锁、benchmark、dependency warmup、非 Pipeline slow suite 与其测试基础设施未改变，继续复用 P0-2A baseline；未运行 GitHub Actions，也未重复 full-fast 或 all-slow matrix。
