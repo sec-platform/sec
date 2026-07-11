@@ -40,8 +40,9 @@ test('architecture projection collapses operation effects and permissions into r
   expect(view.overlays[0]?.entries.length).toBeGreaterThan(0);
 });
 
-test('scenario projection preserves repeated execution steps and local ordering', () => {
+test('scenario projection derives from canonical Facts and ignores a tampered Scenario cache', () => {
   const original = ticketIR.scenarios.find((scenario) => scenario.id === 'scenario:ticket:create-ticket')!;
+  const canonicalView = projectScenarioView(ticketIR, original.id);
   const scenarioIR: EngineeringIR = {
     ...ticketIR,
     scenarios: ticketIR.scenarios.map((scenario) => scenario.id === original.id
@@ -61,14 +62,12 @@ test('scenario projection preserves repeated execution steps and local ordering'
   };
 
   const view = projectScenarioView(scenarioIR, original.id);
-  expect(view.nodes.map((node) => node.id)).toContain('scenario:ticket:create-ticket#step:create');
-  expect(view.nodes.map((node) => node.id)).toContain('scenario:ticket:create-ticket#step:transition');
-  expect(view.edges).toContainEqual(expect.objectContaining({
-    source: 'scenario:ticket:create-ticket#step:create',
-    target: 'scenario:ticket:create-ticket#step:transition',
-    relation: 'SCENARIO_PRECEDES',
-    label: 'await'
-  }));
+  expect(view).toEqual(canonicalView);
+  expect(view.nodes.map((node) => node.id)).toEqual(['scenario:ticket:create-ticket#step:create']);
+  expect(view.nodes[0]?.references).toContainEqual({
+    kind: 'entity',
+    ref: 'scenario:ticket:create-ticket#step:create'
+  });
 });
 
 test('state projection exposes owner, backing field, mutator, and transition loops', () => {
