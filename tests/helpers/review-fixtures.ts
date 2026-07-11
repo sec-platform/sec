@@ -30,6 +30,7 @@ export function buildReviewLock(options: ReviewLockOptions = {}): LockFile {
   const base: LockFile = {
     formatVersion: '1',
     app: {
+      id: 'customer-admin',
       name: 'customer-admin',
       stack: SUPPORTED_STACK,
       mode: 'single-tenant'

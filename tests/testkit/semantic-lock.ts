@@ -5,6 +5,7 @@ export function semanticArtifactLock(target: string): LockFile {
   return {
     formatVersion: '1',
     app: {
+      id: 'semantic-artifact-test',
       name: 'semantic-artifact-test',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'single-tenant'

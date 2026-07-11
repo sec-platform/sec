@@ -261,6 +261,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
   return {
     formatVersion: '1',
     app: {
+      id: plan.app.id,
       name: plan.app.name,
       stack: plan.app.stack,
       mode: plan.app.mode

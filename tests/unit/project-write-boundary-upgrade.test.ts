@@ -14,7 +14,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 function lockFor(paths: string[]): LockFile {
   return {
     formatVersion: '1',
-    app: { name: 'upgrade-boundary-test', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
+    app: { id: 'upgrade-boundary-test', name: 'upgrade-boundary-test', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [],

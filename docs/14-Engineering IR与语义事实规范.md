@@ -57,6 +57,8 @@ interface EngineeringIR {
 
 `inputRevision` 标识规范化声明输入域；`semanticRevision` 标识最终 canonical semantic graph。v2 不存在兼容性的 root `revision` 字段，也不得把二者重新折叠为单一 revision。
 
+`appId` 是 App Entity 的稳定 identity，来源于 Plan 的 `app.id`。Resolver 必须把它持久化为 `LockFile.app.id`；任何 Lock consumer 都不得从 `app.name` 反推 identity。`app.name` 在 IR、Lock 和 ExplainGraph 中都只承担显示 label，不参与 canonical ID、revision 或图边端点计算。ExplainGraph 的 App 节点必须使用 `app:<lock.app.id>`，并仅把 `lock.app.name` 写入节点 `label`。
+
 `facts` 是 Scenario 执行语义的唯一 canonical ownership。`scenarios` 保留在 IR root 中，但它只能由最终 Entities/Facts 确定性重建，是只读 derived cache；Contract producer、Projector 和其他 consumer 不得把它当成第二声明入口。
 
 Fact Assertion 也不建立 root-level `assertions[]`。Canonical ownership 是：
@@ -157,6 +159,8 @@ policy:<policy-id>
 - 使用数组位置。
 - 使用 UI 坐标。
 - 仅使用显示 label。
+
+因此 App 改名只能改变显示文本，不能改变 `app:<app-id>` 节点 identity、依赖边或 provenance 归属。Plan → Lock → Engineering IR / ExplainGraph 必须连续保留同一个 `app.id`。
 
 ## 5. Semantic Fact 与 Fact Assertion
 

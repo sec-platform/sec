@@ -97,6 +97,7 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
     const lock: LockFile = {
       formatVersion: '1',
       app: {
+        id: 'customer-admin',
         name: 'customer-admin',
         stack: 'nextjs-ts-prisma-sqlite',
         mode: 'single-tenant'

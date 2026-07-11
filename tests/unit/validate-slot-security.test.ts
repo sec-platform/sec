@@ -9,6 +9,7 @@ describe('Custom Slot static AST security audit (AST Guard Pass)', () => {
   const createMockLock = (sourcePath: string): LockFile => ({
     formatVersion: '1',
     app: {
+      id: 'test-app',
       name: 'test-app',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'multi-tenant'

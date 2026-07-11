@@ -7,6 +7,7 @@ function lockFixture(): LockFile {
   return {
     formatVersion: '1',
     app: {
+      id: 'baseline-path-test',
       name: 'baseline-path-test',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'single-tenant'

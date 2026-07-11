@@ -10,7 +10,7 @@ flowchart TD
   acceptance_user_can_create_customer["user_can_create_customer (acceptance)"]
   acceptance_user_can_list_customers["user_can_list_customers (acceptance)"]
   acceptance_user_can_login["user_can_login (acceptance)"]
-  app_customer_admin["customer-admin (app)"]
+  app_sec_reference["SEC Reference (app)"]
   block_agent_executor["agent/executor (block)"]
   block_agent_harness["agent/harness (block)"]
   block_auth_basic_session["auth/basic-session (block)"]
@@ -129,14 +129,14 @@ flowchart TD
   policy_tenant_scope_required["tenant-scope-required (policy)"]
   slot_customer_normalizer["customer_normalizer (slot)"]
   slot_ticket_comment_delegate["ticket_comment_delegate (slot)"]
-  app_customer_admin -- depends_on --> block_agent_executor
-  app_customer_admin -- depends_on --> block_agent_harness
-  app_customer_admin -- depends_on --> block_auth_basic_session
-  app_customer_admin -- depends_on --> block_comment_basic
-  app_customer_admin -- depends_on --> block_entity_customer_basic
-  app_customer_admin -- depends_on --> block_file_upload
-  app_customer_admin -- depends_on --> block_tenant_basic_workspace
-  app_customer_admin -- depends_on --> block_ticket_basic
+  app_sec_reference -- depends_on --> block_agent_executor
+  app_sec_reference -- depends_on --> block_agent_harness
+  app_sec_reference -- depends_on --> block_auth_basic_session
+  app_sec_reference -- depends_on --> block_comment_basic
+  app_sec_reference -- depends_on --> block_entity_customer_basic
+  app_sec_reference -- depends_on --> block_file_upload
+  app_sec_reference -- depends_on --> block_tenant_basic_workspace
+  app_sec_reference -- depends_on --> block_ticket_basic
   block_agent_executor -- depends_on --> capability_agent_harness
   block_agent_executor -- depends_on --> capability_tenant_context
   block_agent_executor -- depends_on --> capability_ticket_comment
@@ -207,54 +207,54 @@ flowchart TD
   block_ticket_basic -- writes_to --> file_app_api_tickets_ticketId_status_route_ts
   block_ticket_basic -- writes_to --> file_app_api_tickets_route_ts
   block_ticket_basic -- writes_to --> file_app_tickets_page_tsx
-  file_app_api_customers_customerId_attachments_route_ts -- originates_from --> app_customer_admin
-  file_app_api_customers_route_ts -- originates_from --> app_customer_admin
-  file_app_api_session_current_route_ts -- originates_from --> app_customer_admin
-  file_app_api_session_login_route_ts -- originates_from --> app_customer_admin
-  file_app_api_session_logout_route_ts -- originates_from --> app_customer_admin
-  file_app_api_tickets_ticketId_attachments_route_ts -- originates_from --> app_customer_admin
-  file_app_api_tickets_ticketId_comments_route_ts -- originates_from --> app_customer_admin
-  file_app_api_tickets_ticketId_status_route_ts -- originates_from --> app_customer_admin
-  file_app_api_tickets_route_ts -- originates_from --> app_customer_admin
-  file_app_customers_page_tsx -- originates_from --> app_customer_admin
-  file_app_globals_css -- originates_from --> app_customer_admin
-  file_app_layout_tsx -- originates_from --> app_customer_admin
-  file_app_login_page_tsx -- originates_from --> app_customer_admin
-  file_app_page_tsx -- originates_from --> app_customer_admin
-  file_app_tickets_page_tsx -- originates_from --> app_customer_admin
-  file_app_workspace_page_tsx -- originates_from --> app_customer_admin
-  file_components_customer_attachment_form_tsx -- originates_from --> app_customer_admin
-  file_components_customer_form_tsx -- originates_from --> app_customer_admin
-  file_components_login_form_tsx -- originates_from --> app_customer_admin
-  file_components_logout_button_tsx -- originates_from --> app_customer_admin
-  file_components_ticket_attachment_form_tsx -- originates_from --> app_customer_admin
-  file_components_ticket_comment_form_tsx -- originates_from --> app_customer_admin
-  file_components_ticket_form_tsx -- originates_from --> app_customer_admin
-  file_components_ticket_status_form_tsx -- originates_from --> app_customer_admin
-  file_control_evidence_acceptance_coverage_json -- originates_from --> app_customer_admin
-  file_control_evidence_block_usage_map_json -- originates_from --> app_customer_admin
-  file_control_evidence_install_manifest_json -- originates_from --> app_customer_admin
-  file_control_evidence_policy_report_json -- originates_from --> app_customer_admin
-  file_control_evidence_review_summary_json -- originates_from --> app_customer_admin
-  file_control_evidence_runtime_report_json -- originates_from --> app_customer_admin
-  file_control_evidence_verification_report_json -- originates_from --> app_customer_admin
-  file_control_graph_explain_graph_dot -- originates_from --> app_customer_admin
-  file_control_graph_explain_graph_json -- originates_from --> app_customer_admin
-  file_control_graph_explain_graph_mmd -- originates_from --> app_customer_admin
-  file_control_provenance_provenance_json -- originates_from --> app_customer_admin
-  file_control_workbench_views_graph_view_html -- originates_from --> app_customer_admin
-  file_control_workbench_views_overview_view_html -- originates_from --> app_customer_admin
-  file_control_workbench_views_review_view_html -- originates_from --> app_customer_admin
-  file_control_workbench_views_slot_rule_view_html -- originates_from --> app_customer_admin
-  file_control_workbench_views_source_view_html -- originates_from --> app_customer_admin
+  file_app_api_customers_customerId_attachments_route_ts -- originates_from --> app_sec_reference
+  file_app_api_customers_route_ts -- originates_from --> app_sec_reference
+  file_app_api_session_current_route_ts -- originates_from --> app_sec_reference
+  file_app_api_session_login_route_ts -- originates_from --> app_sec_reference
+  file_app_api_session_logout_route_ts -- originates_from --> app_sec_reference
+  file_app_api_tickets_ticketId_attachments_route_ts -- originates_from --> app_sec_reference
+  file_app_api_tickets_ticketId_comments_route_ts -- originates_from --> app_sec_reference
+  file_app_api_tickets_ticketId_status_route_ts -- originates_from --> app_sec_reference
+  file_app_api_tickets_route_ts -- originates_from --> app_sec_reference
+  file_app_customers_page_tsx -- originates_from --> app_sec_reference
+  file_app_globals_css -- originates_from --> app_sec_reference
+  file_app_layout_tsx -- originates_from --> app_sec_reference
+  file_app_login_page_tsx -- originates_from --> app_sec_reference
+  file_app_page_tsx -- originates_from --> app_sec_reference
+  file_app_tickets_page_tsx -- originates_from --> app_sec_reference
+  file_app_workspace_page_tsx -- originates_from --> app_sec_reference
+  file_components_customer_attachment_form_tsx -- originates_from --> app_sec_reference
+  file_components_customer_form_tsx -- originates_from --> app_sec_reference
+  file_components_login_form_tsx -- originates_from --> app_sec_reference
+  file_components_logout_button_tsx -- originates_from --> app_sec_reference
+  file_components_ticket_attachment_form_tsx -- originates_from --> app_sec_reference
+  file_components_ticket_comment_form_tsx -- originates_from --> app_sec_reference
+  file_components_ticket_form_tsx -- originates_from --> app_sec_reference
+  file_components_ticket_status_form_tsx -- originates_from --> app_sec_reference
+  file_control_evidence_acceptance_coverage_json -- originates_from --> app_sec_reference
+  file_control_evidence_block_usage_map_json -- originates_from --> app_sec_reference
+  file_control_evidence_install_manifest_json -- originates_from --> app_sec_reference
+  file_control_evidence_policy_report_json -- originates_from --> app_sec_reference
+  file_control_evidence_review_summary_json -- originates_from --> app_sec_reference
+  file_control_evidence_runtime_report_json -- originates_from --> app_sec_reference
+  file_control_evidence_verification_report_json -- originates_from --> app_sec_reference
+  file_control_graph_explain_graph_dot -- originates_from --> app_sec_reference
+  file_control_graph_explain_graph_json -- originates_from --> app_sec_reference
+  file_control_graph_explain_graph_mmd -- originates_from --> app_sec_reference
+  file_control_provenance_provenance_json -- originates_from --> app_sec_reference
+  file_control_workbench_views_graph_view_html -- originates_from --> app_sec_reference
+  file_control_workbench_views_overview_view_html -- originates_from --> app_sec_reference
+  file_control_workbench_views_review_view_html -- originates_from --> app_sec_reference
+  file_control_workbench_views_slot_rule_view_html -- originates_from --> app_sec_reference
+  file_control_workbench_views_source_view_html -- originates_from --> app_sec_reference
   file_custom_customer_normalizer_ts -- originates_from --> slot_customer_normalizer
   file_custom_ticket_comment_delegate_ts -- originates_from --> slot_ticket_comment_delegate
-  file_generated_routes_ts -- originates_from --> app_customer_admin
-  file_lib_session_ts -- originates_from --> app_customer_admin
-  file_lib_store_ts -- originates_from --> app_customer_admin
-  file_next_env_d_ts -- originates_from --> app_customer_admin
-  file_next_config_mjs -- originates_from --> app_customer_admin
-  file_package_json -- originates_from --> app_customer_admin
+  file_generated_routes_ts -- originates_from --> app_sec_reference
+  file_lib_session_ts -- originates_from --> app_sec_reference
+  file_lib_store_ts -- originates_from --> app_sec_reference
+  file_next_env_d_ts -- originates_from --> app_sec_reference
+  file_next_config_mjs -- originates_from --> app_sec_reference
+  file_package_json -- originates_from --> app_sec_reference
   file_prisma_schema_prisma -- originates_from --> block_comment_basic
   file_source_code_slots_customer_normalizer_ts -- connects_to --> file_custom_customer_normalizer_ts
   file_source_code_slots_customer_normalizer_ts -- originates_from --> slot_customer_normalizer
@@ -267,23 +267,23 @@ flowchart TD
   file_src_installed_entity_customer_service_ts -- originates_from --> block_entity_customer_basic
   file_src_installed_file_customer_attachments_ts -- originates_from --> block_file_upload
   file_src_installed_tenant_context_ts -- originates_from --> block_tenant_basic_workspace
-  file_src_installed_ticket_ticket_semantic_contract_ts -- originates_from --> app_customer_admin
+  file_src_installed_ticket_ticket_semantic_contract_ts -- originates_from --> app_sec_reference
   file_src_installed_ticket_ticket_service_ts -- originates_from --> block_ticket_basic
   file_tests_acceptance_agent_classifier_flow_test_ts -- originates_from --> block_agent_executor
   file_tests_acceptance_comment_flow_test_ts -- originates_from --> block_comment_basic
   file_tests_acceptance_customer_flow_test_ts -- originates_from --> block_entity_customer_basic
   file_tests_acceptance_ticket_flow_test_ts -- originates_from --> block_ticket_basic
-  file_tests_runtime_acceptance_customer_flow_spec_ts -- originates_from --> app_customer_admin
-  file_tests_runtime_acceptance_ticket_flow_spec_ts -- originates_from --> app_customer_admin
-  file_tests_runtime_unit_customer_runtime_test_ts -- originates_from --> app_customer_admin
-  file_tests_runtime_unit_ticket_runtime_test_ts -- originates_from --> app_customer_admin
+  file_tests_runtime_acceptance_customer_flow_spec_ts -- originates_from --> app_sec_reference
+  file_tests_runtime_acceptance_ticket_flow_spec_ts -- originates_from --> app_sec_reference
+  file_tests_runtime_unit_customer_runtime_test_ts -- originates_from --> app_sec_reference
+  file_tests_runtime_unit_ticket_runtime_test_ts -- originates_from --> app_sec_reference
   file_tests_shared_tenant_runtime_fixture_ts -- originates_from --> block_tenant_basic_workspace
   file_tests_shared_ticket_service_suite_ts -- originates_from --> block_ticket_basic
   file_tests_unit_comment_service_test_ts -- originates_from --> block_comment_basic
   file_tests_unit_customer_attachments_test_ts -- originates_from --> block_file_upload
   file_tests_unit_customer_normalizer_test_ts -- originates_from --> block_entity_customer_basic
   file_tests_unit_ticket_service_test_ts -- originates_from --> block_ticket_basic
-  file_tsconfig_json -- originates_from --> app_customer_admin
+  file_tsconfig_json -- originates_from --> app_sec_reference
   policy_tenant_scope_required -- connects_to --> file_src_installed_entity_customer_service_ts
   policy_tenant_scope_required -- connects_to --> file_src_installed_ticket_ticket_service_ts
   slot_customer_normalizer -- verified_by --> acceptance_tenant_only_sees_own_customers

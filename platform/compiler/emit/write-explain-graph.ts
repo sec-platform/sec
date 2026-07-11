@@ -74,14 +74,15 @@ export async function buildExplainGraph(
   upgradeDiagnostics: UpgradeDiagnostics | null = null
 ): Promise<ExplainGraph> {
   const g = new GraphBuilder();
+  const appId = `app:${lock.app.id}`;
 
-  g.node(`app:${lock.app.name}`, 'app', lock.app.name);
+  g.node(appId, 'app', lock.app.name);
 
   for (const block of lock.resolvedBlocks) {
     const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
     const blockId = `block:${block.id}`;
     g.node(blockId, 'block', block.id);
-    g.edge(`app:${lock.app.name}`, blockId, 'depends_on');
+    g.edge(appId, blockId, 'depends_on');
 
     for (const req of manifestEntry.manifest.requires) {
       g.link(blockId, `capability:${req}`, 'depends_on', 'capability', req);
@@ -118,7 +119,7 @@ export async function buildExplainGraph(
       artifact.originType === 'slot' ? `slot:${artifact.originId}` :
       artifact.originType === 'block' ? `block:${artifact.originId}` :
       artifact.originType === 'override' ? `override:${artifact.originId}` :
-      `app:${lock.app.name}`;
+      appId;
 
     if (artifact.originType === 'override') {
       g.node(originId, 'override', artifact.originId);
