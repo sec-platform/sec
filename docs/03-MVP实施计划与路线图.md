@@ -1,7 +1,7 @@
 ---
 title: MVP 实施计划与路线图
 status: active
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-11
 ---
 
 # MVP 实施计划与路线图
@@ -37,11 +37,11 @@ Pipeline Kernel 基础设施已完成
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前唯一 ACTIVE NEXT：Canonical IR Invariants
+## 2. 当前唯一 ACTIVE NEXT：Validated IR Boundary
 
-当前唯一 active next 是 **P0-2A Canonical IR Invariants**。
+当前唯一 active next 是 **P0-2B Validated IR Boundary**。P0-2A Canonical IR Invariants 已由 PR #86 进入 `main`。
 
-当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；当前任务是先固定 canonical Engineering IR 的身份、revision、Fact 与 Predicate 不变量，再建立 validated boundary，随后把 Semantic IR 接入统一 Pipeline。
+当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；canonical Engineering IR 的身份、revision、Fact、Assertion、Predicate Signature 与 Scenario Fact 不变量已经固定，当前任务是建立唯一 validated boundary，随后把 Semantic IR 接入统一 Pipeline。
 
 目标主链：
 
@@ -131,9 +131,9 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 
 这些语义主权问题由 P0-2A 至 P0-6 依次解决。
 
-## 5. P0-2A Canonical IR Invariants — ACTIVE NEXT
+## 5. P0-2A Canonical IR Invariants — COMPLETED
 
-状态：**ACTIVE NEXT**。
+状态：**COMPLETED**。
 
 ### Prerequisite
 
@@ -162,9 +162,11 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 - Scenario authoritative semantics 不再同时存在于 Facts 与第二独立容器。
 - `main` 中不存在另一个与上述规则竞争的 canonical identity / digest 定义。
 
+以上退出条件由 PR #86（`main@cf57927aff75081679bb0f8f17eb6631ea58eaab`）收敛。实现与目标验证证据由 `docs/14-Engineering IR与语义事实规范.md`、P0-2A vertical tests 和 `docs/test-feedback-and-ci-lanes.md` 中的验证复用账本共同持有。
+
 ## 6. P0-2B Validated IR Boundary
 
-状态：**BLOCKED BY P0-2A**。
+状态：**ACTIVE NEXT**。
 
 ### Prerequisite
 
@@ -428,9 +430,9 @@ v0.3 稳定后：
 ```text
 P0-1  Pipeline Kernel Foundation                         COMPLETED
   ↓
-P0-2A Canonical IR Invariants                            ACTIVE NEXT
+P0-2A Canonical IR Invariants                            COMPLETED
   ↓
-P0-2B Validated IR Boundary
+P0-2B Validated IR Boundary                              ACTIVE NEXT
   ↓
 P0-3  Semantic Pipeline Spine
   ↓
@@ -447,6 +449,6 @@ latest-head full validation
 v0.3 exit review
 ```
 
-只有 **P0-2A Canonical IR Invariants** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改下游 semantic consumer 来伪造进度。
+只有 **P0-2B Validated IR Boundary** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改下游 semantic consumer 来伪造进度。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。
