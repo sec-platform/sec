@@ -22,13 +22,13 @@ import {
   type SemanticNamespaceOwner
 } from './ir-identity.ts';
 import { compilerProvenance, manifestProvenance, uniqueSorted } from './ir-normalization.ts';
-import { assertEngineeringIRPredicateSignatures } from './predicate-signatures.ts';
 import {
   digest,
   inputRevisionPayload,
   semanticRevisionPayload,
   type InputRevisionDomain
 } from './ir-revision.ts';
+import { assertEngineeringIRPredicateSignatures } from './predicate-signatures.ts';
 import { deriveScenarioDefinitions } from './scenario-facts.ts';
 
 export interface EngineeringIRManifestInput {
