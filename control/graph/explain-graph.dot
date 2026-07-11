@@ -3,6 +3,7 @@ digraph ExplainGraph {
   "acceptance:agent_can_be_registered" [label="agent_can_be_registered (acceptance)"];
   "acceptance:assignee_can_filter_tickets" [label="assignee_can_filter_tickets (acceptance)"];
   "acceptance:tenant_only_sees_own_customers" [label="tenant_only_sees_own_customers (acceptance)"];
+  "acceptance:tenant_only_sees_own_tickets" [label="tenant_only_sees_own_tickets (acceptance)"];
   "acceptance:ticket_attachment_can_be_uploaded" [label="ticket_attachment_can_be_uploaded (acceptance)"];
   "acceptance:ticket_can_be_created" [label="ticket_can_be_created (acceptance)"];
   "acceptance:ticket_comment_can_be_added" [label="ticket_comment_can_be_added (acceptance)"];
@@ -186,6 +187,7 @@ digraph ExplainGraph {
   "block:tenant/basic-workspace" -> "capability:tenant/context" [label="provides"];
   "block:tenant/basic-workspace" -> "pin:tenant/basic-workspace:output:tenant_context" [label="provides"];
   "block:tenant/basic-workspace" -> "acceptance:tenant_only_sees_own_customers" [label="verified_by"];
+  "block:tenant/basic-workspace" -> "acceptance:tenant_only_sees_own_tickets" [label="verified_by"];
   "block:ticket/basic" -> "slot:ticket_comment_delegate" [label="connects_to"];
   "block:ticket/basic" -> "capability:auth/session" [label="depends_on"];
   "block:ticket/basic" -> "capability:tenant/context" [label="depends_on"];
@@ -198,6 +200,7 @@ digraph ExplainGraph {
   "block:ticket/basic" -> "pin:ticket/basic:output:ticket_created" [label="provides"];
   "block:ticket/basic" -> "pin:ticket/basic:output:ticket_status_transitioned" [label="provides"];
   "block:ticket/basic" -> "acceptance:assignee_can_filter_tickets" [label="verified_by"];
+  "block:ticket/basic" -> "acceptance:tenant_only_sees_own_tickets" [label="verified_by"];
   "block:ticket/basic" -> "acceptance:ticket_attachment_can_be_uploaded" [label="verified_by"];
   "block:ticket/basic" -> "acceptance:ticket_can_be_created" [label="verified_by"];
   "block:ticket/basic" -> "acceptance:ticket_comment_can_be_added" [label="verified_by"];

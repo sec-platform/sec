@@ -3,6 +3,7 @@ flowchart TD
   acceptance_agent_can_be_registered["agent_can_be_registered (acceptance)"]
   acceptance_assignee_can_filter_tickets["assignee_can_filter_tickets (acceptance)"]
   acceptance_tenant_only_sees_own_customers["tenant_only_sees_own_customers (acceptance)"]
+  acceptance_tenant_only_sees_own_tickets["tenant_only_sees_own_tickets (acceptance)"]
   acceptance_ticket_attachment_can_be_uploaded["ticket_attachment_can_be_uploaded (acceptance)"]
   acceptance_ticket_can_be_created["ticket_can_be_created (acceptance)"]
   acceptance_ticket_comment_can_be_added["ticket_comment_can_be_added (acceptance)"]
@@ -186,6 +187,7 @@ flowchart TD
   block_tenant_basic_workspace -- provides --> capability_tenant_context
   block_tenant_basic_workspace -- provides --> pin_tenant_basic_workspace_output_tenant_context
   block_tenant_basic_workspace -- verified_by --> acceptance_tenant_only_sees_own_customers
+  block_tenant_basic_workspace -- verified_by --> acceptance_tenant_only_sees_own_tickets
   block_ticket_basic -- connects_to --> slot_ticket_comment_delegate
   block_ticket_basic -- depends_on --> capability_auth_session
   block_ticket_basic -- depends_on --> capability_tenant_context
@@ -198,6 +200,7 @@ flowchart TD
   block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_created
   block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_status_transitioned
   block_ticket_basic -- verified_by --> acceptance_assignee_can_filter_tickets
+  block_ticket_basic -- verified_by --> acceptance_tenant_only_sees_own_tickets
   block_ticket_basic -- verified_by --> acceptance_ticket_attachment_can_be_uploaded
   block_ticket_basic -- verified_by --> acceptance_ticket_can_be_created
   block_ticket_basic -- verified_by --> acceptance_ticket_comment_can_be_added

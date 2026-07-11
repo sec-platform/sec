@@ -57,6 +57,7 @@ acceptance:
   - id: tenant_only_sees_own_customers
   - id: ticket_can_be_created
   - id: ticket_status_can_transition
+  - id: tenant_only_sees_own_tickets
   - id: assignee_can_filter_tickets
   - id: ticket_attachment_can_be_uploaded
   - id: ticket_comment_can_be_added

@@ -40,7 +40,7 @@
   },
   "coverageSummary": {
     "status": "passed",
-    "acceptancePassedCount": 11,
+    "acceptancePassedCount": 12,
     "blockCount": 8,
     "slotCount": 2,
     "coveredBlockCount": 7,
@@ -52,6 +52,7 @@
       "agent_can_be_registered",
       "assignee_can_filter_tickets",
       "tenant_only_sees_own_customers",
+      "tenant_only_sees_own_tickets",
       "ticket_attachment_can_be_uploaded",
       "ticket_can_be_created",
       "ticket_comment_can_be_added",
@@ -138,19 +139,20 @@
       {
         "id": "tenant/basic-workspace",
         "declaredAcceptanceCount": 2,
-        "coveredByCount": 1,
+        "coveredByCount": 2,
         "declaredAcceptance": [
           "tenant_only_sees_own_customers",
           "tenant_only_sees_own_tickets"
         ],
         "coveredBy": [
-          "tenant_only_sees_own_customers"
+          "tenant_only_sees_own_customers",
+          "tenant_only_sees_own_tickets"
         ]
       },
       {
         "id": "ticket/basic",
         "declaredAcceptanceCount": 6,
-        "coveredByCount": 5,
+        "coveredByCount": 6,
         "declaredAcceptance": [
           "assignee_can_filter_tickets",
           "tenant_only_sees_own_tickets",
@@ -161,6 +163,7 @@
         ],
         "coveredBy": [
           "assignee_can_filter_tickets",
+          "tenant_only_sees_own_tickets",
           "ticket_attachment_can_be_uploaded",
           "ticket_can_be_created",
           "ticket_comment_can_be_added",
