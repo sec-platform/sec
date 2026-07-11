@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { addFact, type FactInput } from '../../platform/compiler/ir/ir-fact-store.ts';
+import { digest, semanticRevisionPayload } from '../../platform/compiler/ir/ir-revision.ts';
 import { projectArchitectureView } from '../../platform/compiler/projection/project-architecture-view.ts';
 import { summarizeFactAssertions } from '../../platform/compiler/projection/semantic-view-utils.ts';
 import type { EngineeringIR, SemanticFact } from '../../platform/shared/engineering-ir-types.ts';
@@ -33,6 +34,13 @@ function withRevision(fact: SemanticFact, revision: string): SemanticFact {
     ...fact,
     assertions: fact.assertions.map((assertion) => ({ ...assertion, validFromRevision: revision }))
   };
+}
+
+function semanticRevisionFor(
+  ir: Pick<EngineeringIR, 'graphId' | 'appId' | 'entities' | 'scenarios'>,
+  facts: readonly SemanticFact[]
+): string {
+  return `sha256:${digest(semanticRevisionPayload(ir.graphId, ir.appId, ir.entities, facts, ir.scenarios))}`;
 }
 
 test('same triple and normalized assertion identity dedupe idempotently', () => {
@@ -121,9 +129,10 @@ test('projection inferred badge and authority overlay derive from assertion summ
 
   const revision = 'sha256:assertion-test';
   const ir: EngineeringIR = {
-    formatVersion: '1',
+    formatVersion: '2',
     graphId: 'engineering-ir:assertion-test',
-    revision,
+    inputRevision: 'sha256:assertion-input-test',
+    semanticRevision: revision,
     appId: 'app:test',
     entities: [
       { id: 'app:test', kind: 'app', label: 'test', attributes: [] },
@@ -140,6 +149,45 @@ test('projection inferred badge and authority overlay derive from assertion summ
   expect(node?.badges).toEqual(expect.arrayContaining(['inferred', 'stateful']));
   expect(overlay?.authority).toBe('authoritative');
   expect(overlay?.confidence).toBe(0.4);
+});
+
+test('assertion runtime validity is the only nested assertion data excluded from semantic revision', () => {
+  const facts = new Map<string, SemanticFact>();
+  addFact(facts, factInput());
+  const irDomain = {
+    graphId: 'engineering-ir:assertion-revision-test',
+    appId: 'app:test',
+    entities: [
+      { id: 'app:test', kind: 'app', label: 'test', attributes: [] },
+      { id: 'responsibility:test:TicketService', kind: 'responsibility', label: 'TicketService', attributes: [] },
+      { id: 'state:test:TicketState', kind: 'state', label: 'TicketState', attributes: [] }
+    ],
+    scenarios: []
+  } satisfies Pick<EngineeringIR, 'graphId' | 'appId' | 'entities' | 'scenarios'>;
+  const initialFacts = [...facts.values()].map((fact) => withRevision(fact, 'sha256:initial-validity'));
+  const before = {
+    inputRevision: 'sha256:stable-input',
+    semanticRevision: semanticRevisionFor(irDomain, initialFacts)
+  };
+  const validityChangedFacts = initialFacts.map((fact) => ({
+    ...fact,
+    assertions: fact.assertions.map((assertion) => ({
+      ...assertion,
+      validFromRevision: 'sha256:runtime-rebound',
+      validToRevision: 'sha256:runtime-closed'
+    }))
+  }));
+  const afterValidityChange = {
+    inputRevision: before.inputRevision,
+    semanticRevision: semanticRevisionFor(irDomain, validityChangedFacts)
+  };
+  const confidenceChangedFacts = initialFacts.map((fact) => ({
+    ...fact,
+    assertions: fact.assertions.map((assertion) => ({ ...assertion, confidence: 0.5 }))
+  }));
+
+  expect(afterValidityChange).toEqual(before);
+  expect(semanticRevisionFor(irDomain, confidenceChangedFacts)).not.toBe(before.semanticRevision);
 });
 
 test('fact assertion rejects missing provenance and out-of-range confidence', () => {
