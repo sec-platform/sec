@@ -16,9 +16,9 @@ import type { VerificationLane, VerificationReport } from '../shared/verificatio
 import { resolveWorkspace } from './block-orchestrator.ts';
 import { adaptWorkspace, composeWorkspace } from './compose-orchestrator.ts';
 import { explainWorkspace, lockWorkspace } from './emit-orchestrator.ts';
+import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 import { verifyWorkspace } from './verify-orchestrator.ts';
 import { applyWorkbenchMutations } from './workbench-orchestrator.ts';
-import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 
 export interface CompileWorkspaceOptions {
   source?: PipelineSource;

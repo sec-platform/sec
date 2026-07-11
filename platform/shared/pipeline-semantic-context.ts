@@ -1,5 +1,5 @@
-import { CompilerError } from './errors.ts';
 import type { ValidatedEngineeringIRSnapshot } from './engineering-ir-types.ts';
+import { CompilerError } from './errors.ts';
 import type {
   PipelineExecutionContext,
   PipelineSemanticContext

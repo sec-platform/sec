@@ -1,5 +1,5 @@
-import type { PassStatus } from './lock-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from './engineering-ir-types.ts';
+import type { PassStatus } from './lock-types.ts';
 
 export const PIPELINE_JOURNAL_FORMAT_VERSION = '1' as const;
 
