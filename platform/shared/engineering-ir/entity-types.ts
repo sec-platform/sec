@@ -9,6 +9,7 @@ export const SEMANTIC_ENTITY_KINDS = [
   'responsibility',
   'operation',
   'scenario',
+  'scenario-step',
   'state',
   'event',
   'policy',

@@ -1,7 +1,8 @@
 {
   "formatVersion": "1",
   "app": {
-    "name": "customer-admin",
+    "id": "sec-reference",
+    "name": "SEC Reference",
     "stack": "nextjs-ts-prisma-sqlite",
     "mode": "multi-tenant"
   },

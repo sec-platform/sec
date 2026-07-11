@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -14,6 +12,7 @@ import { readOptionalJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
+import { calculateCanonicalProjectFileHash } from '../../shared/project-file-hash.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
@@ -118,15 +117,6 @@ async function readVerificationReport(workspaceRoot: string): Promise<Verificati
   return readOptionalJson<VerificationReport>(verificationReportPath);
 }
 
-async function calculateFileHash(absolutePath: string): Promise<string | undefined> {
-  try {
-    const content = await fs.readFile(absolutePath);
-    return createHash('sha256').update(content).digest('hex');
-  } catch {
-    return undefined;
-  }
-}
-
 export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
   const artifacts = new Map<string, ProvenanceArtifact>();
   const blockVerificationMap = buildBlockVerificationMap(lock, await readVerificationReport(workspaceRoot));
@@ -201,7 +191,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
     const absolutePath = artifactPath.startsWith('source/') || artifactPath.startsWith('control/')
       ? path.join(workspaceRoot, artifactPath)
       : path.join(projectRoot, artifactPath);
-    const hash = await calculateFileHash(absolutePath);
+    const hash = await calculateCanonicalProjectFileHash(absolutePath);
     if (hash) {
       artifact.hash = hash;
     }

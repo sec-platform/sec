@@ -115,7 +115,7 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
   const transition = ir.facts.find((fact) =>
     fact.subject === 'state:item:item-status' && fact.predicate === 'TRANSITIONS_TO'
   );
-  expect(transition?.authority).toBe('authoritative');
+  expect(transition?.assertions[0]?.authority).toBe('authoritative');
   expect(transition?.object).toEqual({
     kind: 'value',
     value: {
@@ -124,7 +124,7 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
       to: 'closed'
     }
   });
-  expect(transition?.provenance).toEqual([{
+  expect(transition?.assertions[0]?.provenance).toEqual([{
     kind: 'contract',
     sourceId: 'semantic-contract:item-core',
     sourcePath: 'registry/item.basic/contracts/item.yaml'
@@ -136,7 +136,7 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
     entryEntityId: 'operation:item:closeItem',
     acceptanceEntityIds: ['acceptance:item_can_transition'],
     steps: [{
-      id: 'close',
+      id: 'scenario:item:close-item#step:close',
       operationEntityId: 'operation:item:closeItem',
       afterStepIds: [],
       awaits: false

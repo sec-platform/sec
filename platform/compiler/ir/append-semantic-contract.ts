@@ -1,6 +1,5 @@
 import type {
   FactProvenance,
-  ScenarioDefinition,
   SemanticEntity
 } from '../../shared/engineering-ir-types.ts';
 import type { LoadedSemanticContract } from '../../shared/semantic-contract-types.ts';
@@ -17,6 +16,7 @@ import {
   contractScenarioId,
   contractStateId,
   contractTargetId,
+  scenarioStepEntityId,
   semanticEntity,
   valueAttribute
 } from './ir-identity.ts';
@@ -25,7 +25,6 @@ import { uniqueSorted } from './ir-normalization.ts';
 export interface BuildSink {
   addEntity(entity: SemanticEntity): void;
   addFact(input: FactInput): string;
-  addScenario(scenario: ScenarioDefinition): void;
   claimSemanticNamespace(input: LoadedSemanticContract): void;
 }
 
@@ -203,29 +202,43 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
   for (const scenario of contract.scenarios) {
     const scenarioId = contractScenarioId(contract.namespace, scenario.id);
     const entryEntityId = contractOperationId(contract.namespace, scenario.entry);
-    const factIds: string[] = [];
-    factIds.push(sink.addFact({ subject: scenarioId, predicate: 'INVOKES', object: { kind: 'entity', entityId: entryEntityId }, authority: 'authoritative', provenance }));
-    for (const operationId of uniqueSorted(scenario.steps.map((step) => contractOperationId(contract.namespace, step.operation)))) {
-      factIds.push(sink.addFact({ subject: scenarioId, predicate: 'CONTAINS', object: { kind: 'entity', entityId: operationId }, authority: 'authoritative', provenance }));
+    sink.addFact({ subject: scenarioId, predicate: 'INVOKES', object: { kind: 'entity', entityId: entryEntityId }, authority: 'authoritative', provenance });
+
+    for (const step of [...scenario.steps].sort((left, right) => left.id.localeCompare(right.id))) {
+      const stepEntityId = scenarioStepEntityId(scenarioId, step.id);
+      const operationEntityId = contractOperationId(contract.namespace, step.operation);
+      addDeclaredEntity(sink, blockId, provenance, semanticEntity(stepEntityId, 'scenario-step', step.id));
+      sink.addFact({ subject: scenarioId, predicate: 'CONTAINS', object: { kind: 'entity', entityId: stepEntityId }, authority: 'authoritative', provenance });
+      sink.addFact({ subject: stepEntityId, predicate: 'INVOKES', object: { kind: 'entity', entityId: operationEntityId }, authority: 'authoritative', provenance });
+      if (step.awaits) {
+        sink.addFact({ subject: stepEntityId, predicate: 'AWAITS', object: { kind: 'entity', entityId: operationEntityId }, authority: 'authoritative', provenance });
+      }
+      if (step.retryMaxAttempts !== undefined) {
+        sink.addFact({ subject: stepEntityId, predicate: 'RETRIES', object: { kind: 'value', value: { maxAttempts: step.retryMaxAttempts } }, authority: 'authoritative', provenance });
+      }
+      for (const dependencyId of uniqueSorted(step.after)) {
+        sink.addFact({
+          subject: scenarioStepEntityId(scenarioId, dependencyId),
+          predicate: 'PRECEDES',
+          object: { kind: 'entity', entityId: stepEntityId },
+          authority: 'authoritative',
+          provenance
+        });
+      }
+      if (step.onError) {
+        sink.addFact({
+          subject: scenarioStepEntityId(scenarioId, step.onError),
+          predicate: 'HANDLES',
+          object: { kind: 'entity', entityId: stepEntityId },
+          authority: 'authoritative',
+          provenance
+        });
+      }
     }
+
     const acceptanceEntityIds = scenario.acceptance.map((acceptanceId) => `acceptance:${acceptanceId}`);
     for (const acceptanceEntityId of acceptanceEntityIds) {
-      factIds.push(sink.addFact({ subject: scenarioId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: acceptanceEntityId }, authority: 'authoritative', provenance }));
+      sink.addFact({ subject: scenarioId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: acceptanceEntityId }, authority: 'authoritative', provenance });
     }
-    sink.addScenario({
-      id: scenarioId,
-      label: scenario.label ?? scenario.id,
-      entryEntityId,
-      factIds,
-      steps: scenario.steps.map((step) => ({
-        id: step.id,
-        operationEntityId: contractOperationId(contract.namespace, step.operation),
-        afterStepIds: step.after,
-        awaits: step.awaits ?? false,
-        ...(step.retryMaxAttempts !== undefined ? { retryMaxAttempts: step.retryMaxAttempts } : {}),
-        ...(step.onError ? { onErrorStepId: step.onError } : {})
-      })),
-      acceptanceEntityIds
-    });
   }
 }

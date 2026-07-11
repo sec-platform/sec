@@ -22,6 +22,7 @@ function lockFor(generatedPath: string): LockFile {
   return {
     formatVersion: '1',
     app: {
+      id: 'baseline-test',
       name: 'baseline-test',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'single-tenant'

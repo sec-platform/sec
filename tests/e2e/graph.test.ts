@@ -409,6 +409,7 @@ test('explain graph links generated ticket runtime routes back to related blocks
   const lock: LockFile = {
     formatVersion: '1',
     app: {
+      id: 'customer-admin',
       name: 'customer-admin',
       stack: 'nextjs',
       mode: 'single-tenant'

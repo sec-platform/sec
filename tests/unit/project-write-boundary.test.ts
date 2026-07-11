@@ -19,6 +19,7 @@ function lockFor(artifactPath: string): LockFile {
   return {
     formatVersion: '1',
     app: {
+      id: 'write-boundary-test',
       name: 'write-boundary-test',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'single-tenant'

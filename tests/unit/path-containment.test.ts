@@ -126,7 +126,7 @@ test('install strategy rejects persisted lock targets that escape project root',
       projectRoot,
       lock: {
         formatVersion: '1',
-        app: { name: 'customer-admin', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
+        app: { id: 'customer-admin', name: 'customer-admin', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
         resolvedBlocks: [],
         resolvedCapabilities: [],
         installPlan: [],

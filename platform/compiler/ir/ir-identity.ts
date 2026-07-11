@@ -9,7 +9,7 @@ import type {
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../shared/semantic-contract-types.ts';
-import { normalizeAttributes, normalizeFactObject, normalizeScenario } from './ir-normalization.ts';
+import { normalizeAttributes, normalizeFactObject } from './ir-normalization.ts';
 import { digest } from './ir-revision.ts';
 
 type FactIdentityInput = Pick<SemanticFact, 'subject' | 'predicate' | 'object'>;
@@ -99,6 +99,10 @@ export function contractScenarioId(namespace: string, id: string): string {
   return `scenario:${namespace}:${id}`;
 }
 
+export function scenarioStepEntityId(scenarioId: string, stepId: string): string {
+  return `${scenarioId}#step:${stepId}`;
+}
+
 export function contractTargetId(contract: SemanticContract, target: string): string {
   const [entityId, fieldId] = target.split('.');
   return fieldId
@@ -133,15 +137,6 @@ export function addEntity(entities: Map<string, SemanticEntity>, entity: Semanti
   entities.set(entity.id, entity);
 }
 
-export function addScenario(scenarios: Map<string, ScenarioDefinition>, scenario: ScenarioDefinition): void {
-  const normalized = normalizeScenario(scenario);
-  const existing = scenarios.get(normalized.id);
-  if (existing && JSON.stringify(existing) !== JSON.stringify(normalized)) {
-    throw new CompilerError('IR-IDENTITY-004', `Scenario "${normalized.id}" has conflicting definitions`);
-  }
-  scenarios.set(normalized.id, normalized);
-}
-
 export function claimSemanticNamespace(
   semanticNamespaceOwnerByNamespace: Map<string, SemanticNamespaceOwner>,
   contractInput: LoadedSemanticContract
@@ -170,8 +165,11 @@ export function assertEngineeringIRReferences(
   for (const fact of facts) {
     if (!entityIds.has(fact.subject)) throw new CompilerError('IR-FACT-002', `Fact "${fact.id}" references missing subject "${fact.subject}"`);
     if (fact.object.kind === 'entity' && !entityIds.has(fact.object.entityId)) throw new CompilerError('IR-FACT-003', `Fact "${fact.id}" references missing object "${fact.object.entityId}"`);
-    if (fact.confidence < 0 || fact.confidence > 1) throw new CompilerError('IR-AUTHORITY-001', `Fact "${fact.id}" confidence must be between 0 and 1`);
-    if (fact.provenance.length === 0) throw new CompilerError('IR-AUTHORITY-002', `Fact "${fact.id}" must include provenance`);
+    if (fact.assertions.length === 0) throw new CompilerError('IR-AUTHORITY-004', `Fact "${fact.id}" must include at least one assertion`);
+    for (const assertion of fact.assertions) {
+      if (assertion.confidence < 0 || assertion.confidence > 1) throw new CompilerError('IR-AUTHORITY-001', `Fact assertion "${assertion.id}" confidence must be between 0 and 1`);
+      if (assertion.provenance.length === 0) throw new CompilerError('IR-AUTHORITY-002', `Fact assertion "${assertion.id}" must include provenance`);
+    }
   }
 
   for (const scenario of scenarios) {
