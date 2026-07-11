@@ -42,7 +42,11 @@ function assertFactInput(input: FactInput): void {
   }
 }
 
-function assertionId(factId: string, authority: SemanticAuthority, provenance: readonly FactProvenance[]): string {
+export function factAssertionId(
+  factId: string,
+  authority: SemanticAuthority,
+  provenance: readonly FactProvenance[]
+): string {
   const identity = [factId, authority, JSON.stringify(provenance)].join('\u0000');
   return `assertion:${digest(identity).slice(0, 24)}`;
 }
@@ -50,7 +54,7 @@ function assertionId(factId: string, authority: SemanticAuthority, provenance: r
 function buildAssertion(factId: string, input: FactInput): FactAssertion {
   const provenance = normalizeProvenance(input.provenance);
   return {
-    id: assertionId(factId, input.authority, provenance),
+    id: factAssertionId(factId, input.authority, provenance),
     authority: input.authority,
     confidence: input.confidence ?? 1,
     provenance,

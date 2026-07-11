@@ -3,3 +3,4 @@ export * from './fact-types.ts';
 export * from './predicate-signature-types.ts';
 export * from './root-types.ts';
 export * from './scenario-types.ts';
+export * from './validated-types.ts';
