@@ -97,6 +97,9 @@ test('buildEngineeringIR creates stable semantic entities, facts, and revision d
   expect(ir.appId).toBe('app:ticket-app');
   expect(ir.inputRevision.startsWith('sha256:')).toBe(true);
   expect(ir.semanticRevision.startsWith('sha256:')).toBe(true);
+  expect(ir.facts.flatMap((fact) => fact.assertions).every((assertion) =>
+    assertion.validFromRevision === ir.semanticRevision
+  )).toBe(true);
   expect(ir.entities.map((entity) => entity.id)).toEqual([...ir.entities.map((entity) => entity.id)].sort());
   expect(ir.facts.map((fact) => fact.id)).toEqual([...ir.facts.map((fact) => fact.id)].sort());
 

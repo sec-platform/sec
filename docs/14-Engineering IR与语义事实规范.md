@@ -1,7 +1,7 @@
 ---
 title: Engineering IR 与语义事实规范
 status: active
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-11
 ---
 
 # Engineering IR 与语义事实规范
@@ -22,7 +22,7 @@ Engineering IR 是 SEC 的 canonical semantic representation。
 - Workbench View Model。
 - AI Knowledge Graph。
 
-IR 表达平台接受的工程实体、工程事实，以及不同来源对事实的独立声明。Fact 负责 triple identity；Assertion 负责 authority、confidence、provenance、evidence 与有效 revision。
+IR 表达平台接受的工程实体、工程事实，以及不同来源对事实的独立声明。Fact 负责 triple identity；Assertion 负责 authority、confidence、provenance、evidence 与 semantic revision validity。
 
 ## 2. 数学模型
 
@@ -40,19 +40,22 @@ IR 不是 DAG。State Loop、Retry、Recursive Dependency Evidence、Workflow Cy
 
 同一个规范化 triple 在 canonical IR 中只有一个 `SemanticFact`。多个来源声明同一 triple 时，不复制 Fact，也不把来源元数据熔成一个“最强 Fact”；它们作为独立 `FactAssertion` 嵌套在该 Fact 下。
 
-## 3. 顶层结构 v1
+## 3. 顶层结构 v2
 
 ```ts
 interface EngineeringIR {
-  formatVersion: '1';
+  formatVersion: '2';
   graphId: string;
-  revision: string;
+  inputRevision: string;
+  semanticRevision: string;
   appId: SemanticEntityId;
   entities: SemanticEntity[];
   facts: SemanticFact[];
   scenarios: ScenarioDefinition[];
 }
 ```
+
+`inputRevision` 标识规范化声明输入域；`semanticRevision` 标识最终 canonical semantic graph。v2 不存在兼容性的 root `revision` 字段，也不得把二者重新折叠为单一 revision。
 
 `scenarios` 是 canonical IR 的组成部分，不另建第二事实容器。
 
@@ -77,7 +80,7 @@ interface SemanticEntity {
 }
 ```
 
-v1 Kernel kind：
+当前 Kernel kind：
 
 ```text
 app
@@ -259,7 +262,7 @@ factId
 
 ## 6. Predicate 分类
 
-Predicate 使用大写 snake case。v1 类型集合按职责分组。
+Predicate 使用大写 snake case。当前类型集合按职责分组。
 
 ### Structure / Responsibility
 
@@ -329,7 +332,7 @@ GENERATES
 VIOLATES
 ```
 
-第一版 Builder 只实现已有事实需要的子集。**类型允许存在不等于 Builder 必须伪造数据。**
+当前 Builder 只实现已有事实需要的子集。**类型允许存在不等于 Builder 必须伪造数据。**
 
 ## 7. Authority
 
@@ -353,7 +356,7 @@ type SemanticAuthority =
 
 ### observed
 
-运行时在特定 revision/环境中观察到；说明“发生过”，不自动证明所有可能路径。
+运行时在特定 `semanticRevision` / 环境中观察到；说明“发生过”，不自动证明所有可能路径。
 
 ### inferred
 
@@ -484,45 +487,38 @@ Projection 可以汇总多个 Assertions 的 evidence refs 用于展示，但不
 
 IR 是版本化事实集。
 
-`revision` 表示 canonical semantic revision identity，不使用 `generatedAt`。
+v2 明确分离两个 revision domain：
 
-第一版 revision 由规范化 entities/facts/scenarios 的 digest 构造。规范化规则必须按字段语义区分 **集合** 与 **序列**：
+- `inputRevision`：由 `app.id/name`、resolved blocks、manifest declarations、semantic contracts、slot tasks、acceptance ids 与纯 `policyDeclarations` 的规范化 payload 计算。Artifact Provenance、ExplainGraph 和已物化的 PolicyReport 不属于声明输入，禁止反馈进入该 domain。
+- `semanticRevision`：由 `formatVersion`、`graphId`、`appId` 与最终规范化的 entities/facts/scenarios 计算，表示 canonical semantic graph identity。
 
-- 对无序集合语义字段，由字段自己的 normalization boundary 去重并稳定排序；source array order 不进入 revision。
-- 对有序序列语义字段，必须保留顺序与重复项；`operation.inputs` 等位置序列的原始顺序属于语义，必须进入 revision。
-- 通用 IR Attribute 层不得假设“数组就是集合”，不得全局排序或去重数组。
-- 排除时间戳。
-- 排除 UI metadata。
-- 排除 volatile runtime metric。
-- 对 Entity/Fact 稳定排序。
-- 对 Fact 内 Assertions 使用确定性 identity 与稳定排序。
+规范化规则必须按字段语义区分 **集合** 与 **序列**：无序集合在各自 normalization boundary 去重并稳定排序；有序序列保留顺序与重复项；通用 IR Attribute 层不得假设“数组就是集合”。Entity、Fact 与 Fact 内 Assertions 使用确定性 identity 和稳定排序。
 
 Assertion validity 不能参与产生其自身 `validFromRevision` 的 revision digest，否则形成自引用。
 
-因此 revision payload 排除：
+因此 `semanticRevisionPayload` 对 canonical graph 唯一执行的字段级排除是 nested validity self-reference：
 
 ```text
 assertion.validFromRevision
 assertion.validToRevision
 ```
 
-Builder 计算 canonical revision 后，再把该 revision 绑定到本轮 Assertions 的 `validFromRevision`。
+Builder 先计算最终 `semanticRevision`，再把每个 Assertion 的 `validFromRevision` 精确绑定到该值。`validFromRevision` / `validToRevision` 的运行时变化不得改变 `semanticRevision`，也不属于 `inputRevision` domain；Assertion 的 identity、authority、confidence、provenance 或 evidence 变化仍会改变 `semanticRevision`。
 
-Runtime Observation 绑定所观察的 canonical revision。
+Runtime Observation 绑定所观察的 `semanticRevision`。
 
-## 12. Builder v1
+## 12. Builder v2
 
 `buildEngineeringIR(input)` 当前输入对象：
 
 ```ts
 interface BuildEngineeringIRInput {
-  app: { name: string };
+  app: { id: string; name: string };
   resolvedBlocks: ResolvedBlock[];
   manifests: EngineeringIRManifestInput[];
   slotTasks: SlotTask[];
   acceptanceIds: string[];
-  policyIds: string[];
-  provenanceArtifacts: ProvenanceArtifact[];
+  policyDeclarations: PolicyRule[];
   semanticContracts?: LoadedSemanticContract[];
 }
 ```
@@ -537,9 +533,10 @@ Builder 当前产生：
 - Semantic Contract 的 Entity/Field/Responsibility/Operation/State/Event/Policy/Permission/Effect/Scenario Entity。
 - Contract authoritative `DECLARES/IMPLEMENTS/OWNS/READS/WRITES/MUTATES/REQUIRES/REQUIRES_PERMISSION/PERFORMS_EFFECT/EMITS/INVOKES/AWAITS/TRANSITIONS_TO/VERIFIED_BY` 等 Fact Assertions。
 - canonical `ScenarioDefinition`。
-- Artifact Entity + `ORIGINATES_FROM` Fact Assertion。
 - Acceptance Entity。
 - Policy Entity。
+
+Builder 不读取 Artifact Provenance、ExplainGraph 或 PolicyReport；policy input 来自纯 declaration loader。它们不得作为 canonical IR 或 revision 的下游反馈。
 
 Builder 必须：
 
@@ -587,7 +584,7 @@ Index 是内存派生对象，不持久化为第二份 canonical artifact。
 
 ## 14. Conflict
 
-v1 冲突处理：
+当前冲突处理：
 
 - 同 Entity ID 不同定义：`IR-IDENTITY-001` hard fail。
 - unresolved Block Manifest：`IR-IDENTITY-002` hard fail。
@@ -651,13 +648,13 @@ Provenance Overlay 可以选择 `highestAuthority` 作为展示摘要，并在�
 
 ## 17. 持久化策略
 
-v1 Kernel 先以内存 IR 为主；不要立即新增 stable `engineering-ir.json` artifact。
+当前 v2 Kernel 先以内存 IR 为主；不要立即新增 stable `engineering-ir.json` artifact。
 
 满足以下条件后再稳定持久化：
 
 1. Ticket semantic vertical 闭环。
 2. 三种 Projection 共用 IR。
-3. revision digest 稳定。
+3. input/semantic revision digest 稳定。
 4. CLI inspect 可用。
 5. contract freeze 和 migration policy 完成。
 
@@ -669,16 +666,16 @@ control/semantic/engineering-ir.json
 
 在此之前，IR 类型/Builder 是 canonical calculation，现有 stable artifact 列表不增加路径。
 
-## 18. v1 Kernel 完成条件
+## 18. v2 Kernel 完成条件
 
 - TypeScript 类型落地。
-- Builder 归一当前 App/Block/Capability/Port/Slot/Artifact/Acceptance/Policy 与 Loaded Semantic Contract。
+- Builder 归一当前 App/Block/Capability/Port/Slot/Acceptance/Policy declaration 与 Loaded Semantic Contract。
 - Stable Entity/Fact/Assertion ID。
 - Fact identity 与 Assertion claim metadata 分离。
 - Authority/Confidence/Provenance/Evidence 位于 Assertion。
 - Same triple 的 distinct Assertions 无损保留。
 - Referential integrity。
-- Stable sort/revision digest。
+- Stable sort/inputRevision/semanticRevision digest。
 - Read-only Index。
 - Unit tests。
 - Compiler facade 导出。
