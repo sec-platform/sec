@@ -28,11 +28,12 @@ test('workbench compile SSE uses one all-lane canonical pipeline transaction', a
       const transaction = journal.transactions.at(-1);
       expect(transaction).toMatchObject({
         source: 'workbench',
-        requestedStages: ['resolve', 'compose', 'adapt', 'verify', 'lock', 'emit'],
+        requestedStages: ['resolve', 'semantic', 'compose', 'adapt', 'verify', 'lock', 'emit'],
         status: 'succeeded'
       });
       expect(transaction?.passRecords.map((entry) => [entry.passId, entry.status])).toEqual([
         ['resolve', 'succeeded'],
+        ['build-ir', 'succeeded'],
         ['compose', 'succeeded'],
         ['adapt', 'succeeded'],
         ['verify', 'succeeded'],

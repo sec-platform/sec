@@ -91,6 +91,7 @@ function passFromErrorCode(code: string, fallback: PassId): PassId {
   if (code.startsWith('PARSE-') || code.startsWith('MANIFEST-') || code.startsWith('PLAN-')) return 'parse';
   if (code.startsWith('ALIGN-')) return 'align';
   if (code.startsWith('RESOLVE-')) return 'resolve';
+  if (code.startsWith('IR-') || code.startsWith('CONTRACT-SEMANTIC-')) return 'build-ir';
   if (code.startsWith('COMPOSE-')) return 'compose';
   if (code.startsWith('SLOT-') || code.startsWith('ADAPT-')) return 'adapt';
   if (code.startsWith('VERIFY-') || code.startsWith('ERROR-DRIFT-')) return 'verify';

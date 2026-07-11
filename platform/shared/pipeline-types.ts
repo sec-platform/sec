@@ -1,9 +1,11 @@
+import type { ValidatedEngineeringIRSnapshot } from './engineering-ir-types.ts';
 import type { PassStatus } from './lock-types.ts';
 
 export const PIPELINE_JOURNAL_FORMAT_VERSION = '1' as const;
 
 export const PIPELINE_STAGE_IDS = [
   'resolve',
+  'semantic',
   'compose',
   'adapt',
   'verify',
@@ -63,8 +65,16 @@ export interface PipelineEvent {
 
 export type PipelineEventHandler = (event: PipelineEvent) => void | Promise<void>;
 
+export interface PipelineSemanticContext {
+  readonly transactionId: string;
+  readonly inputRevision: string;
+  readonly semanticRevision: string;
+  readonly snapshot: ValidatedEngineeringIRSnapshot;
+}
+
 export interface PipelineExecutionContext {
-  transactionId: string;
-  source: PipelineSource;
-  onEvent?: PipelineEventHandler;
+  readonly transactionId: string;
+  readonly source: PipelineSource;
+  readonly onEvent?: PipelineEventHandler;
+  semantic?: PipelineSemanticContext;
 }

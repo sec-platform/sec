@@ -63,6 +63,21 @@ test('test impact selector binds predicate signature authority to focused semant
   ]));
 });
 
+test('test impact selector binds Pipeline Semantic Context to the P0-3 vertical', () => {
+  const selection = selectTestsForSources([
+    'platform/shared/pipeline-semantic-context.ts',
+    'platform/orchestrator/semantic-orchestrator.ts'
+  ]);
+
+  expect(selection.owners).toEqual(expect.arrayContaining(['pipeline-kernel', 'semantic-ir']));
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/pipeline-pass-registry.test.ts',
+    'tests/unit/validated-engineering-ir.test.ts',
+    'tests/integration/pipeline-kernel.test.ts',
+    'tests/integration/semantic-pipeline-spine.test.ts'
+  ]));
+});
+
 test('test impact selector binds policy declaration loading to revision and policy coverage', () => {
   const selection = selectTestsForSources(['platform/compiler/parse/load-policy-declarations.ts']);
 

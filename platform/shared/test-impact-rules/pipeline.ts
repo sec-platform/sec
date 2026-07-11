@@ -3,10 +3,11 @@ import type { TestImpactRule } from '../test-impact-contract.ts';
 export const pipelineTestImpactRules: TestImpactRule[] = [
   {
     owner: 'pipeline-kernel',
-    sourcePattern: /^platform\/shared\/(?:pipeline-(?:types|pass-registry|journal|kernel)\.ts|test-impact-rules\/pipeline\.ts)$/,
+    sourcePattern: /^platform\/shared\/(?:pipeline-(?:types|pass-registry|journal|kernel|semantic-context)\.ts|test-impact-rules\/pipeline\.ts)$/,
     fast: [
       'tests/unit/pipeline-pass-registry.test.ts',
-      'tests/integration/pipeline-kernel.test.ts'
+      'tests/integration/pipeline-kernel.test.ts',
+      'tests/integration/semantic-pipeline-spine.test.ts'
     ],
     slow: [
       'tests/e2e/pipeline.test.ts',
@@ -18,7 +19,8 @@ export const pipelineTestImpactRules: TestImpactRule[] = [
     sourcePattern: /^platform\/orchestrator\/(?:pipeline-orchestrator|block-orchestrator|compose-orchestrator|verify-orchestrator|emit-orchestrator)\.ts$/,
     fast: [
       'tests/integration/pipeline-kernel.test.ts',
-      'tests/integration/project-runtime.test.ts'
+      'tests/integration/project-runtime.test.ts',
+      'tests/integration/semantic-pipeline-spine.test.ts'
     ],
     slow: [
       'tests/e2e/pipeline.test.ts',

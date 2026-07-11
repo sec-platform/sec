@@ -18,16 +18,21 @@ export const PASS_DEFINITIONS: Record<PassId, PassDefinition> = {
   parse: {
     id: 'parse',
     requires: [],
-    invalidates: ['align', 'resolve', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
+    invalidates: ['align', 'resolve', 'build-ir', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
   },
   align: {
     id: 'align',
     requires: ['parse'],
-    invalidates: ['resolve', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
+    invalidates: ['resolve', 'build-ir', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
   },
   resolve: {
     id: 'resolve',
     requires: ['align'],
+    invalidates: ['build-ir', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
+  },
+  'build-ir': {
+    id: 'build-ir',
+    requires: ['resolve'],
     invalidates: ['compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
   },
   compose: {
@@ -69,6 +74,13 @@ export const PIPELINE_STAGE_DEFINITIONS: Record<PipelineStageId, PipelineStageDe
     ownedPasses: ['parse', 'align', 'resolve'],
     requires: [],
     invalidates: PASS_DEFINITIONS.resolve.invalidates
+  },
+  semantic: {
+    id: 'semantic',
+    primaryPass: 'build-ir',
+    ownedPasses: ['build-ir'],
+    requires: PASS_DEFINITIONS['build-ir'].requires,
+    invalidates: PASS_DEFINITIONS['build-ir'].invalidates
   },
   compose: {
     id: 'compose',
