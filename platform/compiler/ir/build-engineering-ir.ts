@@ -24,6 +24,7 @@ import {
   type SemanticNamespaceOwner
 } from './ir-identity.ts';
 import { compilerProvenance, manifestProvenance, uniqueSorted } from './ir-normalization.ts';
+import { assertEngineeringIRPredicateSignatures } from './predicate-signatures.ts';
 import {
   digest,
   inputRevisionPayload,
@@ -131,6 +132,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   const sortedScenarios = [...scenarios.values()].sort((left, right) => left.id.localeCompare(right.id));
 
   assertEngineeringIRReferences(entityIds, sortedFacts, sortedScenarios);
+  assertEngineeringIRPredicateSignatures(sortedEntities, sortedFacts);
 
   const semanticRevision = `sha256:${digest(semanticRevisionPayload(graphId, appId, sortedEntities, sortedFacts, sortedScenarios))}`;
   const factsWithRevision = sortedFacts.map((fact) => ({ ...fact, validFrom: semanticRevision }));
