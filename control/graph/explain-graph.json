@@ -56,9 +56,9 @@
       "label": "user_can_login"
     },
     {
-      "id": "app:customer-admin",
+      "id": "app:sec-reference",
       "type": "app",
-      "label": "customer-admin"
+      "label": "SEC Reference"
     },
     {
       "id": "block:agent/executor",
@@ -653,42 +653,42 @@
   ],
   "edges": [
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:agent/executor",
       "type": "depends_on"
     },
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:agent/harness",
       "type": "depends_on"
     },
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:auth/basic-session",
       "type": "depends_on"
     },
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:comment/basic",
       "type": "depends_on"
     },
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:entity/customer-basic",
       "type": "depends_on"
     },
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:file/upload",
       "type": "depends_on"
     },
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:tenant/basic-workspace",
       "type": "depends_on"
     },
     {
-      "from": "app:customer-admin",
+      "from": "app:sec-reference",
       "to": "block:ticket/basic",
       "type": "depends_on"
     },
@@ -1044,202 +1044,202 @@
     },
     {
       "from": "file:app/api/customers/[customerId]/attachments/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/customers/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/session/current/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/session/login/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/session/logout/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/tickets/[ticketId]/attachments/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/tickets/[ticketId]/comments/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/tickets/[ticketId]/status/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/api/tickets/route.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/customers/page.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/globals.css",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/layout.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/login/page.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/page.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/tickets/page.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:app/workspace/page.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/customer-attachment-form.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/customer-form.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/login-form.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/logout-button.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/ticket-attachment-form.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/ticket-comment-form.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/ticket-form.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:components/ticket-status-form.tsx",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/evidence/acceptance-coverage.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/evidence/block-usage-map.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/evidence/install-manifest.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/evidence/policy-report.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/evidence/review-summary.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/evidence/runtime-report.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/evidence/verification-report.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/graph/explain-graph.dot",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/graph/explain-graph.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/graph/explain-graph.mmd",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/provenance/provenance.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/workbench/views/graph-view.html",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/workbench/views/overview-view.html",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/workbench/views/review-view.html",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/workbench/views/slot-rule-view.html",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:control/workbench/views/source-view.html",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
@@ -1254,32 +1254,32 @@
     },
     {
       "from": "file:generated/routes.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:lib/session.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:lib/store.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:next-env.d.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:next.config.mjs",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:package.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
@@ -1344,7 +1344,7 @@
     },
     {
       "from": "file:src/installed/ticket/ticket-semantic-contract.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
@@ -1374,22 +1374,22 @@
     },
     {
       "from": "file:tests/runtime/acceptance/customer-flow.spec.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:tests/runtime/acceptance/ticket-flow.spec.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:tests/runtime/unit/customer-runtime.test.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
       "from": "file:tests/runtime/unit/ticket-runtime.test.ts",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {
@@ -1424,7 +1424,7 @@
     },
     {
       "from": "file:tsconfig.json",
-      "to": "app:customer-admin",
+      "to": "app:sec-reference",
       "type": "originates_from"
     },
     {

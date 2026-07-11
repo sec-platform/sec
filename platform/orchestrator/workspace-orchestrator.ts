@@ -76,6 +76,7 @@ export async function initWorkspace(
   await writeJson(lockPath, {
     formatVersion: '1',
     app: {
+      id: 'customer-admin',
       name: 'customer-admin',
       stack: SUPPORTED_STACK,
       mode: 'single-tenant'

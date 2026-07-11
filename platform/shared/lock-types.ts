@@ -65,6 +65,7 @@ export interface PassStatus {
 export interface LockFile {
   formatVersion: string;
   app: {
+    id: string;
     name: string;
     stack: string;
     mode: string;

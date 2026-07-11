@@ -111,6 +111,10 @@ test('IR kernel seams preserve compatibility barrel and deterministic orchestrat
   expect(first.appId).toBe('app:ticket-app');
   expect(first.entities.map((entity) => entity.id)).toEqual(second.entities.map((entity) => entity.id));
   expect(first.facts.map((fact) => fact.id)).toEqual(second.facts.map((fact) => fact.id));
+  expect(first.facts.every((fact) => fact.assertions.length === 1)).toBe(true);
+  expect(first.facts.every((fact) =>
+    fact.assertions[0]?.validFromRevision === first.semanticRevision
+  )).toBe(true);
   expect(first.scenarios).toEqual(second.scenarios);
   expect(projectArchitectureView(first)).toEqual(projectArchitectureView(second));
   expect(canonicalReferences(first)).toEqual(canonicalReferences(second));

@@ -49,6 +49,20 @@ test('test impact selector owns canonical IR changes as semantic core changes', 
   ]));
 });
 
+test('test impact selector binds predicate signature authority to focused semantic IR coverage', () => {
+  const selection = selectTestsForSources([
+    'platform/shared/engineering-ir/predicate-signature-types.ts',
+    'platform/compiler/ir/predicate-signatures.ts'
+  ]);
+
+  expect(selection.owners).toContain('semantic-ir');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/predicate-signatures.test.ts',
+    'tests/unit/engineering-ir.test.ts',
+    'tests/unit/semantic-contract-ir.test.ts'
+  ]));
+});
+
 test('test impact selector binds policy declaration loading to revision and policy coverage', () => {
   const selection = selectTestsForSources(['platform/compiler/parse/load-policy-declarations.ts']);
 

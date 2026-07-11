@@ -97,6 +97,9 @@ test('buildEngineeringIR creates stable semantic entities, facts, and revision d
   expect(ir.appId).toBe('app:ticket-app');
   expect(ir.inputRevision.startsWith('sha256:')).toBe(true);
   expect(ir.semanticRevision.startsWith('sha256:')).toBe(true);
+  expect(ir.facts.flatMap((fact) => fact.assertions).every((assertion) =>
+    assertion.validFromRevision === ir.semanticRevision
+  )).toBe(true);
   expect(ir.entities.map((entity) => entity.id)).toEqual([...ir.entities.map((entity) => entity.id)].sort());
   expect(ir.facts.map((fact) => fact.id)).toEqual([...ir.facts.map((fact) => fact.id)].sort());
 
@@ -106,9 +109,10 @@ test('buildEngineeringIR creates stable semantic entities, facts, and revision d
     fact.object.kind === 'entity' &&
     fact.object.entityId === 'capability:auth/session'
   );
-  expect(dependency?.authority).toBe('authoritative');
-  expect(dependency?.provenance[0]?.kind).toBe('contract');
-  expect(dependency?.validFrom).toBe(ir.semanticRevision);
+  const dependencyAssertion = dependency?.assertions[0];
+  expect(dependencyAssertion?.authority).toBe('authoritative');
+  expect(dependencyAssertion?.provenance[0]?.kind).toBe('contract');
+  expect(dependencyAssertion?.validFromRevision).toBe(ir.semanticRevision);
   expect(ir.entities.some((entity) => entity.kind === 'artifact')).toBe(false);
 });
 
@@ -126,7 +130,7 @@ test('buildEngineeringIR is deterministic across input ordering', () => {
   expect(buildEngineeringIR(reversed)).toEqual(buildEngineeringIR(input));
 });
 
-test('buildEngineeringIR merges provenance for the same semantic triple', () => {
+test('buildEngineeringIR preserves distinct assertions for the same semantic triple', () => {
   const input = fixture();
   const ticketManifest = input.manifests[0]!;
   const ir = buildEngineeringIR({
@@ -147,7 +151,8 @@ test('buildEngineeringIR merges provenance for the same semantic triple', () => 
     fact.object.entityId === 'capability:auth/session'
   );
 
-  expect(dependency?.provenance).toEqual([
+  expect(dependency?.assertions).toHaveLength(2);
+  expect(dependency?.assertions.flatMap((assertion) => assertion.provenance)).toEqual(expect.arrayContaining([
     {
       kind: 'contract',
       sourceId: 'manifest:ticket/basic',
@@ -158,7 +163,7 @@ test('buildEngineeringIR merges provenance for the same semantic triple', () => 
       sourceId: 'manifest:ticket/basic',
       sourcePath: 'source/blocks/private/ticket.basic/block.manifest.yaml'
     }
-  ]);
+  ]));
   expect(ir.facts.filter((fact) => fact.id === dependency?.id)).toHaveLength(1);
 });
 

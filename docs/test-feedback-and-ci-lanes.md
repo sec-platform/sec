@@ -1,7 +1,7 @@
 ---
 title: 测试反馈与 CI 分层
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-11
 ---
 
 # 测试反馈与 CI 分层
@@ -174,3 +174,40 @@ GitHub Actions 使用 group 展开边界，失败日志必须能快速定位负�
 ```
 
 不要在不理解失败来源时连续堆补丁，也不要让文档指向已经删除的合同文件。
+
+## 13. 验证证据复用账本
+
+昂贵验证结果必须持久记录，不能因为后续出现新 commit 就无条件重跑。每条记录至少包含：
+
+- tested head SHA、base SHA、profile 和 verification contract revision（已知时）。
+- 命令或 Gate、覆盖范围、PASS / FAIL、duration 和原始 evidence 定位。
+- 复用条件与失效条件。
+
+旧结果不得伪装成新 head 的 exact-head 结果。A0 可以把“已验证 baseline + intervening diff 的影响判断 + 只覆盖 delta 的目标验证”组合为当前 integration state 的 trusted evidence；组合判断本身必须记录。只有 diff 触及 Gate 的输入、合同、选择器、运行时依赖或被覆盖语义时，该 Gate 才失效并需要重跑。
+
+### 2026-07-11 P0-2A integration baseline
+
+| Tested head                                                                                   | Evidence                                        | Gate / scope                                          | Result       | 复用与失效规则                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `c324514d7a32b74e2b9f60d92155d8d218bf9cee`（base `37bc21fb6e503e62a00c2b072d02294ae8ed5261`） | GitHub run `29140910853`; artifact `8245260187` | imports                                               | PASS（4.2s） | 后续 diff 未改变 import 规则时可复用；变更源文件只需 changed-only check。                                                                                           |
+| 同上                                                                                          | 同上                                            | typecheck                                             | PASS（7.9s） | 类型面变化时失效，只重跑 typecheck。                                                                                                                                |
+| 同上                                                                                          | 同上                                            | docs-doctor                                           | PASS         | 文档变化时失效，只重跑 docs doctor。                                                                                                                                |
+| 同上                                                                                          | 同上                                            | full-fast                                             | PASS（217s） | 后续 delta 已由对应 focused tests 覆盖且未改变 fast runner / selector / shared test infrastructure 时复用。                                                         |
+| 同上                                                                                          | 同上                                            | test-budget                                           | PASS         | suite registry、预算合同或选择逻辑变化时失效。                                                                                                                      |
+| 同上                                                                                          | 同上                                            | all-slow-risk                                         | PASS（830s） | slow implementation、fixtures、toolchain/runtime boundary 或选择合同变化时失效；纯 identity plumbing 由目标 seam tests 覆盖时不重跑。                               |
+| 同上                                                                                          | 同上                                            | benchmark、dependency warmup                          | PASS         | benchmark 路径、预算、依赖锁或运行时安装边界变化时失效。                                                                                                            |
+| 同上                                                                                          | 同上                                            | resolve / compose / adapt、verify-all、lock / explain | PASS         | 对应 pipeline stage、artifact schema 或 reference inputs 变化时，仅重跑受影响 Gate。                                                                                |
+| 同上                                                                                          | 同上                                            | reference-check                                       | FAIL         | 失败限定为 6 个 ExplainGraph / Lock / Workbench reference artifacts 漂移；不否定其余 PASS Gate。刷新这些 artifacts 后必须在新 commit 上单独重跑 `reference:check`。 |
+
+本 baseline 之后的 App identity delta 修改了 Lock / ExplainGraph identity 和 6 个 reference artifacts，因此只使 typecheck、App / ExplainGraph focused tests、docs / imports changed-only checks 与 reference-check 失效；full-fast、all-slow-risk、benchmark 和 dependency warmup 继续复用上述证据。
+
+### 2026-07-11 P0-2A delta evidence
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `8738eee6a06b02834dabbe6cf11670a8a8f58718` | 本地 `imports:check`（changed-only）、`typecheck`、`docs:doctor` | App identity delta 静态门禁 | PASS | import 规则、类型面或对应文档再次变化时，只重跑对应 Gate。 |
+| 同上 | 本地 `bun test tests/unit/explain-app-identity.test.ts tests/unit/canonical-ir-identity-revision.test.ts tests/e2e/graph.test.ts --timeout 180000` | App / revision / ExplainGraph seam | PASS（14/14，约 12s） | Lock / App identity、revision 或 ExplainGraph producer 变化时失效。 |
+| `52b7973e62ee277367c62acfff70738b41a1e314` | 本地 canonical hash / provenance / baseline / write-boundary focused set | Windows EOL determinism delta | PASS（7/7，约 1.4s） | project hash、provenance generation / inspection 或 baseline/write-boundary 变化时失效。 |
+| 同上 | 本地 `reference:check` | refresh + tracked diff + untracked scan | PASS（约 46s；changed paths 0） | reference inputs、生成逻辑或受管 `source project control` artifacts 变化时失效。 |
+
+Windows 首次运行曾暴露 raw-byte provenance hash 随 CRLF 漂移。最终修复保留 baseline 的 byte-exact hash，并只对跨平台持久化的 provenance 文本 hash 规范化 EOL；因此不能再用手工回填 `provenance.json` 作为 reference-check 证据。

@@ -352,6 +352,7 @@ test('policy gate records missing install plan targets without violations', asyn
   const lock: LockFile = {
     formatVersion: '1',
     app: {
+      id: 'customer-admin',
       name: 'customer-admin',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'single-tenant'
@@ -415,6 +416,7 @@ test('policy gate uses lock install plan to locate applied block files', async (
   const lock: LockFile = {
     formatVersion: '1',
     app: {
+      id: 'customer-admin',
       name: 'customer-admin',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'single-tenant'

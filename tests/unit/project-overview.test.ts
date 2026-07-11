@@ -33,6 +33,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
   const lock: LockFile = {
     formatVersion: '1',
     app: {
+      id: 'customer-admin',
       name: 'Customer Admin',
       stack: 'nextjs-ts-prisma-sqlite',
       mode: 'local'

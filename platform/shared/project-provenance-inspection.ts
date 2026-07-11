@@ -1,7 +1,7 @@
 import { createConcurrencyLimit } from './concurrency.ts';
 import { pathExists } from './fs.ts';
 import { posixPath, resolvePathInside } from './paths.ts';
-import { calculateProjectFileHash } from './project-file-hash.ts';
+import { calculateCanonicalProjectFileHash } from './project-file-hash.ts';
 import type { ProvenanceArtifact } from './provenance-types.ts';
 
 export type ProvenanceArtifactInspection = {
@@ -35,7 +35,7 @@ export async function inspectProvenanceArtifacts(
       return { artifact, artifactPath, exists: false, currentHash: undefined };
     }
     const currentHash = artifact.hash
-      ? await calculateProjectFileHash(absolutePath)
+      ? await calculateCanonicalProjectFileHash(absolutePath)
       : undefined;
     return { artifact, artifactPath, exists: true, currentHash };
   })));

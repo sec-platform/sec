@@ -10,6 +10,7 @@ const officialRegistryMetadata = {
 
 export function buildSingleTenantLockApp(options: Partial<LockFile['app']> = {}): LockFile['app'] {
   return {
+    id: options.id ?? 'customer-admin',
     name: options.name ?? 'customer-admin',
     stack: options.stack ?? SUPPORTED_STACK,
     mode: options.mode ?? 'single-tenant'

@@ -14,6 +14,7 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
     const lock: LockFile = {
       formatVersion: '1',
       app: {
+        id: 'customer-admin',
         name: 'customer-admin',
         stack: 'nextjs',
         mode: 'single-tenant'

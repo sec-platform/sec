@@ -12,7 +12,7 @@ test('provenance records projection outputs without recursively hashing them', a
     const stablePath = 'generated/stable-output.ts';
     const lock: LockFile = {
       formatVersion: '1',
-      app: { name: 'projection-hash-test', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
+      app: { id: 'projection-hash-test', name: 'projection-hash-test', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
       resolvedBlocks: [],
       resolvedCapabilities: [],
       installPlan: [],
