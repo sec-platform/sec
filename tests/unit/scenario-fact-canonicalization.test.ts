@@ -1,39 +1,51 @@
-import { expect, test } from 'bun:test';
+import { expect, test } from "bun:test";
 
-import { buildEngineeringIR, projectScenarioView, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
-import { deriveScenarioDefinition } from '../../platform/compiler/ir/scenario-facts.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
-import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
+import {
+  buildEngineeringIR,
+  projectScenarioView,
+  type BuildEngineeringIRInput,
+} from "../../platform/compiler/index.ts";
+import { deriveScenarioDefinition } from "../../platform/compiler/ir/scenario-facts.ts";
+import { CompilerError } from "../../platform/shared/errors.ts";
+import type { LoadedSemanticContract } from "../../platform/shared/semantic-contract-types.ts";
 
 function baseInput(): BuildEngineeringIRInput {
   return {
-    app: { id: 'scenario-app', name: 'scenario-app' },
-    resolvedBlocks: [{
-      id: 'flow/basic',
-      version: '0.1.0',
-      kind: 'capability',
-      installOrder: 1,
-      manifestPath: 'registry/flow.basic/block.manifest.yaml',
-      registrySourceId: 'official',
-      registryKind: 'official',
-      registryLocation: 'compiler',
-      registryPath: 'registry'
-    }],
-    manifests: [{
-      blockId: 'flow/basic',
-      manifestPath: 'registry/flow.basic/block.manifest.yaml',
-      manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
-    }],
+    app: { id: "scenario-app", name: "scenario-app" },
+    resolvedBlocks: [
+      {
+        id: "flow/basic",
+        version: "0.1.0",
+        kind: "capability",
+        installOrder: 1,
+        manifestPath: "registry/flow.basic/block.manifest.yaml",
+        registrySourceId: "official",
+        registryKind: "official",
+        registryLocation: "compiler",
+        registryPath: "registry",
+      },
+    ],
+    manifests: [
+      {
+        blockId: "flow/basic",
+        manifestPath: "registry/flow.basic/block.manifest.yaml",
+        manifest: {
+          requires: [],
+          provides: [],
+          pins: { inputs: [], outputs: [] },
+        },
+      },
+    ],
     slotTasks: [],
-    acceptanceIds: ['flow_succeeds'],
-    policyDeclarations: []
+    acceptanceIds: ["flow_succeeds"],
+    policyDeclarations: [],
   };
 }
 
 function operation(id: string) {
   return {
     id,
-    responsibility: 'FlowOwner',
+    responsibility: "FlowOwner",
     inputs: [],
     reads: [],
     writes: [],
@@ -43,43 +55,58 @@ function operation(id: string) {
     performsEffects: [],
     emits: [],
     invokes: [],
-    awaits: []
+    awaits: [],
   };
 }
 
 function contract(): LoadedSemanticContract {
   return {
-    blockId: 'flow/basic',
-    contractPath: 'registry/flow.basic/contracts/flow.yaml',
+    blockId: "flow/basic",
+    contractPath: "registry/flow.basic/contracts/flow.yaml",
     contract: {
-      formatVersion: '1',
-      id: 'flow-core',
-      namespace: 'flow',
+      formatVersion: "1",
+      id: "flow-core",
+      namespace: "flow",
       entities: [],
       states: [],
-      responsibilities: [{
-        id: 'FlowOwner',
-        role: 'Own the flow',
-        owns: [],
-        implements: ['start', 'finish', 'recover'],
-        dependsOn: []
-      }],
-      operations: [operation('start'), operation('finish'), operation('recover')],
+      responsibilities: [
+        {
+          id: "FlowOwner",
+          role: "Own the flow",
+          owns: [],
+          implements: ["start", "finish", "recover"],
+          dependsOn: [],
+        },
+      ],
+      operations: [
+        operation("start"),
+        operation("finish"),
+        operation("recover"),
+      ],
       events: [],
       policies: [],
       permissions: [],
       effects: [],
-      scenarios: [{
-        id: 'run-flow',
-        entry: 'start',
-        steps: [
-          { id: 'finish', operation: 'finish', after: ['start'], awaits: true, retryMaxAttempts: 3, onError: 'recover' },
-          { id: 'recover', operation: 'recover', after: [] },
-          { id: 'start', operation: 'start', after: [] }
-        ],
-        acceptance: ['flow_succeeds']
-      }]
-    }
+      scenarios: [
+        {
+          id: "run-flow",
+          entry: "start",
+          steps: [
+            {
+              id: "finish",
+              operation: "finish",
+              after: ["start"],
+              awaits: true,
+              retryMaxAttempts: 3,
+              onError: "recover",
+            },
+            { id: "recover", operation: "recover", after: [] },
+            { id: "start", operation: "start", after: [] },
+          ],
+          acceptance: ["flow_succeeds"],
+        },
+      ],
+    },
   };
 }
 
@@ -94,113 +121,167 @@ function expectCompilerError(run: () => unknown, code: string): void {
   throw new Error(`Expected CompilerError ${code}`);
 }
 
-test('Scenario execution semantics have canonical Entity and Fact identity with provenance', () => {
-  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
-  const scenarioId = 'scenario:flow:run-flow';
+test("Scenario execution semantics have canonical Entity and Fact identity with provenance", () => {
+  const ir = buildEngineeringIR({
+    ...baseInput(),
+    semanticContracts: [contract()],
+  });
+  const scenarioId = "scenario:flow:run-flow";
   const startId = `${scenarioId}#step:start`;
   const finishId = `${scenarioId}#step:finish`;
   const recoverId = `${scenarioId}#step:recover`;
 
-  expect(ir.entities.filter((entity) => entity.kind === 'scenario-step').map((entity) => entity.id)).toEqual([
-    finishId,
-    recoverId,
-    startId
-  ].sort());
+  expect(
+    ir.entities
+      .filter((entity) => entity.kind === "scenario-step")
+      .map((entity) => entity.id),
+  ).toEqual([finishId, recoverId, startId].sort());
 
   const expectedFacts = [
-    [scenarioId, 'CONTAINS', finishId],
-    [finishId, 'INVOKES', 'operation:flow:finish'],
-    [startId, 'PRECEDES', finishId],
-    [finishId, 'AWAITS', 'operation:flow:finish'],
-    [recoverId, 'HANDLES', finishId]
+    [scenarioId, "CONTAINS", finishId],
+    [finishId, "INVOKES", "operation:flow:finish"],
+    [startId, "PRECEDES", finishId],
+    [finishId, "AWAITS", "operation:flow:finish"],
+    [recoverId, "HANDLES", finishId],
   ];
   for (const [subject, predicate, objectId] of expectedFacts) {
-    const fact = ir.facts.find((candidate) =>
-      candidate.subject === subject &&
-      candidate.predicate === predicate &&
-      candidate.object.kind === 'entity' &&
-      candidate.object.entityId === objectId
+    const fact = ir.facts.find(
+      (candidate) =>
+        candidate.subject === subject &&
+        candidate.predicate === predicate &&
+        candidate.object.kind === "entity" &&
+        candidate.object.entityId === objectId,
     );
-    expect(fact?.provenance).toEqual([{
-      kind: 'contract',
-      sourceId: 'semantic-contract:flow-core',
-      sourcePath: 'registry/flow.basic/contracts/flow.yaml'
-    }]);
+    expect(fact?.assertions[0]?.provenance).toEqual([
+      {
+        kind: "contract",
+        sourceId: "semantic-contract:flow-core",
+        sourcePath: "registry/flow.basic/contracts/flow.yaml",
+      },
+    ]);
   }
-  const retry = ir.facts.find((fact) => fact.subject === finishId && fact.predicate === 'RETRIES');
-  expect(retry?.object).toEqual({ kind: 'value', value: { maxAttempts: 3 } });
-  expect(retry?.provenance[0]?.sourceId).toBe('semantic-contract:flow-core');
+  const retry = ir.facts.find(
+    (fact) => fact.subject === finishId && fact.predicate === "RETRIES",
+  );
+  expect(retry?.object).toEqual({ kind: "value", value: { maxAttempts: 3 } });
+  expect(retry?.assertions[0]?.provenance[0]?.sourceId).toBe(
+    "semantic-contract:flow-core",
+  );
   const canonicalScenario = ir.scenarios[0]!;
   const expectedFactIds = ir.facts
-    .filter((fact) => fact.subject === scenarioId || fact.subject.startsWith(`${scenarioId}#step:`))
+    .filter(
+      (fact) =>
+        fact.subject === scenarioId ||
+        fact.subject.startsWith(`${scenarioId}#step:`),
+    )
     .map((fact) => fact.id)
     .sort();
   expect(canonicalScenario.factIds).toEqual(expectedFactIds);
 });
 
-test('Scenario cache is exactly reconstructable and Projector ignores cache tampering', () => {
-  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
-  const scenarioId = 'scenario:flow:run-flow';
+test("Scenario cache is exactly reconstructable and Projector ignores cache tampering", () => {
+  const ir = buildEngineeringIR({
+    ...baseInput(),
+    semanticContracts: [contract()],
+  });
+  const scenarioId = "scenario:flow:run-flow";
   const derived = deriveScenarioDefinition(ir.entities, ir.facts, scenarioId);
   expect(derived).toEqual(ir.scenarios[0]);
 
   const canonicalView = projectScenarioView(ir, scenarioId);
   const tampered = {
     ...ir,
-    scenarios: [{ ...ir.scenarios[0]!, entryEntityId: 'operation:flow:recover', steps: [] }]
+    scenarios: [
+      {
+        ...ir.scenarios[0]!,
+        entryEntityId: "operation:flow:recover",
+        steps: [],
+      },
+    ],
   };
   const rebuiltView = projectScenarioView(tampered, scenarioId);
   expect(rebuiltView).toEqual(canonicalView);
 
-  const precedes = rebuiltView.edges.find((edge) => edge.relation === 'SCENARIO_PRECEDES');
-  const error = rebuiltView.edges.find((edge) => edge.relation === 'SCENARIO_ERROR');
+  const precedes = rebuiltView.edges.find(
+    (edge) => edge.relation === "SCENARIO_PRECEDES",
+  );
+  const error = rebuiltView.edges.find(
+    (edge) => edge.relation === "SCENARIO_ERROR",
+  );
   expect(precedes).toMatchObject({
     source: `${scenarioId}#step:start`,
     target: `${scenarioId}#step:finish`,
-    label: 'await'
+    label: "await",
   });
   expect(error).toMatchObject({
     source: `${scenarioId}#step:finish`,
     target: `${scenarioId}#step:recover`,
-    label: 'on error'
+    label: "on error",
   });
-  expect(precedes?.references.some((reference) => reference.kind === 'fact')).toBe(true);
-  expect(error?.references.some((reference) => reference.kind === 'fact')).toBe(true);
+  expect(
+    precedes?.references.some((reference) => reference.kind === "fact"),
+  ).toBe(true);
+  expect(error?.references.some((reference) => reference.kind === "fact")).toBe(
+    true,
+  );
 });
 
-test('declaration array reorder is stable while order relation changes semantic revision', () => {
+test("declaration array reorder is stable while order relation changes semantic revision", () => {
   const original = contract();
   const reordered = contract();
   reordered.contract.scenarios[0]!.steps.reverse();
 
-  const first = buildEngineeringIR({ ...baseInput(), semanticContracts: [original] });
-  const second = buildEngineeringIR({ ...baseInput(), semanticContracts: [reordered] });
+  const first = buildEngineeringIR({
+    ...baseInput(),
+    semanticContracts: [original],
+  });
+  const second = buildEngineeringIR({
+    ...baseInput(),
+    semanticContracts: [reordered],
+  });
   expect(second).toEqual(first);
 
   const changed = contract();
-  changed.contract.scenarios[0]!.steps.find((step) => step.id === 'finish')!.after = ['recover'];
-  const changedIr = buildEngineeringIR({ ...baseInput(), semanticContracts: [changed] });
+  changed.contract.scenarios[0]!.steps.find(
+    (step) => step.id === "finish",
+  )!.after = ["recover"];
+  const changedIr = buildEngineeringIR({
+    ...baseInput(),
+    semanticContracts: [changed],
+  });
   expect(changedIr.semanticRevision).not.toBe(first.semanticRevision);
-  expect(changedIr.facts.some((fact) =>
-    fact.subject === 'scenario:flow:run-flow#step:recover' &&
-    fact.predicate === 'PRECEDES' &&
-    fact.object.kind === 'entity' &&
-    fact.object.entityId === 'scenario:flow:run-flow#step:finish'
-  )).toBe(true);
+  expect(
+    changedIr.facts.some(
+      (fact) =>
+        fact.subject === "scenario:flow:run-flow#step:recover" &&
+        fact.predicate === "PRECEDES" &&
+        fact.object.kind === "entity" &&
+        fact.object.entityId === "scenario:flow:run-flow#step:finish",
+    ),
+  ).toBe(true);
 });
 
-test('invalid Scenario step references and retry schemas fail deterministically', () => {
+test("invalid Scenario step references and retry schemas fail deterministically", () => {
   const invalidReference = contract();
-  invalidReference.contract.scenarios[0]!.steps.find((step) => step.id === 'finish')!.after = ['missing'];
+  invalidReference.contract.scenarios[0]!.steps.find(
+    (step) => step.id === "finish",
+  )!.after = ["missing"];
   expectCompilerError(
-    () => buildEngineeringIR({ ...baseInput(), semanticContracts: [invalidReference] }),
-    'IR-SCENARIO-004'
+    () =>
+      buildEngineeringIR({
+        ...baseInput(),
+        semanticContracts: [invalidReference],
+      }),
+    "IR-SCENARIO-004",
   );
 
   const invalidRetry = contract();
-  invalidRetry.contract.scenarios[0]!.steps.find((step) => step.id === 'finish')!.retryMaxAttempts = 0;
+  invalidRetry.contract.scenarios[0]!.steps.find(
+    (step) => step.id === "finish",
+  )!.retryMaxAttempts = 0;
   expectCompilerError(
-    () => buildEngineeringIR({ ...baseInput(), semanticContracts: [invalidRetry] }),
-    'IR-SCENARIO-002'
+    () =>
+      buildEngineeringIR({ ...baseInput(), semanticContracts: [invalidRetry] }),
+    "IR-SCENARIO-002",
   );
 });

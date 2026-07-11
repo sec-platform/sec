@@ -44,7 +44,7 @@ IR 不是 DAG。State Loop、Retry、Recursive Dependency Evidence、Workflow Cy
 
 ```ts
 interface EngineeringIR {
-  formatVersion: '2';
+  formatVersion: "2";
   graphId: string;
   inputRevision: string;
   semanticRevision: string;
@@ -57,7 +57,7 @@ interface EngineeringIR {
 
 `inputRevision` 标识规范化声明输入域；`semanticRevision` 标识最终 canonical semantic graph。v2 不存在兼容性的 root `revision` 字段，也不得把二者重新折叠为单一 revision。
 
-`scenarios` 是 canonical IR 的组成部分，不另建第二事实容器。
+`facts` 是 Scenario 执行语义的唯一 canonical ownership。`scenarios` 保留在 IR root 中，但它只能由最终 Entities/Facts 确定性重建，是只读 derived cache；Contract producer、Projector 和其他 consumer 不得把它当成第二声明入口。
 
 Fact Assertion 也不建立 root-level `assertions[]`。Canonical ownership 是：
 
@@ -93,6 +93,7 @@ field
 responsibility
 operation
 scenario
+scenario-step
 state
 event
 policy
@@ -117,16 +118,16 @@ field
 responsibility
 operation
 scenario
+scenario-step
 state
 event
 policy
 permission
 effect
-artifact
 acceptance
 ```
 
-`boundary`、`generator` 仍为类型层预留，必须通过真实 Contract/Builder 才能进入 IR；不允许仅为了 UI Demo 制造伪节点。
+`boundary`、`generator`、`artifact` 当前只保留类型能力，必须由后续明确 owner 的真实 Contract/Builder 引入；当前 canonical Builder 不从下游 Artifact Provenance 反馈创建 Artifact Entity，也不允许仅为了 UI Demo 制造伪节点。
 
 ### Entity ID
 
@@ -143,6 +144,8 @@ slot:<block-id>:<slot-id>
 entity:<namespace>:<entity-id>
 operation:<namespace>:<operation-id>
 responsibility:<namespace>:<id>
+scenario:<namespace>:<scenario-id>
+scenario:<namespace>:<scenario-id>#step:<semantic-step-id>
 artifact:<workspace-relative-path>
 acceptance:<acceptance-id>
 policy:<policy-id>
@@ -217,8 +220,8 @@ fact.assertions.length = 2
 
 ```ts
 type SemanticFactObject =
-  | { kind: 'entity'; entityId: SemanticEntityId }
-  | { kind: 'value'; value: SemanticValue };
+  | { kind: "entity"; entityId: SemanticEntityId }
+  | { kind: "value"; value: SemanticValue };
 ```
 
 不要把 primitive/entity 混成单一字符串，否则无法稳定校验引用完整性。
@@ -334,16 +337,71 @@ VIOLATES
 
 当前 Builder 只实现已有事实需要的子集。**类型允许存在不等于 Builder 必须伪造数据。**
 
+### Predicate Signature Registry
+
+`platform/compiler/ir/predicate-signatures.ts` 是 Predicate shape 的唯一 canonical authority。每个 `SemanticPredicate` 必须在 registry 中恰好拥有一种状态：
+
+- `active`：至少一个明确、互不歧义的 signature variant。
+- `reserved`：类型预留但当前没有权威 producer；任何 canonical Fact 使用它都 hard fail。
+
+每个 variant 明确约束：
+
+```text
+subject entity kinds
+object kind: entity | value
+entity object kinds，或 exact value schema
+```
+
+当前 active predicates：
+
+```text
+AWAITS CONTAINS DECLARES DEPENDS_ON EMITS GUARANTEES HANDLES
+IMPLEMENTS INVOKES MUTATES OWNS PERFORMS_EFFECT PRECEDES PROVIDES
+READS REQUIRES REQUIRES_PERMISSION RETRIES TRANSITIONS_TO VERIFIED_BY WRITES
+```
+
+当前 reserved predicates：
+
+```text
+ASSUMES CONNECTS_TO CONSUMES CROSSES_BOUNDARY DERIVES_FROM
+DESERIALIZES_FROM DISPOSES ENFORCES ESCAPES FLOWS_TO FORKS_TO
+GENERATES INITIALIZES JOINS LOWERS_TO ORIGINATES_FROM PERSISTS_AS
+SANITIZES SERIALIZES_AS TRANSFORMS_TO VALIDATES VIOLATES
+```
+
+Canonical validation order固定为：
+
+```text
+Entity/Fact reference + Assertion validation
+→ Predicate Signature validation
+→ semanticRevision digest
+```
+
+Builder、Fact store、Projector 与 consumer 不得各自维护另一套 predicate-shape switch。
+
+### Scenario canonical Fact signatures
+
+Scenario execution semantics 固定使用以下方向和 shapes：
+
+```text
+CONTAINS:   scenario -> scenario-step
+INVOKES:    scenario-step -> operation
+PRECEDES:   predecessor scenario-step -> current scenario-step
+AWAITS:     scenario-step -> its invoked operation，仅 awaits=true 时存在
+RETRIES:    scenario-step -> value { maxAttempts: positive integer }
+HANDLES:    handler scenario-step -> failing scenario-step
+VERIFIED_BY scenario -> acceptance
+INVOKES:    scenario -> entry operation
+```
+
+`HANDLES` 的 canonical 方向是 handler → failing。Scenario View 可以为阅读目的显示 failing → handler，但必须引用原始 `HANDLES` Fact，不得创造第二条 authoritative relation。
+
 ## 7. Authority
 
 Authority 属于 `FactAssertion`，不属于 `SemanticFact`。
 
 ```ts
-type SemanticAuthority =
-  | 'authoritative'
-  | 'derived'
-  | 'observed'
-  | 'inferred';
+type SemanticAuthority = "authoritative" | "derived" | "observed" | "inferred";
 ```
 
 ### authoritative
@@ -375,18 +433,14 @@ inferred confidence=1.0
 Projection 需要聚合展示时统一调用：
 
 ```ts
-summarizeFactAssertions(fact)
+summarizeFactAssertions(fact);
 ```
 
 返回：
 
 ```ts
 {
-  highestAuthority,
-  authorities,
-  hasConflict,
-  hasInferred,
-  assertionCount
+  (highestAuthority, authorities, hasConflict, hasInferred, assertionCount);
 }
 ```
 
@@ -414,13 +468,13 @@ Provenance 属于 `FactAssertion`。
 ```ts
 interface FactProvenance {
   kind:
-    | 'contract'
-    | 'compiler'
-    | 'static-analysis'
-    | 'runtime'
-    | 'ai'
-    | 'user'
-    | 'external-provider';
+    | "contract"
+    | "compiler"
+    | "static-analysis"
+    | "runtime"
+    | "ai"
+    | "user"
+    | "external-provider";
   sourceId: string;
   sourcePath?: string;
   revision?: string;
@@ -492,6 +546,8 @@ v2 明确分离两个 revision domain：
 - `inputRevision`：由 `app.id/name`、resolved blocks、manifest declarations、semantic contracts、slot tasks、acceptance ids 与纯 `policyDeclarations` 的规范化 payload 计算。Artifact Provenance、ExplainGraph 和已物化的 PolicyReport 不属于声明输入，禁止反馈进入该 domain。
 - `semanticRevision`：由 `formatVersion`、`graphId`、`appId` 与最终规范化的 entities/facts/scenarios 计算，表示 canonical semantic graph identity。
 
+`scenarios` 虽在 semantic payload 中稳定编码，但其全部字段必须由同一 payload 内的 Entities/Facts 重建；它不能接收独立输入。因此这不是第二个 Scenario authority，也不得通过直接修改 cache 来改变 Builder 或 Projection 语义。
+
 规范化规则必须按字段语义区分 **集合** 与 **序列**：无序集合在各自 normalization boundary 去重并稳定排序；有序序列保留顺序与重复项；通用 IR Attribute 层不得假设“数组就是集合”。Entity、Fact 与 Fact 内 Assertions 使用确定性 identity 和稳定排序。
 
 Assertion validity 不能参与产生其自身 `validFromRevision` 的 revision digest，否则形成自引用。
@@ -530,9 +586,9 @@ Builder 当前产生：
 - Capability Entity + `DEPENDS_ON/PROVIDES` Fact。
 - Port Entity + `REQUIRES/PROVIDES` Fact。
 - Slot Entity + `CONTAINS` Fact。
-- Semantic Contract 的 Entity/Field/Responsibility/Operation/State/Event/Policy/Permission/Effect/Scenario Entity。
-- Contract authoritative `DECLARES/IMPLEMENTS/OWNS/READS/WRITES/MUTATES/REQUIRES/REQUIRES_PERMISSION/PERFORMS_EFFECT/EMITS/INVOKES/AWAITS/TRANSITIONS_TO/VERIFIED_BY` 等 Fact Assertions。
-- canonical `ScenarioDefinition`。
+- Semantic Contract 的 Entity/Field/Responsibility/Operation/State/Event/Policy/Permission/Effect/Scenario/Scenario-step Entity。
+- Contract authoritative `DECLARES/IMPLEMENTS/OWNS/READS/WRITES/MUTATES/REQUIRES/REQUIRES_PERMISSION/PERFORMS_EFFECT/EMITS/INVOKES/PRECEDES/AWAITS/RETRIES/HANDLES/TRANSITIONS_TO/VERIFIED_BY` 等 Fact Assertions。
+- 由最终 Entities/Facts 重建的 derived `ScenarioDefinition` cache。
 - Acceptance Entity。
 - Policy Entity。
 
@@ -553,6 +609,21 @@ Builder 必须：
 - 不执行 authority strongest-wins merge。
 - 保持字段自己的集合/序列语义，不在通用 Attribute 层篡改数组。
 - 在 Workspace Semantic Linker 未实现前禁止 distinct Contract 隐式共享 namespace。
+
+### Scenario derived cache boundary
+
+Semantic Contract lowering 对每个 step 先建立稳定 `scenario-step` Entity，再只通过 `BuildSink.addFact` 发出执行语义。Step identity 规则：
+
+```text
+scenarioStepEntityId(scenarioId, semanticStepId)
+= scenarioId#step:semanticStepId
+```
+
+禁止使用数组位置、Projector node position 或 UI coordinate。
+
+所有 Entities/Facts 组装完成后，Builder 调用 `deriveScenarioDefinitions()` 生成 cache。不存在 `BuildSink.addScenario` 或可与 Facts 竞争的 Scenario store writer。派生过程必须验证唯一 entry、唯一 step invocation、AWAITS 与 invocation 一致、RETRIES exact schema、PRECEDES/HANDLES containment boundary 以及单一 error handler。
+
+`projectScenarioView()` 从 canonical Facts 重新派生 Scenario；即使调用者篡改 `ir.scenarios[].steps`，Projection 结果也不得变化。声明数组重排而关系不变时 IR/revision 稳定；PRECEDES、AWAITS、RETRIES 或 HANDLES 关系变化必须改变 canonical Fact/revision。
 
 ### Semantic Namespace Ownership
 
@@ -589,7 +660,6 @@ Index 是内存派生对象，不持久化为第二份 canonical artifact。
 - 同 Entity ID 不同定义：`IR-IDENTITY-001` hard fail。
 - unresolved Block Manifest：`IR-IDENTITY-002` hard fail。
 - Slot 引用未知 Block：`IR-IDENTITY-003` hard fail。
-- 同 Scenario ID 不同定义：`IR-IDENTITY-004` hard fail。
 - Semantic Contract 引用 unresolved Block：`IR-IDENTITY-005` hard fail。
 - distinct Semantic Contract 共享 namespace：`IR-IDENTITY-006` hard fail。
 - 同 Fact ID 对应不同 triple：`IR-FACT-001` hard fail。
@@ -598,6 +668,8 @@ Index 是内存派生对象，不持久化为第二份 canonical artifact。
 - Assertion confidence 超出 `[0, 1]`：`IR-AUTHORITY-001` hard fail。
 - Assertion provenance 为空：`IR-AUTHORITY-002` hard fail。
 - 同 Assertion identity 出现不一致 identity metadata 或 confidence：`IR-AUTHORITY-003` hard fail。
+- reserved Predicate 或 Predicate subject/object/value 不符合唯一 registry signature：`IR-PREDICATE-001` 至 `IR-PREDICATE-006` hard fail。
+- Scenario entry/invocation/retry/containment/await/handler 派生不满足 canonical Fact model：`IR-SCENARIO-001` 至 `IR-SCENARIO-006` hard fail。
 - authoritative assertions 语义互斥：需要 predicate-specific validator；未实现 validator 前输出 explicit diagnostic，不能偷偷选一个。
 - inferred 与 authoritative 对同一 triple 的正向声明：两个 Assertions 都保留；inferred 不覆盖 authoritative，authoritative 也不删除 inferred evidence trail。
 
@@ -675,8 +747,12 @@ control/semantic/engineering-ir.json
 - Authority/Confidence/Provenance/Evidence 位于 Assertion。
 - Same triple 的 distinct Assertions 无损保留。
 - Referential integrity。
+- 全部 SemanticPredicate 由唯一 Registry 标记 active/reserved，active variants 无歧义并在最终 Fact boundary 强制执行。
+- Scenario-step identity、order、await、retry、error handler 与 acceptance/entry 全部由 canonical Facts 表达。
+- `ScenarioDefinition` 只可由 Entities/Facts 重建，Scenario Projector 不读取被篡改 cache 作为 authority。
 - Stable sort/inputRevision/semanticRevision digest。
 - Read-only Index。
 - Unit tests。
+- Ticket P0-2A identity/assertion/signature/Scenario ownership vertical test。
 - Compiler facade 导出。
 - ExplainGraph 行为保持兼容。
