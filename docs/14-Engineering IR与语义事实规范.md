@@ -640,7 +640,39 @@ scenarioStepEntityId(scenarioId, semanticStepId)
 - 在 Semantic Linker 正式实现前，不允许通过复用 namespace 达成跨 Contract Responsibility/Operation/Entity linkage。
 - 未来 Linker 必须显式定义 import、qualified reference、ownership、冲突与版本规则；不得删除 hard fail 后直接恢复隐式合并。
 
-## 13. IR Index
+## 13. Validated IR Boundary
+
+`EngineeringIR` 是 canonical calculation result，但仍是未受信输入。只有以下函数可以签发 validated boundary：
+
+```ts
+validateEngineeringIR(ir, sourceInput): ValidatedEngineeringIRSnapshot
+buildValidatedEngineeringIR(sourceInput): ValidatedEngineeringIRSnapshot
+```
+
+Validator 必须按确定性顺序统一检查：
+
+1. formatVersion、`appId`、`graphId` 与声明输入域一致。
+2. Entity / Fact / Assertion / Scenario collection 唯一且 canonical ordering。
+3. Entity kind/ID、Fact triple/ID、Assertion authority+provenance/ID 与 validity binding。
+4. Referential integrity 与 total Predicate Signature Registry。
+5. `ScenarioDefinition` 精确等于 canonical Entities/Facts 的重建结果。
+6. `inputRevision` 与 source input domain digest 一致。
+7. `semanticRevision` 与 canonical semantic graph digest 一致。
+
+成功结果包含 deep-frozen IR，防止 validation 后原地修改。`ValidatedEngineeringIRSnapshot` 是 branded type；普通 `EngineeringIR` 不能传给新增的 IR-native consumer。首个 boundary consumer 是 `indexValidatedEngineeringIR(snapshot)`；原 `indexEngineeringIR(ir)` 仅为现有 transitional Projection 保留。
+
+当前 legacy ownership 明确如下：
+
+| 现有路径 | 当前输入 | 负责接管的 Work Package |
+| --- | --- | --- |
+| `buildWorkspaceEngineeringIR()` / Pipeline semantic context | raw `EngineeringIR` | P0-3 Semantic Pipeline Spine |
+| Workspace-level contract reference/link | local Contract declarations | P0-4 Workspace Semantic Linker |
+| `semantic-plan.ts` / `semantic-lowering.ts` | Contract / semantic plan | P0-5 IR-owned Generator / Ticket Enforcement |
+| Architecture / Scenario / State Projector、ExplainGraph、Workbench | raw IR 或 Lock/Manifest/Contract | P0-6 Semantic Projection Takeover |
+
+P0-2B 不得为了类型形式提前改写这些 legacy consumers；所有新 IR-native consumer 从本阶段开始只能接受 `ValidatedEngineeringIRSnapshot`。
+
+## 14. IR Index
 
 `indexEngineeringIR(ir)` 返回只读索引：
 
@@ -657,7 +689,7 @@ Index 是内存派生对象，不持久化为第二份 canonical artifact。
 
 当前不建立独立 assertion index。查询 Fact 后直接读取 `fact.assertions`，避免 `fact.assertionIds + root.assertions[]` 或第二份 assertion store 的一致性负担。只有出现有证据的跨 Fact assertion 查询性能需求时，才允许增加派生 read-only index；该 index 也不得成为 canonical ownership。
 
-## 14. Conflict
+## 15. Conflict
 
 当前冲突处理：
 
@@ -677,7 +709,7 @@ Index 是内存派生对象，不持久化为第二份 canonical artifact。
 - authoritative assertions 语义互斥：需要 predicate-specific validator；未实现 validator 前输出 explicit diagnostic，不能偷偷选一个。
 - inferred 与 authoritative 对同一 triple 的正向声明：两个 Assertions 都保留；inferred 不覆盖 authoritative，authoritative 也不删除 inferred evidence trail。
 
-## 15. Fact Delta
+## 16. Fact Delta
 
 v0.4 目标：
 
@@ -697,7 +729,7 @@ interface FactDelta {
 
 Authority 改变不是“Fact authority changed”；它通常表现为旧 Assertion 与新 Assertion 的集合变化，因为 authority 属于 Assertion identity。
 
-## 16. Projection
+## 17. Projection
 
 Projection API 接受 IR/selected evidence，返回 View/Explain contract。
 
@@ -722,7 +754,7 @@ Projection 不可以：
 
 Provenance Overlay 可以选择 `highestAuthority` 作为展示摘要，并在该 authority 的 Assertions 中计算展示 confidence；这不表示低 authority Assertions 被删除或覆盖。
 
-## 17. 持久化策略
+## 18. 持久化策略
 
 当前 v2 Kernel 先以内存 IR 为主；不要立即新增 stable `engineering-ir.json` artifact。
 
@@ -742,7 +774,7 @@ control/semantic/engineering-ir.json
 
 在此之前，IR 类型/Builder 是 canonical calculation，现有 stable artifact 列表不增加路径。
 
-## 18. v2 Kernel 完成条件
+## 19. v2 Kernel 完成条件
 
 - TypeScript 类型落地。
 - Builder 归一当前 App/Block/Capability/Port/Slot/Acceptance/Policy declaration 与 Loaded Semantic Contract。
