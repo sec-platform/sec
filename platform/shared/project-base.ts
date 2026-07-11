@@ -153,7 +153,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
   await writeJson(projectPackagePath, {
     ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),
     scripts: {
-      dev: 'next dev',
+      dev: 'next dev --webpack',
       build: 'next build --webpack',
       'test:fast': 'node --test --experimental-test-isolation=none',
       'test:unit': 'bun test tests/runtime/unit',
@@ -344,7 +344,7 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   webServer: {
-    command: \`next dev --hostname 127.0.0.1 --port \${port}\`,
+    command: \`next dev --webpack --hostname 127.0.0.1 --port \${port}\`,
     url: \`\${baseURL}/login\`,
     reuseExistingServer: !process.env.CI,
     timeout: 120000

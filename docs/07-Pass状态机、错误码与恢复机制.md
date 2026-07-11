@@ -26,9 +26,9 @@ parse
 → emit
 ```
 
-当前代码已经实现 parse/align/resolve/compose/adapt/verify/repair/lock/emit；`normalize`、`build-ir` 和正式 `lower` 是 v0.3 演进目标。
+当前代码已经实现 parse/align/resolve/build-ir/compose/adapt/verify/repair/lock/emit；正式独立的 `normalize` 与 IR-owned `lower` 仍是 v0.3 演进目标。
 
-在正式接入 orchestrator 前，IR builder 可以作为 resolve 之后的独立纯函数被测试和投影消费。不得伪造 passStatus 中不存在的 pass 为“已实现”。
+`compileWorkspace()` 中的物理 `semantic` stage 拥有 `build-ir` pass，严格位于 resolve 与 compose 之间。它执行 workspace semantic input load / local normalize、IR build、`validateEngineeringIR()`，并把结果绑定到当前 transaction 的 `PipelineSemanticContext`。不得用只存在于类型或单测中的 pass 伪造“已实现”。
 
 ## 2. Pass 职责
 
@@ -38,7 +38,7 @@ parse
 | normalize | parsed sources | normalized semantic inputs | deterministic, planned |
 | align | Plan/Manifest/Contract | compatibility diagnostics | deterministic |
 | resolve | Block dependency inputs | Lock/resolution state | deterministic |
-| build-ir | normalized inputs + resolution | Engineering IR | deterministic, active development |
+| build-ir | normalized inputs + resolution | transaction-owned validated Engineering IR snapshot | deterministic |
 | lower | IR selectors | generator/install plan | deterministic, planned |
 | compose | current install/lowering plan | project artifact | deterministic/reentrant |
 | adapt | bounded synthesis task | governed source/runtime materialization | AI may participate |
@@ -72,6 +72,8 @@ pending → running → succeeded
 - repair 失败：保留原失败，不覆盖原始 Evidence。
 - lock 只接受允许锁定的状态。
 - emit/projection 失败不能回写 canonical state。
+
+`build-ir` 失败由 Pipeline Kernel 记录为 failed，并把 compose/adapt/verify/repair/lock/emit 标为 blocked。新 transaction 必须重新执行 semantic stage；旧 transaction 的 in-memory snapshot 不得复用。为避免提前吞并 P0-5，legacy standalone compose 仍可按旧 resolve dependency 工作，但 canonical `compileWorkspace()` 的任何 compose 或更下游范围都会自动加入 semantic stage。
 
 ## 5. Issue 分类
 

@@ -21,6 +21,11 @@
       "label": "tenant_only_sees_own_customers"
     },
     {
+      "id": "acceptance:tenant_only_sees_own_tickets",
+      "type": "acceptance",
+      "label": "tenant_only_sees_own_tickets"
+    },
+    {
       "id": "acceptance:ticket_attachment_can_be_uploaded",
       "type": "acceptance",
       "label": "ticket_attachment_can_be_uploaded"
@@ -938,6 +943,11 @@
       "type": "verified_by"
     },
     {
+      "from": "block:tenant/basic-workspace",
+      "to": "acceptance:tenant_only_sees_own_tickets",
+      "type": "verified_by"
+    },
+    {
       "from": "block:ticket/basic",
       "to": "slot:ticket_comment_delegate",
       "type": "connects_to"
@@ -995,6 +1005,11 @@
     {
       "from": "block:ticket/basic",
       "to": "acceptance:assignee_can_filter_tickets",
+      "type": "verified_by"
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "acceptance:tenant_only_sees_own_tickets",
       "type": "verified_by"
     },
     {
@@ -1683,7 +1698,7 @@
         "generatedByPass": "verify",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "1902fd37d74388eb442373dcee2ac6600dd1be8caa0ec00bcf431b05802597ed"
+        "hash": "c6abf907eaa51ff60aa1d98f52b32e255222712ae2eecd942a684af7011e818f"
       },
       {
         "path": "control/evidence/block-usage-map.json",
@@ -1914,7 +1929,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "0495f12527dae6570b1934ac8591d6c82f907e74b9609d6c1e383be0ed78d12c"
+        "hash": "bfe74c7e7e89e6a49f288cfaac9f0238b20b303167184753eb5f348810401597"
       },
       {
         "path": "prisma/schema.prisma",
@@ -2352,7 +2367,8 @@
         {
           "id": "tenant/basic-workspace",
           "coveredBy": [
-            "tenant_only_sees_own_customers"
+            "tenant_only_sees_own_customers",
+            "tenant_only_sees_own_tickets"
           ]
         },
         {
@@ -2377,6 +2393,7 @@
           "id": "ticket/basic",
           "coveredBy": [
             "assignee_can_filter_tickets",
+            "tenant_only_sees_own_tickets",
             "ticket_attachment_can_be_uploaded",
             "ticket_can_be_created",
             "ticket_comment_can_be_added",

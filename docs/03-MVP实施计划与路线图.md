@@ -37,11 +37,11 @@ Pipeline Kernel 基础设施已完成
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前唯一 ACTIVE NEXT：Semantic Pipeline Spine
+## 2. 当前唯一 ACTIVE NEXT：Workspace Semantic Linker
 
-当前唯一 active next 是 **P0-3 Semantic Pipeline Spine**。P0-2B Validated IR Boundary 已由 PR #88 进入 `main`。
+当前唯一 active next 是 **P0-4 Workspace Semantic Linker**。P0-3 Semantic Pipeline Spine 已由 PR #89 进入 `main`。
 
-当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；canonical Engineering IR 的身份、revision、Fact、Assertion、Predicate Signature、Scenario Fact 与 validated boundary 已经固定，当前任务是把 Semantic IR 接入统一 Pipeline。
+当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；canonical Engineering IR、validated boundary 与 transaction-owned Pipeline Semantic Context 已经固定，当前任务是建立显式 Workspace Semantic Link。
 
 目标主链：
 
@@ -194,7 +194,7 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 
 ## 7. P0-3 Semantic Pipeline Spine
 
-状态：**ACTIVE NEXT**。
+状态：**COMPLETED**。
 
 ### Prerequisite
 
@@ -219,9 +219,11 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 - 任意 Semantic Frontend 中断后可安全重跑，不把旧 semantic revision 的 downstream succeeded state 继续视为有效。
 - 此阶段不要求 legacy Lowerer 已 IR-owned；该退出条件只建立“validated IR 已进入 Pipeline”，不提前吞并 P0-5。
 
+以上退出条件由 `tests/integration/semantic-pipeline-spine.test.ts`、Pipeline/Workbench/Upgrade focused tests、reference full compile 与 `docs/test-feedback-and-ci-lanes.md` 中的 P0-3 delta evidence 共同证明。
+
 ## 8. P0-4 Workspace Semantic Linker
 
-状态：**BLOCKED BY P0-3**。
+状态：**ACTIVE NEXT**。
 
 ### Prerequisite
 
@@ -436,9 +438,9 @@ P0-2A Canonical IR Invariants                            COMPLETED
   ↓
 P0-2B Validated IR Boundary                              COMPLETED
   ↓
-P0-3  Semantic Pipeline Spine                            ACTIVE NEXT
+P0-3  Semantic Pipeline Spine                            COMPLETED
   ↓
-P0-4  Workspace Semantic Linker
+P0-4  Workspace Semantic Linker                          ACTIVE NEXT
   ↓
 P0-5  IR-owned Generator / Ticket Enforcement
   ↓
@@ -451,6 +453,6 @@ latest-head full validation
 v0.3 exit review
 ```
 
-只有 **P0-3 Semantic Pipeline Spine** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改下游 semantic consumer 来伪造进度。
+只有 **P0-4 Workspace Semantic Linker** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改下游 semantic consumer 来伪造进度。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。

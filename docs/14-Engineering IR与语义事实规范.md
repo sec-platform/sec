@@ -661,16 +661,27 @@ Validator 必须按确定性顺序统一检查：
 
 成功结果包含 deep-frozen IR，防止 validation 后原地修改。`ValidatedEngineeringIRSnapshot` 是 branded type；普通 `EngineeringIR` 不能传给新增的 IR-native consumer。首个 boundary consumer 是 `indexValidatedEngineeringIR(snapshot)`；原 `indexEngineeringIR(ir)` 仅为现有 transitional Projection 保留。
 
-当前 legacy ownership 明确如下：
+P0-3 将 validated boundary 接入唯一编译协调器：
+
+```text
+compileWorkspace() transaction
+  → resolve
+  → semantic stage / build-ir pass
+  → PipelineSemanticContext { transactionId, inputRevision, semanticRevision, snapshot }
+  → compose / adapt / verify / lock / emit
+```
+
+`PipelineSemanticContext.snapshot` 只能来自本 transaction 的 `validateEngineeringIR()` 成功路径。即使 input/semantic revision 未改变，新 transaction 也重新签发自己的 snapshot object；partial compile 从 compose 或更下游开始时会自动加入 semantic stage。`build-ir` failure 通过 Pipeline Kernel 阻塞所有 downstream mutating pass，不保留旧 snapshot 或旧 downstream succeeded state。
+
+当前仍未接管的 legacy ownership 明确如下：
 
 | 现有路径 | 当前输入 | 负责接管的 Work Package |
 | --- | --- | --- |
-| `buildWorkspaceEngineeringIR()` / Pipeline semantic context | raw `EngineeringIR` | P0-3 Semantic Pipeline Spine |
 | Workspace-level contract reference/link | local Contract declarations | P0-4 Workspace Semantic Linker |
 | `semantic-plan.ts` / `semantic-lowering.ts` | Contract / semantic plan | P0-5 IR-owned Generator / Ticket Enforcement |
 | Architecture / Scenario / State Projector、ExplainGraph、Workbench | raw IR 或 Lock/Manifest/Contract | P0-6 Semantic Projection Takeover |
 
-P0-2B 不得为了类型形式提前改写这些 legacy consumers；所有新 IR-native consumer 从本阶段开始只能接受 `ValidatedEngineeringIRSnapshot`。
+`buildWorkspaceEngineeringIR()` 暂时仅为 P0-6 legacy Projection 测试/兼容入口保留；它与 Pipeline Semantic Frontend 复用同一个 workspace input loader，但不会签发 validated snapshot。不得为了类型形式提前改写上表 legacy consumers；所有新 IR-native consumer 只能接受 `ValidatedEngineeringIRSnapshot` 或 transaction-owned `PipelineSemanticContext`。
 
 ## 14. IR Index
 

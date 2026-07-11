@@ -23,11 +23,17 @@ test('compile coordinator runs resolve and compose in one committed transaction'
       through: 'compose'
     });
 
-    expect(result.completedStages).toEqual(['resolve', 'compose']);
+    expect(result.completedStages).toEqual(['resolve', 'semantic', 'compose']);
+    expect(result.semanticContext).toMatchObject({
+      transactionId: result.transactionId,
+      inputRevision: result.semanticContext?.snapshot.ir.inputRevision,
+      semanticRevision: result.semanticContext?.snapshot.ir.semanticRevision
+    });
     expect(result.lock.passStatus).toMatchObject({
       parse: 'succeeded',
       align: 'succeeded',
       resolve: 'succeeded',
+      'build-ir': 'succeeded',
       compose: 'succeeded',
       adapt: 'pending',
       verify: 'pending',
@@ -42,11 +48,12 @@ test('compile coordinator runs resolve and compose in one committed transaction'
     expect(journal.lastCommittedTransactionId).toBe(result.transactionId);
     expect(transaction).toMatchObject({
       source: 'ci',
-      requestedStages: ['resolve', 'compose'],
+      requestedStages: ['resolve', 'semantic', 'compose'],
       status: 'succeeded'
     });
     expect(transaction?.passRecords.map((entry) => [entry.passId, entry.status])).toEqual([
       ['resolve', 'succeeded'],
+      ['build-ir', 'succeeded'],
       ['compose', 'succeeded']
     ]);
   }, 'engineering-compiler-pipeline-coordinator-');

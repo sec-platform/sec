@@ -54,6 +54,8 @@ export interface PassStatus {
   parse: PassState;
   align: PassState;
   resolve: PassState;
+  /** Optional only while pre-P0-3 lock fixtures/artifacts remain readable. */
+  'build-ir'?: PassState;
   compose: PassState;
   adapt: PassState;
   verify: PassState;
