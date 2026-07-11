@@ -78,6 +78,21 @@ test('test impact selector binds Pipeline Semantic Context to the P0-3 vertical'
   ]));
 });
 
+test('test impact selector binds Workspace Semantic Linker to cross-Contract coverage', () => {
+  const selection = selectTestsForSources([
+    'platform/compiler/semantic-linker.ts',
+    'platform/shared/semantic-contract-types.ts'
+  ]);
+
+  expect(selection.owners).toContain('semantic-ir');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/workspace-semantic-linker.test.ts',
+    'tests/integration/semantic-contract.test.ts',
+    'tests/integration/workspace-engineering-ir.test.ts',
+    'tests/integration/semantic-pipeline-spine.test.ts'
+  ]));
+});
+
 test('test impact selector binds policy declaration loading to revision and policy coverage', () => {
   const selection = selectTestsForSources(['platform/compiler/parse/load-policy-declarations.ts']);
 

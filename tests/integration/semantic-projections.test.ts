@@ -33,7 +33,7 @@ test('architecture projection collapses operation effects and permissions into r
   )).toBe(true);
   expect(view.edges.some((edge) =>
     edge.source === 'responsibility:ticket:TicketQuery' &&
-    edge.target === 'responsibility:ticket:TenantScopeGuard' &&
+    edge.target === 'responsibility:tenant:TenantScopeGuard' &&
     edge.relation === 'DEPENDS_ON'
   )).toBe(true);
   expect(view.inspector.map((section) => section.id)).toEqual([...INSPECTOR_SECTION_IDS]);

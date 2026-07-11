@@ -1,6 +1,10 @@
 formatVersion: '1'
 id: ticket-core
 namespace: ticket
+imports:
+  - alias: tenant
+    namespace: tenant
+    contractId: tenant-core
 entities:
   - id: Ticket
     label: Ticket
@@ -112,7 +116,7 @@ responsibilities:
       - addTicketAttachment
       - addTicketComment
     dependsOn:
-      - TenantScopeGuard
+      - tenant::TenantScopeGuard
   - id: TicketStateMachine
     role: Ticket status ownership and transition control
     owns:
@@ -120,7 +124,7 @@ responsibilities:
     implements:
       - transitionTicketStatus
     dependsOn:
-      - TenantScopeGuard
+      - tenant::TenantScopeGuard
   - id: TicketQuery
     role: Tenant-scoped ticket and child-record queries
     owns: []
@@ -130,12 +134,7 @@ responsibilities:
       - listTicketAttachments
       - listTicketComments
     dependsOn:
-      - TenantScopeGuard
-  - id: TenantScopeGuard
-    role: Tenant context derivation and ticket visibility guard
-    owns: []
-    implements: []
-    dependsOn: []
+      - tenant::TenantScopeGuard
 operations:
   - id: createTicket
     responsibility: TicketLifecycle
@@ -149,7 +148,7 @@ operations:
       - Ticket
     mutates: []
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-write
     performsEffects:
@@ -174,7 +173,7 @@ operations:
       - Ticket.status
       - Ticket.updatedAt
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-write
     performsEffects:
@@ -196,7 +195,7 @@ operations:
     writes: []
     mutates: []
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-read
     performsEffects:
@@ -216,7 +215,7 @@ operations:
     writes: []
     mutates: []
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-read
     performsEffects:
@@ -238,7 +237,7 @@ operations:
       - TicketAttachment
     mutates: []
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-write
     performsEffects:
@@ -262,7 +261,7 @@ operations:
     writes: []
     mutates: []
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-read
     performsEffects:
@@ -283,7 +282,7 @@ operations:
       - TicketComment
     mutates: []
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-write
     performsEffects:
@@ -307,7 +306,7 @@ operations:
     writes: []
     mutates: []
     requiresPolicies:
-      - tenant-scope
+      - tenant::tenant-scope
     requiresPermissions:
       - ticket-read
     performsEffects:
@@ -324,9 +323,7 @@ events:
     payloadType: TicketAttachmentRecord
   - id: TicketCommentAdded
     payloadType: TicketCommentRecord
-policies:
-  - id: tenant-scope
-    rule: tenant_context_must_flow_to_query
+policies: []
 permissions:
   - id: ticket-read
     scope: tenant

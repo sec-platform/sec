@@ -20,6 +20,10 @@ export {
   buildValidatedEngineeringIR,
   validateEngineeringIR
 } from './ir/validate-engineering-ir.ts';
+export {
+  linkWorkspaceSemanticContracts,
+  splitLinkedSemanticReference
+} from './semantic-linker.ts';
 export { loadManifestById, loadManifestForResolvedBlock } from './parse/load-manifest.ts';
 export { loadOverrideManifest } from './parse/load-override-manifest.ts';
 export { loadPlan, loadWorkspacePlan } from './parse/load-plan.ts';

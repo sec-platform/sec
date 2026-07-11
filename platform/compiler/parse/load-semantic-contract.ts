@@ -11,6 +11,7 @@ import {
   type SemanticContract,
   type SemanticContractEffect,
   type SemanticContractEntity,
+  type SemanticContractImport,
   type SemanticContractOperation,
   type SemanticContractResponsibility,
   type SemanticContractScenario,
@@ -111,6 +112,19 @@ function normalizeEffect(effect: SemanticContractEffect): SemanticContractEffect
   return { ...effect };
 }
 
+function normalizeImport(entry: SemanticContractImport): SemanticContractImport {
+  return { ...entry };
+}
+
+function isQualifiedReference(value: string): boolean {
+  const segments = value.split('::');
+  if (segments.length === 1) return false;
+  if (segments.length !== 2 || segments.some((segment) => !segment.trim())) {
+    throw new CompilerError('CONTRACT-SEMANTIC-018', `Malformed qualified semantic reference "${value}"`);
+  }
+  return true;
+}
+
 function targetExists(target: string, entities: Map<string, SemanticContractEntity>): boolean {
   const [entityId, fieldId, ...rest] = target.split('.');
   const entity = entities.get(entityId ?? '');
@@ -120,12 +134,14 @@ function targetExists(target: string, entities: Map<string, SemanticContractEnti
 }
 
 function assertReference(set: ReadonlySet<string>, value: string, context: string): void {
+  if (isQualifiedReference(value)) return;
   if (!set.has(value)) {
     throw new CompilerError('CONTRACT-SEMANTIC-003', `${context} references unknown id "${value}"`);
   }
 }
 
 function assertTargetReference(entities: Map<string, SemanticContractEntity>, value: string, context: string): void {
+  if (isQualifiedReference(value)) return;
   if (!targetExists(value, entities)) {
     throw new CompilerError('CONTRACT-SEMANTIC-004', `${context} references unknown entity or field "${value}"`);
   }
@@ -173,12 +189,18 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     formatVersion: SEMANTIC_CONTRACT_FORMAT_VERSION,
     id: input.id,
     namespace: input.namespace,
+    imports: [...(input.imports ?? [])]
+      .map(normalizeImport)
+      .sort((left, right) => left.alias.localeCompare(right.alias)),
     entities: stableById((input.entities ?? []).map(normalizeEntity)),
     states: stableById((input.states ?? []).map(normalizeState)),
     responsibilities: stableById((input.responsibilities ?? []).map(normalizeResponsibility)),
     operations: stableById((input.operations ?? []).map(normalizeOperation)),
     events: stableById(input.events ?? []),
-    policies: stableById(input.policies ?? []),
+    policies: stableById((input.policies ?? []).map((policy) => ({
+      ...policy,
+      verifiedBy: uniqueSorted(policy.verifiedBy ?? [])
+    }))),
     permissions: stableById(input.permissions ?? []),
     effects: stableById((input.effects ?? []).map(normalizeEffect)),
     scenarios: stableById((input.scenarios ?? []).map(normalizeScenario))
@@ -193,6 +215,12 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
   assertUniqueIds(contract.permissions, `Semantic contract "${contract.id}" permissions`);
   assertUniqueIds(contract.effects, `Semantic contract "${contract.id}" effects`);
   assertUniqueIds(contract.scenarios, `Semantic contract "${contract.id}" scenarios`);
+
+  for (const entry of contract.imports ?? []) {
+    assertId(entry.alias, `Semantic contract "${contract.id}" import`);
+    assertId(entry.namespace, `Semantic contract "${contract.id}" import namespace`);
+    assertId(entry.contractId, `Semantic contract "${contract.id}" import contractId`);
+  }
 
   const entities = new Map(contract.entities.map((entity) => [entity.id, entity]));
   for (const entity of contract.entities) {
@@ -212,12 +240,16 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
   const effectIds = new Set(contract.effects.map((entry) => entry.id));
 
   for (const state of contract.states) {
-    const entity = entities.get(state.entity);
-    if (!entity) {
-      throw new CompilerError('CONTRACT-SEMANTIC-008', `State "${state.id}" references unknown entity "${state.entity}"`);
-    }
-    if (!entity.fields.some((field) => field.id === state.field)) {
-      throw new CompilerError('CONTRACT-SEMANTIC-009', `State "${state.id}" references unknown field "${state.entity}.${state.field}"`);
+    if (!isQualifiedReference(state.entity)) {
+      const entity = entities.get(state.entity);
+      if (!entity) {
+        throw new CompilerError('CONTRACT-SEMANTIC-008', `State "${state.id}" references unknown entity "${state.entity}"`);
+      }
+      if (!entity.fields.some((field) => field.id === state.field)) {
+        throw new CompilerError('CONTRACT-SEMANTIC-009', `State "${state.id}" references unknown field "${state.entity}.${state.field}"`);
+      }
+    } else if (!state.field?.trim()) {
+      throw new CompilerError('CONTRACT-SEMANTIC-009', `State "${state.id}" requires a field`);
     }
     assertReference(responsibilityIds, state.owner, `State "${state.id}" owner`);
     if (state.values.length === 0) {

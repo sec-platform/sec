@@ -177,7 +177,7 @@ test('distinct semantic contracts cannot implicitly merge through a shared names
 
   expectCompilerError(
     () => buildEngineeringIR({ ...baseInput(), semanticContracts: [first, second] }),
-    'IR-IDENTITY-006'
+    'SEMANTIC-LINK-001'
   );
 });
 
