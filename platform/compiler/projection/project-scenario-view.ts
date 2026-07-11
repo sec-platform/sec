@@ -2,18 +2,20 @@ import type { EngineeringIR } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewBadge, type ViewEdge, type ViewNode } from '../../shared/semantic-view-types.ts';
 import { indexEngineeringIR } from '../ir/index-engineering-ir.ts';
+import { deriveScenarioDefinition } from '../ir/scenario-facts.ts';
 import {
   buildProvenanceOverlay,
   buildSemanticInspector,
   buildViewNode,
   mergeViewEdge,
+  referencesForFacts,
   uniqueReferences,
   viewEdgeId
 } from './semantic-view-utils.ts';
 
 export function projectScenarioView(ir: EngineeringIR, scenarioId: string): SemanticView {
   const index = indexEngineeringIR(ir);
-  const scenario = ir.scenarios.find((entry) => entry.id === scenarioId);
+  const scenario = deriveScenarioDefinition(ir.entities, ir.facts, scenarioId);
   if (!scenario) throw new CompilerError('VIEW-SCENARIO-001', `Unknown scenario "${scenarioId}"`);
 
   const nodes = new Map<string, ViewNode>();
@@ -24,8 +26,12 @@ export function projectScenarioView(ir: EngineeringIR, scenarioId: string): Sema
   )?.id ?? scenario.steps.find((step) => step.operationEntityId === scenario.entryEntityId)?.id;
 
   for (const step of scenario.steps) {
-    const nodeId = `${scenario.id}#step:${step.id}`;
+    const nodeId = step.id;
     const operationFacts = index.outgoingFactsBySubject.get(step.operationEntityId) ?? [];
+    const stepFacts = [
+      ...(index.outgoingFactsBySubject.get(step.id) ?? []),
+      ...(index.incomingFactsByEntityObject.get(step.id) ?? [])
+    ];
     const badges: ViewBadge[] = [];
     if (step.id === entryStepId) badges.push('entry');
     if (step.awaits || operationFacts.some((fact) => fact.predicate === 'AWAITS')) badges.push('async');
@@ -36,20 +42,27 @@ export function projectScenarioView(ir: EngineeringIR, scenarioId: string): Sema
     nodes.set(nodeId, buildViewNode(index, step.operationEntityId, {
       id: nodeId,
       badges,
-      facts: operationFacts,
+      facts: [...stepFacts, ...operationFacts],
       group: 'scenario-step',
       references: [
         { kind: 'scenario', ref: scenario.id },
-        { kind: 'scenario-step', ref: `${scenario.id}#${step.id}` }
+        { kind: 'scenario-step', ref: step.id },
+        { kind: 'entity', ref: step.id }
       ]
     }));
   }
 
   for (const step of scenario.steps) {
-    const targetNodeId = `${scenario.id}#step:${step.id}`;
+    const targetNodeId = step.id;
     for (const dependencyId of step.afterStepIds) {
       if (!stepById.has(dependencyId)) continue;
-      const sourceNodeId = `${scenario.id}#step:${dependencyId}`;
+      const sourceNodeId = dependencyId;
+      const relationFact = ir.facts.find((fact) =>
+        fact.subject === dependencyId &&
+        fact.predicate === 'PRECEDES' &&
+        fact.object.kind === 'entity' &&
+        fact.object.entityId === step.id
+      );
       mergeViewEdge(edges, {
         id: viewEdgeId(sourceNodeId, 'SCENARIO_PRECEDES', targetNodeId),
         source: sourceNodeId,
@@ -58,13 +71,20 @@ export function projectScenarioView(ir: EngineeringIR, scenarioId: string): Sema
         label: step.awaits ? 'await' : 'then',
         references: uniqueReferences([
           { kind: 'scenario', ref: scenario.id },
-          { kind: 'scenario-step', ref: `${scenario.id}#${dependencyId}` },
-          { kind: 'scenario-step', ref: `${scenario.id}#${step.id}` }
+          { kind: 'scenario-step', ref: dependencyId },
+          { kind: 'scenario-step', ref: step.id },
+          ...(relationFact ? referencesForFacts([relationFact]) : [])
         ])
       });
     }
     if (step.onErrorStepId && stepById.has(step.onErrorStepId)) {
-      const errorNodeId = `${scenario.id}#step:${step.onErrorStepId}`;
+      const errorNodeId = step.onErrorStepId;
+      const relationFact = ir.facts.find((fact) =>
+        fact.subject === step.onErrorStepId &&
+        fact.predicate === 'HANDLES' &&
+        fact.object.kind === 'entity' &&
+        fact.object.entityId === step.id
+      );
       mergeViewEdge(edges, {
         id: viewEdgeId(targetNodeId, 'SCENARIO_ERROR', errorNodeId),
         source: targetNodeId,
@@ -73,8 +93,9 @@ export function projectScenarioView(ir: EngineeringIR, scenarioId: string): Sema
         label: 'on error',
         references: uniqueReferences([
           { kind: 'scenario', ref: scenario.id },
-          { kind: 'scenario-step', ref: `${scenario.id}#${step.id}` },
-          { kind: 'scenario-step', ref: `${scenario.id}#${step.onErrorStepId}` }
+          { kind: 'scenario-step', ref: step.id },
+          { kind: 'scenario-step', ref: step.onErrorStepId },
+          ...(relationFact ? referencesForFacts([relationFact]) : [])
         ])
       });
     }

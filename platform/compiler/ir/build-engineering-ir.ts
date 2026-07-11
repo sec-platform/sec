@@ -1,7 +1,6 @@
 import {
   ENGINEERING_IR_FORMAT_VERSION,
   type EngineeringIR,
-  type ScenarioDefinition,
   type SemanticEntity,
   type SemanticFact
 } from '../../shared/engineering-ir-types.ts';
@@ -14,7 +13,6 @@ import { appendSemanticContract, type BuildSink } from './append-semantic-contra
 import { addFact as addFactToStore } from './ir-fact-store.ts';
 import {
   addEntity as addEntityToStore,
-  addScenario as addScenarioToStore,
   appEntityId,
   assertEngineeringIRReferences,
   claimSemanticNamespace as claimSemanticNamespaceForStore,
@@ -30,6 +28,7 @@ import {
   semanticRevisionPayload,
   type InputRevisionDomain
 } from './ir-revision.ts';
+import { deriveScenarioDefinitions } from './scenario-facts.ts';
 
 export interface EngineeringIRManifestInput {
   blockId: string;
@@ -50,7 +49,6 @@ export interface BuildEngineeringIRInput extends InputRevisionDomain {
 export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringIR {
   const entities = new Map<string, SemanticEntity>();
   const facts = new Map<string, SemanticFact>();
-  const scenarios = new Map<string, ScenarioDefinition>();
   const semanticNamespaceOwnerByNamespace = new Map<string, SemanticNamespaceOwner>();
   const appId = appEntityId(input.app.id);
   const graphId = engineeringGraphId(input.app.id);
@@ -58,11 +56,10 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
 
   const addEntity: BuildSink['addEntity'] = (entity) => addEntityToStore(entities, entity);
   const addFact: BuildSink['addFact'] = (factInput) => addFactToStore(facts, factInput);
-  const addScenario: BuildSink['addScenario'] = (scenario) => addScenarioToStore(scenarios, scenario);
   const claimSemanticNamespace: BuildSink['claimSemanticNamespace'] = (contractInput) =>
     claimSemanticNamespaceForStore(semanticNamespaceOwnerByNamespace, contractInput);
 
-  const sink: BuildSink = { addEntity, addFact, addScenario, claimSemanticNamespace };
+  const sink: BuildSink = { addEntity, addFact, claimSemanticNamespace };
   addEntity(semanticEntity(appId, 'app', input.app.name));
 
   for (const block of [...input.resolvedBlocks].sort((left, right) => left.id.localeCompare(right.id))) {
@@ -128,7 +125,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   const sortedEntities = [...entities.values()].sort((left, right) => left.id.localeCompare(right.id));
   const entityIds = new Set(sortedEntities.map((entity) => entity.id));
   const sortedFacts = [...facts.values()].sort((left, right) => left.id.localeCompare(right.id));
-  const sortedScenarios = [...scenarios.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedScenarios = deriveScenarioDefinitions(sortedEntities, sortedFacts);
 
   assertEngineeringIRReferences(entityIds, sortedFacts, sortedScenarios);
 

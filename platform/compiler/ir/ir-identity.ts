@@ -9,7 +9,7 @@ import type {
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../shared/semantic-contract-types.ts';
-import { normalizeAttributes, normalizeFactObject, normalizeScenario } from './ir-normalization.ts';
+import { normalizeAttributes, normalizeFactObject } from './ir-normalization.ts';
 import { digest } from './ir-revision.ts';
 
 type FactIdentityInput = Pick<SemanticFact, 'subject' | 'predicate' | 'object'>;
@@ -99,6 +99,10 @@ export function contractScenarioId(namespace: string, id: string): string {
   return `scenario:${namespace}:${id}`;
 }
 
+export function scenarioStepEntityId(scenarioId: string, stepId: string): string {
+  return `${scenarioId}#step:${stepId}`;
+}
+
 export function contractTargetId(contract: SemanticContract, target: string): string {
   const [entityId, fieldId] = target.split('.');
   return fieldId
@@ -131,15 +135,6 @@ export function addEntity(entities: Map<string, SemanticEntity>, entity: Semanti
     return;
   }
   entities.set(entity.id, entity);
-}
-
-export function addScenario(scenarios: Map<string, ScenarioDefinition>, scenario: ScenarioDefinition): void {
-  const normalized = normalizeScenario(scenario);
-  const existing = scenarios.get(normalized.id);
-  if (existing && JSON.stringify(existing) !== JSON.stringify(normalized)) {
-    throw new CompilerError('IR-IDENTITY-004', `Scenario "${normalized.id}" has conflicting definitions`);
-  }
-  scenarios.set(normalized.id, normalized);
 }
 
 export function claimSemanticNamespace(

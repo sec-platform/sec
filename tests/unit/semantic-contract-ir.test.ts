@@ -136,7 +136,7 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
     entryEntityId: 'operation:item:closeItem',
     acceptanceEntityIds: ['acceptance:item_can_transition'],
     steps: [{
-      id: 'close',
+      id: 'scenario:item:close-item#step:close',
       operationEntityId: 'operation:item:closeItem',
       afterStepIds: [],
       awaits: false
