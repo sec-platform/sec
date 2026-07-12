@@ -463,13 +463,17 @@ P0-5  IR-owned Generator / Ticket Enforcement            COMPLETED
   ↓
 P0-6  Semantic Projection Takeover                       COMPLETED
   ↓
-P0-7  Verification / CI Closure                          IMPLEMENTED
+P0-7  Verification / CI Closure                          COMPLETED
   ↓
-latest-head ci-verification-v3 Full Gate                 MERGE REQUIRED
+ci-verification-v3 local combined Full                   PASSED
+  ↓
+P0-7 bounded final invalidation audit                    PASSED
+  ↓
+PR #93 merge / implementation cleanup                    COMPLETED
   ↓
 v0.3 exit review
 ```
 
-P0-7 已是最后一个实现 Work Package。合并仍必须等待 latest-head `ci-verification-v3` Full status/evidence；该 Full 同时覆盖 Quick / Risk / Full correctness，且必须绑定 current base。不得用本地 focused test 或历史 GitHub Actions 结果伪造 merge closure。
+P0-7 是最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。完整命令、duration、原始 batch JSON 与复用规则见验证账本。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。
