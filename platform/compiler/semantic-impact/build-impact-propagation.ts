@@ -716,7 +716,13 @@ function sourcesForVerification(
   statesByBasis: Readonly<Record<ImpactBasis, Map<string, ReachState>>>
 ): ImpactSource[] {
   const sources = new Map<string, ImpactSource>();
-  for (const { seed } of seeds) {
+  for (const { seed, propagates } of seeds) {
+    if (
+      !propagates &&
+      (seed.kind === 'fact-added' || seed.kind === 'fact-removed')
+    ) {
+      continue;
+    }
     const key = `${seed.basis}\u0000${seed.anchorEntityId}`;
     const existing = sources.get(key);
     sources.set(key, {

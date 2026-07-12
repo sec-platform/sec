@@ -81,6 +81,52 @@ const impactPropagationRules: Record<SemanticPredicate, ImpactPropagationRule> =
 for (const rule of Object.values(impactPropagationRules)) Object.freeze(rule);
 export const IMPACT_PROPAGATION_RULES = Object.freeze(impactPropagationRules);
 
+const EXPECTED_ACTION_BY_PREDICATE = {
+  CONTAINS: 'unknown',
+  DECLARES: 'unknown',
+  IMPLEMENTS: 'edge',
+  DEPENDS_ON: 'edge',
+  PROVIDES: 'unknown',
+  ASSUMES: 'reserved',
+  REQUIRES: 'edge',
+  GUARANTEES: 'value-stop',
+  CONNECTS_TO: 'reserved',
+  INVOKES: 'unknown',
+  PRECEDES: 'unknown',
+  AWAITS: 'unknown',
+  FORKS_TO: 'reserved',
+  JOINS: 'reserved',
+  RETRIES: 'unknown',
+  HANDLES: 'unknown',
+  EMITS: 'unknown',
+  CONSUMES: 'unknown',
+  FLOWS_TO: 'reserved',
+  DERIVES_FROM: 'reserved',
+  TRANSFORMS_TO: 'reserved',
+  VALIDATES: 'reserved',
+  SANITIZES: 'reserved',
+  SERIALIZES_AS: 'reserved',
+  DESERIALIZES_FROM: 'reserved',
+  PERSISTS_AS: 'reserved',
+  OWNS: 'unknown',
+  READS: 'unknown',
+  WRITES: 'unknown',
+  MUTATES: 'unknown',
+  INITIALIZES: 'reserved',
+  DISPOSES: 'reserved',
+  ESCAPES: 'reserved',
+  TRANSITIONS_TO: 'unknown',
+  PERFORMS_EFFECT: 'unknown',
+  REQUIRES_PERMISSION: 'unknown',
+  CROSSES_BOUNDARY: 'reserved',
+  ENFORCES: 'unknown',
+  VERIFIED_BY: 'verification',
+  ORIGINATES_FROM: 'reserved',
+  LOWERS_TO: 'edge',
+  GENERATES: 'unknown',
+  VIOLATES: 'reserved'
+} as const satisfies Readonly<Record<SemanticPredicate, ImpactPropagationRule['action']>>;
+
 const EXPECTED_EDGE_RULES = {
   DEPENDS_ON: {
     direction: 'object-to-subject',
@@ -120,6 +166,14 @@ export function assertImpactPropagationRuleRegistry(
   for (const predicate of SEMANTIC_PREDICATES) {
     const rule = registry[predicate];
     const signature = PREDICATE_SIGNATURE_REGISTRY[predicate];
+    const expectedAction = EXPECTED_ACTION_BY_PREDICATE[predicate];
+    if (rule.action !== expectedAction) {
+      fail(`Impact rule "${predicate}" must retain its frozen v1 action`, {
+        predicate,
+        expectedAction,
+        actualAction: rule.action
+      });
+    }
     if (signature.status === 'reserved' && rule.action !== 'reserved') {
       fail(`Reserved predicate "${predicate}" cannot have an executable Impact rule`, {
         predicate,

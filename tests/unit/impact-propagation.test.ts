@@ -317,6 +317,19 @@ test('frozen rule registry pins total status, exact directions, and stable varia
     ruleVariantId: 'impact.depends-on.object-to-subject.v1'
   };
   expectCompilerError(() => assertImpactPropagationRuleRegistry(duplicateVariant), 'IMPACT-003');
+
+  for (const [predicate, action] of [
+    ['GUARANTEES', 'unknown'],
+    ['VERIFIED_BY', 'unknown'],
+    ['INVOKES', 'value-stop']
+  ] as const) {
+    const actionDrift = structuredClone(IMPACT_PROPAGATION_RULES) as Record<
+      SemanticPredicate,
+      ImpactPropagationRule
+    >;
+    actionDrift[predicate] = { action };
+    expectCompilerError(() => assertImpactPropagationRuleRegistry(actionDrift), 'IMPACT-003');
+  }
 });
 
 test('deterministic closure handles diamond, cycle, shortest witness, causes, and disconnected nodes', () => {
@@ -434,6 +447,39 @@ test('verification recommendations retain exact selectors and classify missing/n
       boundaryEntityId: 'scenario:missing'
     })
   ]));
+
+  const inferredInvocation = fact(
+    'fact:scenario-invokes-inferred',
+    'scenario:mapped',
+    'INVOKES',
+    'acceptance:one',
+    'inferred'
+  );
+  const inferredResult = propagate(
+    snapshot('verification-inferred-from', entities, mappings),
+    snapshot('verification-inferred-to', entities, [...mappings, inferredInvocation])
+  );
+  expect(inferredResult.verification).toEqual([]);
+  expect(inferredResult.uncertainties).toContainEqual(expect.objectContaining({
+    basis: 'to',
+    reasonCode: 'non-definite-authority',
+    boundaryEntityId: 'scenario:mapped',
+    factId: 'fact:scenario-invokes-inferred'
+  }));
+
+  const updatedMapping = structuredClone(mappings[3]!);
+  updatedMapping.assertions[0]!.confidence = 0.75;
+  const assertionOnlyResult = propagate(
+    snapshot('verification-assertion-from', entities, mappings),
+    snapshot('verification-assertion-to', entities, [
+      ...mappings.slice(0, 3),
+      updatedMapping
+    ])
+  );
+  expect(assertionOnlyResult.verification).toContainEqual(expect.objectContaining({
+    kind: 'acceptance',
+    acceptanceEntityId: 'acceptance:one'
+  }));
 
   const invalidMapping = fact('fact:invalid-mapping', 'scenario:mapped', 'VERIFIED_BY', 'artifact:one');
   expectCompilerError(
