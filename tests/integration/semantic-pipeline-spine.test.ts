@@ -46,6 +46,32 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
     expect(Object.isFrozen(firstSemantic.snapshot.ir)).toBe(true);
     expect(Object.isFrozen(firstSemantic.generatorPlan)).toBe(true);
     expect(Object.isFrozen(firstSemantic.generatorPlan.tasks[0]?.transitions)).toBe(true);
+    expect(firstSemantic.semanticViews).toMatchObject({
+      inputRevision: firstSemantic.inputRevision,
+      semanticRevision: firstSemantic.semanticRevision
+    });
+    expect(new Set(firstSemantic.semanticViews.views.map((view) => view.viewKind))).toEqual(
+      new Set(['architecture', 'scenario', 'state'])
+    );
+    expect(Object.isFrozen(firstSemantic.semanticViews)).toBe(true);
+    expect(Object.isFrozen(firstSemantic.semanticViews.views[0]?.nodes)).toBe(true);
+    expect(first.lock.semanticViews).toEqual(firstSemantic.semanticViews);
+
+    const sharedFactId = firstSemantic.snapshot.ir.facts.find((fact) =>
+      fact.subject === 'operation:ticket:transitionTicketStatus' &&
+      fact.predicate === 'MUTATES' &&
+      fact.object.kind === 'entity' &&
+      fact.object.entityId === 'state:ticket:ticket-status'
+    )!.id;
+    for (const view of [
+      firstSemantic.semanticViews.views.find((candidate) => candidate.viewKind === 'architecture')!,
+      firstSemantic.semanticViews.views.find((candidate) => candidate.subject === 'scenario:ticket:transition-ticket-status')!,
+      firstSemantic.semanticViews.views.find((candidate) => candidate.subject === 'state:ticket:ticket-status')!
+    ]) {
+      expect(view.nodes.some((node) =>
+        node.references.some((reference) => reference.kind === 'fact' && reference.ref === sharedFactId)
+      )).toBe(true);
+    }
     expect(first.lock.semanticLoweringTasks?.[0]?.artifactBinding).toEqual({
       generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
       artifactEntityId: 'artifact:src/installed/ticket/ticket-semantic-contract.ts',
@@ -67,6 +93,8 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
     expect(secondSemantic.snapshot).not.toBe(firstSemantic.snapshot);
     expect(secondSemantic.inputRevision).toBe(firstSemantic.inputRevision);
     expect(secondSemantic.semanticRevision).toBe(firstSemantic.semanticRevision);
+    expect(secondSemantic.semanticViews).toEqual(firstSemantic.semanticViews);
+    expect(second.lock.semanticViews).toEqual(secondSemantic.semanticViews);
     expect(second.lock.semanticLoweringTasks?.[0]?.artifactBinding).toEqual({
       generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
       artifactEntityId: 'artifact:src/installed/ticket/ticket-semantic-contract.ts',
@@ -130,6 +158,8 @@ test('Semantic Frontend failure blocks mutating passes and a new transaction can
     })).rejects.toMatchObject({ code: 'MANIFEST-SCHEMA-004' });
 
     const failedLock = await readLockFile(workspaceRoot);
+    expect(failedLock.semanticViews).toBeUndefined();
+    expect(failedLock.semanticLoweringTasks).toBeUndefined();
     expect(failedLock.passStatus).toMatchObject({
       resolve: 'succeeded',
       'build-ir': 'failed',

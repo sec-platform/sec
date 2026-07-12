@@ -12,7 +12,8 @@ export type CiArtifactKind = typeof CI_ARTIFACT_KINDS[number];
 export const CI_ARTIFACT_MISSING_REASON = {
   declaredGeneratedMissing: 'declared-generated-missing',
   fixedGovernanceMissing: 'fixed-governance-missing',
-  fixedViewMissing: 'fixed-view-missing'
+  fixedViewMissing: 'fixed-view-missing',
+  staleSemanticProjection: 'stale-semantic-projection'
 } as const;
 
 export type CiArtifactMissingReason = typeof CI_ARTIFACT_MISSING_REASON[keyof typeof CI_ARTIFACT_MISSING_REASON];
@@ -20,7 +21,8 @@ export type CiArtifactMissingReason = typeof CI_ARTIFACT_MISSING_REASON[keyof ty
 export const CI_ARTIFACT_MISSING_REASONS = [
   CI_ARTIFACT_MISSING_REASON.declaredGeneratedMissing,
   CI_ARTIFACT_MISSING_REASON.fixedGovernanceMissing,
-  CI_ARTIFACT_MISSING_REASON.fixedViewMissing
+  CI_ARTIFACT_MISSING_REASON.fixedViewMissing,
+  CI_ARTIFACT_MISSING_REASON.staleSemanticProjection
 ] as const satisfies readonly CiArtifactMissingReason[];
 
 export type CiArtifactDeclaredBy = 'graph.lock.json' | 'artifact-manifest';

@@ -5,11 +5,13 @@ import type {
   PipelineSemanticContext
 } from './pipeline-types.ts';
 import type { SemanticGeneratorPlan } from './semantic-generator-types.ts';
+import type { SemanticViewSet } from './semantic-view-types.ts';
 
 export function bindPipelineSemanticContext(
   context: PipelineExecutionContext,
   snapshot: ValidatedEngineeringIRSnapshot,
-  generatorPlan: SemanticGeneratorPlan
+  generatorPlan: SemanticGeneratorPlan,
+  semanticViews: SemanticViewSet
 ): PipelineSemanticContext {
   if (context.semantic) {
     throw new CompilerError(
@@ -25,7 +27,9 @@ export function bindPipelineSemanticContext(
 
   if (
     generatorPlan.inputRevision !== snapshot.ir.inputRevision ||
-    generatorPlan.semanticRevision !== snapshot.ir.semanticRevision
+    generatorPlan.semanticRevision !== snapshot.ir.semanticRevision ||
+    semanticViews.inputRevision !== snapshot.ir.inputRevision ||
+    semanticViews.semanticRevision !== snapshot.ir.semanticRevision
   ) {
     throw new CompilerError(
       'PIPELINE-SEMANTIC-003',
@@ -34,7 +38,9 @@ export function bindPipelineSemanticContext(
         snapshotInputRevision: snapshot.ir.inputRevision,
         planInputRevision: generatorPlan.inputRevision,
         snapshotSemanticRevision: snapshot.ir.semanticRevision,
-        planSemanticRevision: generatorPlan.semanticRevision
+        planSemanticRevision: generatorPlan.semanticRevision,
+        viewInputRevision: semanticViews.inputRevision,
+        viewSemanticRevision: semanticViews.semanticRevision
       }
     );
   }
@@ -44,7 +50,8 @@ export function bindPipelineSemanticContext(
     inputRevision: snapshot.ir.inputRevision,
     semanticRevision: snapshot.ir.semanticRevision,
     snapshot,
-    generatorPlan
+    generatorPlan,
+    semanticViews
   });
   context.semantic = semantic;
   return semantic;

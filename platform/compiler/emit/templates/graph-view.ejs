@@ -943,6 +943,7 @@
         
         <div class="hud-popover-tabs">
           <div class="hud-popover-tab console-tab active" id="tab-coverage" onclick="selectConsoleTab('coverage')">Coverage Matrix</div>
+          <div class="hud-popover-tab console-tab" id="tab-semantic" onclick="selectConsoleTab('semantic')">Semantic Views</div>
           <div class="hud-popover-tab console-tab" id="tab-override" onclick="selectConsoleTab('override')">Overrides Audit</div>
           <div class="hud-popover-tab console-tab" id="tab-summary" onclick="selectConsoleTab('summary')">System Summary</div>
         </div>
@@ -971,6 +972,17 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- Canonical Semantic Views Tab -->
+        <div id="console-content-semantic" class="console-body" style="display:none;" data-semantic-view-set="<%= semanticViewSet?.semanticRevision ?? 'unavailable' %>">
+          <%- metricTable([
+            ['Input Revision', semanticViewSet?.inputRevision ?? 'unavailable'],
+            ['Semantic Revision', semanticViewSet?.semanticRevision ?? 'unavailable'],
+            ['View Count', String(semanticViewRows.length)]
+          ]) %>
+          <div style="margin-top: 10px;"></div>
+          <%- dataTable(['View Kind', 'Subject', 'Nodes', 'Relations', 'Facts', 'Canonical Fact IDs'], semanticViewRows, 6, 'No canonical SemanticView projection is available.') %>
         </div>
 
         <!-- Overrides Tab -->
@@ -2785,7 +2797,7 @@
     if (activeTabEl) activeTabEl.classList.add('active');
     
     // 切换内容区域可见性
-    const contentIds = ['coverage', 'override', 'summary'];
+    const contentIds = ['coverage', 'semantic', 'override', 'summary'];
     contentIds.forEach(id => {
       const container = document.getElementById(`console-content-${id}`);
       if (container) {

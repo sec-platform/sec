@@ -1,37 +1,35 @@
 import type {
-  EngineeringIR,
   SemanticAttributeValue,
   SemanticAuthority,
   SemanticFact,
   SemanticPredicate,
-  SemanticValue
+  SemanticValue,
+  ValidatedEngineeringIRSnapshot
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import {
   INSPECTOR_SECTION_IDS,
   type InspectorItem,
   type InspectorSection,
+  type AuthorityOverlayStatus,
   type ViewBadge,
   type ViewEdge,
   type ViewNode,
   type ViewOverlay,
   type ViewReference
 } from '../../shared/semantic-view-types.ts';
-import { indexEngineeringIR, type EngineeringIRIndex } from '../ir/index-engineering-ir.ts';
-
-const AUTHORITY_STRENGTH: Record<SemanticAuthority, number> = {
-  inferred: 0,
-  observed: 1,
-  derived: 2,
-  authoritative: 3
-};
+import { indexValidatedEngineeringIR, type EngineeringIRIndex } from '../ir/index-engineering-ir.ts';
 
 export interface FactAssertionSummary {
-  highestAuthority: SemanticAuthority;
+  status: AuthorityOverlayStatus;
   authorities: SemanticAuthority[];
   hasConflict: boolean;
   hasInferred: boolean;
   assertionCount: number;
+  confidence: {
+    min: number;
+    max: number;
+  };
 }
 
 export function uniqueSorted<Value extends string>(values: readonly Value[]): Value[] {
@@ -40,21 +38,37 @@ export function uniqueSorted<Value extends string>(values: readonly Value[]): Va
 
 export function summarizeFactAssertions(fact: SemanticFact): FactAssertionSummary {
   const authorities = [...new Set(fact.assertions.map((assertion) => assertion.authority))]
-    .sort((left, right) => AUTHORITY_STRENGTH[right] - AUTHORITY_STRENGTH[left] || left.localeCompare(right));
-  const highestAuthority = authorities[0];
-  if (!highestAuthority) {
+    .sort((left, right) => left.localeCompare(right));
+  if (authorities.length === 0) {
     throw new CompilerError('IR-AUTHORITY-004', `Semantic fact "${fact.id}" must include at least one assertion`);
   }
 
+  const hasConflict = false;
+  const hasInferred = authorities.includes('inferred');
+  const confidences = fact.assertions.map((assertion) => assertion.confidence);
+
   return {
-    highestAuthority,
+    status: authorityOverlayStatus(authorities, hasConflict),
     authorities,
     // FactAssertion currently represents positive claims about one exact triple.
     // Predicate-specific contradictions live across Facts and require a validator with graph context.
-    hasConflict: false,
-    hasInferred: authorities.includes('inferred'),
-    assertionCount: fact.assertions.length
+    hasConflict,
+    hasInferred,
+    assertionCount: fact.assertions.length,
+    confidence: {
+      min: Math.min(...confidences),
+      max: Math.max(...confidences)
+    }
   };
+}
+
+function authorityOverlayStatus(
+  authorities: readonly SemanticAuthority[],
+  hasConflict: boolean
+): AuthorityOverlayStatus {
+  if (hasConflict) return 'conflict';
+  if (authorities.length > 1) return 'mixed';
+  return authorities[0] === 'inferred' ? 'inferred' : 'uniform';
 }
 
 function predicates(...values: SemanticPredicate[]): ReadonlySet<SemanticPredicate> {
@@ -101,17 +115,20 @@ export function buildViewNode(
   const entity = index.entityById.get(entityId);
   if (!entity) throw new CompilerError('VIEW-PROJECTION-001', `Unknown semantic entity "${entityId}"`);
   const role = entityAttribute(index, entityId, 'role');
+  const facts = options.facts ?? [];
+  const badges = [...(options.badges ?? [])];
+  if (facts.some((fact) => summarizeFactAssertions(fact).hasInferred)) badges.push('inferred');
   return {
     id: options.id ?? entity.id,
     entityId: entity.id,
     entityKind: entity.kind,
     label: entity.label,
     ...(typeof role === 'string' ? { role } : {}),
-    badges: uniqueSorted(options.badges ?? []),
+    badges: uniqueSorted(badges),
     ...(options.group ? { group: options.group } : {}),
     references: uniqueReferences([
       { kind: 'entity', ref: entity.id },
-      ...referencesForFacts(options.facts ?? []),
+      ...referencesForFacts(facts),
       ...(options.references ?? [])
     ])
   };
@@ -136,8 +153,11 @@ function relationItems(
     }));
 }
 
-export function buildSemanticInspector(ir: EngineeringIR, subjectId: string): InspectorSection[] {
-  const index = indexEngineeringIR(ir);
+export function buildSemanticInspector(
+  snapshot: ValidatedEngineeringIRSnapshot,
+  subjectId: string
+): InspectorSection[] {
+  const index = indexValidatedEngineeringIR(snapshot);
   const entity = index.entityById.get(subjectId);
   if (!entity) throw new CompilerError('VIEW-INSPECTOR-001', `Unknown inspector subject "${subjectId}"`);
   const outgoing = index.outgoingFactsBySubject.get(subjectId) ?? [];
@@ -188,11 +208,12 @@ export function buildSemanticInspector(ir: EngineeringIR, subjectId: string): In
     return {
       key: fact.id,
       value: {
-        highestAuthority: summary.highestAuthority,
+        status: summary.status,
         authorities: summary.authorities,
         hasConflict: summary.hasConflict,
         hasInferred: summary.hasInferred,
         assertionCount: summary.assertionCount,
+        confidence: summary.confidence,
         assertions: fact.assertions.map((assertion) => ({
           id: assertion.id,
           authority: assertion.authority,
@@ -214,10 +235,10 @@ export function buildSemanticInspector(ir: EngineeringIR, subjectId: string): In
 }
 
 export function buildProvenanceOverlay(
-  ir: EngineeringIR,
+  snapshot: ValidatedEngineeringIRSnapshot,
   targets: readonly { id: string; references: readonly ViewReference[] }[]
 ): ViewOverlay {
-  const index = indexEngineeringIR(ir);
+  const index = indexValidatedEngineeringIR(snapshot);
   const entries = targets.flatMap((target) => {
     const factIds = uniqueSorted(target.references.filter((reference) => reference.kind === 'fact').map((reference) => reference.ref));
     const facts = factIds.flatMap((factId) => {
@@ -226,16 +247,22 @@ export function buildProvenanceOverlay(
     });
     if (facts.length === 0) return [];
 
-    const authority = facts
-      .map((fact) => summarizeFactAssertions(fact).highestAuthority)
-      .sort((left, right) => AUTHORITY_STRENGTH[right] - AUTHORITY_STRENGTH[left] || left.localeCompare(right))[0]!;
     const assertions = facts.flatMap((fact) => fact.assertions);
-    const authorityAssertions = assertions.filter((assertion) => assertion.authority === authority);
+    const summaries = facts.map(summarizeFactAssertions);
+    const authorities = uniqueSorted(assertions.map((assertion) => assertion.authority));
+    const hasConflict = summaries.some((summary) => summary.hasConflict);
+    const confidences = assertions.map((assertion) => assertion.confidence);
     return [{
       targetId: target.id,
       factIds,
-      authority,
-      confidence: Math.max(...authorityAssertions.map((assertion) => assertion.confidence)),
+      status: authorityOverlayStatus(authorities, hasConflict),
+      authorities,
+      hasInferred: authorities.includes('inferred'),
+      hasConflict,
+      confidence: {
+        min: Math.min(...confidences),
+        max: Math.max(...confidences)
+      },
       provenanceKinds: uniqueSorted(assertions.flatMap((assertion) => assertion.provenance.map((entry) => entry.kind))),
       evidenceRefs: uniqueSorted(assertions.flatMap((assertion) => assertion.evidence.map((entry) => `${entry.kind}:${entry.ref}`)))
     }];

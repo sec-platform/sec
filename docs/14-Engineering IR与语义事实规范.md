@@ -460,11 +460,18 @@ summarizeFactAssertions(fact);
 
 ```ts
 {
-  (highestAuthority, authorities, hasConflict, hasInferred, assertionCount);
+  status,
+  authorities,
+  hasConflict,
+  hasInferred,
+  assertionCount,
+  confidence: { min, max }
 }
 ```
 
 这是只读 summary，不是新的 canonical fact shape，也不得回写 IR。
+
+`status` 取 `uniform / mixed / inferred / conflict`：多个 authority 必须显示为 `mixed`，只有 inferred 时显示为 `inferred`，predicate-specific validator 确认矛盾后才允许显示 `conflict`。Projection 不输出 target-level `highestAuthority`，也不只从最高 authority assertions 取 confidence。
 
 当前一个 Fact 内的 Assertions 都声明同一个 exact triple，因此 fact-local `hasConflict` 为 `false`。Predicate-specific contradiction 通常存在于不同 Fact 之间，需要 graph-context validator 才能判定；Projection 不得凭 authority 混合自行制造 conflict 结论。
 
@@ -646,7 +653,7 @@ scenarioStepEntityId(scenarioId, semanticStepId)
 
 所有 Entities/Facts 组装完成后，Builder 调用 `deriveScenarioDefinitions()` 生成 cache。不存在 `BuildSink.addScenario` 或可与 Facts 竞争的 Scenario store writer。派生过程必须验证唯一 entry、唯一 step invocation、AWAITS 与 invocation 一致、RETRIES exact schema、PRECEDES/HANDLES containment boundary 以及单一 error handler。
 
-`projectScenarioView()` 从 canonical Facts 重新派生 Scenario；即使调用者篡改 `ir.scenarios[].steps`，Projection 结果也不得变化。声明数组重排而关系不变时 IR/revision 稳定；PRECEDES、AWAITS、RETRIES 或 HANDLES 关系变化必须改变 canonical Fact/revision。
+`projectScenarioView()` 只接受 `ValidatedEngineeringIRSnapshot`，并直接查询 canonical `CONTAINS / INVOKES / PRECEDES / AWAITS / RETRIES / HANDLES` Facts。篡改 `ir.scenarios[].steps` 的 raw IR 必须由 validator 拒绝，不能进入 Projection。声明数组重排而关系不变时 IR/revision 稳定；PRECEDES、AWAITS、RETRIES 或 HANDLES 关系变化必须改变 canonical Fact/revision。
 
 ### Workspace Semantic Link 与 Namespace Ownership
 
@@ -689,7 +696,7 @@ Validator 必须按确定性顺序统一检查：
 6. `inputRevision` 与 source input domain digest 一致。
 7. `semanticRevision` 与 canonical semantic graph digest 一致。
 
-成功结果包含 deep-frozen IR，防止 validation 后原地修改。`ValidatedEngineeringIRSnapshot` 是 branded type；普通 `EngineeringIR` 不能传给新增的 IR-native consumer。首个 boundary consumer 是 `indexValidatedEngineeringIR(snapshot)`；原 `indexEngineeringIR(ir)` 仅为现有 transitional Projection 保留。
+成功结果包含 deep-frozen IR，防止 validation 后原地修改。`ValidatedEngineeringIRSnapshot` 是 branded type；普通 `EngineeringIR` 不能传给 IR-native consumer。Projector、Inspector 与 Projection bundle 统一使用 `indexValidatedEngineeringIR(snapshot)`；`indexEngineeringIR(ir)` 只保留为 Builder/Validator 内部与显式 raw compatibility 工具，不是 Projection 入口。
 
 P0-3 将 validated boundary 接入唯一编译协调器：
 
@@ -697,7 +704,7 @@ P0-3 将 validated boundary 接入唯一编译协调器：
 compileWorkspace() transaction
   → resolve
   → semantic stage / build-ir pass
-  → PipelineSemanticContext { transactionId, inputRevision, semanticRevision, snapshot, generatorPlan }
+  → PipelineSemanticContext { transactionId, inputRevision, semanticRevision, snapshot, generatorPlan, semanticViews }
   → compose / adapt / verify / lock / emit
 ```
 
@@ -705,15 +712,11 @@ compileWorkspace() transaction
 
 P0-5 将 Generator/Lowerer 接到该 boundary：Semantic Frontend 从同批已校验 declarations 与 snapshot 构建 deep-frozen `GeneratorPlan`；plan 查询 State/Transition Facts，不接收 `LoadedSemanticContract`。Compose 要求 `build-ir` 成功，Lowerer 只消费 transaction-owned plan，成功写入后把 Generator Entity、Artifact Entity、semantic revision 与 compilation transaction 绑定到 lock task 和 Artifact Provenance。
 
+P0-6 在同一 semantic stage 从 snapshot 构建 deep-frozen `SemanticViewSet`。新 execution 开始时先删除 Lock 中旧的 lowering tasks 与 semantic views；只有 snapshot、Generator Plan 和 Projection revision 全部一致时才绑定 Pipeline Context 并写回 Lock，因此 build-ir failure 不会向 emit 泄漏上一次成功 projection。
+
 该 transaction binding 必须同时满足 execution truth 与 deterministic reference projection：普通 compile 每次签发新的 UUID；`source=reference` 使用 workspace-local 的 `tx:reference-workspace`，Pipeline Journal 在新执行开始时移除同名旧记录，并在 commit 后把它标为当前 committed transaction。因此 reference Lock/Provenance 指向的仍是实际完成的 compilation transaction，同时相同输入的 refresh 不会因随机 UUID 产生 drift。
 
-当前仍未接管的 legacy ownership 明确如下：
-
-| 现有路径 | 当前输入 | 负责接管的 Work Package |
-| --- | --- | --- |
-| Architecture / Scenario / State Projector、ExplainGraph、Workbench | raw IR 或 Lock/Manifest/Contract | P0-6 Semantic Projection Takeover |
-
-`buildWorkspaceEngineeringIR()` 暂时仅为 P0-6 legacy Projection 测试/兼容入口保留；它与 Pipeline Semantic Frontend 复用同一个 workspace input loader，但不会签发 validated snapshot。不得为了类型形式提前改写上表 legacy consumers；所有新 IR-native consumer 只能接受 `ValidatedEngineeringIRSnapshot` 或 transaction-owned `PipelineSemanticContext`。
+P0-6 后不存在仍接受 raw IR 的 Architecture / Scenario / State Projector。ExplainGraph 不再加载 Manifest 重建 capability/port/ownership/effect，而是合并 Lock 中本 transaction 的 `SemanticViewSet`；ReviewSummary 汇总同一 view/fact identity，Workbench 读取 ExplainGraph 内嵌的同一 bundle。`buildWorkspaceEngineeringIR()` 只保留 raw calculation/diagnostic compatibility，不签发 validated snapshot，也不能作为 Projector 输入。
 
 ## 14. IR Index
 
@@ -774,14 +777,14 @@ Authority 改变不是“Fact authority changed”；它通常表现为旧 Asser
 
 ## 17. Projection
 
-Projection API 接受 IR/selected evidence，返回 View/Explain contract。
+Projection API 只接受 `ValidatedEngineeringIRSnapshot`，返回单个 `SemanticView`；`buildSemanticViewSet(snapshot)` 按 Architecture → Scenario → State 生成确定性、deep-frozen bundle。
 
 Projection 可以：
 
 - 选择 Fact。
 - 读取 Fact Assertions。
 - 使用 `summarizeFactAssertions` 生成只读 authority summary。
-- 聚合多个 Entity 为显示节点。
+- 为同一 Entity 聚合只读 badge / evidence references。
 - 隐藏低价值细节。
 - 重新标注 label/badge。
 - 添加 Evidence Overlay。
@@ -795,7 +798,11 @@ Projection 不可以：
 
 `inferred` badge 必须依据 Assertion summary 的 `hasInferred`，禁止再写 `fact.authority === 'inferred'`。
 
-Provenance Overlay 可以选择 `highestAuthority` 作为展示摘要，并在该 authority 的 Assertions 中计算展示 confidence；这不表示低 authority Assertions 被删除或覆盖。
+Provenance Overlay 必须保留 target 引用的全部 authority，并输出 `uniform / mixed / inferred / conflict` 与所有 assertions 的 confidence range。不得把最高 authority 选为整个 target 的颜色 authority，也不得隐藏低 authority assertion。
+
+Architecture View 展示 canonical Entity 与 entity-object Fact 边；Boundary Entity 可以在没有 active `CROSSES_BOUNDARY` producer 时作为未连接节点出现，Projection 不得为连线而发明关系。Scenario View 的 value-object `RETRIES` 与 State View 的 value-object `TRANSITIONS_TO` 保留 exact value 和 Fact reference；ExplainGraph 只为图形呈现创建 `semantic-value` 可视节点，该节点不是 IR Entity 或新 authoritative Fact。
+
+ExplainGraph、ReviewSummary 与 Workbench 是 `SemanticViewSet` consumers。ExplainGraph 节点/边保留 `ViewReference[]`，ReviewSummary 列出 canonical Fact IDs，Workbench 的 Semantic Views 页签真实显示 architecture/scenario/state 的 subject、node、relation 与 Fact 数；旧 governance tabs 不得反向成为业务语义 authority。
 
 ## 18. 持久化策略
 
@@ -804,7 +811,7 @@ Provenance Overlay 可以选择 `highestAuthority` 作为展示摘要，并在�
 满足以下条件后再稳定持久化：
 
 1. Ticket semantic vertical 闭环。
-2. 三种 Projection 共用 IR。
+2. 三种 Projection 共用 IR。（P0-6 已满足）
 3. input/semantic revision digest 稳定。
 4. CLI inspect 可用。
 5. contract freeze 和 migration policy 完成。

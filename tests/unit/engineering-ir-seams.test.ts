@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   buildEngineeringIR,
+  buildValidatedEngineeringIR,
   projectArchitectureView,
   type BuildEngineeringIRInput
 } from '../../platform/compiler/index.ts';
@@ -105,6 +106,8 @@ function throughCompatibilityBarrel(ir: RootEngineeringIR): CompatibilityEnginee
 test('IR kernel seams preserve compatibility barrel and deterministic orchestration', () => {
   const first = throughCompatibilityBarrel(buildEngineeringIR(ticketFixture()));
   const second = buildEngineeringIR(ticketFixture());
+  const firstSnapshot = buildValidatedEngineeringIR(ticketFixture());
+  const secondSnapshot = buildValidatedEngineeringIR(ticketFixture());
 
   expect(first).toEqual(second);
   expect(first.graphId).toBe('engineering-ir:ticket-app');
@@ -116,6 +119,11 @@ test('IR kernel seams preserve compatibility barrel and deterministic orchestrat
     fact.assertions[0]?.validFromRevision === first.semanticRevision
   )).toBe(true);
   expect(first.scenarios).toEqual(second.scenarios);
-  expect(projectArchitectureView(first)).toEqual(projectArchitectureView(second));
+  expect(projectArchitectureView(firstSnapshot)).toEqual(projectArchitectureView(secondSnapshot));
   expect(canonicalReferences(first)).toEqual(canonicalReferences(second));
+
+  if (false) {
+    // @ts-expect-error Ordinary EngineeringIR cannot cross the Projection boundary.
+    projectArchitectureView(first);
+  }
 });

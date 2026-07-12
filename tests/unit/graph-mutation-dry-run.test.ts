@@ -13,9 +13,11 @@ import { fixedCiArtifactPaths } from '../../platform/shared/ci-artifact-contract
 import type { ExplainGraph } from '../../platform/shared/explain-types.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const baseGraph: ExplainGraph = {
+  semanticViews: buildSemanticViewFixture(),
   nodes: [
     {
       id: 'app:service-admin',

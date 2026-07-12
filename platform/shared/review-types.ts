@@ -3,6 +3,7 @@ import type { OverrideStatus, ProvenanceOriginType } from './provenance-types.ts
 import type { RegistryKind, RegistryLocation } from './registry-types.ts';
 import type { RepairTaskCategory } from './repair-types.ts';
 import type { VerificationStatus } from './verification-types.ts';
+import type { SemanticViewKind, SemanticViewSet } from './semantic-view-types.ts';
 
 export type ReviewRuntimeEntryKind = 'page' | 'api';
 
@@ -94,6 +95,29 @@ export interface ReviewCiSummary {
   impactedBlockCount: number;
   impactedSlotCount: number;
   runtimeEntryCount: number;
+}
+
+export interface ReviewSemanticViewEntrySummary {
+  viewKind: SemanticViewKind;
+  subject?: string;
+  nodeCount: number;
+  edgeCount: number;
+  factCount: number;
+  factIds: string[];
+}
+
+export interface ReviewSemanticViewSummary {
+  formatVersion: SemanticViewSet['formatVersion'];
+  inputRevision: string;
+  semanticRevision: string;
+  viewCount: number;
+  subjectCount: number;
+  nodeCount: number;
+  edgeCount: number;
+  factCount: number;
+  viewKindCounts: Record<SemanticViewKind, number>;
+  factIds: string[];
+  views: ReviewSemanticViewEntrySummary[];
 }
 
 export interface ReviewProvenanceOriginSummary {
@@ -307,6 +331,7 @@ export interface ReviewSummary {
   formatVersion: '2';
   ciSummary: ReviewCiSummary;
   chainSummary: ReviewChainSummary;
+  semanticViewSummary?: ReviewSemanticViewSummary;
   artifactSummary?: import('./review-artifact.ts').ReviewArtifactSummary;
   coverageSummary?: ReviewCoverageSummary;
   provenanceSummary?: ReviewProvenanceSummary;

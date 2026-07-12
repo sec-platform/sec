@@ -35,11 +35,11 @@ Pipeline Kernel + Semantic Frontend / IR handoff + IR-owned Lowering 已完成
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前唯一 ACTIVE NEXT：Semantic Projection Takeover
+## 2. 当前唯一 ACTIVE NEXT：Verification / CI Closure
 
-当前唯一 active next 是 **P0-6 Semantic Projection Takeover**。P0-5 已把 Generator/Lowerer 接入 validated IR-derived plan，Ticket runtime 已消费同一生成状态迁移合同，Artifact Provenance 已绑定 semantic revision、Generator/Artifact Entity 与 compilation transaction。
+当前唯一 active next 是 **P0-7 Verification / CI Closure**。P0-6 已让 Architecture / Scenario / State Projector 只接受 validated snapshot，并让 ExplainGraph、ReviewSummary 与 Workbench 消费同一 `SemanticViewSet` / Fact identity。
 
-当前 P0 不是继续增加平行 Semantic Plan 或第二套 Generator 解释器，也不是重新建设 Pipeline Kernel / Linker / Lowerer；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context、Workspace Semantic Link 与 IR-owned Generator 已经固定，当前任务是让 Architecture / Scenario / State Projection 统一消费 validated snapshot。
+当前 P0 不是继续增加平行 Semantic Plan、第二套 Generator/Projection 解释器或新的 Pipeline；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context、Workspace Semantic Link、IR-owned Generator 与 canonical Projection 已经固定，当前任务是把这些不可旁路的语义纵切面纳入稳定 Verification / CI contract。
 
 目标主链：
 
@@ -55,13 +55,13 @@ Authoring Source / Registry Contracts
   → Project / Governance Artifacts
 ```
 
-以下路径不得继续长期并存：
+以下路径不得回归：
 
 ```text
-Contract → IR → Projection
+Contract / raw IR → Projection（绕过 validated snapshot）
 Contract → Semantic Plan → Lowering
-Lock / Manifest → ExplainGraph
-Lock / Manifest → Workbench View
+Lock / Manifest → business-semantic ExplainGraph reconstruction
+Lock / Manifest → business-semantic Workbench reconstruction
 ```
 
 Engineering IR 成为 canonical representation 之前，v0.4 Semantic Mutation、Fact Delta、Impact Propagation 和 AI Semantic Operator 不进入主线。
@@ -289,7 +289,7 @@ Ticket Contract
 
 ## 10. P0-6 Semantic Projection Takeover
 
-状态：**ACTIVE NEXT**。
+状态：**COMPLETED**。
 
 ### Prerequisite
 
@@ -319,9 +319,17 @@ Ticket Contract
 - Projection path 不接受未 validated IR。
 - 删除或明确降级所有与 canonical projector 竞争的 semantic interpretation path。
 
+完成事实：
+
+- `SemanticViewSet` 按 Architecture → Scenario → State 生成，绑定同一 input/semantic revision 并 deep-freeze；Pipeline Context 与 Lock 持有同一 projection revision。
+- Architecture 直接保留 IR 的 Responsibility / Boundary / Port / Effect / Permission Entity 与 Fact 边，不再把 operation relation 折叠成 responsibility authority。
+- Scenario 的 `PRECEDES / AWAITS / RETRIES / HANDLES` 保留 canonical Fact 方向、值与 Fact ID；raw/tampered IR 不能进入 Projector。
+- Authority overlay 暴露 `uniform / mixed / inferred / conflict`、全部 authority 与 confidence range，不再输出 target-level strongest-wins authority。
+- ExplainGraph 已移除 Manifest semantic reconstruction；ReviewSummary 与 Workbench 直接消费统一 projection，legacy governance 内容只保留物理文件、coverage、policy、repair、upgrade 等兼容层。
+
 ## 11. P0-7 Verification / CI Closure
 
-状态：**BLOCKED BY P0-6**。
+状态：**ACTIVE NEXT**。
 
 ### Prerequisite
 
@@ -442,15 +450,15 @@ P0-4  Workspace Semantic Linker                          COMPLETED
   ↓
 P0-5  IR-owned Generator / Ticket Enforcement            COMPLETED
   ↓
-P0-6  Semantic Projection Takeover                       ACTIVE NEXT
+P0-6  Semantic Projection Takeover                       COMPLETED
   ↓
-P0-7  Verification / CI Closure
+P0-7  Verification / CI Closure                          ACTIVE NEXT
   ↓
 latest-head full validation
   ↓
 v0.3 exit review
 ```
 
-只有 **P0-6 Semantic Projection Takeover** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改 Verification consumer 来伪造进度。
+只有 **P0-7 Verification / CI Closure** 是当前 active next。latest-head full validation 与 v0.3 exit review 必须等待其直接 prerequisite 满足，不得用一次局部测试或历史 GitHub Actions 结果伪造 closure。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。
