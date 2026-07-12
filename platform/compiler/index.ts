@@ -38,6 +38,10 @@ export { buildSemanticInspector } from './projection/semantic-view-utils.ts';
 export { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from './repair/build-repair-plan.ts';
 export { resolveGraph } from './resolve/resolve-graph.ts';
 export {
+  buildWorkspaceSemanticBundle,
+  type WorkspaceSemanticBundle
+} from './semantic-frontend.ts';
+export {
   linkWorkspaceSemanticContracts,
   splitLinkedSemanticReference
 } from './semantic-linker.ts';

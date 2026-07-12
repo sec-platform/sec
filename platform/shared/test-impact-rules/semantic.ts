@@ -43,6 +43,8 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     identity: { kind: "pass", id: "build-ir" },
     sourceFiles: [
       "platform/compiler/semantic-linker.ts",
+      "platform/compiler/semantic-frontend.ts",
+      "platform/compiler/verify/validate-resolved-templates.ts",
       "platform/compiler/ir/load-workspace-engineering-ir-input.ts",
       "platform/compiler/parse/load-semantic-contract.ts",
       "platform/compiler/parse/validate-semantic-manifest.ts",

@@ -1,15 +1,9 @@
 import {
   buildEngineeringIR,
-  buildSemanticGeneratorPlan,
-  buildSemanticViewSet,
-  buildValidatedEngineeringIR,
-  loadWorkspaceEngineeringIRBuildInput,
-  type BuildEngineeringIRInput
+  buildWorkspaceSemanticBundle,
+  loadWorkspaceEngineeringIRBuildInput
 } from '../compiler/index.ts';
-import type {
-  EngineeringIR,
-  ValidatedEngineeringIRSnapshot
-} from '../shared/engineering-ir-types.ts';
+import type { EngineeringIR } from '../shared/engineering-ir-types.ts';
 import { readLockFile, saveLock } from '../shared/lock-utils.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import { bindPipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
@@ -17,35 +11,10 @@ import type {
   PipelineExecutionContext,
   PipelineSemanticContext
 } from '../shared/pipeline-types.ts';
-import type { SemanticGeneratorDeclaration } from '../shared/semantic-generator-types.ts';
-
-interface WorkspaceSemanticBuildInput {
-  engineeringIRInput: BuildEngineeringIRInput;
-  generatorDeclarations: SemanticGeneratorDeclaration[];
-}
-
-async function loadWorkspaceEngineeringIRInput(
-  workspaceRoot: string
-): Promise<WorkspaceSemanticBuildInput> {
-  return loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
-}
 
 export async function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd()): Promise<EngineeringIR> {
-  const input = await loadWorkspaceEngineeringIRInput(workspaceRoot);
-  return buildEngineeringIR(input.engineeringIRInput);
-}
-
-async function buildWorkspaceValidatedEngineeringIR(
-  workspaceRoot: string
-): Promise<{
-  snapshot: ValidatedEngineeringIRSnapshot;
-  generatorDeclarations: SemanticGeneratorDeclaration[];
-}> {
-  const input = await loadWorkspaceEngineeringIRInput(workspaceRoot);
-  return {
-    snapshot: buildValidatedEngineeringIR(input.engineeringIRInput),
-    generatorDeclarations: input.generatorDeclarations
-  };
+  const { engineeringIRInput } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
+  return buildEngineeringIR(engineeringIRInput);
 }
 
 export async function runWorkspaceSemanticFrontend(
@@ -62,9 +31,7 @@ export async function runWorkspaceSemanticFrontend(
       delete staleLock.semanticViews;
       await saveLock(workspaceRoot, staleLock);
 
-      const { snapshot, generatorDeclarations } = await buildWorkspaceValidatedEngineeringIR(workspaceRoot);
-      const generatorPlan = buildSemanticGeneratorPlan(snapshot, generatorDeclarations);
-      const semanticViews = buildSemanticViewSet(snapshot);
+      const { snapshot, generatorPlan, semanticViews } = await buildWorkspaceSemanticBundle(workspaceRoot);
       const semanticContext = bindPipelineSemanticContext(context, snapshot, generatorPlan, semanticViews);
       const lock = await readLockFile(workspaceRoot);
       lock.semanticLoweringTasks = generatorPlan.tasks.map((task) => ({
