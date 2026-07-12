@@ -4,6 +4,7 @@ import type {
   SemanticEntity,
   SemanticFact
 } from '../../shared/engineering-ir-types.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import {
   IMPACT_CONTRACT_VERSION,
   IMPACT_PROPAGATION_RULE_REVISION,
@@ -18,7 +19,6 @@ import {
   type VerificationReason,
   type VerificationRecommendation
 } from '../../shared/semantic-impact-types.ts';
-import { CompilerError } from '../../shared/errors.ts';
 import { buildFactDelta } from '../ir/build-fact-delta.ts';
 import {
   indexValidatedEngineeringIR,

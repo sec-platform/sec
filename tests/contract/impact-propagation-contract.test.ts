@@ -7,20 +7,20 @@ import {
   buildImpactPropagation,
   type EngineeringIRIndex
 } from '../../platform/compiler/index.ts';
+import type { CiArtifactManifest } from '../../platform/shared/ci-artifact-types.ts';
 import type {
   EngineeringIR,
   FactDeltaEndpointContext,
   SemanticFact,
   ValidatedEngineeringIRSnapshot
 } from '../../platform/shared/engineering-ir-types.ts';
-import type { CiArtifactManifest } from '../../platform/shared/ci-artifact-types.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
+import type { ReviewSummary } from '../../platform/shared/review-types.ts';
 import {
   IMPACT_CONTRACT_VERSION,
   IMPACT_PROPAGATION_RULE_REVISION,
   IMPACT_SCOPE
 } from '../../platform/shared/semantic-impact-types.ts';
-import type { ReviewSummary } from '../../platform/shared/review-types.ts';
 import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
 import type { SemanticImpactPropagation as FacadeSemanticImpactPropagation } from '../../platform/shared/types.ts';
 import type { VerificationReport } from '../../platform/shared/verification-types.ts';

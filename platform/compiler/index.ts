@@ -42,12 +42,12 @@ export {
   buildWorkspaceSemanticBundle,
   type WorkspaceSemanticBundle
 } from './semantic-frontend.ts';
+export { buildImpactPropagation } from './semantic-impact/build-impact-propagation.ts';
 export {
   linkWorkspaceSemanticContracts,
   splitLinkedSemanticReference
 } from './semantic-linker.ts';
 export { buildSemanticGeneratorPlan } from './semantic-plan.ts';
-export { buildImpactPropagation } from './semantic-impact/build-impact-propagation.ts';
 export { adaptProject } from './synthesize/adapt-project.ts';
 export { buildAcceptanceCoverage } from './verify/build-acceptance-coverage.ts';
 export { createSkippedRuntimeLane } from './verify/run-runtime-verification.ts';
