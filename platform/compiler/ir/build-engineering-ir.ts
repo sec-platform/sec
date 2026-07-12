@@ -9,6 +9,7 @@ import type { ResolvedBlock, SlotTask } from '../../shared/lock-types.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
 import type { PolicyRule } from '../../shared/policy-types.ts';
 import type { LoadedSemanticContract } from '../../shared/semantic-contract-types.ts';
+import { linkWorkspaceSemanticContracts } from '../semantic-linker.ts';
 import { appendSemanticContract, type BuildSink } from './append-semantic-contract.ts';
 import { addFact as addFactToStore } from './ir-fact-store.ts';
 import {
@@ -118,7 +119,11 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   for (const acceptanceId of uniqueSorted(input.acceptanceIds)) addEntity(semanticEntity(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId));
   for (const policyId of uniqueSorted(input.policyDeclarations.map((policy) => policy.id))) addEntity(semanticEntity(`policy:${policyId}`, 'policy', policyId));
 
-  for (const contract of [...(input.semanticContracts ?? [])].sort((left, right) => `${left.blockId}:${left.contract.namespace}:${left.contract.id}`.localeCompare(`${right.blockId}:${right.contract.namespace}:${right.contract.id}`))) {
+  const linkedContracts = linkWorkspaceSemanticContracts(
+    input.semanticContracts ?? [],
+    input.policyDeclarations.map((policy) => policy.id)
+  );
+  for (const contract of linkedContracts) {
     if (!resolvedBlockIds.has(contract.blockId)) throw new CompilerError('IR-IDENTITY-005', `Semantic contract "${contract.contract.id}" references unresolved block "${contract.blockId}"`);
     appendSemanticContract(contract, sink);
   }

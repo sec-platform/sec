@@ -18,6 +18,12 @@ export const SEMANTIC_EFFECT_KINDS = [
 
 export type SemanticEffectKind = (typeof SEMANTIC_EFFECT_KINDS)[number];
 
+export interface SemanticContractImport {
+  alias: string;
+  namespace: string;
+  contractId: string;
+}
+
 export interface SemanticContractField {
   id: string;
   type: string;
@@ -83,6 +89,7 @@ export interface SemanticContractPolicy {
   id: string;
   label?: string;
   rule?: string;
+  verifiedBy?: string[];
 }
 
 export interface SemanticContractPermission {
@@ -119,6 +126,7 @@ export interface SemanticContract {
   formatVersion: typeof SEMANTIC_CONTRACT_FORMAT_VERSION;
   id: string;
   namespace: string;
+  imports?: SemanticContractImport[];
   entities: SemanticContractEntity[];
   states: SemanticContractState[];
   responsibilities: SemanticContractResponsibility[];

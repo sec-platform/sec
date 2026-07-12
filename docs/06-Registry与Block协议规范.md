@@ -32,7 +32,7 @@ Block 是：
 
 Block 不是默认架构理解单位。架构理解由 Semantic Responsibility、Operation、State、Contract、Effect 等 IR Entity/Fact 承担。
 
-“Responsibility 可跨 Block”目前是目标能力，**现有 Semantic Contract loader 只支持单 Contract 本地引用**。跨 Block / 跨 Contract Responsibility 在 Semantic Linker 落地前不得描述为已实现。
+Responsibility 可以通过显式 Contract import 与 qualified reference 跨 Block；未声明 import 的跨 Contract linkage 仍然 hard fail，禁止按同名或共享 namespace 隐式合并。
 
 ## 3. 当前 Block 分类
 
@@ -180,6 +180,8 @@ adapter | policy | ux | repair
 - permission。
 - effect。
 - scenario / acceptance reference。
+- `imports[{ alias, namespace, contractId }]`。
+- Semantic Policy `verifiedBy` Verification Policy identity。
 
 当前 loader执行：
 
@@ -190,20 +192,25 @@ adapter | policy | ux | repair
 5. state local reference validation。
 6. responsibility/operation/event/policy/permission/effect local reference validation。
 7. scenario local step reference validation。
+8. qualified reference 语法保留给 Workspace Semantic Linker。
 
-### 当前限制
+### Workspace Semantic Linker
 
-当前没有 Workspace Semantic Linker。
+Semantic Frontend 在 local normalization 后建立 workspace namespace/contract identity registry，并按 import alias 解析：
 
-因此：
+```text
+local reference:     TicketQuery
+qualified reference: tenant::TenantScopeGuard
+```
 
-- Contract reference只能解析当前 Contract本地 ID。
-- 不支持 qualified external reference。
-- 不支持 Contract import。
-- 不支持跨 Contract Responsibility/Operation linkage。
-- Semantic Policy 与 Verification Policy没有显式 identity mapping。
+- unqualified reference 只解析当前 Contract，不搜索 imports。
+- qualified reference 的 alias 必须在当前 Contract `imports` 中唯一声明。
+- import 同时绑定 namespace 与 contractId；同 namespace distinct Contract、重复 alias、missing import/target 均 hard fail。
+- Linker 对 entity/field、responsibility、operation、policy、permission、effect 与 event 进行 kind-specific resolution，并把引用 canonicalize 为 `namespace::id`。
+- Semantic Policy 只有显式 `verifiedBy` 才与 Verification Policy 产生 `ENFORCES / VERIFIED_BY` Facts；同名不自动映射。
+- linked Contract 直接进入 canonical IR build/validate，不持久化第二份 authoritative graph。
 
-这些限制必须在 `03` 的 Semantic Linker Work Package 中解决。
+当前仍不支持跨 workspace/repository Contract import；P0-4 的 ownership boundary 是同一个 resolved workspace。
 
 ## 10. Generator：当前实现与目标协议分开
 
@@ -332,13 +339,13 @@ Trust不能由 AI confidence代替。
 File/install Block protocol              implemented
 Registry source/version resolution       implemented
 Slot protocol                            implemented
-Semantic Contract v1 local loader        prototype implemented
+Semantic Contract v1 loader + imports    implemented
 State Transition Generator v1            prototype implemented
 Generic Generator Protocol               not implemented
-Workspace Semantic Linker                not implemented
+Workspace Semantic Linker                implemented
 IR-owned Lowering                         not implemented
-Cross-Block Semantic Responsibility       not implemented
-Semantic Policy ↔ Verification Policy map not implemented
+Cross-Block Semantic Responsibility       implemented with explicit import
+Semantic Policy ↔ Verification Policy map implemented with explicit verifiedBy
 ```
 
 任何 active doc、README或 PR说明必须使用这一边界。
