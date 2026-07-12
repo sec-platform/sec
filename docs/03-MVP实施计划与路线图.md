@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel 与 Impact Propagation canonical contract / pure kernel 均已完成，当前唯一 active next 是 Semantic Mutation canonical contract design。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel 与 Semantic Mutation canonical contract design 均已完成，当前唯一 active next 是 SM-1 pure Semantic Mutation kernels。
 
 当前真实形态：
 
