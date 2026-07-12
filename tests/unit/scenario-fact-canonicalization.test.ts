@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 
 import {
   buildEngineeringIR,
+  buildValidatedEngineeringIR,
   projectScenarioView,
+  validateEngineeringIR,
   type BuildEngineeringIRInput,
 } from "../../platform/compiler/index.ts";
 import { deriveScenarioDefinition } from "../../platform/compiler/ir/scenario-facts.ts";
@@ -179,16 +181,18 @@ test("Scenario execution semantics have canonical Entity and Fact identity with 
   expect(canonicalScenario.factIds).toEqual(expectedFactIds);
 });
 
-test("Scenario cache is exactly reconstructable and Projector ignores cache tampering", () => {
-  const ir = buildEngineeringIR({
+test("Scenario cache is exactly reconstructable and tampered raw IR cannot enter Projector", () => {
+  const input = {
     ...baseInput(),
     semanticContracts: [contract()],
-  });
+  };
+  const snapshot = buildValidatedEngineeringIR(input);
+  const ir = snapshot.ir;
   const scenarioId = "scenario:flow:run-flow";
   const derived = deriveScenarioDefinition(ir.entities, ir.facts, scenarioId);
   expect(derived).toEqual(ir.scenarios[0]);
 
-  const canonicalView = projectScenarioView(ir, scenarioId);
+  const canonicalView = projectScenarioView(snapshot, scenarioId);
   const tampered = {
     ...ir,
     scenarios: [
@@ -199,24 +203,23 @@ test("Scenario cache is exactly reconstructable and Projector ignores cache tamp
       },
     ],
   };
-  const rebuiltView = projectScenarioView(tampered, scenarioId);
-  expect(rebuiltView).toEqual(canonicalView);
+  expect(() => validateEngineeringIR(tampered, input)).toThrow();
 
-  const precedes = rebuiltView.edges.find(
-    (edge) => edge.relation === "SCENARIO_PRECEDES",
+  const precedes = canonicalView.edges.find(
+    (edge) => edge.relation === "PRECEDES",
   );
-  const error = rebuiltView.edges.find(
-    (edge) => edge.relation === "SCENARIO_ERROR",
+  const error = canonicalView.edges.find(
+    (edge) => edge.relation === "HANDLES",
   );
   expect(precedes).toMatchObject({
     source: `${scenarioId}#step:start`,
     target: `${scenarioId}#step:finish`,
-    label: "await",
+    label: "precedes",
   });
   expect(error).toMatchObject({
-    source: `${scenarioId}#step:finish`,
-    target: `${scenarioId}#step:recover`,
-    label: "on error",
+    source: `${scenarioId}#step:recover`,
+    target: `${scenarioId}#step:finish`,
+    label: "handles",
   });
   expect(
     precedes?.references.some((reference) => reference.kind === "fact"),

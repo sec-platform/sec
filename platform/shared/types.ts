@@ -132,10 +132,9 @@ export type {
   ReviewRepairTargetSummary,
   ReviewRepairTargetType,
   ReviewRepairTaskSummary,
-  ReviewRepairVerificationTrace,
-  ReviewRuntimeEntry,
-  ReviewRuntimeEntryKind,
-  ReviewSummary,
+  ReviewRepairVerificationTrace, ReviewRuntimeEntry,
+  ReviewRuntimeEntryKind, ReviewSemanticViewEntrySummary,
+  ReviewSemanticViewSummary, ReviewSummary,
   ReviewUpgradeDiagnosticsSummary,
   ReviewUpgradeMigrationOperationSummary,
   ReviewUpgradeMigrationSummary,
@@ -144,6 +143,23 @@ export type {
   ReviewUpgradeVerificationSummary,
   ReviewVerticalSlice
 } from './review-types.ts';
+export type {
+  AuthorityOverlayStatus,
+  InspectorItem,
+  InspectorSection,
+  InspectorSectionId,
+  SemanticView,
+  SemanticViewKind,
+  SemanticViewSet,
+  ViewBadge,
+  ViewEdge,
+  ViewNode,
+  ViewOverlay,
+  ViewOverlayEntry,
+  ViewReference,
+  ViewReferenceKind,
+  ViewRelation
+} from './semantic-view-types.ts';
 export type { TaskEnvelope } from './task-envelope-types.ts';
 export type {
   UpgradeDiagnostics,

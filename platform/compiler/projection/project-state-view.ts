@@ -1,7 +1,7 @@
-import type { EngineeringIR, SemanticFact, SemanticValueObject } from '../../shared/engineering-ir-types.ts';
+import type { SemanticFact, SemanticValueObject, ValidatedEngineeringIRSnapshot } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewEdge, type ViewNode } from '../../shared/semantic-view-types.ts';
-import { indexEngineeringIR } from '../ir/index-engineering-ir.ts';
+import { indexValidatedEngineeringIR } from '../ir/index-engineering-ir.ts';
 import {
   buildProvenanceOverlay,
   buildSemanticInspector,
@@ -23,8 +23,9 @@ function transitionValue(fact: SemanticFact): SemanticValueObject | null {
   return fact.object.value;
 }
 
-export function projectStateView(ir: EngineeringIR, subjectId: string): SemanticView {
-  const index = indexEngineeringIR(ir);
+export function projectStateView(snapshot: ValidatedEngineeringIRSnapshot, subjectId: string): SemanticView {
+  const { ir } = snapshot;
+  const index = indexValidatedEngineeringIR(snapshot);
   const subject = index.entityById.get(subjectId);
   if (!subject) throw new CompilerError('VIEW-STATE-001', `Unknown state view subject "${subjectId}"`);
 
@@ -109,9 +110,9 @@ export function projectStateView(ir: EngineeringIR, subjectId: string): Semantic
         }));
       }
       mergeViewEdge(edges, {
-        id: viewEdgeId(stateId, 'TRANSITIONS_TO', stateId, `${from}->${to}`),
+        id: `edge:fact:${transitionFact.id}`,
         source: stateId,
-        target: stateId,
+        value: transitionFact.object.kind === 'value' ? transitionFact.object.value : undefined,
         relation: 'TRANSITIONS_TO',
         label: `${from} → ${to}${operationId ? ` by ${index.entityById.get(operationId)?.label ?? operationId}` : ''}`,
         references: referencesForFacts([transitionFact])
@@ -127,7 +128,7 @@ export function projectStateView(ir: EngineeringIR, subjectId: string): Semantic
     subject: subjectId,
     nodes: sortedNodes,
     edges: sortedEdges,
-    inspector: buildSemanticInspector(ir, subjectId),
-    overlays: [buildProvenanceOverlay(ir, [...sortedNodes, ...sortedEdges])]
+    inspector: buildSemanticInspector(snapshot, subjectId),
+    overlays: [buildProvenanceOverlay(snapshot, [...sortedNodes, ...sortedEdges])]
   };
 }

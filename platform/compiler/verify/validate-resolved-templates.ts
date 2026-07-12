@@ -10,6 +10,7 @@ import { ensureProjectBase } from '../../shared/project-base.ts';
 import { composeProject } from '../compose/compose-project.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from '../ir/load-workspace-engineering-ir-input.ts';
 import { buildValidatedEngineeringIR } from '../ir/validate-engineering-ir.ts';
+import { buildSemanticViewSet } from '../projection/build-semantic-view-set.ts';
 import { buildSemanticGeneratorPlan } from '../semantic-plan.ts';
 import { typecheckProject } from './typecheck-project.ts';
 
@@ -43,12 +44,14 @@ export async function validateResolvedTemplates(workspaceRoot: string, lock: Loc
     const { engineeringIRInput, generatorDeclarations } = await loadWorkspaceEngineeringIRBuildInput(validationRoot);
     const snapshot = buildValidatedEngineeringIR(engineeringIRInput);
     const generatorPlan = buildSemanticGeneratorPlan(snapshot, generatorDeclarations);
+    const semanticViews = buildSemanticViewSet(snapshot);
     const semanticContext: PipelineSemanticContext = {
       transactionId: `template-validation:${snapshot.ir.inputRevision}`,
       inputRevision: snapshot.ir.inputRevision,
       semanticRevision: snapshot.ir.semanticRevision,
       snapshot,
-      generatorPlan
+      generatorPlan,
+      semanticViews
     };
     await composeProject(validationRoot, clonedLock, semanticContext);
     await typecheckProject(projectRoot);

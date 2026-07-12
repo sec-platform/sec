@@ -2,15 +2,21 @@ import { test } from 'bun:test';
 import fs from 'node:fs/promises';
 
 import { writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
+import {
+  buildSemanticViewSet,
+  buildValidatedEngineeringIR,
+  loadWorkspaceEngineeringIRBuildInput
+} from '../../platform/compiler/index.ts';
 import { explainWorkspace } from '../../platform/orchestrator.ts';
 import {
-    CI_ARTIFACT_FILES,
-    CI_ARTIFACT_MANIFEST_PATH,
-    CI_ARTIFACT_MISSING_REASON,
-    CI_ARTIFACT_PATHS
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_MISSING_REASON,
+  CI_ARTIFACT_PATHS
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import type { LockFile } from '../../platform/shared/types.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { buildArtifactMissingReasonCounts, buildArtifactUploadGroup } from '../helpers/ci-artifact-fixtures.ts';
 import { buildOfficialRegistrySummary } from '../helpers/review-fixtures.ts';
@@ -22,6 +28,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     acceptanceCoveragePath,
     explainGraphPath,
     graphViewPath,
+    lockPath,
     repairPlanPath,
     reviewSummaryPath,
     reviewViewPath,
@@ -31,6 +38,11 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     upgradePlanPath
   } = getWorkspacePaths(workspaceRoot);
   const expectedViewArtifactPaths = [...CI_ARTIFACT_PATHS.view];
+
+  const lock = await readJson<LockFile>(lockPath);
+  const { engineeringIRInput } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
+  lock.semanticViews = structuredClone(buildSemanticViewSet(buildValidatedEngineeringIR(engineeringIRInput)));
+  await writeJson(lockPath, lock);
 
   await explainWorkspace(workspaceRoot);
 
@@ -959,7 +971,7 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     'policy:tenant-scope-required',
     'Graph Edges',
     '<th>From</th><th>Type</th><th>To</th>',
-    '<td>app:customer-admin</td><td>depends_on</td><td>block:entity/customer-basic</td>',
+    '<td>app:customer-admin</td><td>contains</td><td>block:entity/customer-basic</td>',
     '<td>file:src/installed/entity/customer-service.ts</td><td>violates</td><td>policy:tenant-scope-required</td>',
     '<td>repair:repair_customer_normalizer</td><td>writes_to</td><td>file:custom/customer_normalizer.ts</td>',
     '<td>upgrade:auth/basic-session:0.1.1</td><td>writes_to</td><td>file:src/installed/auth/session.ts</td>',
@@ -969,6 +981,12 @@ test('write-local-views consumes generated artifacts from disk', async () => {
     '<td>upgrade</td>',
     'Edge Type Summary',
     '<td>depends_on</td>',
+    'Semantic Views',
+    'console-content-semantic',
+    '<th>View Kind</th><th>Subject</th><th>Nodes</th><th>Relations</th><th>Facts</th><th>Canonical Fact IDs</th>',
+    '<td>architecture</td>',
+    '<td>scenario</td>',
+    '<td>state</td>',
     'Graph Coverage Matrix',
     '<th>Information</th><th>Source</th><th>Coverage</th><th>Count</th>',
     '<td>app</td><td>ExplainGraph node</td><td>node table + type detail</td>',

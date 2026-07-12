@@ -17,6 +17,7 @@ import type {
   ReviewSummary,
   VerificationReport
 } from '../../platform/shared/types.ts';
+import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('buildProjectOverviewFromWorkspace reports missing required artifacts with recovery command', async () => {
@@ -101,6 +102,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
   };
 
   const graph: ExplainGraph = {
+    semanticViews: buildSemanticViewFixture(),
     nodes: [
       { id: 'app:customer-admin', type: 'app', label: 'Customer Admin' },
       { id: 'block:auth/basic-session', type: 'block', label: 'auth/basic-session' },
@@ -350,7 +352,8 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       missingReasonCounts: {
         'declared-generated-missing': 0,
         'fixed-governance-missing': 0,
-        'fixed-view-missing': 1
+        'fixed-view-missing': 1,
+        'stale-semantic-projection': 0
       },
       uploadGroups: [],
       missing: [
@@ -415,7 +418,8 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       missingReasonCounts: {
         'declared-generated-missing': 0,
         'fixed-governance-missing': 0,
-        'fixed-view-missing': 1
+        'fixed-view-missing': 1,
+        'stale-semantic-projection': 0
       }
     },
     artifacts: [],
