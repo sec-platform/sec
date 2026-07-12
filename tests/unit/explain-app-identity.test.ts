@@ -4,6 +4,7 @@ import { buildExplainGraph } from "../../platform/compiler/emit/write-explain-gr
 import type { AcceptanceCoverageReport } from "../../platform/shared/acceptance-types.ts";
 import type { LockFile } from "../../platform/shared/lock-types.ts";
 import type { ProvenanceFile } from "../../platform/shared/provenance-types.ts";
+import { buildSemanticViewFixture } from "../helpers/semantic-view-fixtures.ts";
 
 function lock(name: string): LockFile {
   return {
@@ -20,6 +21,7 @@ function lock(name: string): LockFile {
     slotTasks: [],
     generatedPaths: [],
     acceptancePlan: [],
+    semanticViews: buildSemanticViewFixture(),
     passStatus: {
       parse: "succeeded",
       align: "succeeded",

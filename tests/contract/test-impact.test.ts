@@ -1,6 +1,17 @@
 import { expect, test } from 'bun:test';
 
-import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
+import {
+  classifyTestImpactSource,
+  resolveTestOwnership,
+  selectTestsForSources
+} from '../../platform/shared/test-impact-contract.ts';
+
+test('test impact classifies every P0-7 source category deterministically', () => {
+  expect(classifyTestImpactSource('platform/compiler/semantic-linker.ts')).toBe('typescript');
+  expect(classifyTestImpactSource('platform/registry/official/ticket.basic/block.manifest.yaml')).toBe('manifest');
+  expect(classifyTestImpactSource('platform/registry/official/ticket.basic/contracts/ticket.yaml')).toBe('semantic-contract');
+  expect(classifyTestImpactSource('source/model/app.plan.yaml')).toBe('source-model');
+});
 
 test('test impact selector includes tests that directly import changed sources', () => {
   const selection = selectTestsForSources(['platform/shared/test-impact-contract.ts']);
@@ -128,9 +139,28 @@ test('test impact selector keeps declarative registry files visible to registry 
     'platform/registry/official/ticket.basic/contracts/ticket.yaml'
   ]);
 
-  expect(selection.owners).toContain('registry');
-  expect(selection.fast).toContain('tests/unit/path-containment.test.ts');
-  expect(selection.slow).toContain('tests/e2e/registry.test.ts');
+  expect(selection.owners).toEqual(expect.arrayContaining(['semantic-contract', 'ticket-core']));
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/validated-engineering-ir.test.ts',
+    'tests/integration/semantic-core-vertical.test.ts'
+  ]));
+  expect(selection.slow).toContain('tests/e2e/semantic-runtime-contract.test.ts');
+  expect(resolveTestOwnership(['platform/registry/official/ticket.basic/contracts/ticket.yaml'])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ owner: 'ticket-core', identity: { kind: 'contract', id: 'ticket-core' } })
+    ])
+  );
+});
+
+test('test impact derives manifest and source-model ownership from explicit declarations', () => {
+  const manifest = selectTestsForSources(['platform/registry/official/ticket.basic/block.manifest.yaml']);
+  expect(manifest.owners).toContain('registry-manifest');
+  expect(manifest.slow).toContain('tests/e2e/registry.test.ts');
+
+  const sourceModel = selectTestsForSources(['source/model/app.plan.yaml']);
+  expect(sourceModel.owners).toContain('source-model');
+  expect(sourceModel.fast).toContain('tests/integration/semantic-pipeline-spine.test.ts');
+  expect(sourceModel.slow).toContain('tests/e2e/semantic-runtime-contract.test.ts');
 });
 
 test('test impact selector keeps slow coverage as notice-only selection', () => {

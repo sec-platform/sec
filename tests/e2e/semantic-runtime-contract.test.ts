@@ -13,15 +13,51 @@ function expectTransition(source: string, from: string, to: string): void {
 test('ticket semantic contract lowers into the runtime transition contract', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const fixture = await prepareTicketSemanticRuntime(workspaceRoot);
+    const semanticContext = fixture.compilation.semanticContext!;
 
     expect(fixture.resolvedLock.semanticLoweringTasks).toBeUndefined();
-    expect(fixture.compilation.semanticContext?.generatorPlan.tasks[0]).toMatchObject({
+    expect(Object.isFrozen(semanticContext.snapshot)).toBe(true);
+    expect(Object.isFrozen(semanticContext.snapshot.ir)).toBe(true);
+    expect(semanticContext.snapshot.ir.facts.some((fact) =>
+      fact.subject === 'responsibility:ticket:TicketQuery' &&
+      fact.predicate === 'DEPENDS_ON' &&
+      fact.object.kind === 'entity' &&
+      fact.object.entityId === 'responsibility:tenant:TenantScopeGuard'
+    )).toBe(true);
+    expect(semanticContext.generatorPlan.tasks[0]).toMatchObject({
       contractId: 'ticket-core',
       stateId: 'ticket-status',
       target: fixture.runtimeTarget,
       generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
       artifactEntityId: `artifact:${fixture.runtimeTarget}`
     });
+    expect(semanticContext.generatorPlan).toMatchObject({
+      inputRevision: semanticContext.snapshot.ir.inputRevision,
+      semanticRevision: semanticContext.snapshot.ir.semanticRevision
+    });
+    expect(semanticContext.semanticViews).toMatchObject({
+      inputRevision: semanticContext.snapshot.ir.inputRevision,
+      semanticRevision: semanticContext.snapshot.ir.semanticRevision
+    });
+    expect(Object.isFrozen(semanticContext.semanticViews)).toBe(true);
+    expect(new Set(semanticContext.semanticViews.views.map((view) => view.viewKind))).toEqual(
+      new Set(['architecture', 'scenario', 'state'])
+    );
+    const sharedFactId = semanticContext.snapshot.ir.facts.find((fact) =>
+      fact.subject === 'operation:ticket:transitionTicketStatus' &&
+      fact.predicate === 'MUTATES' &&
+      fact.object.kind === 'entity' &&
+      fact.object.entityId === 'state:ticket:ticket-status'
+    )!.id;
+    for (const view of [
+      semanticContext.semanticViews.views.find((candidate) => candidate.viewKind === 'architecture')!,
+      semanticContext.semanticViews.views.find((candidate) => candidate.subject === 'scenario:ticket:transition-ticket-status')!,
+      semanticContext.semanticViews.views.find((candidate) => candidate.subject === 'state:ticket:ticket-status')!
+    ]) {
+      expect(view.nodes.some((node) => node.references.some((reference) => (
+        reference.kind === 'fact' && reference.ref === sharedFactId
+      )))).toBe(true);
+    }
     expect(fixture.composedLock.semanticLoweringTasks?.[0]?.status).toBe('generated');
     expect(fixture.composedLock.generatedPaths).toContain(fixture.runtimeTarget);
     expect(fixture.runtimeContract).toContain('export const TICKET_STATUS_VALUES');
@@ -45,7 +81,7 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
       generatorTaskId: 'generator:ticket/basic:ticket-status-runtime-contract',
       generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
       artifactEntityId: `artifact:${fixture.runtimeTarget}`,
-      semanticRevision: fixture.compilation.semanticContext?.semanticRevision,
+      semanticRevision: semanticContext.semanticRevision,
       compilationTransactionId: fixture.compilation.transactionId,
       overrideStatus: 'none'
     });

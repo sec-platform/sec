@@ -181,6 +181,28 @@ export function mergePrismaSchemas(existingContent: string, templateContent: str
   return (header ? header + '\n\n' : '') + blocksContent + '\n';
 }
 
+function sqliteDatabasePath(schemaPath: string, schemaContent: string): string | null {
+  const datasource = parsePrismaSchema(schemaContent).blocks.find((block) => block.type === 'datasource');
+  if (!datasource) return null;
+
+  const provider = /^\s*provider\s*=\s*"([^"]+)"/m.exec(datasource.content)?.[1];
+  const url = /^\s*url\s*=\s*"([^"]+)"/m.exec(datasource.content)?.[1];
+  if (provider !== 'sqlite' || !url?.startsWith('file:')) return null;
+
+  const databasePath = decodeURIComponent(url.slice('file:'.length).split('?', 1)[0]);
+  if (!databasePath) return null;
+  return path.isAbsolute(databasePath)
+    ? databasePath
+    : path.resolve(path.dirname(schemaPath), databasePath);
+}
+
+async function ensureSqliteDatabaseFile(schemaPath: string, schemaContent: string): Promise<void> {
+  const databasePath = sqliteDatabasePath(schemaPath, schemaContent);
+  if (databasePath && !(await pathExists(databasePath))) {
+    await writeText(databasePath, '');
+  }
+}
+
 export async function mergePrismaTemplate(workspaceRoot: string, projectRoot: string): Promise<void> {
   const { developerSourceRoot } = getWorkspacePaths(workspaceRoot);
   const templatePath = path.join(developerSourceRoot, 'schema', 'db.prisma.template');
@@ -195,6 +217,10 @@ export async function mergePrismaTemplate(workspaceRoot: string, projectRoot: st
 
   const mergedContent = mergePrismaSchemas(existingContent, templateContent);
   await writeText(targetPath, mergedContent);
+
+  // Prisma 6's Windows schema engine can fail without diagnostics while creating
+  // a missing SQLite file. Pre-creating the empty file preserves db push semantics.
+  await ensureSqliteDatabaseFile(targetPath, mergedContent);
 
   // Trigger prisma db push using bunx
   const result = await runCommand('bunx', ['prisma@6', 'db', 'push', '--accept-data-loss'], {

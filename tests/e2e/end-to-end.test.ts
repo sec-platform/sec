@@ -117,8 +117,30 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   const explainedLockState = await readJson<{ passStatus: { emit: string } }>(lockPath);
   expect(explainedLockState.passStatus.emit).toBe('succeeded');
-  expectGraphNode(graph, { id: 'slot:customer_normalizer' });
-  expectGraphNode(graph, { type: 'pin' });
+  expectGraphNode(graph, { id: 'slot:entity/customer-basic:customer_normalizer' });
+  expectGraphNode(graph, { id: 'port:entity/customer-basic:input:tenant_context', type: 'port' });
+  expectGraphNode(graph, { id: 'pin:entity/customer-basic:input:tenant_context', type: 'pin' });
+  expectGraphEdge(graph, {
+    from: 'block:entity/customer-basic',
+    to: 'pin:entity/customer-basic:input:tenant_context',
+    type: 'depends_on'
+  });
+  const canonicalPortNode = graph.nodes.find((node) => node.id === 'port:entity/customer-basic:input:tenant_context');
+  const legacyPinNode = graph.nodes.find((node) => node.id === 'pin:entity/customer-basic:input:tenant_context');
+  const canonicalPortEdge = graph.edges.find((edge) =>
+    edge.from === 'block:entity/customer-basic' &&
+    edge.to === 'port:entity/customer-basic:input:tenant_context' &&
+    edge.type === 'requires'
+  );
+  const legacyPinEdge = graph.edges.find((edge) =>
+    edge.from === 'block:entity/customer-basic' &&
+    edge.to === 'pin:entity/customer-basic:input:tenant_context' &&
+    edge.type === 'depends_on'
+  );
+  expect(canonicalPortNode?.references).toBeDefined();
+  expect(canonicalPortEdge?.references).toBeDefined();
+  expect(legacyPinNode?.references).toEqual(canonicalPortNode?.references);
+  expect(legacyPinEdge?.references).toEqual(canonicalPortEdge?.references);
   expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
   expectGraphEdge(graph, {
     from: 'policy:tenant-scope-required',

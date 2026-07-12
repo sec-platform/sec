@@ -35,9 +35,9 @@ Pipeline Kernel + Semantic Frontend / IR handoff + IR-owned Lowering 已完成
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前唯一 ACTIVE NEXT：Verification / CI Closure
+## 2. 当前收口：Verification / CI Closure exact-head Gate
 
-当前唯一 active next 是 **P0-7 Verification / CI Closure**。P0-6 已让 Architecture / Scenario / State Projector 只接受 validated snapshot，并让 ExplainGraph、ReviewSummary 与 Workbench 消费同一 `SemanticViewSet` / Fact identity。
+P0-7 Verification / CI Closure 已以 `ci-verification-v3` 本地组合 Full evidence 完成 correctness 收口；Quick / full-fast / budget / Contract Freeze、25/25 slow suites、benchmark / deps / ordered workspace / reference tail 均有可复用证据，剩余动作仅为 PR 管理、合并与清理。P0-6 已让 Architecture / Scenario / State Projector 只接受 validated snapshot，并让 ExplainGraph、ReviewSummary 与 Workbench 消费同一 `SemanticViewSet` / Fact identity。
 
 当前 P0 不是继续增加平行 Semantic Plan、第二套 Generator/Projection 解释器或新的 Pipeline；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context、Workspace Semantic Link、IR-owned Generator 与 canonical Projection 已经固定，当前任务是把这些不可旁路的语义纵切面纳入稳定 Verification / CI contract。
 
@@ -329,7 +329,7 @@ Ticket Contract
 
 ## 11. P0-7 Verification / CI Closure
 
-状态：**ACTIVE NEXT**。
+状态：**VERIFIED；`ci-verification-v3` 本地组合 Full 已闭合，待合并与清理**。
 
 ### Prerequisite
 
@@ -347,6 +347,17 @@ Ticket Contract
 8. Ordered workspace pass 失败后停止后续 mutating pass；`always()` 只用于 diagnostics / artifact collection。
 9. CI Contract 验证 step order、trigger freshness 和 exact head SHA，不只检查 command string 是否出现在 YAML。
 10. 增加 Ticket semantic vertical slice gate，覆盖 canonical frontend、validated IR、linker、IR-owned generator、runtime enforcement、projection 与 provenance。
+
+### 完成事实
+
+- Contract Freeze 以稳定 `contractId → test file` 注册并整文件运行，不再解析 test title。
+- Test Impact 显式分类 TypeScript、Manifest、Semantic Contract YAML 与 Source Model；architecture owner、Pipeline pass 与 Contract identity declaration 优先于路径 fallback。
+- PR Quick 的唯一 fast selector 是 `test:affected`；PR Risk 运行 impact-selected slow suites；Full 运行 canonical affected evidence、完整 fast、完整 slow registry 与 ordered workspace chain。
+- `run-full` label 保留时，PR `synchronize` 取消旧 head run 并验证最新 head；没有 `run-full` 的 synchronize 不启动 hosted runner。
+- CI Contract revision `ci-verification-v3` 结构化校验 trigger、PR/release step order、current base freshness、exact checkout/head/status wiring 与 `always()` diagnostics 边界。
+- Ticket semantic vertical 已成为命名 slow suite，在一次真实母例中覆盖 validated snapshot、跨 Contract link、Generator、runtime enforcement、三种 projection 共享 Fact ID 与 provenance。
+- P0-7 closeout 复用 hosted Quick / full-fast / budget / Contract Freeze 与 12 个 slow PASS，本地批量补齐其余 13 个 slow suites，并在 exact delta head 验证 canonical port → legacy pin compatibility 与 Prisma SQLite engine boundary；25/25 slow suites 均有有效 PASS。
+- 本地 Full tail 已按 benchmark → deps → resolve → compose → adapt → verify-all → lock → explain → reference 顺序串行 fail-fast 通过；reference refresh 仅增加 22 个 pin alias 节点和 22 条兼容边，未删除 canonical graph 内容。
 
 ### 退出条件
 
@@ -452,13 +463,13 @@ P0-5  IR-owned Generator / Ticket Enforcement            COMPLETED
   ↓
 P0-6  Semantic Projection Takeover                       COMPLETED
   ↓
-P0-7  Verification / CI Closure                          ACTIVE NEXT
+P0-7  Verification / CI Closure                          IMPLEMENTED
   ↓
-latest-head full validation
+latest-head ci-verification-v3 Full Gate                 MERGE REQUIRED
   ↓
 v0.3 exit review
 ```
 
-只有 **P0-7 Verification / CI Closure** 是当前 active next。latest-head full validation 与 v0.3 exit review 必须等待其直接 prerequisite 满足，不得用一次局部测试或历史 GitHub Actions 结果伪造 closure。
+P0-7 已是最后一个实现 Work Package。合并仍必须等待 latest-head `ci-verification-v3` Full status/evidence；该 Full 同时覆盖 Quick / Risk / Full correctness，且必须绑定 current base。不得用本地 focused test 或历史 GitHub Actions 结果伪造 merge closure。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。

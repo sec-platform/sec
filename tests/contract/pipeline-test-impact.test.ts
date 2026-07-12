@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
+import { resolveTestOwnership, selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
 
 test('pipeline test impact ownership selects kernel vertical coverage', () => {
   const selection = selectTestsForSources([
@@ -16,6 +16,11 @@ test('pipeline test impact ownership selects kernel vertical coverage', () => {
     'tests/e2e/pipeline.test.ts',
     'tests/e2e/end-to-end.test.ts'
   ]));
+  expect(resolveTestOwnership(['platform/shared/pipeline-kernel.ts'])).toContainEqual({
+    source: 'platform/shared/pipeline-kernel.ts',
+    owner: 'pipeline-kernel',
+    identity: { kind: 'pass', id: 'build-ir' }
+  });
 });
 
 test('pipeline test impact ownership selects Workbench coordinator coverage', () => {

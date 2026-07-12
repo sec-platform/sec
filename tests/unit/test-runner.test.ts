@@ -176,16 +176,19 @@ test.serial('affected tests skip broad fast-suite fallback for unmapped source c
   }
 });
 
-test.serial('affected tests map declarative registry files through impact rules', async () => {
+test.serial('affected tests map semantic Contract files through explicit contract ownership', async () => {
   changedFiles = ['platform/registry/official/ticket.basic/contracts/ticket.yaml'];
 
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
-  expect(devCommandCalls).toEqual([
-    { command: 'bun', args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts'] },
-    { command: 'bun', args: ['test', 'tests/integration/project-runtime.test.ts'] }
-  ]);
+  const invokedTests = devCommandCalls.flatMap((call) => call.args);
+  expect(invokedTests).toEqual(expect.arrayContaining([
+    'tests/unit/validated-engineering-ir.test.ts',
+    'tests/integration/semantic-core-vertical.test.ts',
+    'tests/integration/ticket-pipeline.test.ts'
+  ]));
+  expect(invokedTests).not.toContain('tests/unit/path-containment.test.ts');
 });
 
 test.serial('affected tests combine changed fast tests with source-owned coverage', async () => {

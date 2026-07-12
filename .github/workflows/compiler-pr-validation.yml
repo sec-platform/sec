@@ -1,48 +1,57 @@
 name: compiler-pr-validation
-run-name: verify PR #${{ github.event.pull_request.number }} ${{ github.event.label.name }} @ ${{ github.event.pull_request.head.sha }}
+run-name: verify PR #${{ github.event.pull_request.number }} ${{ github.event.action }} @ ${{ github.event.pull_request.head.sha }}
 
 on:
   pull_request:
     types:
       - labeled
+      - synchronize
 
 permissions:
   contents: read
   statuses: write
 
 concurrency:
-  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  SEC_CHANGED_BASE: ${{ github.event.pull_request.base.sha }}
-  SEC_AFFECTED_TESTS_BASE: ${{ github.event.pull_request.base.sha }}
-  SEC_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 jobs:
   compiler-pr-verification:
-    if: github.event.label.name == 'run-quick' || github.event.label.name == 'run-full'
+    if: >-
+      (github.event.action == 'labeled' && (github.event.label.name == 'run-quick' || github.event.label.name == 'run-full')) ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'run-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
-      - name: Validate current base freshness and dedupe verification key
+      - name: Resolve exact head, current base, profile, and dedupe key
         id: verification
         uses: actions/github-script@v7
         env:
           VERIFY_LABEL: ${{ github.event.label.name }}
+          VERIFY_ACTION: ${{ github.event.action }}
           VERIFY_HEAD: ${{ github.event.pull_request.head.sha }}
-          VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
         with:
           script: |
             const label = process.env.VERIFY_LABEL;
-            const profile = label === 'run-full' ? 'full' : label === 'run-quick' ? 'quick' : null;
+            const action = process.env.VERIFY_ACTION;
+            const labels = context.payload.pull_request.labels.map((entry) => entry.name);
+            const profile = action === 'synchronize'
+              ? labels.includes('run-full') ? 'full' : null
+              : label === 'run-full' ? 'full' : label === 'run-quick' ? 'quick' : null;
             if (!profile) {
               core.setFailed(`Unsupported verification label: ${label}`);
               return;
             }
             const headSha = process.env.VERIFY_HEAD;
-            const baseSha = process.env.VERIFY_BASE;
+            const { data: baseBranch } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: context.payload.pull_request.base.ref
+            });
+            const baseSha = baseBranch.commit.sha;
             const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -52,7 +61,7 @@ jobs:
               core.setFailed(`PR head ${headSha} is behind current base ${baseSha} by ${comparison.behind_by} commit(s); update the branch before verification.`);
               return;
             }
-            const statusContext = `sec-verification/${profile}/ci-verification-v2/base-${baseSha}`;
+            const statusContext = `sec-verification/${profile}/ci-verification-v3/base-${baseSha}`;
             const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -63,6 +72,8 @@ jobs:
               status.context === statusContext && status.state === 'success'
             ));
             core.setOutput('profile', profile);
+            core.setOutput('head', headSha);
+            core.setOutput('base', baseSha);
             core.setOutput('skip', trustedSuccess ? 'true' : 'false');
             if (trustedSuccess) {
               core.notice(`Trusted ${statusContext} success already exists for ${headSha}; expensive verification skipped.`);
@@ -72,7 +83,7 @@ jobs:
         if: steps.verification.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ steps.verification.outputs.head }}
           fetch-depth: 0
 
       - name: Setup Bun
@@ -88,11 +99,13 @@ jobs:
       - name: Run exact-head verification
         if: steps.verification.outputs.skip != 'true'
         id: verify
-        continue-on-error: true
         shell: bash
         run: bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"
         env:
           profile: ${{ steps.verification.outputs.profile }}
+          SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
+          SEC_AFFECTED_TESTS_BASE: ${{ steps.verification.outputs.base }}
+          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.head }}
 
       - name: Upload compact verification evidence
         id: evidence
@@ -111,15 +124,15 @@ jobs:
           VERIFY_PROFILE: ${{ steps.verification.outputs.profile }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
-          VERIFY_HEAD: ${{ github.event.pull_request.head.sha }}
-          VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
+          VERIFY_HEAD: ${{ steps.verification.outputs.head }}
+          VERIFY_BASE: ${{ steps.verification.outputs.base }}
         with:
           script: |
             const profile = process.env.VERIFY_PROFILE;
             const state = process.env.VERIFY_OUTCOME === 'success' && process.env.EVIDENCE_OUTCOME === 'success'
               ? 'success'
               : 'failure';
-            const statusContext = `sec-verification/${profile}/ci-verification-v2/base-${process.env.VERIFY_BASE}`;
+            const statusContext = `sec-verification/${profile}/ci-verification-v3/base-${process.env.VERIFY_BASE}`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -128,7 +141,3 @@ jobs:
               context: statusContext,
               description: `${profile} ${state} for exact frozen head and current base`
             });
-
-      - name: Fail failed verification
-        if: always() && steps.verification.outputs.skip != 'true' && (steps.verify.outcome != 'success' || steps.evidence.outcome != 'success')
-        run: exit 1

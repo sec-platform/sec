@@ -1,7 +1,7 @@
 ---
 title: 测试反馈与 CI 分层
 status: active
-last-reviewed: 2026-07-11
+last-reviewed: 2026-07-12
 ---
 
 # 测试反馈与 CI 分层
@@ -39,12 +39,13 @@ bun run imports:organize
 
 ```text
 install frozen dependencies
-→ organize changed imports
+→ check changed imports（TypeScript changed 时）
 → typecheck
-→ affected fast tests
+→ canonical test:affected
+→ impacted PR Risk（存在 slow / workspace risk 时）
 ```
 
-Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
+Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
 
 Affected selector 默认关注最近提交反馈，避免大型 PR 的每个小修复都重新扩张到整个 PR diff。
 
@@ -62,6 +63,8 @@ contract freeze if impacted
 
 PR Risk 不无条件执行所有 slow suites，也不默认执行 `verify --lane all`。
 
+Risk changed-file 计算优先使用 `SEC_CHANGED_BASE` 的完整 PR 范围。`--all-slow` 是 Full 的 slow executor，只执行 Registry 中的完整 slow suite，不重复 Contract Freeze 或 workspace fast。
+
 Engineering IR/Fact/Projection 公共类型、Builder、Schema、Artifact Path 变化应进入 Contract Freeze 或对应风险选择规则。
 
 ## 5. Release / Full
@@ -69,14 +72,18 @@ Engineering IR/Fact/Projection 公共类型、Builder、Schema、Artifact Path �
 职责：最终 correctness backstop。
 
 ```text
-preflight
+imports / typecheck / docs
+→ canonical affected quick evidence
+→ complete fast inventory
 → contract freeze
-→ slow suite matrix
+→ complete slow suite registry
 → benchmark/runtime dependency checks
 → full workspace compile/verify/lock/explain
 → reference drift
 → final summary
 ```
+
+Full 的 Ticket semantic vertical 是命名的强制 slow gate，覆盖 canonical frontend、Workspace Semantic Link、validated IR、IR-owned generator、runtime enforcement、canonical projection 与 Artifact Provenance。完整 Full evidence 同时声明其对 Quick、Risk、Full correctness 的覆盖，并绑定 exact head、current base 与 verification contract revision。
 
 触发方式由 GitHub Workflow 事实源决定。文档不复制完整 Workflow YAML。
 
@@ -106,15 +113,17 @@ Contract Freeze 保护机器或开发者依赖的稳定面，例如：
 - Engineering IR public schema（正式冻结后）。
 - Semantic View/Mutation public schema（正式冻结后）。
 
-新增 Contract Test 必须接入 Contract Freeze target source。Target 列表以 `contract-freeze-contract.ts` 为事实源。
+新增 Contract Test 必须以稳定 `contractId` 注册到 Contract Freeze target source。Target 列表以 `contract-freeze-contract.ts` 为事实源；runner 按注册文件执行，不允许用 test title 或 `--test-name-pattern` 作为合同身份。
 
 ## 8. Affected Test 选择
 
-按三层：
+Source classification 至少显式区分 TypeScript、Manifest、Semantic Contract YAML 与 Source Model。Test ownership 按三层：
 
-1. 直接变更 test：运行相关 fast test；slow test 进入风险提示。
-2. 自动源码引用：扫描 import/明确 repo path reference。
-3. 小量 Cross-domain Semantic Rule：只表达 import graph 无法表达的产品风险。
+1. architecture owner / Pipeline pass / Semantic Contract 的显式 ownership declaration。
+2. 自动源码引用：扫描 import/明确 repo path reference，作为补充 evidence。
+3. 路径规则只作 legacy fallback，不得与显式 identity 竞争 owner authority。
+
+直接变更 fast test 仍直接运行；直接变更 slow test 进入 PR Risk。`source/**` 不得因为不在 `platform/**` 下而静默漏选。
 
 缺少 mapping 时给清晰 notice。不要因为 selector 不完整就把 PR Quick 变成 Full。
 
@@ -157,8 +166,11 @@ imports:*
 - duration。
 - exit code。
 - selector reason（如适用）。
+- exact head SHA、base SHA、contract revision 与覆盖 profile。
 
 GitHub Actions 使用 group 展开边界，失败日志必须能快速定位负责 Gate。
+
+PR workflow 的结构化合同同时校验 trigger、step order 与 exact-head wiring：`run-full` label 保留时，后续 `synchronize` 必须取消旧 head run，并在最新 head 重新执行 Full；`always()` 只用于 evidence/status diagnostics，不得让失败后的 mutating Gate 继续运行。
 
 ## 12. 大改动模式
 
@@ -283,3 +295,51 @@ Implementation head `90818829582b5ec10d8c88fb06cc2921d511d5f1`，base `35170da6b
 | `79a679e9d7d32f417bc5558683b29deb109e4d1b` | 本地 `reference:refresh` 后 exact-head `reference:check` | reference full compile、Next build、unit、Playwright、SemanticView Lock/ExplainGraph/Review/Workbench artifacts、tracked diff 与 untracked scan | PASS（refresh 56.2s；check 56.4s；tracked 0；untracked 0；changed paths 0） | reference input、Projection/Pipeline revision contract、emit/artifact producer、Workbench template 或 runtime toolchain 变化时失效。 |
 
 提交前第一次 changed-only import probe 因工具只计算 `base..HEAD`，在变更尚未提交时输出 `No TypeScript import targets selected`，因此不计为 PASS；只有上表基于真实 commit 的 organizer/check 结果有效。第一次 reference refresh 的 Next build、unit、Playwright 已通过，但 Workbench EJS 在语义表格改为预计算后仍引用未绑定的 `semanticViewSet`，最终以非零退出，不计为 PASS；恢复该只读 bundle 绑定后，第二次 refresh 与随后 exact-head check 均完整通过。P0-6 未运行 full-fast、all-slow matrix 或 GitHub Actions；本 delta 未改变依赖锁、slow implementation/toolchain、benchmark、dependency warmup、test runner 或 selector contract，继续复用前述仍有效的昂贵 baseline。
+
+### 2026-07-12 P0-7 Verification / CI Closure development evidence
+
+Implementation head `b00415b`，base `a3025aca63c6c365e2561b415ddfe07dc8a61141`。P0-7 修改 selector、Contract Freeze、slow suite registry、CI runner/workflow 与 verification revision，因此历史 full-fast、test-budget、all-slow-risk 和 `ci-verification-v2` status 全部失效；P0-6 semantic/reference evidence 只作为未修改 artifact producer 的 baseline，不替代最终 `ci-verification-v3` Full。
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `b00415b` 对应实现树 | Contract/ownership/CI focused set | contractId、四类 source classification、explicit owner/pass/contract ownership、Risk selection、workflow YAML structure | PASS（36/36，19.2s） | Contract Freeze、impact/ownership、suite registry、CI plan/workflow 变化时失效。 |
+| 同上 | `bun run test:contract-freeze` | 12 个注册文件整文件运行；无 title regex | PASS（74/74，4.5s） | contractId/target file 或 contract test 内容变化时失效。 |
+| 同上 | Ticket semantic vertical + Pipeline sentinels | validated snapshot、Workspace Semantic Link、Generator、runtime enforcement、projection shared Fact ID、provenance | PASS（5/5，32.2s） | Ticket/Tenant Contract、IR/Linker/Lowerer/runtime/projection/provenance seam 变化时失效。 |
+| 同上 | runner/CI command/architecture/project focused set | canonical affected runner、suite expansion、package/contract wiring | PASS（50/50，6.0s） | test runner、package scripts、CI command contract 或 project runtime wiring 变化时失效。 |
+| 同上 | changed-only imports、`typecheck`、`docs:doctor`、`git diff --check` | import/type/doc/patch hygiene | PASS（imports 4.8s；typecheck 10.8s；docs doctor 0 errors / 0 warnings） | 最终文档 closeout 只需重跑 docs doctor 与 patch hygiene；TypeScript 变化则重跑 imports/typecheck。 |
+
+P0-7 原计划以 `sec-verification/full/ci-verification-v3/base-<current-base>` hosted status 作为最终证据载体；本次收口经用户明确授权改用本地组合证据，不再触发新的 GitHub Actions。替代证据仍必须覆盖 `quick / risk / full`，记录 exact tested head、PR base、contract revision、每个 Gate 的 scope/result/duration，并证明 intervening diff 没有使复用结果失效；不得把一次局部 PASS 伪装为完整 Full。
+
+### P0-7 增量复用与本地批量收口账本
+
+昂贵验证不得因只修改一个已定位的 test fixture 而从第一个 Gate 重新开始。A0 必须按 `contract revision + base + tested head + Gate + scope + result + invalidation` 记录前次结果，并以“最近有效 baseline + intervening diff impact + delta batch”组合当前证据。只有 Gate 输入、runner command/environment、selector/registry contract 或被覆盖语义发生变化时，已有 PASS 才失效。
+
+本地 slow resume 使用显式 suite batch：
+
+```text
+bun scripts/ci-pr-risk.ts --suite <suite-a> --suite <suite-b> ... --continue-on-failure
+```
+
+`--suite`（同时接受 `--suite <id>` / `--suite=<id>`）只运行账本中尚未覆盖或被 delta 失效的 suite；requested batch 必须从 clean tracked HEAD 启动并在结束时再次检查 clean。`--continue-on-failure` 只允许用于显式 suite batch，保证一次批次收集全部失败，并把 resolved head/base SHA、suite code/duration 和最终状态写入 `.tmp/ci-risk-batch-evidence.json` / `SEC_CI_RISK_SUMMARY`。默认 PR Risk / Full 仍保持 fail-fast；mutating workspace chain 永远不得 continue-on-failure。
+
+| Evidence | Head / base | 已证明且可复用 | Blocker / 失效边界 |
+| --- | --- | --- | --- |
+| Hosted run `29199433617` | `53f8740` / `a3025ac` | imports、typecheck、docs、affected | full-fast 的旧 ExplainGraph fixture 缺 canonical `semanticViews`；后续 Gate 未运行。 |
+| Hosted run `29199912439` | `0550cb4` / `a3025ac` | 上述 Quick、full-fast 329/329、test-budget、Contract Freeze 74/74 | all-slow 在 `e2e-graph` 暴露 canonical node `references` 断言漂移；后续 slow/workspace 未运行。 |
+| Hosted run `29200319653` | `e372263` / `a3025ac` | Quick、full-fast 329/329、test-budget、Contract Freeze；12 个 parallel-safe standard slow suites（compiler-smoke、dry-run-plan、expanded-blocks、graph、lanes、policy、repair、runtime-host、summary、upgrade、verify-lock、workspace） | 第一个 serial suite `e2e-pipeline-end-to-end` 仍期待 legacy slot ID；其后 serial/runtime-heavy suites 与 Full tail 未运行。 |
+
+`e372263` 之后的 graph test delta 不修改 production graph、SemanticView、runner command/environment 或上述已通过 slow suites 的输入，因此不得重跑 full-fast、test-budget、Contract Freeze 和已通过的 12 个 slow suites。收口只需：graph identity 风险簇、账本中剩余 slow suites 的一次 continue-on-failure 本地 batch、随后 benchmark/deps/ordered workspace Full tail。用户明确授权本轮使用本地环境完成该组合证据，不再触发新的 GitHub Actions；最终 ledger 必须记录本地 exact head/base、命令、duration、结果与失效规则。
+
+### 2026-07-12 P0-7 本地组合 Full closeout
+
+PR base 固定为 `a3025aca63c6c365e2561b415ddfe07dc8a61141`，contract revision 为 `ci-verification-v3`。以下结果与 hosted baseline 组合后覆盖 Quick、Risk、Full 全部 Gate；未重复运行已有有效 PASS。
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `3d3d78a` | `bun scripts/ci-pr-risk.ts` 13-suite remaining batch；`.tmp/ci-risk-batch-evidence.json` | hosted run 尚未覆盖的 13 个 serial/runtime-heavy slow suites | 10 PASS：pipeline、private-registry、registry、ticket-semantic-vertical、artifacts、conflicts、demo-doctor、explain、local-views、provenance；3 FAIL：pipeline-end-to-end、manifest、prisma-merge；总计 676.287s | 10 个 PASS 只有对应 suite implementation、runner/toolchain 或共享输入变化时失效；三个失败不计通过。 |
+| `17c2f39959b370c7176aec301bb7d2a2961f3ce1` | 三项 delta diagnosis batch；`.tmp/ci-risk-delta-batch-evidence.json` | pipeline-end-to-end、manifest、prisma-merge 精确根因 | 三项均 FAIL，总计 141.413s；前两项定位为 canonical port 缺 legacy pin compatibility projection，Prisma 定位为 Windows schema engine 在 SQLite 文件缺失时空详情失败 | 仅作为诊断证据，不计 Gate PASS；修复后只允许重跑这三个 suite。 |
+| `84f00a79aeecd8c18eff394d2ce60f968d9bfee0` / delta base `17c2f39` | `bun scripts/ci-pr-risk.ts --suite e2e-pipeline-end-to-end --suite e2e-manifest --suite e2e-prisma-merge --continue-on-failure`；`.tmp/ci-risk-batch-evidence.json` | 唯一一次三项风险簇 closure batch；canonical port → legacy pin alias/reference；SQLite pre-create + 原 Prisma 6 db push | PASS（pipeline-end-to-end 1/1，41.567s；manifest 3/3，91.228s；prisma-merge 1/1，73.825s；总计 206.620s；tracked tree clean） | ExplainGraph compatibility projection/reference、Prisma merge/runner/schema engine 或三项测试输入变化时失效。结合 hosted 12 项与前批 10 项，25/25 slow suites 均有有效 PASS。 |
+| `84f00a79aeecd8c18eff394d2ce60f968d9bfee0` / PR base `a3025ac` | `typecheck`；benchmark suite；deps warmup；ordered `resolve → compose → adapt → verify --lane all → lock → explain` | TypeScript delta、benchmark/dependency contract、完整 mutating workspace Full tail | PASS（typecheck 6.0s；benchmark 1.6s；deps 1.5s；resolve 6.5s；compose 2.9s；adapt 1.6s；verify-all 50.1s；lock 1.7s；explain 2.1s） | TypeScript、benchmark/dependency environment、workspace pass implementation/input 或 runtime toolchain 变化时失效；workspace chain 串行 fail-fast。 |
+| `8aeb1f47343d59c585a94a43c536bbb455b67692` / parent `84f00a7` | `bun run sec -- reference check --json --compact` | reference refresh、tracked diff、untracked scan；22 个 port 的 legacy pin derived artifact refresh | PASS（49.6s；refresh 0；tracked 0；untracked 0；changed paths 0） | ExplainGraph/Workbench producer、reference input 或 runtime toolchain 变化时失效。首次 check 在 refresh 成功后准确报告 6 个受管派生文件 drift；审查确认只新增 22 pin nodes + 22 compatibility edges、无删除且 references 与 port 一致，提交 refresh 后只重跑该 Gate。 |
+
+最终组合覆盖为：hosted Quick + full-fast 329/329 + test-budget + Contract Freeze 74/74；hosted 12 slow PASS；本地复用 10 slow PASS；exact delta 3 slow PASS；本地 benchmark/deps/ordered workspace/reference tail PASS。`8aeb1f4` 之后仅允许 evidence ledger / roadmap 文档 closeout；该 docs-only diff 不使上述实现、slow、workspace 或 reference 证据失效。P0-7 correctness Gate 已闭合，剩余动作仅为 PR 管理、合并与清理。

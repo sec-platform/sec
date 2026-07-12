@@ -17832,6 +17832,336 @@
       ]
     },
     {
+      "id": "pin:agent/executor:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:agent/executor:input:actor_identity"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:f91187a25180926b5e6ec6be"
+        }
+      ]
+    },
+    {
+      "id": "pin:agent/executor:input:ticket_created",
+      "type": "pin",
+      "label": "ticket_created",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:agent/executor:input:ticket_created"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:ed2ba8ea332dab4bc5e83207"
+        }
+      ]
+    },
+    {
+      "id": "pin:agent/executor:output:agent_executed",
+      "type": "pin",
+      "label": "agent_executed",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:agent/executor:output:agent_executed"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:034532bd63978cd9bb6cd7ed"
+        }
+      ]
+    },
+    {
+      "id": "pin:agent/harness:input:tenant_context",
+      "type": "pin",
+      "label": "tenant_context",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:agent/harness:input:tenant_context"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:ab0defa8341a376ab69e3b1b"
+        }
+      ]
+    },
+    {
+      "id": "pin:agent/harness:output:agent_registered",
+      "type": "pin",
+      "label": "agent_registered",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:agent/harness:output:agent_registered"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:707eede9c7a47166109e4432"
+        }
+      ]
+    },
+    {
+      "id": "pin:auth/basic-session:output:actor_identity",
+      "type": "pin",
+      "label": "actor_identity",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:auth/basic-session:output:actor_identity"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:d76e45b19d805e732b6408c1"
+        }
+      ]
+    },
+    {
+      "id": "pin:comment/basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:comment/basic:input:actor_identity"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:68d08ed3978e32087c07c972"
+        }
+      ]
+    },
+    {
+      "id": "pin:comment/basic:input:ticket_created",
+      "type": "pin",
+      "label": "ticket_created",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:comment/basic:input:ticket_created"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:12852c9fe0d8186fd4d16447"
+        }
+      ]
+    },
+    {
+      "id": "pin:comment/basic:output:comment_added",
+      "type": "pin",
+      "label": "comment_added",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:comment/basic:output:comment_added"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:6d1219e460b8bff95aecaaf1"
+        }
+      ]
+    },
+    {
+      "id": "pin:entity/customer-basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:entity/customer-basic:input:actor_identity"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:54b4043751eaccc42e1977af"
+        }
+      ]
+    },
+    {
+      "id": "pin:entity/customer-basic:input:tenant_context",
+      "type": "pin",
+      "label": "tenant_context",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:entity/customer-basic:input:tenant_context"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:0f0b4cd6c2d8d55b72b61606"
+        }
+      ]
+    },
+    {
+      "id": "pin:entity/customer-basic:output:customer_created",
+      "type": "pin",
+      "label": "customer_created",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:entity/customer-basic:output:customer_created"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:a8e9207bd604fcc68b1718ab"
+        }
+      ]
+    },
+    {
+      "id": "pin:file/upload:input:customer_created",
+      "type": "pin",
+      "label": "customer_created",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:file/upload:input:customer_created"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:ad6e9ab88cd5b74a0627f765"
+        }
+      ]
+    },
+    {
+      "id": "pin:file/upload:output:customer_attachment_uploaded",
+      "type": "pin",
+      "label": "customer_attachment_uploaded",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:file/upload:output:customer_attachment_uploaded"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:7ad5c6495709099c47b4dbe0"
+        }
+      ]
+    },
+    {
+      "id": "pin:tenant/basic-workspace:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:tenant/basic-workspace:input:actor_identity"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:ca66465a5fb87560f2daa39e"
+        }
+      ]
+    },
+    {
+      "id": "pin:tenant/basic-workspace:output:tenant_context",
+      "type": "pin",
+      "label": "tenant_context",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:tenant/basic-workspace:output:tenant_context"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:77b8f787f45b8c57d8a30a5f"
+        }
+      ]
+    },
+    {
+      "id": "pin:ticket/basic:input:actor_identity",
+      "type": "pin",
+      "label": "actor_identity",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:ticket/basic:input:actor_identity"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:57afaa920725159c187a7e06"
+        }
+      ]
+    },
+    {
+      "id": "pin:ticket/basic:input:tenant_context",
+      "type": "pin",
+      "label": "tenant_context",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:ticket/basic:input:tenant_context"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:eaf9169089c67a9dccc62095"
+        }
+      ]
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_attachment_uploaded",
+      "type": "pin",
+      "label": "ticket_attachment_uploaded",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:ticket/basic:output:ticket_attachment_uploaded"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:43d3823f1b8da3ac62357769"
+        }
+      ]
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_comment_added",
+      "type": "pin",
+      "label": "ticket_comment_added",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:ticket/basic:output:ticket_comment_added"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:f351de0b9ca269e655308c98"
+        }
+      ]
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_created",
+      "type": "pin",
+      "label": "ticket_created",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:ticket/basic:output:ticket_created"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:d145b307e30b819cf99dc76b"
+        }
+      ]
+    },
+    {
+      "id": "pin:ticket/basic:output:ticket_status_transitioned",
+      "type": "pin",
+      "label": "ticket_status_transitioned",
+      "references": [
+        {
+          "kind": "entity",
+          "ref": "port:ticket/basic:output:ticket_status_transitioned"
+        },
+        {
+          "kind": "fact",
+          "ref": "fact:e5d9d9a89265ae2bc92b2762"
+        }
+      ]
+    },
+    {
       "id": "policy:tenant-scope-required",
       "type": "policy",
       "label": "tenant-scope-required",
@@ -18771,12 +19101,45 @@
     },
     {
       "from": "block:agent/executor",
+      "to": "pin:agent/executor:input:actor_identity",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:f91187a25180926b5e6ec6be"
+        }
+      ]
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "pin:agent/executor:input:ticket_created",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:ed2ba8ea332dab4bc5e83207"
+        }
+      ]
+    },
+    {
+      "from": "block:agent/executor",
       "to": "capability:agent/executor",
       "type": "provides",
       "references": [
         {
           "kind": "fact",
           "ref": "fact:cd0fa193885dce333fbd9b95"
+        }
+      ]
+    },
+    {
+      "from": "block:agent/executor",
+      "to": "pin:agent/executor:output:agent_executed",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:034532bd63978cd9bb6cd7ed"
         }
       ]
     },
@@ -18831,12 +19194,34 @@
     },
     {
       "from": "block:agent/harness",
+      "to": "pin:agent/harness:input:tenant_context",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:ab0defa8341a376ab69e3b1b"
+        }
+      ]
+    },
+    {
+      "from": "block:agent/harness",
       "to": "capability:agent/harness",
       "type": "provides",
       "references": [
         {
           "kind": "fact",
           "ref": "fact:15d62767aa5cbbadd3dcef1c"
+        }
+      ]
+    },
+    {
+      "from": "block:agent/harness",
+      "to": "pin:agent/harness:output:agent_registered",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:707eede9c7a47166109e4432"
         }
       ]
     },
@@ -18875,6 +19260,17 @@
         {
           "kind": "fact",
           "ref": "fact:a8dbed099e13ca4681ca29b0"
+        }
+      ]
+    },
+    {
+      "from": "block:auth/basic-session",
+      "to": "pin:auth/basic-session:output:actor_identity",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:d76e45b19d805e732b6408c1"
         }
       ]
     },
@@ -18929,12 +19325,45 @@
     },
     {
       "from": "block:comment/basic",
+      "to": "pin:comment/basic:input:actor_identity",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:68d08ed3978e32087c07c972"
+        }
+      ]
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "pin:comment/basic:input:ticket_created",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:12852c9fe0d8186fd4d16447"
+        }
+      ]
+    },
+    {
+      "from": "block:comment/basic",
       "to": "capability:ticket/comment",
       "type": "provides",
       "references": [
         {
           "kind": "fact",
           "ref": "fact:38f73e79087a3590cc7f8c8d"
+        }
+      ]
+    },
+    {
+      "from": "block:comment/basic",
+      "to": "pin:comment/basic:output:comment_added",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:6d1219e460b8bff95aecaaf1"
         }
       ]
     },
@@ -19011,6 +19440,28 @@
     },
     {
       "from": "block:entity/customer-basic",
+      "to": "pin:entity/customer-basic:input:actor_identity",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:54b4043751eaccc42e1977af"
+        }
+      ]
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "pin:entity/customer-basic:input:tenant_context",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:0f0b4cd6c2d8d55b72b61606"
+        }
+      ]
+    },
+    {
+      "from": "block:entity/customer-basic",
       "to": "capability:customer/read",
       "type": "provides",
       "references": [
@@ -19028,6 +19479,17 @@
         {
           "kind": "fact",
           "ref": "fact:2c1bb24fae71ba7f017b7126"
+        }
+      ]
+    },
+    {
+      "from": "block:entity/customer-basic",
+      "to": "pin:entity/customer-basic:output:customer_created",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:a8e9207bd604fcc68b1718ab"
         }
       ]
     },
@@ -19118,12 +19580,34 @@
     },
     {
       "from": "block:file/upload",
+      "to": "pin:file/upload:input:customer_created",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:ad6e9ab88cd5b74a0627f765"
+        }
+      ]
+    },
+    {
+      "from": "block:file/upload",
       "to": "capability:file/upload",
       "type": "provides",
       "references": [
         {
           "kind": "fact",
           "ref": "fact:4ec977d07016289410877170"
+        }
+      ]
+    },
+    {
+      "from": "block:file/upload",
+      "to": "pin:file/upload:output:customer_attachment_uploaded",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:7ad5c6495709099c47b4dbe0"
         }
       ]
     },
@@ -19184,12 +19668,34 @@
     },
     {
       "from": "block:tenant/basic-workspace",
+      "to": "pin:tenant/basic-workspace:input:actor_identity",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:ca66465a5fb87560f2daa39e"
+        }
+      ]
+    },
+    {
+      "from": "block:tenant/basic-workspace",
       "to": "capability:tenant/context",
       "type": "provides",
       "references": [
         {
           "kind": "fact",
           "ref": "fact:0e6faab1fbeb3dbe1e74b968"
+        }
+      ]
+    },
+    {
+      "from": "block:tenant/basic-workspace",
+      "to": "pin:tenant/basic-workspace:output:tenant_context",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:77b8f787f45b8c57d8a30a5f"
         }
       ]
     },
@@ -19788,6 +20294,28 @@
     },
     {
       "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:input:actor_identity",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:57afaa920725159c187a7e06"
+        }
+      ]
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:input:tenant_context",
+      "type": "depends_on",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:eaf9169089c67a9dccc62095"
+        }
+      ]
+    },
+    {
+      "from": "block:ticket/basic",
       "to": "capability:ticket/read",
       "type": "provides",
       "references": [
@@ -19805,6 +20333,50 @@
         {
           "kind": "fact",
           "ref": "fact:33897f66850bfac13a90fab5"
+        }
+      ]
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_attachment_uploaded",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:43d3823f1b8da3ac62357769"
+        }
+      ]
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_comment_added",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:f351de0b9ca269e655308c98"
+        }
+      ]
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_created",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:d145b307e30b819cf99dc76b"
+        }
+      ]
+    },
+    {
+      "from": "block:ticket/basic",
+      "to": "pin:ticket/basic:output:ticket_status_transitioned",
+      "type": "provides",
+      "references": [
+        {
+          "kind": "fact",
+          "ref": "fact:e5d9d9a89265ae2bc92b2762"
         }
       ]
     },

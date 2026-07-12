@@ -44,7 +44,7 @@ jobs:
               ref: requestedRef
             });
             const headSha = commit.sha;
-            const statusContext = 'sec-verification/full/ci-verification-v2';
+            const statusContext = 'sec-verification/full/ci-verification-v3';
             const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -80,7 +80,6 @@ jobs:
       - name: Run exact-head full verification
         if: steps.verification.outputs.skip != 'true'
         id: verify
-        continue-on-error: true
         shell: bash
         env:
           SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
@@ -113,10 +112,6 @@ jobs:
               repo: context.repo.repo,
               sha: process.env.VERIFY_HEAD,
               state,
-              context: 'sec-verification/full/ci-verification-v2',
+              context: 'sec-verification/full/ci-verification-v3',
               description: `full ${state} for exact frozen head`
             });
-
-      - name: Fail failed verification
-        if: always() && steps.verification.outputs.skip != 'true' && (steps.verify.outcome != 'success' || steps.evidence.outcome != 'success')
-        run: exit 1
