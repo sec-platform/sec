@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1",
+  "evidenceId": "v0-3-semantic-frontend-87a0a9e",
+  "recordedAt": "2026-07-13T02:50:03.5711918+08:00",
+  "testedHead": "87a0a9ea496c9b6186f165455c11fec4f34fea7d",
+  "testedTree": "74271dcd0b2daa5a6edf0acfde0b3f6902acb374",
+  "baseSha": "d31a627ff6c41fe14202dd229e4b56aba002e42e",
+  "baseTree": "a90150513068f9ace651c3cca385e39c433b42a7",
+  "profile": "v0.3-exit-delta",
+  "contractRevision": "ci-verification-v3",
+  "scope": {
+    "selectionReason": "canonical Semantic Frontend and template sandbox convergence",
+    "changedPathCount": 7,
+    "changedPathsSha256": "249e1d79755f1e1af40900a720e5069d41a8ea8bfc4d410e64bfb8e15f1e9ce8",
+    "changedPaths": [
+      "platform/compiler/index.ts",
+      "platform/compiler/semantic-frontend.ts",
+      "platform/compiler/verify/validate-resolved-templates.ts",
+      "platform/orchestrator/semantic-orchestrator.ts",
+      "platform/shared/pipeline-semantic-context.ts",
+      "platform/shared/test-impact-rules/semantic.ts",
+      "tests/integration/semantic-pipeline-spine.test.ts"
+    ],
+    "owners": [
+      "auto-reference",
+      "pipeline-kernel",
+      "semantic-ir",
+      "verification-infrastructure"
+    ],
+    "selectedFastFileCount": 27,
+    "selectedSlowSuites": [
+      "e2e-graph",
+      "e2e-local-views",
+      "e2e-pipeline",
+      "e2e-pipeline-end-to-end",
+      "e2e-registry",
+      "e2e-ticket-semantic-vertical"
+    ]
+  },
+  "gates": [
+    {
+      "gateId": "imports-check",
+      "argv": ["bun", "run", "imports:check"],
+      "exitCode": 0,
+      "durationMs": 3314
+    },
+    {
+      "gateId": "typecheck",
+      "argv": ["bun", "run", "typecheck"],
+      "exitCode": 0,
+      "durationMs": 5210
+    },
+    {
+      "gateId": "test-affected",
+      "argv": ["bun", "run", "test:affected"],
+      "exitCode": 0,
+      "durationMs": 98583
+    },
+    {
+      "gateId": "contract-freeze",
+      "argv": ["bun", "run", "test:contract-freeze"],
+      "exitCode": 0,
+      "passed": 74,
+      "failed": 0,
+      "durationMs": 22641
+    },
+    {
+      "gateId": "slow-risk-batch",
+      "argv": [
+        "bun",
+        "scripts/ci-pr-risk.ts",
+        "--suite",
+        "e2e-graph",
+        "--suite",
+        "e2e-local-views",
+        "--suite",
+        "e2e-pipeline",
+        "--suite",
+        "e2e-pipeline-end-to-end",
+        "--suite",
+        "e2e-registry",
+        "--suite",
+        "e2e-ticket-semantic-vertical",
+        "--continue-on-failure"
+      ],
+      "exitCode": 0,
+      "durationMs": 266894,
+      "rawEvidence": "docs/evidence/v0-3-semantic-frontend-risk-batch.json",
+      "rawEvidenceSha256": "96c07f1d2b934a29cadadfbb9f8908dc89925445960e7601da79cc68cd6de82b"
+    },
+    {
+      "gateId": "workspace-fast",
+      "argv": ["bun", "scripts/ci-workspace-fast.ts"],
+      "exitCode": 0,
+      "durationMs": 8356
+    },
+    {
+      "gateId": "reference-check",
+      "argv": ["bun", "run", "sec", "--", "reference", "check", "--json", "--compact"],
+      "exitCode": 0,
+      "durationMs": 52189,
+      "changedPathCount": 0
+    }
+  ],
+  "treeCleanBefore": true,
+  "treeCleanAfter": true,
+  "status": "passed",
+  "invalidationRules": [
+    "semantic frontend loader, validator, generator plan, projection bundle, or context construction changes",
+    "template validation sandbox or compose boundary changes",
+    "test impact ownership, slow suite registry, runner, or verification contract changes",
+    "reference input, semantic artifact producer, or runtime toolchain changes"
+  ],
+  "remainingGaps": []
+}
