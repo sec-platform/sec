@@ -1,0 +1,40 @@
+{
+  "contractRevision": "ci-verification-v3",
+  "headSha": "77e61876c557ec4cc8fe168fe911f18193c497db",
+  "baseRef": "e3722632582a2080265edc6b0672b74bbf1ef259",
+  "baseSha": "e3722632582a2080265edc6b0672b74bbf1ef259",
+  "mode": "requested-batch",
+  "continueOnFailure": true,
+  "selectedSlowSuites": [
+    "e2e-graph",
+    "e2e-artifacts",
+    "e2e-explain",
+    "e2e-local-views"
+  ],
+  "completedSlowSteps": [
+    {
+      "id": "slow-suite-e2e-graph",
+      "code": 0,
+      "durationMs": 7845
+    },
+    {
+      "id": "slow-suite-e2e-artifacts",
+      "code": 0,
+      "durationMs": 42423
+    },
+    {
+      "id": "slow-suite-e2e-explain",
+      "code": 0,
+      "durationMs": 41071
+    },
+    {
+      "id": "slow-suite-e2e-local-views",
+      "code": 0,
+      "durationMs": 41483
+    }
+  ],
+  "failedSlowSteps": [],
+  "trackedTreeCleanAfter": true,
+  "status": "passed",
+  "durationMs": 132825
+}
