@@ -30,7 +30,27 @@ const SEMANTIC_LOWERING_FAST_TESTS = [
   "tests/integration/semantic-core-vertical.test.ts",
 ];
 
+const FACT_DELTA_FAST_TESTS = [
+  "tests/unit/fact-delta.test.ts",
+  "tests/unit/fact-assertion-model.test.ts",
+  "tests/unit/canonical-ir-identity-revision.test.ts",
+  "tests/unit/validated-engineering-ir.test.ts",
+  "tests/contract/fact-delta-contract.test.ts",
+  "tests/contract/test-impact.test.ts",
+  "tests/contract/contract-freeze.test.ts",
+];
+
 export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: "fact-delta",
+    identity: { kind: "architecture-owner", id: "fact-delta" },
+    sourceFiles: [
+      "platform/compiler/ir/build-fact-delta.ts",
+      "platform/shared/engineering-ir/delta-types.ts",
+    ],
+    fast: FACT_DELTA_FAST_TESTS,
+    slow: [],
+  },
   {
     owner: "semantic-ir",
     identity: { kind: "architecture-owner", id: "semantic-ir" },

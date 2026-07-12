@@ -64,6 +64,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
     contractFreezeTarget('cli.usage', 'tests/contract/usage.test.ts'),
     contractFreezeTarget('dependency.environment', 'tests/contract/environment.test.ts'),
     contractFreezeTarget('reference.drift', 'tests/contract/reference.test.ts'),
+    contractFreezeTarget('semantic.fact-delta', 'tests/contract/fact-delta-contract.test.ts'),
     contractFreezeTarget('verification.budget', 'tests/contract/benchmark-budget.test.ts'),
     contractFreezeTarget('verification.impact', 'tests/contract/test-impact.test.ts'),
     contractFreezeTarget('verification.ci-lanes', 'tests/contract/ci-lanes.test.ts'),

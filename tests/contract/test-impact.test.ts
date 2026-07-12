@@ -60,6 +60,30 @@ test('test impact selector owns canonical IR changes as semantic core changes', 
   ]));
 });
 
+test('test impact selector gives Fact Delta a focused owner without dedicated slow coverage', () => {
+  const selection = selectTestsForSources([
+    'platform/compiler/ir/build-fact-delta.ts',
+    'platform/shared/engineering-ir/delta-types.ts'
+  ]);
+
+  expect(selection.owners).toContain('fact-delta');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/fact-delta.test.ts',
+    'tests/unit/fact-assertion-model.test.ts',
+    'tests/unit/canonical-ir-identity-revision.test.ts',
+    'tests/unit/validated-engineering-ir.test.ts',
+    'tests/contract/fact-delta-contract.test.ts'
+  ]));
+  expect(resolveTestOwnership(['platform/compiler/ir/build-fact-delta.ts'])).toContainEqual({
+    source: 'platform/compiler/ir/build-fact-delta.ts',
+    owner: 'fact-delta',
+    identity: { kind: 'architecture-owner', id: 'fact-delta' }
+  });
+  const dedicatedOwner = resolveTestOwnership(['platform/compiler/ir/build-fact-delta.ts'])
+    .filter((entry) => entry.owner === 'fact-delta');
+  expect(dedicatedOwner).toHaveLength(1);
+});
+
 test('test impact selector binds predicate signature authority to focused semantic IR coverage', () => {
   const selection = selectTestsForSources([
     'platform/shared/engineering-ir/predicate-signature-types.ts',

@@ -1,0 +1,153 @@
+{
+  "schemaVersion": "1",
+  "evidenceId": "v0-4-fact-delta-kernel-8918425",
+  "recordedAt": "2026-07-13T04:16:09.0925170+08:00",
+  "finalImplementationHead": "8918425cd497617d010b373872c326a09d68014b",
+  "finalImplementationTree": "a7755e460bce48c6fbff817ff7b1a70b94c42469",
+  "productionRiskHead": "ab170f9ee80f960b238047855372afa5441e498f",
+  "baseSha": "33716389d551a998f0fd2d9379afbf3cf8821177",
+  "baseTree": "ab435ebddd9d4d5eb25ee598c3e843738f6b897d",
+  "profile": "v0.4-fact-delta-kernel",
+  "contractRevision": "ci-verification-v3",
+  "scope": {
+    "productionBlobs": [
+      {
+        "path": "platform/compiler/ir/build-fact-delta.ts",
+        "blob": "d45bdde74755254e9c8b99a4591de0de3a626bc8"
+      },
+      {
+        "path": "platform/shared/engineering-ir/delta-types.ts",
+        "blob": "f2e6d19893a37f23015f7aa4bb72d7f193bd33b7"
+      }
+    ],
+    "contractBlobs": [
+      {
+        "path": "tests/contract/fact-delta-contract.test.ts",
+        "blob": "1abd25fa048b580c6b8b9e1095ba80846d18e4f0"
+      },
+      {
+        "path": "tests/unit/fact-delta.test.ts",
+        "blob": "d083322b8d1bf5426fd3ff8a85a5bdaf4fe2d685"
+      }
+    ],
+    "forbiddenBoundariesTouched": []
+  },
+  "gates": [
+    {
+      "gateId": "focused-contract-batch",
+      "testedHead": "f977053fbadc7d318c211bea8580c411124bfe0b",
+      "status": "passed",
+      "passed": 49,
+      "failed": 0,
+      "durationMs": 10760,
+      "files": 7
+    },
+    {
+      "gateId": "contract-freeze",
+      "testedHead": "f977053fbadc7d318c211bea8580c411124bfe0b",
+      "status": "passed",
+      "passed": 77,
+      "failed": 0,
+      "durationMs": 2940,
+      "files": 13
+    },
+    {
+      "gateId": "affected-fast",
+      "testedHead": "f977053fbadc7d318c211bea8580c411124bfe0b",
+      "status": "passed",
+      "passed": 162,
+      "failed": 0,
+      "wallDurationMs": 97200,
+      "batchCounts": [119, 29, 1, 13]
+    },
+    {
+      "gateId": "selector-required-slow-batch",
+      "testedHead": "ab170f9ee80f960b238047855372afa5441e498f",
+      "status": "passed",
+      "passedSuites": 3,
+      "failedSuites": 0,
+      "durationMs": 55502,
+      "evidencePath": "docs/evidence/v0-4-fact-delta-risk-batch.json"
+    },
+    {
+      "gateId": "digest-contract-vector-delta",
+      "testedHead": "8918425cd497617d010b373872c326a09d68014b",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "durationMs": 1119,
+      "files": 2
+    },
+    {
+      "gateId": "typecheck",
+      "testedHead": "8918425cd497617d010b373872c326a09d68014b",
+      "status": "passed",
+      "durationMs": 6100
+    },
+    {
+      "gateId": "changed-imports",
+      "testedHead": "8918425cd497617d010b373872c326a09d68014b",
+      "status": "passed",
+      "environmentNote": "Windows core.autocrlf=true required changed-only organize/check; the five LF working-tree touches had zero normalized Git diff and were restored after the passing check"
+    },
+    {
+      "gateId": "implementation-frozen-review",
+      "testedHead": "8918425cd497617d010b373872c326a09d68014b",
+      "status": "passed",
+      "remainingFindings": []
+    },
+    {
+      "gateId": "patch-hygiene",
+      "testedHead": "8918425cd497617d010b373872c326a09d68014b",
+      "status": "passed"
+    }
+  ],
+  "evidenceComposition": {
+    "f977053_to_ab170f9": "only compiler/shared export import order and one unused test type import changed; production semantics did not change",
+    "ab170f9_to_8918425": "only independent Contract Freeze expected vectors changed; production blobs and public facade stayed identical",
+    "reusedBaseline": [
+      "v0.3 full-fast 329/329",
+      "the other 22 slow suites",
+      "benchmark and dependency warmup",
+      "test-budget",
+      "ordered workspace chain",
+      "reference check"
+    ]
+  },
+  "environmentClosure": {
+    "junctionPath": "D:/Project/sec-worktrees/v0-4-fact-delta-implementation/node_modules",
+    "junctionTarget": "D:/Project/sec/node_modules",
+    "rootNodeModulesEntryCountBefore": 408
+  },
+  "documentationClosure": {
+    "recordedAt": "2026-07-13T04:17:47.8708232+08:00",
+    "roadmapBlob": "4826b9c02e9d193f8597b1924697fccde15df6f6",
+    "gates": [
+      {
+        "gateId": "roadmap-contract",
+        "status": "passed",
+        "passed": 29,
+        "failed": 0,
+        "durationMs": 1580
+      },
+      {
+        "gateId": "docs-doctor",
+        "status": "passed",
+        "errors": 0,
+        "warnings": 0
+      },
+      {
+        "gateId": "patch-hygiene",
+        "status": "passed"
+      }
+    ]
+  },
+  "status": "passed",
+  "invalidationRules": [
+    "any production or public facade blob changes",
+    "Fact Delta endpoint, digest, classification, validity, diagnostic, ordering, freeze or scope authority changes",
+    "test ownership, Contract Freeze target, slow registry or verification contract changes",
+    "FD-1 is connected to Pipeline, Workspace, Lock, Projection, artifact, Impact or Mutation"
+  ],
+  "remainingGaps": []
+}
