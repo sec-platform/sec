@@ -11,6 +11,7 @@ import type {
 } from '../../runtime/database.ts';
 import type { Session } from '../auth/session.ts';
 import { currentTenant } from '../tenant/context.ts';
+import { NEXT_TICKET_STATUS } from './ticket-semantic-contract.ts';
 
 export interface TicketFilters {
   assigneeId?: string;
@@ -82,6 +83,10 @@ export function transitionTicketStatus(
 ): TicketRecord {
   const tenantId = currentTenant(session);
   const ticket = assertTenantTicket(db, ticketId, tenantId);
+  const expectedStatus = NEXT_TICKET_STATUS[ticket.status];
+  if (status !== expectedStatus) {
+    throw new Error(`Invalid ticket status transition: ${ticket.status} -> ${status}`);
+  }
   ticket.status = status;
   ticket.updatedAt = new Date(0).toISOString();
   return ticket;

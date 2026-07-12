@@ -11,9 +11,13 @@ function occurrenceCount(source: string, value: string): number {
   return source.split(value).length - 1;
 }
 
+function normalizeNewlines(source: string): string {
+  return source.replace(/\r\n?/gu, '\n');
+}
+
 test('active GitHub validation workflows execute fresh frozen heads once and retired legacy entry stays absent', async () => {
-  const prWorkflow = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
-  const releaseWorkflow = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
+  const prWorkflow = normalizeNewlines(await readCompilerFile('.github/workflows/compiler-pr-validation.yml'));
+  const releaseWorkflow = normalizeNewlines(await readCompilerFile('.github/workflows/compiler-release-validation.yml'));
   const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
   const contract = buildCiContract();
 

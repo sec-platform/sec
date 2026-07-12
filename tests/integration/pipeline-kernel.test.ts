@@ -10,6 +10,7 @@ import {
   commitPipelineTransaction,
   readPipelineJournal,
   recordPipelinePassStart,
+  REFERENCE_PIPELINE_TRANSACTION_ID,
   startPipelineTransaction
 } from '../../platform/shared/pipeline-journal.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -83,7 +84,7 @@ test('blocked stage is persisted as blocked instead of a pass execution failure'
     expect(transaction?.status).toBe('failed');
     expect(transaction?.passRecords).toEqual([
       expect.objectContaining({
-        passId: 'compose',
+        passId: 'build-ir',
         status: 'blocked',
         errorCode: 'PIPELINE-BLOCKED-002'
       })
@@ -116,4 +117,33 @@ test('new transaction marks an abandoned running transaction as interrupted', as
     expect(journal.activeTransactionId).toBeUndefined();
     expect(journal.lastCommittedTransactionId).toBe(secondTransactionId);
   }, 'engineering-compiler-pipeline-interruption-');
+});
+
+test('reference transaction identity is stable and names the current journal execution', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const firstTransactionId = await startPipelineTransaction(workspaceRoot, 'reference', ['resolve']);
+    await commitPipelineTransaction(workspaceRoot, firstTransactionId);
+
+    const secondTransactionId = await startPipelineTransaction(workspaceRoot, 'reference', ['resolve']);
+    let journal = await readPipelineJournal(workspaceRoot);
+
+    expect(firstTransactionId).toBe(REFERENCE_PIPELINE_TRANSACTION_ID);
+    expect(secondTransactionId).toBe(firstTransactionId);
+    expect(journal.activeTransactionId).toBe(secondTransactionId);
+    expect(journal.lastCommittedTransactionId).toBeUndefined();
+    expect(journal.transactions.filter((entry) => entry.id === secondTransactionId)).toEqual([
+      expect.objectContaining({
+        source: 'reference',
+        requestedStages: ['resolve'],
+        status: 'running'
+      })
+    ]);
+
+    await commitPipelineTransaction(workspaceRoot, secondTransactionId);
+    journal = await readPipelineJournal(workspaceRoot);
+    expect(journal.activeTransactionId).toBeUndefined();
+    expect(journal.lastCommittedTransactionId).toBe(secondTransactionId);
+    expect(journal.transactions.filter((entry) => entry.id === secondTransactionId)).toHaveLength(1);
+    expect(journal.transactions.find((entry) => entry.id === secondTransactionId)?.status).toBe('succeeded');
+  }, 'engineering-compiler-reference-transaction-');
 });

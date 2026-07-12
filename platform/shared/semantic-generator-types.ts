@@ -14,35 +14,87 @@ export interface ManifestGeneratorTypeBinding {
   importFrom: string;
 }
 
-export interface ManifestGenerator {
+interface ManifestGeneratorBase {
   id: string;
-  kind: SemanticGeneratorKind;
-  contract: string;
-  state: string;
   target: string;
   consumes: SemanticGeneratorConsumeKind[];
   produces: SemanticGeneratorArtifactKind;
-  typeBinding: ManifestGeneratorTypeBinding;
   verification: string[];
 }
 
-export interface SemanticGeneratorTask {
-  id: string;
-  blockId: string;
-  generatorId: string;
-  kind: SemanticGeneratorKind;
-  contractId: string;
-  contractPath: string;
-  contractNamespace: string;
-  stateId: string;
-  target: string;
-  consumes: SemanticGeneratorConsumeKind[];
-  produces: SemanticGeneratorArtifactKind;
+export interface StateTransitionMapManifestGenerator extends ManifestGeneratorBase {
+  kind: 'generate-state-transition-map';
+  contract: string;
+  state: string;
   typeBinding: ManifestGeneratorTypeBinding;
-  verification: string[];
+}
+
+export type ManifestGenerator = StateTransitionMapManifestGenerator;
+
+export interface SemanticGeneratorDeclaration {
+  blockId: string;
+  manifestPath: string;
+  declaration: ManifestGenerator;
   registrySourceId: string;
   registryKind: RegistryKind;
   registryLocation: RegistryLocation;
   registryPath: string;
-  status: SemanticGeneratorTaskStatus;
 }
+
+export interface StateTransitionPlanEntry {
+  from: string;
+  to: string;
+  by: string;
+  operationEntityId: string;
+}
+
+interface SemanticGeneratorPlanTaskBase {
+  id: string;
+  blockId: string;
+  generatorId: string;
+  generatorEntityId: string;
+  artifactEntityId: string;
+  inputRevision: string;
+  semanticRevision: string;
+  contractId: string;
+  contractPath: string;
+  contractNamespace: string;
+  target: string;
+  consumes: SemanticGeneratorConsumeKind[];
+  produces: SemanticGeneratorArtifactKind;
+  verification: string[];
+  verifiedByEntityIds: string[];
+  registrySourceId: string;
+  registryKind: RegistryKind;
+  registryLocation: RegistryLocation;
+  registryPath: string;
+}
+
+export interface StateTransitionMapGeneratorPlanTask extends SemanticGeneratorPlanTaskBase {
+  kind: 'generate-state-transition-map';
+  stateId: string;
+  stateEntityId: string;
+  stateValues: string[];
+  transitions: StateTransitionPlanEntry[];
+  typeBinding: ManifestGeneratorTypeBinding;
+}
+
+export type SemanticGeneratorPlanTask = StateTransitionMapGeneratorPlanTask;
+
+export interface SemanticGeneratorPlan {
+  inputRevision: string;
+  semanticRevision: string;
+  tasks: readonly SemanticGeneratorPlanTask[];
+}
+
+export interface SemanticGeneratorArtifactBinding {
+  generatorEntityId: string;
+  artifactEntityId: string;
+  semanticRevision: string;
+  compilationTransactionId: string;
+}
+
+export type SemanticGeneratorTask = SemanticGeneratorPlanTask & {
+  status: SemanticGeneratorTaskStatus;
+  artifactBinding?: SemanticGeneratorArtifactBinding;
+};

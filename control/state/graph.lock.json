@@ -486,37 +486,6 @@
       "mockTemplate": "import type { Database, TicketCommentInput, TicketCommentRecord } from '../src/runtime/database.ts';\nimport type { Session } from '../src/installed/auth/session.ts';\n\nfunction assertTenantTicket(db: Database, ticketId: number, tenantId: string) {\n  const ticket = db.tickets.find((entry) => entry.id === ticketId);\n  if (!ticket || ticket.tenantId !== tenantId) {\n    throw new Error('Ticket is not available for this tenant');\n  }\n  return ticket;\n}\n\nexport function addTicketCommentDelegate(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {\n  if (!input.body || !input.body.trim()) {\n    throw new Error('Ticket comment is required');\n  }\n  assertTenantTicket(db, input.ticketId, session.tenantId);\n  const comment: TicketCommentRecord = {\n    id: db.nextTicketCommentId++,\n    tenantId: session.tenantId,\n    ticketId: input.ticketId,\n    body: input.body.trim(),\n    authorId: session.userId,\n    createdAt: new Date(0).toISOString()\n  };\n  db.ticketComments.push(comment);\n  return comment;\n}\n\nexport function listTicketCommentsDelegate(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {\n  assertTenantTicket(db, ticketId, session.tenantId);\n  return db.ticketComments.filter(c => c.tenantId === session.tenantId && c.ticketId === ticketId);\n}\n"
     }
   ],
-  "semanticLoweringTasks": [
-    {
-      "id": "generator:ticket/basic:ticket-status-runtime-contract",
-      "blockId": "ticket/basic",
-      "generatorId": "ticket-status-runtime-contract",
-      "kind": "generate-state-transition-map",
-      "contractId": "ticket-core",
-      "contractPath": "platform/registry/official/ticket.basic/contracts/ticket.yaml",
-      "contractNamespace": "ticket",
-      "stateId": "ticket-status",
-      "target": "src/installed/ticket/ticket-semantic-contract.ts",
-      "consumes": [
-        "state",
-        "transition"
-      ],
-      "produces": "typescript-runtime-contract",
-      "typeBinding": {
-        "name": "TicketStatus",
-        "importFrom": "../../runtime/database.ts"
-      },
-      "verification": [
-        "ticket_status_can_transition",
-        "typecheck"
-      ],
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "status": "generated"
-    }
-  ],
   "generatedPaths": [
     "app/api/customers/[customerId]/attachments/route.ts",
     "app/api/customers/route.ts",
@@ -596,5 +565,75 @@
     "repair": "skipped",
     "lock": "succeeded",
     "emit": "succeeded"
-  }
+  },
+  "semanticLoweringTasks": [
+    {
+      "id": "generator:ticket/basic:ticket-status-runtime-contract",
+      "blockId": "ticket/basic",
+      "generatorId": "ticket-status-runtime-contract",
+      "generatorEntityId": "generator:ticket/basic:ticket-status-runtime-contract",
+      "artifactEntityId": "artifact:src/installed/ticket/ticket-semantic-contract.ts",
+      "inputRevision": "sha256:80ee5c07408ae94a15387ae0d2ce7c3e5d9028d905d21457fa659c74fd55f352",
+      "semanticRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d",
+      "kind": "generate-state-transition-map",
+      "contractId": "ticket-core",
+      "contractPath": "platform/registry/official/ticket.basic/contracts/ticket.yaml",
+      "contractNamespace": "ticket",
+      "stateId": "ticket-status",
+      "stateEntityId": "state:ticket:ticket-status",
+      "stateValues": [
+        "closed",
+        "in_progress",
+        "open"
+      ],
+      "transitions": [
+        {
+          "from": "closed",
+          "to": "open",
+          "by": "transitionTicketStatus",
+          "operationEntityId": "operation:ticket:transitionTicketStatus"
+        },
+        {
+          "from": "in_progress",
+          "to": "closed",
+          "by": "transitionTicketStatus",
+          "operationEntityId": "operation:ticket:transitionTicketStatus"
+        },
+        {
+          "from": "open",
+          "to": "in_progress",
+          "by": "transitionTicketStatus",
+          "operationEntityId": "operation:ticket:transitionTicketStatus"
+        }
+      ],
+      "target": "src/installed/ticket/ticket-semantic-contract.ts",
+      "consumes": [
+        "state",
+        "transition"
+      ],
+      "produces": "typescript-runtime-contract",
+      "typeBinding": {
+        "name": "TicketStatus",
+        "importFrom": "../../runtime/database.ts"
+      },
+      "verification": [
+        "ticket_status_can_transition",
+        "typecheck"
+      ],
+      "verifiedByEntityIds": [
+        "acceptance:ticket_status_can_transition"
+      ],
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "platform/registry/official",
+      "status": "generated",
+      "artifactBinding": {
+        "generatorEntityId": "generator:ticket/basic:ticket-status-runtime-contract",
+        "artifactEntityId": "artifact:src/installed/ticket/ticket-semantic-contract.ts",
+        "semanticRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d",
+        "compilationTransactionId": "tx:reference-workspace"
+      }
+    }
+  ]
 }

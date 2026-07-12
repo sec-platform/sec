@@ -212,9 +212,9 @@ qualified reference: tenant::TenantScopeGuard
 
 当前仍不支持跨 workspace/repository Contract import；P0-4 的 ownership boundary 是同一个 resolved workspace。
 
-## 10. Generator：当前实现与目标协议分开
+## 10. IR-owned Generator Protocol
 
-### 当前 Generator v1
+### 首条 Generator 母例
 
 当前只有一种 kind：
 
@@ -222,7 +222,7 @@ qualified reference: tenant::TenantScopeGuard
 generate-state-transition-map
 ```
 
-当前全局 `ManifestGenerator` shape实际上是该 generator的专用配置：
+`ManifestGenerator` 使用以 `kind` 判别的 union；当前 `generate-state-transition-map` 专用配置包含：
 
 - contract。
 - state。
@@ -231,10 +231,6 @@ generate-state-transition-map
 - produces固定支持 typescript-runtime-contract。
 - relative TypeScript type binding。
 - verification selectors。
-
-这只是 **State Transition Generator v1**，不得描述为已经完成通用 Generator Protocol。
-
-### 目标 Generator Protocol
 
 Generator按工程动作注册。输入是 validated IR selector，输出 Generator Plan / Artifact。
 
@@ -250,7 +246,7 @@ Generator按工程动作注册。输入是 validated IR selector，输出 Genera
 
 不同 generator kind的 config必须使用 discriminated union或 per-kind schema registry验证。禁止把 `state/typeBinding` 等某一 generator专有字段提升为所有 Generator的全局必填字段。
 
-长期链路：
+当前 canonical 链路：
 
 ```text
 Validated IR
@@ -261,13 +257,13 @@ Validated IR
   → Verification
 ```
 
-Lowerer不得重新读取 Contract形成第二套语义解释器。
+Generator declaration 进入 `inputRevision`，并由 canonical Builder 产生 Generator/Artifact Entity 与 `CONSUMES / LOWERS_TO / GENERATES / VERIFIED_BY` Facts。`GeneratorPlan` 只能从 `ValidatedEngineeringIRSnapshot` 与同批 declaration 构建；Lowerer不得重新读取 Manifest 或 Contract形成第二套语义解释器。
 
 ## 11. Semantic Contract 与 Runtime Enforcement
 
 声明 Contract 不等于实现 Contract。
 
-当前 `ticket/basic` 已暴露一个明确反例：Contract state machine只声明：
+`ticket/basic` Contract state machine声明：
 
 ```text
 open → in_progress
@@ -275,7 +271,7 @@ in_progress → closed
 closed → open
 ```
 
-而现有 Ticket Service仍可直接把 `open` 改为 `closed`。因此当前 Contract只能算 authoritative declaration prototype，尚未成为 runtime enforcement authority。
+Ticket Service 直接导入同一生成物 `NEXT_TICKET_STATUS`；`open → closed` 在 mutation 前被拒绝，失败后状态保持 `open`。root 与 `0.1.1` version overlay 共用这一 enforcement 规则，不维护第二套手写状态机。
 
 v0.3 Ticket纵切面完成前必须满足：
 

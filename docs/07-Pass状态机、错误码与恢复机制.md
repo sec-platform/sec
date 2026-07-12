@@ -30,6 +30,8 @@ parse
 
 `compileWorkspace()` 中的物理 `semantic` stage 拥有 `build-ir` pass，严格位于 resolve 与 compose 之间。它执行 workspace semantic input load / local normalize、IR build、`validateEngineeringIR()`，并把结果绑定到当前 transaction 的 `PipelineSemanticContext`。不得用只存在于类型或单测中的 pass 伪造“已实现”。
 
+普通 API / CLI / Workbench / CI transaction 每次使用新的 UUID identity。`source=reference` 是唯一例外：它使用 workspace-local 的命名 identity `tx:reference-workspace`，开始新一轮 reference compile 时原子替换 journal 中同名旧记录，完成后该记录就是当前真实 execution。这个可重放 identity 只用于消除受管 reference artifact 的随机漂移；不得在 Provenance 中删掉 transaction binding，也不得让普通 transaction 复用 identity。
+
 ## 2. Pass 职责
 
 | Pass | 输入 | 输出 | 性质 |
@@ -73,7 +75,7 @@ pending → running → succeeded
 - lock 只接受允许锁定的状态。
 - emit/projection 失败不能回写 canonical state。
 
-`build-ir` 失败由 Pipeline Kernel 记录为 failed，并把 compose/adapt/verify/repair/lock/emit 标为 blocked。新 transaction 必须重新执行 semantic stage；旧 transaction 的 in-memory snapshot 不得复用。为避免提前吞并 P0-5，legacy standalone compose 仍可按旧 resolve dependency 工作，但 canonical `compileWorkspace()` 的任何 compose 或更下游范围都会自动加入 semantic stage。
+`build-ir` 失败由 Pipeline Kernel 记录为 failed，并把 compose/adapt/verify/repair/lock/emit 标为 blocked。Compose 的依赖是 `build-ir`，不再只依赖 resolve；新 transaction 必须重新执行 semantic stage，旧 transaction 的 in-memory snapshot 不得复用。Standalone `composeWorkspace()` 也会在同一 transaction 内自动执行 semantic stage，不能绕过 validated IR / Generator Plan boundary。
 
 ## 5. Issue 分类
 

@@ -25,8 +25,23 @@ test('semantic provenance preserves generator identity for a runtime artifact', 
       runtimeTarget: target,
       generatedByPass: 'compose',
       generatorTaskId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      artifactEntityId: 'artifact:src/installed/ticket/ticket-semantic-contract.ts',
+      semanticRevision: 'sha256:test-semantic',
+      compilationTransactionId: 'pipeline:test-transaction',
       overrideStatus: 'none'
     });
     expect(artifact?.hash).toBeDefined();
   }, 'engineering-compiler-semantic-provenance-');
+});
+
+test('semantic provenance rejects a generated artifact without an execution binding', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const target = 'src/installed/ticket/ticket-semantic-contract.ts';
+    const lock = semanticArtifactLock(target);
+    delete lock.semanticLoweringTasks?.[0]?.artifactBinding;
+    await expect(buildProvenance(workspaceRoot, lock)).rejects.toMatchObject({
+      code: 'PROVENANCE-SEMANTIC-001'
+    });
+  }, 'engineering-compiler-semantic-provenance-missing-binding-');
 });

@@ -1,66 +1,50 @@
-import path from 'node:path';
-
 import {
   buildEngineeringIR,
+  buildSemanticGeneratorPlan,
   buildValidatedEngineeringIR,
-  loadPlan,
-  loadPolicyDeclarations,
+  loadWorkspaceEngineeringIRBuildInput,
   type BuildEngineeringIRInput
 } from '../compiler/index.ts';
 import type {
   EngineeringIR,
   ValidatedEngineeringIRSnapshot
 } from '../shared/engineering-ir-types.ts';
-import { readLockFile } from '../shared/lock-utils.ts';
-import { getWorkspacePaths, posixPath } from '../shared/paths.ts';
+import { readLockFile, saveLock } from '../shared/lock-utils.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import { bindPipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
 import type {
   PipelineExecutionContext,
   PipelineSemanticContext
 } from '../shared/pipeline-types.ts';
-import type { ManifestEntry } from '../shared/plan-manifest-types.ts';
-import { loadWorkspaceSemanticInputs } from './semantic-inputs.ts';
+import type { SemanticGeneratorDeclaration } from '../shared/semantic-generator-types.ts';
 
-function stableManifestPath(entry: ManifestEntry): string {
-  const relativePath = posixPath(path.relative(entry.registryRoot, entry.manifestPath));
-  return posixPath(path.posix.join(posixPath(entry.registryPath), relativePath));
+interface WorkspaceSemanticBuildInput {
+  engineeringIRInput: BuildEngineeringIRInput;
+  generatorDeclarations: SemanticGeneratorDeclaration[];
 }
 
 async function loadWorkspaceEngineeringIRInput(
   workspaceRoot: string
-): Promise<BuildEngineeringIRInput> {
-  const { planPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
-  const lock = await readLockFile(workspaceRoot);
-  const [{ manifestEntries, semanticContracts }, policyDeclarations] = await Promise.all([
-    loadWorkspaceSemanticInputs(workspaceRoot, lock.resolvedBlocks),
-    loadPolicyDeclarations(workspaceRoot)
-  ]);
-
-  return {
-    app: { id: plan.app.id, name: plan.app.name },
-    resolvedBlocks: lock.resolvedBlocks,
-    manifests: manifestEntries.map((entry) => ({
-      blockId: entry.manifest.id,
-      manifestPath: stableManifestPath(entry),
-      manifest: entry.manifest
-    })),
-    slotTasks: lock.slotTasks,
-    acceptanceIds: plan.acceptance.map((acceptance) => acceptance.id),
-    policyDeclarations: policyDeclarations.policies,
-    semanticContracts
-  };
+): Promise<WorkspaceSemanticBuildInput> {
+  return loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
 }
 
 export async function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd()): Promise<EngineeringIR> {
-  return buildEngineeringIR(await loadWorkspaceEngineeringIRInput(workspaceRoot));
+  const input = await loadWorkspaceEngineeringIRInput(workspaceRoot);
+  return buildEngineeringIR(input.engineeringIRInput);
 }
 
 async function buildWorkspaceValidatedEngineeringIR(
   workspaceRoot: string
-): Promise<ValidatedEngineeringIRSnapshot> {
-  return buildValidatedEngineeringIR(await loadWorkspaceEngineeringIRInput(workspaceRoot));
+): Promise<{
+  snapshot: ValidatedEngineeringIRSnapshot;
+  generatorDeclarations: SemanticGeneratorDeclaration[];
+}> {
+  const input = await loadWorkspaceEngineeringIRInput(workspaceRoot);
+  return {
+    snapshot: buildValidatedEngineeringIR(input.engineeringIRInput),
+    generatorDeclarations: input.generatorDeclarations
+  };
 }
 
 export async function runWorkspaceSemanticFrontend(
@@ -71,10 +55,18 @@ export async function runWorkspaceSemanticFrontend(
     workspaceRoot,
     'semantic',
     context,
-    async () => bindPipelineSemanticContext(
-      context,
-      await buildWorkspaceValidatedEngineeringIR(workspaceRoot)
-    ),
+    async () => {
+      const { snapshot, generatorDeclarations } = await buildWorkspaceValidatedEngineeringIR(workspaceRoot);
+      const generatorPlan = buildSemanticGeneratorPlan(snapshot, generatorDeclarations);
+      const semanticContext = bindPipelineSemanticContext(context, snapshot, generatorPlan);
+      const lock = await readLockFile(workspaceRoot);
+      lock.semanticLoweringTasks = generatorPlan.tasks.map((task) => ({
+        ...structuredClone(task),
+        status: 'pending'
+      }));
+      await saveLock(workspaceRoot, lock);
+      return semanticContext;
+    },
     { extractLock: () => readLockFile(workspaceRoot) }
   );
 }

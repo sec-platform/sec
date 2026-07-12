@@ -17,6 +17,7 @@ import {
 
 const MAX_RETAINED_TRANSACTIONS = 50;
 const PIPELINE_JOURNAL_FILE = 'pipeline-journal.json';
+export const REFERENCE_PIPELINE_TRANSACTION_ID = 'tx:reference-workspace';
 let journalMutationQueue: Promise<void> = Promise.resolve();
 
 function pipelineJournalPath(workspaceRoot: string): string {
@@ -108,10 +109,18 @@ export async function startPipelineTransaction(
   requestedStages: readonly PipelineStageId[],
   onEvent?: PipelineEventHandler
 ): Promise<string> {
-  const transactionId = `tx:${randomUUID()}`;
+  const transactionId = source === 'reference'
+    ? REFERENCE_PIPELINE_TRANSACTION_ID
+    : `tx:${randomUUID()}`;
   const startedAt = new Date().toISOString();
   await mutateJournal(workspaceRoot, (journal) => {
     interruptActiveTransaction(journal, startedAt);
+    if (source === 'reference') {
+      journal.transactions = journal.transactions.filter((entry) => entry.id !== transactionId);
+      if (journal.lastCommittedTransactionId === transactionId) {
+        delete journal.lastCommittedTransactionId;
+      }
+    }
     journal.transactions.push({
       id: transactionId,
       source,

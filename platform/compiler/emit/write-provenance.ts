@@ -8,6 +8,7 @@ import {
   CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import { readOptionalJson, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
@@ -41,10 +42,20 @@ function buildSemanticArtifact(
   task: NonNullable<LockFile['semanticLoweringTasks']>[number],
   verifiedBy: string[]
 ): ProvenanceArtifact {
+  if (
+    (task.status === 'generated' || task.status === 'verified') &&
+    !task.artifactBinding
+  ) {
+    throw new CompilerError(
+      'PROVENANCE-SEMANTIC-001',
+      `Generated semantic task "${task.id}" is missing its IR/transaction artifact binding`
+    );
+  }
+  const binding = task.artifactBinding;
   return {
     path: task.target,
     originType: 'generated',
-    originId: task.id,
+    originId: task.generatorEntityId,
     sourceBlock: task.blockId,
     registrySourceId: task.registrySourceId,
     registryKind: task.registryKind,
@@ -54,6 +65,12 @@ function buildSemanticArtifact(
     runtimeTarget: task.target,
     generatedByPass: 'compose',
     generatorTaskId: task.id,
+    ...(binding ? {
+      generatorEntityId: binding.generatorEntityId,
+      artifactEntityId: binding.artifactEntityId,
+      semanticRevision: binding.semanticRevision,
+      compilationTransactionId: binding.compilationTransactionId
+    } : {}),
     verifiedBy,
     overrideStatus: 'none'
   };
@@ -178,6 +195,10 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
       ...(existing?.runtimeTarget ? { runtimeTarget: existing.runtimeTarget } : {}),
       generatedByPass: entry.appliesAfter[entry.appliesAfter.length - 1] ?? existing?.generatedByPass,
       generatorTaskId: existing?.generatorTaskId,
+      generatorEntityId: existing?.generatorEntityId,
+      artifactEntityId: existing?.artifactEntityId,
+      semanticRevision: existing?.semanticRevision,
+      compilationTransactionId: existing?.compilationTransactionId,
       verifiedBy: existing?.verifiedBy ?? [],
       overrideStatus: entry.source
     });

@@ -16,6 +16,7 @@ export {
   indexValidatedEngineeringIR,
   type EngineeringIRIndex
 } from './ir/index-engineering-ir.ts';
+export { loadWorkspaceEngineeringIRBuildInput } from './ir/load-workspace-engineering-ir-input.ts';
 export {
   buildValidatedEngineeringIR,
   validateEngineeringIR
@@ -38,6 +39,7 @@ export {
   linkWorkspaceSemanticContracts,
   splitLinkedSemanticReference
 } from './semantic-linker.ts';
+export { buildSemanticGeneratorPlan } from './semantic-plan.ts';
 export { adaptProject } from './synthesize/adapt-project.ts';
 export { buildAcceptanceCoverage } from './verify/build-acceptance-coverage.ts';
 export { createSkippedRuntimeLane } from './verify/run-runtime-verification.ts';

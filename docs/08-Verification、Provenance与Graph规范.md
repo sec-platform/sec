@@ -60,9 +60,12 @@ DatabaseQuery MUST_BE_SCOPED_BY tenantId
 - registry source。
 - sourcePath/runtimeTarget。
 - generatedByPass/generatorTaskId。
+- Generator/Artifact Entity ID、semanticRevision、compilationTransactionId（IR-owned semantic artifact）。
 - verifiedBy。
 - overrideStatus。
 - hash。
+
+IR-owned generated artifact 缺少 Generator Entity、Artifact Entity、semantic revision 或 compilation transaction 任一 execution binding 时必须 fail closed。普通编译记录本轮 UUID；reference workspace 记录当前真实的命名 transaction `tx:reference-workspace`。后者在本地 journal 中由每次 reference compile 替换同名旧 execution，使 checked-in Provenance 可确定性重建，而不是忽略或事后回填 transaction 字段。
 
 Artifact Provenance 和 Fact Provenance 必须分开：
 

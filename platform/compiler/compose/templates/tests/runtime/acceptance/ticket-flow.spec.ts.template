@@ -142,6 +142,20 @@ test('ticket runtime flow supports assignee filters, status transitions, and ten
   await expect(ticketItems.filter({ hasText: 'Prepare renewal checklist' })).toHaveCount(0);
 
   await expect(createdTicket.getByRole('button', { name: 'Start progress for Escalate onboarding issue' })).toBeVisible();
+  const forbiddenTransitionResponse = await page.request.post(`/api/tickets/${createdTicketPayload.ticket.id}/status`, {
+    data: { status: 'closed' }
+  });
+  expect(forbiddenTransitionResponse.status()).toBe(400);
+  await expect(forbiddenTransitionResponse.json()).resolves.toMatchObject({
+    error: 'Invalid ticket status transition: open -> closed'
+  });
+  const ticketsAfterForbiddenTransition = await page.request.get('/api/tickets');
+  const ticketsAfterForbiddenPayload = await ticketsAfterForbiddenTransition.json() as {
+    tickets: Array<{ id: number; status: string }>;
+  };
+  expect(ticketsAfterForbiddenPayload.tickets.find(
+    (ticket) => ticket.id === createdTicketPayload.ticket.id
+  )?.status).toBe('open');
   const statusTransitionResponse = await page.request.post(`/api/tickets/${createdTicketPayload.ticket.id}/status`, {
     data: { status: 'in_progress' }
   });
