@@ -1,7 +1,7 @@
 ---
 title: 测试反馈与 CI 分层
 status: active
-last-reviewed: 2026-07-11
+last-reviewed: 2026-07-12
 ---
 
 # 测试反馈与 CI 分层
@@ -39,12 +39,13 @@ bun run imports:organize
 
 ```text
 install frozen dependencies
-→ organize changed imports
+→ check changed imports（TypeScript changed 时）
 → typecheck
-→ affected fast tests
+→ canonical test:affected
+→ impacted PR Risk（存在 slow / workspace risk 时）
 ```
 
-Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
+Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
 
 Affected selector 默认关注最近提交反馈，避免大型 PR 的每个小修复都重新扩张到整个 PR diff。
 
@@ -62,6 +63,8 @@ contract freeze if impacted
 
 PR Risk 不无条件执行所有 slow suites，也不默认执行 `verify --lane all`。
 
+Risk changed-file 计算优先使用 `SEC_CHANGED_BASE` 的完整 PR 范围。`--all-slow` 是 Full 的 slow executor，只执行 Registry 中的完整 slow suite，不重复 Contract Freeze 或 workspace fast。
+
 Engineering IR/Fact/Projection 公共类型、Builder、Schema、Artifact Path 变化应进入 Contract Freeze 或对应风险选择规则。
 
 ## 5. Release / Full
@@ -69,14 +72,18 @@ Engineering IR/Fact/Projection 公共类型、Builder、Schema、Artifact Path �
 职责：最终 correctness backstop。
 
 ```text
-preflight
+imports / typecheck / docs
+→ canonical affected quick evidence
+→ complete fast inventory
 → contract freeze
-→ slow suite matrix
+→ complete slow suite registry
 → benchmark/runtime dependency checks
 → full workspace compile/verify/lock/explain
 → reference drift
 → final summary
 ```
+
+Full 的 Ticket semantic vertical 是命名的强制 slow gate，覆盖 canonical frontend、Workspace Semantic Link、validated IR、IR-owned generator、runtime enforcement、canonical projection 与 Artifact Provenance。完整 Full evidence 同时声明其对 Quick、Risk、Full correctness 的覆盖，并绑定 exact head、current base 与 verification contract revision。
 
 触发方式由 GitHub Workflow 事实源决定。文档不复制完整 Workflow YAML。
 
@@ -106,15 +113,17 @@ Contract Freeze 保护机器或开发者依赖的稳定面，例如：
 - Engineering IR public schema（正式冻结后）。
 - Semantic View/Mutation public schema（正式冻结后）。
 
-新增 Contract Test 必须接入 Contract Freeze target source。Target 列表以 `contract-freeze-contract.ts` 为事实源。
+新增 Contract Test 必须以稳定 `contractId` 注册到 Contract Freeze target source。Target 列表以 `contract-freeze-contract.ts` 为事实源；runner 按注册文件执行，不允许用 test title 或 `--test-name-pattern` 作为合同身份。
 
 ## 8. Affected Test 选择
 
-按三层：
+Source classification 至少显式区分 TypeScript、Manifest、Semantic Contract YAML 与 Source Model。Test ownership 按三层：
 
-1. 直接变更 test：运行相关 fast test；slow test 进入风险提示。
-2. 自动源码引用：扫描 import/明确 repo path reference。
-3. 小量 Cross-domain Semantic Rule：只表达 import graph 无法表达的产品风险。
+1. architecture owner / Pipeline pass / Semantic Contract 的显式 ownership declaration。
+2. 自动源码引用：扫描 import/明确 repo path reference，作为补充 evidence。
+3. 路径规则只作 legacy fallback，不得与显式 identity 竞争 owner authority。
+
+直接变更 fast test 仍直接运行；直接变更 slow test 进入 PR Risk。`source/**` 不得因为不在 `platform/**` 下而静默漏选。
 
 缺少 mapping 时给清晰 notice。不要因为 selector 不完整就把 PR Quick 变成 Full。
 
@@ -157,8 +166,11 @@ imports:*
 - duration。
 - exit code。
 - selector reason（如适用）。
+- exact head SHA、base SHA、contract revision 与覆盖 profile。
 
 GitHub Actions 使用 group 展开边界，失败日志必须能快速定位负责 Gate。
+
+PR workflow 的结构化合同同时校验 trigger、step order 与 exact-head wiring：`run-full` label 保留时，后续 `synchronize` 必须取消旧 head run，并在最新 head 重新执行 Full；`always()` 只用于 evidence/status diagnostics，不得让失败后的 mutating Gate 继续运行。
 
 ## 12. 大改动模式
 

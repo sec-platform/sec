@@ -1,7 +1,7 @@
 ---
 title: Slow Suite Registry
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-12
 ---
 
 # Slow Suite Registry
@@ -43,6 +43,8 @@ release/full
 Registry 声明 Suite 是否允许在 PR Risk Job 内并行。资源敏感、端口共享或需要顺序的 Suite 保持串行。
 
 Release/Full 按 Suite ID 分片，以 wall-clock speed 和诊断性为目标。
+
+Ticket semantic vertical 必须拥有显式 suite/owner，不得落入 `other` fallback；它在 Full 中强制验证 canonical frontend、validated IR、linker、IR-owned generator、runtime enforcement、projection 与 provenance 的同一母例。
 
 ## 5. 文档与测试规则
 

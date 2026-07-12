@@ -31,7 +31,7 @@ const runtimeHeavySlowSuites = new Set(
 );
 
 function changedFiles(): string[] | null {
-  const baseRef = process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE ?? 'HEAD^1';
+  const baseRef = process.env.SEC_CHANGED_BASE ?? process.env.SEC_AFFECTED_TESTS_BASE ?? 'HEAD^1';
   const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
     encoding: 'utf8'
   });
@@ -185,7 +185,7 @@ console.log(`CI risk: slow suites run [${selectedSlowSuites.join(', ')}]`);
 console.log(`CI risk: slow test files run [${selectedSlowTests.join(', ')}]`);
 console.log(`CI risk: slow suites skipped [${slowSuites.filter((suite) => !selectedSlowSuites.includes(suite)).join(', ')}]`);
 
-const preSlowSteps: GateStep[] = [
+const preSlowSteps: GateStep[] = runAllSlow ? [] : [
   { id: 'contract-freeze', args: ['run', 'test:contract-freeze'] }
 ];
 const slowSteps: GateStep[] = [
@@ -209,7 +209,7 @@ const runtimeHeavySlowSteps = slowSteps.filter((step) => {
 const serialSlowSteps = slowSteps.filter((step) => (
   !parallelSafeSlowSteps.includes(step) && !runtimeHeavySlowSteps.includes(step)
 ));
-const postSlowSteps: GateStep[] = [
+const postSlowSteps: GateStep[] = runAllSlow ? [] : [
   { id: 'workspace-fast', args: ['scripts/ci-workspace-fast.ts'] }
 ];
 

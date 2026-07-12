@@ -1,4 +1,4 @@
-import type { TestImpactRule } from "../test-impact-contract.ts";
+import type { TestOwnershipDeclaration } from "../test-ownership-contract.ts";
 
 const SEMANTIC_IR_FAST_TESTS = [
   "tests/unit/canonical-ir-identity-revision.test.ts",
@@ -30,38 +30,95 @@ const SEMANTIC_LOWERING_FAST_TESTS = [
   "tests/integration/semantic-core-vertical.test.ts",
 ];
 
-export const semanticTestImpactRules: TestImpactRule[] = [
+export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: "semantic-ir",
-    sourcePattern: /^platform\/compiler\/ir\//,
+    identity: { kind: "architecture-owner", id: "semantic-ir" },
+    sourcePrefixes: ["platform/compiler/ir/"],
     fast: SEMANTIC_IR_FAST_TESTS,
     slow: [],
   },
   {
     owner: "semantic-ir",
-    sourcePattern:
-      /^(?:platform\/compiler\/(?:semantic-linker\.ts|ir\/load-workspace-engineering-ir-input\.ts|parse\/(?:load-semantic-contract|validate-semantic-manifest)\.ts)|platform\/orchestrator\/semantic-orchestrator\.ts|platform\/shared\/(?:engineering-ir\/|(?:engineering-ir-types|semantic-contract-types)\.ts$))/,
+    identity: { kind: "pass", id: "build-ir" },
+    sourceFiles: [
+      "platform/compiler/semantic-linker.ts",
+      "platform/compiler/ir/load-workspace-engineering-ir-input.ts",
+      "platform/compiler/parse/load-semantic-contract.ts",
+      "platform/compiler/parse/validate-semantic-manifest.ts",
+      "platform/orchestrator/semantic-orchestrator.ts",
+      "platform/shared/engineering-ir-types.ts",
+      "platform/shared/semantic-contract-types.ts"
+    ],
+    sourcePrefixes: ["platform/shared/engineering-ir/"],
     fast: SEMANTIC_IR_FAST_TESTS,
     slow: ["tests/e2e/semantic-runtime-contract.test.ts"],
   },
   {
     owner: "policy-declarations",
-    sourcePattern: /^platform\/compiler\/parse\/load-policy-declarations\.ts$/,
+    identity: { kind: "architecture-owner", id: "policy-declarations" },
+    sourceFiles: ["platform/compiler/parse/load-policy-declarations.ts"],
     fast: SEMANTIC_IR_FAST_TESTS,
     slow: ["tests/e2e/policy.test.ts"],
   },
   {
     owner: "semantic-projection",
-    sourcePattern:
-      /^(?:platform\/compiler\/projection\/|platform\/shared\/semantic-view-types\.ts$)/,
+    identity: { kind: "architecture-owner", id: "semantic-projection" },
+    sourceFiles: ["platform/shared/semantic-view-types.ts"],
+    sourcePrefixes: ["platform/compiler/projection/"],
     fast: SEMANTIC_PROJECTION_FAST_TESTS,
     slow: [],
   },
   {
     owner: "semantic-lowering",
-    sourcePattern:
-      /^(?:platform\/compiler\/(?:semantic-lowering|semantic-output-paths|semantic-plan|state-transition-plan)\.ts|platform\/shared\/semantic-generator-types\.ts)$/,
+    identity: { kind: "pass", id: "compose" },
+    sourceFiles: [
+      "platform/compiler/semantic-lowering.ts",
+      "platform/compiler/semantic-output-paths.ts",
+      "platform/compiler/semantic-plan.ts",
+      "platform/compiler/state-transition-plan.ts",
+      "platform/shared/semantic-generator-types.ts"
+    ],
     fast: SEMANTIC_LOWERING_FAST_TESTS,
     slow: ["tests/e2e/semantic-runtime-contract.test.ts"],
   },
+  {
+    owner: "semantic-contract",
+    identity: { kind: "architecture-owner", id: "semantic-contract" },
+    sourceKinds: ["semantic-contract"],
+    fast: SEMANTIC_IR_FAST_TESTS,
+    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+  },
+  {
+    owner: "ticket-core",
+    identity: { kind: "contract", id: "ticket-core" },
+    sourceFiles: ["platform/registry/official/ticket.basic/contracts/ticket.yaml"],
+    fast: [...new Set([
+      ...SEMANTIC_IR_FAST_TESTS,
+      ...SEMANTIC_PROJECTION_FAST_TESTS,
+      ...SEMANTIC_LOWERING_FAST_TESTS
+    ])],
+    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+  },
+  {
+    owner: "tenant-core",
+    identity: { kind: "contract", id: "tenant-core" },
+    sourceFiles: ["platform/registry/official/tenant.basic-workspace/contracts/tenant.yaml"],
+    fast: SEMANTIC_IR_FAST_TESTS,
+    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+  },
+  {
+    owner: "registry-manifest",
+    identity: { kind: "architecture-owner", id: "registry-manifest" },
+    sourceKinds: ["manifest"],
+    fast: ["tests/unit/path-containment.test.ts", "tests/integration/project-runtime.test.ts"],
+    slow: ["tests/e2e/registry.test.ts"]
+  },
+  {
+    owner: "source-model",
+    identity: { kind: "architecture-owner", id: "source-model" },
+    sourceKinds: ["source-model"],
+    fast: SEMANTIC_IR_FAST_TESTS,
+    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+  }
 ];

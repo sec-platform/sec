@@ -120,6 +120,12 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
   slowFileSuite('e2e-repair', 'repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-runtime-host', 'runtime-host', 'compiler-runtime-host-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-summary', 'summary', 'compiler-summary-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite(
+    'e2e-ticket-semantic-vertical',
+    'semantic-runtime-contract',
+    'ticket-semantic-vertical',
+    180_000
+  ),
   slowFileSuite('e2e-upgrade', 'upgrade', 'compiler-upgrade-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e', 180_000, { parallelSafe: true, prRiskBaseline: true }),
   slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
