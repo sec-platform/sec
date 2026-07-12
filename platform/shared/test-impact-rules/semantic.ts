@@ -50,7 +50,28 @@ const IMPACT_PROPAGATION_FAST_TESTS = [
   "tests/contract/contract-freeze.test.ts",
 ];
 
+const SEMANTIC_MUTATION_FAST_TESTS = [
+  "tests/unit/semantic-mutation.test.ts",
+  "tests/contract/semantic-mutation-contract.test.ts",
+  "tests/unit/semantic-architecture-boundary.test.ts",
+  "tests/unit/fact-delta.test.ts",
+  "tests/contract/fact-delta-contract.test.ts",
+  "tests/unit/impact-propagation.test.ts",
+  "tests/contract/impact-propagation-contract.test.ts",
+  "tests/unit/validated-engineering-ir.test.ts",
+  "tests/contract/test-impact.test.ts",
+  "tests/contract/contract-freeze.test.ts",
+];
+
 export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: "semantic-mutation",
+    identity: { kind: "architecture-owner", id: "semantic-mutation" },
+    sourceFiles: ["platform/shared/semantic-mutation-types.ts"],
+    sourcePrefixes: ["platform/compiler/semantic-mutation/"],
+    fast: SEMANTIC_MUTATION_FAST_TESTS,
+    slow: [],
+  },
   {
     owner: "impact-propagation",
     identity: { kind: "architecture-owner", id: "impact-propagation" },

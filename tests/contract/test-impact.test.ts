@@ -111,6 +111,35 @@ test('test impact selector gives Semantic Impact a focused owner without dedicat
   }
 });
 
+test('test impact selector gives Semantic Mutation a focused owner without dedicated slow coverage', () => {
+  const sourceFiles = [
+    'platform/shared/semantic-mutation-types.ts',
+    'platform/compiler/semantic-mutation/plan-semantic-mutation.ts'
+  ];
+  const selection = selectTestsForSources(sourceFiles);
+
+  expect(selection.owners).toContain('semantic-mutation');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/semantic-mutation.test.ts',
+    'tests/contract/semantic-mutation-contract.test.ts',
+    'tests/unit/fact-delta.test.ts',
+    'tests/contract/fact-delta-contract.test.ts',
+    'tests/unit/impact-propagation.test.ts',
+    'tests/contract/impact-propagation-contract.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/contract/contract-freeze.test.ts'
+  ]));
+  expect(selection.slow).toEqual([]);
+  for (const source of sourceFiles) {
+    expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
+      .toEqual([{
+        source,
+        owner: 'semantic-mutation',
+        identity: { kind: 'architecture-owner', id: 'semantic-mutation' }
+      }]);
+  }
+});
+
 test('test impact selector binds predicate signature authority to focused semantic IR coverage', () => {
   const selection = selectTestsForSources([
     'platform/shared/engineering-ir/predicate-signature-types.ts',

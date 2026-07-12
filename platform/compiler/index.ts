@@ -1,3 +1,4 @@
+export type * from '../shared/semantic-mutation-types.ts';
 export { alignInterfaces } from './align/align-interfaces.ts';
 export { composeProject } from './compose/compose-project.ts';
 export { buildCiArtifactManifest, writeCiArtifactManifest } from './emit/ci-artifacts.ts';
@@ -47,6 +48,19 @@ export {
   linkWorkspaceSemanticContracts,
   splitLinkedSemanticReference
 } from './semantic-linker.ts';
+export { normalizeSemanticMutationRequest } from './semantic-mutation/normalize-request.ts';
+export {
+  assertSemanticMutationPlanInvariant,
+  planSemanticMutation
+} from './semantic-mutation/plan-semantic-mutation.ts';
+export { preflightSemanticMutation } from './semantic-mutation/preflight-semantic-mutation.ts';
+export {
+  assertSemanticMutationResultInvariant,
+  buildSemanticMutationResult,
+  buildSemanticMutationVerificationExecutionRef,
+  type SemanticMutationTerminalEvidenceV2
+} from './semantic-mutation/semantic-mutation-result.ts';
+export { buildSemanticMutationVerificationPlanningContext } from './semantic-mutation/verification-policy.ts';
 export { buildSemanticGeneratorPlan } from './semantic-plan.ts';
 export { adaptProject } from './synthesize/adapt-project.ts';
 export { buildAcceptanceCoverage } from './verify/build-acceptance-coverage.ts';
