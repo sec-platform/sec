@@ -5,13 +5,10 @@ import { CompilerError, formatCompilerFailure } from '../../shared/errors.ts';
 import { copyRecursive, pathExists, removeDir, writeJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
-import type { PipelineSemanticContext } from '../../shared/pipeline-types.ts';
+import { createPipelineSemanticContext } from '../../shared/pipeline-semantic-context.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { composeProject } from '../compose/compose-project.ts';
-import { loadWorkspaceEngineeringIRBuildInput } from '../ir/load-workspace-engineering-ir-input.ts';
-import { buildValidatedEngineeringIR } from '../ir/validate-engineering-ir.ts';
-import { buildSemanticViewSet } from '../projection/build-semantic-view-set.ts';
-import { buildSemanticGeneratorPlan } from '../semantic-plan.ts';
+import { buildWorkspaceSemanticBundle } from '../semantic-frontend.ts';
 import { typecheckProject } from './typecheck-project.ts';
 
 export async function validateResolvedTemplates(workspaceRoot: string, lock: LockFile): Promise<void> {
@@ -41,18 +38,13 @@ export async function validateResolvedTemplates(workspaceRoot: string, lock: Loc
     }
     const { lockPath, projectRoot } = validationPaths;
     await writeJson(lockPath, clonedLock);
-    const { engineeringIRInput, generatorDeclarations } = await loadWorkspaceEngineeringIRBuildInput(validationRoot);
-    const snapshot = buildValidatedEngineeringIR(engineeringIRInput);
-    const generatorPlan = buildSemanticGeneratorPlan(snapshot, generatorDeclarations);
-    const semanticViews = buildSemanticViewSet(snapshot);
-    const semanticContext: PipelineSemanticContext = {
-      transactionId: `template-validation:${snapshot.ir.inputRevision}`,
-      inputRevision: snapshot.ir.inputRevision,
-      semanticRevision: snapshot.ir.semanticRevision,
+    const { snapshot, generatorPlan, semanticViews } = await buildWorkspaceSemanticBundle(validationRoot);
+    const semanticContext = createPipelineSemanticContext(
+      `template-validation:${snapshot.ir.inputRevision}`,
       snapshot,
       generatorPlan,
       semanticViews
-    };
+    );
     await composeProject(validationRoot, clonedLock, semanticContext);
     await typecheckProject(projectRoot);
   } catch (error) {

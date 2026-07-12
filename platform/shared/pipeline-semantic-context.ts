@@ -25,6 +25,22 @@ export function bindPipelineSemanticContext(
     );
   }
 
+  const semantic = createPipelineSemanticContext(
+    context.transactionId,
+    snapshot,
+    generatorPlan,
+    semanticViews
+  );
+  context.semantic = semantic;
+  return semantic;
+}
+
+export function createPipelineSemanticContext(
+  transactionId: string,
+  snapshot: ValidatedEngineeringIRSnapshot,
+  generatorPlan: SemanticGeneratorPlan,
+  semanticViews: SemanticViewSet
+): PipelineSemanticContext {
   if (
     generatorPlan.inputRevision !== snapshot.ir.inputRevision ||
     generatorPlan.semanticRevision !== snapshot.ir.semanticRevision ||
@@ -33,7 +49,7 @@ export function bindPipelineSemanticContext(
   ) {
     throw new CompilerError(
       'PIPELINE-SEMANTIC-003',
-      `Pipeline transaction "${context.transactionId}" received a Generator Plan for a different IR snapshot`,
+      `Pipeline transaction "${transactionId}" received semantic derivatives for a different IR snapshot`,
       {
         snapshotInputRevision: snapshot.ir.inputRevision,
         planInputRevision: generatorPlan.inputRevision,
@@ -46,14 +62,13 @@ export function bindPipelineSemanticContext(
   }
 
   const semantic = Object.freeze({
-    transactionId: context.transactionId,
+    transactionId,
     inputRevision: snapshot.ir.inputRevision,
     semanticRevision: snapshot.ir.semanticRevision,
     snapshot,
     generatorPlan,
     semanticViews
   });
-  context.semantic = semantic;
   return semantic;
 }
 
