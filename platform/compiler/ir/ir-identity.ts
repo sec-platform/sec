@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import type {
   ScenarioDefinition,
   SemanticAttribute,
@@ -97,6 +99,18 @@ export function contractEffectId(namespace: string, id: string): string {
 
 export function contractScenarioId(namespace: string, id: string): string {
   return `scenario:${namespace}:${id}`;
+}
+
+export function generatorEntityId(blockId: string, generatorId: string): string {
+  return `generator:${blockId}:${generatorId}`;
+}
+
+export function normalizedArtifactTarget(target: string): string {
+  return path.posix.normalize(target.replaceAll('\\', '/'));
+}
+
+export function artifactEntityId(target: string): string {
+  return `artifact:${normalizedArtifactTarget(target)}`;
 }
 
 export function scenarioStepEntityId(scenarioId: string, stepId: string): string {

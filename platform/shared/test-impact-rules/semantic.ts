@@ -6,6 +6,7 @@ const SEMANTIC_IR_FAST_TESTS = [
   "tests/unit/predicate-signatures.test.ts",
   "tests/unit/semantic-contract-ir.test.ts",
   "tests/unit/semantic-contract-responsibility.test.ts",
+  "tests/unit/semantic-generator-plan.test.ts",
   "tests/unit/validated-engineering-ir.test.ts",
   "tests/unit/workspace-semantic-linker.test.ts",
   "tests/integration/semantic-contract.test.ts",
@@ -23,6 +24,7 @@ const SEMANTIC_PROJECTION_FAST_TESTS = [
 
 const SEMANTIC_LOWERING_FAST_TESTS = [
   "tests/unit/semantic-lowering.test.ts",
+  "tests/unit/semantic-generator-plan.test.ts",
   "tests/unit/semantic-provenance.test.ts",
   "tests/integration/ticket-pipeline.test.ts",
   "tests/integration/semantic-core-vertical.test.ts",
@@ -38,7 +40,7 @@ export const semanticTestImpactRules: TestImpactRule[] = [
   {
     owner: "semantic-ir",
     sourcePattern:
-      /^(?:platform\/compiler\/(?:semantic-linker\.ts|parse\/(?:load-semantic-contract|validate-semantic-manifest)\.ts)|platform\/orchestrator\/(?:semantic-inputs|semantic-orchestrator)\.ts|platform\/shared\/(?:engineering-ir\/|(?:engineering-ir-types|semantic-contract-types)\.ts$))/,
+      /^(?:platform\/compiler\/(?:semantic-linker\.ts|ir\/load-workspace-engineering-ir-input\.ts|parse\/(?:load-semantic-contract|validate-semantic-manifest)\.ts)|platform\/orchestrator\/semantic-orchestrator\.ts|platform\/shared\/(?:engineering-ir\/|(?:engineering-ir-types|semantic-contract-types)\.ts$))/,
     fast: SEMANTIC_IR_FAST_TESTS,
     slow: ["tests/e2e/semantic-runtime-contract.test.ts"],
   },

@@ -17,7 +17,13 @@ export function semanticArtifactLock(target: string): LockFile {
     semanticLoweringTasks: [{
       ...ticketSemanticGeneratorTask(),
       target,
-      status: 'generated'
+      status: 'generated',
+      artifactBinding: {
+        generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
+        artifactEntityId: 'artifact:src/installed/ticket/ticket-semantic-contract.ts',
+        semanticRevision: 'sha256:test-semantic',
+        compilationTransactionId: 'pipeline:test-transaction'
+      }
     }],
     generatedPaths: [target],
     acceptancePlan: [],

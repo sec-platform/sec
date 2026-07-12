@@ -62,6 +62,7 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
             "state",
             "scenario",
             "scenario-step",
+            "generator",
           ],
         },
       },
@@ -225,7 +226,16 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
       },
     ],
   },
-  CONSUMES: RESERVED,
+  CONSUMES: {
+    status: "active",
+    variants: [
+      {
+        id: "generator-consumes-state",
+        subjectKinds: ["generator"],
+        object: { kind: "entity", entityKinds: ["state"] },
+      },
+    ],
+  },
   FLOWS_TO: RESERVED,
   DERIVES_FROM: RESERVED,
   TRANSFORMS_TO: RESERVED,
@@ -343,11 +353,47 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
         subjectKinds: ["policy"],
         object: { kind: "entity", entityKinds: ["policy"] },
       },
+      {
+        id: "artifact-verified-by-acceptance",
+        subjectKinds: ["artifact"],
+        object: { kind: "entity", entityKinds: ["acceptance"] },
+      },
+      {
+        id: "artifact-verified-by-selector",
+        subjectKinds: ["artifact"],
+        object: {
+          kind: "value",
+          schemaId: "artifact-verification-selector-v1",
+          schema: {
+            kind: "object",
+            fields: { selector: { kind: "string" } },
+            additionalFields: false,
+          },
+        },
+      },
     ],
   },
   ORIGINATES_FROM: RESERVED,
-  LOWERS_TO: RESERVED,
-  GENERATES: RESERVED,
+  LOWERS_TO: {
+    status: "active",
+    variants: [
+      {
+        id: "state-lowers-to-artifact",
+        subjectKinds: ["state"],
+        object: { kind: "entity", entityKinds: ["artifact"] },
+      },
+    ],
+  },
+  GENERATES: {
+    status: "active",
+    variants: [
+      {
+        id: "generator-generates-artifact",
+        subjectKinds: ["generator"],
+        object: { kind: "entity", entityKinds: ["artifact"] },
+      },
+    ],
+  },
   VIOLATES: RESERVED,
 };
 

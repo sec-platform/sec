@@ -53,6 +53,11 @@ export async function runTicketServiceSuite() {
   assert.throws(() => listTicketComments(db, tenantB, ticket.id), /Ticket is not available/);
   assert.throws(() => addTicketComment(db, tenantA, { ticketId: ticket.id, body: '   ' }), /Ticket comment is required/);
 
+  assert.throws(
+    () => transitionTicketStatus(db, tenantA, ticket.id, 'closed'),
+    /Invalid ticket status transition: open -> closed/
+  );
+  assert.equal(ticket.status, 'open');
   const transitioned = transitionTicketStatus(db, tenantA, ticket.id, 'in_progress');
   assert.equal(transitioned.status, 'in_progress');
   assert.equal(listTicketsWithFilters(db, tenantA, { status: 'in_progress' }).length, 1);
@@ -105,6 +110,12 @@ export async function runTicketFlowSuite() {
   assert.equal(listTicketComments(db, tenantA, firstTicket.id).length, 1);
   assert.throws(() => listTicketComments(db, tenantB, firstTicket.id), /Ticket is not available/);
 
+  assert.throws(
+    () => transitionTicketStatus(db, tenantA, firstTicket.id, 'closed'),
+    /Invalid ticket status transition: open -> closed/
+  );
+  assert.equal(firstTicket.status, 'open');
+  transitionTicketStatus(db, tenantA, firstTicket.id, 'in_progress');
   const transitioned = transitionTicketStatus(db, tenantA, firstTicket.id, 'closed');
   assert.equal(transitioned.status, 'closed');
   assert.equal(listTicketsWithFilters(db, tenantA, { status: 'closed' }).length, 1);

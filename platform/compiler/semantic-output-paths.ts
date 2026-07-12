@@ -1,7 +1,7 @@
 import { CompilerError } from '../shared/errors.ts';
-import type { SemanticGeneratorTask as SemanticLoweringTask } from '../shared/semantic-generator-types.ts';
+import type { SemanticGeneratorPlanTask } from '../shared/semantic-generator-types.ts';
 
-export function assertUniqueSemanticOutputPaths(tasks: readonly SemanticLoweringTask[]): void {
+export function assertUniqueSemanticOutputPaths(tasks: readonly SemanticGeneratorPlanTask[]): void {
   const pathToTask = new Map<string, string>();
 
   for (const task of tasks) {

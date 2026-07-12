@@ -15,9 +15,12 @@ import { addFact as addFactToStore } from './ir-fact-store.ts';
 import {
   addEntity as addEntityToStore,
   appEntityId,
+  artifactEntityId,
   assertEngineeringIRReferences,
   claimSemanticNamespace as claimSemanticNamespaceForStore,
   engineeringGraphId,
+  generatorEntityId,
+  normalizedArtifactTarget,
   semanticEntity,
   valueAttribute,
   type SemanticNamespaceOwner
@@ -35,7 +38,8 @@ import { deriveScenarioDefinitions } from './scenario-facts.ts';
 export interface EngineeringIRManifestInput {
   blockId: string;
   manifestPath?: string;
-  manifest: Pick<BlockManifest, 'requires' | 'provides' | 'pins'>;
+  manifest: Pick<BlockManifest, 'requires' | 'provides' | 'pins'> &
+    Partial<Pick<BlockManifest, 'generators'>>;
 }
 
 export interface BuildEngineeringIRInput extends InputRevisionDomain {
@@ -126,6 +130,58 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   for (const contract of linkedContracts) {
     if (!resolvedBlockIds.has(contract.blockId)) throw new CompilerError('IR-IDENTITY-005', `Semantic contract "${contract.contract.id}" references unresolved block "${contract.blockId}"`);
     appendSemanticContract(contract, sink);
+  }
+
+  const acceptanceEntityIds = new Set(input.acceptanceIds.map((id) => `acceptance:${id}`));
+  for (const entry of [...input.manifests].sort((left, right) => left.blockId.localeCompare(right.blockId))) {
+    const blockId = `block:${entry.blockId}`;
+    const provenance = manifestProvenance(entry);
+    for (const declaration of [...(entry.manifest.generators ?? [])].sort((left, right) => left.id.localeCompare(right.id))) {
+      const contractMatches = linkedContracts.filter((candidate) =>
+        candidate.blockId === entry.blockId && candidate.contract.id === declaration.contract
+      );
+      if (contractMatches.length !== 1) {
+        throw new CompilerError('GENERATOR-PLAN-001', `Unknown semantic contract "${declaration.contract}"`);
+      }
+      const loaded = contractMatches[0]!;
+      const state = loaded.contract.states.find((candidate) => candidate.id === declaration.state);
+      if (!state) {
+        throw new CompilerError('GENERATOR-PLAN-002', `Unknown semantic state "${declaration.state}"`);
+      }
+
+      const generatorId = generatorEntityId(entry.blockId, declaration.id);
+      const target = normalizedArtifactTarget(declaration.target);
+      const artifactId = artifactEntityId(target);
+      const stateId = `state:${loaded.contract.namespace}:${state.id}`;
+      addEntity(semanticEntity(generatorId, 'generator', declaration.id, [
+        valueAttribute('blockId', entry.blockId),
+        valueAttribute('contractId', declaration.contract),
+        valueAttribute('generatorKind', declaration.kind),
+        valueAttribute('stateId', declaration.state),
+        valueAttribute('target', target),
+        valueAttribute('consumes', uniqueSorted(declaration.consumes)),
+        valueAttribute('produces', declaration.produces),
+        valueAttribute('typeBindingName', declaration.typeBinding.name),
+        valueAttribute('typeBindingImportFrom', declaration.typeBinding.importFrom),
+        valueAttribute('verification', uniqueSorted(declaration.verification))
+      ]));
+      addEntity(semanticEntity(artifactId, 'artifact', target, [
+        valueAttribute('artifactKind', declaration.produces),
+        valueAttribute('target', target)
+      ]));
+      addFact({ subject: blockId, predicate: 'DECLARES', object: { kind: 'entity', entityId: generatorId }, authority: 'authoritative', provenance });
+      addFact({ subject: generatorId, predicate: 'CONSUMES', object: { kind: 'entity', entityId: stateId }, authority: 'authoritative', provenance });
+      addFact({ subject: stateId, predicate: 'LOWERS_TO', object: { kind: 'entity', entityId: artifactId }, authority: 'derived', provenance: compilerProvenance(`generator:${generatorId}:lowering`) });
+      addFact({ subject: generatorId, predicate: 'GENERATES', object: { kind: 'entity', entityId: artifactId }, authority: 'authoritative', provenance });
+      for (const verificationId of uniqueSorted(declaration.verification)) {
+        const acceptanceId = `acceptance:${verificationId}`;
+        if (acceptanceEntityIds.has(acceptanceId)) {
+          addFact({ subject: artifactId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: acceptanceId }, authority: 'authoritative', provenance });
+        } else {
+          addFact({ subject: artifactId, predicate: 'VERIFIED_BY', object: { kind: 'value', value: { selector: verificationId } }, authority: 'authoritative', provenance });
+        }
+      }
+    }
   }
 
   const sortedEntities = [...entities.values()].sort((left, right) => left.id.localeCompare(right.id));

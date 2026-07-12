@@ -3,12 +3,15 @@ import { CompilerError } from '../shared/errors.ts';
 import { pathExists } from '../shared/fs.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
 import { resolveWorkspaceLockPath } from '../shared/paths.ts';
-import { executePipelineStage } from '../shared/pipeline-kernel.ts';
-import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
+import { executePipelineStage, withPipelineTransaction } from '../shared/pipeline-kernel.ts';
+import { requirePipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
+import type { PipelineExecutionContext, PipelineSemanticContext } from '../shared/pipeline-types.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
+import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 
 async function composeWorkspaceCore(
   workspaceRoot: string,
+  semanticContext: PipelineSemanticContext,
   options?: { lock?: boolean }
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
@@ -17,7 +20,7 @@ async function composeWorkspaceCore(
   }
   const plan = await loadWorkspacePlan(workspaceRoot);
   const lock = await readLockFile(workspaceRoot);
-  await composeProject(workspaceRoot, lock, { lockFiles: !!options?.lock });
+  await composeProject(workspaceRoot, lock, semanticContext, { lockFiles: !!options?.lock });
   return { plan, lock };
 }
 
@@ -26,11 +29,23 @@ export async function composeWorkspace(
   options?: { lock?: boolean },
   context?: PipelineExecutionContext
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
+  if (!context) {
+    return withPipelineTransaction(
+      workspaceRoot,
+      'api',
+      ['semantic', 'compose'],
+      undefined,
+      async (transaction) => {
+        await runWorkspaceSemanticFrontend(workspaceRoot, transaction);
+        return composeWorkspace(workspaceRoot, options, transaction);
+      }
+    );
+  }
   return executePipelineStage(
     workspaceRoot,
     'compose',
     context,
-    () => composeWorkspaceCore(workspaceRoot, options),
+    () => composeWorkspaceCore(workspaceRoot, requirePipelineSemanticContext(context), options),
     { extractLock: (result) => result.lock }
   );
 }

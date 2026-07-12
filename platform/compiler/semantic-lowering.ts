@@ -2,34 +2,32 @@ import path from 'node:path';
 
 import { CompilerError } from '../shared/errors.ts';
 import { writeText } from '../shared/fs.ts';
-import type { LockFile, ResolvedBlock } from '../shared/lock-types.ts';
 import { getWorkspacePaths, resolvePathInside } from '../shared/paths.ts';
-import type { LoadedSemanticContract } from '../shared/semantic-contract-types.ts';
-import type { SemanticGeneratorTask as SemanticLoweringTask } from '../shared/semantic-generator-types.ts';
+import type { PipelineSemanticContext } from '../shared/pipeline-types.ts';
+import type {
+  SemanticGeneratorPlanTask,
+  SemanticGeneratorTask,
+  StateTransitionMapGeneratorPlanTask
+} from '../shared/semantic-generator-types.ts';
 import { CodeBuilder } from './codegen/code-builder.ts';
-import { loadManifestForResolvedBlock } from './parse/load-manifest.ts';
-import { loadSemanticContractsForManifestEntry } from './parse/load-semantic-contract.ts';
+import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
 
 function constantPrefix(stateId: string): string {
   return stateId.replace(/[^a-zA-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').toUpperCase();
 }
 
 export function renderStateTransitionMapSource(
-  task: SemanticLoweringTask,
-  loaded: LoadedSemanticContract
+  task: StateTransitionMapGeneratorPlanTask
 ): string {
-  const state = loaded.contract.states.find((entry) => entry.id === task.stateId);
-  if (!state) {
-    throw new CompilerError('GENERATOR-LOWER-001', `State "${task.stateId}" is unavailable for task "${task.id}"`);
-  }
-
-  const prefix = constantPrefix(state.id);
+  const prefix = constantPrefix(task.stateId);
   const boundType = task.typeBinding.name;
-  const nextByValue = new Map(state.transitions.map((transition) => [transition.from, transition.to]));
-  const values = [...state.values].sort((left, right) => left.localeCompare(right));
-  const transitions = [...state.transitions].sort((left, right) =>
-    `${left.from}:${left.to}:${left.by}`.localeCompare(`${right.from}:${right.to}:${right.by}`)
-  );
+  const nextByValue = new Map(task.transitions.map((transition) => [transition.from, transition.to]));
+  const values = [...task.stateValues].sort((left, right) => left.localeCompare(right));
+  const transitions = [...task.transitions]
+    .map(({ operationEntityId: _operationEntityId, ...transition }) => transition)
+    .sort((left, right) =>
+      `${left.from}:${left.to}:${left.by}`.localeCompare(`${right.from}:${right.to}:${right.by}`)
+    );
 
   const valueInitializer = `${JSON.stringify(values)} as const satisfies readonly ${boundType}[]`;
   const transitionInitializer = `${JSON.stringify(transitions, null, 2)} as const`;
@@ -53,46 +51,77 @@ export function renderStateTransitionMapSource(
     .getText();
 }
 
-async function loadTaskContract(
-  workspaceRoot: string,
-  block: ResolvedBlock,
-  task: SemanticLoweringTask
-): Promise<LoadedSemanticContract> {
-  const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
-  const contracts = await loadSemanticContractsForManifestEntry(manifestEntry);
-  const loaded = contracts.find((entry) => entry.contract.id === task.contractId);
-  if (!loaded) {
-    throw new CompilerError('GENERATOR-LOWER-002', `Contract "${task.contractId}" is unavailable for task "${task.id}"`);
-  }
-  return loaded;
+export interface SemanticLoweringResult {
+  generatedPaths: string[];
+  tasks: SemanticGeneratorTask[];
 }
 
-export async function lowerSemanticTasks(workspaceRoot: string, lock: LockFile): Promise<string[]> {
+function assertPlanOwnership(context: PipelineSemanticContext): void {
+  const plan = context.generatorPlan;
+  if (
+    plan.inputRevision !== context.inputRevision ||
+    plan.semanticRevision !== context.semanticRevision ||
+    context.snapshot.ir.inputRevision !== context.inputRevision ||
+    context.snapshot.ir.semanticRevision !== context.semanticRevision
+  ) {
+    throw new CompilerError(
+      'GENERATOR-LOWER-006',
+      `Compilation transaction "${context.transactionId}" does not own the Generator Plan revisions`
+    );
+  }
+
+  const index = indexValidatedEngineeringIR(context.snapshot);
+  for (const task of plan.tasks) {
+    if (task.inputRevision !== context.inputRevision || task.semanticRevision !== context.semanticRevision) {
+      throw new CompilerError('GENERATOR-LOWER-006', `Generator task "${task.id}" has stale IR revisions`);
+    }
+    if (index.entityById.get(task.generatorEntityId)?.kind !== 'generator') {
+      throw new CompilerError('GENERATOR-LOWER-007', `Generator Entity "${task.generatorEntityId}" is unavailable`);
+    }
+    if (index.entityById.get(task.artifactEntityId)?.kind !== 'artifact') {
+      throw new CompilerError('GENERATOR-LOWER-008', `Artifact Entity "${task.artifactEntityId}" is unavailable`);
+    }
+  }
+}
+
+function renderTask(task: SemanticGeneratorPlanTask): string {
+  switch (task.kind) {
+    case 'generate-state-transition-map':
+      return renderStateTransitionMapSource(task);
+  }
+}
+
+export async function lowerSemanticTasks(
+  workspaceRoot: string,
+  context: PipelineSemanticContext
+): Promise<SemanticLoweringResult> {
+  assertPlanOwnership(context);
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const generatedPaths: string[] = [];
+  const tasks: SemanticGeneratorTask[] = [];
 
-  for (const task of lock.semanticLoweringTasks ?? []) {
-    const block = lock.resolvedBlocks.find((entry) => entry.id === task.blockId);
-    if (!block) {
-      throw new CompilerError('GENERATOR-LOWER-003', `Block "${task.blockId}" is unavailable for task "${task.id}"`);
-    }
+  for (const task of context.generatorPlan.tasks) {
     const targetPath = resolvePathInside(projectRoot, task.target);
     if (!targetPath) {
       throw new CompilerError('GENERATOR-LOWER-004', `Task "${task.id}" target escapes project root`);
     }
 
-    const loaded = await loadTaskContract(workspaceRoot, block, task);
-    const source = task.kind === 'generate-state-transition-map'
-      ? renderStateTransitionMapSource(task, loaded)
-      : null;
-    if (source === null) {
-      throw new CompilerError('GENERATOR-LOWER-005', `Unsupported semantic lowering kind "${String(task.kind)}"`);
-    }
-
-    await writeText(targetPath, source);
-    task.status = 'generated';
+    await writeText(targetPath, renderTask(task));
     generatedPaths.push(path.relative(projectRoot, targetPath).replaceAll(path.sep, '/'));
+    tasks.push({
+      ...structuredClone(task),
+      status: 'generated',
+      artifactBinding: {
+        generatorEntityId: task.generatorEntityId,
+        artifactEntityId: task.artifactEntityId,
+        semanticRevision: context.semanticRevision,
+        compilationTransactionId: context.transactionId
+      }
+    });
   }
 
-  return [...new Set(generatedPaths)].sort((left, right) => left.localeCompare(right));
+  return {
+    generatedPaths: [...new Set(generatedPaths)].sort((left, right) => left.localeCompare(right)),
+    tasks
+  };
 }

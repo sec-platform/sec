@@ -2121,6 +2121,10 @@
         "runtimeTarget": "src/installed/ticket/ticket-semantic-contract.ts",
         "generatedByPass": "compose",
         "generatorTaskId": "generator:ticket/basic:ticket-status-runtime-contract",
+        "generatorEntityId": "generator:ticket/basic:ticket-status-runtime-contract",
+        "artifactEntityId": "artifact:src/installed/ticket/ticket-semantic-contract.ts",
+        "semanticRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d",
+        "compilationTransactionId": "tx:reference-workspace",
         "verifiedBy": [
           "tests/acceptance/ticket-flow.test.ts",
           "tests/unit/ticket-service.test.ts"
@@ -2143,7 +2147,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "5b08e59d860a299114a0b75b33325a555b2fcb0d880909aed21876b0adb31c96"
+        "hash": "e3f23f4007225f9f28b6e5d1b476fd129c2011b2cf8ac9df953fc49dd6a4e4b2"
       },
       {
         "path": "tests/acceptance/agent-classifier-flow.test.ts",
@@ -2228,7 +2232,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "1fc4fc1602d0903cdbd88556e08f322ab51d134bfdda1190a643f928b7ba8538"
+        "hash": "95f995e00e4c61ccc6f22a25d94d6a5926079dc37786b6a1fd33cecb10936288"
       },
       {
         "path": "tests/runtime/unit/customer-runtime.test.ts",
@@ -2246,7 +2250,7 @@
         "generatedByPass": "compose",
         "verifiedBy": [],
         "overrideStatus": "none",
-        "hash": "809b121d6808b0457c67248ca1a734478e500cf82a3fb90fbc007f12eb64d0c0"
+        "hash": "ba575bd14f0a393e86ae89825e492f791030b4e3ec51f04d715f6251140980c8"
       },
       {
         "path": "tests/shared/tenant-runtime-fixture.ts",
@@ -2277,7 +2281,7 @@
           "tests/unit/ticket-service.test.ts"
         ],
         "overrideStatus": "none",
-        "hash": "f4df55e6e4c15686bbb817882ac8815ba64a6118d4c37812490be963ea883a3c"
+        "hash": "67fecb624c9382f6622362fa353d9f3ef34ea0ef785d1b2a6aa07457b897c218"
       },
       {
         "path": "tests/unit/comment-service.test.ts",
