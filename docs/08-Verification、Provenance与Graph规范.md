@@ -1,7 +1,7 @@
 ---
 title: Verification、Provenance 与治理投影规范
 status: active
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-13
 ---
 
 # Verification、Provenance 与治理投影规范
@@ -169,7 +169,7 @@ IR B facts
   → impacted guarantees/assumptions/verification
 ```
 
-在 Fact Delta 实现前，现有 Engineering Semantic Diff 只属于 artifact/governance approximation，文档和 UI 必须明确这一点。
+Canonical Fact Delta 已实现，Impact Propagation 合同以 `14` 为权威；在 canonical Impact producer 与 adapter 接管前，现有 Engineering Semantic Diff 仍只属于 artifact/governance approximation，文档和 UI 必须明确这一点。
 
 ## 7. Evidence 分层
 
@@ -219,3 +219,5 @@ Verification 不只验证文件存在。v0.3 后逐步增加：
 - Semantic impact selected verification。
 
 结果仍以结构化 Report 输出；禁止 Workbench 模板自行实现验证规则。
+
+Impact kernel 只能推荐 canonical Acceptance entity ID 或 IR 中已验证的 selector value。把 recommendation 解析为 runnable plan、测试文件、fast/slow lane 或 CI gate，仍由 Verification adapter 与测试合同拥有；Impact 不执行 Verification，也不得复用 changed-file test selection 冒充 semantic propagation。

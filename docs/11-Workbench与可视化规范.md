@@ -1,7 +1,7 @@
 ---
 title: Workbench 与可视化规范
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-13
 ---
 
 # Workbench 与可视化规范
@@ -124,9 +124,9 @@ AI 产生新 Effect/Permission 边时，必须在 Semantic Diff 中高亮。
 
 ### Impact View
 
-输入一个拟议 Fact Delta/Contract Change，输出 direct/transitive impact、verification selection、unknown/dynamic regions。
+输入一个 canonical Fact Delta 与其两个 validated endpoints，展示 direct/transitive impact、verification recommendation、unknown/dynamic regions。精确 seed、传播方向、endpoint basis、path、digest 与 v1 dynamic 边界以 `14` 为唯一权威；Workbench 不自行遍历或补选验证。
 
-传播关系至少考虑 `DEPENDS_ON`、`ASSUMES`、`REQUIRES`、`GUARANTEES`、`IMPLEMENTS`、`LOWERS_TO`、`PERSISTS_AS`、`SERIALIZES_AS`。
+初始 v1 对 `DEPENDS_ON`、`REQUIRES`、`IMPLEMENTS`、`LOWERS_TO` 执行已冻结方向；`GUARANTEES` 停在 value frontier，`ASSUMES`、`PERSISTS_AS`、`SERIALIZES_AS` 仍为 reserved。其他关系只显示 canonical unknown frontier，不能按名称猜测方向。
 
 ## 4. Overlay
 

@@ -1,7 +1,7 @@
 ---
 title: Engineering IR 与语义事实规范
 status: active
-last-reviewed: 2026-07-11
+last-reviewed: 2026-07-13
 ---
 
 # Engineering IR 与语义事实规范
@@ -897,14 +897,286 @@ Producer 必须在任何分类前执行：
 
 - `added/removed/changed` 全空，只能证明两端 Fact Set 相等，不能证明两个 snapshots 相等或“无影响”。Entity-only change 可以导致不同 `semanticRevision` 与空 Fact Delta。
 - 不同 `semanticRevision` 也可能得到空 Fact Delta；相同 revision 更不能绕过 endpoint / digest invariant checks。
-- Impact Propagation 后续必须同时读取 delta 与 validated snapshot/index；不得把 empty Fact Delta 当作 no impact，也不得把 transitive impact、unknown/dynamic region 或 verification selection 回写 Delta。
+- Impact Propagation 必须同时读取 delta 与 validated snapshot/index；不得把 empty Fact Delta 当作 no impact，也不得把 transitive impact、unknown/dynamic region 或 verification selection 回写 Delta。
 - Semantic Mutation 后续只能 exact-match base `semanticRevision` 与 preconditions，回写 Authoring Source，由 Compiler 重建新的 canonical bundle/context，再计算 actual Fact Delta。Expected delta 是受限 expectation DSL，不是 actual canonical `FactDelta`，不能授权 AI 直接写 IR。
 - 现有 Engineering Semantic Diff 仍是 artifact/governance approximation；Lock、Projection、Workbench、ReviewSummary 不得各自实现 comparator 或冒充 canonical Fact Delta producer。
-- 本合同不新增 stable `engineering-ir.json` / Fact Delta artifact；持久化仍受第 18 节约束。
+- 本合同不新增 stable `engineering-ir.json` / Fact Delta artifact；持久化仍受第 19 节约束。
 
 Fact Delta v1 的最低 Contract Freeze sentinels 包括：空 delta、Fact add/remove 与方向反转、object change remove+add、Assertion add/remove、confidence/evidence update、authority/provenance remove+add、reordered canonical input stable、validFrom 自动重绑无 churn、`validToRevision` 拒绝、跨 graph/app 拒绝、entity-only change 允许空 Fact arrays、raw IR/Lock/Projection compile-time rejection、canonical ordering、输入不变、输出 deep-frozen 与 deterministic repetition。
 
-## 17. Projection
+## 17. Impact Propagation
+
+Impact Propagation v1 是 `FactDelta` 与其两个 transaction-referenced validated endpoints 上的确定性语义影响闭包。它回答“哪些 canonical Entity 由这次变化直接或传递影响，以及有哪些可推荐的 Verification”，但不修改 Fact Delta，不执行 Verification，也不是 Mutation、Projection、Lock、Workbench 或 artifact authority。
+
+### 17.1 Canonical contract
+
+```ts
+type ImpactContractVersion = "1";
+type ImpactScope = "fact-delta+validated-graph";
+type ImpactBasis = "from" | "to";
+type ImpactLevel = "direct" | "transitive";
+
+interface ImpactPropagationInput {
+  readonly delta: FactDelta;
+  readonly from: FactDeltaEndpointContext;
+  readonly to: FactDeltaEndpointContext;
+}
+
+type ImpactSeed =
+  | {
+      readonly id: string;
+      readonly kind: "entity-added" | "entity-removed";
+      readonly basis: ImpactBasis;
+      readonly entityId: SemanticEntityId;
+      readonly anchorEntityId: SemanticEntityId;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "entity-updated";
+      readonly basis: ImpactBasis;
+      readonly entityId: SemanticEntityId;
+      readonly anchorEntityId: SemanticEntityId;
+      readonly changedFields: readonly ("label" | "attributes")[];
+    }
+  | {
+      readonly id: string;
+      readonly kind: "fact-added" | "fact-removed";
+      readonly basis: ImpactBasis;
+      readonly factId: SemanticFactId;
+      readonly anchorEntityId: SemanticEntityId;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "assertion-added" | "assertion-removed";
+      readonly basis: ImpactBasis;
+      readonly factId: SemanticFactId;
+      readonly assertionId: FactAssertionId;
+      readonly anchorEntityId: SemanticEntityId;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "assertion-updated";
+      readonly basis: ImpactBasis;
+      readonly factId: SemanticFactId;
+      readonly assertionId: FactAssertionId;
+      readonly anchorEntityId: SemanticEntityId;
+      readonly changedFields: readonly FactAssertionUpdateField[];
+    };
+
+interface ImpactPathStep {
+  readonly factId: SemanticFactId;
+  readonly predicate: SemanticPredicate;
+  readonly ruleVariantId: string;
+  readonly direction: "subject-to-object" | "object-to-subject";
+  readonly fromEntityId: SemanticEntityId;
+  readonly toEntityId: SemanticEntityId;
+}
+
+interface ImpactOccurrence {
+  readonly basis: ImpactBasis;
+  readonly entityId: SemanticEntityId;
+  readonly level: ImpactLevel;
+  readonly distance: number;
+  readonly seedIds: readonly string[];
+  readonly canonicalPath: readonly ImpactPathStep[];
+}
+
+interface ImpactUncertainty {
+  readonly basis: ImpactBasis;
+  readonly classification: "unknown" | "dynamic";
+  readonly reasonCode:
+    | "unregistered-active-predicate"
+    | "non-definite-authority"
+    | "value-object-boundary"
+    | "verification-mapping-missing"
+    | "verification-mapping-non-runnable";
+  readonly boundaryEntityId?: SemanticEntityId;
+  readonly factId?: SemanticFactId;
+  readonly predicate?: SemanticPredicate;
+  readonly seedIds: readonly string[];
+  readonly canonicalPath: readonly ImpactPathStep[];
+}
+
+interface VerificationReason {
+  readonly basis: ImpactBasis;
+  readonly sourceEntityId: SemanticEntityId;
+  readonly sourceLevel: "seed" | ImpactLevel;
+  readonly sourceSeedIds: readonly string[];
+  readonly factId?: SemanticFactId;
+}
+
+type VerificationRecommendation =
+  | {
+      readonly kind: "acceptance";
+      readonly acceptanceEntityId: SemanticEntityId;
+      readonly reasons: readonly VerificationReason[];
+    }
+  | {
+      readonly kind: "selector";
+      readonly selector: string;
+      readonly reasons: readonly VerificationReason[];
+    };
+
+interface SemanticImpactPropagation {
+  readonly contractVersion: ImpactContractVersion;
+  readonly scope: ImpactScope;
+  readonly formatVersion: typeof ENGINEERING_IR_FORMAT_VERSION;
+  readonly graphId: string;
+  readonly appId: SemanticEntityId;
+  readonly deltaRevision: string;
+  readonly fromSemanticRevision: string;
+  readonly toSemanticRevision: string;
+  readonly fromFactSetDigest: string;
+  readonly toFactSetDigest: string;
+  readonly propagationRuleRevision: "impact-propagation-rules-v1";
+  readonly seeds: readonly ImpactSeed[];
+  readonly direct: readonly ImpactOccurrence[];
+  readonly transitive: readonly ImpactOccurrence[];
+  readonly uncertainties: readonly ImpactUncertainty[];
+  readonly verification: readonly VerificationRecommendation[];
+  readonly impactRevision: string;
+}
+```
+
+唯一 producer 是 Compiler semantic-impact boundary 的纯函数：
+
+```ts
+buildImpactPropagation(input: ImpactPropagationInput): SemanticImpactPropagation
+```
+
+公共输入不接受 raw `EngineeringIR`、调用方提供的 `EngineeringIRIndex`、Lock、Projection、ReviewSummary、Artifact、Expected Mutation Delta 或 Verification Report。Producer 先以 `buildFactDelta(from, to)` 重算 canonical delta，并要求 supplied `delta` 与重算结果 exact match；因此不建立第二套 Fact comparator。两个只读 index 均由 kernel 内部对 branded snapshots 调用 `indexValidatedEngineeringIR()` 派生，不能由调用方注入或持久化。
+
+### 17.2 Seed 与 endpoint basis
+
+Impact 保留 from → to 方向，不交换 endpoints，也不把两端图先合并成一张 union graph。每个 seed 和 occurrence 都保留 `basis`：addition 只遍历 `to`，removal 只遍历 `from`，retained identity 的 update 分别在 `from` 与 `to` 上计算。这样 removed edge 仍可找到旧消费者，added edge 也不会借用只存在于旧图的路径。
+
+Entity 使用 validated canonical order 按 ID merge-join：
+
+- only-to → `entity-added` / `basis: "to"`。
+- only-from → `entity-removed` / `basis: "from"`。
+- retained ID 的 `label` 或 normalized `attributes` 改变 → 两个 `entity-updated` seeds，`changedFields` 固定按 `label` → `attributes` 排序。
+- retained ID 的 `kind` 不同是 identity collision，`IMPACT-004` hard fail。
+- scenarios 是由同一 Entities/Facts 重建的 cache，不产生独立 scenario-cache seed，也不建立第二 comparator。
+
+Fact/Assertion seeds 只能来自 supplied canonical delta：
+
+- Fact `added` / `removed` 产生对应 endpoint 的 relation seed，`anchorEntityId = fact.subject`。只有该 endpoint Fact 至少有一个 `authoritative` 或 `derived` Assertion 时可以进入语义传播；inferred-only / observed-only Fact 保留 local seed 并记录 `non-definite-authority` uncertainty，但不进入 BFS。
+- `addedAssertions` / `removedAssertions` 产生对应 endpoint seed；`updatedAssertions` 在两端各产生一个 seed。
+- Assertion-only 变化表示 authority/provenance/confidence/evidence 的局部治理或证据变化；它保留 exact `factId` / `assertionId`，可以触发 Verification 推荐，但 **不进入 transitive semantic traversal**。
+- 不执行 strongest-wins，不把 assertion change 重写成 triple change，也不把 Entity delta 或 seed 回写 Fact Delta。
+
+每个 seed `id` 是 `sha256:<lowercase-hex>`，payload 固定为 `{ domain: "engineering-ir-impact-seed-v1", kind, basis, entityId? | factId?, assertionId? }`；只包含该 union variant 实际拥有的 identity 字段，不包含 `anchorEntityId`、`changedFields` 或 transaction metadata。这样相同 change identity 在排序与 path tie-break 中稳定，且不依赖带冒号的 Entity/Fact ID 字符串拼接。
+
+`seeds` 是变化根；`direct` 只包含从可传播 seed 的 `anchorEntityId` 经过恰好一条已冻结传播边到达的 Entity，`distance = 1`；`transitive` 的最短距离至少为 2。Seed anchor 本身不重复进入 direct/transitive；Assertion-only seed 没有传播 occurrence。
+
+### 17.3 Propagation Rule Registry v1
+
+Predicate Signature Registry 只拥有 shape，不拥有影响方向。Impact 使用独立、版本化、total checked 的 propagation registry；规则不能从 predicate 名字、label、attribute、UI edge 或 external provider 猜测。
+
+| Predicate | stable rule variant ID | v1 rule | 语义 |
+| --- | --- | --- | --- |
+| `DEPENDS_ON` | `impact.depends-on.object-to-subject.v1` | entity object → subject | dependency 改变影响 dependent |
+| `REQUIRES` | `impact.requires.object-to-subject.v1` | entity object → subject | requirement 改变影响 requiring subject |
+| `IMPLEMENTS` | `impact.implements.object-to-subject.v1` | entity object → subject | contract/operation 改变影响 implementation responsibility |
+| `LOWERS_TO` | `impact.lowers-to.subject-to-object.v1` | subject → entity object | source semantic state 改变影响 lowered artifact |
+| `GUARANTEES` | — | value-object stop | subject 可成为 seed，但 value 不是 Entity edge；记录 `value-object-boundary` |
+| `VERIFIED_BY` | — | selection-only | 不进入普通闭包，只用于第 17.5 节推荐 |
+| `ASSUMES`、`PERSISTS_AS`、`SERIALIZES_AS` | — | reserved / no v1 edge | 当前 validated IR 不允许出现；激活 shape 时仍须单独升级 rule revision |
+| 其他 active Predicate | — | unknown frontier | 与已到达 Entity 相邻时记录 `unregistered-active-predicate`，不猜方向 |
+| 其他 reserved Predicate | — | impossible in validated v1 input | 不伪造 edge 或结果 |
+
+`ruleVariantId` 属于 Impact registry，不复用 Predicate Signature variant ID；后者只描述 subject/object shape。四个 executable IDs 与方向是 `impact-propagation-rules-v1` digest/path contract 的一部分，任何增删改都必须升级 rule revision 和 Contract Freeze vectors。
+
+Definite seed、traversal edge 与 Verification mapping 都要求对应 Fact 至少有一个 `authoritative` 或 `derived` Assertion。inferred-only 或 observed-only relation 不能升级为 definite root、transitive edge 或 runnable recommendation；由于 v1 尚未冻结以 authority class 表示 runtime/dynamic closure 的 canonical marker，这些关系记录 `non-definite-authority` unknown frontier，不改写 Fact authority。
+
+v1 的 `classification: "dynamic"` 是前向兼容输出类型，但 **合法 producer 集合为空**。当前没有 active canonical dynamic marker；禁止从缺边、runtime provenance、inferred authority、external Evidence、普通 `boundary` / `effect` Entity，或 `PERFORMS_EFFECT` 名字推断 dynamic region。以后只有先冻结 canonical marker 与升级 propagation rule revision，才允许产生 dynamic occurrence。
+
+### 17.4 Closure、cycle 与 path evidence
+
+Producer 对两个 basis 分别执行 deterministic multi-source BFS：
+
+1. state key 是 `(basis, entityId)`；没有 caller-controlled `maxDepth`，必须达到有限图 fixpoint。
+2. seed、frontier 和 candidate edge 分别按稳定 tuple 排序；candidate edge 与 `ImpactPathStep` 的唯一 tuple 固定为 `(predicate, factId, ruleVariantId, direction, fromEntityId, toEntityId)`。
+3. visited 保存最短距离。cycle 正常终止，不 hard fail；seed anchor 不因回边重新进入 direct/transitive。
+4. 同一 target 的较短路径胜出；等距时按完整 `(seedId, [path-step tuple...])` 字典序选择 `canonicalPath`；path array 逐 step 比较上述唯一 tuple，直到首个差异，再以较短 array 为先。
+5. `seedIds` 收集所有以同一最短距离到达该 target 的原因，去重排序；`canonicalPath` 只保留其中字典序最小的单一 witness，禁止枚举所有路径造成 path explosion。
+6. 同一 `(basis, entityId)` 只能进入 direct 或 transitive 之一。from/to occurrence 不合并成 `basis: "both"`，以保留删除侧和新增侧的真实证据。
+
+Uncertainty 只在已到达闭包的 frontier 上产生，必须带 basis、reason、seed IDs 与 canonical path；它不是 Fact，也不阻断 definite closure。对 `unregistered-active-predicate`，每个已到达 Entity 同时检查 `outgoingFactsBySubject` 与 `incomingFactsByEntityObject`，但不猜传播方向；同一 self-edge 仍只记录一次。`value-object-boundary` 只检查已到达 subject 的 outgoing stop-rule Fact；`non-definite-authority` 只在已冻结方向本应从当前 Entity 出发、Fact seed 本应成为 root，或 `VERIFIED_BY` 本应产生 recommendation 时记录。reserved Predicate 在 validated input 中出现仍由既有 `IR-PREDICATE-*` boundary 拒绝，而不是降级为 uncertainty。
+
+Uncertainty identity 固定为 `(basis, classification, reasonCode, boundaryEntityId ?? "", factId ?? "", predicate ?? "")`。同一 identity 无论由多少 seed/path 发现都聚合成一条：保留最短 boundary path，等距使用第 17.4 节完整 tuple tie-break，`seedIds` 合并所有同一最短距离的原因并排序。`verification-mapping-missing` 以被检查 Entity 为 boundary、没有 factId；其他 mapping/Fact frontier 带 exact factId/predicate。Seed anchor 上的 local uncertainty 使用空 path。
+
+### 17.5 Verification 推荐 ownership
+
+Impact kernel 只从 seed anchors 与 direct/transitive occurrences 读取同一 endpoint 的 canonical `VERIFIED_BY` Facts，且 mapping Fact 必须至少有一个 `authoritative` 或 `derived` Assertion，才输出 recommendation。inferred-only / observed-only mapping 只产生 `non-definite-authority` uncertainty：
+
+- `scenario | artifact -> acceptance` 输出稳定 `acceptanceEntityId`。
+- `artifact -> value { selector: string }` 输出 validated canonical Fact 中 `object.value.selector` 的 exact string；不得 trim、case-fold、路径重写或另行 normalization。
+- impacted `acceptance` 自身输出该 Acceptance recommendation。
+- `policy -> policy` 表示 semantic policy 与 verification policy 的治理映射，不是 runnable selector；输出 `verification-mapping-non-runnable` unknown。
+- impacted scenario/artifact 缺少 runnable mapping 时输出 `verification-mapping-missing` unknown。
+
+Recommendation 按 target identity 去重排序，并保留排序后的 reason evidence。`VerificationReason` 的唯一 tuple 固定为 `(basis, sourceLevelRank, sourceEntityId, factId ?? "", sourceSeedIds)`，其中 basis order 是 `from` → `to`，`sourceLevelRank` 是 `seed = 0`、`direct = 1`、`transitive = 2`，`sourceSeedIds` 作为已排序 string array 逐项字典序比较。Impact kernel 不解释 selector 为测试文件、不执行 pass、不写 Verification Report，也不接入仓库 `test-impact-contract.ts`；实际 runnable plan 与 fast/slow/CI mapping 仍由 `08` 的 Verification authority 和下游 adapter 拥有。Workbench 只能展示该 canonical recommendation，不能自行补选测试。
+
+### 17.6 Diagnostics、digest 与不变性
+
+既有 `FACT-DELTA-001` 至 `007` 从 canonical 重算路径原样冒泡。Impact 新增稳定 diagnostics：
+
+| Code | 含义 |
+| --- | --- |
+| `IMPACT-001` | supplied delta endpoint audit fields 与 from/to context binding 不一致 |
+| `IMPACT-002` | supplied delta 不等于 `buildFactDelta(from, to)` canonical 重算结果 |
+| `IMPACT-003` | propagation registry 缺项、重复、方向或 variant 歧义 |
+| `IMPACT-004` | retained Entity ID 跨 endpoints 出现不同 kind |
+| `IMPACT-005` | `VERIFIED_BY` target 缺失、kind 或 selector shape 不合法 |
+| `IMPACT-006` | seed/occurrence/uncertainty/recommendation 重叠、重复、路径或 canonical order invariant 失败 |
+
+检查先后固定为：
+
+```text
+supplied delta top-level endpoint/lineage fields vs contexts  → IMPACT-001
+→ buildFactDelta(from, to) canonical recomputation            → FACT-DELTA-001..007
+→ supplied delta exact equality                               → IMPACT-002
+→ propagation registry total/variant/direction                → IMPACT-003
+→ Entity merge-join kind identity                             → IMPACT-004
+→ traversal and VERIFIED_BY target validation                 → IMPACT-005
+→ output overlap/order/path invariants                         → IMPACT-006
+→ impactRevision digest
+```
+
+`IMPACT-001` 只比较 supplied delta 的 `formatVersion/graphId/appId`、from/to `transactionId/inputRevision/semanticRevision` 与两个 contexts 的对应字段，因此先于重算；完整 payload 的任何其余差异统一由 `IMPACT-002` 报告，不发生两码竞争。
+
+`impactRevision` 使用既有 SHA-256 表达 `sha256:<lowercase-hex>`，canonical payload 固定为：
+
+```text
+{
+  domain: "engineering-ir-impact-propagation-v1",
+  contractVersion,
+  scope,
+  formatVersion,
+  graphId,
+  appId,
+  deltaRevision,
+  from: { semanticRevision, factSetDigest },
+  to: { semanticRevision, factSetDigest },
+  propagationRuleRevision,
+  seeds,
+  direct,
+  transitive,
+  uncertainties,
+  verification
+}
+```
+
+transaction IDs、input revisions 与 `impactRevision` 本身不进入 digest。数组固定排序：basis order 全部为 `from` → `to`；seeds 按 `(basis, kind, id)`；occurrences 按 `(basis, distance, entityId)`；uncertainties 按其 identity 后接 `(seedIds, canonicalPath)`；recommendations 按 `(kind, acceptanceEntityId | selector)`，其中 kind lexical order 为 `acceptance` → `selector`；path steps 与 reasons 分别使用第 17.4 / 17.5 节唯一 tuple；string arrays 都先去重排序再逐项 lexical compare；optional 字段缺失按空字符串参与比较。不得添加实现私有字段参与 tie-break，也不得依赖 Map/Set insertion order 或 JSON 输入偶然顺序。Producer clone 输出并递归 deep-freeze，不修改 delta、contexts、snapshots 或 indexes；相同 canonical input 重复执行必须得到 byte-stable JSON 与相同 revision。
+
+### 17.7 Scope、实现 envelope 与 Contract Freeze
+
+初始 kernel 只实现 shared semantic-impact types、独立 propagation policy、唯一 pure Compiler producer、additive facade、focused tests、test ownership 与 `semantic.impact-propagation` Contract Freeze target。不得修改 Fact/Assertion/Validated Snapshot shape、Builder、Validator、semantic revision algorithm、现有 IR index shape 或 Fact Delta；不得接入 Pipeline stage、Workspace、Lock、Projection、ReviewSummary、ExplainGraph、Workbench、Mutation、AI Task Envelope、stable artifact 或 CI test selection。
+
+v1 最低 sentinels 包括：真正空变化、empty Fact Delta + entity-only change、entity add/remove/update、Entity kind collision、Fact add/remove endpoint basis、Assertion add/remove/update local-only、多跳、diamond、cycle、断开子图、from/to path 分离、四条 executable rule、value/unknown frontier、dynamic 集合为空、Verification acceptance/selector/non-runnable/missing mapping、supplied delta mismatch、raw/index/artifact compile-time rejection、canonical ordering、shortest-path tie-break、输入不变、输出 deep-frozen、deterministic repetition 与独立手写 digest/reachability expected vectors。
+
+## 18. Projection
 
 Projection API 只接受 `ValidatedEngineeringIRSnapshot`，返回单个 `SemanticView`；`buildSemanticViewSet(snapshot)` 按 Architecture → Scenario → State 生成确定性、deep-frozen bundle。
 
@@ -933,7 +1205,7 @@ Architecture View 展示 canonical Entity 与 entity-object Fact 边；Boundary 
 
 ExplainGraph、ReviewSummary 与 Workbench 是 `SemanticViewSet` consumers。ExplainGraph 节点/边保留 `ViewReference[]`，ReviewSummary 列出 canonical Fact IDs，Workbench 的 Semantic Views 页签真实显示 architecture/scenario/state 的 subject、node、relation 与 Fact 数；旧 governance tabs 不得反向成为业务语义 authority。
 
-## 18. 持久化策略
+## 19. 持久化策略
 
 当前 v2 Kernel 先以内存 IR 为主；不要立即新增 stable `engineering-ir.json` artifact。
 
@@ -953,7 +1225,7 @@ control/semantic/engineering-ir.json
 
 在此之前，IR 类型/Builder 是 canonical calculation，现有 stable artifact 列表不增加路径。
 
-## 19. v2 Kernel 完成条件
+## 20. v2 Kernel 完成条件
 
 - TypeScript 类型落地。
 - Builder 归一当前 App/Block/Capability/Port/Slot/Acceptance/Policy declaration 与 Loaded Semantic Contract。
