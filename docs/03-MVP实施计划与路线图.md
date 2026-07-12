@@ -37,7 +37,7 @@ Pipeline Kernel + Semantic Frontend / IR handoff + IR-owned Lowering 已完成
 
 ## 2. 当前收口：Verification / CI Closure exact-head Gate
 
-P0-7 Verification / CI Closure 已以 `ci-verification-v3` 本地组合 Full evidence 完成 correctness 收口；Quick / full-fast / budget / Contract Freeze、25/25 slow suites、benchmark / deps / ordered workspace / reference tail 均有可复用证据，剩余动作仅为 PR 管理、合并与清理。P0-6 已让 Architecture / Scenario / State Projector 只接受 validated snapshot，并让 ExplainGraph、ReviewSummary 与 Workbench 消费同一 `SemanticViewSet` / Fact identity。
+P0-7 Verification / CI Closure 已以 `ci-verification-v3` 本地组合 Full evidence 完成 correctness 收口；Quick / full-fast / budget / Contract Freeze、25/25 slow suites、benchmark / deps / ordered workspace / reference tail 均有可复用证据。PR #93 已 squash merge 为 `9bbdc86`，原 feature branch、专用 worktree、Junction 与临时 evidence 已清理。P0-6 已让 Architecture / Scenario / State Projector 只接受 validated snapshot，并让 ExplainGraph、ReviewSummary 与 Workbench 消费同一 `SemanticViewSet` / Fact identity。
 
 当前 P0 不是继续增加平行 Semantic Plan、第二套 Generator/Projection 解释器或新的 Pipeline；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context、Workspace Semantic Link、IR-owned Generator 与 canonical Projection 已经固定，当前任务是把这些不可旁路的语义纵切面纳入稳定 Verification / CI contract。
 
@@ -329,7 +329,7 @@ Ticket Contract
 
 ## 11. P0-7 Verification / CI Closure
 
-状态：**VERIFIED；`ci-verification-v3` 本地组合 Full 已闭合，待合并与清理**。
+状态：**COMPLETED；PR #93 已合并，验证与清理闭环完成**。
 
 ### Prerequisite
 
