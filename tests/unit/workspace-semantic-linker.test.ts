@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test';
 
 import {
   buildEngineeringIR,
-  type BuildEngineeringIRInput
+  type BuildEngineeringIRInput,
+  linkWorkspaceSemanticContracts,
+  normalizeSemanticContract
 } from '../../platform/compiler/index.ts';
 import { CompilerError } from '../../platform/shared/errors.ts';
 import type {
@@ -129,13 +131,13 @@ function input(semanticContracts = [providerContract(), consumerContract()]): Bu
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): void {
+function expectCompilerError(run: () => unknown, code: string): CompilerError {
   try {
     run();
   } catch (error) {
     expect(error).toBeInstanceOf(CompilerError);
     expect((error as CompilerError).code).toBe(code);
-    return;
+    return error as CompilerError;
   }
   throw new Error(`Expected CompilerError ${code}`);
 }
@@ -182,6 +184,53 @@ test('workspace linking is deterministic across contract enumeration order', () 
   expect(second.inputRevision).toBe(first.inputRevision);
 });
 
+test('exact duplicate contracts are idempotent and import declaration order is canonical', () => {
+  const provider = providerContract();
+  const consumer = consumerContract();
+  consumer.contract.imports!.push({
+    alias: 'tenantAlternate',
+    namespace: 'tenant',
+    contractId: 'tenant-core'
+  });
+  const reorderedConsumer = structuredClone(consumer);
+  reorderedConsumer.contract.imports!.reverse();
+
+  const baseline = buildEngineeringIR(input([provider, consumer]));
+  const duplicatedInput = input([structuredClone(reorderedConsumer), structuredClone(provider)]);
+  duplicatedInput.semanticContracts = [
+    structuredClone(reorderedConsumer),
+    structuredClone(provider),
+    structuredClone(provider)
+  ];
+  const duplicated = buildEngineeringIR(duplicatedInput);
+
+  expect(duplicated.entities).toEqual(baseline.entities);
+  expect(duplicated.facts).toEqual(baseline.facts);
+  expect(duplicated.semanticRevision).toBe(baseline.semanticRevision);
+  expect(duplicated.inputRevision).toBe(baseline.inputRevision);
+});
+
+test('state entity and field references link across an explicit import', () => {
+  const consumer = consumerContract();
+  consumer.contract.states = [{
+    id: 'tenant-binding',
+    entity: 'tenant::TenantContext',
+    field: 'tenantId',
+    owner: 'TicketQuery',
+    values: ['bound'],
+    transitions: []
+  }];
+
+  const linked = linkWorkspaceSemanticContracts([providerContract(), consumer], [
+    'tenant-scope-required'
+  ]);
+  const state = linked.find((entry) => entry.contract.namespace === 'ticket')?.contract.states[0];
+
+  expect(state?.entity).toBe('tenant::TenantContext');
+  expect(state?.field).toBe('tenantId');
+  expect(state?.owner).toBe('ticket::TicketQuery');
+});
+
 test('same-name Semantic and Verification Policies do not link without verifiedBy', () => {
   const provider = providerContract();
   provider.contract.policies[0] = {
@@ -202,10 +251,21 @@ test('same-name Semantic and Verification Policies do not link without verifiedB
 test('linker emits deterministic diagnostics for namespace, import, reference, and policy failures', () => {
   const duplicateNamespace = consumerContract();
   duplicateNamespace.contract.namespace = 'tenant';
-  expectCompilerError(
+  const duplicateDiagnostic = expectCompilerError(
     () => buildEngineeringIR(input([providerContract(), duplicateNamespace])),
     'SEMANTIC-LINK-001'
   );
+  const reversedDuplicateDiagnostic = expectCompilerError(
+    () => buildEngineeringIR(input([duplicateNamespace, providerContract()])),
+    'SEMANTIC-LINK-001'
+  );
+  expect({
+    message: reversedDuplicateDiagnostic.message,
+    details: reversedDuplicateDiagnostic.details
+  }).toEqual({
+    message: duplicateDiagnostic.message,
+    details: duplicateDiagnostic.details
+  });
 
   const ambiguousAlias = consumerContract();
   ambiguousAlias.contract.imports!.push({ alias: 'tenant', namespace: 'tenant', contractId: 'tenant-core' });
@@ -239,6 +299,14 @@ test('linker emits deterministic diagnostics for namespace, import, reference, a
   crossOwner.contract.responsibilities[0]!.implements = ['tenant::enforceTenantScope'];
   expectCompilerError(
     () => buildEngineeringIR(input([providerContract(), crossOwner])),
+    'SEMANTIC-LINK-005'
+  );
+
+  const qualifiedOperationOwner = consumerContract();
+  qualifiedOperationOwner.contract.operations[0]!.responsibility = 'tenant::TenantScopeGuard';
+  qualifiedOperationOwner.contract = normalizeSemanticContract(qualifiedOperationOwner.contract);
+  expectCompilerError(
+    () => buildEngineeringIR(input([providerContract(), qualifiedOperationOwner])),
     'SEMANTIC-LINK-005'
   );
 

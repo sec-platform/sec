@@ -151,6 +151,7 @@ function assertOperationResponsibilityConsistency(contract: SemanticContract): v
   const responsibilityByOperation = new Map<string, string>();
   for (const responsibility of contract.responsibilities) {
     for (const operationId of responsibility.implements) {
+      if (isQualifiedReference(operationId)) continue;
       const existing = responsibilityByOperation.get(operationId);
       if (existing && existing !== responsibility.id) {
         throw new CompilerError(
@@ -163,6 +164,7 @@ function assertOperationResponsibilityConsistency(contract: SemanticContract): v
   }
 
   for (const operation of contract.operations) {
+    if (isQualifiedReference(operation.responsibility)) continue;
     const listedResponsibility = responsibilityByOperation.get(operation.id);
     if (listedResponsibility !== operation.responsibility) {
       throw new CompilerError(
