@@ -352,3 +352,16 @@ PR base 固定为 `a3025aca63c6c365e2561b415ddfe07dc8a61141`，contract revision
 | 原 `codex/p0-7-verification-ci-closure` branch / worktree / Junction audit | remote branch、local branch、remote-tracking ref 与 `D:\Project\sec-worktrees\verification-ci-closure` 均不存在；37 个 Junction 已按 target 白名单只删除链接 | `D:\Project\sec\node_modules` 清理前后均保留 408 个顶层条目；主工作区用户文档修改未被 pull/reset/覆盖，仅 fetch 新 `origin/main`。 |
 
 至此 P0-7 的实现、组合验证、reference refresh、PR 合并和本地清理均完成。本文与 roadmap 的 post-merge 状态修正是 docs-only，不改变任何已验证 Gate 的输入或失效边界。
+
+### 2026-07-13 P0-7 final invalidation audit
+
+只读 completion audit 发现两处记录强度不足：`e372263` 后的 runner / Contract Freeze 变化需要 final affected/freeze 证据；`84f00a7` 的 ExplainGraph additive compatibility change 需要明确覆盖此前已 PASS 的 graph consumers。为避免重跑 full-fast 或 25-suite 全矩阵，本轮在合并后 tree `77e61876c557ec4cc8fe168fe911f18193c497db` 上按风险簇一次批量补证。
+
+| Tested head / base | Evidence | Result | 关闭的失效边界 |
+| --- | --- | --- | --- |
+| `77e61876c557ec4cc8fe168fe911f18193c497db` / `e3722632582a2080265edc6b0672b74bbf1ef259` | `SEC_CHANGED_BASE=e372263... bun run test:affected` | PASS（46.8s）；canonical selector 一次执行 auto-reference、pipeline、roadmap-authority、scripts、verification-infrastructure、semantic-contract、ticket-core 等受影响 fast/contract owners | `scripts/ci-pr-risk.ts`、`tests/contract/ci-lanes.test.ts`、ExplainGraph/Prisma helper 与 closeout docs 的 intervening fast impact。changed slow files只作为 Risk notice，不伪装成 Quick coverage。 |
+| 同上 | `bun run test:contract-freeze` | PASS（74/74，24.9s） | Contract target/test 内容变化后的完整稳定 `contractId → test file` freeze；不再依赖 hosted `e372263` 的旧 74/74。 |
+| 同上 | `SEC_CHANGED_BASE=e372263... bun scripts/ci-pr-risk.ts --suite e2e-graph --suite e2e-artifacts --suite e2e-explain --suite e2e-local-views --continue-on-failure` | PASS（graph 5/5，7.845s；artifacts 1/1，42.423s；explain 1/1，41.071s；local-views 1/1，41.483s；总计 132.825s；tracked tree clean） | canonical port → legacy pin additive change 对 graph artifact、artifact manifest、CLI explain 与 Workbench local views 的完整 consumer 风险簇。原始 evidence：[`docs/evidence/p0-7-final-graph-consumer-batch.json`](evidence/p0-7-final-graph-consumer-batch.json)。 |
+| 本 docs-only audit closeout | `bun test tests/integration/project-runtime.test.ts`；`bun run docs:doctor`；`git diff --check` | PASS（roadmap/package contract 29/29；docs 0 errors / 0 warnings；patch hygiene clean） | post-merge roadmap authority、evidence ledger 与 tracked JSON 的最终 contract/doc/patch Gate。 |
+
+本 audit 没有运行 full-fast、全部 slow matrix、workspace chain 或 GitHub Actions。其作用是用 canonical affected + 完整 Contract Freeze + 一个 4-suite slow batch 精确补齐账本自身的失效规则；此前 25-suite 组合 Full、workspace/reference tail 与 PR merge 证据继续有效。
