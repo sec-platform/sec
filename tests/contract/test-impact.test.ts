@@ -84,6 +84,33 @@ test('test impact selector gives Fact Delta a focused owner without dedicated sl
   expect(dedicatedOwner).toHaveLength(1);
 });
 
+test('test impact selector gives Semantic Impact a focused owner without dedicated slow coverage', () => {
+  const sourceFiles = [
+    'platform/shared/semantic-impact-types.ts',
+    'platform/compiler/semantic-impact/propagation-rules.ts',
+    'platform/compiler/semantic-impact/build-impact-propagation.ts'
+  ];
+  const selection = selectTestsForSources(sourceFiles);
+
+  expect(selection.owners).toContain('impact-propagation');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/impact-propagation.test.ts',
+    'tests/contract/impact-propagation-contract.test.ts',
+    'tests/unit/fact-delta.test.ts',
+    'tests/contract/fact-delta-contract.test.ts',
+    'tests/unit/validated-engineering-ir.test.ts'
+  ]));
+  expect(selection.slow).toEqual([]);
+  for (const source of sourceFiles) {
+    expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'impact-propagation'))
+      .toEqual([{
+        source,
+        owner: 'impact-propagation',
+        identity: { kind: 'architecture-owner', id: 'impact-propagation' }
+      }]);
+  }
+});
+
 test('test impact selector binds predicate signature authority to focused semantic IR coverage', () => {
   const selection = selectTestsForSources([
     'platform/shared/engineering-ir/predicate-signature-types.ts',

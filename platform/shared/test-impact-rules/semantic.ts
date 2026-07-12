@@ -40,7 +40,28 @@ const FACT_DELTA_FAST_TESTS = [
   "tests/contract/contract-freeze.test.ts",
 ];
 
+const IMPACT_PROPAGATION_FAST_TESTS = [
+  "tests/unit/impact-propagation.test.ts",
+  "tests/contract/impact-propagation-contract.test.ts",
+  "tests/unit/fact-delta.test.ts",
+  "tests/contract/fact-delta-contract.test.ts",
+  "tests/unit/validated-engineering-ir.test.ts",
+  "tests/contract/test-impact.test.ts",
+  "tests/contract/contract-freeze.test.ts",
+];
+
 export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: "impact-propagation",
+    identity: { kind: "architecture-owner", id: "impact-propagation" },
+    sourceFiles: [
+      "platform/shared/semantic-impact-types.ts",
+      "platform/compiler/semantic-impact/propagation-rules.ts",
+      "platform/compiler/semantic-impact/build-impact-propagation.ts",
+    ],
+    fast: IMPACT_PROPAGATION_FAST_TESTS,
+    slow: [],
+  },
   {
     owner: "fact-delta",
     identity: { kind: "architecture-owner", id: "fact-delta" },

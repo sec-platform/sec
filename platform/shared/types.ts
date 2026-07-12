@@ -160,6 +160,22 @@ export type {
   ViewReferenceKind,
   ViewRelation
 } from './semantic-view-types.ts';
+export type {
+  ImpactBasis,
+  ImpactContractVersion,
+  ImpactLevel,
+  ImpactOccurrence,
+  ImpactPathStep,
+  ImpactPropagationInput,
+  ImpactPropagationRuleRevision,
+  ImpactScope,
+  ImpactSeed,
+  ImpactUncertainty,
+  ImpactUncertaintyReason,
+  SemanticImpactPropagation,
+  VerificationReason,
+  VerificationRecommendation
+} from './semantic-impact-types.ts';
 export type { TaskEnvelope } from './task-envelope-types.ts';
 export type {
   UpgradeDiagnostics,
