@@ -20,6 +20,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/contract-freeze.test.ts',
     'tests/contract/error-protocol.test.ts',
     'tests/contract/fact-delta-contract.test.ts',
+    'tests/contract/impact-propagation-contract.test.ts',
     'tests/contract/test-architecture.test.ts',
     'tests/contract/test-impact.test.ts'
   ]));
@@ -28,7 +29,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'verification.contract-freeze',
     'verification.ci-workflow',
     'verification.impact',
-    'semantic.fact-delta'
+    'semantic.fact-delta',
+    'semantic.impact-propagation'
   ]));
   expect(contract.contractIds).toEqual([...contract.targets.map((target) => target.contractId)].sort());
 

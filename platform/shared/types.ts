@@ -144,6 +144,22 @@ export type {
   ReviewVerticalSlice
 } from './review-types.ts';
 export type {
+  ImpactBasis,
+  ImpactContractVersion,
+  ImpactLevel,
+  ImpactOccurrence,
+  ImpactPathStep,
+  ImpactPropagationInput,
+  ImpactPropagationRuleRevision,
+  ImpactScope,
+  ImpactSeed,
+  ImpactUncertainty,
+  ImpactUncertaintyReason,
+  SemanticImpactPropagation,
+  VerificationReason,
+  VerificationRecommendation
+} from './semantic-impact-types.ts';
+export type {
   AuthorityOverlayStatus,
   InspectorItem,
   InspectorSection,
