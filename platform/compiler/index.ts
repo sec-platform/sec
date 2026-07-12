@@ -42,6 +42,7 @@ export {
   buildWorkspaceSemanticBundle,
   type WorkspaceSemanticBundle
 } from './semantic-frontend.ts';
+export { buildImpactPropagation } from './semantic-impact/build-impact-propagation.ts';
 export {
   linkWorkspaceSemanticContracts,
   splitLinkedSemanticReference

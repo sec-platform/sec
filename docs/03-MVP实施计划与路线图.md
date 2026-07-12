@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract、纯 kernel 与 Impact Propagation canonical contract 均已完成，当前唯一 active next 是 pure Impact Propagation kernel。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel 与 Impact Propagation canonical contract / pure kernel 均已完成，当前唯一 active next 是 Semantic Mutation canonical contract design。
 
 当前真实形态：
 
@@ -435,7 +435,7 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE NEXT（FD-3 pure Impact Propagation kernel）**。
+状态：**ACTIVE NEXT（Semantic Mutation canonical contract design）**。
 
 只有 v0.3 完成后进入：
 
@@ -454,7 +454,7 @@ AI 仍不得直接写 IR。Semantic Mutation 回写 Authoring Source，由 Compi
 | FD-0 | canonical contract design | **COMPLETED** | `docs/14` 固定 fact-set scope、transaction-referenced endpoint 与 caller ownership boundary、validated-only boundary、deterministic classification、validity v1 边界、diagnostics 与 verification/invalidation contract |
 | FD-1 | pure Fact Delta kernel | **COMPLETED** | 类型、唯一 Compiler producer、additive facade、test ownership、Contract Freeze 与 focused/risk evidence 已满足退出条件 |
 | FD-2 | Impact Propagation canonical contract design | **COMPLETED** | `docs/14` 已固定 endpoint-specific seed/closure、versioned direction registry、unknown/dynamic authority、snapshot/index ownership、verification recommendation 与 empty Fact Delta 语义 |
-| FD-3 | pure Impact Propagation kernel | **ACTIVE NEXT** | 实现唯一纯 producer、独立 rules/types/tests/ownership/Contract Freeze；不得把 Impact 回写 Delta 或接入产品 consumer |
+| FD-3 | pure Impact Propagation kernel | **COMPLETED** | 唯一纯 producer、独立 rules/types/tests/ownership/Contract Freeze 与 focused/risk evidence 已满足退出条件；未把 Impact 回写 Delta 或接入产品 consumer |
 
 FD-1 Work Package implementation contract：
 
@@ -489,6 +489,14 @@ FD-3 Work Package implementation contract：
 - **Reconciliation point**：FD-3 merge 后从新 `main` 重新计算 Semantic Mutation contract；初始 kernel 不接产品 consumer。
 
 FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/evidence/v0-4-impact-propagation-contract-design.json`。
+
+### FD-3 退出审查
+
+`buildImpactPropagation({ delta, from, to })` 已作为独立 Semantic Impact domain 的唯一纯 producer 实现。kernel 重算并精确核对 canonical Fact Delta，在内部派生 validated index，分别对 from/to 图执行确定性传播；完整 v1 action 表和四条 executable edge tuple 均由独立 rule registry 冻结。shared type、compiler/shared facade、`impact-propagation` test owner 与 `semantic.impact-propagation` Contract Freeze target 已闭合。实现未修改 IR/Fact Delta/Index shape，未接 Pipeline、Workspace、Lock、Projection、ReviewSummary、ExplainGraph、Workbench、Mutation、Artifact、Upgrade 或 CI selector。
+
+退出证据绑定 exact implementation head `4811feac5b43916741dcc948d0b3720d6f638627`：focused unit/contract 48/48、affected fast 171/171、Contract Freeze 82/82、typecheck、changed-only import、patch hygiene 与独立 frozen review 全部 PASS；canonical selector 要求的 10 个 slow suites 10/10 PASS，失败数 0，测试后 tracked tree clean。Frozen review 发现并关闭了两个合同缺口：所有 v1 predicate action drift 现在稳定触发 `IMPACT-003`；non-definite Fact root 不再借权威 mapping 升级为 runnable recommendation，同时 assertion-only seed 仍保留 recommendation 能力。因为最终追加内容仅是本 evidence/roadmap 记录，production 与 contract blobs 保持 exact，继续复用 v0.3 full-fast、未选择 slow suites、ordered workspace/reference tail、benchmark/dependency 与 GitHub Actions 证据。完整 blob、head/base、duration 与失效规则位于 `docs/evidence/v0-4-impact-propagation-kernel-verification.json` 和 `docs/evidence/v0-4-impact-propagation-risk-batch.json`。
+
+下一 reconciliation point 是从 FD-3 merge 后的新 `main` 重新读取 authority、代码、open PR/Issue 与有效 evidence，先设计 Semantic Mutation canonical contract；不得把 mutation DSL、source edit、AI envelope 或产品 consumer 反向塞入 Impact kernel。
 
 ## 14. 后续阶段
 
@@ -553,7 +561,9 @@ v0.4 FD-1 pure Fact Delta kernel                           COMPLETED
   ↓
 v0.4 FD-2 Impact Propagation contract design               COMPLETED
   ↓
-v0.4 FD-3 pure Impact Propagation kernel                    ACTIVE NEXT
+v0.4 FD-3 pure Impact Propagation kernel                    COMPLETED
+  ↓
+v0.4 Semantic Mutation canonical contract design            ACTIVE NEXT
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。
