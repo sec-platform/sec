@@ -87,6 +87,18 @@ function explainEdgeType(relation: string): ExplainEdgeType {
   return relation.toLowerCase() as ExplainEdgeType;
 }
 
+function legacyPinId(entityId: string): string | null {
+  const match = /^port:([^:]+):(input|output):(.+)$/.exec(entityId);
+  return match ? `pin:${match[1]}:${match[2]}:${match[3]}` : null;
+}
+
+function legacyPinEdgeType(relation: string, targetId: string): ExplainEdgeType {
+  if (relation === 'REQUIRES' && legacyPinId(targetId)) {
+    return 'depends_on';
+  }
+  return explainEdgeType(relation);
+}
+
 function canonicalSlotId(lock: LockFile, slotId: string, blockId?: string): string {
   const task = lock.slotTasks.find((candidate) =>
     candidate.id === slotId && (!blockId || candidate.block === blockId)
@@ -98,10 +110,24 @@ function addSemanticProjection(g: GraphBuilder, semanticViews: SemanticViewSet):
   for (const view of semanticViews.views) {
     for (const node of view.nodes) {
       g.node(node.id, node.entityKind, node.label, node.references);
+      const pinId = legacyPinId(node.id);
+      if (node.entityKind === 'port' && pinId) {
+        g.node(pinId, 'pin', node.label, node.references);
+      }
     }
     for (const edge of view.edges) {
       if (edge.target) {
         g.edge(edge.source, edge.target, explainEdgeType(edge.relation), edge.references);
+        const legacySource = legacyPinId(edge.source);
+        const legacyTarget = legacyPinId(edge.target);
+        if (legacySource || legacyTarget) {
+          g.edge(
+            legacySource ?? edge.source,
+            legacyTarget ?? edge.target,
+            legacyPinEdgeType(edge.relation, edge.target),
+            edge.references
+          );
+        }
         continue;
       }
       if (edge.value !== undefined) {
