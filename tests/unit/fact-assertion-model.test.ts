@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { addFact, type FactInput } from '../../platform/compiler/ir/ir-fact-store.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/ir/build-engineering-ir.ts';
+import { addFact, type FactInput } from '../../platform/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../platform/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../platform/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../platform/compiler/projection/project-architecture-view.ts';

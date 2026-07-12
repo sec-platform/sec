@@ -9,10 +9,10 @@ import {
 } from '../../platform/compiler/index.ts';
 import { explainWorkspace } from '../../platform/orchestrator.ts';
 import {
-    CI_ARTIFACT_FILES,
-    CI_ARTIFACT_MANIFEST_PATH,
-    CI_ARTIFACT_MISSING_REASON,
-    CI_ARTIFACT_PATHS
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_ARTIFACT_MISSING_REASON,
+  CI_ARTIFACT_PATHS
 } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';

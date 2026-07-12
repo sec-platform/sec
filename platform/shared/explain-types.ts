@@ -1,9 +1,9 @@
-import type { ProvenanceArtifact } from './provenance-types.ts';
 import {
   SEMANTIC_ENTITY_KINDS,
   type SemanticEntityKind,
   type SemanticPredicate
 } from './engineering-ir-types.ts';
+import type { ProvenanceArtifact } from './provenance-types.ts';
 import type { SemanticViewSet, ViewReference } from './semantic-view-types.ts';
 
 export const EXPLAIN_NODE_TYPES = [

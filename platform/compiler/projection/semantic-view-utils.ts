@@ -9,9 +9,9 @@ import type {
 import { CompilerError } from '../../shared/errors.ts';
 import {
   INSPECTOR_SECTION_IDS,
+  type AuthorityOverlayStatus,
   type InspectorItem,
   type InspectorSection,
-  type AuthorityOverlayStatus,
   type ViewBadge,
   type ViewEdge,
   type ViewNode,

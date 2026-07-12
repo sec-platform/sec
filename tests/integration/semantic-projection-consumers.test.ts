@@ -7,8 +7,8 @@ import {
   loadWorkspaceEngineeringIRBuildInput
 } from '../../platform/compiler/index.ts';
 import { explainWorkspace } from '../../platform/orchestrator.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import type { ExplainGraph } from '../../platform/shared/explain-types.ts';
+import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { ReviewSummary } from '../../platform/shared/review-types.ts';

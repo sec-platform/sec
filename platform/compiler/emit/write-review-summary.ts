@@ -19,8 +19,8 @@ import type {
   ReviewSemanticViewSummary,
   ReviewSummary
 } from '../../shared/review-types.ts';
-import { semanticViewFactIds } from '../../shared/semantic-view-types.ts';
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
+import { semanticViewFactIds } from '../../shared/semantic-view-types.ts';
 import type { UpgradeDiagnostics } from '../../shared/upgrade-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';

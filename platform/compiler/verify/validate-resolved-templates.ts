@@ -10,8 +10,8 @@ import { ensureProjectBase } from '../../shared/project-base.ts';
 import { composeProject } from '../compose/compose-project.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from '../ir/load-workspace-engineering-ir-input.ts';
 import { buildValidatedEngineeringIR } from '../ir/validate-engineering-ir.ts';
-import { buildSemanticGeneratorPlan } from '../semantic-plan.ts';
 import { buildSemanticViewSet } from '../projection/build-semantic-view-set.ts';
+import { buildSemanticGeneratorPlan } from '../semantic-plan.ts';
 import { typecheckProject } from './typecheck-project.ts';
 
 export async function validateResolvedTemplates(workspaceRoot: string, lock: LockFile): Promise<void> {

@@ -13,15 +13,15 @@ import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import {
-    buildProjectOverview,
-    PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
-    type ProjectOverview
+  buildProjectOverview,
+  PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
+  type ProjectOverview
 } from '../../shared/project-overview.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import type { ReviewSummary } from '../../shared/review-types.ts';
-import { semanticViewFactIds, type SemanticViewSet } from '../../shared/semantic-view-types.ts';
 import { buildReviewUpgradePreflightSummaries } from '../../shared/review-upgrade.ts';
+import { semanticViewFactIds, type SemanticViewSet } from '../../shared/semantic-view-types.ts';
 import type { ToolEvidenceReport } from '../../shared/tool-evidence-contract.ts';
 import type { CiArtifactManifest, VerificationReport } from '../../shared/types.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';

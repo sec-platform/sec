@@ -5,8 +5,8 @@ import path from 'node:path';
 import { loadPlan } from '../../platform/compiler/parse/load-plan.ts';
 import { applyViewMutations } from '../../platform/compiler/workbench/apply-view-mutations.ts';
 import {
-    GRAPH_MUTATION_DRY_RUN_REPORT_PATH,
-    buildGraphMutationDryRun
+  GRAPH_MUTATION_DRY_RUN_REPORT_PATH,
+  buildGraphMutationDryRun
 } from '../../platform/compiler/workbench/graph-mutation-dry-run.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import { fixedCiArtifactPaths } from '../../platform/shared/ci-artifact-contract.ts';

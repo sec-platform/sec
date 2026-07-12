@@ -2,9 +2,9 @@ export { alignInterfaces } from './align/align-interfaces.ts';
 export { composeProject } from './compose/compose-project.ts';
 export { buildCiArtifactManifest, writeCiArtifactManifest } from './emit/ci-artifacts.ts';
 export { lockProject } from './emit/lock-project.ts';
+export { semanticViewArtifactsAreCurrent } from './emit/semantic-view-artifact-contract.ts';
 export { writeExplainGraph } from './emit/write-explain-graph.ts';
 export { writeLocalViews } from './emit/write-local-views.ts';
-export { semanticViewArtifactsAreCurrent } from './emit/semantic-view-artifact-contract.ts';
 export { writeProvenance } from './emit/write-provenance.ts';
 export { writeReviewSummary } from './emit/write-review-summary.ts';
 export {
@@ -30,8 +30,8 @@ export {
   loadSemanticContractsForManifestEntry,
   normalizeSemanticContract
 } from './parse/load-semantic-contract.ts';
-export { projectArchitectureView } from './projection/project-architecture-view.ts';
 export { buildSemanticViewSet } from './projection/build-semantic-view-set.ts';
+export { projectArchitectureView } from './projection/project-architecture-view.ts';
 export { projectScenarioView } from './projection/project-scenario-view.ts';
 export { projectStateView } from './projection/project-state-view.ts';
 export { buildSemanticInspector } from './projection/semantic-view-utils.ts';

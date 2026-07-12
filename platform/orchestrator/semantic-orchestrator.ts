@@ -1,7 +1,7 @@
 import {
   buildEngineeringIR,
-  buildSemanticViewSet,
   buildSemanticGeneratorPlan,
+  buildSemanticViewSet,
   buildValidatedEngineeringIR,
   loadWorkspaceEngineeringIRBuildInput,
   type BuildEngineeringIRInput

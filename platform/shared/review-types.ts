@@ -2,8 +2,8 @@ import type { PolicySeverity, PolicySourceScope } from './policy-types.ts';
 import type { OverrideStatus, ProvenanceOriginType } from './provenance-types.ts';
 import type { RegistryKind, RegistryLocation } from './registry-types.ts';
 import type { RepairTaskCategory } from './repair-types.ts';
-import type { VerificationStatus } from './verification-types.ts';
 import type { SemanticViewKind, SemanticViewSet } from './semantic-view-types.ts';
+import type { VerificationStatus } from './verification-types.ts';
 
 export type ReviewRuntimeEntryKind = 'page' | 'api';
 

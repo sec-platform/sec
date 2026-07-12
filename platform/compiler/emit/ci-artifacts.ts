@@ -1,9 +1,9 @@
 import {
   buildCiArtifactUploadGroups,
-  CI_EMIT_ARTIFACT_PATHS,
   CI_ARTIFACT_MANIFEST_PATH,
   CI_ARTIFACT_MISSING_REASON,
   CI_ARTIFACT_PATHS,
+  CI_EMIT_ARTIFACT_PATHS,
   ciArtifactKindForPath,
   ciArtifactUploadName,
   countCiArtifactMissingReasons,
