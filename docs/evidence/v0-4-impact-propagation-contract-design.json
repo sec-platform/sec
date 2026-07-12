@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1",
+  "evidenceId": "v0-4-impact-propagation-contract-73c4b87",
+  "recordedAt": "2026-07-13T04:46:21.5284517+08:00",
+  "testedHead": "73c4b87fb997b698c465c48d5a0a88ec39a46558",
+  "testedTree": "ac861f0918984abd84e7ff616d8267aaeb350857",
+  "baseSha": "b490e4895d159fb3a6fb851862ef196a6686052f",
+  "baseTree": "62d196a79fe42ce7417eedb312566c2cdface208",
+  "profile": "v0.4-impact-propagation-contract-design",
+  "contractRevision": "ci-verification-v3",
+  "scope": {
+    "selectionReason": "freeze the canonical Impact Propagation v1 contract and activate the isolated FD-3 pure-kernel work package",
+    "changedPaths": [
+      "docs/00-文档索引与一致性规则.md",
+      "docs/03-MVP实施计划与路线图.md",
+      "docs/08-Verification、Provenance与Graph规范.md",
+      "docs/11-Workbench与可视化规范.md",
+      "docs/12-编译管道与行为流图示.md",
+      "docs/14-Engineering IR与语义事实规范.md"
+    ],
+    "changedBlobs": [
+      {
+        "path": "docs/00-文档索引与一致性规则.md",
+        "testedBlob": "f611dbdf9f450a4b8b4b260973d6cd586bda5c31"
+      },
+      {
+        "path": "docs/03-MVP实施计划与路线图.md",
+        "testedBlob": "ead74f3f1e8cb90eea9200af0bcdadcfd7228447"
+      },
+      {
+        "path": "docs/08-Verification、Provenance与Graph规范.md",
+        "testedBlob": "dab58fb36f7599294b9e0fc658725dcadcf3f43b"
+      },
+      {
+        "path": "docs/11-Workbench与可视化规范.md",
+        "testedBlob": "c4706d2187273dba5ef2516f03d6e12ac24ebba6"
+      },
+      {
+        "path": "docs/12-编译管道与行为流图示.md",
+        "testedBlob": "48fa07b7f7fc5d4ef63e6f698dc8b327afb30146"
+      },
+      {
+        "path": "docs/14-Engineering IR与语义事实规范.md",
+        "testedBlob": "b807927a1db8907afd1b0f7313553917dc79f9ea"
+      }
+    ]
+  },
+  "gates": [
+    {
+      "gateId": "roadmap-contract",
+      "argv": [
+        "bun",
+        "test",
+        "tests/integration/project-runtime.test.ts"
+      ],
+      "status": "passed",
+      "passed": 29,
+      "failed": 0,
+      "durationMs": 1651,
+      "durationEvidence": "Bun reported 1.57s for the final tested documentation blobs"
+    },
+    {
+      "gateId": "docs-doctor",
+      "argv": [
+        "bun",
+        "run",
+        "docs:doctor"
+      ],
+      "status": "passed",
+      "errors": 0,
+      "warnings": 0
+    },
+    {
+      "gateId": "patch-hygiene",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "status": "passed"
+    },
+    {
+      "gateId": "frozen-review",
+      "status": "passed",
+      "reviewedConcerns": [
+        "from and to graphs remain separate evidence bases rather than one union graph",
+        "entity and fact seeds propagate while assertion-only seeds remain local",
+        "definite roots, edges, and verification mappings require authoritative or derived assertions",
+        "four executable directions and stable rule variant identifiers are exact",
+        "unknown frontiers have deterministic identity, path tie-break, aggregation, and ordering",
+        "dynamic has no legal v1 producer and cannot be inferred from evidence or names",
+        "verification emits recommendations only and does not own runnable or CI selection",
+        "diagnostic precedence, digest payload, sort tuples, and selector identity are exact",
+        "Impact remains outside Fact Delta, Pipeline, Lock, Projection, Mutation, Workbench, artifacts, and external evidence authority"
+      ]
+    }
+  ],
+  "environmentClosure": {
+    "junctionPath": "D:/Project/sec-worktrees/v0-4-impact-propagation-design/node_modules",
+    "junctionTarget": "D:/Project/sec/node_modules",
+    "rootNodeModulesEntryCountBefore": 408
+  },
+  "status": "passed",
+  "invalidationRules": [
+    "any tested Markdown blob changes",
+    "the roadmap contract or docs-doctor rules change",
+    "Impact endpoint binding, seed, propagation direction, authority, uncertainty, verification, diagnostic, digest, ordering, or scope authority changes",
+    "Fact Delta endpoint, digest, classification, validity, or scope authority changes before FD-3 implementation"
+  ],
+  "remainingGaps": []
+}
