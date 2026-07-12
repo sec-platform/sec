@@ -435,7 +435,7 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE NEXT（Semantic Mutation canonical contract design）**。
+状态：**ACTIVE NEXT（SM-1 pure Semantic Mutation kernels）**。
 
 只有 v0.3 完成后进入：
 
@@ -497,6 +497,31 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 退出证据绑定 exact implementation head `4811feac5b43916741dcc948d0b3720d6f638627`：focused unit/contract 48/48、affected fast 171/171、Contract Freeze 82/82、typecheck、changed-only import、patch hygiene 与独立 frozen review 全部 PASS；canonical selector 要求的 10 个 slow suites 10/10 PASS，失败数 0，测试后 tracked tree clean。Frozen review 发现并关闭了两个合同缺口：所有 v1 predicate action drift 现在稳定触发 `IMPACT-003`；non-definite Fact root 不再借权威 mapping 升级为 runnable recommendation，同时 assertion-only seed 仍保留 recommendation 能力。因为最终追加内容仅是本 evidence/roadmap 记录，production 与 contract blobs 保持 exact，继续复用 v0.3 full-fast、未选择 slow suites、ordered workspace/reference tail、benchmark/dependency 与 GitHub Actions 证据。完整 blob、head/base、duration 与失效规则位于 `docs/evidence/v0-4-impact-propagation-kernel-verification.json` 和 `docs/evidence/v0-4-impact-propagation-risk-batch.json`。
 
 下一 reconciliation point 是从 FD-3 merge 后的新 `main` 重新读取 authority、代码、open PR/Issue 与有效 evidence，先设计 Semantic Mutation canonical contract；不得把 mutation DSL、source edit、AI envelope 或产品 consumer 反向塞入 Impact kernel。
+
+### Semantic Mutation Work Packages
+
+| ID | Work Package | 状态 | 退出条件 |
+| --- | --- | --- | --- |
+| SM-0 | canonical contract design | **COMPLETED** | `docs/14` 已冻结 request/plan/result v2、单一首版 operation registry、source ownership、restricted expectation、diagnostic precedence、transaction/CAS/rollback/recovery 与 Verification ownership；`00/09/11/12` 只保留各自 owner 摘要 |
+| SM-1 | pure request/plan/result kernels | **ACTIVE NEXT** | 纯 normalization、condition/expectation matcher、plan/result invariant 与 Contract Freeze 落地；没有 Workspace IO、source adapter、consumer 或 live apply |
+| SM-2 | source adapter and edit-plan boundary | **BLOCKED BY SM-1** | 唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 落地 |
+| SM-3 | isolated apply coordinator | **BLOCKED BY SM-2** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 落地 |
+| SM-4 | product adapters and Task Envelope reconciliation | **BLOCKED BY SM-3** | Workbench 先迁移为 v2 caller；AI Task Envelope v2 随后只提供 trusted authorization minimum |
+
+### SM-0 退出审查与 SM-1 implementation contract
+
+SM-0 的关键裁决是：Semantic Mutation 是独立 Authoring Source transaction，不是 View Mutation、IR patch、Fact Delta patch、Repair、Upgrade 或 Pipeline journal 的别名。Proposal 与 trusted platform context 分离；caller 不能提交 filesystem path、actual `FactDelta` / Impact、risk、required passes、rollback 或 verification reduction。首版 registry 只冻结 `add-state-transition`，且只有平台能从 loaded contract provenance 唯一解析到 non-registry writable owner 时才可 ready；当前 official Registry Ticket contract 不可写，`source/model/**` 也不能在尚未进入 semantic contract loader 前被假定为 owner。
+
+SM-1 Work Package implementation contract：
+
+- **Base**：SM-0 authority merge 后的 latest `main`。
+- **Architectural goal**：实现 mutation-specific 纯 request normalization、restricted condition/expectation matcher、plan/result builders 与 invariant validator；冻结 `contractVersion: "2"`、`semantic-mutation-operations-v1`、exact match、stable diagnostics/revision/ordering/deep-freeze，但不执行 source resolution 或 IO。
+- **Owned files**：优先新增 mutation-specific shared types、Compiler `semantic-mutation` operation registry、request normalizer、condition/expectation matcher 与 plan/result invariant modules；从 `platform/compiler/index.ts` additive export；新增 dedicated unit/contract tests、独立 test-impact owner、`semantic.mutation` Contract Freeze target 与 evidence。
+- **Allowed minimal seam expansion**：只允许 mutation-specific types/modules、compiler facade additive export、dedicated ownership 与 Contract Freeze registry；若 shared consumer 尚不存在，不修改宽泛 `platform/shared/types.ts` barrel。
+- **Forbidden**：Workspace/filesystem IO、path helper、YAML writer、source adapter、live transaction、Pipeline stage/journal、Workbench/API/CLI/AI consumer、Repair、Upgrade、Fact Delta/Impact/IR/Validated Snapshot/Index/Projection/Lock shape、semantic revision algorithm、official Registry contract、stable artifact 与 CI selector语义。
+- **Acceptance**：proposal 与 trusted context 类型不可混淆；unsupported operation 和 caller-supplied authority 字段 fail closed；conditions/expectations 只接受冻结 DSL；exact matcher 对未声明 Entity/Fact/Assertion drift hard fail；operation/diagnostic/output stable order、digest 与 deep-freeze 有独立手写 vectors；terminal result 不允许 partial success 或把 recovery-required 表述为普通 reject。
+- **Required evidence**：一次 focused unit/contract batch、changed-only import/typecheck、`test:affected` 与完整 Contract Freeze；compiler facade 若使 selector 命中 slow consumer，只批量运行 selector 实际要求的 suite。继续复用仍有效的 FD-3 full-fast、未选择 slow、workspace/reference 与 GitHub Actions 证据，不重跑全矩阵。
+- **Reconciliation point**：SM-1 merge 后从新 `main` 重算 source ownership/path/CAS DAG，再设计 SM-2；不得提前为当前 official Ticket contract 发明 writable `source/model/**` mirror 或把 impure executor 塞入纯 kernel。
 
 ## 14. 后续阶段
 
@@ -563,7 +588,9 @@ v0.4 FD-2 Impact Propagation contract design               COMPLETED
   ↓
 v0.4 FD-3 pure Impact Propagation kernel                    COMPLETED
   ↓
-v0.4 Semantic Mutation canonical contract design            ACTIVE NEXT
+v0.4 SM-0 Semantic Mutation canonical contract design       COMPLETED
+  ↓
+v0.4 SM-1 pure request/plan/result kernels                  ACTIVE NEXT
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。

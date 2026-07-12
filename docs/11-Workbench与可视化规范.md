@@ -6,7 +6,7 @@ last-reviewed: 2026-07-13
 
 # Workbench 与可视化规范
 
-本文定义 Workbench、Semantic View、Overlay 和结构化 Mutation。IR 以 `14` 为权威，Explain/Review 以 `08` 为权威。
+本文定义 Workbench、Semantic View、Overlay，以及 View Mutation UI / Semantic Mutation adapter。IR 与 Semantic Mutation canonical contract 以 `14` 为权威，Explain/Review 以 `08` 为权威。
 
 ## 1. Workbench 定位
 
@@ -195,19 +195,16 @@ AI inference 不得和 compiler/contract fact 使用同样视觉语义。
 
 ## 7. 图上操作
 
-所有写入必须：
+所有 Semantic Mutation 写入必须：
 
 ```text
 UI operation
-→ structured mutation
-→ dry-run
-→ precondition check
-→ authoring source adapter
-→ rebuild IR
-→ compare actual Fact Delta
-→ verification
-→ accept/reject
-→ regenerate views
+→ SemanticMutationRequestV2
+→ platform plan / dry-run（不写 live workspace）
+→ review derived plan / risk / Impact / verification
+→ apply with expectedPlanRevision
+→ accepted / rejected / rolled-back / recovery-required
+→ regenerate views from accepted revision
 ```
 
 Workbench 禁止直接写：
@@ -220,36 +217,15 @@ Workbench 禁止直接写：
 
 ### View Mutation v1
 
-现有 `add-block/remove-block/bind-slot/unbind-slot/add-acceptance/...` 继续用于 `source/app.yaml`。
+现有 `add-block/remove-block/bind-slot/unbind-slot/add-acceptance/...` 继续作为 legacy `source/app.yaml` View Mutation。当前 `applyViewMutations()` 会直接重写 Authoring Source，缺少 transaction-referenced base、source-byte CAS、canonical actual Fact Delta/Impact、跨进程排他、原子 publish 与 verified rollback，因此它不是 Semantic Mutation v2 实现，也不得被 Workbench 或 Compiler facade 升格为 canonical mutation authority。
+
+现有 graph mutation dry-run 只预测 ExplainGraph 节点/边，不是 canonical semantic delta；现有 Workbench 进程内 mutex、Pipeline journal 和直接写 mutation JSON 的 API 也分别不等于 workspace lease、write-ahead recovery journal 或受信 proposal validator。迁移前 v1 与 v2 必须保持名称、endpoint 和报告类型分离。
 
 ### Semantic Mutation v2
 
-目标结构：
+Workbench 只是 `14` 第 18 节 `SemanticMutationRequestV2` 的 caller 和 plan/result renderer：它可以收集 operation 参数、增加条件/verification、展示 source owner、actual delta、Impact、diagnostics 与 terminal status；不能提交 path、伪造 `FactDelta`、覆盖派生风险/required passes/rollback，也不能在 UI 中把 blocked plan 改成 ready。
 
-```ts
-interface SemanticMutation {
-  id: string;
-  baseRevision: string;
-  preconditions: SemanticCondition[];
-  operations: SemanticOperation[];
-  expectedFactDelta: FactDeltaExpectation;
-  riskLevel: RiskLevel;
-  requiredPasses: string[];
-  verification: VerificationSelector[];
-  rollback: RollbackHint;
-}
-```
-
-第一批 Semantic Operation：
-
-- add/remove Block（兼容映射）。
-- connect typed port。
-- add/update Contract Entity/Operation。
-- add state transition。
-- add permission requirement。
-- add effect declaration。
-
-Move State Ownership 等高风险操作在 Impact/Fact Delta 稳定后开放。
+v1 operation registry 只含 `add-state-transition`。Block、port、Contract Entity/Operation、permission、effect、ownership 与 cascade 操作必须等后续 registry revision；旧 View Mutation operation 不因名称相近自动获得 v2 权限。Workbench adapter 在 SM-3 executor 完成后单独接入，接入前现有 Mutation API 不得宣称提供 Semantic Mutation。
 
 ## 9. UI 架构
 
@@ -267,7 +243,7 @@ Move State Ownership 等高风险操作在 Impact/Fact Delta 稳定后开放。
 └─────────────────────────────────────────────────────────┘
 ```
 
-现有 Vis.js 画布、Drawer、SSE compile、Mutation API 可以复用。不要在 IR 稳定前继续把视觉动画和样式作为主线。
+现有 Vis.js 画布、Drawer 与 SSE 展示壳可以复用；现有直接写 mutation/source 的 API 只能在改造成 `14` 的 proposal/apply adapter 后复用。不要在 transaction contract 落地前继续把视觉动画和样式作为主线。
 
 ## 10. 外部图工具
 

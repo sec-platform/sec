@@ -6,7 +6,7 @@ last-reviewed: 2026-07-13
 
 # Engineering IR 与语义事实规范
 
-本文是 SEC Engineering IR、Semantic Entity、Semantic Fact、Fact Assertion、Fact Provenance、Revision 和 Fact Delta 的实现级权威。
+本文是 SEC Engineering IR、Semantic Entity、Semantic Fact、Fact Assertion、Fact Provenance、Revision、Fact Delta、Impact Propagation 和 Semantic Mutation 的实现级权威。
 
 ## 1. 定位
 
@@ -900,7 +900,7 @@ Producer 必须在任何分类前执行：
 - Impact Propagation 必须同时读取 delta 与 validated snapshot/index；不得把 empty Fact Delta 当作 no impact，也不得把 transitive impact、unknown/dynamic region 或 verification selection 回写 Delta。
 - Semantic Mutation 后续只能 exact-match base `semanticRevision` 与 preconditions，回写 Authoring Source，由 Compiler 重建新的 canonical bundle/context，再计算 actual Fact Delta。Expected delta 是受限 expectation DSL，不是 actual canonical `FactDelta`，不能授权 AI 直接写 IR。
 - 现有 Engineering Semantic Diff 仍是 artifact/governance approximation；Lock、Projection、Workbench、ReviewSummary 不得各自实现 comparator 或冒充 canonical Fact Delta producer。
-- 本合同不新增 stable `engineering-ir.json` / Fact Delta artifact；持久化仍受第 19 节约束。
+- 本合同不新增 stable `engineering-ir.json` / Fact Delta artifact；持久化仍受第 20 节约束。
 
 Fact Delta v1 的最低 Contract Freeze sentinels 包括：空 delta、Fact add/remove 与方向反转、object change remove+add、Assertion add/remove、confidence/evidence update、authority/provenance remove+add、reordered canonical input stable、validFrom 自动重绑无 churn、`validToRevision` 拒绝、跨 graph/app 拒绝、entity-only change 允许空 Fact arrays、raw IR/Lock/Projection compile-time rejection、canonical ordering、输入不变、输出 deep-frozen 与 deterministic repetition。
 
@@ -1176,7 +1176,569 @@ transaction IDs、input revisions 与 `impactRevision` 本身不进入 digest。
 
 v1 最低 sentinels 包括：真正空变化、empty Fact Delta + entity-only change、entity add/remove/update、Entity kind collision、Fact add/remove endpoint basis、Assertion add/remove/update local-only、多跳、diamond、cycle、断开子图、from/to path 分离、四条 executable rule、value/unknown frontier、dynamic 集合为空、Verification acceptance/selector/non-runnable/missing mapping、supplied delta mismatch、raw/index/artifact compile-time rejection、canonical ordering、shortest-path tie-break、输入不变、输出 deep-frozen、deterministic repetition 与独立手写 digest/reachability expected vectors。
 
-## 18. Projection
+## 18. Semantic Mutation
+
+Semantic Mutation v2 是把受限语义意图转换为 **Authoring Source transaction** 的唯一 canonical contract。它不允许 caller、AI、Workbench 或 adapter 直接写 Engineering IR、Validated Snapshot、Fact Delta、Impact、Projection、Lock 或治理 artifact；只有 Authoring Source 成功发布后，Compiler 才重建这些派生状态。
+
+现有 View Mutation、graph dry-run、Repair、Upgrade、Workbench mutex 和 Pipeline journal 都不是本合同的 transaction authority：
+
+- `applyViewMutations()` 直接重写 `source/app.yaml`，没有 transaction-referenced base、source-byte CAS、actual Fact Delta/Impact、跨进程 lease、原子 publish 或 verified rollback。
+- graph dry-run 预测 ExplainGraph 节点/边，不是 canonical semantic delta，也不能声明 risk、required passes 或 rollback 成立。
+- Repair/Upgrade 可以提供 allowed-path、preflight、backup 等先例，但它们的逐文件写入、impact 分类或 snapshot restore 不能冒充 Semantic Mutation 的 atomicity 与 Impact。
+- Pipeline journal 只记录 Pipeline pass 生命周期；Workbench mutex 只串行当前进程。二者都不锁 workspace、不能防另一进程写入，也不能恢复 Authoring Source。
+
+### 18.1 Contract、proposal 与 trusted input
+
+版本常量固定为：
+
+```ts
+export const SEMANTIC_MUTATION_CONTRACT_VERSION = "2" as const;
+export const SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION =
+  "semantic-mutation-operations-v1" as const;
+export const SEMANTIC_MUTATION_EXPECTATION_REVISION =
+  "semantic-mutation-expectation-v1" as const;
+```
+
+不可信 proposal 只描述 intent；它不能携带 platform authority：
+
+```ts
+interface SemanticMutationBaseV2 {
+  readonly transactionId: string;
+  readonly inputRevision: string;
+  readonly semanticRevision: string;
+}
+
+interface SemanticContractRefV1 {
+  readonly namespace: string;
+  readonly contractId: string;
+}
+
+interface AddStateTransitionOperationV1 {
+  readonly operationId: string;
+  readonly kind: "add-state-transition";
+  readonly contract: SemanticContractRefV1;
+  readonly stateId: string;
+  readonly from: string;
+  readonly to: string;
+  readonly by: string;
+}
+
+type SemanticMutationOperationV1 = AddStateTransitionOperationV1;
+
+interface SemanticMutationRequestV2 {
+  readonly contractVersion: "2";
+  readonly requestId: string;
+  readonly graphId: string;
+  readonly appId: SemanticEntityId;
+  readonly base: SemanticMutationBaseV2;
+  readonly preconditions: readonly SemanticMutationConditionV1[];
+  readonly operations: readonly SemanticMutationOperationV1[];
+  readonly expectation: SemanticMutationExpectationV1;
+  readonly postconditions: readonly SemanticMutationConditionV1[];
+  readonly additionalVerification: readonly VerificationRequirementV1[];
+}
+```
+
+`base` 必须完整绑定 canonical caller 所拥有的 before transaction 和 snapshot；禁止退化成裸 `baseRevision`。`inputRevision` 表示声明输入，`semanticRevision` 表示 canonical semantic graph；两者不能互换。空白 ID/revision、未知字段、重复 ID、错误版本或非 canonical order 都 fail closed。
+
+Proposal **禁止** 出现 filesystem path、source bytes/digest、`FactDelta`、Impact、`riskLevel`、`requiredPasses`、adapter、rollback hint、lease 或 verification reduction。`additionalVerification` 只能增加要求，不能表达 skip、override、maximum 或 negative selector。
+
+平台以独立 trusted context 调用 planner：
+
+```ts
+interface SemanticMutationAuthorizationContextV2 {
+  readonly authorizationRevision: string;
+  readonly taskId?: string;
+  readonly envelopeRevision?: string;
+  readonly allowedOperationKinds: readonly SemanticMutationOperationV1["kind"][];
+  readonly allowedTargetEntityIds: readonly SemanticEntityId[];
+  readonly allowedSourceOwnerIds: readonly string[];
+  readonly allowedPathPrefixes: readonly string[];
+  readonly requiredPreconditions: readonly SemanticMutationConditionV1[];
+  readonly requiredPostconditions: readonly SemanticMutationConditionV1[];
+  readonly minimumVerification: readonly VerificationRequirementV1[];
+}
+
+type SemanticMutationPreparationV2 =
+  | {
+      readonly status: "prepared";
+      readonly sourceChanges: readonly SemanticMutationSourceChangeV2[];
+      readonly staged: FactDeltaEndpointContext;
+      readonly rollbackManifestDigest: string;
+    }
+  | {
+      readonly status: "rejected";
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    };
+
+interface SemanticMutationInputV2 {
+  readonly request: SemanticMutationRequestV2;
+  readonly base: FactDeltaEndpointContext;
+  readonly authorization: SemanticMutationAuthorizationContextV2;
+  readonly preparation: SemanticMutationPreparationV2;
+}
+
+planSemanticMutation(input: SemanticMutationInputV2): SemanticMutationPlanV2
+
+applySemanticMutation(input: {
+  readonly input: SemanticMutationInputV2;
+  readonly expectedPlanRevision: string;
+}): Promise<SemanticMutationResultV2>
+```
+
+`SemanticMutationInputV2` 只能由 platform boundary 构造。Request 的 base/graph/app 必须与 `FactDeltaEndpointContext` exact match，Task Envelope 的 allowed operations/targets/paths、required facts、must-preserve facts 和 verification minimum 分别由平台并入 authorization 的 allowed fields、`requiredPreconditions`、`requiredPostconditions` 与 `minimumVerification`；proposal 或 Context Packet 不能扩大或删除它们。Planner 分别对 `requiredPreconditions ∪ request.preconditions` 和 `requiredPostconditions ∪ request.postconditions` 去重后要求全部满足，任何一项失败即 reject。SM-2/SM-3 的 async preparation coordinator 只负责 source resolution、isolated deterministic transform/rebuild，形成 source changes、staged `FactDeltaEndpointContext` 与 rollback manifest；它不构造 actual Delta/Impact。`planSemanticMutation()` 是对这些只读、trusted evidence 的纯 normalization/matcher/invariant/digest kernel，不读取 live Workspace，并严格按 `buildFactDelta → expectation/postconditions → buildImpactPropagation → verification union` 顺序执行；较早阶段失败不得调用后续 producer。Apply 必须在 lease 内重新生成 preparation 和 plan，不能信任旧 preparation 对 workspace freshness 的判断。
+
+`authorizationRevision` 由 platform builder 计算，表达为 `sha256:<lowercase-hex>`。Canonical payload 固定为 `{ domain: "semantic-mutation-authorization-v2", taskId, envelopeRevision, allowedOperationKinds, allowedTargetEntityIds, allowedSourceOwnerIds, allowedPathPrefixes, requiredPreconditions, requiredPostconditions, minimumVerification }`；optional ID 缺失按空字符串，operations/targets/owners/path prefixes lexical 去重排序，conditions 和 verification 使用第 18.5 节 canonical order。Planner 必须重算并 exact match，不能信任 caller 或 adapter 提供的 revision string；payload 或 revision 不匹配以 `SEMANTIC-MUTATION-001` 拒绝。因此任何 authority 内容变化都会改变 planRevision。
+
+### 18.2 Restricted condition 与 expectation DSL
+
+Condition 只允许对 canonical snapshot 做 exact existence/value 判断：
+
+```ts
+type SemanticMutationConditionV1 =
+  | {
+      readonly conditionId: string;
+      readonly kind: "entity";
+      readonly entityId: SemanticEntityId;
+      readonly exists: boolean;
+      readonly entityKind?: SemanticEntityKind;
+      readonly canonicalEntityDigest?: string;
+    }
+  | {
+      readonly conditionId: string;
+      readonly kind: "fact";
+      readonly fact: SemanticFactSelectorV1;
+      readonly exists: boolean;
+    }
+  | {
+      readonly conditionId: string;
+      readonly kind: "assertion";
+      readonly fact: SemanticFactSelectorV1;
+      readonly assertionId: FactAssertionId;
+      readonly exists: boolean;
+      readonly canonicalAssertionDigest?: string;
+    };
+
+interface SemanticFactSelectorV1 {
+  readonly subject: SemanticEntityId;
+  readonly predicate: SemanticPredicate;
+  readonly object: SemanticFactObject;
+}
+```
+
+禁止 arbitrary query、regex、script、path glob、projection label、external Evidence、strongest-authority shortcut 或 caller-defined comparator。`canonicalEntityDigest` 表达为 `sha256:<lowercase-hex>`，payload 固定为 `{ domain: "semantic-mutation-entity-condition-v1", id, kind, label, attributes }`；attributes 使用 Validated IR canonical order。`canonicalAssertionDigest` 使用同一 SHA-256 表达，payload 固定为 `{ domain: "semantic-mutation-assertion-condition-v1", id, authority, confidence, provenance, evidence, validFromRevision, validToRevision }`；provenance/evidence 使用 Validated IR canonical order，optional `validToRevision` 缺失按空字符串。两种 digest 都不得包含 Fact/Entity 外的 transaction、Projection 或 implementation metadata。存在性为 false 时不得同时给 digest/kind。Preconditions 在 before snapshot 上求值；postconditions 在 staged after snapshot 上求值。Task Envelope 的 required/must-preserve facts 被编译成额外条件，不能被 request 删除。
+
+Expectation 不是 caller 提供的 `FactDelta`，也不授权 source change：
+
+```ts
+interface ExpectedFactAssertionV1 {
+  readonly assertionId: FactAssertionId;
+  readonly assertionClaimDigest: string;
+}
+
+interface ExpectedSemanticFactV1 {
+  readonly fact: SemanticFactSelectorV1;
+  readonly assertions: readonly ExpectedFactAssertionV1[];
+}
+
+type ExpectedFactAssertionChangeV1 =
+  | {
+      readonly fact: SemanticFactSelectorV1;
+      readonly assertionId: FactAssertionId;
+      readonly kind: "added" | "removed";
+      readonly assertionClaimDigest: string;
+    }
+  | {
+      readonly fact: SemanticFactSelectorV1;
+      readonly assertionId: FactAssertionId;
+      readonly kind: "updated";
+      readonly changedFields: readonly ("confidence" | "evidence")[];
+      readonly beforeAssertionClaimDigest: string;
+      readonly afterAssertionClaimDigest: string;
+    };
+
+interface SemanticMutationExpectationV1 {
+  readonly revision: "semantic-mutation-expectation-v1";
+  readonly matchMode: "exact";
+  readonly addedFacts: readonly ExpectedSemanticFactV1[];
+  readonly removedFacts: readonly ExpectedSemanticFactV1[];
+  readonly assertionChanges: readonly ExpectedFactAssertionChangeV1[];
+  readonly entityChanges: "none";
+}
+```
+
+`assertionClaimDigest` 表达为 `sha256:<lowercase-hex>`，canonical payload 固定为 `{ domain: "semantic-mutation-assertion-claim-v1", assertionId, confidence, evidence }`；`assertionId` 已绑定 authority/provenance identity，digest 额外覆盖不会进入 Assertion ID 的 confidence/evidence。Endpoint-specific `validFromRevision` / `validToRevision` 不进入该 expectation digest；它们仍由 Validated IR 与 Fact Delta boundary 校验，caller 不能提供或覆盖。
+
+v1 只有 `matchMode: "exact"`。Matcher 必须从 before/after branded snapshots 独立计算 Entity merge-join，并使用唯一 `buildFactDelta(from, to)` 得到 actual Fact/Assertion changes；每个 actual change 必须既被 operation registry 允许，又由 expectation exact 声明。新/删除 Fact 的 `assertions` 必须与 actual Fact 的 `(assertionId, assertionClaimDigest)` 完全集合相等；existing Fact 的 assertion add/remove必须匹配 claim digest，update 必须同时 exact match `changedFields` 与 before/after claim digests。任何未声明 Entity、Fact 或 Assertion drift、confidence/evidence 漂移、缺少的 expected change、重复 selector、Entity kind collision或 postcondition failure均 reject。v1 operation 不允许 Entity change，因此 `entityChanges` 固定为 `"none"`；以后开放 Entity operation 必须升级 expectation revision。
+
+### 18.3 Operation Registry v1
+
+`semantic-mutation-operations-v1` 是 total checked registry，唯一 operation 是：
+
+| kind | target authority | transformation | risk floor | implicit cascade |
+| --- | --- | --- | --- | --- |
+| `add-state-transition` | 唯一 writable `SemanticContract` owner 中的 state | 添加 exact `{ from, to, by }` transition | `high` | none |
+
+Registry validation 固定为：
+
+1. `contract.namespace + contractId` 在 base semantic input 中只匹配一个 loaded contract，`stateId` 只匹配一个 state。
+2. `from` / `to` 是该 state 已声明 value，二者不同；exact transition tuple 尚不存在。
+3. `by` 匹配一个 operation；state owner 匹配一个 responsibility；该 responsibility 的 `implements` 包含 `by`，且 operation 的 `responsibility` 等于 owner。
+4. 同一 request 中 operation ID 唯一；对同一 contract/state/tuple 的重复或冲突 operation 以 `SEMANTIC-MUTATION-006` 拒绝，不静默去重或当成成功 no-op。
+5. Adapter 只添加 transition，按 `(from, to, by)` 排序；不得隐式添加 value、operation、responsibility、permission/effect、acceptance、Block/Slot 或 remove cascade。
+
+Registry 同时拥有该 operation 的唯一 canonical semantic effect allowlist，caller expectation 只能声明它，不能扩大它：
+
+1. 必须新增一个 `TRANSITIONS_TO` Fact：subject 是目标 state 的 canonical Entity ID；object 是 exact value `{ from, to, by: <canonical operation Entity ID> }`。
+2. 上述 Fact 必须恰有 target loaded contract provenance 的 `authoritative` Assertion；Assertion identity/claim digest 由现有 IR builder 规则派生。
+3. 若 base 已有 canonical `by operation --MUTATES--> state` Fact，则该 Fact 和 Assertions 必须完全不变；若不存在，允许且要求新增该 exact Fact及同一 contract provenance 的单一 authoritative Assertion。这个 0/1 分支只由 base snapshot 决定。
+4. Entity add/remove/update、Fact removal、existing Fact Assertion add/remove/update，以及任何其他 Fact addition 全部禁止。Actual semantic effect 与该 allowlist 或 caller exact expectation任一不符都以 `SEMANTIC-MUTATION-009` 拒绝。
+
+因此 request 不能通过在 expectation 中多列 Fact/Assertion 来授权额外 drift；operation policy allowlist 与 caller expectation 是双重 exact match，不是并集。
+
+Block、port、Contract Entity/Operation、permission、effect、ownership、remove/cascade 和 arbitrary YAML patch 都不属于 v1；新增任何一种必须升级 operation registry revision、source adapter contract、risk/verification policy 与 Contract Freeze vectors。不得把 legacy View Mutation 的同名 operation 自动映射进该 registry。
+
+### 18.4 Source ownership 与 path boundary
+
+Operation 不携带 path。Platform resolver 必须从 validated loaded contract provenance 和 versioned adapter registry 返回 **唯一 owner、唯一 adapter、唯一 writable relative path**：
+
+- `platform/registry/official/**`、安装的 Registry/Block package 与其他分发资产一律 read-only mutation target。当前 Ticket authoritative contract 因此不能直接回写。
+- `source/model/**` 是规划中的 Authoring Source 区域，但当前 semantic frontend 只从 manifest/Registry entries 装载 semantic contracts；在真实 loader 和唯一 owner adapter 落地前，不得假定某个 `source/model/**` 文件是 official contract 的 writable mirror。
+- 无 owner、多个 owner、adapter revision 不匹配、read-only provenance 或 target/source namespace 不一致都以 `SEMANTIC-MUTATION-004` reject。
+- `allowedPathPrefixes` 只缩小 resolver 输出。Caller path、contract 中的任意 source-like string、Projection/Evidence path 或 symlink target都不能成为 authority。
+
+在读取或写入前，adapter 必须对 workspace root、受控 transaction directory、parent 和 target 做 canonical realpath 与 reparse-point 检查；拒绝 symlink/junction/reparse parent/target、root escape、Windows case-fold collision、device name、ADS、重复 canonical path 和不同 textual path 指向同一 target。检查必须在 plan 和 apply lease 内各执行一次，并在 atomic rename 前再次核对；`resolvePathInside()` 的 lexical containment 只能作为第一层，不能独立证明安全。v1 transaction 最多修改一个 Authoring Source file；多文件 publish 必须另行升级 atomicity contract。
+
+### 18.5 Plan、derived policy 与 revisions
+
+Plan 是只读 dry-run 结果，不写 live workspace：
+
+```ts
+type SemanticMutationRisk = "low" | "medium" | "high" | "critical";
+
+type VerificationRequirementV1 =
+  | { readonly kind: "acceptance"; readonly acceptanceEntityId: SemanticEntityId }
+  | { readonly kind: "selector"; readonly selector: string }
+  | { readonly kind: "pass"; readonly passId: string };
+
+interface SemanticMutationSourceChangeV2 {
+  readonly ownerId: string;
+  readonly adapterId: string;
+  readonly adapterRevision: string;
+  readonly relativePath: string;
+  readonly beforeByteDigest: string;
+  readonly stagedByteDigest: string;
+  readonly invalidationFromStage: "resolve";
+}
+
+interface SemanticMutationPlanBaseV2 {
+  readonly contractVersion: "2";
+  readonly requestId: string;
+  readonly requestRevision: string;
+  readonly authorizationRevision: string;
+  readonly operationRegistryRevision: "semantic-mutation-operations-v1";
+  readonly expectationRevision: "semantic-mutation-expectation-v1";
+  readonly base: SemanticMutationBaseV2;
+  readonly requiredVerification: readonly VerificationRequirementV1[];
+  readonly planRevision: string;
+}
+
+type SemanticMutationPlanV2 =
+  | {
+      readonly contractVersion: "2";
+      readonly status: "rejected";
+      readonly rejectedAt: "request";
+      readonly requestId?: string;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+      readonly diagnosticRevision: string;
+    }
+  | (SemanticMutationPlanBaseV2 & {
+      readonly status: "ready";
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly staged: SemanticMutationBaseV2;
+      readonly actualDelta: FactDelta;
+      readonly impact: SemanticImpactPropagation;
+      readonly risk: SemanticMutationRisk;
+      readonly rollbackManifestDigest: string;
+      readonly diagnostics: readonly [];
+    })
+  | (SemanticMutationPlanBaseV2 & {
+      readonly status: "rejected";
+      readonly rejectedAt:
+        | "base"
+        | "precondition"
+        | "source-resolution"
+        | "path"
+        | "transform"
+        | "cas"
+        | "staged-rebuild";
+      readonly sourceChanges: readonly [];
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    })
+  | (SemanticMutationPlanBaseV2 & {
+      readonly status: "rejected";
+      readonly rejectedAt: "fact-delta";
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly staged: SemanticMutationBaseV2;
+      readonly rollbackManifestDigest: string;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    })
+  | (SemanticMutationPlanBaseV2 & {
+      readonly status: "rejected";
+      readonly rejectedAt: "expectation";
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly staged: SemanticMutationBaseV2;
+      readonly actualDelta: FactDelta;
+      readonly rollbackManifestDigest: string;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    })
+  | (SemanticMutationPlanBaseV2 & {
+      readonly status: "rejected";
+      readonly rejectedAt: "impact";
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly staged: SemanticMutationBaseV2;
+      readonly actualDelta: FactDelta;
+      readonly rollbackManifestDigest: string;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    })
+  | (SemanticMutationPlanBaseV2 & {
+      readonly status: "rejected";
+      readonly rejectedAt: "impact-verification";
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly staged: SemanticMutationBaseV2;
+      readonly actualDelta: FactDelta;
+      readonly impact: SemanticImpactPropagation;
+      readonly risk: SemanticMutationRisk;
+      readonly rollbackManifestDigest: string;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    });
+```
+
+`rejected` plan 由 `rejectedAt` 再判别。Raw request 或 trusted input 还不能形成 normalized contract 时返回最小 request rejection：它没有 base/request/authorization/plan revision，只保留可安全提取的非空 request ID、至少一个 `SEMANTIC-MUTATION-001` 和 `diagnosticRevision`；该 revision 使用 domain `semantic-mutation-diagnostic-v2` 与 canonical diagnostics，不可传给 apply。在 staged rebuild 前拒绝时不得暴露不完整 source/semantic evidence；Fact Delta producer rejection 保留 source/staged/rollback evidence但没有 delta；expectation rejection再增加 actual Delta；Impact producer rejection保留 actual Delta但没有 Impact/risk；只有 Impact/Verification rejection保留完整 canonical Impact/risk。`ready` plan 必须恰有 v1 单文件 source change，具备全部 derived 字段且 diagnostics 为空。所有 rejected variant 至少有一个 diagnostic，且绝不能表示 live source 已写入。`staged.transactionId` 是 planning-owned isolated transaction，不能冒充 live apply transaction。
+
+Risk、required passes 和 verification 都是派生结果。Required Verification 是以下四者的保守 union：
+
+```text
+Impact.verification recommendations
+∪ operation registry minimum / risk policy
+∪ trusted Task Envelope minimum
+∪ caller additionalVerification
+```
+
+去重只按 exact `(kind, acceptanceEntityId | selector | passId)`；任何来源都不能删除另一来源。Impact uncertainty、high risk、missing runnable mapping 是否阻塞由 platform Verification policy 决定，caller 不能降级。Impact kernel 仍只拥有 recommendation，不解释 selector 或执行 pass；runnable mapping、环境、pass order、report 与 acceptance 归 `08` Verification authority。
+
+v1 semantic contract source 的 `invalidationFromStage` 固定为 `resolve`；后续 stage 闭包由现有 Pipeline stage/pass registry 推导，Mutation 不维护第二张失效表。Plan 和 result 必须显示该 boundary。不能在 isolated workspace 安全执行、会产生不可逆外部副作用或无法绑定 staged source digest 的 verifier，以 `SEMANTIC-MUTATION-010` 在 live publish 前拒绝；不能为了运行它而先提交 source。
+
+`requestRevision` 是 normalized request 的 `sha256:<lowercase-hex>`；payload 固定包含 domain `semantic-mutation-request-v2`、全部 request 字段以及 operation/expectation revisions。除最小 request rejection 外，`planRevision` payload 固定包含 domain `semantic-mutation-plan-v2`、status/rejectedAt、request/authorization revisions、base、registry revisions、source owner/adapter/path 与 before/staged byte digests、staged endpoint、actual delta revision、Impact revision、risk、required verification、rollback manifest digest 与 diagnostics；不包含 `planRevision` 本身或时间戳。
+
+条件按 `conditionId`、operation 按 `operationId`、fact selector 按 canonical `(subject, predicate, object)`、assertion change 按 `(fact selector, assertionId, kind)`、source change 按 case-folded canonical relative path、verification 按 `(kind, target)`、diagnostic 按第 18.6 节 precedence 后 `(operationId ?? "", conditionId ?? "", relativePath ?? "")` 排序。所有 ID 和 tuple 重复 hard fail；不得依赖 YAML/JSON/Map/Set insertion order。Planner clone 输出并递归 deep-freeze，不修改 request、authorization、snapshots、source buffers、Delta 或 Impact；相同 canonical input 必须得到 byte-stable JSON 和相同 revisions。
+
+### 18.6 Diagnostics 与 precedence
+
+Semantic Mutation 保留 nested `FACT-DELTA-*`、`IMPACT-*`、Compiler 和 Verification diagnostic code，不折叠成普通 mutation message。新增稳定 codes：
+
+```ts
+interface SemanticMutationDiagnosticV2 {
+  readonly origin: "semantic-mutation" | "fact-delta" | "impact" | "compiler" | "verification";
+  readonly code: string;
+  readonly stage:
+    | "request"
+    | "base"
+    | "precondition"
+    | "source-resolution"
+    | "path"
+    | "transform"
+    | "cas"
+    | "staged-rebuild"
+    | "fact-delta"
+    | "expectation"
+    | "impact"
+    | "impact-verification"
+    | "publish"
+    | "rollback";
+  readonly message: string;
+  readonly operationId?: string;
+  readonly conditionId?: string;
+  readonly relativePath?: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+```
+
+Top-level mutation diagnostic 的 code 必须来自下表；nested diagnostic 保留 producer 的原 code，并用 `origin` 区分。不得在 public diagnostic 暴露 absolute path、temp/backup path、source bytes、secret 或任意 Error object；`details` 只能包含 canonical、可序列化、已脱敏字段。
+
+| Code | 含义 |
+| --- | --- |
+| `SEMANTIC-MUTATION-001` | contract/schema/version、空 ID、未知字段、排序或重复 identity 不合法 |
+| `SEMANTIC-MUTATION-002` | graph/app/base transaction/input/semantic revision 与 trusted before context 不匹配 |
+| `SEMANTIC-MUTATION-003` | precondition 或 trusted must-preserve before condition 失败 |
+| `SEMANTIC-MUTATION-004` | unsupported operation、无/多 adapter、ambiguous 或 read-only authoring authority |
+| `SEMANTIC-MUTATION-005` | path allowlist/containment/realpath/reparse/canonical collision 不合法 |
+| `SEMANTIC-MUTATION-006` | operation conflict、source parse/transform 或 plan invariant 失败 |
+| `SEMANTIC-MUTATION-007` | base/source byte digest/publish CAS stale，检测到 TOCTOU |
+| `SEMANTIC-MUTATION-008` | isolated staged resolve、semantic frontend 或 validated boundary 失败 |
+| `SEMANTIC-MUTATION-009` | actual exact expectation、Entity drift 或 after postcondition 不匹配 |
+| `SEMANTIC-MUTATION-010` | Impact policy或 Verification planning/execution拒绝 |
+| `SEMANTIC-MUTATION-011` | atomic Authoring Source publish 失败 |
+| `SEMANTIC-MUTATION-012` | rollback、restore validation 或 rebuild 失败，需要人工 recovery |
+
+检查 precedence 固定为：
+
+```text
+request/schema/order                                              → 001
+→ base graph/app/transaction/input/semantic binding              → 002
+→ before preconditions / trusted must-preserve                   → 003
+→ operation registry / source ownership                          → 004
+→ path / realpath / reparse / canonical collision                → 005
+→ operation conflict / parse / transform / plan invariant        → 006
+→ source byte and semantic CAS                                   → 007
+→ staged resolve / frontend / validated snapshot                 → 008 (+ nested compiler codes)
+→ buildFactDelta + exact expectation + after postconditions      → nested FACT-DELTA-* then 009
+→ buildImpactPropagation + Verification policy/execution         → nested IMPACT-* / Verification then 010
+→ atomic publish                                                 → 011
+→ rollback / restored rebuild                                    → 012
+```
+
+`buildFactDelta` 自身失败使用 diagnostic stage / `rejectedAt: "fact-delta"`；producer 成功后的 expectation/postcondition失败才是 `"expectation"` / `SEMANTIC-MUTATION-009`。`buildImpactPropagation` 自身失败使用 `"impact"` 并保留 nested `IMPACT-*`；producer成功后的 policy/Verification拒绝才是 `"impact-verification"` / `SEMANTIC-MUTATION-010`。
+
+同一步有多个 failure 时按 canonical target tuple 排序全部返回；一旦更早阶段失败，不执行后续阶段。`SEMANTIC-MUTATION-011` 之前不得改变 live Authoring Source。Nested diagnostic 保留原 code、message 和 structured details，并附 transaction/request/operation stage context；不得把 Impact unknown 当作成功或把 rollback failure 报成普通 verification reject。
+
+### 18.7 Apply transaction、atomicity 与 recovery
+
+Apply 接受 exact `expectedPlanRevision`，并执行：
+
+```text
+acquire cross-process exclusive workspace mutation lease
+→ read trusted before snapshot and exact source bytes again
+→ re-plan from the same request/authorization under the lease
+→ require semantic base + before byte digest + expectedPlanRevision CAS
+→ create same-volume controlled staging/backup and recovery record
+→ apply deterministic edit only in isolated workspace
+→ canonical resolve → semantic frontend → validated after snapshot
+→ actual buildFactDelta → exact expectation/postconditions
+→ buildImpactPropagation → conservative Verification union → verify
+→ atomic single-file Authoring Source publish with final CAS
+→ canonical live rebuild and exact staged revision/source digest check
+→ mark accepted; otherwise CAS-safe rollback and rebuild
+→ release lease
+```
+
+Planning/dry-run never writes live source. Before publish，所有 parse、precondition、transform、resolve/frontend、actual Delta/Impact、expectation 与可隔离 Verification 必须先在 staging 完成。Temp/backup 与 target 位于同卷受控目录；backup 保留 exact original bytes、BOM/EOL 和 file mode/attributes needed for restoration。Atomic rename 前再次验证 live digest 等于 before digest；semantic revision 相同不能替代 byte CAS，因为 formatting/comment/source bytes 可能已变。
+
+Publish 后 live canonical rebuild 必须得到与 staged plan 相同的 input/semantic revisions；任何 post-publish failure 进入 rollback。Rollback 之前再次 CAS：只有 live digest 仍等于本 transaction committed digest 才可恢复，禁止覆盖并发用户修改；恢复后 exact byte digest 必须等于 before digest，并重新 resolve/frontend 验证 base input/semantic revision。若 CAS 已被第三方改变、restore、rebuild 或 journal finalization 失败，状态必须是 `recovery-required`，保留 backup/recovery record，禁止声称 workspace 已恢复。
+
+Recovery record 状态机固定为：
+
+```text
+prepared → authoring-committed → verified
+                         ↘ rolled-back
+                         ↘ recovery-required
+```
+
+Crash restart 必须在取得 lease 后读取未终结 record，并依据 current/before/committed byte digest选择完成验证、CAS-safe rollback 或 recovery-required；不得先开始下一 mutation。Recovery journal 是 transaction governance state，不是 Engineering IR 或第二 Authoring Source；SM-3 必须冻结其存储位置、schema migration 和 retention 后才可宣称 crash recovery 完成。
+
+`requestId` 是 `(graphId, appId)` 内的 replay identity。同一 retained journal/terminal record 中，request ID 对应不同 `requestRevision` 以 `SEMANTIC-MUTATION-001` 拒绝；exact replay 必须返回/恢复原 transaction，不能再执行一次 operation。即使 terminal record 已按 retention 清理，旧 request 仍受 exact base、source-byte 和 plan CAS 约束：已接受的 mutation 不会以新 transaction 重放为成功 no-op。V1 不承诺跨 record retention 的无限期 result cache；SM-3 必须在公开 apply 前冻结 terminal record retention 与 query contract。
+
+Accepted transaction 必须按 `invalidationFromStage` 重新生成或明确失效全部 downstream Lock、Projection、Artifact 和 View；stale derivative 不能与新 source 并存为 accepted canonical state。该闭包从既有 Pipeline registry 读取，Mutation 不自建 pass order。若 live canonical rebuild、derivative invalidation/publish 或 staged revision一致性未完成，则不得 accepted，必须走 rollback/recovery。
+
+### 18.8 Result contract 与无部分成功
+
+Terminal status 只有：
+
+```ts
+type SemanticMutationTerminalStatus =
+  | "accepted"
+  | "rejected"
+  | "rolled-back"
+  | "recovery-required";
+
+interface SemanticMutationVerificationExecutionRefV2 {
+  readonly adapterId: string;
+  readonly adapterRevision: string;
+  readonly reportRevision: string;
+  readonly planRevision: string;
+  readonly attempted: SemanticMutationBaseV2;
+  readonly stagedSourceDigest: string;
+  readonly requiredVerificationDigest: string;
+  readonly status: "passed" | "failed" | "blocked";
+  readonly verificationExecutionRevision: string;
+}
+
+interface SemanticMutationResultBaseV2 {
+  readonly contractVersion: "2";
+  readonly requestId: string;
+  readonly requestRevision: string;
+  readonly planRevision: string;
+  readonly base: SemanticMutationBaseV2;
+  readonly resultRevision: string;
+}
+
+type SemanticMutationResultV2 =
+  | (SemanticMutationResultBaseV2 & {
+      readonly status: "accepted";
+      readonly transactionId: string;
+      readonly attempted: SemanticMutationBaseV2;
+      readonly accepted: SemanticMutationBaseV2;
+      readonly actualDelta: FactDelta;
+      readonly impact: SemanticImpactPropagation;
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly verification: SemanticMutationVerificationExecutionRefV2 & { readonly status: "passed" };
+      readonly diagnostics: readonly [];
+    })
+  | (SemanticMutationResultBaseV2 & {
+      readonly status: "rejected";
+      readonly transactionId?: string;
+      readonly attempted?: SemanticMutationBaseV2;
+      readonly actualDelta?: FactDelta;
+      readonly impact?: SemanticImpactPropagation;
+      readonly sourceChanges: readonly SemanticMutationSourceChangeV2[];
+      readonly verification?: SemanticMutationVerificationExecutionRefV2;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    })
+  | (SemanticMutationResultBaseV2 & {
+      readonly status: "rolled-back";
+      readonly transactionId: string;
+      readonly attempted: SemanticMutationBaseV2;
+      readonly actualDelta: FactDelta;
+      readonly impact: SemanticImpactPropagation;
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly verification: SemanticMutationVerificationExecutionRefV2 & { readonly status: "passed" };
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    })
+  | (SemanticMutationResultBaseV2 & {
+      readonly status: "recovery-required";
+      readonly transactionId: string;
+      readonly attempted: SemanticMutationBaseV2;
+      readonly actualDelta: FactDelta;
+      readonly impact: SemanticImpactPropagation;
+      readonly sourceChanges: readonly [SemanticMutationSourceChangeV2];
+      readonly verification: SemanticMutationVerificationExecutionRefV2 & { readonly status: "passed" };
+      readonly recoveryState:
+        | "rollback-failed"
+        | "restore-validation-failed"
+        | "rebuild-failed"
+        | "concurrent-write";
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    });
+```
+
+- `accepted`：必须有 transaction/attempted/accepted、actual Delta、Impact、source changes 和 status=`passed` 的 Verification execution binding，diagnostics 为空；accepted endpoint 与 live canonical rebuild exact match。
+- `rejected`：live source 从未发布；没有 accepted endpoint。可以有 planning-stage actual Delta/Impact 作为 rejection evidence，但它们不表示 canonical state 已改变。
+- `rolled-back`：source 曾发布但 exact bytes 与 canonical base 已验证恢复；有 transaction/attempted/source changes 和导致 rollback 的 diagnostics，没有 accepted endpoint。
+- `recovery-required`：source publish 后无法证明安全恢复；必须有 transaction、source changes、`recoveryState`、`SEMANTIC-MUTATION-012` 和 durable recovery record，没有 accepted endpoint。
+
+不存在 `partial-success`、`accepted-with-warning` 或把若干 operation 标成功后继续的状态；v1 request 是单 atomic unit。`resultRevision` digest domain 固定为 `semantic-mutation-result-v2`，包含除自身以外的全部 canonical result 字段，不含时间戳或日志路径。Result 同样 clone、canonical order、deep-freeze。
+
+`requiredVerificationDigest` 使用 `sha256:<lowercase-hex>`，payload 固定为 `{ domain: "semantic-mutation-required-verification-v1", requirements }`，requirements 必须等于 plan 的完整 canonical union。`verificationExecutionRevision` 使用同一 SHA-256 表达，payload 固定为 `{ domain: "semantic-mutation-verification-execution-v1", adapterId, adapterRevision, reportRevision, planRevision, attempted, stagedSourceDigest, requiredVerificationDigest, status }`。Apply 必须重算两个 digest，并 exact 核对 execution ref 的 planRevision、attempted endpoint、`sourceChanges[0].stagedByteDigest` 和 required union；旧 plan、错误 endpoint/source digest、partial union、failed/blocked 或 digest mismatch 一律以 `SEMANTIC-MUTATION-010` 拒绝，绝不能产生 accepted。该 binding 只引用 `08` authority 的 report，不复制其 report schema或把 runnable decision ownership移入 Mutation。
+
+### 18.9 Implementation envelope 与 Contract Freeze
+
+SM-1 只实现 pure request normalization、condition/expectation matcher、plan/result builders/invariants、dedicated types/tests/ownership 与 `semantic.mutation` Contract Freeze；不读取 Workspace、path、YAML，不接 source adapter、live apply、Pipeline、Workbench、CLI、AI、Repair 或 Upgrade。SM-2 再实现 owner/path/adapter/edit plan/CAS/rollback manifest；SM-3 实现 lease/staging/rebuild/Delta/Impact/Verification/publish/rollback/recovery；SM-4 才接 Workbench，随后对齐 AI Task Envelope v2。
+
+类型优先放在 mutation-specific module；公共 Compiler consumer 从 `platform/compiler/index.ts` additive export。除非出现独立 shared consumer，不扩张 `platform/shared/types.ts` 宽泛 barrel；mutation-specific IO/path/YAML helper 不修改通用 `fs.ts`、`paths.ts` 或 `yaml.ts`。Mutation 可以单向依赖 Validated IR、Fact Delta、Impact 与 Verification adapter；这些 kernel、Pipeline kernel、Projection、Repair 和 Upgrade不得反向依赖 Mutation。
+
+最低 Contract Freeze sentinels 包括：版本/未知字段/空 ID、raw request 与 trusted context 类型隔离、完整 base binding、caller path/risk/pass/rollback/FactDelta 拒绝、condition 三种 variant、exact expectation 的缺项/多项/Entity drift、首版唯一 operation 和 total registry、transition value/owner/by/duplicate/conflict、read-only/none/ambiguous owner、source path/reparse/case/ADS collision、before/byte/publish/rollback CAS、request replay/revision collision、`resolve` downstream invalidation、staged compiler/Delta/Impact nested diagnostics、Fact Delta/expectation/Impact/Verification逐阶段 rejection shape、verification union 不可缩减、unsafe verifier fail-closed、stale/wrong-plan/wrong-source/partial-union Verification report 拒绝、ready/early-rejected/staged-rejected plan invariants、四种 terminal result、无 partial success、canonical ordering、独立手写 request/plan/result/verification binding digest vectors、输入不变、输出 deep-frozen、deterministic repetition，以及 compile-time 拒绝 raw IR/Lock/Projection/Artifact 作为 mutation input/output authority。
+
+## 19. Projection
 
 Projection API 只接受 `ValidatedEngineeringIRSnapshot`，返回单个 `SemanticView`；`buildSemanticViewSet(snapshot)` 按 Architecture → Scenario → State 生成确定性、deep-frozen bundle。
 
@@ -1205,7 +1767,7 @@ Architecture View 展示 canonical Entity 与 entity-object Fact 边；Boundary 
 
 ExplainGraph、ReviewSummary 与 Workbench 是 `SemanticViewSet` consumers。ExplainGraph 节点/边保留 `ViewReference[]`，ReviewSummary 列出 canonical Fact IDs，Workbench 的 Semantic Views 页签真实显示 architecture/scenario/state 的 subject、node、relation 与 Fact 数；旧 governance tabs 不得反向成为业务语义 authority。
 
-## 19. 持久化策略
+## 20. 持久化策略
 
 当前 v2 Kernel 先以内存 IR 为主；不要立即新增 stable `engineering-ir.json` artifact。
 
@@ -1225,7 +1787,7 @@ control/semantic/engineering-ir.json
 
 在此之前，IR 类型/Builder 是 canonical calculation，现有 stable artifact 列表不增加路径。
 
-## 20. v2 Kernel 完成条件
+## 21. v2 Kernel 完成条件
 
 - TypeScript 类型落地。
 - Builder 归一当前 App/Block/Capability/Port/Slot/Acceptance/Policy declaration 与 Loaded Semantic Contract。
