@@ -2,15 +2,17 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-contract.ts';
+import {
+  assertCiExpectedHead,
+  buildCiFullGatePlan,
+  buildCiQuickGatePlan,
+  CI_VERIFICATION_CONTRACT_REVISION,
+  type CiVerificationGateStep
+} from '../platform/shared/ci-contract.ts';
 import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
-import { uniqueSorted } from '../platform/shared/collections.ts';
-import { isFastTestFile } from '../platform/shared/test-budget-contract.ts';
 import {
-  isTestImpactSourceFile,
-  isVerificationInfrastructureFile,
-  selectTestsForSources
+  isVerificationInfrastructureFile
 } from '../platform/shared/test-impact-contract.ts';
 
 const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
@@ -19,13 +21,9 @@ const FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
 type VerificationProfile = 'quick' | 'full';
 type VerificationStatus = 'passed' | 'failed';
 
-type GateStep = {
-  id: string;
-  args: string[];
-};
-
 type GateResult = {
   id: string;
+  phase: CiVerificationGateStep['phase'];
   code: number;
   durationMs: number;
   failureTail?: string;
@@ -35,6 +33,8 @@ type VerificationEvidence = {
   contractRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
   profile: VerificationProfile;
   headSha: string;
+  baseSha: string | null;
+  coverageProfiles: Array<'quick' | 'risk' | 'full'>;
   status: VerificationStatus;
   changedFiles: string[] | null;
   failedGate?: string;
@@ -65,16 +65,6 @@ function currentHeadSha(): string {
   return sha;
 }
 
-function assertExpectedHead(actualHeadSha: string): void {
-  const expectedHeadSha = argumentValue('--expected-head') ?? process.env.SEC_EXPECTED_HEAD_SHA;
-  if (!expectedHeadSha) {
-    throw new Error('CI verification requires an exact expected head SHA.');
-  }
-  if (actualHeadSha !== expectedHeadSha) {
-    throw new Error(`CI verification head mismatch: expected ${expectedHeadSha}, actual ${actualHeadSha}.`);
-  }
-}
-
 function changedFiles(): string[] | null {
   const baseRef = process.env.SEC_CHANGED_BASE ?? process.env.SEC_AFFECTED_TESTS_BASE ?? 'HEAD^1';
   const output = gitOutput(gitChangedFileDiffArgs(baseRef));
@@ -89,80 +79,20 @@ function hasActiveDocumentationChange(files: string[] | null): boolean {
   return files === null || files.some((file) => /^docs\/.+\.md$/u.test(file));
 }
 
-function quickFastGate(files: string[] | null): GateStep | null {
-  if (files === null) {
-    return { id: 'full-fast-fallback', args: ['run', 'test:fast'] };
-  }
-
-  const impactSourceFiles = files.filter(isTestImpactSourceFile);
-  const impact = selectTestsForSources(impactSourceFiles);
-  const selectedFastTests = uniqueSorted([
-    ...files.filter(isFastTestFile),
-    ...impact.fast
-  ]);
-
-  if (files.some(isVerificationInfrastructureFile)) {
-    console.log('CI verification: verification infrastructure changed; running full fast correctness backstop.');
-    return { id: 'full-fast-verification-infrastructure', args: ['run', 'test:fast'] };
-  }
-
-  if (selectedFastTests.length > 0) {
-    console.log(`CI verification: mapped fast tests [${selectedFastTests.join(', ')}]`);
-    return { id: 'mapped-fast-tests', args: ['run', 'test:fast', '--', ...selectedFastTests] };
-  }
-
-  if (impactSourceFiles.length > 0) {
-    console.log('CI verification: unmapped impact source changed; running full fast fallback instead of silently skipping coverage.');
-    return { id: 'full-fast-unmapped-impact', args: ['run', 'test:fast'] };
-  }
-
-  console.log('CI verification: no fast test impact detected.');
-  return null;
-}
-
-function quickGateSteps(files: string[] | null): GateStep[] {
-  const steps: GateStep[] = [];
-  if (hasTypeScriptChange(files)) {
-    steps.push({ id: 'imports', args: ['run', 'imports:check'] });
-  }
-  if (hasActiveDocumentationChange(files)) {
-    steps.push({ id: 'docs-doctor', args: ['run', 'docs:doctor'] });
-  }
-
-  steps.push({ id: 'typecheck', args: ['run', 'typecheck'] });
-  const fastGate = quickFastGate(files);
-  if (fastGate) steps.push(fastGate);
-
+function quickGateSteps(files: string[] | null): CiVerificationGateStep[] {
   const riskSelection = selectCiPrRiskSlowSuites(files);
   const verificationInfrastructureChanged = files === null || files.some(isVerificationInfrastructureFile);
-  if (verificationInfrastructureChanged || riskSelection.reason !== 'none') {
+  const includeRisk = verificationInfrastructureChanged || riskSelection.reason !== 'none';
+  if (includeRisk) {
     console.log(`CI verification: risk gate required; reason=${riskSelection.reason}; owners=[${riskSelection.owners.join(', ')}]`);
-    steps.push({ id: 'impact-risk', args: ['scripts/ci-pr-risk.ts'] });
   } else {
     console.log('CI verification: no slow/workspace risk impact detected; risk gate skipped.');
   }
-
-  return steps;
-}
-
-function fullGateSteps(): GateStep[] {
-  return [
-    { id: 'imports', args: ['run', 'imports:check'] },
-    { id: 'typecheck', args: ['run', 'typecheck'] },
-    { id: 'docs-doctor', args: ['run', 'docs:doctor'] },
-    { id: 'full-fast', args: ['run', 'test:fast'] },
-    { id: 'test-budget', args: ['run', 'sec', '--', 'test', 'budget', '--json', '--compact'] },
-    { id: 'all-slow-risk', args: ['scripts/ci-pr-risk.ts', '--all-slow'] },
-    { id: 'benchmark-task-suite', args: ['run', 'sec', '--', 'benchmark', 'suite', '--json', '--compact'] },
-    { id: 'deps-warmup', args: ['run', 'sec', '--', 'deps', 'warmup'] },
-    { id: 'resolve', args: ['run', 'sec', '--', 'resolve'] },
-    { id: 'compose', args: ['run', 'sec', '--', 'compose'] },
-    { id: 'adapt', args: ['run', 'sec', '--', 'adapt'] },
-    { id: 'verify-all', args: ['run', 'sec', '--', 'verify', '--lane', 'all', '--json', '--compact'] },
-    { id: 'lock', args: ['run', 'sec', '--', 'lock'] },
-    { id: 'explain', args: ['run', 'sec', '--', 'explain'] },
-    { id: 'reference-check', args: ['run', 'sec', '--', 'reference', 'check', '--json', '--compact'] }
-  ];
+  return buildCiQuickGatePlan({
+    includeImports: hasTypeScriptChange(files),
+    includeDocs: hasActiveDocumentationChange(files),
+    includeRisk
+  });
 }
 
 function formatDuration(durationMs: number): string {
@@ -184,7 +114,7 @@ function appendFailureTail(current: string, chunk: Buffer): string {
     : combined;
 }
 
-function runGate(step: GateStep): Promise<GateResult> {
+function runGate(step: CiVerificationGateStep): Promise<GateResult> {
   const startedAt = Date.now();
   console.log(`::group::SEC verification: ${step.id}`);
   console.log(`SEC verification: ${step.id} started`);
@@ -217,6 +147,7 @@ function runGate(step: GateStep): Promise<GateResult> {
       console.log('::endgroup::');
       resolve({
         id: step.id,
+        phase: step.phase,
         code,
         durationMs,
         ...(code === 0 ? {} : { failureTail })
@@ -235,15 +166,20 @@ function runGate(step: GateStep): Promise<GateResult> {
 
 const profile = verificationProfile();
 const headSha = currentHeadSha();
-assertExpectedHead(headSha);
+assertCiExpectedHead(headSha, argumentValue('--expected-head') ?? process.env.SEC_EXPECTED_HEAD_SHA);
+const baseSha = process.env.SEC_CHANGED_BASE ?? gitOutput(['rev-parse', 'HEAD^1']);
 const files = changedFiles();
-const steps = profile === 'full' ? fullGateSteps() : quickGateSteps(files);
+const steps = profile === 'full' ? buildCiFullGatePlan() : quickGateSteps(files);
+const coverageProfiles: Array<'quick' | 'risk' | 'full'> = profile === 'full'
+  ? ['quick', 'risk', 'full']
+  : steps.some((step) => step.phase === 'risk') ? ['quick', 'risk'] : ['quick'];
 const startedAt = Date.now();
 const results: GateResult[] = [];
 
 console.log(`SEC verification contract revision: ${CI_VERIFICATION_CONTRACT_REVISION}`);
 console.log(`SEC verification profile: ${profile}`);
 console.log(`SEC verification exact head: ${headSha}`);
+console.log(`SEC verification base: ${baseSha ?? 'unavailable'}`);
 console.log(`SEC verification changed files: ${files === null ? 'unavailable' : files.join(', ')}`);
 
 for (const step of steps) {
@@ -255,6 +191,8 @@ for (const step of steps) {
       contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
       profile,
       headSha,
+      baseSha,
+      coverageProfiles,
       status: 'failed',
       changedFiles: files,
       failedGate: result.id,
@@ -269,6 +207,8 @@ writeEvidence({
   contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
   profile,
   headSha,
+  baseSha,
+  coverageProfiles,
   status: 'passed',
   changedFiles: files,
   results

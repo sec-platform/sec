@@ -23,13 +23,19 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/test-impact.test.ts'
   ]));
   expect(contract.targetFiles).not.toContain('tests/contract/contracts.test.ts');
-  expect(contract.targets.every((target) => target.testNamePattern)).toBe(true);
+  expect(contract.targets.map((target) => target.contractId)).toEqual(expect.arrayContaining([
+    'verification.contract-freeze',
+    'verification.ci-workflow',
+    'verification.impact'
+  ]));
+  expect(contract.contractIds).toEqual([...contract.targets.map((target) => target.contractId)].sort());
 
   expect(formatted).toContain('Contract freeze active');
   expect(formatted).toContain(`Command: ${contract.command}`);
   expect(formatted).toContain(`Target files: ${contract.targetFileCount}`);
-  expect(formatted).toContain('Target tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts --test-name-pattern');
-  expect(formatted).toContain('Target tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts --test-name-pattern');
+  expect(formatted).toContain(`Contract IDs: ${contract.contractIdCount}`);
+  expect(formatted).toContain('Target verification.contract-freeze; file=tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts');
+  expect(formatted).toContain('Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts');
 
   const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
   expect(runnerInvocations).toHaveLength(1);
@@ -37,22 +43,12 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(runnerInvocation).toBeDefined();
   if (!runnerInvocation) throw new Error('Missing contract-freeze runner invocation');
   expect(runnerInvocation.files).toEqual(contract.targetFiles);
-  const runnerPattern = runnerInvocation.testNamePattern;
-  if (!runnerPattern) throw new Error('Missing contract-freeze runner pattern');
   expect(runnerInvocation.args).toEqual([
     'test',
-    ...contract.targetFiles,
-    '--test-name-pattern',
-    runnerPattern
+    ...contract.targetFiles
   ]);
-  expect(runnerPattern).toContain('CLI exposes contract freeze target list as text and JSON contracts');
-  expect(runnerPattern).toContain('CI contract keeps PR lanes fast and full lane complete');
-  expect(runnerPattern).toContain('test architecture exposes only canonical testkit primitives');
-  expect(runnerPattern).toContain('testkit primitives do not depend on helper-layer fixtures');
-  expect(runnerPattern).toContain('root package exposes only canonical test entry scripts');
-  expect(runnerPattern).toContain('active docs do not reintroduce legacy test architecture examples');
-  expect(runnerPattern).toContain('test impact selector uses auto-reference for CI contract coverage');
-  expect(runnerPattern).not.toContain('v0.1 pipeline runs end to end in a temporary workspace');
+  expect(JSON.stringify(contract)).not.toContain('testNamePattern');
+  expect(JSON.stringify(contract)).not.toContain('--test-name-pattern');
   expect(JSON.stringify(contract)).not.toContain('\n');
 
   await withTempWorkspace(async (workspaceRoot) => {
@@ -61,15 +57,19 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         'Contract freeze active',
         `Command: ${contract.command}`,
         `Runner command: ${contract.runnerCommand}`,
+        `Contract IDs: ${contract.contractIdCount}`,
+        `Contract ID list: ${contract.contractIds.join(', ')}`,
         `Target files: ${contract.targetFileCount}`,
         `Target file list: ${contract.targetFiles.join(', ')}`,
-        'Target tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts --test-name-pattern',
-        'Target tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts --test-name-pattern'
+        'Target verification.contract-freeze; file=tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts',
+        'Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts'
       ],
       json: {
         status: 'active',
         command: contract.command,
         runnerCommand: contract.runnerCommand,
+        contractIdCount: contract.contractIdCount,
+        contractIds: contract.contractIds,
         targetFileCount: contract.targetFileCount,
         targetFiles: contract.targetFiles,
         targetCount: contract.targetCount
@@ -77,6 +77,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
       compactJson: {
         status: 'active',
         runnerCommand: contract.runnerCommand,
+        contractIdCount: contract.contractIdCount,
         targetFileCount: contract.targetFileCount,
         targetCount: contract.targetCount
       }

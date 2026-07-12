@@ -3,9 +3,9 @@ import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts'
 import { platformCommand } from './platform-command.ts';
 
 export type ContractFreezeTarget = {
+  contractId: string;
   file: string;
   command: string;
-  testNamePattern?: string;
 };
 
 export type ContractFreezeContract = {
@@ -13,6 +13,8 @@ export type ContractFreezeContract = {
   status: typeof CONTRACT_STATUS_ACTIVE;
   command: string;
   runnerCommand: string;
+  contractIdCount: number;
+  contractIds: string[];
   targetFileCount: number;
   targetFiles: string[];
   targetCount: number;
@@ -22,20 +24,17 @@ export type ContractFreezeContract = {
 export type ContractFreezeRunnerInvocation = {
   files: string[];
   args: string[];
-  testNamePattern?: string;
 };
 
-function buildTargetCommand(file: string, testNamePattern?: string): string {
-  return testNamePattern
-    ? `bun test ${file} --test-name-pattern "${testNamePattern}"`
-    : `bun test ${file}`;
+function buildTargetCommand(file: string): string {
+  return `bun test ${file}`;
 }
 
-function contractFreezeTarget(file: string, testNamePattern?: string): ContractFreezeTarget {
+function contractFreezeTarget(contractId: string, file: string): ContractFreezeTarget {
   return {
+    contractId,
     file,
-    command: buildTargetCommand(file, testNamePattern),
-    ...(testNamePattern ? { testNamePattern } : {})
+    command: buildTargetCommand(file)
   };
 }
 
@@ -52,108 +51,28 @@ function uniqueFiles(targets: ContractFreezeTarget[]): string[] {
     });
 }
 
-function runnerInvocation(files: string[], testNamePattern?: string): ContractFreezeRunnerInvocation {
+function runnerInvocation(files: string[]): ContractFreezeRunnerInvocation {
   const sortedFiles = uniqueSorted(files);
   return {
     files: sortedFiles,
-    args: testNamePattern
-      ? ['test', ...sortedFiles, '--test-name-pattern', testNamePattern]
-      : ['test', ...sortedFiles],
-    ...(testNamePattern ? { testNamePattern } : {})
+    args: ['test', ...sortedFiles]
   };
 }
 
 export function getContractFreezeTargets(): ContractFreezeTarget[] {
   return [
-    contractFreezeTarget(
-      'tests/contract/usage.test.ts',
-      [
-        'CLI prints usage for missing or unknown commands',
-        'CLI reports argument usage errors'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/contract/environment.test.ts',
-      'CLI exposes dependency environment maintenance entrypoints'
-    ),
-    contractFreezeTarget(
-      'tests/contract/reference.test.ts',
-      'CLI exposes reference drift check as text and JSON contracts'
-    ),
-    contractFreezeTarget(
-      'tests/contract/benchmark-budget.test.ts',
-      [
-        'CLI exposes benchmark task-suite as text and JSON contracts',
-        'CLI exposes test budget as text and JSON contracts'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/contract/test-impact.test.ts',
-      [
-        'test impact selector includes tests that directly import changed sources',
-        'test impact selector includes tests that dynamically import changed sources',
-        'test impact selector uses auto-reference for CI contract coverage',
-        'test impact selector uses auto-reference for test budget coverage',
-        'test impact selector keeps slow coverage as notice-only selection',
-        'test impact selector does not invent broad fallback for unmapped sources'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/contract/ci-lanes.test.ts',
-      [
-        'CI contract keeps PR lanes fast and full lane complete',
-        'CI contract counts and produced paths are self-consistent',
-        'CI contract text exposes lane command split for workflow audits',
-        'CI PR risk gate selects slow suites from the test impact contract',
-        'CI PR risk gate keeps repository-wide changes on all slow suites',
-        'CI PR risk gate skips slow suites when no source or slow test impact exists'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/contract/test-architecture.test.ts',
-      [
-        'test architecture exposes only canonical testkit primitives',
-        'test sources do not import legacy test helper aliases',
-        'testkit primitives do not depend on helper-layer fixtures',
-        'root package exposes only canonical test entry scripts',
-        'active docs do not reintroduce legacy test architecture examples'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/contract/contract-freeze.test.ts',
-      'CLI exposes contract freeze target list as text and JSON contracts'
-    ),
-    contractFreezeTarget(
-      'tests/contract/ci-contract.test.ts',
-      [
-        'CLI exposes CI command contract as text and JSON contracts',
-        'GitHub compiler CI workflow covers CI command contract gates'
-      ].join('|')
-    ),
-    contractFreezeTarget(
-      'tests/contract/error-protocol.test.ts',
-      'CLI exposes error protocol as text and JSON contracts'
-    ),
-    contractFreezeTarget(
-      'tests/integration/review.test.ts',
-      'CLI exposes review summary as text and JSON contracts'
-    ),
-    contractFreezeTarget(
-      'tests/integration/project-runtime.test.ts',
-      [
-        'root package exposes budget and contract scripts',
-        'dev-runner does not expose contract subcommands directly',
-        'fast test runner excludes slow files and skips runtime deps setup',
-        'test budget contract documents lanes and their capabilities',
-        'benchmark contract documents suite metadata and task definitions',
-        'reference check contract documents drift detection commands',
-        'README documents closed-loop and CLI surface',
-        'contract freeze contract documents runner wiring',
-        'error protocol defines issue types and code prefixes',
-        'error protocol contract documents error shape and sample IDs',
-        'CLI surfaces protocol fields in error output'
-      ].join('|')
-    )
+    contractFreezeTarget('cli.usage', 'tests/contract/usage.test.ts'),
+    contractFreezeTarget('dependency.environment', 'tests/contract/environment.test.ts'),
+    contractFreezeTarget('reference.drift', 'tests/contract/reference.test.ts'),
+    contractFreezeTarget('verification.budget', 'tests/contract/benchmark-budget.test.ts'),
+    contractFreezeTarget('verification.impact', 'tests/contract/test-impact.test.ts'),
+    contractFreezeTarget('verification.ci-lanes', 'tests/contract/ci-lanes.test.ts'),
+    contractFreezeTarget('verification.test-architecture', 'tests/contract/test-architecture.test.ts'),
+    contractFreezeTarget('verification.contract-freeze', 'tests/contract/contract-freeze.test.ts'),
+    contractFreezeTarget('verification.ci-workflow', 'tests/contract/ci-contract.test.ts'),
+    contractFreezeTarget('cli.error-protocol', 'tests/contract/error-protocol.test.ts'),
+    contractFreezeTarget('review.summary', 'tests/integration/review.test.ts'),
+    contractFreezeTarget('repository.runtime', 'tests/integration/project-runtime.test.ts')
   ];
 }
 
@@ -161,25 +80,12 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
 export function buildContractFreezeRunnerInvocations(
   targets = getContractFreezeTargets()
 ): ContractFreezeRunnerInvocation[] {
-  const patternedTargets = targets.filter((target) => target.testNamePattern);
-  const unpatternedTargets = targets.filter((target) => !target.testNamePattern);
-  const invocations: ContractFreezeRunnerInvocation[] = [];
-
-  if (patternedTargets.length > 0) {
-    invocations.push(runnerInvocation(
-      uniqueFiles(patternedTargets),
-      patternedTargets.map((target) => `(?:${target.testNamePattern})`).join('|')
-    ));
-  }
-  if (unpatternedTargets.length > 0) {
-    invocations.push(runnerInvocation(uniqueFiles(unpatternedTargets)));
-  }
-
-  return invocations;
+  return targets.length > 0 ? [runnerInvocation(uniqueFiles(targets))] : [];
 }
 
 export function buildContractFreezeContract(): ContractFreezeContract {
   const targets = getContractFreezeTargets();
+  const contractIds = uniqueSorted(targets.map((target) => target.contractId));
   const targetFiles = uniqueSorted(targets.map((target) => target.file));
 
   return {
@@ -187,13 +93,12 @@ export function buildContractFreezeContract(): ContractFreezeContract {
     status: CONTRACT_STATUS_ACTIVE,
     command: platformCommand('contract', 'freeze', '--json'),
     runnerCommand: 'bun run test:contract-freeze',
+    contractIdCount: contractIds.length,
+    contractIds,
     targetFileCount: targetFiles.length,
     targetFiles,
     targetCount: targets.length,
-    targets: targets.map((target) => ({
-      ...target,
-      ...(target.testNamePattern ? { testNamePattern: target.testNamePattern } : {})
-    }))
+    targets: targets.map((target) => ({ ...target }))
   };
 }
 
@@ -202,13 +107,15 @@ export function formatContractFreezeContract(contract: ContractFreezeContract): 
     `Contract freeze ${contract.status}`,
     `Command: ${contract.command}`,
     `Runner command: ${contract.runnerCommand}`,
+    `Contract IDs: ${contract.contractIdCount}`,
+    `Contract ID list: ${contract.contractIds.join(', ')}`,
     `Target files: ${contract.targetFileCount}`,
     `Target file list: ${contract.targetFiles.join(', ')}`,
     `Targets: ${contract.targetCount}`,
     ...contract.targets.map((target) => [
-      `Target ${target.file}`,
-      `command=${target.command}`,
-      `pattern=${target.testNamePattern ?? 'all'}`
+      `Target ${target.contractId}`,
+      `file=${target.file}`,
+      `command=${target.command}`
     ].join('; '))
   ].join('\n');
 }

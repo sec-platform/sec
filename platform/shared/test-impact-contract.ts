@@ -6,8 +6,17 @@ import { Node, Project, SyntaxKind } from 'ts-morph';
 import { uniqueSorted } from './collections.ts';
 import { compilerRoot, posixPath } from './paths.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
-import { pipelineTestImpactRules } from './test-impact-rules/pipeline.ts';
-import { semanticTestImpactRules } from './test-impact-rules/semantic.ts';
+import { pipelineTestOwnershipDeclarations } from './test-impact-rules/pipeline.ts';
+import { semanticTestOwnershipDeclarations } from './test-impact-rules/semantic.ts';
+import {
+  classifyTestImpactSource,
+  matchesTestOwnershipDeclaration,
+  resolveDeclaredTestOwnership,
+  type ResolvedTestOwnership,
+  type TestOwnershipDeclaration
+} from './test-ownership-contract.ts';
+
+export { classifyTestImpactSource } from './test-ownership-contract.ts';
 
 export type TestImpactRule = {
   sourcePattern: RegExp;
@@ -27,16 +36,8 @@ const VERIFICATION_INFRASTRUCTURE_PATTERNS = [
   /^scripts\/ci-[^/]+\.ts$/,
   /^platform\/dev-runner\//,
   /^platform\/shared\/ci-[^/]+\.ts$/,
-  /^platform\/shared\/test-(?:budget|impact)-contract\.ts$/,
+  /^platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$/,
   /^platform\/shared\/test-impact-rules\//
-];
-
-const TEST_IMPACT_SOURCE_PATTERNS = [
-  /^(platform|scripts)\//,
-  /^\.github\/workflows\//,
-  /^docs\/03-MVP实施计划与路线图\.md$/,
-  /^(package\.json|bun\.lock)$/,
-  /^tests\/(?:helpers|setup|testkit)\//
 ];
 
 export function isVerificationInfrastructureFile(file: string): boolean {
@@ -44,15 +45,19 @@ export function isVerificationInfrastructureFile(file: string): boolean {
 }
 
 export function isTestImpactSourceFile(file: string): boolean {
-  return TEST_IMPACT_SOURCE_PATTERNS.some((pattern) => pattern.test(file));
+  if (/^tests\/.+\.(?:test|spec)\.tsx?$/u.test(file)) return false;
+  return classifyTestImpactSource(file) !== null;
 }
 
-export const testImpactRules: TestImpactRule[] = [
-  ...pipelineTestImpactRules,
-  ...semanticTestImpactRules,
+export const testOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  ...pipelineTestOwnershipDeclarations,
+  ...semanticTestOwnershipDeclarations
+];
+
+export const testImpactFallbackRules: TestImpactRule[] = [
   {
     owner: 'verification-infrastructure',
-    sourcePattern: /^(?:\.github\/workflows\/|scripts\/ci-[^/]+\.ts$|platform\/dev-runner\/|platform\/shared\/ci-[^/]+\.ts$|platform\/shared\/test-(?:budget|impact)-contract\.ts$|platform\/shared\/test-impact-rules\/)/,
+    sourcePattern: /^(?:\.github\/workflows\/|scripts\/ci-[^/]+\.ts$|platform\/dev-runner\/|platform\/shared\/ci-[^/]+\.ts$|platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$|platform\/shared\/test-impact-rules\/)/,
     fast: [
       'tests/contract/benchmark-budget.test.ts',
       'tests/contract/ci-contract.test.ts',
@@ -279,6 +284,10 @@ function testsReferencingSources(files: string[]): string[] {
   return uniqueSorted([...matchedTests]);
 }
 
+export function resolveTestOwnership(files: string[]): ResolvedTestOwnership[] {
+  return resolveDeclaredTestOwnership(files, testOwnershipDeclarations);
+}
+
 export function selectTestsForSources(files: string[]): TestImpactSelection {
   const fast = new Set<string>();
   const slow = new Set<string>();
@@ -292,8 +301,18 @@ export function selectTestsForSources(files: string[]): TestImpactSelection {
   }
 
   for (const file of files) {
-    for (const rule of testImpactRules) {
-      if (rule.sourcePattern.test(file)) {
+    const declarations = testOwnershipDeclarations.filter((declaration) => (
+      matchesTestOwnershipDeclaration(declaration, file)
+    ));
+    for (const declaration of declarations) {
+      owners.add(declaration.owner);
+      addAll(fast, [...declaration.fast]);
+      addAll(slow, [...declaration.slow]);
+    }
+
+    if (declarations.length === 0) {
+      for (const rule of testImpactFallbackRules) {
+        if (!rule.sourcePattern.test(file)) continue;
         owners.add(rule.owner);
         addAll(fast, rule.fast);
         addAll(slow, rule.slow);

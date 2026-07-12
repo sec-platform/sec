@@ -150,6 +150,28 @@ flowchart TD
   operation_ticket_transitionTicketStatus["transitionTicketStatus (operation)"]
   permission_ticket_ticket_read["ticket-read (permission)"]
   permission_ticket_ticket_write["ticket-write (permission)"]
+  pin_agent_executor_input_actor_identity["actor_identity (pin)"]
+  pin_agent_executor_input_ticket_created["ticket_created (pin)"]
+  pin_agent_executor_output_agent_executed["agent_executed (pin)"]
+  pin_agent_harness_input_tenant_context["tenant_context (pin)"]
+  pin_agent_harness_output_agent_registered["agent_registered (pin)"]
+  pin_auth_basic_session_output_actor_identity["actor_identity (pin)"]
+  pin_comment_basic_input_actor_identity["actor_identity (pin)"]
+  pin_comment_basic_input_ticket_created["ticket_created (pin)"]
+  pin_comment_basic_output_comment_added["comment_added (pin)"]
+  pin_entity_customer_basic_input_actor_identity["actor_identity (pin)"]
+  pin_entity_customer_basic_input_tenant_context["tenant_context (pin)"]
+  pin_entity_customer_basic_output_customer_created["customer_created (pin)"]
+  pin_file_upload_input_customer_created["customer_created (pin)"]
+  pin_file_upload_output_customer_attachment_uploaded["customer_attachment_uploaded (pin)"]
+  pin_tenant_basic_workspace_input_actor_identity["actor_identity (pin)"]
+  pin_tenant_basic_workspace_output_tenant_context["tenant_context (pin)"]
+  pin_ticket_basic_input_actor_identity["actor_identity (pin)"]
+  pin_ticket_basic_input_tenant_context["tenant_context (pin)"]
+  pin_ticket_basic_output_ticket_attachment_uploaded["ticket_attachment_uploaded (pin)"]
+  pin_ticket_basic_output_ticket_comment_added["ticket_comment_added (pin)"]
+  pin_ticket_basic_output_ticket_created["ticket_created (pin)"]
+  pin_ticket_basic_output_ticket_status_transitioned["ticket_status_transitioned (pin)"]
   policy_tenant_scope_required["tenant-scope-required (policy)"]
   policy_tenant_tenant_scope["tenant-scope (policy)"]
   port_agent_executor_input_actor_identity["actor_identity (port)"]
@@ -202,23 +224,32 @@ flowchart TD
   block_agent_executor -- depends_on --> capability_tenant_context
   block_agent_executor -- depends_on --> capability_ticket_comment
   block_agent_executor -- depends_on --> capability_ticket_write
+  block_agent_executor -- depends_on --> pin_agent_executor_input_actor_identity
+  block_agent_executor -- depends_on --> pin_agent_executor_input_ticket_created
   block_agent_executor -- provides --> capability_agent_executor
+  block_agent_executor -- provides --> pin_agent_executor_output_agent_executed
   block_agent_executor -- provides --> port_agent_executor_output_agent_executed
   block_agent_executor -- requires --> port_agent_executor_input_actor_identity
   block_agent_executor -- requires --> port_agent_executor_input_ticket_created
   block_agent_executor -- verified_by --> acceptance_agent_can_automatically_classify_ticket
   block_agent_harness -- depends_on --> capability_tenant_context
+  block_agent_harness -- depends_on --> pin_agent_harness_input_tenant_context
   block_agent_harness -- provides --> capability_agent_harness
+  block_agent_harness -- provides --> pin_agent_harness_output_agent_registered
   block_agent_harness -- provides --> port_agent_harness_output_agent_registered
   block_agent_harness -- requires --> port_agent_harness_input_tenant_context
   block_agent_harness -- verified_by --> acceptance_agent_can_be_registered
   block_auth_basic_session -- provides --> capability_auth_session
+  block_auth_basic_session -- provides --> pin_auth_basic_session_output_actor_identity
   block_auth_basic_session -- provides --> port_auth_basic_session_output_actor_identity
   block_auth_basic_session -- verified_by --> acceptance_user_can_login
   block_comment_basic -- depends_on --> capability_auth_session
   block_comment_basic -- depends_on --> capability_tenant_context
   block_comment_basic -- depends_on --> capability_ticket_read
+  block_comment_basic -- depends_on --> pin_comment_basic_input_actor_identity
+  block_comment_basic -- depends_on --> pin_comment_basic_input_ticket_created
   block_comment_basic -- provides --> capability_ticket_comment
+  block_comment_basic -- provides --> pin_comment_basic_output_comment_added
   block_comment_basic -- provides --> port_comment_basic_output_comment_added
   block_comment_basic -- requires --> port_comment_basic_input_actor_identity
   block_comment_basic -- requires --> port_comment_basic_input_ticket_created
@@ -226,8 +257,11 @@ flowchart TD
   block_entity_customer_basic -- contains --> slot_entity_customer_basic_customer_normalizer
   block_entity_customer_basic -- depends_on --> capability_auth_session
   block_entity_customer_basic -- depends_on --> capability_tenant_context
+  block_entity_customer_basic -- depends_on --> pin_entity_customer_basic_input_actor_identity
+  block_entity_customer_basic -- depends_on --> pin_entity_customer_basic_input_tenant_context
   block_entity_customer_basic -- provides --> capability_customer_read
   block_entity_customer_basic -- provides --> capability_customer_write
+  block_entity_customer_basic -- provides --> pin_entity_customer_basic_output_customer_created
   block_entity_customer_basic -- provides --> port_entity_customer_basic_output_customer_created
   block_entity_customer_basic -- requires --> port_entity_customer_basic_input_actor_identity
   block_entity_customer_basic -- requires --> port_entity_customer_basic_input_tenant_context
@@ -239,13 +273,17 @@ flowchart TD
   block_entity_customer_basic -- writes_to --> file_app_customers_page_tsx
   block_file_upload -- depends_on --> capability_customer_read
   block_file_upload -- depends_on --> capability_customer_write
+  block_file_upload -- depends_on --> pin_file_upload_input_customer_created
   block_file_upload -- provides --> capability_file_upload
+  block_file_upload -- provides --> pin_file_upload_output_customer_attachment_uploaded
   block_file_upload -- provides --> port_file_upload_output_customer_attachment_uploaded
   block_file_upload -- requires --> port_file_upload_input_customer_created
   block_tenant_basic_workspace -- declares --> policy_tenant_tenant_scope
   block_tenant_basic_workspace -- declares --> responsibility_tenant_TenantScopeGuard
   block_tenant_basic_workspace -- depends_on --> capability_auth_session
+  block_tenant_basic_workspace -- depends_on --> pin_tenant_basic_workspace_input_actor_identity
   block_tenant_basic_workspace -- provides --> capability_tenant_context
+  block_tenant_basic_workspace -- provides --> pin_tenant_basic_workspace_output_tenant_context
   block_tenant_basic_workspace -- provides --> port_tenant_basic_workspace_output_tenant_context
   block_tenant_basic_workspace -- requires --> port_tenant_basic_workspace_input_actor_identity
   block_tenant_basic_workspace -- verified_by --> acceptance_tenant_only_sees_own_customers
@@ -301,8 +339,14 @@ flowchart TD
   block_ticket_basic -- declares --> state_ticket_ticket_status
   block_ticket_basic -- depends_on --> capability_auth_session
   block_ticket_basic -- depends_on --> capability_tenant_context
+  block_ticket_basic -- depends_on --> pin_ticket_basic_input_actor_identity
+  block_ticket_basic -- depends_on --> pin_ticket_basic_input_tenant_context
   block_ticket_basic -- provides --> capability_ticket_read
   block_ticket_basic -- provides --> capability_ticket_write
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_attachment_uploaded
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_comment_added
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_created
+  block_ticket_basic -- provides --> pin_ticket_basic_output_ticket_status_transitioned
   block_ticket_basic -- provides --> port_ticket_basic_output_ticket_attachment_uploaded
   block_ticket_basic -- provides --> port_ticket_basic_output_ticket_comment_added
   block_ticket_basic -- provides --> port_ticket_basic_output_ticket_created

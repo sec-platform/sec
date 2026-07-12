@@ -25,6 +25,9 @@ export function expectListCount<T extends object>(contract: T, countKey: CountKe
 
 export function expectCiContractSelfConsistent(contract: CiContract): void {
   expectListCount(contract, 'triggerLabelCount', 'triggerLabels');
+  expectListCount(contract, 'prTriggerTypeCount', 'prTriggerTypes');
+  expectListCount(contract, 'prWorkflowStepCount', 'prWorkflowStepOrder');
+  expectListCount(contract, 'releaseWorkflowStepCount', 'releaseWorkflowStepOrder');
   expectListCount(contract, 'prWorkflowCommandCount', 'prWorkflowCommands');
   expectListCount(contract, 'releaseWorkflowCommandCount', 'releaseWorkflowCommands');
   expectListCount(contract, 'prQuickLaneCommandCount', 'prQuickLaneCommands');
@@ -37,6 +40,7 @@ export function expectCiContractSelfConsistent(contract: CiContract): void {
   expectListCount(contract, 'artifactPathCount', 'artifactPaths');
   expectListCount(contract, 'stepCount', 'steps');
   expectSortedUnique(contract.triggerLabels);
+  expectSortedUnique(contract.prTriggerTypes);
   expectSortedUnique(contract.artifactPaths);
   for (const step of contract.steps) {
     expectListCount(step, 'producesCount', 'produces');
@@ -61,6 +65,7 @@ export function expectFullLaneCoversSlowSuites(contract: CiContract, suiteIds: r
   for (const suiteId of suiteIds) {
     expect(contract.fullLaneCommands).toContain(`bun run test:slow -- --suite ${suiteId}`);
   }
+  expect(contract.fullLaneCommands).toContain('bun run test:slow -- --suite e2e-ticket-semantic-vertical');
 }
 
 export function expectFullLaneCoversCorrectnessBackstop(contract: CiContract): void {
@@ -98,10 +103,14 @@ export function expectBenchmarkTaskSuiteSelfConsistent(contract: BenchmarkTaskSu
 }
 
 export function expectContractFreezeSelfConsistent(contract: ContractFreezeContract): void {
+  expectListCount(contract, 'contractIdCount', 'contractIds');
   expectListCount(contract, 'targetFileCount', 'targetFiles');
   expectListCount(contract, 'targetCount', 'targets');
   expectSortedUnique(contract.targetFiles);
+  expectSortedUnique(contract.contractIds);
   expect(new Set(contract.targets.map((target) => target.file)).size).toBe(contract.targetFiles.length);
+  expect(new Set(contract.targets.map((target) => target.contractId)).size).toBe(contract.targets.length);
+  expect(contract.targets.every((target) => /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(target.contractId))).toBe(true);
   expect(contract.targetFiles.some((file) => file.startsWith('tests/e2e/'))).toBe(false);
   expect(contract.targetFiles.every((file) => file.endsWith('.test.ts'))).toBe(true);
 }

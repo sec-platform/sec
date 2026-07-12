@@ -284,7 +284,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         type: 'upgrade',
         label: 'rollback restored'
       },
-      { id: 'slot:entity/customer-basic:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
+      expect.objectContaining({
+        id: 'slot:entity/customer-basic:customer_normalizer',
+        type: 'slot',
+        label: 'customer_normalizer'
+      }),
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' },
       {
         id: 'file:migrations/customer-normalizer-contract.json',
@@ -402,7 +406,11 @@ test('explain graph connects repair tasks to slots and files', async () => {
     expect.arrayContaining([
       { id: 'repair:repair_customer_normalizer', type: 'repair', label: 'repair_customer_normalizer' },
       { id: 'repair-category:slot-rewrite', type: 'repair', label: 'slot-rewrite' },
-      { id: 'slot:entity/customer-basic:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
+      expect.objectContaining({
+        id: 'slot:entity/customer-basic:customer_normalizer',
+        type: 'slot',
+        label: 'customer_normalizer'
+      }),
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
     ])
   );
