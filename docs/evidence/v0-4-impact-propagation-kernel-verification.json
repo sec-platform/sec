@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "1",
+  "evidenceId": "v0-4-impact-propagation-kernel-4811fea",
+  "recordedAt": "2026-07-13T05:30:19.8953408+08:00",
+  "finalImplementationHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+  "finalImplementationTree": "6ccb34a117b4dc47c1ed033379287c394d10d910",
+  "baseSha": "9ec3c3e3891601b12c850737c3413d926c3d9136",
+  "baseTree": "38df251dd5574176b72cd794ee8542833ba45193",
+  "profile": "v0.4-impact-propagation-kernel",
+  "contractRevision": "ci-verification-v3",
+  "scope": {
+    "productionBlobs": [
+      {
+        "path": "platform/compiler/semantic-impact/build-impact-propagation.ts",
+        "blob": "80f8f2e2bc71f09ee40602d892bbee910f20b9e6"
+      },
+      {
+        "path": "platform/compiler/semantic-impact/propagation-rules.ts",
+        "blob": "2f1e45dfef000c766580a9cd1e60f5394985d9cb"
+      },
+      {
+        "path": "platform/shared/semantic-impact-types.ts",
+        "blob": "cb4b622698428b5559a48521fb4bcc5b5605cbfc"
+      },
+      {
+        "path": "platform/compiler/index.ts",
+        "blob": "981a56c749d3f89496869dd1068c6b67270839b9"
+      },
+      {
+        "path": "platform/shared/types.ts",
+        "blob": "bec3c06f740d820186487806e364d53a8a0813d6"
+      }
+    ],
+    "contractBlobs": [
+      {
+        "path": "tests/unit/impact-propagation.test.ts",
+        "blob": "b84054184ecc51b33ff15475a0e02a0290dbbfce"
+      },
+      {
+        "path": "tests/contract/impact-propagation-contract.test.ts",
+        "blob": "86cce4f32b70cea5ccd25fe93f1257375764d266"
+      },
+      {
+        "path": "platform/shared/test-impact-rules/semantic.ts",
+        "blob": "e50f2aa79cb91bf6c110b136360a66a7da4d8b5e"
+      },
+      {
+        "path": "platform/shared/contract-freeze-contract.ts",
+        "blob": "fbf735f4b39ded664a92f6a7fb8651b6ec6e8d65"
+      },
+      {
+        "path": "tests/contract/test-impact.test.ts",
+        "blob": "9f2bde400d7eae9918d04aea39836dfcfb69de08"
+      },
+      {
+        "path": "tests/contract/contract-freeze.test.ts",
+        "blob": "4a0b11dc42ea14190971327256aa67134b19b157"
+      }
+    ],
+    "forbiddenBoundariesTouched": []
+  },
+  "gates": [
+    {
+      "gateId": "focused-contract-batch",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed",
+      "passed": 48,
+      "failed": 0,
+      "durationMs": 1950,
+      "files": 7
+    },
+    {
+      "gateId": "affected-fast",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed",
+      "passed": 171,
+      "failed": 0,
+      "wallDurationMs": 86000,
+      "batchCounts": [128, 29, 1, 13]
+    },
+    {
+      "gateId": "contract-freeze",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed",
+      "passed": 82,
+      "failed": 0,
+      "durationMs": 3120,
+      "files": 14
+    },
+    {
+      "gateId": "selector-required-slow-batch",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed",
+      "passedSuites": 10,
+      "failedSuites": 0,
+      "durationMs": 31777,
+      "evidencePath": "docs/evidence/v0-4-impact-propagation-risk-batch.json"
+    },
+    {
+      "gateId": "typecheck",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed"
+    },
+    {
+      "gateId": "changed-imports",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed",
+      "changedOnly": true
+    },
+    {
+      "gateId": "patch-hygiene",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed"
+    },
+    {
+      "gateId": "implementation-frozen-review",
+      "testedHead": "4811feac5b43916741dcc948d0b3720d6f638627",
+      "status": "passed",
+      "resolvedFindings": [
+        "freeze the complete v1 predicate action table, including value-stop, verification, unknown, reserved and exact edge tuples",
+        "exclude non-definite Fact roots from runnable verification while retaining assertion-only seed recommendations"
+      ],
+      "remainingFindings": []
+    }
+  ],
+  "evidenceComposition": {
+    "implementationToDocumentation": "the later evidence and roadmap closeout change only documentation and recorded evidence; all implementation and contract blobs remain exact",
+    "reusedBaseline": [
+      "v0.3 full-fast evidence",
+      "the unselected slow suites",
+      "ordered workspace and reference tail",
+      "benchmark and dependency evidence",
+      "GitHub Actions evidence"
+    ]
+  },
+  "environmentClosure": {
+    "junctionPath": "D:/Project/sec-worktrees/v0-4-impact-propagation-implementation/node_modules",
+    "junctionTarget": "D:/Project/sec/node_modules",
+    "rootNodeModulesEntryCountBefore": 408
+  },
+  "status": "passed",
+  "invalidationRules": [
+    "any production, public facade, ownership, Contract Freeze, or focused test blob changes",
+    "Impact endpoint binding, seed, propagation direction, authority, uncertainty, verification, diagnostic, digest, ordering, freeze, or scope authority changes",
+    "Fact Delta or validated endpoint/index contracts change",
+    "FD-3 is connected to Pipeline, Workspace, Lock, Projection, artifact, Upgrade, Mutation, Workbench, or CI selector"
+  ],
+  "remainingGaps": []
+}
