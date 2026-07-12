@@ -1,7 +1,7 @@
 ---
 title: MVP 实施计划与路线图
 status: active
-last-reviewed: 2026-07-11
+last-reviewed: 2026-07-12
 ---
 
 # MVP 实施计划与路线图
@@ -19,8 +19,8 @@ Governed File Compiler 主干
   + Pipeline Kernel Foundation（已进入 main）
   + compilation transaction / journal（已进入 main）
   + compileWorkspace() 统一协调入口（已进入 main）
-  + Semantic Contract prototype
-  + Engineering IR prototype（尚未成为 Pipeline canonical semantic handoff）
+  + Semantic Contract + Workspace Semantic Link（已进入 Pipeline semantic stage）
+  + Canonical / Validated Engineering IR handoff（已进入 Pipeline semantic context）
   + Architecture / Scenario / State Projection prototype
   + Contract-derived State Transition Generator
   + Slot Mock Synthesis
@@ -29,19 +29,18 @@ Governed File Compiler 主干
 必须严格区分：
 
 ```text
-Pipeline Kernel 基础设施已完成
-≠ Semantic IR 已进入 Pipeline
+Pipeline Kernel + Semantic Frontend / IR handoff 已完成
 ≠ Lowering 已由 IR 拥有
 ≠ Projection 已统一消费 canonical semantic snapshot
 ```
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前唯一 ACTIVE NEXT：Workspace Semantic Linker
+## 2. 当前唯一 ACTIVE NEXT：IR-owned Generator / Ticket Enforcement
 
-当前唯一 active next 是 **P0-4 Workspace Semantic Linker**。P0-3 Semantic Pipeline Spine 已由 PR #89 进入 `main`。
+当前唯一 active next 是 **P0-5 IR-owned Generator / Ticket Enforcement**。P0-4 Workspace Semantic Linker 已满足退出条件，显式 Contract import、qualified reference、Policy identity mapping 与 deterministic diagnostics 已进入 canonical Semantic Frontend → IR 主链。
 
-当前 P0 不是继续增加 Entity、Predicate、View 或 Generator，也不是重新建设 Pipeline Kernel；canonical Engineering IR、validated boundary 与 transaction-owned Pipeline Semantic Context 已经固定，当前任务是建立显式 Workspace Semantic Link。
+当前 P0 不是继续增加平行 Semantic Plan 或第二套 Generator 解释器，也不是重新建设 Pipeline Kernel / Linker；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context 与 Workspace Semantic Link 已经固定，当前任务是让 Generator / Lowerer 只消费 validated IR-derived plan，并让 Ticket runtime 复用同一状态迁移合同。
 
 目标主链：
 
@@ -223,7 +222,7 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 
 ## 8. P0-4 Workspace Semantic Linker
 
-状态：**ACTIVE NEXT**。
+状态：**COMPLETED**。
 
 ### Prerequisite
 
@@ -251,7 +250,7 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 
 ## 9. P0-5 IR-owned Generator / Ticket Enforcement
 
-状态：**BLOCKED BY P0-4**。
+状态：**ACTIVE NEXT**。
 
 ### Prerequisite
 
@@ -440,9 +439,9 @@ P0-2B Validated IR Boundary                              COMPLETED
   ↓
 P0-3  Semantic Pipeline Spine                            COMPLETED
   ↓
-P0-4  Workspace Semantic Linker                          ACTIVE NEXT
+P0-4  Workspace Semantic Linker                          COMPLETED
   ↓
-P0-5  IR-owned Generator / Ticket Enforcement
+P0-5  IR-owned Generator / Ticket Enforcement            ACTIVE NEXT
   ↓
 P0-6  Semantic Projection Takeover
   ↓
@@ -453,6 +452,6 @@ latest-head full validation
 v0.3 exit review
 ```
 
-只有 **P0-4 Workspace Semantic Linker** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改下游 semantic consumer 来伪造进度。
+只有 **P0-5 IR-owned Generator / Ticket Enforcement** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改 Projection / Verification consumer 来伪造进度。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。
