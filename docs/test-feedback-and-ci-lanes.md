@@ -295,3 +295,17 @@ Implementation head `90818829582b5ec10d8c88fb06cc2921d511d5f1`，base `35170da6b
 | `79a679e9d7d32f417bc5558683b29deb109e4d1b` | 本地 `reference:refresh` 后 exact-head `reference:check` | reference full compile、Next build、unit、Playwright、SemanticView Lock/ExplainGraph/Review/Workbench artifacts、tracked diff 与 untracked scan | PASS（refresh 56.2s；check 56.4s；tracked 0；untracked 0；changed paths 0） | reference input、Projection/Pipeline revision contract、emit/artifact producer、Workbench template 或 runtime toolchain 变化时失效。 |
 
 提交前第一次 changed-only import probe 因工具只计算 `base..HEAD`，在变更尚未提交时输出 `No TypeScript import targets selected`，因此不计为 PASS；只有上表基于真实 commit 的 organizer/check 结果有效。第一次 reference refresh 的 Next build、unit、Playwright 已通过，但 Workbench EJS 在语义表格改为预计算后仍引用未绑定的 `semanticViewSet`，最终以非零退出，不计为 PASS；恢复该只读 bundle 绑定后，第二次 refresh 与随后 exact-head check 均完整通过。P0-6 未运行 full-fast、all-slow matrix 或 GitHub Actions；本 delta 未改变依赖锁、slow implementation/toolchain、benchmark、dependency warmup、test runner 或 selector contract，继续复用前述仍有效的昂贵 baseline。
+
+### 2026-07-12 P0-7 Verification / CI Closure development evidence
+
+Implementation head `b00415b`，base `a3025aca63c6c365e2561b415ddfe07dc8a61141`。P0-7 修改 selector、Contract Freeze、slow suite registry、CI runner/workflow 与 verification revision，因此历史 full-fast、test-budget、all-slow-risk 和 `ci-verification-v2` status 全部失效；P0-6 semantic/reference evidence 只作为未修改 artifact producer 的 baseline，不替代最终 `ci-verification-v3` Full。
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `b00415b` 对应实现树 | Contract/ownership/CI focused set | contractId、四类 source classification、explicit owner/pass/contract ownership、Risk selection、workflow YAML structure | PASS（36/36，19.2s） | Contract Freeze、impact/ownership、suite registry、CI plan/workflow 变化时失效。 |
+| 同上 | `bun run test:contract-freeze` | 12 个注册文件整文件运行；无 title regex | PASS（74/74，4.5s） | contractId/target file 或 contract test 内容变化时失效。 |
+| 同上 | Ticket semantic vertical + Pipeline sentinels | validated snapshot、Workspace Semantic Link、Generator、runtime enforcement、projection shared Fact ID、provenance | PASS（5/5，32.2s） | Ticket/Tenant Contract、IR/Linker/Lowerer/runtime/projection/provenance seam 变化时失效。 |
+| 同上 | runner/CI command/architecture/project focused set | canonical affected runner、suite expansion、package/contract wiring | PASS（50/50，6.0s） | test runner、package scripts、CI command contract 或 project runtime wiring 变化时失效。 |
+| 同上 | changed-only imports、`typecheck`、`docs:doctor`、`git diff --check` | import/type/doc/patch hygiene | PASS（imports 4.8s；typecheck 10.8s；docs doctor 0 errors / 0 warnings） | 最终文档 closeout 只需重跑 docs doctor 与 patch hygiene；TypeScript 变化则重跑 imports/typecheck。 |
+
+最终 PR head 还必须取得 `sec-verification/full/ci-verification-v3/base-<current-base>` trusted success。该单 runner Full 的 evidence `coverageProfiles` 必须同时包含 `quick / risk / full`，并记录 exact `headSha`、`baseSha`、revision、每个 Gate phase/result/duration；没有该外部 exact-head evidence 不得 merge。
