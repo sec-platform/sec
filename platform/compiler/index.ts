@@ -12,6 +12,7 @@ export {
   type BuildEngineeringIRInput,
   type EngineeringIRManifestInput
 } from './ir/build-engineering-ir.ts';
+export { buildFactDelta } from './ir/build-fact-delta.ts';
 export {
   indexEngineeringIR,
   indexValidatedEngineeringIR,
