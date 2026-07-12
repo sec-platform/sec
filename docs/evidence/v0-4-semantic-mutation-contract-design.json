@@ -1,9 +1,11 @@
 {
   "schemaVersion": "1",
-  "evidenceId": "v0-4-semantic-mutation-contract-11a8373",
-  "recordedAt": "2026-07-13T06:10:37.2903649+08:00",
-  "testedHead": "11a837320cfcf9027c34891a8d25ea36a6b88985",
-  "testedTree": "92e8d9f5f335e5300d5cdfc9775bf77713613ebf",
+  "evidenceId": "v0-4-semantic-mutation-contract-78e0b0b",
+  "supersedesEvidenceId": "v0-4-semantic-mutation-contract-11a8373",
+  "refreshReason": "align the roadmap stage summary with the already frozen SM-0 completion and SM-1 active-next status",
+  "recordedAt": "2026-07-13T06:16:35.3045727+08:00",
+  "testedHead": "78e0b0bc870d28719814e9eaa7e9f5fb6d886d68",
+  "testedTree": "81ac240398a12e32850f51d93565242302a9a5e5",
   "baseSha": "48c42394c1432c7022bf08bac41b319701bc65aa",
   "baseTree": "3764e6503a6c4d9baf1099c09ccc05e417be1867",
   "profile": "v0.4-semantic-mutation-contract-design",
@@ -25,7 +27,7 @@
       },
       {
         "path": "docs/03-MVP实施计划与路线图.md",
-        "testedBlob": "233977ae2a8993712bdf161fc01da948b2683ee8"
+        "testedBlob": "2b6a6441d5651b097fa4dfa07943576c5fbefbb0"
       },
       {
         "path": "docs/09-AI Runtime、任务信封与治理规范.md",
@@ -56,8 +58,8 @@
       "status": "passed",
       "passed": 29,
       "failed": 0,
-      "durationMs": 1650,
-      "durationEvidence": "Bun reported 1.65s for the final tested documentation blobs"
+      "durationMs": 20680,
+      "durationEvidence": "Bun reported 20.68s for the refreshed final tested documentation blobs"
     },
     {
       "gateId": "docs-doctor",
