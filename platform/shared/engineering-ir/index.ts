@@ -1,3 +1,4 @@
+export * from './delta-types.ts';
 export * from './entity-types.ts';
 export * from './fact-types.ts';
 export * from './predicate-signature-types.ts';
