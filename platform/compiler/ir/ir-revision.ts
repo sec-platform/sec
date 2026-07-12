@@ -50,6 +50,13 @@ function canonicalSemanticContract(contract: SemanticContract): object {
     formatVersion: contract.formatVersion,
     id: contract.id,
     namespace: contract.namespace,
+    imports: [...(contract.imports ?? [])]
+      .sort((left, right) => left.alias.localeCompare(right.alias))
+      .map((entry) => ({
+        alias: entry.alias,
+        namespace: entry.namespace,
+        contractId: entry.contractId
+      })),
     entities: stableById(contract.entities).map((entity) => ({
       id: entity.id,
       label: entity.label ?? entity.id,
@@ -104,7 +111,8 @@ function canonicalSemanticContract(contract: SemanticContract): object {
     policies: stableById(contract.policies).map((policy) => ({
       id: policy.id,
       label: policy.label ?? policy.id,
-      rule: policy.rule ?? null
+      rule: policy.rule ?? null,
+      verifiedBy: uniqueSorted(policy.verifiedBy ?? [])
     })),
     permissions: stableById(contract.permissions).map((permission) => ({
       id: permission.id,

@@ -629,16 +629,27 @@ scenarioStepEntityId(scenarioId, semanticStepId)
 
 `projectScenarioView()` 从 canonical Facts 重新派生 Scenario；即使调用者篡改 `ir.scenarios[].steps`，Projection 结果也不得变化。声明数组重排而关系不变时 IR/revision 稳定；PRECEDES、AWAITS、RETRIES 或 HANDLES 关系变化必须改变 canonical Fact/revision。
 
-### Semantic Namespace Ownership
+### Workspace Semantic Link 与 Namespace Ownership
 
-当前没有 Workspace Semantic Linker、Contract import 或 qualified external reference。因此 namespace 只是单个 Loaded Contract 的 canonical identity scope，不是隐式跨 Contract merge channel。
+Semantic Frontend 在 local Contract normalization 与 IR build 之间执行唯一 Workspace Semantic Link phase。Contract import schema：
+
+```yaml
+imports:
+  - alias: tenant
+    namespace: tenant
+    contractId: tenant-core
+```
+
+跨 Contract 引用使用 `alias::localId`，例如 `tenant::TenantScopeGuard`。Linker 建立 namespace/contract identity registry，按 symbol kind 验证 entity/field、responsibility、operation、policy、permission、effect 与 event，并 canonicalize 为 `namespace::id` 后直接交给现有 IR builder；不产生或持久化第二 authoritative graph。
 
 规则：
 
+- unqualified reference 只解析 owner Contract；不得隐式搜索 imports。
 - exact duplicate Loaded Contract input 允许幂等去重。
-- distinct Contract identity/content 共享 namespace：`IR-IDENTITY-006` hard fail。
-- 在 Semantic Linker 正式实现前，不允许通过复用 namespace 达成跨 Contract Responsibility/Operation/Entity linkage。
-- 未来 Linker 必须显式定义 import、qualified reference、ownership、冲突与版本规则；不得删除 hard fail 后直接恢复隐式合并。
+- distinct Contract identity/content 共享 namespace：`SEMANTIC-LINK-001` hard fail。
+- duplicate alias、unresolved import/reference、self import/cross-contract conflict、unknown Verification Policy 分别使用 `SEMANTIC-LINK-002` 至 `SEMANTIC-LINK-006` 稳定 diagnostics。
+- Semantic Policy 的 `verifiedBy` 显式引用 Verification Policy ID，生成 `verification policy ENFORCES semantic policy` 与反向 `VERIFIED_BY` Facts；同名字符串不建立 identity mapping。
+- Contract/file enumeration 与 import declaration 顺序不改变 linked IR 或 revision。
 
 ## 13. Validated IR Boundary
 
@@ -677,7 +688,6 @@ compileWorkspace() transaction
 
 | 现有路径 | 当前输入 | 负责接管的 Work Package |
 | --- | --- | --- |
-| Workspace-level contract reference/link | local Contract declarations | P0-4 Workspace Semantic Linker |
 | `semantic-plan.ts` / `semantic-lowering.ts` | Contract / semantic plan | P0-5 IR-owned Generator / Ticket Enforcement |
 | Architecture / Scenario / State Projector、ExplainGraph、Workbench | raw IR 或 Lock/Manifest/Contract | P0-6 Semantic Projection Takeover |
 

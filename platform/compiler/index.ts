@@ -34,6 +34,10 @@ export { projectStateView } from './projection/project-state-view.ts';
 export { buildSemanticInspector } from './projection/semantic-view-utils.ts';
 export { applyRepairPlan, buildRepairPlan, previewRepairPlan, writeRepairPlan } from './repair/build-repair-plan.ts';
 export { resolveGraph } from './resolve/resolve-graph.ts';
+export {
+  linkWorkspaceSemanticContracts,
+  splitLinkedSemanticReference
+} from './semantic-linker.ts';
 export { adaptProject } from './synthesize/adapt-project.ts';
 export { buildAcceptanceCoverage } from './verify/build-acceptance-coverage.ts';
 export { createSkippedRuntimeLane } from './verify/run-runtime-verification.ts';

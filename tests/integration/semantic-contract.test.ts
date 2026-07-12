@@ -42,13 +42,17 @@ test('ticket/basic loads one normalized semantic contract', async () => {
   expect(contracts[0]?.blockId).toBe('ticket/basic');
   expect(contracts[0]?.contractPath).toBe('platform/registry/official/ticket.basic/contracts/ticket.yaml');
   expect(contracts[0]?.contract.id).toBe('ticket-core');
+  expect(contracts[0]?.contract.imports).toEqual([{
+    alias: 'tenant',
+    namespace: 'tenant',
+    contractId: 'tenant-core'
+  }]);
   expect(contracts[0]?.contract.entities.map((entity) => entity.id)).toEqual([
     'Ticket',
     'TicketAttachment',
     'TicketComment'
   ]);
   expect(contracts[0]?.contract.responsibilities.map((entry) => entry.id)).toEqual([
-    'TenantScopeGuard',
     'TicketLifecycle',
     'TicketQuery',
     'TicketStateMachine'
@@ -61,6 +65,22 @@ test('ticket/basic loads one normalized semantic contract', async () => {
   expect(manifestEntry.manifest.generators?.map((entry) => entry.id)).toEqual([
     'ticket-status-runtime-contract'
   ]);
+});
+
+test('tenant/basic-workspace owns the imported responsibility and explicit policy mapping', async () => {
+  const manifestEntry = await loadManifestById('tenant/basic-workspace');
+  const contracts = await loadSemanticContractsForManifestEntry(manifestEntry);
+
+  expect(contracts).toHaveLength(1);
+  expect(contracts[0]?.contract).toMatchObject({
+    id: 'tenant-core',
+    namespace: 'tenant',
+    responsibilities: [{ id: 'TenantScopeGuard' }],
+    policies: [{
+      id: 'tenant-scope',
+      verifiedBy: ['tenant-scope-required']
+    }]
+  });
 });
 
 test('semantic contract normalization preserves operation input order and duplicates', () => {

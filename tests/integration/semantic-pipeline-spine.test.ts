@@ -25,6 +25,18 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
     expect(firstSemantic.snapshot.ir.entities.some(
       (entity) => entity.id === 'responsibility:ticket:TicketLifecycle'
     )).toBe(true);
+    expect(firstSemantic.snapshot.ir.facts.some((fact) =>
+      fact.subject === 'responsibility:ticket:TicketQuery' &&
+      fact.predicate === 'DEPENDS_ON' &&
+      fact.object.kind === 'entity' &&
+      fact.object.entityId === 'responsibility:tenant:TenantScopeGuard'
+    )).toBe(true);
+    expect(firstSemantic.snapshot.ir.facts.some((fact) =>
+      fact.subject === 'policy:tenant-scope-required' &&
+      fact.predicate === 'ENFORCES' &&
+      fact.object.kind === 'entity' &&
+      fact.object.entityId === 'policy:tenant:tenant-scope'
+    )).toBe(true);
     expect(firstSemantic.snapshot.ir.scenarios.some(
       (scenario) => scenario.id === 'scenario:ticket:create-ticket'
     )).toBe(true);

@@ -3,6 +3,7 @@ import type {
   SemanticEntity
 } from '../../shared/engineering-ir-types.ts';
 import type { LoadedSemanticContract } from '../../shared/semantic-contract-types.ts';
+import { splitLinkedSemanticReference } from '../semantic-linker.ts';
 import type { FactInput } from './ir-fact-store.ts';
 import {
   contractEffectId,
@@ -15,7 +16,6 @@ import {
   contractResponsibilityId,
   contractScenarioId,
   contractStateId,
-  contractTargetId,
   scenarioStepEntityId,
   semanticEntity,
   valueAttribute
@@ -45,6 +45,22 @@ function addDeclaredEntity(sink: BuildSink, blockId: string, provenance: FactPro
     authority: 'authoritative',
     provenance
   });
+}
+
+function linkedEntityId(
+  reference: string,
+  identity: (namespace: string, id: string) => string
+): string {
+  const { namespace, id } = splitLinkedSemanticReference(reference);
+  return identity(namespace, id);
+}
+
+function linkedTargetId(reference: string): string {
+  const { namespace, id } = splitLinkedSemanticReference(reference);
+  const [entityId, fieldId] = id.split('.');
+  return fieldId
+    ? contractFieldId(namespace, entityId!, fieldId)
+    : contractEntityId(namespace, entityId!);
 }
 
 export function appendSemanticContract(input: LoadedSemanticContract, sink: BuildSink): void {
@@ -104,12 +120,18 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
   }
 
   for (const policy of contract.policies) {
+    const semanticPolicyId = contractPolicyId(contract.namespace, policy.id);
     addDeclaredEntity(sink, blockId, provenance, semanticEntity(
-      contractPolicyId(contract.namespace, policy.id),
+      semanticPolicyId,
       'policy',
       policy.label ?? policy.id,
       policy.rule ? [valueAttribute('rule', policy.rule)] : []
     ));
+    for (const verificationPolicyId of policy.verifiedBy ?? []) {
+      const verificationEntityId = `policy:${verificationPolicyId}`;
+      sink.addFact({ subject: verificationEntityId, predicate: 'ENFORCES', object: { kind: 'entity', entityId: semanticPolicyId }, authority: 'authoritative', provenance });
+      sink.addFact({ subject: semanticPolicyId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: verificationEntityId }, authority: 'authoritative', provenance });
+    }
   }
 
   for (const permission of contract.permissions) {
@@ -153,38 +175,39 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
   for (const responsibility of contract.responsibilities) {
     const responsibilityId = contractResponsibilityId(contract.namespace, responsibility.id);
     for (const target of responsibility.owns) {
-      sink.addFact({ subject: responsibilityId, predicate: 'OWNS', object: { kind: 'entity', entityId: contractTargetId(contract, target) }, authority: 'authoritative', provenance });
+      sink.addFact({ subject: responsibilityId, predicate: 'OWNS', object: { kind: 'entity', entityId: linkedTargetId(target) }, authority: 'authoritative', provenance });
     }
     for (const operation of responsibility.implements) {
-      sink.addFact({ subject: responsibilityId, predicate: 'IMPLEMENTS', object: { kind: 'entity', entityId: contractOperationId(contract.namespace, operation) }, authority: 'authoritative', provenance });
+      sink.addFact({ subject: responsibilityId, predicate: 'IMPLEMENTS', object: { kind: 'entity', entityId: linkedEntityId(operation, contractOperationId) }, authority: 'authoritative', provenance });
     }
     for (const dependency of responsibility.dependsOn) {
-      sink.addFact({ subject: responsibilityId, predicate: 'DEPENDS_ON', object: { kind: 'entity', entityId: contractResponsibilityId(contract.namespace, dependency) }, authority: 'authoritative', provenance });
+      sink.addFact({ subject: responsibilityId, predicate: 'DEPENDS_ON', object: { kind: 'entity', entityId: linkedEntityId(dependency, contractResponsibilityId) }, authority: 'authoritative', provenance });
     }
   }
 
   for (const operation of contract.operations) {
     const operationId = contractOperationId(contract.namespace, operation.id);
-    for (const target of operation.reads) sink.addFact({ subject: operationId, predicate: 'READS', object: { kind: 'entity', entityId: contractTargetId(contract, target) }, authority: 'authoritative', provenance });
-    for (const target of operation.writes) sink.addFact({ subject: operationId, predicate: 'WRITES', object: { kind: 'entity', entityId: contractTargetId(contract, target) }, authority: 'authoritative', provenance });
-    for (const target of operation.mutates) sink.addFact({ subject: operationId, predicate: 'MUTATES', object: { kind: 'entity', entityId: contractTargetId(contract, target) }, authority: 'authoritative', provenance });
-    for (const policy of operation.requiresPolicies) sink.addFact({ subject: operationId, predicate: 'REQUIRES', object: { kind: 'entity', entityId: contractPolicyId(contract.namespace, policy) }, authority: 'authoritative', provenance });
-    for (const permission of operation.requiresPermissions) sink.addFact({ subject: operationId, predicate: 'REQUIRES_PERMISSION', object: { kind: 'entity', entityId: contractPermissionId(contract.namespace, permission) }, authority: 'authoritative', provenance });
-    for (const effect of operation.performsEffects) sink.addFact({ subject: operationId, predicate: 'PERFORMS_EFFECT', object: { kind: 'entity', entityId: contractEffectId(contract.namespace, effect) }, authority: 'authoritative', provenance });
-    for (const event of operation.emits) sink.addFact({ subject: operationId, predicate: 'EMITS', object: { kind: 'entity', entityId: contractEventId(contract.namespace, event) }, authority: 'authoritative', provenance });
-    for (const invoked of operation.invokes) sink.addFact({ subject: operationId, predicate: 'INVOKES', object: { kind: 'entity', entityId: contractOperationId(contract.namespace, invoked) }, authority: 'authoritative', provenance });
-    for (const awaited of operation.awaits) sink.addFact({ subject: operationId, predicate: 'AWAITS', object: { kind: 'entity', entityId: contractOperationId(contract.namespace, awaited) }, authority: 'authoritative', provenance });
+    for (const target of operation.reads) sink.addFact({ subject: operationId, predicate: 'READS', object: { kind: 'entity', entityId: linkedTargetId(target) }, authority: 'authoritative', provenance });
+    for (const target of operation.writes) sink.addFact({ subject: operationId, predicate: 'WRITES', object: { kind: 'entity', entityId: linkedTargetId(target) }, authority: 'authoritative', provenance });
+    for (const target of operation.mutates) sink.addFact({ subject: operationId, predicate: 'MUTATES', object: { kind: 'entity', entityId: linkedTargetId(target) }, authority: 'authoritative', provenance });
+    for (const policy of operation.requiresPolicies) sink.addFact({ subject: operationId, predicate: 'REQUIRES', object: { kind: 'entity', entityId: linkedEntityId(policy, contractPolicyId) }, authority: 'authoritative', provenance });
+    for (const permission of operation.requiresPermissions) sink.addFact({ subject: operationId, predicate: 'REQUIRES_PERMISSION', object: { kind: 'entity', entityId: linkedEntityId(permission, contractPermissionId) }, authority: 'authoritative', provenance });
+    for (const effect of operation.performsEffects) sink.addFact({ subject: operationId, predicate: 'PERFORMS_EFFECT', object: { kind: 'entity', entityId: linkedEntityId(effect, contractEffectId) }, authority: 'authoritative', provenance });
+    for (const event of operation.emits) sink.addFact({ subject: operationId, predicate: 'EMITS', object: { kind: 'entity', entityId: linkedEntityId(event, contractEventId) }, authority: 'authoritative', provenance });
+    for (const invoked of operation.invokes) sink.addFact({ subject: operationId, predicate: 'INVOKES', object: { kind: 'entity', entityId: linkedEntityId(invoked, contractOperationId) }, authority: 'authoritative', provenance });
+    for (const awaited of operation.awaits) sink.addFact({ subject: operationId, predicate: 'AWAITS', object: { kind: 'entity', entityId: linkedEntityId(awaited, contractOperationId) }, authority: 'authoritative', provenance });
   }
 
   for (const state of contract.states) {
     const stateId = contractStateId(contract.namespace, state.id);
-    const ownerId = contractResponsibilityId(contract.namespace, state.owner);
-    const fieldId = contractFieldId(contract.namespace, state.entity, state.field);
+    const ownerId = linkedEntityId(state.owner, contractResponsibilityId);
+    const { namespace: entityNamespace, id: entityId } = splitLinkedSemanticReference(state.entity);
+    const fieldId = contractFieldId(entityNamespace, entityId, state.field);
     sink.addFact({ subject: ownerId, predicate: 'OWNS', object: { kind: 'entity', entityId: stateId }, authority: 'authoritative', provenance });
     sink.addFact({ subject: stateId, predicate: 'DECLARES', object: { kind: 'entity', entityId: fieldId }, authority: 'authoritative', provenance });
     for (const value of state.values) sink.addFact({ subject: stateId, predicate: 'GUARANTEES', object: { kind: 'value', value }, authority: 'authoritative', provenance });
     for (const transition of state.transitions) {
-      const operationId = contractOperationId(contract.namespace, transition.by);
+      const operationId = linkedEntityId(transition.by, contractOperationId);
       sink.addFact({
         subject: stateId,
         predicate: 'TRANSITIONS_TO',
@@ -201,12 +224,12 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
 
   for (const scenario of contract.scenarios) {
     const scenarioId = contractScenarioId(contract.namespace, scenario.id);
-    const entryEntityId = contractOperationId(contract.namespace, scenario.entry);
+    const entryEntityId = linkedEntityId(scenario.entry, contractOperationId);
     sink.addFact({ subject: scenarioId, predicate: 'INVOKES', object: { kind: 'entity', entityId: entryEntityId }, authority: 'authoritative', provenance });
 
     for (const step of [...scenario.steps].sort((left, right) => left.id.localeCompare(right.id))) {
       const stepEntityId = scenarioStepEntityId(scenarioId, step.id);
-      const operationEntityId = contractOperationId(contract.namespace, step.operation);
+      const operationEntityId = linkedEntityId(step.operation, contractOperationId);
       addDeclaredEntity(sink, blockId, provenance, semanticEntity(stepEntityId, 'scenario-step', step.id));
       sink.addFact({ subject: scenarioId, predicate: 'CONTAINS', object: { kind: 'entity', entityId: stepEntityId }, authority: 'authoritative', provenance });
       sink.addFact({ subject: stepEntityId, predicate: 'INVOKES', object: { kind: 'entity', entityId: operationEntityId }, authority: 'authoritative', provenance });

@@ -320,7 +320,16 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
     ],
   },
   CROSSES_BOUNDARY: RESERVED,
-  ENFORCES: RESERVED,
+  ENFORCES: {
+    status: "active",
+    variants: [
+      {
+        id: "verification-policy-enforces-semantic-policy",
+        subjectKinds: ["policy"],
+        object: { kind: "entity", entityKinds: ["policy"] },
+      },
+    ],
+  },
   VERIFIED_BY: {
     status: "active",
     variants: [
@@ -328,6 +337,11 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
         id: "scenario-verified-by-acceptance",
         subjectKinds: ["scenario"],
         object: { kind: "entity", entityKinds: ["acceptance"] },
+      },
+      {
+        id: "semantic-policy-verified-by-verification-policy",
+        subjectKinds: ["policy"],
+        object: { kind: "entity", entityKinds: ["policy"] },
       },
     ],
   },

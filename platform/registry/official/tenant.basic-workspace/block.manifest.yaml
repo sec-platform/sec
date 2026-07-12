@@ -3,6 +3,8 @@ version: 0.1.0
 kind: capability
 stackProfiles:
   - nextjs-ts-prisma-sqlite
+contracts:
+  - path: contracts/tenant.yaml
 requires:
   - auth/session
 provides:

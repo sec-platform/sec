@@ -1,0 +1,22 @@
+formatVersion: '1'
+id: tenant-core
+namespace: tenant
+imports: []
+entities: []
+states: []
+responsibilities:
+  - id: TenantScopeGuard
+    role: Tenant context derivation and cross-Block visibility guard
+    owns: []
+    implements: []
+    dependsOn: []
+operations: []
+events: []
+policies:
+  - id: tenant-scope
+    rule: tenant_context_must_flow_to_query
+    verifiedBy:
+      - tenant-scope-required
+permissions: []
+effects: []
+scenarios: []
