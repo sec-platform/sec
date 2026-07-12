@@ -189,13 +189,17 @@ PR workflow 的结构化合同同时校验 trigger、step order 与 exact-head w
 
 ## 13. 验证证据复用账本
 
-昂贵验证结果必须持久记录，不能因为后续出现新 commit 就无条件重跑。每条记录至少包含：
+昂贵验证结果必须持久记录，不能因为后续出现新 commit 就无条件重跑。自 v0.3 exit review 起，每个新 evidence unit 至少记录：
 
-- tested head SHA、base SHA、profile 和 verification contract revision（已知时）。
-- 命令或 Gate、覆盖范围、PASS / FAIL、duration 和原始 evidence 定位。
-- 复用条件与失效条件。
+- `schemaVersion`、稳定 `evidenceId`、tested head/tree、base head/tree、profile 和 verification contract revision（已知时）。
+- 每个 Gate 的稳定 `gateId`、精确 `argv` 数组、exit code、started-at / finished-at（runner 可用时）、duration 与 PASS / FAIL；不得用自然语言命令摘要替代可重放参数。
+- 覆盖范围至少包含 changed-files digest、source kind / owner、fast tests、slow suites 或 pass / contract IDs 中适用的部分。
+- 原始 evidence 定位及其 digest、运行前后 tracked tree 是否 clean，以及 artifact/reference changed-path count（适用时）。
+- 明确的 reuse/invalidation rules 与 `remainingGaps`；缺失时间戳等字段必须标为 unavailable，不得追溯伪造。
 
-旧结果不得伪装成新 head 的 exact-head 结果。A0 可以把“已验证 baseline + intervening diff 的影响判断 + 只覆盖 delta 的目标验证”组合为当前 integration state 的 trusted evidence；组合判断本身必须记录。只有 diff 触及 Gate 的输入、合同、选择器、运行时依赖或被覆盖语义时，该 Gate 才失效并需要重跑。
+旧结果不得伪装成新 head 的 exact-head 结果。A0 可以把“已验证 baseline + intervening diff 的影响判断 + 只覆盖 delta 的目标验证”组合为当前 integration state 的 trusted evidence；组合记录必须声明 integration head/base/revision、引用的 `evidenceId`、intervening diff 范围与 digest、每项 reuse / invalidated / rerun 决定、Quick/Risk/Full 覆盖和剩余缺口。只有 diff 触及 Gate 的输入、合同、选择器、运行时依赖或被覆盖语义时，该 Gate 才失效并需要重跑。
+
+历史表格不追溯伪造缺失字段；本节已有的短 `Evidence ID` 只作为 **legacy ledger alias**，不代表旧记录满足当前 schema。后续批次在 runner JSON 尚未原生输出全部字段时，由账本补齐 selection reason、owner、intervening-diff 与 invalidation 判断。一次显式 batch 必须一次收集同一风险簇的全部 suite；修复后只重跑失败或被新 diff 失效的成员。
 
 ### 2026-07-11 P0-2A integration baseline
 
@@ -365,3 +369,25 @@ PR base 固定为 `a3025aca63c6c365e2561b415ddfe07dc8a61141`，contract revision
 | 本 docs-only audit closeout | `bun test tests/integration/project-runtime.test.ts`；`bun run docs:doctor`；`git diff --check` | PASS（roadmap/package contract 29/29；docs 0 errors / 0 warnings；patch hygiene clean） | post-merge roadmap authority、evidence ledger 与 tracked JSON 的最终 contract/doc/patch Gate。 |
 
 本 audit 没有运行 full-fast、全部 slow matrix、workspace chain 或 GitHub Actions。其作用是用 canonical affected + 完整 Contract Freeze + 一个 4-suite slow batch 精确补齐账本自身的失效规则；此前 25-suite 组合 Full、workspace/reference tail 与 PR merge 证据继续有效。
+
+### 2026-07-13 v0.3 exit review evidence composition
+
+最终组合记录 `v0.3-exit-07290cc` 绑定初始审查 baseline `d31a627ff6c41fe14202dd229e4b56aba002e42e`、最终 integration head `07290ccda640db5e285f1d4e198b2721e6d88a8c`、P0-7 PR base `a3025aca63c6c365e2561b415ddfe07dc8a61141` 与 contract revision `ci-verification-v3`。它复用下列 evidence units，不声称在最终 head 上执行过单次 hosted 或 single-run Full。表中的 `p0-7-*` 名称是 legacy ledger aliases；`v0-3-semantic-frontend-87a0a9e` 是首个 versioned machine-readable unit，最终 docs-only Gate 则由 `v0-3-exit-docs` 持有。
+
+| Evidence ID / legacy alias | Tested state / evidence | 覆盖 | Intervening diff 与复用裁决 |
+| --- | --- | --- | --- |
+| `p0-7-hosted-core-e372263`（legacy） | hosted `e372263` / base `a3025ac` | Quick、full-fast 329/329、test-budget、旧 Contract Freeze、12 个 standard slow suites | runner / Freeze 与 ExplainGraph compatibility 后续变化使其中部分结果失效；未受影响的 full-fast、budget 与 12 slow 继续复用 |
+| `p0-7-local-remaining-3d3d78a`（legacy） | 本地 13-suite batch | hosted 未覆盖的 slow 风险簇；10 PASS / 3 FAIL | 10 个 PASS 复用；3 个失败只由下一项 delta closure 替代，不把失败计入覆盖 |
+| `p0-7-delta-closure-84f00a7`（legacy） | 本地 3-suite closure + benchmark / deps / ordered workspace | pipeline-end-to-end、manifest、prisma-merge 与 Full mutating tail | 3 slow 全部 PASS；后续 ExplainGraph additive change 只使 graph consumers 需要 bounded 重验 |
+| `p0-7-reference-8aeb1f4`（legacy） | 本地 reference check | reference refresh、tracked/untracked drift、derived port → pin artifacts | `8aeb1f4..d31a627` 未改变 reference input、artifact producer 或 runtime toolchain，继续复用 |
+| `p0-7-final-invalidation-77e618`（legacy） | 本地 canonical affected、Contract Freeze、4-suite graph consumer batch；原始 JSON `docs/evidence/p0-7-final-graph-consumer-batch.json` | affected 46.8s、Freeze 74/74 24.9s、graph/artifacts/explain/local-views 8/8 tests 132.825s | 关闭 `e372263` 后 runner/Freeze 与 `84f00a7` ExplainGraph consumer 的全部已知失效边界 |
+| `v0-3-semantic-frontend-87a0a9e` | 本地 code head `87a0a9ea496c9b6186f165455c11fec4f34fea7d` / base `d31a627`；[`docs/evidence/v0-3-semantic-frontend-verification.json`](evidence/v0-3-semantic-frontend-verification.json) | imports、typecheck、27-file canonical affected、Contract Freeze 74/74、6-suite semantic frontend 风险 batch、workspace-fast、reference-check | template sandbox/frontend/context 旁路修复的 exact delta closure；全部 exit code 0，tracked tree clean，reference changed paths 0。该初始 versioned unit 的 per-gate started/finished timestamps 均 unavailable；除 slow-risk-batch 外的 raw evidence/digest 也 unavailable，不追溯伪造 |
+| `v0-3-exit-docs` | `docs/evidence/v0-3-exit-docs-verification.json` 持有 exact docs head/base/tree 与 changed-path digest | `bun test tests/integration/project-runtime.test.ts`；`bun run docs:doctor`；`git diff --check` | 最终两份 Markdown 的 working-tree content 一次批量验证后原样提交；JSON 持有 exact docs commit、每个 Gate 的 `gateId`、exact `argv`、exit code、timestamps、duration、clean-state、invalidation 与 gaps；后续 evidence-only commit 不改变被测 Markdown |
+
+冻结审查在 `d31a627` 发现 `validateResolvedTemplates()` 独立重复 `load → validate → plan → views → context`，因此此前组合不能直接给出 v0.3 exit PASS。PR #96 把 Pipeline 与非权威 template sandbox 统一到 `buildWorkspaceSemanticBundle()`，并让 sandbox 复用 `createPipelineSemanticContext()`；测试影响 ownership 与 architecture sentinel 同批进入。风险批次一次覆盖 graph、pipeline、pipeline-end-to-end、registry、Ticket semantic vertical 与 local views，原始 JSON SHA256 为 `96c07f1d2b934a29cadadfbb9f8908dc89925445960e7601da79cc68cd6de82b`。
+
+PR #96 的第二个 commit `3649ac63e11bc6f336bf69d48e33f9810ec0996a` 只新增上述两份 evidence JSON，没有修改 production、tests、selector、runner、workspace/reference input 或 artifact producer，因此不使 code head `87a0a9e` 的结果失效。PR head 与 squash merge `07290ccda640db5e285f1d4e198b2721e6d88a8c` tree 一致；PR 已 MERGED，未触发 GitHub Actions。
+
+`77e618..d31a627` 的 docs/evidence-only 变化继续保留此前 P0-7 baseline；`d31a627..07290cc` 对 Semantic Frontend 的失效边界则由 versioned delta evidence 完整补齐。PR #96 merge 后，最终 exit-review Markdown 再由独立 exact docs commit 的 roadmap contract、docs doctor 与 patch hygiene Gate 关闭 publication gap；其 evidence-only 后继提交不得修改被测 Markdown。两项持久 evidence 共同确认当前 integration state 的 Quick / Risk / Full correctness 组合覆盖完整，`remainingGaps = []`。
+
+v0.3 exit review 的 Ticket 母例继续由 `e2e-ticket-semantic-vertical` 持有。它在 legacy 25-suite composition 与 PR #96 的 6-suite delta batch 中均 PASS，覆盖 canonical frontend、Workspace Semantic Link、validated IR、IR-owned generator、生成的 `NEXT_TICKET_STATUS`、runtime enforcement、canonical projection 与 Artifact Provenance。exit-review 文档只运行一次 roadmap contract + docs doctor + patch hygiene 风险批次，不触发 full-fast、slow matrix、workspace chain、reference 或 GitHub Actions。

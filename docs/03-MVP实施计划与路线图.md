@@ -1,7 +1,7 @@
 ---
 title: MVP 实施计划与路线图
 status: active
-last-reviewed: 2026-07-12
+last-reviewed: 2026-07-13
 ---
 
 # MVP 实施计划与路线图
@@ -10,7 +10,7 @@ last-reviewed: 2026-07-12
 
 ## 1. 当前阶段判定
 
-当前工程仍处于 **v0.3 Semantic Core Foundation 重构期**，且尚未满足 v0.3 退出条件。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations** 的 Work Package 设计期；第一项是 Fact Delta canonical contract 设计，必须先固定 identity、revision、deterministic diff 与验证边界，再进入实现。
 
 当前真实形态：
 
@@ -21,7 +21,7 @@ Governed File Compiler 主干
   + compileWorkspace() 统一协调入口（已进入 main）
   + Semantic Contract + Workspace Semantic Link（已进入 Pipeline semantic stage）
   + Canonical / Validated Engineering IR handoff（已进入 Pipeline semantic context）
-  + Architecture / Scenario / State Projection prototype
+  + Architecture / Scenario / State canonical Projection
   + IR-owned State Transition Generator + Ticket runtime enforcement
   + Slot Mock Synthesis
 ```
@@ -29,22 +29,23 @@ Governed File Compiler 主干
 必须严格区分：
 
 ```text
-Pipeline Kernel + Semantic Frontend / IR handoff + IR-owned Lowering 已完成
-≠ Projection 已统一消费 canonical semantic snapshot
+Pipeline Kernel + Semantic Frontend / Linker / Validated IR handoff
++ IR-owned Lowering + Fact-grounded Projection + Verification Closure
+= v0.3 Semantic Core Foundation 退出条件已满足
 ```
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前收口：Verification / CI Closure exact-head Gate
+## 2. v0.3 收口：退出审查与组合验证证据
 
 P0-7 Verification / CI Closure 已以 `ci-verification-v3` 本地组合 Full evidence 完成 correctness 收口；Quick / full-fast / budget / Contract Freeze、25/25 slow suites、benchmark / deps / ordered workspace / reference tail 均有可复用证据。PR #93 已 squash merge 为 `9bbdc86`，原 feature branch、专用 worktree、Junction 与临时 evidence 已清理。P0-6 已让 Architecture / Scenario / State Projector 只接受 validated snapshot，并让 ExplainGraph、ReviewSummary 与 Workbench 消费同一 `SemanticViewSet` / Fact identity。
 
-当前 P0 不是继续增加平行 Semantic Plan、第二套 Generator/Projection 解释器或新的 Pipeline；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context、Workspace Semantic Link、IR-owned Generator 与 canonical Projection 已经固定，当前任务是把这些不可旁路的语义纵切面纳入稳定 Verification / CI contract。
+v0.3 exit review 逐项复核了 Authoring Authority、Semantic Frontend、Workspace Semantic Link、Canonical / Validated Engineering IR、Pipeline Coordinator / Semantic Context、IR-owned Lowering、Fact-grounded Projection、transaction-owned integrity 与 Ticket 母例纵切面。冻结审查发现 template sandbox 曾独立重复构造 semantic bundle/context；PR #96 已把该旁路收敛到唯一 `buildWorkspaceSemanticBundle()` 与 canonical context constructor。`Latest-head Full Validation` 由仍有效的昂贵 baseline、intervening-diff 影响判断和 bounded delta evidence 组合绑定到当前 integration tree；它不是一次新的 hosted Full，也不得写成 GitHub status success。完整组合与失效规则由 `docs/test-feedback-and-ci-lanes.md` 持有。
 
 目标主链：
 
 ```text
-Authoring Source / Registry Contracts
+Plan app / acceptance + Policy Source Declarations + Registry Block Manifest / Semantic Contract
   → Semantic Frontend
   → Workspace Semantic Link
   → Canonical Engineering IR
@@ -55,6 +56,8 @@ Authoring Source / Registry Contracts
   → Project / Governance Artifacts
 ```
 
+Plan 中的 app / acceptance、official / project policy source declarations 与 Registry Manifest / Semantic Contract 共同构成 authoring authority。Lock 只保存 resolver 选择、slot task 与 Pipeline 产生的 resolved execution state，不是平行的业务语义 authoring authority。
+
 以下路径不得回归：
 
 ```text
@@ -64,7 +67,7 @@ Lock / Manifest → business-semantic ExplainGraph reconstruction
 Lock / Manifest → business-semantic Workbench reconstruction
 ```
 
-Engineering IR 成为 canonical representation 之前，v0.4 Semantic Mutation、Fact Delta、Impact Propagation 和 AI Semantic Operator 不进入主线。
+v0.4 的 Fact Delta、Impact Propagation、Semantic Mutation 与 AI Semantic Operator 必须建立在上述 canonical representation 上；Semantic Mutation 只能回写 Authoring Source，再由 Compiler 重建 IR，不得直接修改 IR 或把 Lock 升格为 authority。
 
 ## 3. 已有能力：保留但重新归位
 
@@ -79,14 +82,14 @@ Engineering IR 成为 canonical representation 之前，v0.4 Semantic Mutation�
 - ExplainGraph、ReviewSummary、Workbench 基础。
 - Repair、Upgrade、Migration、Override 基础。
 - CodeBuilder 和 compiler facade 边界。
-- Semantic Contract parser / normalizer prototype。
+- Semantic Contract parser / normalizer 与 workspace loader。
 - **Ticket Semantic Contract**：当前首个真实业务 Semantic Contract 母例，authoritative contract 位于 `platform/registry/official/ticket.basic/contracts/ticket.yaml`。
 - **Engineering IR Kernel**：`platform/compiler/ir/**` 下的 deterministic builder、index 与 identity boundary。
 - **Fact Provenance**：保存 Fact assertion 的 authority、confidence、provenance 与 evidence；与生成物来源的 Artifact Provenance 分工，不互相替代。
-- Architecture / Scenario / State projector prototype。
+- Architecture / Scenario / State canonical projector。
 - **Pipeline Kernel Foundation**：统一 `compileWorkspace()` 协调入口、Pass Registry / dependency、compilation transaction、journal、pass lifecycle 与下游失效基础。
 
-这些模块不是全部重写。后续工作以“让 canonical Engineering IR 进入唯一 Pipeline semantic context、删除重复解释器、完成 transaction ownership 与真实纵切面”为目标。
+这些模块已通过 v0.3 主线归位到唯一 Semantic Frontend、Pipeline semantic context 与真实 Ticket 纵切面；v0.4 复用这些边界，不重建平行解释器或第二套 semantic context。
 
 ## 4. P0-1 Pipeline Kernel Foundation — COMPLETED
 
@@ -406,11 +409,37 @@ Ticket Contract
 
 任何环节存在旁路，不算完成。
 
+### 退出审查结论
+
+初始冻结审查基线为 `main@d31a627ff6c41fe14202dd229e4b56aba002e42e`；旁路修复经 PR #96 squash merge 后，最终 integration state 为 `main@07290ccda640db5e285f1d4e198b2721e6d88a8c`。实现事实以代码和 authority 为准；测试事实以 `docs/test-feedback-and-ci-lanes.md` 的可复用 evidence composition 为准。
+
+| 退出条件 | Canonical implementation | 验证证据 | 结论 / 未解决冲突 |
+| --- | --- | --- | --- |
+| One Authoring Authority | Plan app / acceptance + official / project policy source declarations + Registry Block Manifest / Semantic Contract；`loadWorkspaceEngineeringIRBuildInput()` 是 workspace semantic input 唯一装载入口 | P0-4 linker integration、Ticket semantic vertical | **PASS**；Lock 只持有 resolved selection / slot execution state，无平行 Semantic Plan authority |
+| One Semantic Frontend | `buildWorkspaceSemanticBundle()` 唯一执行 input load、IR build/validate、Generator Plan 与 `SemanticViewSet` 构建；Pipeline adapter 再由 `runWorkspaceSemanticFrontend()` 绑定 transaction | P0-3/P0-4 focused evidence + `v0-3-semantic-frontend-87a0a9e` | **PASS**；template sandbox 已删除重复 builder 链 |
+| One Workspace Semantic Link | `platform/compiler/semantic-linker.ts` 把 resolved Contract 依赖写入 canonical Entity / Fact | P0-4 18/18、37/37 与 reference evidence | **PASS**；无 consumer-side relink |
+| One Canonical Engineering IR | `buildEngineeringIR()` 与 `platform/shared/engineering-ir/**` 持有 Entity / Fact / Assertion / revision identity | P0-2A vertical + P0-2B regression evidence | **PASS**；无第二 canonical graph |
+| One Validated Engineering IR Snapshot | `validateEngineeringIR()` / `buildValidatedEngineeringIR()` 签发 branded、deep-frozen snapshot | P0-2B 23/23 与 boundary type sentinel | **PASS**；Projection/Lowering 不接受 raw IR |
+| One Pipeline Coordinator | `compileWorkspace()` 统一协调 resolve → semantic → compose → adapt → verify → lock → emit | P0-3 Pipeline sentinels、ordered workspace Full tail | **PASS**；无第二主 Pipeline |
+| One Pipeline Semantic Context | `bindPipelineSemanticContext()` / `createPipelineSemanticContext()` 把 snapshot / Generator Plan / `SemanticViewSet` 绑定同一 transaction/revision | P0-3/P0-6 Pipeline consumer vertical + sandbox sentinel | **PASS**；stale/mismatched revision hard fail |
+| IR-owned Lowering | `buildSemanticGeneratorPlan()` + `lowerSemanticTasks()` 只消费 transaction-owned validated context | P0-5 Generator / Ticket runtime focused set | **PASS**；Ticket 状态转换只消费生成的 `NEXT_TICKET_STATUS`，无第二张 transition table |
+| Fact-grounded Projection | `buildSemanticViewSet(snapshot)` 派生 Architecture / Scenario / State views；ExplainGraph、ReviewSummary、Workbench 的业务语义关系只消费该 bundle | P0-6 projector/consumer/compatibility evidence | **PASS**；Lock / provenance / policy / coverage 仅可提供治理或物理 overlay，不重建业务语义 |
+| Transaction-owned Project Integrity | Pipeline Kernel / journal 与 provenance 共同绑定 transaction ID、revision、generated artifact | P0-3 failure/retry、P0-5 provenance、reference evidence | **PASS**；无跨 transaction snapshot 复用 |
+| Latest-head Full Validation | `ci-verification-v3` hosted baseline + 本地剩余 slow batch + exact delta closure + final invalidation audit + semantic frontend delta closure | Quick、full-fast 329/329、Contract Freeze 74/74、25/25 slow、PR #96 affected/6-suite risk/workspace/reference；详见验证账本 | **PASS（组合证据）**；不是 latest-head hosted status success |
+
+Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/semantic-runtime-contract.test.ts`）覆盖同一真实纵切面：Contract → Linker → canonical / validated IR → transaction context → Generator Plan → generated runtime contract → runtime enforcement → provenance → Architecture / Scenario / State views。`ticket-service.ts` 的状态转换执行只消费生成的 `NEXT_TICKET_STATUS`，不手写第二张 transition table。该 suite 已在 P0-7 25/25 slow composition 与 PR #96 的 6-suite semantic frontend 风险批次中通过。
+
+`validateResolvedTemplates()` 是非权威的隔离 template sandbox adapter：它复制已解析 workspace 输入后复用 `buildWorkspaceSemanticBundle()` 与 `createPipelineSemanticContext()`，只负责 compose/typecheck 预检，不拥有第二套 frontend、Pipeline coordinator 或业务语义 authority。PR #96 的 head `3649ac63e11bc6f336bf69d48e33f9810ec0996a` 与 squash merge `07290ccda640db5e285f1d4e198b2721e6d88a8c` tree 一致；持久 evidence 位于 `docs/evidence/v0-3-semantic-frontend-verification.json` 与 `docs/evidence/v0-3-semantic-frontend-risk-batch.json`。
+
+所有退出条件均为 **PASS**，未发现 unresolved architecture conflict。v0.3 状态因此更新为 **COMPLETED**；后续不得以 v0.3 收口为名继续修改已经正确的代码。
+
 ## 13. v0.4：Semantic Operations
+
+状态：**ACTIVE NEXT（Fact Delta canonical contract 设计）**。
 
 只有 v0.3 完成后进入：
 
-1. Fact Delta。
+1. Fact Delta canonical contract：固定 fact identity、before/after revision、deterministic diff、transaction ownership 与 verification/invalidation contract。
 2. Impact Propagation。
 3. Semantic Mutation。
 4. AI Task Envelope v2。
@@ -420,7 +449,7 @@ AI 仍不得直接写 IR。Semantic Mutation 回写 Authoring Source，由 Compi
 
 ## 14. 后续阶段
 
-v0.3 稳定后：
+完成第 13 节 v0.4 顺序后，再进入：
 
 1. Work Tracking 完整纵切面。
 2. Private Registry 版本 / Trust 治理。
@@ -431,7 +460,7 @@ v0.3 稳定后：
 
 ## 15. 当前禁止事项
 
-在 v0.3 退出前，不把以下工作设为主线：
+进入 v0.4 后仍禁止：
 
 - 重新建设另一套 Pipeline Kernel。
 - Workbench 新视觉效果。
@@ -440,9 +469,9 @@ v0.3 稳定后：
 - Enterprise Business Process Hub。
 - 自动 L3 重构。
 - 整仓 Autonomous Agent。
-- Fact Delta / Semantic Mutation 的正式实现。
-- AI Semantic Operator。
 - stable `engineering-ir.json` 持久化。
+
+Fact Delta、Impact Propagation、Semantic Mutation、AI Task Envelope v2 与 AI Semantic Operator 只能按第 13 节顺序推进；后项不得绕过前项的 canonical contract、transaction ownership 与 verification evidence。
 
 ## 16. 当前唯一执行顺序
 
@@ -471,9 +500,13 @@ P0-7 bounded final invalidation audit                    PASSED
   ↓
 PR #93 merge / implementation cleanup                    COMPLETED
   ↓
-v0.3 exit review
+v0.3 exit review                                          PASSED
+  ↓
+v0.3 Semantic Core Foundation                             COMPLETED
+  ↓
+v0.4 Fact Delta canonical contract design                 ACTIVE NEXT
 ```
 
-P0-7 是最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。完整命令、duration、原始 batch JSON 与复用规则见验证账本。
+P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。
