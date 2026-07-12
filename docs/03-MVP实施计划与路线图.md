@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract 已冻结，当前唯一 active Work Package 是纯 Fact Delta kernel 实现与 Contract Freeze。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract 与纯 kernel 已完成，当前唯一 active next 是 Impact Propagation canonical contract 设计。
 
 当前真实形态：
 
@@ -435,7 +435,7 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE（FD-1 pure Fact Delta kernel）**。
+状态：**ACTIVE NEXT（FD-2 Impact Propagation canonical contract 设计）**。
 
 只有 v0.3 完成后进入：
 
@@ -452,8 +452,9 @@ AI 仍不得直接写 IR。Semantic Mutation 回写 Authoring Source，由 Compi
 | ID | Work Package | 状态 | 退出条件 |
 | --- | --- | --- | --- |
 | FD-0 | canonical contract design | **COMPLETED** | `docs/14` 固定 fact-set scope、transaction-referenced endpoint 与 caller ownership boundary、validated-only boundary、deterministic classification、validity v1 边界、diagnostics 与 verification/invalidation contract |
-| FD-1 | pure Fact Delta kernel | **ACTIVE** | 类型、唯一 Compiler producer、additive facade、test ownership、Contract Freeze 与 focused/risk evidence 进入 main |
-| FD-2 | Impact Propagation contract / implementation | **BLOCKED BY FD-1** | 不得在 FD-1 exact delta 与 empty-delta scope 进入 main 前启动产品实现 |
+| FD-1 | pure Fact Delta kernel | **COMPLETED** | 类型、唯一 Compiler producer、additive facade、test ownership、Contract Freeze 与 focused/risk evidence 已满足退出条件 |
+| FD-2 | Impact Propagation canonical contract design | **ACTIVE NEXT** | 固定 direct/transitive impact、unknown/dynamic region、snapshot/index ownership、verification selection 与 empty Fact Delta 语义；设计进入 main 前不实现产品 kernel |
+| FD-3 | Impact Propagation kernel | **BLOCKED BY FD-2** | 不得绕过 FD-2 authority freeze，也不得把 Impact 结果回写 Fact Delta |
 
 FD-1 Work Package implementation contract：
 
@@ -465,6 +466,12 @@ FD-1 Work Package implementation contract：
 - **Acceptance**：实现 `docs/14` 全部 precondition、classification、ordering、freeze 和 stable diagnostic；compile-time 拒绝 raw IR/Lock/Projection；不修改输入；entity-only semantic change 可产生空 Fact arrays；`validToRevision` 在 v1 hard fail。
 - **Required evidence**：一次 focused unit/contract batch；`test:affected`、Contract Freeze、changed-import/typecheck；若 compiler public facade 使 selector 命中 slow consumer，只批量补 selector 要求的 suite。复用仍有效的 v0.3 full-fast、其余 slow、workspace 与 reference evidence，不重跑全矩阵或 GitHub Actions。
 - **Reconciliation point**：FD-1 merge 后重新读取 `main`，先建立 Impact Propagation contract / DAG；不得把 expected mutation DSL 或 transitive impact 塞进 Fact Delta。
+
+### FD-1 退出审查
+
+`buildFactDelta(from, to)` 已作为 Compiler / IR boundary 的唯一纯 producer 实现，shared type、compiler facade、独立 `fact-delta` test owner 与 `semantic.fact-delta` Contract Freeze target 已闭合。实现不读取 Workspace、不接 Pipeline stage、不写 Lock/Projection/Artifact，也未修改既有 Fact/Assertion/Snapshot shape、Builder、Validator、revision algorithm 或 IR index。
+
+退出证据为组合 exact-delta evidence：focused/contract 49/49、Contract Freeze 77/77、affected fast 162/162、typecheck、changed-import、独立 digest expected vectors 与 frozen review 全部 PASS；selector 要求的 `e2e-graph`、`e2e-local-views`、`e2e-ticket-semantic-vertical` 3/3 在 exact production head 通过。最终 head 只在该 production head 上追加 Contract Freeze expected vectors 与本退出记录，因此复用三项 slow evidence，不重跑 full-fast、其余 22 个 slow suites、workspace/reference chain 或 GitHub Actions。完整 head/base、duration、mechanical import closure 与失效规则位于 `docs/evidence/v0-4-fact-delta-kernel-verification.json` 和 `docs/evidence/v0-4-fact-delta-risk-batch.json`。
 
 ## 14. 后续阶段
 
@@ -525,7 +532,9 @@ v0.3 Semantic Core Foundation                             COMPLETED
   ↓
 v0.4 Fact Delta canonical contract design                 COMPLETED
   ↓
-v0.4 FD-1 pure Fact Delta kernel                           ACTIVE NEXT
+v0.4 FD-1 pure Fact Delta kernel                           COMPLETED
+  ↓
+v0.4 FD-2 Impact Propagation contract design               ACTIVE NEXT
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。

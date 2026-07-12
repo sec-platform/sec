@@ -1,0 +1,35 @@
+{
+  "contractRevision": "ci-verification-v3",
+  "headSha": "ab170f9ee80f960b238047855372afa5441e498f",
+  "baseRef": "33716389d551a998f0fd2d9379afbf3cf8821177",
+  "baseSha": "33716389d551a998f0fd2d9379afbf3cf8821177",
+  "mode": "requested-batch",
+  "continueOnFailure": true,
+  "selectedSlowSuites": [
+    "e2e-graph",
+    "e2e-local-views",
+    "e2e-ticket-semantic-vertical"
+  ],
+  "completedSlowSteps": [
+    {
+      "id": "slow-suite-e2e-graph",
+      "code": 0,
+      "durationMs": 7455
+    },
+    {
+      "id": "slow-suite-e2e-ticket-semantic-vertical",
+      "code": 0,
+      "durationMs": 7863
+    },
+    {
+      "id": "slow-suite-e2e-local-views",
+      "code": 0,
+      "durationMs": 40183
+    }
+  ],
+  "failedSlowSteps": [],
+  "trackedTreeCleanAfter": true,
+  "status": "passed",
+  "durationMs": 55502,
+  "invalidationRule": "invalidate when production Fact Delta or public facade blobs change, or when the affected slow-suite selector changes"
+}
