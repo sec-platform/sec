@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations** 的 Work Package 设计期；第一项是 Fact Delta canonical contract 设计，必须先固定 identity、revision、deterministic diff 与验证边界，再进入实现。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract 已冻结，当前唯一 active Work Package 是纯 Fact Delta kernel 实现与 Contract Freeze。
 
 当前真实形态：
 
@@ -435,7 +435,7 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE NEXT（Fact Delta canonical contract 设计）**。
+状态：**ACTIVE（FD-1 pure Fact Delta kernel）**。
 
 只有 v0.3 完成后进入：
 
@@ -446,6 +446,25 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 5. AI Semantic Operator。
 
 AI 仍不得直接写 IR。Semantic Mutation 回写 Authoring Source，由 Compiler 重建 IR。
+
+### Fact Delta Work Packages
+
+| ID | Work Package | 状态 | 退出条件 |
+| --- | --- | --- | --- |
+| FD-0 | canonical contract design | **COMPLETED** | `docs/14` 固定 fact-set scope、transaction-referenced endpoint 与 caller ownership boundary、validated-only boundary、deterministic classification、validity v1 边界、diagnostics 与 verification/invalidation contract |
+| FD-1 | pure Fact Delta kernel | **ACTIVE** | 类型、唯一 Compiler producer、additive facade、test ownership、Contract Freeze 与 focused/risk evidence 进入 main |
+| FD-2 | Impact Propagation contract / implementation | **BLOCKED BY FD-1** | 不得在 FD-1 exact delta 与 empty-delta scope 进入 main 前启动产品实现 |
+
+FD-1 Work Package implementation contract：
+
+- **Base**：FD-0 authority merge 后的 latest `main`。
+- **Architectural goal**：实现 `buildFactDelta(from, to)` 纯函数；只消费带 transaction audit reference 的最小 endpoint context 内的 `ValidatedEngineeringIRSnapshot`，输出 deterministic、deep-frozen、`scope: "fact-set"` 的 v1 delta；真实 transaction ownership 由 canonical caller 负责，kernel 不作无法从 snapshot 证明的承诺。
+- **Owned files**：在 `platform/shared/engineering-ir/` 新建 `delta-types.ts` 并 additive export；在 `platform/compiler/ir/` 新建 `build-fact-delta.ts` 并从 compiler facade additive export；新增 `fact-delta.test.ts` unit / contract tests；更新 semantic test-impact ownership、Contract Freeze registry 与本 Work Package evidence / authority status。
+- **Allowed minimal seam expansion**：仅 additive export、独立 `fact-delta` test owner 和 `semantic.fact-delta` Contract Freeze target。
+- **Forbidden**：修改现有 Fact/Assertion/Validated Snapshot shape、semantic revision algorithm、Builder/Validator/IR index；接入 Pipeline stage、Workspace、Lock、Projection、ReviewSummary、Workbench、Impact 或 Mutation；生成 stable artifact。
+- **Acceptance**：实现 `docs/14` 全部 precondition、classification、ordering、freeze 和 stable diagnostic；compile-time 拒绝 raw IR/Lock/Projection；不修改输入；entity-only semantic change 可产生空 Fact arrays；`validToRevision` 在 v1 hard fail。
+- **Required evidence**：一次 focused unit/contract batch；`test:affected`、Contract Freeze、changed-import/typecheck；若 compiler public facade 使 selector 命中 slow consumer，只批量补 selector 要求的 suite。复用仍有效的 v0.3 full-fast、其余 slow、workspace 与 reference evidence，不重跑全矩阵或 GitHub Actions。
+- **Reconciliation point**：FD-1 merge 后重新读取 `main`，先建立 Impact Propagation contract / DAG；不得把 expected mutation DSL 或 transitive impact 塞进 Fact Delta。
 
 ## 14. 后续阶段
 
@@ -504,7 +523,9 @@ v0.3 exit review                                          PASSED
   ↓
 v0.3 Semantic Core Foundation                             COMPLETED
   ↓
-v0.4 Fact Delta canonical contract design                 ACTIVE NEXT
+v0.4 Fact Delta canonical contract design                 COMPLETED
+  ↓
+v0.4 FD-1 pure Fact Delta kernel                           ACTIVE NEXT
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。
