@@ -308,7 +308,7 @@ Implementation head `b00415b`，base `a3025aca63c6c365e2561b415ddfe07dc8a61141`�
 | 同上 | runner/CI command/architecture/project focused set | canonical affected runner、suite expansion、package/contract wiring | PASS（50/50，6.0s） | test runner、package scripts、CI command contract 或 project runtime wiring 变化时失效。 |
 | 同上 | changed-only imports、`typecheck`、`docs:doctor`、`git diff --check` | import/type/doc/patch hygiene | PASS（imports 4.8s；typecheck 10.8s；docs doctor 0 errors / 0 warnings） | 最终文档 closeout 只需重跑 docs doctor 与 patch hygiene；TypeScript 变化则重跑 imports/typecheck。 |
 
-最终 PR head 还必须取得 `sec-verification/full/ci-verification-v3/base-<current-base>` trusted success。该单 runner Full 的 evidence `coverageProfiles` 必须同时包含 `quick / risk / full`，并记录 exact `headSha`、`baseSha`、revision、每个 Gate phase/result/duration；没有该外部 exact-head evidence 不得 merge。
+P0-7 原计划以 `sec-verification/full/ci-verification-v3/base-<current-base>` hosted status 作为最终证据载体；本次收口经用户明确授权改用本地组合证据，不再触发新的 GitHub Actions。替代证据仍必须覆盖 `quick / risk / full`，记录 exact tested head、PR base、contract revision、每个 Gate 的 scope/result/duration，并证明 intervening diff 没有使复用结果失效；不得把一次局部 PASS 伪装为完整 Full。
 
 ### P0-7 增量复用与本地批量收口账本
 
@@ -329,3 +329,17 @@ bun scripts/ci-pr-risk.ts --suite <suite-a> --suite <suite-b> ... --continue-on-
 | Hosted run `29200319653` | `e372263` / `a3025ac` | Quick、full-fast 329/329、test-budget、Contract Freeze；12 个 parallel-safe standard slow suites（compiler-smoke、dry-run-plan、expanded-blocks、graph、lanes、policy、repair、runtime-host、summary、upgrade、verify-lock、workspace） | 第一个 serial suite `e2e-pipeline-end-to-end` 仍期待 legacy slot ID；其后 serial/runtime-heavy suites 与 Full tail 未运行。 |
 
 `e372263` 之后的 graph test delta 不修改 production graph、SemanticView、runner command/environment 或上述已通过 slow suites 的输入，因此不得重跑 full-fast、test-budget、Contract Freeze 和已通过的 12 个 slow suites。收口只需：graph identity 风险簇、账本中剩余 slow suites 的一次 continue-on-failure 本地 batch、随后 benchmark/deps/ordered workspace Full tail。用户明确授权本轮使用本地环境完成该组合证据，不再触发新的 GitHub Actions；最终 ledger 必须记录本地 exact head/base、命令、duration、结果与失效规则。
+
+### 2026-07-12 P0-7 本地组合 Full closeout
+
+PR base 固定为 `a3025aca63c6c365e2561b415ddfe07dc8a61141`，contract revision 为 `ci-verification-v3`。以下结果与 hosted baseline 组合后覆盖 Quick、Risk、Full 全部 Gate；未重复运行已有有效 PASS。
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `3d3d78a` | `bun scripts/ci-pr-risk.ts` 13-suite remaining batch；`.tmp/ci-risk-batch-evidence.json` | hosted run 尚未覆盖的 13 个 serial/runtime-heavy slow suites | 10 PASS：pipeline、private-registry、registry、ticket-semantic-vertical、artifacts、conflicts、demo-doctor、explain、local-views、provenance；3 FAIL：pipeline-end-to-end、manifest、prisma-merge；总计 676.287s | 10 个 PASS 只有对应 suite implementation、runner/toolchain 或共享输入变化时失效；三个失败不计通过。 |
+| `17c2f39959b370c7176aec301bb7d2a2961f3ce1` | 三项 delta diagnosis batch；`.tmp/ci-risk-delta-batch-evidence.json` | pipeline-end-to-end、manifest、prisma-merge 精确根因 | 三项均 FAIL，总计 141.413s；前两项定位为 canonical port 缺 legacy pin compatibility projection，Prisma 定位为 Windows schema engine 在 SQLite 文件缺失时空详情失败 | 仅作为诊断证据，不计 Gate PASS；修复后只允许重跑这三个 suite。 |
+| `84f00a79aeecd8c18eff394d2ce60f968d9bfee0` / delta base `17c2f39` | `bun scripts/ci-pr-risk.ts --suite e2e-pipeline-end-to-end --suite e2e-manifest --suite e2e-prisma-merge --continue-on-failure`；`.tmp/ci-risk-batch-evidence.json` | 唯一一次三项风险簇 closure batch；canonical port → legacy pin alias/reference；SQLite pre-create + 原 Prisma 6 db push | PASS（pipeline-end-to-end 1/1，41.567s；manifest 3/3，91.228s；prisma-merge 1/1，73.825s；总计 206.620s；tracked tree clean） | ExplainGraph compatibility projection/reference、Prisma merge/runner/schema engine 或三项测试输入变化时失效。结合 hosted 12 项与前批 10 项，25/25 slow suites 均有有效 PASS。 |
+| `84f00a79aeecd8c18eff394d2ce60f968d9bfee0` / PR base `a3025ac` | `typecheck`；benchmark suite；deps warmup；ordered `resolve → compose → adapt → verify --lane all → lock → explain` | TypeScript delta、benchmark/dependency contract、完整 mutating workspace Full tail | PASS（typecheck 6.0s；benchmark 1.6s；deps 1.5s；resolve 6.5s；compose 2.9s；adapt 1.6s；verify-all 50.1s；lock 1.7s；explain 2.1s） | TypeScript、benchmark/dependency environment、workspace pass implementation/input 或 runtime toolchain 变化时失效；workspace chain 串行 fail-fast。 |
+| `8aeb1f47343d59c585a94a43c536bbb455b67692` / parent `84f00a7` | `bun run sec -- reference check --json --compact` | reference refresh、tracked diff、untracked scan；22 个 port 的 legacy pin derived artifact refresh | PASS（49.6s；refresh 0；tracked 0；untracked 0；changed paths 0） | ExplainGraph/Workbench producer、reference input 或 runtime toolchain 变化时失效。首次 check 在 refresh 成功后准确报告 6 个受管派生文件 drift；审查确认只新增 22 pin nodes + 22 compatibility edges、无删除且 references 与 port 一致，提交 refresh 后只重跑该 Gate。 |
+
+最终组合覆盖为：hosted Quick + full-fast 329/329 + test-budget + Contract Freeze 74/74；hosted 12 slow PASS；本地复用 10 slow PASS；exact delta 3 slow PASS；本地 benchmark/deps/ordered workspace/reference tail PASS。`8aeb1f4` 之后仅允许 evidence ledger / roadmap 文档 closeout；该 docs-only diff 不使上述实现、slow、workspace 或 reference 证据失效。P0-7 correctness Gate 已闭合，剩余动作仅为 PR 管理、合并与清理。
