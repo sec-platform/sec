@@ -13,18 +13,20 @@ import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import {
-    buildProjectOverview,
-    PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
-    type ProjectOverview
+  buildProjectOverview,
+  PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS,
+  type ProjectOverview
 } from '../../shared/project-overview.ts';
 import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import type { ReviewSummary } from '../../shared/review-types.ts';
 import { buildReviewUpgradePreflightSummaries } from '../../shared/review-upgrade.ts';
+import { semanticViewFactIds, type SemanticViewSet } from '../../shared/semantic-view-types.ts';
 import type { ToolEvidenceReport } from '../../shared/tool-evidence-contract.ts';
 import type { CiArtifactManifest, VerificationReport } from '../../shared/types.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
+import { assertSemanticViewArtifactsAreCurrent } from './semantic-view-artifact-contract.ts';
 
 const TEMPLATES_DIR = path.join(import.meta.dirname, 'templates');
 
@@ -77,6 +79,20 @@ function jsonPre(value: unknown): string {
 
 const templateHelpers = { esc, metricTable, dataTable, card, subCard, jsonPre };
 
+export function buildSemanticViewRows(semanticViews: SemanticViewSet): string[][] {
+  return semanticViews.views.map((view) => {
+    const factIds = semanticViewFactIds(view);
+    return [
+      view.viewKind,
+      view.subject ?? 'workspace',
+      String(view.nodes.length),
+      String(view.edges.length),
+      String(factIds.length),
+      formatList(factIds)
+    ];
+  });
+}
+
 async function readRequiredArtifact<T>(filePath: string, label: string): Promise<T> {
   if (!(await pathExists(filePath))) {
     throw new CompilerError('EXPLAIN-BLOCKED-003', `${label} is missing`);
@@ -127,6 +143,8 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
   } = getWorkspacePaths(workspaceRoot);
 
   const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
+  const graph = await readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json');
+  assertSemanticViewArtifactsAreCurrent(lock, graph);
   await ensureDir(generatedViewsDir);
 
   // Local-First Vis.js offline caching
@@ -149,13 +167,12 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
 
   await writeLockWithGeneratedPaths(lockPath, lock, CI_ARTIFACT_PATHS.view);
 
-  const [provenance, report, coverage, policyReport, review, graph, artifactManifest, codeQuality, architectureBoundary, semanticPattern, governanceReports] = await Promise.all([
+  const [provenance, report, coverage, policyReport, review, artifactManifest, codeQuality, architectureBoundary, semanticPattern, governanceReports] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
     readRequiredArtifact<VerificationReport>(verificationReportPath, 'verification-report.json'),
     readRequiredArtifact<AcceptanceCoverageReport>(acceptanceCoveragePath, 'acceptance-coverage.json'),
     readRequiredArtifact<PolicyReport>(policyReportPath, 'policy-report.json'),
     readRequiredArtifact<ReviewSummary>(reviewSummaryPath, 'review-summary.json'),
-    readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json'),
     readOptionalJson<CiArtifactManifest>(ciArtifactsPath),
     readOptionalJson<ToolEvidenceReport>(path.join(workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['code-quality'])),
     readOptionalJson<ToolEvidenceReport>(path.join(workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['architecture-boundary'])),
@@ -181,6 +198,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
 
   const sharedData = {
     review, lock, provenance, policyReport, graph, repairPlan, upgradeDiagnostics, upgradePlan,
+    semanticViewRows: buildSemanticViewRows(graph.semanticViews),
     explainNodeTypes: EXPLAIN_NODE_TYPES,
     countMatching, countPositiveValues, uniqueSorted, formatList,
     buildE2eMatrix, buildReviewUpgradePreflightSummaries,

@@ -1,6 +1,7 @@
 import {
   buildEngineeringIR,
   buildSemanticGeneratorPlan,
+  buildSemanticViewSet,
   buildValidatedEngineeringIR,
   loadWorkspaceEngineeringIRBuildInput,
   type BuildEngineeringIRInput
@@ -56,14 +57,21 @@ export async function runWorkspaceSemanticFrontend(
     'semantic',
     context,
     async () => {
+      const staleLock = await readLockFile(workspaceRoot);
+      delete staleLock.semanticLoweringTasks;
+      delete staleLock.semanticViews;
+      await saveLock(workspaceRoot, staleLock);
+
       const { snapshot, generatorDeclarations } = await buildWorkspaceValidatedEngineeringIR(workspaceRoot);
       const generatorPlan = buildSemanticGeneratorPlan(snapshot, generatorDeclarations);
-      const semanticContext = bindPipelineSemanticContext(context, snapshot, generatorPlan);
+      const semanticViews = buildSemanticViewSet(snapshot);
+      const semanticContext = bindPipelineSemanticContext(context, snapshot, generatorPlan, semanticViews);
       const lock = await readLockFile(workspaceRoot);
       lock.semanticLoweringTasks = generatorPlan.tasks.map((task) => ({
         ...structuredClone(task),
         status: 'pending'
       }));
+      lock.semanticViews = structuredClone(semanticViews);
       await saveLock(workspaceRoot, lock);
       return semanticContext;
     },

@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/ir/build-engineering-ir.ts';
 import { addFact, type FactInput } from '../../platform/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../platform/compiler/ir/ir-revision.ts';
+import { validateEngineeringIR } from '../../platform/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../platform/compiler/projection/project-architecture-view.ts';
 import { summarizeFactAssertions } from '../../platform/compiler/projection/semantic-view-utils.ts';
 import type { EngineeringIR, SemanticFact } from '../../platform/shared/engineering-ir-types.ts';
@@ -41,6 +43,31 @@ function semanticRevisionFor(
   facts: readonly SemanticFact[]
 ): string {
   return `sha256:${digest(semanticRevisionPayload(ir.graphId, ir.appId, ir.entities, facts, ir.scenarios))}`;
+}
+
+function projectionInput(): BuildEngineeringIRInput {
+  return {
+    app: { id: 'test', name: 'test' },
+    resolvedBlocks: [{
+      id: 'test/basic',
+      version: '0.1.0',
+      kind: 'capability',
+      installOrder: 1,
+      manifestPath: 'registry/test.basic/block.manifest.yaml',
+      registrySourceId: 'official',
+      registryKind: 'official',
+      registryLocation: 'compiler',
+      registryPath: 'registry'
+    }],
+    manifests: [{
+      blockId: 'test/basic',
+      manifestPath: 'registry/test.basic/block.manifest.yaml',
+      manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
+    }],
+    slotTasks: [],
+    acceptanceIds: [],
+    policyDeclarations: []
+  };
 }
 
 test('same triple and normalized assertion identity dedupe idempotently', () => {
@@ -104,51 +131,57 @@ test('inferred confidence 1 does not overwrite an authoritative assertion', () =
 
   const fact = facts.get(factId)!;
   expect(summarizeFactAssertions(fact)).toEqual({
-    highestAuthority: 'authoritative',
+    status: 'mixed',
     authorities: ['authoritative', 'inferred'],
     hasConflict: false,
     hasInferred: true,
-    assertionCount: 2
+    assertionCount: 2,
+    confidence: { min: 0.4, max: 1 }
   });
   expect(fact.assertions.find((assertion) => assertion.authority === 'authoritative')?.confidence).toBe(0.4);
   expect(fact.assertions.find((assertion) => assertion.authority === 'inferred')?.confidence).toBe(1);
 });
 
 test('projection inferred badge and authority overlay derive from assertion summary', () => {
-  const facts = new Map<string, SemanticFact>();
-  addFact(facts, factInput({
-    object: { kind: 'entity', entityId: 'app:test' },
-    confidence: 0.4
-  }));
-  addFact(facts, factInput({
-    object: { kind: 'entity', entityId: 'app:test' },
+  const input = projectionInput();
+  const base = buildEngineeringIR(input);
+  const facts = new Map(base.facts.map((fact) => [fact.id, fact]));
+  const contains = base.facts.find((fact) =>
+    fact.subject === 'app:test' &&
+    fact.predicate === 'CONTAINS' &&
+    fact.object.kind === 'entity' &&
+    fact.object.entityId === 'block:test/basic'
+  )!;
+  addFact(facts, {
+    subject: contains.subject,
+    predicate: contains.predicate,
+    object: contains.object,
     authority: 'inferred',
-    confidence: 1,
+    confidence: 0.7,
     provenance: [{ kind: 'ai', sourceId: 'semantic-cluster-v1' }]
-  }));
+  });
 
-  const revision = 'sha256:assertion-test';
+  const pendingFacts = [...facts.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const revision = semanticRevisionFor(base, pendingFacts);
   const ir: EngineeringIR = {
-    formatVersion: '2',
-    graphId: 'engineering-ir:assertion-test',
-    inputRevision: 'sha256:assertion-input-test',
+    ...base,
     semanticRevision: revision,
-    appId: 'app:test',
-    entities: [
-      { id: 'app:test', kind: 'app', label: 'test', attributes: [] },
-      { id: 'responsibility:test:TicketService', kind: 'responsibility', label: 'TicketService', attributes: [] }
-    ],
-    facts: [...facts.values()].map((fact) => withRevision(fact, revision)),
-    scenarios: []
+    facts: pendingFacts.map((fact) => withRevision(fact, revision))
   };
+  const snapshot = validateEngineeringIR(ir, input);
 
-  const view = projectArchitectureView(ir, 'responsibility:test:TicketService');
-  const node = view.nodes.find((entry) => entry.entityId === 'responsibility:test:TicketService');
+  const view = projectArchitectureView(snapshot, 'app:test');
+  const node = view.nodes.find((entry) => entry.entityId === 'app:test');
   const overlay = view.overlays[0]?.entries.find((entry) => entry.targetId === node?.id);
 
-  expect(node?.badges).toEqual(expect.arrayContaining(['inferred', 'stateful']));
-  expect(overlay?.authority).toBe('authoritative');
-  expect(overlay?.confidence).toBe(0.4);
+  expect(node?.badges).toContain('inferred');
+  expect(overlay).toMatchObject({
+    status: 'mixed',
+    authorities: ['derived', 'inferred'],
+    hasInferred: true,
+    hasConflict: false,
+    confidence: { min: 0.7, max: 1 }
+  });
 });
 
 test('assertion runtime validity is the only nested assertion data excluded from semantic revision', () => {

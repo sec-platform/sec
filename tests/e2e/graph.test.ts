@@ -3,6 +3,11 @@ import fs from 'node:fs/promises';
 
 import { buildExplainGraph, writeExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
 import {
+  buildSemanticViewSet,
+  buildValidatedEngineeringIR,
+  loadWorkspaceEngineeringIRBuildInput
+} from '../../platform/compiler/index.ts';
+import {
   CI_ARTIFACT_FILES,
   CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
 } from '../../platform/shared/ci-artifact-contract.ts';
@@ -17,9 +22,10 @@ import type {
   UpgradeDiagnostics,
   UpgradePlan
 } from '../../platform/shared/types.ts';
-import { expectGraphEdge, expectGraphNode, expectNoGraphNode } from '../helpers/graph-assertions.ts';
+import { expectGraphEdge, expectGraphNode } from '../helpers/graph-assertions.ts';
 import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
+import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { createWorkspace, prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
@@ -34,10 +40,17 @@ function emptyCoverage(): AcceptanceCoverageReport {
   };
 }
 
-test('explain graph includes pins, policies, and policy violation edges without runtime verification', async () => {
+async function attachSemanticViews(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
+  const { engineeringIRInput } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
+  lock.semanticViews = structuredClone(buildSemanticViewSet(buildValidatedEngineeringIR(engineeringIRInput)));
+  await writeJson(getWorkspacePaths(workspaceRoot).lockPath, lock);
+  return lock;
+}
+
+test('explain graph consumes canonical ports, policies, and policy violation governance edges', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-graph-' });
   const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const provenance: ProvenanceFile = {
     formatVersion: '1',
     artifacts: [
@@ -105,7 +118,7 @@ test('explain graph includes pins, policies, and policy violation edges without 
 
   const graph = await buildExplainGraph(workspaceRoot, lock, provenance, coverage, policyReport);
 
-  expectGraphNode(graph, { id: 'pin:entity/customer-basic:input:tenant_context' });
+  expectGraphNode(graph, { id: 'port:entity/customer-basic:input:tenant_context', type: 'port' });
   expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
   expectGraphEdge(graph, {
     from: 'policy:tenant-scope-required',
@@ -123,7 +136,7 @@ test('explain graph includes pins, policies, and policy violation edges without 
 test('explain graph connects slot contract upgrade impacts to slots and files', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-upgrade-slot-' });
   const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const upgradePlan: UpgradePlan = {
     formatVersion: '1',
     blockId: 'entity/customer-basic',
@@ -271,7 +284,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         type: 'upgrade',
         label: 'rollback restored'
       },
-      { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
+      { id: 'slot:entity/customer-basic:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' },
       {
         id: 'file:migrations/customer-normalizer-contract.json',
@@ -316,8 +329,8 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         to: 'file:upgrade.metadata.json',
         type: 'writes_to'
       },
-      { from: 'block:entity/customer-basic', to: 'slot:customer_normalizer', type: 'connects_to' },
-      { from: 'slot:customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' },
+      { from: 'block:entity/customer-basic', to: 'slot:entity/customer-basic:customer_normalizer', type: 'connects_to' },
+      { from: 'slot:entity/customer-basic:customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' },
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         to: 'upgrade:entity/customer-basic:0.2.0',
@@ -349,7 +362,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
 test('explain graph connects repair tasks to slots and files', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-repair-' });
   const { lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const repairPlan: RepairPlan = {
     formatVersion: '1',
     status: 'pending',
@@ -379,7 +392,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
   const repairNodeIds = new Set([
     'repair:repair_customer_normalizer',
     'repair-category:slot-rewrite',
-    'slot:customer_normalizer',
+    'slot:entity/customer-basic:customer_normalizer',
     'file:custom/customer_normalizer.ts'
   ]);
 
@@ -389,7 +402,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
     expect.arrayContaining([
       { id: 'repair:repair_customer_normalizer', type: 'repair', label: 'repair_customer_normalizer' },
       { id: 'repair-category:slot-rewrite', type: 'repair', label: 'slot-rewrite' },
-      { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
+      { id: 'slot:entity/customer-basic:customer_normalizer', type: 'slot', label: 'customer_normalizer' },
       { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
     ])
   );
@@ -399,7 +412,7 @@ test('explain graph connects repair tasks to slots and files', async () => {
   expect(repairEdges).toEqual(
     expect.arrayContaining([
       { from: 'repair:repair_customer_normalizer', to: 'repair-category:slot-rewrite', type: 'depends_on' },
-      { from: 'repair:repair_customer_normalizer', to: 'slot:customer_normalizer', type: 'connects_to' },
+      { from: 'repair:repair_customer_normalizer', to: 'slot:entity/customer-basic:customer_normalizer', type: 'connects_to' },
       { from: 'repair:repair_customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
     ])
   );
@@ -422,6 +435,7 @@ test('explain graph links generated ticket runtime routes back to related blocks
     resolvedCapabilities: [],
     installPlan: [],
     slotTasks: [],
+    semanticViews: buildSemanticViewFixture(),
     generatedPaths: ['app/api/tickets/summary/export/route.ts'],
     acceptancePlan: [],
     passStatus: {
@@ -484,7 +498,7 @@ test('writeExplainGraph does not require a policy report', async () => {
     policyReportPath,
     provenancePath
   } = getWorkspacePaths(workspaceRoot);
-  const lock = await readJson<LockFile>(lockPath);
+  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const provenance: ProvenanceFile = {
     formatVersion: '1',
     artifacts: []
@@ -499,16 +513,16 @@ test('writeExplainGraph does not require a policy report', async () => {
   const mermaid = await fs.readFile(explainGraphMermaidPath, 'utf8');
   const dot = await fs.readFile(explainGraphDotPath, 'utf8');
 
-  expectGraphNode(graph, { type: 'pin' });
-  expectNoGraphNode(graph, { type: 'policy' });
+  expectGraphNode(graph, { type: 'port' });
+  expectGraphNode(graph, { type: 'policy' });
   expect(writtenGraph.nodes).toEqual(graph.nodes);
   expect(mermaid).toContain('flowchart TD');
   expect(mermaid).toContain('app_customer_admin["customer-admin (app)"]');
   expect(mermaid).toContain('block_entity_customer_basic["entity/customer-basic (block)"]');
-  expect(mermaid).toContain('app_customer_admin -- depends_on --> block_entity_customer_basic');
+  expect(mermaid).toContain('app_customer_admin -- contains --> block_entity_customer_basic');
   expect(dot).toContain('digraph ExplainGraph {');
   expect(dot).toContain('"app:customer-admin" [label="customer-admin (app)"];');
-  expect(dot).toContain('"app:customer-admin" -> "block:entity/customer-basic" [label="depends_on"];');
+  expect(dot).toContain('"app:customer-admin" -> "block:entity/customer-basic" [label="contains"];');
   const explainArtifacts = [
     ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
     CI_ARTIFACT_FILES.provenance

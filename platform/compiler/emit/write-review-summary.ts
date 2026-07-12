@@ -16,9 +16,11 @@ import type {
   ReviewInstallImpact,
   ReviewRegressionRisk,
   ReviewRepairVerificationTrace,
+  ReviewSemanticViewSummary,
   ReviewSummary
 } from '../../shared/review-types.ts';
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../shared/review-upgrade.ts';
+import { semanticViewFactIds } from '../../shared/semantic-view-types.ts';
 import type { UpgradeDiagnostics } from '../../shared/upgrade-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
@@ -51,6 +53,40 @@ function compareByKey<T>(key: (value: T) => string): (left: T, right: T) => numb
 const compareFailurePoints = compareByKey(failurePointKey);
 const compareRegressionRisks = compareByKey(regressionRiskKey);
 const compareConflictHints = compareByKey(conflictHintKey);
+
+export function buildSemanticViewSummary(lock: LockFile): ReviewSemanticViewSummary | undefined {
+  const semanticViews = lock.semanticViews;
+  if (!semanticViews) return undefined;
+  const views = semanticViews.views.map((view) => {
+    const factIds = semanticViewFactIds(view);
+    return {
+      viewKind: view.viewKind,
+      ...(view.subject ? { subject: view.subject } : {}),
+      nodeCount: view.nodes.length,
+      edgeCount: view.edges.length,
+      factCount: factIds.length,
+      factIds
+    };
+  });
+  const factIds = uniqueSorted(views.flatMap((view) => view.factIds));
+  return {
+    formatVersion: semanticViews.formatVersion,
+    inputRevision: semanticViews.inputRevision,
+    semanticRevision: semanticViews.semanticRevision,
+    viewCount: views.length,
+    subjectCount: new Set(views.flatMap((view) => view.subject ?? [])).size,
+    nodeCount: views.reduce((count, view) => count + view.nodeCount, 0),
+    edgeCount: views.reduce((count, view) => count + view.edgeCount, 0),
+    factCount: factIds.length,
+    viewKindCounts: {
+      architecture: views.filter((view) => view.viewKind === 'architecture').length,
+      scenario: views.filter((view) => view.viewKind === 'scenario').length,
+      state: views.filter((view) => view.viewKind === 'state').length
+    },
+    factIds,
+    views
+  };
+}
 
 function addUnique<T>(values: T[], value: T, key: (value: T) => string): void {
   const valueKey = key(value);
@@ -498,11 +534,13 @@ export async function buildReviewSummary(
   const sortedFailurePoints = [...failurePoints].sort(compareFailurePoints);
   const sortedRegressionRisks = [...regressionRisks].sort(compareRegressionRisks);
   const sortedConflictHints = [...conflictHints].sort(compareConflictHints);
+  const semanticViewSummary = buildSemanticViewSummary(lock);
 
   return {
     formatVersion: '2',
     ciSummary: buildReviewCiSummary(sortedFailurePoints, sortedRegressionRisks, sortedConflictHints, impactedBlocks, impactedSlots, runtimeEntries),
     chainSummary: buildReviewChainSummary(report, coverageSummary, artifactSummary),
+    ...(semanticViewSummary ? { semanticViewSummary } : {}),
     ...(artifactSummary ? { artifactSummary } : {}),
     coverageSummary, provenanceSummary,
     ...(policySummary ? { policySummary } : {}),

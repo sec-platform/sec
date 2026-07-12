@@ -1,6 +1,7 @@
 import type { ValidatedEngineeringIRSnapshot } from './engineering-ir-types.ts';
 import type { PassStatus } from './lock-types.ts';
 import type { SemanticGeneratorPlan } from './semantic-generator-types.ts';
+import type { SemanticViewSet } from './semantic-view-types.ts';
 
 export const PIPELINE_JOURNAL_FORMAT_VERSION = '1' as const;
 
@@ -72,6 +73,7 @@ export interface PipelineSemanticContext {
   readonly semanticRevision: string;
   readonly snapshot: ValidatedEngineeringIRSnapshot;
   readonly generatorPlan: SemanticGeneratorPlan;
+  readonly semanticViews: SemanticViewSet;
 }
 
 export interface PipelineExecutionContext {

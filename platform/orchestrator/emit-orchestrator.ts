@@ -1,4 +1,4 @@
-import { lockProject, writeCiArtifactManifest, writeExplainGraph, writeLocalViews, writeReviewSummary } from '../compiler/index.ts';
+import { lockProject, semanticViewArtifactsAreCurrent, writeCiArtifactManifest, writeExplainGraph, writeLocalViews, writeReviewSummary } from '../compiler/index.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import { CompilerError } from '../shared/errors.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
@@ -87,6 +87,7 @@ async function refreshReviewArtifacts(workspaceRoot: string, lock: LockFile): Pr
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
   const readableProvenancePath = await resolveWorkspaceProvenancePath(workspaceRoot);
+  if (lock.passStatus.lock !== 'succeeded' || lock.passStatus.emit !== 'succeeded') return null;
   if (
     !(await pathExists(readableProvenancePath)) ||
     !(await pathExists(verificationReportPath)) ||
@@ -98,6 +99,8 @@ async function refreshReviewArtifacts(workspaceRoot: string, lock: LockFile): Pr
     return null;
   }
 
+  const graph = await readJson<ExplainGraph>(explainGraphPath);
+  if (!semanticViewArtifactsAreCurrent(lock, graph)) return null;
   const provenance = await readJson<ProvenanceFile>(readableProvenancePath);
   const report = await readJson<VerificationReport>(verificationReportPath);
   const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);

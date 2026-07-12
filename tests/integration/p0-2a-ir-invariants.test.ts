@@ -1,27 +1,37 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import { projectScenarioView } from "../../platform/compiler/index.ts";
+import {
+  buildValidatedEngineeringIR,
+  loadWorkspaceEngineeringIRBuildInput,
+  projectScenarioView,
+  validateEngineeringIR,
+  type BuildEngineeringIRInput,
+} from "../../platform/compiler/index.ts";
 import {
   PREDICATE_SIGNATURE_REGISTRY,
   assertEngineeringIRPredicateSignatures,
   assertPredicateSignatureRegistry,
 } from "../../platform/compiler/ir/predicate-signatures.ts";
 import { deriveScenarioDefinitions } from "../../platform/compiler/ir/scenario-facts.ts";
-import { buildWorkspaceEngineeringIR } from "../../platform/orchestrator.ts";
 import {
   SEMANTIC_PREDICATES,
   type EngineeringIR,
+  type ValidatedEngineeringIRSnapshot,
 } from "../../platform/shared/engineering-ir-types.ts";
 import { prepareResolvedWorkspace } from "../testkit/workspace.ts";
 
 let ticketIR: EngineeringIR;
+let ticketSnapshot: ValidatedEngineeringIRSnapshot;
+let ticketInput: BuildEngineeringIRInput;
 
 beforeAll(async () => {
   const workspaceRoot = await prepareResolvedWorkspace({
     blockIds: ["ticket/basic"],
     prefix: "engineering-compiler-p0-2a-invariants-",
   });
-  ticketIR = await buildWorkspaceEngineeringIR(workspaceRoot);
+  ticketInput = (await loadWorkspaceEngineeringIRBuildInput(workspaceRoot)).engineeringIRInput;
+  ticketSnapshot = buildValidatedEngineeringIR(ticketInput);
+  ticketIR = ticketSnapshot.ir;
 }, 15_000);
 
 test("Ticket closes the P0-2A identity, assertion, signature, and Scenario ownership vertical", () => {
@@ -98,7 +108,7 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
   ).toBe(true);
 
   const scenarioId = "scenario:ticket:create-ticket";
-  const canonicalView = projectScenarioView(ticketIR, scenarioId);
+  const canonicalView = projectScenarioView(ticketSnapshot, scenarioId);
   const cacheTampered: EngineeringIR = {
     ...ticketIR,
     scenarios: ticketIR.scenarios.map((scenario) =>
@@ -113,7 +123,7 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
         : scenario,
     ),
   };
-  expect(projectScenarioView(cacheTampered, scenarioId)).toEqual(canonicalView);
+  expect(() => validateEngineeringIR(cacheTampered, ticketInput)).toThrow();
   expect(
     canonicalView.nodes.every((node) =>
       node.references.some(
