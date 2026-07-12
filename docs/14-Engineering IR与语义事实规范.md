@@ -126,10 +126,12 @@ event
 policy
 permission
 effect
+generator
+artifact
 acceptance
 ```
 
-`boundary`、`generator`、`artifact` 当前只保留类型能力，必须由后续明确 owner 的真实 Contract/Builder 引入；当前 canonical Builder 不从下游 Artifact Provenance 反馈创建 Artifact Entity，也不允许仅为了 UI Demo 制造伪节点。
+`boundary` 当前只保留类型能力。Generator/Artifact 由 Manifest generator declaration 在 canonical Builder 中引入；Builder 不从下游 Artifact Provenance 反馈创建 Entity，也不允许仅为了 UI Demo 制造伪节点。
 
 ### Entity ID
 
@@ -148,6 +150,7 @@ operation:<namespace>:<operation-id>
 responsibility:<namespace>:<id>
 scenario:<namespace>:<scenario-id>
 scenario:<namespace>:<scenario-id>#step:<semantic-step-id>
+generator:<block-id>:<generator-id>
 artifact:<workspace-relative-path>
 acceptance:<acceptance-id>
 policy:<policy-id>
@@ -359,17 +362,17 @@ entity object kinds，或 exact value schema
 当前 active predicates：
 
 ```text
-AWAITS CONTAINS DECLARES DEPENDS_ON EMITS GUARANTEES HANDLES
-IMPLEMENTS INVOKES MUTATES OWNS PERFORMS_EFFECT PRECEDES PROVIDES
+AWAITS CONSUMES CONTAINS DECLARES DEPENDS_ON EMITS GENERATES GUARANTEES HANDLES
+IMPLEMENTS INVOKES LOWERS_TO MUTATES OWNS PERFORMS_EFFECT PRECEDES PROVIDES
 READS REQUIRES REQUIRES_PERMISSION RETRIES TRANSITIONS_TO VERIFIED_BY WRITES
 ```
 
 当前 reserved predicates：
 
 ```text
-ASSUMES CONNECTS_TO CONSUMES CROSSES_BOUNDARY DERIVES_FROM
+ASSUMES CONNECTS_TO CROSSES_BOUNDARY DERIVES_FROM
 DESERIALIZES_FROM DISPOSES ENFORCES ESCAPES FLOWS_TO FORKS_TO
-GENERATES INITIALIZES JOINS LOWERS_TO ORIGINATES_FROM PERSISTS_AS
+INITIALIZES JOINS ORIGINATES_FROM PERSISTS_AS
 SANITIZES SERIALIZES_AS TRANSFORMS_TO VALIDATES VIOLATES
 ```
 
@@ -380,6 +383,19 @@ Entity/Fact reference + Assertion validation
 → Predicate Signature validation
 → semanticRevision digest
 ```
+
+Generator lowering semantics 固定使用以下方向和 shapes：
+
+```text
+DECLARES:    block -> generator
+CONSUMES:    generator -> state
+LOWERS_TO:   state -> artifact
+GENERATES:   generator -> artifact
+VERIFIED_BY: artifact -> acceptance
+VERIFIED_BY: artifact -> value { selector: string }，用于 typecheck 等非 Acceptance selector
+```
+
+Artifact ID 的 target 在进入 identity、collision check 与 plan 前统一规范化为 POSIX project-relative path。Manifest assertion 对 `DECLARES/CONSUMES/GENERATES/VERIFIED_BY` 为 authoritative；`LOWERS_TO` 是 compiler 从同一 declaration 推导的 relation。
 
 Builder、Fact store、Projector 与 consumer 不得各自维护另一套 predicate-shape switch。
 
@@ -583,6 +599,8 @@ interface BuildEngineeringIRInput {
 }
 ```
 
+`EngineeringIRManifestInput.manifest` 包含 `generators?`；generator declaration 的 kind-specific config 进入 `inputRevision`，不得在 snapshot 签发后用另一份未校验 declaration 替换。
+
 Builder 当前产生：
 
 - App Entity。
@@ -590,6 +608,7 @@ Builder 当前产生：
 - Capability Entity + `DEPENDS_ON/PROVIDES` Fact。
 - Port Entity + `REQUIRES/PROVIDES` Fact。
 - Slot Entity + `CONTAINS` Fact。
+- Generator/Artifact Entity + `DECLARES/CONSUMES/LOWERS_TO/GENERATES/VERIFIED_BY` Fact。
 - Semantic Contract 的 Entity/Field/Responsibility/Operation/State/Event/Policy/Permission/Effect/Scenario/Scenario-step Entity。
 - Contract authoritative `DECLARES/IMPLEMENTS/OWNS/READS/WRITES/MUTATES/REQUIRES/REQUIRES_PERMISSION/PERFORMS_EFFECT/EMITS/INVOKES/PRECEDES/AWAITS/RETRIES/HANDLES/TRANSITIONS_TO/VERIFIED_BY` 等 Fact Assertions。
 - 由最终 Entities/Facts 重建的 derived `ScenarioDefinition` cache。
@@ -678,17 +697,20 @@ P0-3 将 validated boundary 接入唯一编译协调器：
 compileWorkspace() transaction
   → resolve
   → semantic stage / build-ir pass
-  → PipelineSemanticContext { transactionId, inputRevision, semanticRevision, snapshot }
+  → PipelineSemanticContext { transactionId, inputRevision, semanticRevision, snapshot, generatorPlan }
   → compose / adapt / verify / lock / emit
 ```
 
 `PipelineSemanticContext.snapshot` 只能来自本 transaction 的 `validateEngineeringIR()` 成功路径。即使 input/semantic revision 未改变，新 transaction 也重新签发自己的 snapshot object；partial compile 从 compose 或更下游开始时会自动加入 semantic stage。`build-ir` failure 通过 Pipeline Kernel 阻塞所有 downstream mutating pass，不保留旧 snapshot 或旧 downstream succeeded state。
 
+P0-5 将 Generator/Lowerer 接到该 boundary：Semantic Frontend 从同批已校验 declarations 与 snapshot 构建 deep-frozen `GeneratorPlan`；plan 查询 State/Transition Facts，不接收 `LoadedSemanticContract`。Compose 要求 `build-ir` 成功，Lowerer 只消费 transaction-owned plan，成功写入后把 Generator Entity、Artifact Entity、semantic revision 与 compilation transaction 绑定到 lock task 和 Artifact Provenance。
+
+该 transaction binding 必须同时满足 execution truth 与 deterministic reference projection：普通 compile 每次签发新的 UUID；`source=reference` 使用 workspace-local 的 `tx:reference-workspace`，Pipeline Journal 在新执行开始时移除同名旧记录，并在 commit 后把它标为当前 committed transaction。因此 reference Lock/Provenance 指向的仍是实际完成的 compilation transaction，同时相同输入的 refresh 不会因随机 UUID 产生 drift。
+
 当前仍未接管的 legacy ownership 明确如下：
 
 | 现有路径 | 当前输入 | 负责接管的 Work Package |
 | --- | --- | --- |
-| `semantic-plan.ts` / `semantic-lowering.ts` | Contract / semantic plan | P0-5 IR-owned Generator / Ticket Enforcement |
 | Architecture / Scenario / State Projector、ExplainGraph、Workbench | raw IR 或 Lock/Manifest/Contract | P0-6 Semantic Projection Takeover |
 
 `buildWorkspaceEngineeringIR()` 暂时仅为 P0-6 legacy Projection 测试/兼容入口保留；它与 Pipeline Semantic Frontend 复用同一个 workspace input loader，但不会签发 validated snapshot。不得为了类型形式提前改写上表 legacy consumers；所有新 IR-native consumer 只能接受 `ValidatedEngineeringIRSnapshot` 或 transaction-owned `PipelineSemanticContext`。

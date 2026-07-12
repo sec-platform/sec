@@ -4,10 +4,12 @@ import type {
   PipelineExecutionContext,
   PipelineSemanticContext
 } from './pipeline-types.ts';
+import type { SemanticGeneratorPlan } from './semantic-generator-types.ts';
 
 export function bindPipelineSemanticContext(
   context: PipelineExecutionContext,
-  snapshot: ValidatedEngineeringIRSnapshot
+  snapshot: ValidatedEngineeringIRSnapshot,
+  generatorPlan: SemanticGeneratorPlan
 ): PipelineSemanticContext {
   if (context.semantic) {
     throw new CompilerError(
@@ -21,11 +23,28 @@ export function bindPipelineSemanticContext(
     );
   }
 
+  if (
+    generatorPlan.inputRevision !== snapshot.ir.inputRevision ||
+    generatorPlan.semanticRevision !== snapshot.ir.semanticRevision
+  ) {
+    throw new CompilerError(
+      'PIPELINE-SEMANTIC-003',
+      `Pipeline transaction "${context.transactionId}" received a Generator Plan for a different IR snapshot`,
+      {
+        snapshotInputRevision: snapshot.ir.inputRevision,
+        planInputRevision: generatorPlan.inputRevision,
+        snapshotSemanticRevision: snapshot.ir.semanticRevision,
+        planSemanticRevision: generatorPlan.semanticRevision
+      }
+    );
+  }
+
   const semantic = Object.freeze({
     transactionId: context.transactionId,
     inputRevision: snapshot.ir.inputRevision,
     semanticRevision: snapshot.ir.semanticRevision,
-    snapshot
+    snapshot,
+    generatorPlan
   });
   context.semantic = semantic;
   return semantic;

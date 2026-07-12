@@ -1,24 +1,17 @@
 import { expect, test } from 'bun:test';
 
 import { renderStateTransitionMapSource } from '../../platform/compiler/semantic-lowering.ts';
-import { ticketLoadedContract, ticketSemanticGeneratorTask } from '../testkit/semantic.ts';
+import { assertStateTransitionFunctions } from '../../platform/compiler/state-transition-plan.ts';
+import { ticketSemanticGeneratorTask } from '../testkit/semantic.ts';
 
 const task = ticketSemanticGeneratorTask();
-const transitions = [
-  { from: 'open', to: 'in_progress', by: 'transitionTicketStatus' },
-  { from: 'in_progress', to: 'closed', by: 'transitionTicketStatus' },
-  { from: 'closed', to: 'open', by: 'transitionTicketStatus' }
-];
-
 test('semantic transition renderer emits deterministic typed runtime source', () => {
-  const source = renderStateTransitionMapSource(
-    task,
-    ticketLoadedContract(['open', 'closed', 'in_progress'], transitions)
-  );
-  const reversed = renderStateTransitionMapSource(
-    task,
-    ticketLoadedContract(['in_progress', 'closed', 'open'], [...transitions].reverse())
-  );
+  const source = renderStateTransitionMapSource(task);
+  const reversed = renderStateTransitionMapSource({
+    ...task,
+    stateValues: [...task.stateValues].reverse(),
+    transitions: [...task.transitions].reverse()
+  });
 
   expect(source).toBe(reversed);
   expect(source).toContain('export const TICKET_STATUS_VALUES');
@@ -30,9 +23,10 @@ test('semantic transition renderer emits deterministic typed runtime source', ()
   expect(source).toMatch(/["']?open["']?:\s*["']in_progress["']/);
 });
 
-test('semantic transition renderer rejects an unavailable state', () => {
-  expect(() => renderStateTransitionMapSource(
-    { ...task, stateId: 'missing-state' },
-    ticketLoadedContract(['open'], [])
-  )).toThrow('State "missing-state" is unavailable');
+test('IR-derived transition plan rejects states without exactly one outgoing transition', () => {
+  expect(() => assertStateTransitionFunctions([{
+    ...task,
+    stateValues: ['open'],
+    transitions: []
+  }])).toThrow('State "ticket-status" requires exactly one outgoing transition from "open"');
 });

@@ -37,7 +37,7 @@ export const PASS_DEFINITIONS: Record<PassId, PassDefinition> = {
   },
   compose: {
     id: 'compose',
-    requires: ['resolve'],
+    requires: ['build-ir'],
     invalidates: ['adapt', 'verify', 'repair', 'lock', 'emit']
   },
   adapt: {

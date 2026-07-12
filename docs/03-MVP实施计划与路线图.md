@@ -22,25 +22,24 @@ Governed File Compiler 主干
   + Semantic Contract + Workspace Semantic Link（已进入 Pipeline semantic stage）
   + Canonical / Validated Engineering IR handoff（已进入 Pipeline semantic context）
   + Architecture / Scenario / State Projection prototype
-  + Contract-derived State Transition Generator
+  + IR-owned State Transition Generator + Ticket runtime enforcement
   + Slot Mock Synthesis
 ```
 
 必须严格区分：
 
 ```text
-Pipeline Kernel + Semantic Frontend / IR handoff 已完成
-≠ Lowering 已由 IR 拥有
+Pipeline Kernel + Semantic Frontend / IR handoff + IR-owned Lowering 已完成
 ≠ Projection 已统一消费 canonical semantic snapshot
 ```
 
 禁止把“类型、builder、projector、validator 或单测文件已经存在”计为 Work Package 完成。完成必须证明对应能力进入唯一编译主链，并由真实纵切面验证。
 
-## 2. 当前唯一 ACTIVE NEXT：IR-owned Generator / Ticket Enforcement
+## 2. 当前唯一 ACTIVE NEXT：Semantic Projection Takeover
 
-当前唯一 active next 是 **P0-5 IR-owned Generator / Ticket Enforcement**。P0-4 Workspace Semantic Linker 已满足退出条件，显式 Contract import、qualified reference、Policy identity mapping 与 deterministic diagnostics 已进入 canonical Semantic Frontend → IR 主链。
+当前唯一 active next 是 **P0-6 Semantic Projection Takeover**。P0-5 已把 Generator/Lowerer 接入 validated IR-derived plan，Ticket runtime 已消费同一生成状态迁移合同，Artifact Provenance 已绑定 semantic revision、Generator/Artifact Entity 与 compilation transaction。
 
-当前 P0 不是继续增加平行 Semantic Plan 或第二套 Generator 解释器，也不是重新建设 Pipeline Kernel / Linker；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context 与 Workspace Semantic Link 已经固定，当前任务是让 Generator / Lowerer 只消费 validated IR-derived plan，并让 Ticket runtime 复用同一状态迁移合同。
+当前 P0 不是继续增加平行 Semantic Plan 或第二套 Generator 解释器，也不是重新建设 Pipeline Kernel / Linker / Lowerer；canonical Engineering IR、validated boundary、transaction-owned Pipeline Semantic Context、Workspace Semantic Link 与 IR-owned Generator 已经固定，当前任务是让 Architecture / Scenario / State Projection 统一消费 validated snapshot。
 
 目标主链：
 
@@ -250,7 +249,7 @@ P0-1 完成只说明 **Pipeline execution infrastructure 已建立**。它不证
 
 ## 9. P0-5 IR-owned Generator / Ticket Enforcement
 
-状态：**ACTIVE NEXT**。
+状态：**COMPLETED**。
 
 ### Prerequisite
 
@@ -290,7 +289,7 @@ Ticket Contract
 
 ## 10. P0-6 Semantic Projection Takeover
 
-状态：**BLOCKED BY P0-5**。
+状态：**ACTIVE NEXT**。
 
 ### Prerequisite
 
@@ -441,9 +440,9 @@ P0-3  Semantic Pipeline Spine                            COMPLETED
   ↓
 P0-4  Workspace Semantic Linker                          COMPLETED
   ↓
-P0-5  IR-owned Generator / Ticket Enforcement            ACTIVE NEXT
+P0-5  IR-owned Generator / Ticket Enforcement            COMPLETED
   ↓
-P0-6  Semantic Projection Takeover
+P0-6  Semantic Projection Takeover                       ACTIVE NEXT
   ↓
 P0-7  Verification / CI Closure
   ↓
@@ -452,6 +451,6 @@ latest-head full validation
 v0.3 exit review
 ```
 
-只有 **P0-5 IR-owned Generator / Ticket Enforcement** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改 Projection / Verification consumer 来伪造进度。
+只有 **P0-6 Semantic Projection Takeover** 是当前 active next。后续 Work Package 必须等待其直接 prerequisite 满足，不得并行提前修改 Verification consumer 来伪造进度。
 
 禁止再以“哪个测试红就局部修哪个测试”的方式推进主线。

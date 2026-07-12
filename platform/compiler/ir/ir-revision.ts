@@ -13,10 +13,13 @@ import type {
   LoadedSemanticContract,
   SemanticContract
 } from '../../shared/semantic-contract-types.ts';
+import type { ManifestGenerator } from '../../shared/semantic-generator-types.ts';
+import { normalizedArtifactTarget } from './ir-identity.ts';
 
 export interface InputRevisionManifest {
   blockId: string;
-  manifest: Pick<BlockManifest, 'requires' | 'provides' | 'pins'>;
+  manifest: Pick<BlockManifest, 'requires' | 'provides' | 'pins'> &
+    Partial<Pick<BlockManifest, 'generators'>>;
 }
 
 export interface InputRevisionDomain {
@@ -159,8 +162,26 @@ function canonicalManifest(entry: InputRevisionManifest): object {
     pins: {
       inputs: canonicalPins(entry.manifest.pins.inputs),
       outputs: canonicalPins(entry.manifest.pins.outputs)
-    }
+    },
+    generators: stableById(entry.manifest.generators ?? []).map(canonicalGenerator)
   };
+}
+
+function canonicalGenerator(generator: ManifestGenerator): object {
+  switch (generator.kind) {
+    case 'generate-state-transition-map':
+      return {
+        id: generator.id,
+        kind: generator.kind,
+        contract: generator.contract,
+        state: generator.state,
+        target: normalizedArtifactTarget(generator.target),
+        consumes: uniqueSorted(generator.consumes),
+        produces: generator.produces,
+        typeBinding: { ...generator.typeBinding },
+        verification: uniqueSorted(generator.verification)
+      };
+  }
 }
 
 function canonicalResolvedBlocks(blocks: readonly ResolvedBlock[]): object[] {

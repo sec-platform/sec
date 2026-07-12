@@ -251,3 +251,19 @@ P0-3 改变 Pipeline stage/pass/context、Lock `build-ir` 状态、reference inp
 | 同上 | 本地 `reference:refresh` 后 `reference:check` | reference full compile、Next build、unit、Playwright、tracked diff 与 untracked scan | PASS（refresh 62.1s；check 56.6s；changed paths 0） | reference input、Registry Contract、Pipeline/Lock、artifact/provenance producer 或 runtime toolchain 变化时失效。 |
 
 P0-4 改变 Contract/Registry semantic input、canonical IR append/revision 与 Predicate Registry，因此对应 focused、Pipeline vertical 和 reference evidence 已在以上 head 上替代。未改变依赖版本/锁、benchmark、dependency warmup、slow implementation/fixtures、test runner 或 CI contract；继续复用 P0-2A/P0-3 的 full-fast、all-slow-risk、benchmark、budget 与 runtime boundary 证据，不重复全量矩阵，也未运行 GitHub Actions。`0da5ba1` 之后仅允许 completion ledger / roadmap closeout 文档 delta；该 delta 只使 `docs:doctor` 与 patch hygiene 需要在最终文档 commit 上重跑。
+
+### 2026-07-12 P0-5 IR-owned Generator / Ticket Enforcement delta evidence
+
+Implementation head `29026398d0b25a6c33572429e0cbd7179ec53d12`，base `e39a55ffe1fc262bcf8edd123c4b175acc64e3af`。`5d407675b12534ff87773c69bcd168576233468f` 是加入 reference transaction determinism 修复前的同一实现提交；下表保留其已完成且未被最终 delta 失效的测试证据，并用最终 head 的 transaction/reference 哨兵覆盖本次实际变化面。
+
+| Tested head | Evidence | Gate / scope | Result | 复用与失效规则 |
+| --- | --- | --- | --- | --- |
+| `5d407675b12534ff87773c69bcd168576233468f` | 本地 IR / Generator Plan / Provenance / Pipeline / Ticket runtime focused set | per-kind Generator declaration、IR Entity/Facts、validated snapshot-only plan、Lowerer/Provenance execution binding、forbidden Ticket transition | PASS（10/10） | Generator schema、IR builder/plan/lowerer、semantic provenance 或 Ticket runtime contract 变化时失效；最终 transaction identity delta 由下方 7/7 哨兵覆盖。 |
+| 同上 | 本地 workspace semantic spine / Predicate Registry / version overlay focused set | workspace input ownership、canonical Fact/selector、root 与 `0.1.1` Ticket enforcement | PASS（14/14） | workspace IR loader、Predicate Signature、Registry overlay 或 Ticket status table 变化时失效。 |
+| 同上 | 本地 affected Gate 与 Windows CRLF contract sentinel | 受影响的 unit / integration / e2e / contract 选择集 | PASS（affected 首轮 112/113；唯一 LF 硬编码失败修复后 sentinel 1/1，因此组合覆盖 113/113） | 不能把组合证据表述为一次 113/113 重跑；测试选择器、受影响实现或 Windows EOL contract 再变化时只重跑对应 delta。 |
+| 同上 | 本地 `reference:refresh` | reference full compile、Next build、unit、Playwright、Lock/Provenance/ExplainGraph/Workbench 生成 | PASS（60.44s） | 该结果发现持久化随机 transaction ID 会令下一次 refresh 漂移，因此只证明真实编译链通过，不作为 determinism/clean 证据；最终 clean 证据见下。 |
+| `29026398d0b25a6c33572429e0cbd7179ec53d12` | `bun test tests/integration/pipeline-kernel.test.ts tests/integration/semantic-pipeline-spine.test.ts --timeout 180000` | 普通 UUID transaction、reference 命名 transaction 替换、journal lifecycle、transaction-owned semantic artifact binding | PASS（7/7，22.7s） | Pipeline transaction identity/journal、semantic context 或 Lowerer binding 变化时失效。 |
+| 同上 | 本地 changed-only `imports:organize` + `imports:check`、`typecheck`、`docs:doctor`、`git diff --check` | 最终类型、imports、authority docs 与 patch hygiene | PASS（imports check 5.16s；typecheck 7.72s；docs doctor 0 errors / 0 warnings，0.25s） | import/type/doc authority 或对应实现再次变化时只重跑相应 Gate。 |
+| 同上 | 本地 `reference:check` | 本地真实 refresh + tracked diff + untracked scan | PASS（71.44s；refresh 0；tracked 0；untracked 0；changed paths 0） | reference input、Pipeline transaction identity、Lock/Provenance producer、runtime toolchain 或受管 reference artifact 变化时失效。 |
+
+最终 reference 检查前的一次 `reference:refresh` 外层进程在 61.5s 达到执行器硬超时；其中 Next build、unit、Playwright 已通过且本地 journal 随后显示 transaction succeeded，但该次非零外层结果没有计入 PASS。提高命令时限后只重跑最终 `reference:check`，其完整 refresh 与 drift scan 均成功。P0-5 未运行 full-fast、all-slow matrix 或 GitHub Actions；继续复用上方仍有效的 P0-2A 至 P0-4 昂贵 baseline，并以本节 delta evidence 完成当前实现面验证。

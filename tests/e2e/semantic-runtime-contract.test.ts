@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { expect, test } from 'bun:test';
 
 import { prepareTicketSemanticRuntime } from '../testkit/semantic-runtime.ts';
@@ -11,11 +14,13 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
   await withTempWorkspace(async (workspaceRoot) => {
     const fixture = await prepareTicketSemanticRuntime(workspaceRoot);
 
-    expect(fixture.resolvedLock.semanticLoweringTasks?.[0]).toMatchObject({
+    expect(fixture.resolvedLock.semanticLoweringTasks).toBeUndefined();
+    expect(fixture.compilation.semanticContext?.generatorPlan.tasks[0]).toMatchObject({
       contractId: 'ticket-core',
       stateId: 'ticket-status',
       target: fixture.runtimeTarget,
-      status: 'pending'
+      generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      artifactEntityId: `artifact:${fixture.runtimeTarget}`
     });
     expect(fixture.composedLock.semanticLoweringTasks?.[0]?.status).toBe('generated');
     expect(fixture.composedLock.generatedPaths).toContain(fixture.runtimeTarget);
@@ -28,6 +33,8 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
     expectTransition(fixture.runtimeContract, 'open', 'in_progress');
     expect(fixture.ticketForm).toContain('NEXT_TICKET_STATUS[currentStatus]');
     expect(fixture.ticketForm).not.toContain('const NEXT_STATUS');
+    expect(fixture.ticketService).toContain("import { NEXT_TICKET_STATUS } from './ticket-semantic-contract.ts'");
+    expect(fixture.ticketService).toContain('Invalid ticket status transition');
     expect(fixture.runtimeContractProvenance).toMatchObject({
       originType: 'generated',
       originId: 'generator:ticket/basic:ticket-status-runtime-contract',
@@ -36,8 +43,18 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
       runtimeTarget: fixture.runtimeTarget,
       generatedByPass: 'compose',
       generatorTaskId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      generatorEntityId: 'generator:ticket/basic:ticket-status-runtime-contract',
+      artifactEntityId: `artifact:${fixture.runtimeTarget}`,
+      semanticRevision: fixture.compilation.semanticContext?.semanticRevision,
+      compilationTransactionId: fixture.compilation.transactionId,
       overrideStatus: 'none'
     });
     expect(fixture.runtimeContractProvenance?.hash).toBeDefined();
+
+    const ticketSuite = await import(
+      `${pathToFileURL(path.join(fixture.projectRoot, 'tests', 'shared', 'ticket-service-suite.ts')).href}?transaction=${fixture.compilation.transactionId}`
+    );
+    await ticketSuite.runTicketServiceSuite();
+    await ticketSuite.runTicketFlowSuite();
   }, 'engineering-compiler-semantic-runtime-contract-');
 }, 120000);

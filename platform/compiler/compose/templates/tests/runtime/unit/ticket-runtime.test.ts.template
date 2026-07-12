@@ -59,6 +59,10 @@ describe('runtime ticket service', () => {
     expect(listTicketComments(database, tenantA, ticket.id)).toHaveLength(1);
     expect(() => listTicketComments(database, tenantB, ticket.id)).toThrow(/Ticket is not available/);
     expect(() => addTicketComment(database, tenantA, { ticketId: ticket.id, body: '   ' })).toThrow(/Ticket comment is required/);
+    expect(() => transitionTicketStatus(database, tenantA, ticket.id, 'closed')).toThrow(
+      /Invalid ticket status transition: open -> closed/
+    );
+    expect(ticket.status).toBe('open');
     expect(transitionTicketStatus(database, tenantA, ticket.id, 'in_progress').status).toBe('in_progress');
 
     /*#IF auditEnabled*/

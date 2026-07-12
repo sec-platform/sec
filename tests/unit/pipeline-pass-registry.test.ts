@@ -10,7 +10,7 @@ test('pipeline pass registry defines one forward dependency chain for compile st
   expect(PASS_DEFINITIONS.align.requires).toEqual(['parse']);
   expect(PASS_DEFINITIONS.resolve.requires).toEqual(['align']);
   expect(PASS_DEFINITIONS['build-ir'].requires).toEqual(['resolve']);
-  expect(PASS_DEFINITIONS.compose.requires).toEqual(['resolve']);
+  expect(PASS_DEFINITIONS.compose.requires).toEqual(['build-ir']);
   expect(PASS_DEFINITIONS.adapt.requires).toEqual(['compose']);
   expect(PASS_DEFINITIONS.verify.requires).toEqual(['adapt']);
   expect(PASS_DEFINITIONS.lock.requires).toEqual(['verify']);

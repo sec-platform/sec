@@ -18,6 +18,10 @@ export interface ProvenanceArtifact {
   runtimeTarget?: string;
   generatedByPass?: string;
   generatorTaskId?: string;
+  generatorEntityId?: string;
+  artifactEntityId?: string;
+  semanticRevision?: string;
+  compilationTransactionId?: string;
   verifiedBy: string[];
   overrideStatus: OverrideStatus;
   hash?: string;

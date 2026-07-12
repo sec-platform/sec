@@ -7,6 +7,7 @@ import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts'
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
+import type { PipelineSemanticContext } from '../../shared/pipeline-types.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { CodeBuilder } from '../codegen/code-builder.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
@@ -120,6 +121,7 @@ function renderSlotSkeleton(task: SlotTask): string {
 export async function composeProject(
   workspaceRoot: string,
   lock: LockFile,
+  semanticContext: PipelineSemanticContext,
   options?: { lockFiles?: boolean }
 ): Promise<LockFile> {
   const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
@@ -169,7 +171,9 @@ export async function composeProject(
     }))
   );
 
-  const semanticGeneratedPaths = await lowerSemanticTasks(workspaceRoot, lock);
+  const semanticLowering = await lowerSemanticTasks(workspaceRoot, semanticContext);
+  lock.semanticLoweringTasks = semanticLowering.tasks;
+  const semanticGeneratedPaths = semanticLowering.generatedPaths;
   const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
   const microservicePaths = await lowerToMicroservices(workspaceRoot, lock);
 

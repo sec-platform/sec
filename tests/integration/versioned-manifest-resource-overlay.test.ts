@@ -25,10 +25,11 @@ test('versioned manifest resources resolve through version-first block fallback 
   };
   const lock = await resolveGraph(process.cwd(), plan);
   const ticketSteps = lock.installPlan.filter((step) => step.blockId === 'ticket/basic');
-  expect(lock.semanticLoweringTasks).toEqual(expect.arrayContaining([
+  expect(lock.semanticLoweringTasks).toBeUndefined();
+  expect(versionEntry.manifest.generators).toEqual(expect.arrayContaining([
     expect.objectContaining({
-      blockId: 'ticket/basic',
-      contractId: 'ticket-core',
+      id: 'ticket-status-runtime-contract',
+      contract: 'ticket-core',
       target: 'src/installed/ticket/ticket-semantic-contract.ts'
     })
   ]));
