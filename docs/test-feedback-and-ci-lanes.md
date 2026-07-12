@@ -342,4 +342,13 @@ PR base 固定为 `a3025aca63c6c365e2561b415ddfe07dc8a61141`，contract revision
 | `84f00a79aeecd8c18eff394d2ce60f968d9bfee0` / PR base `a3025ac` | `typecheck`；benchmark suite；deps warmup；ordered `resolve → compose → adapt → verify --lane all → lock → explain` | TypeScript delta、benchmark/dependency contract、完整 mutating workspace Full tail | PASS（typecheck 6.0s；benchmark 1.6s；deps 1.5s；resolve 6.5s；compose 2.9s；adapt 1.6s；verify-all 50.1s；lock 1.7s；explain 2.1s） | TypeScript、benchmark/dependency environment、workspace pass implementation/input 或 runtime toolchain 变化时失效；workspace chain 串行 fail-fast。 |
 | `8aeb1f47343d59c585a94a43c536bbb455b67692` / parent `84f00a7` | `bun run sec -- reference check --json --compact` | reference refresh、tracked diff、untracked scan；22 个 port 的 legacy pin derived artifact refresh | PASS（49.6s；refresh 0；tracked 0；untracked 0；changed paths 0） | ExplainGraph/Workbench producer、reference input 或 runtime toolchain 变化时失效。首次 check 在 refresh 成功后准确报告 6 个受管派生文件 drift；审查确认只新增 22 pin nodes + 22 compatibility edges、无删除且 references 与 port 一致，提交 refresh 后只重跑该 Gate。 |
 
-最终组合覆盖为：hosted Quick + full-fast 329/329 + test-budget + Contract Freeze 74/74；hosted 12 slow PASS；本地复用 10 slow PASS；exact delta 3 slow PASS；本地 benchmark/deps/ordered workspace/reference tail PASS。`8aeb1f4` 之后仅允许 evidence ledger / roadmap 文档 closeout；该 docs-only diff 不使上述实现、slow、workspace 或 reference 证据失效。P0-7 correctness Gate 已闭合，剩余动作仅为 PR 管理、合并与清理。
+最终组合覆盖为：hosted Quick + full-fast 329/329 + test-budget + Contract Freeze 74/74；hosted 12 slow PASS；本地复用 10 slow PASS；exact delta 3 slow PASS；本地 benchmark/deps/ordered workspace/reference tail PASS。`8aeb1f4` 之后仅允许 evidence ledger / roadmap 文档 closeout；该 docs-only diff 不使上述实现、slow、workspace 或 reference 证据失效。P0-7 correctness Gate 已闭合。
+
+### 2026-07-13 P0-7 merge / cleanup closeout
+
+| Evidence | Result | 说明 |
+| --- | --- | --- |
+| PR #93，head `7d49e3179d6a414f361656a16d61906cd2ed4e86`，base `a3025aca63c6c365e2561b415ddfe07dc8a61141` | MERGED；squash commit `9bbdc86ef5b0d110d4ecea9b3ab02b7e2f7ba0a3`；PR head 与 merge commit tree diff 为 0 | `run-full` label 在最终 push 前移除；最终 synchronize check 为 `SKIPPED`，没有执行新的 hosted Full。 |
+| 原 `codex/p0-7-verification-ci-closure` branch / worktree / Junction audit | remote branch、local branch、remote-tracking ref 与 `D:\Project\sec-worktrees\verification-ci-closure` 均不存在；37 个 Junction 已按 target 白名单只删除链接 | `D:\Project\sec\node_modules` 清理前后均保留 408 个顶层条目；主工作区用户文档修改未被 pull/reset/覆盖，仅 fetch 新 `origin/main`。 |
+
+至此 P0-7 的实现、组合验证、reference refresh、PR 合并和本地清理均完成。本文与 roadmap 的 post-merge 状态修正是 docs-only，不改变任何已验证 Gate 的输入或失效边界。
