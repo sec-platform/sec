@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1",
+  "evidenceId": "v0-4-semantic-mutation-contract-11a8373",
+  "recordedAt": "2026-07-13T06:10:37.2903649+08:00",
+  "testedHead": "11a837320cfcf9027c34891a8d25ea36a6b88985",
+  "testedTree": "92e8d9f5f335e5300d5cdfc9775bf77713613ebf",
+  "baseSha": "48c42394c1432c7022bf08bac41b319701bc65aa",
+  "baseTree": "3764e6503a6c4d9baf1099c09ccc05e417be1867",
+  "profile": "v0.4-semantic-mutation-contract-design",
+  "contractRevision": "semantic-mutation-v2+ci-verification-v3",
+  "scope": {
+    "selectionReason": "freeze the canonical Semantic Mutation v2 contract and activate the isolated SM-1 pure-kernel work package",
+    "changedPaths": [
+      "docs/00-文档索引与一致性规则.md",
+      "docs/03-MVP实施计划与路线图.md",
+      "docs/09-AI Runtime、任务信封与治理规范.md",
+      "docs/11-Workbench与可视化规范.md",
+      "docs/12-编译管道与行为流图示.md",
+      "docs/14-Engineering IR与语义事实规范.md"
+    ],
+    "changedBlobs": [
+      {
+        "path": "docs/00-文档索引与一致性规则.md",
+        "testedBlob": "6595f3858c47676c90dc2577c83db43ca4a75cc7"
+      },
+      {
+        "path": "docs/03-MVP实施计划与路线图.md",
+        "testedBlob": "233977ae2a8993712bdf161fc01da948b2683ee8"
+      },
+      {
+        "path": "docs/09-AI Runtime、任务信封与治理规范.md",
+        "testedBlob": "f7cee23d6489734a116723846749ff9e1a43d12e"
+      },
+      {
+        "path": "docs/11-Workbench与可视化规范.md",
+        "testedBlob": "660df7d01a89b877ad321e0e29ebebe6144ed51d"
+      },
+      {
+        "path": "docs/12-编译管道与行为流图示.md",
+        "testedBlob": "73afaa01c9c922d00e78bf172b4dd0fa20baeb4c"
+      },
+      {
+        "path": "docs/14-Engineering IR与语义事实规范.md",
+        "testedBlob": "71241c099e47fcd11c7fae8b1c7f56f5ec8a855f"
+      }
+    ]
+  },
+  "gates": [
+    {
+      "gateId": "roadmap-contract",
+      "argv": [
+        "bun",
+        "test",
+        "tests/integration/project-runtime.test.ts"
+      ],
+      "status": "passed",
+      "passed": 29,
+      "failed": 0,
+      "durationMs": 1650,
+      "durationEvidence": "Bun reported 1.65s for the final tested documentation blobs"
+    },
+    {
+      "gateId": "docs-doctor",
+      "argv": [
+        "bun",
+        "run",
+        "docs:doctor"
+      ],
+      "status": "passed",
+      "errors": 0,
+      "warnings": 0
+    },
+    {
+      "gateId": "patch-hygiene",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "status": "passed"
+    },
+    {
+      "gateId": "frozen-review",
+      "status": "passed",
+      "reviewedConcerns": [
+        "docs/14 exclusively owns the Semantic Mutation contract while AI, Workbench, and flow docs remain consumers",
+        "untrusted request, trusted authorization, preparation, plan, result, and verification execution authority are separated",
+        "the v1 registry allows only add-state-transition with exact TRANSITIONS_TO and base-dependent MUTATES semantic effects",
+        "official Registry assets and unloaded source/model mirrors fail closed as mutation targets",
+        "Entity, Fact, Assertion, confidence, and evidence drift are exact matched without caller-supplied Fact Delta authority",
+        "diagnostic precedence and staged rejection shapes cover Fact Delta, expectation, Impact, and Verification producer boundaries",
+        "lease, byte and semantic CAS, isolated staging, atomic single-file publish, rollback, recovery, replay, and downstream invalidation are frozen",
+        "Verification acceptance binds the exact plan, attempted endpoint, staged source digest, full requirement union, and passed report",
+        "SM-1 remains a pure kernel with no Workspace IO, adapter, Pipeline, or product consumer integration"
+      ]
+    }
+  ],
+  "environmentClosure": {
+    "junctionPath": "D:/Project/sec-worktrees/v0-4-semantic-mutation-design/node_modules",
+    "junctionTarget": "D:/Project/sec/node_modules",
+    "rootNodeModulesEntryCountBefore": 408
+  },
+  "status": "passed",
+  "invalidationRules": [
+    "any tested Markdown blob changes",
+    "the roadmap contract or docs-doctor rules change",
+    "Semantic Mutation request, authorization, preparation, expectation, operation registry, source ownership, plan/result, diagnostic, verification binding, transaction, rollback, recovery, ordering, digest, or scope authority changes",
+    "Fact Delta or Impact canonical contract changes before SM-1 implementation"
+  ],
+  "remainingGaps": []
+}

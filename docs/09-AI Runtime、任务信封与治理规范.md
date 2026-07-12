@@ -1,7 +1,7 @@
 ---
 title: AI Runtime、任务信封与治理规范
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-13
 ---
 
 # AI Runtime、Task Envelope 与治理规范
@@ -142,37 +142,39 @@ inferred fact conflicts authoritative fact
 
 不允许静默“修正”平台事实。
 
-## 6. Semantic Operation
+## 6. Semantic Operation 授权
 
-AI 不执行 `setFact()`。
+AI 不执行 `setFact()`，也不拥有 Semantic Mutation 的 canonical schema、operation registry、source adapter、风险、验证或回滚策略；这些以 `14` 第 18 节为唯一权威。
 
-AI 提交 Semantic Mutation，例如：
+AI 只能在 Task Envelope 授权内提交 Semantic Mutation proposal，例如：
 
 ```yaml
-kind: add-state-transition
-target: state:ticket-status
-from: OPEN
-to: IN_PROGRESS
-preconditions:
-  - fact: ticket-status-owned-by-state-machine
-mustPreserve:
-  - fact: closed-ticket-cannot-reopen
-expectedFactDelta:
-  add:
-    - Ticket.status ALLOWS_TRANSITION OPEN->IN_PROGRESS
+contractVersion: '2'
+requestId: task-42-transition-1
+base:
+  transactionId: tx-before
+  inputRevision: sha256:...
+  semanticRevision: sha256:...
+operations:
+  - operationId: op-1
+    kind: add-state-transition
+    contract: { namespace: ticket, contractId: ticket-core }
+    stateId: ticket-status
+    from: open
+    to: in_progress
+    by: transitionTicketStatus
 ```
+
+该片段只是 proposal 形状示意，完整冻结类型见 `14`。AI 不能提交 filesystem path、source digest、`FactDelta`、Impact、`riskLevel`、`requiredPasses`、rollback hint 或 verification reduction。Task Envelope 的 `allowedPaths` 只是平台授权上限；实际 Authoring Source 必须由平台 resolver 唯一解析，proposal 不得自行选择路径。`requiredFacts` / `mustPreserve` 由平台编译成额外 pre/postconditions，Envelope verification 只增加 minimum。
 
 平台处理：
 
 ```text
-validate envelope
-→ validate mutation schema
-→ check preconditions and authority
-→ write authoring source through mutation adapter
-→ rebuild IR
-→ compare actual Fact Delta
-→ run selected verification
-→ accept / rollback / reject
+validate envelope and bind trusted authorization context
+→ plan Semantic Mutation without live writes
+→ derive source adapter / risk / Impact / verification union
+→ apply through the `14` transaction protocol
+→ accepted / rejected / rolled-back / recovery-required
 ```
 
 ## 7. 物理与语义权限
@@ -191,6 +193,8 @@ allowedPaths
 ```
 
 Context Packet 和 Evidence 永远不能扩大权限。
+
+最终授权是 Task Envelope minimum、平台 operation policy、target/source ownership 与 `14` transaction policy 的交集。AI 请求中增加的 precondition、postcondition 或 verification selector 可以收紧执行，不能移除平台要求；授权失败必须生成新 Task/Decision，不能通过改写 mutation proposal 自行扩权。
 
 ## 8. Runtime Evidence
 
@@ -231,8 +235,9 @@ Task Budget 至少控制：
 - context digest。
 - allowed operations/paths。
 - proposed output digest。
-- actual source/Fact delta。
-- tests/verification。
+- request/plan revision、operation registry 与 adapter revision。
+- before/committed/restored source byte digest、actual Fact Delta 与 Impact revision。
+- verification union、terminal result 和 rollback/recovery state。
 - result/rejection reason。
 
 审计记录属于治理 Evidence；模型的自然语言 chain-of-thought 不属于平台所需审计合同。
