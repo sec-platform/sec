@@ -27,6 +27,7 @@
     ['Node Types', String(nodeTypeRows.length)],
     ['Edge Types', String(edgeTypeRows.length)]
   ];
+  const semanticViewSet = graph.semanticViews;
   const coverageRows = explainNodeTypes.map(function(type) {
     return [type, 'ExplainGraph node', 'node table + type detail', String(nodeTypeCounts.get(type) ?? 0)];
   }).concat([
