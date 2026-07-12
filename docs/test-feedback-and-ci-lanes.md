@@ -309,3 +309,23 @@ Implementation head `b00415b`，base `a3025aca63c6c365e2561b415ddfe07dc8a61141`�
 | 同上 | changed-only imports、`typecheck`、`docs:doctor`、`git diff --check` | import/type/doc/patch hygiene | PASS（imports 4.8s；typecheck 10.8s；docs doctor 0 errors / 0 warnings） | 最终文档 closeout 只需重跑 docs doctor 与 patch hygiene；TypeScript 变化则重跑 imports/typecheck。 |
 
 最终 PR head 还必须取得 `sec-verification/full/ci-verification-v3/base-<current-base>` trusted success。该单 runner Full 的 evidence `coverageProfiles` 必须同时包含 `quick / risk / full`，并记录 exact `headSha`、`baseSha`、revision、每个 Gate phase/result/duration；没有该外部 exact-head evidence 不得 merge。
+
+### P0-7 增量复用与本地批量收口账本
+
+昂贵验证不得因只修改一个已定位的 test fixture 而从第一个 Gate 重新开始。A0 必须按 `contract revision + base + tested head + Gate + scope + result + invalidation` 记录前次结果，并以“最近有效 baseline + intervening diff impact + delta batch”组合当前证据。只有 Gate 输入、runner command/environment、selector/registry contract 或被覆盖语义发生变化时，已有 PASS 才失效。
+
+本地 slow resume 使用显式 suite batch：
+
+```text
+bun scripts/ci-pr-risk.ts --suite <suite-a> --suite <suite-b> ... --continue-on-failure
+```
+
+`--suite`（同时接受 `--suite <id>` / `--suite=<id>`）只运行账本中尚未覆盖或被 delta 失效的 suite；requested batch 必须从 clean tracked HEAD 启动并在结束时再次检查 clean。`--continue-on-failure` 只允许用于显式 suite batch，保证一次批次收集全部失败，并把 resolved head/base SHA、suite code/duration 和最终状态写入 `.tmp/ci-risk-batch-evidence.json` / `SEC_CI_RISK_SUMMARY`。默认 PR Risk / Full 仍保持 fail-fast；mutating workspace chain 永远不得 continue-on-failure。
+
+| Evidence | Head / base | 已证明且可复用 | Blocker / 失效边界 |
+| --- | --- | --- | --- |
+| Hosted run `29199433617` | `53f8740` / `a3025ac` | imports、typecheck、docs、affected | full-fast 的旧 ExplainGraph fixture 缺 canonical `semanticViews`；后续 Gate 未运行。 |
+| Hosted run `29199912439` | `0550cb4` / `a3025ac` | 上述 Quick、full-fast 329/329、test-budget、Contract Freeze 74/74 | all-slow 在 `e2e-graph` 暴露 canonical node `references` 断言漂移；后续 slow/workspace 未运行。 |
+| Hosted run `29200319653` | `e372263` / `a3025ac` | Quick、full-fast 329/329、test-budget、Contract Freeze；12 个 parallel-safe standard slow suites（compiler-smoke、dry-run-plan、expanded-blocks、graph、lanes、policy、repair、runtime-host、summary、upgrade、verify-lock、workspace） | 第一个 serial suite `e2e-pipeline-end-to-end` 仍期待 legacy slot ID；其后 serial/runtime-heavy suites 与 Full tail 未运行。 |
+
+`e372263` 之后的 graph test delta 不修改 production graph、SemanticView、runner command/environment 或上述已通过 slow suites 的输入，因此不得重跑 full-fast、test-budget、Contract Freeze 和已通过的 12 个 slow suites。收口只需：graph identity 风险簇、账本中剩余 slow suites 的一次 continue-on-failure 本地 batch、随后 benchmark/deps/ordered workspace Full tail。用户明确授权本轮使用本地环境完成该组合证据，不再触发新的 GitHub Actions；最终 ledger 必须记录本地 exact head/base、命令、duration、结果与失效规则。

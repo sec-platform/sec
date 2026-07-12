@@ -117,7 +117,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   const explainedLockState = await readJson<{ passStatus: { emit: string } }>(lockPath);
   expect(explainedLockState.passStatus.emit).toBe('succeeded');
-  expectGraphNode(graph, { id: 'slot:customer_normalizer' });
+  expectGraphNode(graph, { id: 'slot:entity/customer-basic:customer_normalizer' });
   expectGraphNode(graph, { type: 'pin' });
   expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
   expectGraphEdge(graph, {

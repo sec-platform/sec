@@ -226,23 +226,37 @@ test('local affected runner shares canonical changed-file parsing and impact own
   expect(source).not.toContain("['diff', '--name-only', '--diff-filter=ACMR'");
 });
 
-test('CI risk runner reuses bounded concurrency and stops scheduling after the first parallel failure', async () => {
+test('CI risk runner keeps fail-fast default and supports explicit resumable local batches', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
 
   expect(source).toContain("process.argv.includes('--all-slow')");
+  expect(source).toContain("process.argv.includes('--continue-on-failure')");
+  expect(source).toContain("argumentValues('--suite')");
+  expect(source).toContain('argument.startsWith(inlinePrefix)');
+  expect(source).toContain("'requested-batch'");
+  expect(source).toContain('cannot combine --all-slow with explicit --suite values');
+  expect(source).toContain('--continue-on-failure requires at least one explicit --suite value');
+  expect(source).toContain('requested batch requires a clean tracked HEAD');
+  expect(source).toContain('requested batch cannot resolve exact head/base');
   expect(source).toContain('process.env.SEC_CHANGED_BASE ?? process.env.SEC_AFFECTED_TESTS_BASE');
-  expect(source).toContain('const preSlowSteps: GateStep[] = runAllSlow ? []');
-  expect(source).toContain('const postSlowSteps: GateStep[] = runAllSlow ? []');
+  expect(source).toContain('const preSlowSteps: GateStep[] = runAllSlow || runRequestedSlow ? []');
+  expect(source).toContain('const postSlowSteps: GateStep[] = runAllSlow || runRequestedSlow ? []');
   expect(source).toContain('runAllSlow ? slowSuites : slowSuiteSelection.suites');
   expect(source).toContain('SEC_CI_PR_RISK_SLOW_CONCURRENCY');
   expect(source).toContain("suite.parallelSafe && suite.resourceClass === 'standard'");
   expect(source).toContain("suite.resourceClass === 'runtime-heavy'");
   expect(source).toContain('runBunStepsInParallel');
   expect(source).toContain('let stopScheduling = false');
-  expect(source).toContain('while (!stopScheduling && nextIndex < steps.length)');
-  expect(source).toContain('if (result.code !== 0)');
+  expect(source).toContain('while ((continueAfterFailure || !stopScheduling) && nextIndex < steps.length)');
+  expect(source).toContain('if (result.code !== 0 && !continueAfterFailure)');
   expect(source).toContain('stopScheduling = true');
   expect(source).toContain('stopped scheduling after failure');
+  expect(source).toContain('SEC_CI_RISK_SUMMARY');
+  expect(source).toContain('.tmp/ci-risk-batch-evidence.json');
+  expect(source).toContain('completedSlowSteps');
+  expect(source).toContain('failedSlowSteps');
+  expect(source).toContain('baseSha: evidenceBaseSha');
+  expect(source).toContain('trackedTreeCleanAfter');
   expect(source).toContain('parallel-safe standard slow steps with concurrency ${concurrency}');
   expect(source).toContain('runtime-heavy slow steps serially');
   expect(source).toContain('SEC_TEST_WORKSPACE_NAMESPACE');
