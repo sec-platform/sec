@@ -757,23 +757,152 @@ Index 是内存派生对象，不持久化为第二份 canonical artifact。
 
 ## 16. Fact Delta
 
-v0.4 目标：
+Fact Delta v1 是两个 **transaction-referenced validated endpoints** 之间的纯内存、只读 Fact Set 差量。它只描述 canonical `SemanticFact` / `FactAssertion` 变化，不是完整 semantic graph diff，也不是 Authoring、Impact、Mutation、Lock、Projection 或 artifact authority。
+
+### 16.1 Canonical contract
 
 ```ts
+type FactDeltaContractVersion = "1";
+type FactDeltaScope = "fact-set";
+type FactAssertionUpdateField = "confidence" | "evidence";
+
+interface FactDeltaEndpoint {
+  readonly transactionId: string;
+  readonly inputRevision: string;
+  readonly semanticRevision: string;
+}
+
+interface FactDeltaEndpointContext extends FactDeltaEndpoint {
+  readonly snapshot: ValidatedEngineeringIRSnapshot;
+}
+
+interface FactAssertionUpdate {
+  readonly assertionId: FactAssertionId;
+  readonly changedFields: readonly FactAssertionUpdateField[];
+  readonly before: Readonly<Pick<FactAssertion, "confidence" | "evidence">>;
+  readonly after: Readonly<Pick<FactAssertion, "confidence" | "evidence">>;
+}
+
+interface SemanticFactChange {
+  readonly factId: SemanticFactId;
+  readonly addedAssertions: readonly FactAssertion[];
+  readonly removedAssertions: readonly FactAssertion[];
+  readonly updatedAssertions: readonly FactAssertionUpdate[];
+}
+
 interface FactDelta {
-  fromRevision: string;
-  toRevision: string;
-  added: SemanticFact[];
-  removed: SemanticFact[];
-  changed: SemanticFactChange[];
+  readonly contractVersion: FactDeltaContractVersion;
+  readonly scope: FactDeltaScope;
+  readonly formatVersion: typeof ENGINEERING_IR_FORMAT_VERSION;
+  readonly graphId: string;
+  readonly appId: SemanticEntityId;
+  readonly from: FactDeltaEndpoint;
+  readonly to: FactDeltaEndpoint;
+  readonly fromFactSetDigest: string;
+  readonly toFactSetDigest: string;
+  readonly added: readonly SemanticFact[];
+  readonly removed: readonly SemanticFact[];
+  readonly changed: readonly SemanticFactChange[];
+  readonly deltaRevision: string;
 }
 ```
 
-由于 Fact ID 由 subject/predicate/object 派生，Object 改变通常表现为 remove + add。
+唯一 producer 是 Compiler / IR boundary 的纯函数：
 
-`changed` 主要承载 identity-preserving assertion set 变化，例如 Assertion add/remove、evidence 变化或 validity 变化。实现时必须明确 canonical diff 规则，不使用模糊 deep-diff。
+```ts
+buildFactDelta(
+  from: FactDeltaEndpointContext,
+  to: FactDeltaEndpointContext
+): FactDelta
+```
 
-Authority 改变不是“Fact authority changed”；它通常表现为旧 Assertion 与新 Assertion 的集合变化，因为 authority 属于 Assertion identity。
+`FactDeltaEndpointContext` 是最小 execution audit reference，不引入 `GeneratorPlan`、`SemanticViewSet` 或 Pipeline orchestration ownership。`PipelineSemanticContext` 可以向它提供同 transaction 的字段；调用方负责保证 transaction 实际拥有该 context，Fact Delta kernel 只能校验 transaction label 非空及两个 revision 与 snapshot 精确相等，不能从 snapshot 反向证明 transaction ownership。kernel 不接入 Pipeline stage、不读取 Workspace、不写 Lock，也不生成 stable artifact。
+
+`transactionId` 只记录实际 execution / audit binding，不参与 `deltaRevision`；同一 from/to canonical payload 在不同 transaction 中必须得到相同 `deltaRevision`。`inputRevision` 记录各 endpoint 的 authoring-input identity，不参与 Fact 分类。`semanticRevision` 是 endpoint 的 canonical graph identity，禁止用裸 `fromRevision` / `toRevision` 猜测 revision domain。`fromFactSetDigest` / `toFactSetDigest` 是 exact Fact Set audit identity；它们不能替代 `semanticRevision`。
+
+Digest 使用已有 SHA-256 表达形式 `sha256:<lowercase-hex>`。`factSetDigest` 的 canonical payload 固定为：
+
+```text
+{
+  domain: "engineering-ir-fact-set-v1",
+  formatVersion,
+  graphId,
+  appId,
+  facts: canonical Facts with every assertion.validFromRevision / validToRevision omitted
+}
+```
+
+`deltaRevision` 的 canonical payload 固定为：
+
+```text
+{
+  domain: "engineering-ir-fact-delta-v1",
+  contractVersion,
+  scope,
+  formatVersion,
+  graphId,
+  appId,
+  from: { semanticRevision },
+  to: { semanticRevision },
+  fromFactSetDigest,
+  toFactSetDigest,
+  added / removed / changed canonical payload
+}
+```
+
+其中 `transactionId`、`inputRevision` 与所有 Assertion validity 字段均不进入 digest；`added` / `removed` 的 digest payload 也移除 validity。数组沿用下述 canonical order，不再按 JSON 文本偶然顺序重排。这样 execution / authoring-input audit 可以保留真实 endpoint metadata，而相同 semantic endpoints 的 delta identity 不因 transaction、non-semantic input 或 `validFromRevision` endpoint binding 漂移。
+
+### 16.2 Preconditions 与 diagnostics
+
+Producer 必须在任何分类前执行：
+
+1. from/to 的 `transactionId`、`inputRevision`、`semanticRevision` 均非空；context 中两个 revision 必须分别精确等于 `snapshot.ir` 对应字段。该检查验证 endpoint revision binding 与 audit label，不声称验证 snapshot 内不存在的 transaction ownership。
+2. 两端 snapshot 必须具有相同 `formatVersion`、`graphId` 与 `appId`。跨 format / graph / app 比较 hard fail，不伪装成全量 remove + add。
+3. 保持调用方指定的 from → to 方向；不为排序稳定性交换 endpoint，也不推断 revision ancestry。
+4. 输入只接受 branded `ValidatedEngineeringIRSnapshot`。不得接收 raw `EngineeringIR`、Lock、Projection、ReviewSummary 或 artifact shape，也不得在 diff 内修复/重新 normalize 输入。
+5. 相同 `semanticRevision` 却出现不同 canonical semantic payload 是 digest / validated-boundary invariant violation，hard fail。
+6. Fact Delta v1 不支持 `validToRevision`。任一 Assertion 含该字段时 hard fail，直到 validity lifecycle、interval validator 与独立 endpoint/digest authority 被单独冻结。
+
+稳定 diagnostics：
+
+| Code | 含义 |
+| --- | --- |
+| `FACT-DELTA-001` | endpoint transaction audit label 为空，或 context 与 snapshot revision binding 无效 |
+| `FACT-DELTA-002` | formatVersion / graphId / appId lineage 不兼容 |
+| `FACT-DELTA-003` | 相同 semanticRevision 对应不同 canonical payload |
+| `FACT-DELTA-004` | 相同 Fact ID 对应不同 triple |
+| `FACT-DELTA-005` | 相同 Assertion ID 对应不同 authority / provenance identity metadata |
+| `FACT-DELTA-006` | v1 遇到 unsupported validity state（`validToRevision`） |
+| `FACT-DELTA-007` | 输出集合重叠、重复或非 canonical order |
+
+### 16.3 Canonical classification
+
+输入已由 validated boundary 保证 canonical order。Producer 按 ID 做 deterministic merge-join，不使用 generic JSON deep-diff：
+
+- only-to Fact ID → `added`；only-from Fact ID → `removed`。
+- 同 Fact ID 必须具有完全相同的 subject / predicate / normalized object，否则 `FACT-DELTA-004`。
+- 由于 Fact ID 由 subject / predicate / object 派生，任何 triple/object 变化都表现为旧 Fact `removed` + 新 Fact `added`，绝不进入 `changed`。
+- retained Fact 内 only-to Assertion ID → `addedAssertions`；only-from Assertion ID → `removedAssertions`。
+- authority / provenance 属于 Assertion identity；它们变化时表现为 Assertion remove + add。
+- 同 Assertion ID 必须具有完全相同的 authority 与 normalized provenance，否则 `FACT-DELTA-005`。
+- 同 Assertion ID 只有 `confidence` 或 `evidence` 变化时进入 `updatedAssertions`；`changedFields` 固定按 `confidence` → `evidence` 排序。
+- `validFromRevision` 是每个 validated endpoint 的 semantic revision binding。正常 from → to 自动重绑不属于 assertion update，禁止因此把所有 retained Facts 误报为 changed。
+- retained Fact 没有 assertion delta 时不输出到 `changed`。同一 Fact ID 只能出现在 `added`、`removed`、`changed` 之一。
+
+输出按 `factId` 排序；内部 Assertion 集合按 `assertionId` 排序；evidence/provenance 沿用既有 normalization。Producer clone 输出并递归 deep-freeze，不修改或复用为可变状态的输入对象。相同输入重复执行必须得到 byte-stable JSON 与相同 `deltaRevision`。
+
+### 16.4 Scope 与后续边界
+
+`scope: "fact-set"` 是强制语义：
+
+- `added/removed/changed` 全空，只能证明两端 Fact Set 相等，不能证明两个 snapshots 相等或“无影响”。Entity-only change 可以导致不同 `semanticRevision` 与空 Fact Delta。
+- 不同 `semanticRevision` 也可能得到空 Fact Delta；相同 revision 更不能绕过 endpoint / digest invariant checks。
+- Impact Propagation 后续必须同时读取 delta 与 validated snapshot/index；不得把 empty Fact Delta 当作 no impact，也不得把 transitive impact、unknown/dynamic region 或 verification selection 回写 Delta。
+- Semantic Mutation 后续只能 exact-match base `semanticRevision` 与 preconditions，回写 Authoring Source，由 Compiler 重建新的 canonical bundle/context，再计算 actual Fact Delta。Expected delta 是受限 expectation DSL，不是 actual canonical `FactDelta`，不能授权 AI 直接写 IR。
+- 现有 Engineering Semantic Diff 仍是 artifact/governance approximation；Lock、Projection、Workbench、ReviewSummary 不得各自实现 comparator 或冒充 canonical Fact Delta producer。
+- 本合同不新增 stable `engineering-ir.json` / Fact Delta artifact；持久化仍受第 18 节约束。
+
+Fact Delta v1 的最低 Contract Freeze sentinels 包括：空 delta、Fact add/remove 与方向反转、object change remove+add、Assertion add/remove、confidence/evidence update、authority/provenance remove+add、reordered canonical input stable、validFrom 自动重绑无 churn、`validToRevision` 拒绝、跨 graph/app 拒绝、entity-only change 允许空 Fact arrays、raw IR/Lock/Projection compile-time rejection、canonical ordering、输入不变、输出 deep-frozen 与 deterministic repetition。
 
 ## 17. Projection
 
