@@ -33,7 +33,7 @@ model CustomExtension {
 
     // Run CLI compose
     const composeRes = await runCliInProcess(workspaceRoot, ['compose']);
-    expect(composeRes.code).toBe(0);
+    expect(composeRes.code, composeRes.stderr || composeRes.stdout).toBe(0);
 
     // 2. Check that target schema.prisma has the model CustomExtension merged
     const targetPrismaSchemaPath = path.join(projectRoot, 'prisma', 'schema.prisma');
