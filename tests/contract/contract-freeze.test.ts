@@ -21,6 +21,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/error-protocol.test.ts',
     'tests/contract/fact-delta-contract.test.ts',
     'tests/contract/impact-propagation-contract.test.ts',
+    'tests/contract/semantic-mutation-contract.test.ts',
     'tests/contract/test-architecture.test.ts',
     'tests/contract/test-impact.test.ts'
   ]));
@@ -30,7 +31,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'verification.ci-workflow',
     'verification.impact',
     'semantic.fact-delta',
-    'semantic.impact-propagation'
+    'semantic.impact-propagation',
+    'semantic.mutation'
   ]));
   expect(contract.contractIds).toEqual([...contract.targets.map((target) => target.contractId)].sort());
 
@@ -40,6 +42,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(formatted).toContain(`Contract IDs: ${contract.contractIdCount}`);
   expect(formatted).toContain('Target verification.contract-freeze; file=tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts');
   expect(formatted).toContain('Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts');
+  expect(formatted).toContain('Target semantic.mutation; file=tests/contract/semantic-mutation-contract.test.ts; command=bun test tests/contract/semantic-mutation-contract.test.ts');
 
   const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
   expect(runnerInvocations).toHaveLength(1);
@@ -66,7 +69,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         `Target files: ${contract.targetFileCount}`,
         `Target file list: ${contract.targetFiles.join(', ')}`,
         'Target verification.contract-freeze; file=tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts',
-        'Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts'
+        'Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts',
+        'Target semantic.mutation; file=tests/contract/semantic-mutation-contract.test.ts; command=bun test tests/contract/semantic-mutation-contract.test.ts'
       ],
       json: {
         status: 'active',
