@@ -1,0 +1,204 @@
+{
+  "schemaVersion": "1",
+  "evidenceId": "v0-4-semantic-mutation-kernel-c0e3d93",
+  "recordedAt": "2026-07-13T07:25:00.0391232+08:00",
+  "finalImplementationHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+  "finalImplementationTree": "6508831df479e329c116203c574970757fffa20b",
+  "baseSha": "d0e937ed9793692175b7934ac91ceaa4796c72f7",
+  "baseTree": "f6e5bc7c37074813930b8ca586de3430948e1b24",
+  "profile": "v0.4-semantic-mutation-kernel",
+  "contractRevision": "ci-verification-v3",
+  "changedPaths": {
+    "count": 18,
+    "digestAlgorithm": "sha256 of UTF-8 compact JSON over code-unit-sorted paths",
+    "digest": "sha256:f1825ba754d0313ff38bedd8ed5d800b31861e6d9cc3dff8b01d137e2f861710",
+    "paths": [
+      "docs/14-Engineering IR与语义事实规范.md",
+      "platform/compiler/index.ts",
+      "platform/compiler/semantic-mutation/canonical.ts",
+      "platform/compiler/semantic-mutation/match-conditions.ts",
+      "platform/compiler/semantic-mutation/match-expectation.ts",
+      "platform/compiler/semantic-mutation/normalize-request.ts",
+      "platform/compiler/semantic-mutation/operation-registry.ts",
+      "platform/compiler/semantic-mutation/plan-semantic-mutation.ts",
+      "platform/compiler/semantic-mutation/preflight-semantic-mutation.ts",
+      "platform/compiler/semantic-mutation/semantic-mutation-result.ts",
+      "platform/compiler/semantic-mutation/verification-policy.ts",
+      "platform/shared/contract-freeze-contract.ts",
+      "platform/shared/semantic-mutation-types.ts",
+      "platform/shared/test-impact-rules/semantic.ts",
+      "tests/contract/contract-freeze.test.ts",
+      "tests/contract/semantic-mutation-contract.test.ts",
+      "tests/contract/test-impact.test.ts",
+      "tests/unit/semantic-mutation.test.ts"
+    ]
+  },
+  "scope": {
+    "productionBlobs": [
+      { "path": "platform/compiler/index.ts", "blob": "4eeab9cdb0e7609a2343758ca0d0a9a015153552" },
+      { "path": "platform/compiler/semantic-mutation/canonical.ts", "blob": "1b2a2067c9cb2485cc9a6b6ff5254f3b7588813e" },
+      { "path": "platform/compiler/semantic-mutation/match-conditions.ts", "blob": "0ace34913aad0c25737270440c1d761333ac540f" },
+      { "path": "platform/compiler/semantic-mutation/match-expectation.ts", "blob": "e45310c09784e6b125f339c39823e8b75271bdcc" },
+      { "path": "platform/compiler/semantic-mutation/normalize-request.ts", "blob": "8e2290e1f759ac94aca0c1b11ba412b4ed779cb0" },
+      { "path": "platform/compiler/semantic-mutation/operation-registry.ts", "blob": "423d27439103c555c9e43db38598e4c30549ed23" },
+      { "path": "platform/compiler/semantic-mutation/plan-semantic-mutation.ts", "blob": "d061ecbd1a274b5cc38b1bcb747dd5e90f33d52c" },
+      { "path": "platform/compiler/semantic-mutation/preflight-semantic-mutation.ts", "blob": "e0ff67bc359fe1b12b6e0c8d057313cff5f57abd" },
+      { "path": "platform/compiler/semantic-mutation/semantic-mutation-result.ts", "blob": "1cb0a061c36b137ab2fa16364bf51cca6efac028" },
+      { "path": "platform/compiler/semantic-mutation/verification-policy.ts", "blob": "2e5405b76fcad5a7a7281369e76c01b570df70be" },
+      { "path": "platform/shared/semantic-mutation-types.ts", "blob": "a83072b96c45858bee7d574c72b840d93e199c2e" }
+    ],
+    "contractBlobs": [
+      { "path": "platform/shared/contract-freeze-contract.ts", "blob": "1bb4de1c0e79a5fe0440e8eb8ff66ba924a657d4" },
+      { "path": "platform/shared/test-impact-rules/semantic.ts", "blob": "feef290f3e8d949b5f152d5c9fffe770ca91e42b" },
+      { "path": "tests/contract/contract-freeze.test.ts", "blob": "dc22f8e9911088e75c93bd91cb90813e79cecdef" },
+      { "path": "tests/contract/semantic-mutation-contract.test.ts", "blob": "171752e61ea8a9d32e2ff5354926e7e44a457bb5" },
+      { "path": "tests/contract/test-impact.test.ts", "blob": "9073d6fa8fd8047369b9f4b837ee9752691c8e0d" },
+      { "path": "tests/unit/semantic-mutation.test.ts", "blob": "10e659f066be6779497e28816b4d452d313e2845" }
+    ],
+    "authorityBlob": {
+      "path": "docs/14-Engineering IR与语义事实规范.md",
+      "blob": "9785e59480fede0cf3358cae1b462f8b2397ebd5"
+    },
+    "forbiddenBoundariesTouched": []
+  },
+  "gates": [
+    {
+      "gateId": "focused-semantic-mutation",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "status": "passed",
+      "passed": 13,
+      "failed": 0,
+      "files": 2,
+      "execution": "covered inside canonical affected-fast batch",
+      "testedBlobs": [
+        "171752e61ea8a9d32e2ff5354926e7e44a457bb5",
+        "10e659f066be6779497e28816b4d452d313e2845"
+      ]
+    },
+    {
+      "gateId": "affected-fast",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "argv": ["bun", "run", "test:affected"],
+      "environment": { "SEC_CHANGED_BASE": "d0e937ed9793692175b7934ac91ceaa4796c72f7" },
+      "startedAt": "2026-07-12T23:20:15.4341789Z",
+      "finishedAt": "2026-07-12T23:21:36.3453303Z",
+      "wallDurationMs": 80903,
+      "status": "passed",
+      "passed": 165,
+      "failed": 0,
+      "uniqueFiles": 29,
+      "batchCounts": [122, 29, 1, 13],
+      "rawEvidenceSha256": "e0bab2e2c9f8e86e323e67cf54ec7e084448f7f6fb00c81539fc49346ac520c4",
+      "rawEvidenceBytes": 19536
+    },
+    {
+      "gateId": "contract-freeze",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "argv": ["bun", "run", "test:contract-freeze"],
+      "startedAt": "2026-07-12T23:21:45.9294093Z",
+      "finishedAt": "2026-07-12T23:21:49.8848659Z",
+      "durationMs": 3947,
+      "status": "passed",
+      "passed": 89,
+      "failed": 0,
+      "files": 15,
+      "rawEvidenceSha256": "53b558ca2e832e37c8ca4fbee595ebacd7da404fbf6698bb4d0a53241cfc28e0",
+      "rawEvidenceBytes": 8957
+    },
+    {
+      "gateId": "selector-required-slow-batch",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "status": "passed",
+      "passedSuites": 2,
+      "failedSuites": 0,
+      "passedTests": 6,
+      "failedTests": 0,
+      "wallDurationMs": 49585,
+      "evidencePath": "docs/evidence/v0-4-semantic-mutation-risk-batch.json"
+    },
+    {
+      "gateId": "changed-imports",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "argv": ["bun", "run", "imports:check"],
+      "environment": {
+        "SEC_IMPORTS_CHANGED_ONLY": "1",
+        "SEC_CHANGED_BASE": "d0e937ed9793692175b7934ac91ceaa4796c72f7"
+      },
+      "startedAt": "2026-07-12T23:22:02.2722473Z",
+      "finishedAt": "2026-07-12T23:22:05.7499782Z",
+      "durationMs": 3470,
+      "status": "passed",
+      "rawEvidenceSha256": "6c82fed690d07fb748b0f22d3e5521f78eaffd61867c2e833316c9e107603eff",
+      "rawEvidenceBytes": 70
+    },
+    {
+      "gateId": "typecheck",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "argv": ["bun", "run", "typecheck"],
+      "startedAt": "2026-07-12T23:22:05.7553551Z",
+      "finishedAt": "2026-07-12T23:22:11.2457114Z",
+      "durationMs": 5489,
+      "status": "passed",
+      "rawEvidenceSha256": "327b78788f8e7d6a17ba8b273077e926a93510a19b59653cd066679da8d038fd",
+      "rawEvidenceBytes": 42
+    },
+    {
+      "gateId": "patch-hygiene-and-clean-state",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "argv": ["git", "diff", "--check"],
+      "status": "passed",
+      "trackedTreeClean": true
+    },
+    {
+      "gateId": "implementation-frozen-review",
+      "testedHead": "c0e3d93ceaf6ac03b5e98e299176f8c1a0848665",
+      "status": "passed",
+      "resolvedFindings": [
+        "bind plan digest to contractVersion and requestId",
+        "require passed Verification for rollback and recovery terminal variants",
+        "total-check plan and result status so partial-success cannot be forged",
+        "bind rejected and accepted result evidence to the exact plan, endpoint, source digest, requirement union and execution revision",
+        "cover extra Entity, Fact and Assertion drift plus digest-correct wrong-stage and wrong-binding forgeries"
+      ],
+      "remainingFindings": []
+    }
+  ],
+  "evidenceLedger": {
+    "invalidated": [
+      {
+        "head": "d3d39f9d87756c244a690abbddbb1d3cb6681553",
+        "reason": "changed-only imports gate failed for 11 files; its earlier affected, Contract Freeze and focused results are not used as final exact-head evidence"
+      }
+    ],
+    "mechanicalClosure": "repository imports:organize changed only import ordering, was amended into c0e3d93, and every canonical gate was rerun on c0e3d93",
+    "implementationToDocumentation": "the later roadmap and evidence commit changes only docs/03 and these two evidence JSON files; all recorded implementation, contract and authority blobs remain exact",
+    "reusedBaseline": [
+      "FD-3 full-fast evidence",
+      "the selector-unselected slow suites",
+      "ordered workspace and reference tail",
+      "benchmark and dependency evidence",
+      "GitHub Actions evidence"
+    ],
+    "notClaimed": [
+      "a new full-fast run",
+      "a new all-slow run",
+      "a new ordered workspace/reference chain",
+      "a latest-head hosted GitHub status"
+    ]
+  },
+  "environmentClosure": {
+    "worktree": "D:/Project/sec-worktrees/v0-4-semantic-mutation-kernel",
+    "branch": "codex/v0-4-semantic-mutation-kernel",
+    "junctionPath": "D:/Project/sec-worktrees/v0-4-semantic-mutation-kernel/node_modules",
+    "junctionTarget": "D:/Project/sec/node_modules",
+    "rootCheckoutModified": false
+  },
+  "status": "passed",
+  "invalidationRules": [
+    "any recorded production, public facade, authority, ownership, Contract Freeze, focused-test or selected slow-test blob changes",
+    "Semantic Mutation request, authorization, preflight, preparation, condition, expectation, operation effect, plan/result, diagnostic, verification binding, digest, ordering, freeze or scope authority changes",
+    "Fact Delta, Impact Propagation, validated endpoint, operation registry, Verification policy or adapter capability contracts change",
+    "SM-1 is connected to Workspace IO, path/YAML/source adapters, Pipeline, Workbench, API, CLI, AI, Repair, Upgrade, live apply or stable artifacts"
+  ],
+  "remainingGaps": []
+}

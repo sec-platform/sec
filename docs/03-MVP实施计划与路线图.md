@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel 与 Semantic Mutation canonical contract design 均已完成，当前唯一 active next 是 SM-1 pure Semantic Mutation kernels。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel、Semantic Mutation canonical contract design 与 SM-1 pure kernels 均已完成，当前唯一 active next 是 SM-2 source adapter and edit-plan boundary。
 
 当前真实形态：
 
@@ -435,7 +435,7 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE NEXT（SM-1 pure Semantic Mutation kernels）**。
+状态：**ACTIVE NEXT（SM-2 source adapter and edit-plan boundary）**。
 
 只有 v0.3 完成后进入：
 
@@ -503,8 +503,8 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | ID | Work Package | 状态 | 退出条件 |
 | --- | --- | --- | --- |
 | SM-0 | canonical contract design | **COMPLETED** | `docs/14` 已冻结 request/plan/result v2、单一首版 operation registry、source ownership、restricted expectation、diagnostic precedence、transaction/CAS/rollback/recovery 与 Verification ownership；`00/09/11/12` 只保留各自 owner 摘要 |
-| SM-1 | pure request/plan/result kernels | **ACTIVE NEXT** | 纯 normalization、condition/expectation matcher、plan/result invariant 与 Contract Freeze 落地；没有 Workspace IO、source adapter、consumer 或 live apply |
-| SM-2 | source adapter and edit-plan boundary | **BLOCKED BY SM-1** | 唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 落地 |
+| SM-1 | pure request/plan/result kernels | **COMPLETED** | 纯 normalization、condition/expectation matcher、plan/result invariant 与 Contract Freeze 已落地；没有 Workspace IO、source adapter、consumer 或 live apply |
+| SM-2 | source adapter and edit-plan boundary | **ACTIVE NEXT** | 唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 落地 |
 | SM-3 | isolated apply coordinator | **BLOCKED BY SM-2** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 落地 |
 | SM-4 | product adapters and Task Envelope reconciliation | **BLOCKED BY SM-3** | Workbench 先迁移为 v2 caller；AI Task Envelope v2 随后只提供 trusted authorization minimum |
 
@@ -522,6 +522,16 @@ SM-1 Work Package implementation contract：
 - **Acceptance**：proposal 与 trusted context 类型不可混淆；unsupported operation 和 caller-supplied authority 字段 fail closed；conditions/expectations 只接受冻结 DSL；exact matcher 对未声明 Entity/Fact/Assertion drift hard fail；operation/diagnostic/output stable order、digest 与 deep-freeze 有独立手写 vectors；terminal result 不允许 partial success 或把 recovery-required 表述为普通 reject。
 - **Required evidence**：一次 focused unit/contract batch、changed-only import/typecheck、`test:affected` 与完整 Contract Freeze；compiler facade 若使 selector 命中 slow consumer，只批量运行 selector 实际要求的 suite。继续复用仍有效的 FD-3 full-fast、未选择 slow、workspace/reference 与 GitHub Actions 证据，不重跑全矩阵。
 - **Reconciliation point**：SM-1 merge 后从新 `main` 重算 source ownership/path/CAS DAG，再设计 SM-2；不得提前为当前 official Ticket contract 发明 writable `source/model/**` mirror 或把 impure executor 塞入纯 kernel。
+
+### SM-1 退出审查
+
+SM-1 已实现 mutation-specific shared types 与纯 Compiler kernels：严格 request normalization、两阶段 preflight/plan 边界、condition/expectation exact matcher、首版 `add-state-transition` operation registry、保守 Verification planning policy，以及 plan/result builder 与 invariant validator。`contractVersion: "2"`、operation/expectation/policy revision、diagnostic precedence、risk floor、required Verification union、terminal-only status、digest、ordering与 deep-freeze 均由独立 contract vectors 冻结。结果 invariant 重新核对 exact plan、base/staged endpoint、Fact Delta、Impact、source digest、Verification requirement/execution revision；digest-correct 的 unknown status、wrong stage/binding、额外 Entity/Fact/Assertion drift 均 fail closed。
+
+实现保持纯边界：没有引入 Workspace/filesystem/path/YAML/source adapter、live transaction、Pipeline/Workbench/API/CLI/AI consumer、Repair、Upgrade 或 stable artifact；没有修改 Fact Delta、Impact、IR、Validated Snapshot、Index、Projection、Lock shape，也没有修改宽泛 `platform/shared/types.ts`。shared/compiler facade、`semantic-mutation` test owner 与 `semantic.mutation` Contract Freeze target 已闭合。
+
+退出证据绑定 exact implementation head `c0e3d93ceaf6ac03b5e98e299176f8c1a0848665` 与 tree `6508831df479e329c116203c574970757fffa20b`：focused Semantic Mutation 13/13（包含于 canonical affected batch）、affected fast 165/165、Contract Freeze 89/89、typecheck、changed-only imports、patch hygiene 与独立 frozen review 全部 PASS；selector 唯一要求的 `e2e-graph`、`e2e-local-views` 两条 slow suite 共 6/6 tests PASS，失败数 0，测试后 tracked tree clean。第一次 implementation head 因 changed-only imports gate 失败而整体失效；机械 import 排序被 amend 后，全部 canonical gate 已在新头重跑。最终只追加本路线图与两份 evidence，recorded production/contract/authority blobs 保持 exact；不重跑 full-fast、其余 slow、workspace/reference chain 或 GitHub Actions。完整 argv、时间、duration、changed-path digest、blob、raw evidence digest 与失效/复用账本位于 `docs/evidence/v0-4-semantic-mutation-kernel-verification.json` 和 `docs/evidence/v0-4-semantic-mutation-risk-batch.json`。
+
+下一 reconciliation point 是 SM-1 merge 后从新 `main` 重新读取 source ownership、path containment、realpath/reparse、byte CAS 与 rollback authority，设计 SM-2；不得从当前纯 preparation shell 推断已有 writable owner 或 live apply 能力。
 
 ## 14. 后续阶段
 
@@ -590,7 +600,9 @@ v0.4 FD-3 pure Impact Propagation kernel                    COMPLETED
   ↓
 v0.4 SM-0 Semantic Mutation canonical contract design       COMPLETED
   ↓
-v0.4 SM-1 pure request/plan/result kernels                  ACTIVE NEXT
+v0.4 SM-1 pure request/plan/result kernels                  COMPLETED
+  ↓
+v0.4 SM-2 source adapter and edit-plan boundary             ACTIVE NEXT
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。
