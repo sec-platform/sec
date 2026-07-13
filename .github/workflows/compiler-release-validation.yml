@@ -42,7 +42,7 @@ jobs:
               repo: context.repo.repo,
               ref: requestedRef
             });
-            if (commit.parents.length === 0) throw new Error('Release verification requires a commit parent for v4 bases.');
+            if (commit.parents.length === 0) throw new Error('Release verification requires a commit parent for v5 bases.');
             const { data: repository } = await github.rest.repos.get({
               owner: context.repo.owner,
               repo: context.repo.repo
@@ -158,7 +158,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-verification-v4-full-release-head-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-v5-full-release-head-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/ci-verification-evidence.json
           if-no-files-found: error
           retention-days: 90

@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 
 import { parseDocument } from 'yaml';
 
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
-
 export const CodexDevelopmentWorkPackageSchemaV1 = 'codex-development-work-package-v1' as const;
 export const CodexDevelopmentWorkPackageManifestStateFrozen = 'frozen' as const;
+
+export type CodexDevelopmentCiVerificationRevision = `ci-verification-v${number}`;
 
 export type CodexDevelopmentWorkPackageTaskV1 = {
   id: string;
@@ -20,7 +20,7 @@ export type CodexDevelopmentWorkPackageManifestV1 = {
   base: string;
   manifestState: typeof CodexDevelopmentWorkPackageManifestStateFrozen;
   requiredProfile: 'quick' | 'full';
-  ciRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
+  ciRevision: CodexDevelopmentCiVerificationRevision;
   tasks: CodexDevelopmentWorkPackageTaskV1[];
   forbiddenPaths: string[];
   acceptance: string[];
@@ -223,7 +223,10 @@ export function CodexDevelopmentParseWorkPackageManifestV1(
   if (raw.requiredProfile !== 'quick' && raw.requiredProfile !== 'full') {
     throw new Error('Work Package manifest requiredProfile must be quick or full.');
   }
-  if (raw.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) throw new Error('Work Package manifest CI revision mismatch.');
+  const ciRevision = stringValue(raw.ciRevision, 'Work Package manifest ciRevision');
+  if (!/^ci-verification-v[1-9]\d*$/u.test(ciRevision)) {
+    throw new Error('Work Package manifest ciRevision must be a stable positive verification revision.');
+  }
 
   if (!Array.isArray(raw.tasks) || raw.tasks.length === 0 || raw.tasks.length > 32) {
     throw new Error('Work Package manifest tasks must be a non-empty bounded array.');
@@ -268,7 +271,7 @@ export function CodexDevelopmentParseWorkPackageManifestV1(
     base,
     manifestState: CodexDevelopmentWorkPackageManifestStateFrozen,
     requiredProfile: raw.requiredProfile,
-    ciRevision: CI_VERIFICATION_CONTRACT_REVISION,
+    ciRevision: ciRevision as CodexDevelopmentCiVerificationRevision,
     tasks,
     forbiddenPaths,
     acceptance,
