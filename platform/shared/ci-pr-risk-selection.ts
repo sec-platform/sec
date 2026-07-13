@@ -1,6 +1,7 @@
 import { uniqueSorted } from './collections.ts';
 import {
   getSlowTestSuitesSync,
+  isFastTestFile,
   isSlowTestFile,
   slowTestPrRiskBaselineSuiteIds,
   slowTestSuiteFiles
@@ -12,20 +13,33 @@ type CiPrRiskSlowSuiteSelection = {
   slowTests: string[];
   affectedSlowTests: string[];
   owners: string[];
-  reason: 'baseline' | 'impact' | 'none';
+  reasons: Array<
+    'bounded-baseline'
+    | 'changed-files-unresolved'
+    | 'direct-slow-test'
+    | 'mandatory-sentinel'
+    | 'ownership-impact'
+  >;
+  resolved: boolean;
 };
 
 const BOUNDED_BASELINE_PATTERNS = [
   /^package\.json$/,
   /^bun\.lock$/,
   /^platform\/orchestrator\.ts$/,
-  /^scripts\/ci-pr-risk\.ts$/,
-  /^platform\/dev-runner\/test-runner\.ts$/,
-  /^platform\/shared\/ci-pr-risk-selection\.ts$/,
-  /^platform\/shared\/test-budget-contract\.ts$/,
   /^tests\/helpers\/workspace-fixtures\.ts$/,
   /^tests\/setup\//,
   /^tests\/testkit\/workspace\.ts$/
+];
+
+const MANDATORY_SENTINEL_PATTERNS = [
+  /^\.github\/workflows\//,
+  /^scripts\/ci-[^/]+\.ts$/,
+  /^scripts\/codex\/(?:merge-gate|work-package-contract)\.ts$/,
+  /^platform\/dev-runner\//,
+  /^platform\/shared\/ci-[^/]+\.ts$/,
+  /^platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$/,
+  /^platform\/shared\/test-impact-rules\//
 ];
 
 function baselineSlowSuiteIds(): string[] {
@@ -41,28 +55,60 @@ function suitesForSlowTests(slowTests: string[]): string[] {
 
 export function selectCiPrRiskSlowSuites(files: string[] | null): CiPrRiskSlowSuiteSelection {
   if (!files) {
-    return { suites: baselineSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: ['bounded-slow-risk'], reason: 'baseline' };
+    return {
+      suites: baselineSlowSuiteIds(),
+      slowTests: [],
+      affectedSlowTests: [],
+      owners: ['bounded-slow-risk'],
+      reasons: ['bounded-baseline', 'changed-files-unresolved'],
+      resolved: false
+    };
   }
 
-  if (files.some((file) => BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)))) {
-    return { suites: baselineSlowSuiteIds(), slowTests: [], affectedSlowTests: [], owners: ['bounded-slow-risk'], reason: 'baseline' };
-  }
-
+  const boundedBaselineRequired = files.some((file) => BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)));
+  const mandatorySentinelsRequired = files.some((file) => MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file)));
   const directlyChangedSlowTests = files.filter(isSlowTestFile);
   const sourceFiles = files.filter(isTestImpactSourceFile);
   const impact = selectTestsForSources(sourceFiles);
+  const unresolvedFiles = files.filter((file) => {
+    if (
+      /^docs\/.+\.md$/u.test(file) || isFastTestFile(file) || isSlowTestFile(file) ||
+      BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)) ||
+      MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
+    ) return false;
+    if (!isTestImpactSourceFile(file)) return true;
+    const fileImpact = selectTestsForSources([file]);
+    return fileImpact.fast.length === 0 && fileImpact.slow.length === 0 && fileImpact.owners.length === 0;
+  });
+  const selectionResolved = unresolvedFiles.length === 0;
   const affectedSlowTests = uniqueSorted([...directlyChangedSlowTests, ...impact.slow]);
-  const allAffectedSlow = [...directlyChangedSlowTests, ...impact.slow];
-  const suites = suitesForSlowTests(allAffectedSlow);
+  const impactedSuites = suitesForSlowTests(affectedSlowTests);
+  const baselineSuites = boundedBaselineRequired || mandatorySentinelsRequired || !selectionResolved
+    ? baselineSlowSuiteIds()
+    : [];
+  const suites = uniqueSorted([...baselineSuites, ...impactedSuites]);
   const slowTests = uniqueSorted(
     directlyChangedSlowTests.filter((file) => !suites.some((suite) => slowTestSuiteFiles(suite).includes(file)))
   );
+  const reasons = uniqueSorted([
+    ...(boundedBaselineRequired ? ['bounded-baseline' as const] : []),
+    ...(!selectionResolved ? ['changed-files-unresolved' as const] : []),
+    ...(directlyChangedSlowTests.length > 0 ? ['direct-slow-test' as const] : []),
+    ...(mandatorySentinelsRequired ? ['mandatory-sentinel' as const] : []),
+    ...(impact.owners.length > 0 || impact.slow.length > 0 ? ['ownership-impact' as const] : [])
+  ]);
 
   return {
     suites,
     slowTests,
     affectedSlowTests,
-    owners: impact.owners,
-    reason: suites.length > 0 || slowTests.length > 0 ? 'impact' : 'none'
+    owners: uniqueSorted([
+      ...(boundedBaselineRequired || mandatorySentinelsRequired || !selectionResolved
+        ? ['bounded-slow-risk']
+        : []),
+      ...impact.owners
+    ]),
+    reasons,
+    resolved: selectionResolved
   };
 }

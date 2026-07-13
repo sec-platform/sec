@@ -1,7 +1,7 @@
 ---
 title: 测试反馈与 CI 分层
 status: active
-last-reviewed: 2026-07-12
+last-reviewed: 2026-07-14
 ---
 
 # 测试反馈与 CI 分层
@@ -29,7 +29,7 @@ bun run check:full
 bun run imports:organize
 ```
 
-`affected` 只选择相关 fast tests；未知映射产生 notice，不自动膨胀为全部 slow/full。
+`affected` 只选择相关 fast tests。开发者本地入口可以把未知映射报告为 notice；进入 hosted verification 时，changed-file 或 ownership 解析未知必须 fail closed，不得用 bounded baseline 冒充完整通过。
 
 ## 3. PR Quick
 
@@ -47,7 +47,7 @@ install frozen dependencies
 
 Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
 
-Affected selector 默认关注最近提交反馈，避免大型 PR 的每个小修复都重新扩张到整个 PR diff。
+Affected selector 默认关注最近提交反馈。`ci-verification-v4` 的 frozen hosted head 必须是 current base 上的单一提交，因此 hosted `HEAD^1` 与 current PR base 相同；多提交增量复用必须先定义新的 prefix evidence contract，不能由 v4 猜测。
 
 ## 4. PR Risk
 
@@ -63,7 +63,7 @@ contract freeze if impacted
 
 PR Risk 不无条件执行所有 slow suites，也不默认执行 `verify --lane all`。
 
-Risk changed-file 计算优先使用 `SEC_CHANGED_BASE` 的完整 PR 范围。`--all-slow` 是 Full 的 slow executor，只执行 Registry 中的完整 slow suite，不重复 Contract Freeze 或 workspace fast。
+Risk changed-file 计算使用 `SEC_CHANGED_BASE` 的完整 PR 范围。slow selection 是稳定去重并集：bounded baseline、直接变更 slow test、ownership/import impact 与 verification/control-plane mandatory sentinels；命中 baseline 不得提前返回并吞掉 mixed diff 的其他影响。`--all-slow` 是 Full 的 slow executor，只执行 Registry 中的完整 slow suite，不重复 Contract Freeze 或 workspace fast。
 
 Engineering IR/Fact/Projection 公共类型、Builder、Schema、Artifact Path 变化应进入 Contract Freeze 或对应风险选择规则。
 
@@ -99,7 +99,33 @@ SEC_AFFECTED_TESTS_BASE
   最近提交范围，用于快速 affected feedback。
 ```
 
-不要只用 `HEAD^1..HEAD` 判断整个 PR 的合同风险；也不要默认用整个 PR diff 选择每次 affected test。
+不要只用 `HEAD^1..HEAD` 判断整个 PR 的合同风险；也不要在日常本地反馈中默认用整个长期分支 diff 选择每次 affected test。Hosted v4 在 freeze 前要求 A0 将最终状态重放为 `parent(current head) = live current base`，从结构上消除这两个范围之间的覆盖缺口。
+
+### 6.1 Frozen Hosted Verification
+
+普通 `push`、PR `opened`、`synchronize` 与 `ready_for_review` 不运行昂贵验证。A0 完成 diff、ownership 与 review 审查后，按顺序执行：
+
+```text
+rebase current main
+→ squash/amend 为 current base 上的单一 frozen commit
+→ repository_dispatch: sec-scope-attest-v1
+→ 等待 default-branch trusted scope attestation artifact
+→ repository_dispatch: sec-verify-frozen-v1
+→ 等待 exact-head Evidence V2
+→ base-side sec/merge-gate
+```
+
+两个 dispatch 都绑定 repository、PR、current base、exact head、manifest ordinary-blob identity、raw digest/byte length、profile 与 `ci-verification-v4`；manifest 读取必须从 exact commit tree entry 到 raw blob，禁止由 Contents API 透明解引用 symlink。Heavy runner 只有读取权限，不发布 commit status；唯一远端合并状态是由 default-branch trusted workflow 发布的 `sec/merge-gate`。Head/base/manifest 任一变化都会使 attestation、verification artifact 与 gate 失效，必须重新 freeze，禁止通过遗留 label 或旧 success 自动重跑/复用。
+
+### 6.2 Evidence V2 与 Merge Gate
+
+`CodexDevelopmentVerificationEvidenceV2` 至少绑定 exact head/tree、PR base、affected base、manifest path/raw digest、完整 argv、changed-files/input digest、运行前后 clean state、每个计划 Gate 的 `passed|failed|not-run`、duration、failure tail、raw-output SHA-256、contract revision 与 invalidation rules。未调度 Gate 必须说明原因；可捕获失败统一在 `finally` 原子写 failed evidence。缺失、损坏或过期 artifact 一律 fail closed。
+
+Work Package 由 PR body 中唯一的 `Work-Package: docs/work-packages/<id>.md` 定位。Tracked manifest 的最终状态是 `frozen`；`merge-ready` 不是 tracked phase，而是 exact-head attestation、Evidence V2、live GitHub state 与 ruleset 共同推导的外部状态。Manifest 的 task ownership 只接受 literal exact file 或尾随 `/` 的目录前缀；rename/copy 两端必须归属同一 task。
+
+`sec/merge-gate` 只执行 default-branch/base 代码，PR head 只经 GitHub API 作为有界数据读取。它要求 same-repository、target main、单一 open PR 对应 exact head、`H.parents = [currentBase]`、合法且已 attested 的 frozen manifest、完整 ownership、匹配 profile 的 v4 artifact、至少 24 小时剩余 artifact TTL，并在最终 success 前二次读取 live head/base/manifest。每 6 小时的轻量 revalidator 只复查元数据并撤销陈旧 status，不 checkout head、不重跑测试。
+
+Verifier trust root（verification workflows、CI contract/selector/evidence writer、runner、merge gate、manifest parser 与依赖入口）不得由普通 PR 修改后自证通过。命中 trust root 的变化必须升级 revision 并走明确的人工 bootstrap；mandatory sentinel 只增加测试覆盖，不能替代这条信任边界。
 
 ## 7. Contract Freeze
 
@@ -170,7 +196,7 @@ imports:*
 
 GitHub Actions 使用 group 展开边界，失败日志必须能快速定位负责 Gate。
 
-PR workflow 的结构化合同同时校验 trigger、step order 与 exact-head wiring：`run-full` label 保留时，后续 `synchronize` 必须取消旧 head run，并在最新 head 重新执行 Full；`always()` 只用于 evidence/status diagnostics，不得让失败后的 mutating Gate 继续运行。
+PR workflow 的结构化合同同时校验 repository-dispatch type、default-branch workflow identity、只读 heavy-runner permissions、exact head/base/manifest wiring、action SHA pinning、90 天 artifact retention 与 `sec/merge-gate` 的 base-side权限。`always()` 只用于上传 failed evidence 等 diagnostics，不得让失败后的 mutating Gate 继续运行。
 
 ## 12. 大改动模式
 
@@ -191,10 +217,10 @@ PR workflow 的结构化合同同时校验 trigger、step order 与 exact-head w
 
 昂贵验证结果必须持久记录，不能因为后续出现新 commit 就无条件重跑。自 v0.3 exit review 起，每个新 evidence unit 至少记录：
 
-- `schemaVersion`、稳定 `evidenceId`、tested head/tree、base head/tree、profile 和 verification contract revision（已知时）。
+- schema、稳定 evidence digest、tested head/tree、PR base、affected base、profile 和 verification contract revision（已知时）。
 - 每个 Gate 的稳定 `gateId`、精确 `argv` 数组、exit code、started-at / finished-at（runner 可用时）、duration 与 PASS / FAIL；不得用自然语言命令摘要替代可重放参数。
 - 覆盖范围至少包含 changed-files digest、source kind / owner、fast tests、slow suites 或 pass / contract IDs 中适用的部分。
-- 原始 evidence 定位及其 digest、运行前后 tracked tree 是否 clean，以及 artifact/reference changed-path count（适用时）。
+- 原始 evidence 定位及其 digest、运行前后 worktree 是否 clean，以及 artifact/reference changed-path count（适用时）。
 - 明确的 reuse/invalidation rules 与 `remainingGaps`；缺失时间戳等字段必须标为 unavailable，不得追溯伪造。
 
 旧结果不得伪装成新 head 的 exact-head 结果。A0 可以把“已验证 baseline + intervening diff 的影响判断 + 只覆盖 delta 的目标验证”组合为当前 integration state 的 trusted evidence；组合记录必须声明 integration head/base/revision、引用的 `evidenceId`、intervening diff 范围与 digest、每项 reuse / invalidated / rerun 决定、Quick/Risk/Full 覆盖和剩余缺口。只有 diff 触及 Gate 的输入、合同、选择器、运行时依赖或被覆盖语义时，该 Gate 才失效并需要重跑。

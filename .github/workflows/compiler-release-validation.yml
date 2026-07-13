@@ -16,7 +16,6 @@ on:
 
 permissions:
   contents: read
-  statuses: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
@@ -30,9 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Resolve and dedupe exact full verification key
+      - name: Resolve trusted release request, exact head, and verifier boundary
         id: verification
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           REQUESTED_REF: ${{ inputs.ref || github.sha }}
         with:
@@ -43,75 +42,123 @@ jobs:
               repo: context.repo.repo,
               ref: requestedRef
             });
-            const headSha = commit.sha;
-            const statusContext = 'sec-verification/full/ci-verification-v3';
-            const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
+            if (commit.parents.length === 0) throw new Error('Release verification requires a commit parent for v4 bases.');
+            const { data: repository } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const { data: baseBranch } = await github.rest.repos.getBranch({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              ref: headSha,
-              per_page: 100
+              branch: repository.default_branch
             });
-            const trustedSuccess = statuses.some((status) => (
-              status.context === statusContext && status.state === 'success'
-            ));
-            core.setOutput('sha', headSha);
-            core.setOutput('skip', trustedSuccess ? 'true' : 'false');
-            if (trustedSuccess) {
-              core.notice(`Trusted ${statusContext} success already exists for ${headSha}; expensive verification skipped.`);
+            const [headTree, baseTree] = await Promise.all([
+              github.rest.git.getTree({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tree_sha: commit.commit.tree.sha,
+                recursive: 'true'
+              }),
+              github.rest.git.getTree({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tree_sha: baseBranch.commit.commit.tree.sha,
+                recursive: 'true'
+              })
+            ]);
+            if (headTree.data.truncated || baseTree.data.truncated) {
+              throw new Error('Verifier trust-root tree comparison was truncated.');
             }
+            const trustFiles = new Set([
+              '.gitattributes',
+              '.gitignore',
+              '.gitmodules',
+              '.npmrc',
+              'bun.lock',
+              'bunfig.toml',
+              'docs/scripts/docs-doctor.ts',
+              'package.json',
+              'platform/dev-runner.ts',
+              'platform/shared/ci-artifact-contract.ts',
+              'platform/shared/ci-artifact-types.ts',
+              'platform/shared/ci-contract.ts',
+              'platform/shared/ci-evidence-contract.ts',
+              'platform/shared/ci-git-changed-files.ts',
+              'platform/shared/ci-pr-risk-selection.ts',
+              'platform/shared/ci-verification-plan.ts',
+              'platform/shared/collections.ts',
+              'platform/shared/constants.ts',
+              'platform/shared/contract-freeze-contract.ts',
+              'platform/shared/errors.ts',
+              'platform/shared/fs.ts',
+              'platform/shared/paths.ts',
+              'platform/shared/platform-command.ts',
+              'platform/shared/process.ts',
+              'platform/shared/project-runtime.ts',
+              'platform/shared/runtime-dependency-spec.ts',
+              'platform/shared/test-budget-contract.ts',
+              'platform/shared/test-impact-contract.ts',
+              'platform/shared/test-ownership-contract.ts',
+              'scripts/ci-pr-risk.ts',
+              'scripts/ci-verification.ts',
+              'scripts/ci-workspace-fast.ts',
+              'tests/setup/runtime-deps.setup.ts',
+              'tsconfig.json'
+            ]);
+            const trustDirectories = [
+              '.github/workflows/',
+              '.shared-deps/',
+              'node_modules/',
+              'platform/dev-runner/',
+              'platform/shared/test-impact-rules/',
+              'scripts/codex/',
+              'tests/testkit/'
+            ];
+            const trustPrefixes = ['.env'];
+            const selectTrust = (tree) => Object.fromEntries(tree
+              .filter((entry) => entry.path && (
+                trustFiles.has(entry.path) ||
+                trustDirectories.some((directory) => entry.path.startsWith(directory)) ||
+                trustPrefixes.some((prefix) => entry.path.startsWith(prefix))
+              ))
+              .map((entry) => [entry.path, `${entry.type}:${entry.sha}`])
+              .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+            if (JSON.stringify(selectTrust(headTree.data.tree)) !== JSON.stringify(selectTrust(baseTree.data.tree))) {
+              throw new Error('manual-bootstrap-required: release ref changes the verifier trust root.');
+            }
+            core.setOutput('sha', commit.sha);
+            core.setOutput('base', commit.parents[0].sha);
 
       - name: Checkout exact release head
-        if: steps.verification.outputs.skip != 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ steps.verification.outputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Bun
-        if: steps.verification.outputs.skip != 'true'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.6
 
       - name: Install dependencies once
-        if: steps.verification.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
       - name: Run exact-head full verification
-        if: steps.verification.outputs.skip != 'true'
         id: verify
         shell: bash
         env:
           SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
+          SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
+          SEC_AFFECTED_TESTS_BASE: ${{ steps.verification.outputs.base }}
         run: bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
 
       - name: Upload compact full verification evidence
         id: evidence
-        if: always() && steps.verification.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-verification-full-${{ steps.verification.outputs.sha }}
+          name: sec-verification-v4-full-release-head-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/ci-verification-evidence.json
           if-no-files-found: error
-          retention-days: 7
-
-      - name: Record exact-head full verification status
-        if: always() && steps.verification.outputs.skip != 'true'
-        uses: actions/github-script@v7
-        env:
-          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
-          VERIFY_HEAD: ${{ steps.verification.outputs.sha }}
-        with:
-          script: |
-            const state = process.env.VERIFY_OUTCOME === 'success' && process.env.EVIDENCE_OUTCOME === 'success'
-              ? 'success'
-              : 'failure';
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: process.env.VERIFY_HEAD,
-              state,
-              context: 'sec-verification/full/ci-verification-v3',
-              description: `full ${state} for exact frozen head`
-            });
+          retention-days: 90

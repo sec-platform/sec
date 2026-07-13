@@ -1,6 +1,11 @@
 import path from 'node:path';
-import { gitChangedFileDiffArgs, gitUntrackedFileArgs, parseGitChangedFileOutput } from '../shared/ci-git-changed-files.ts';
-import { uniqueSortedLines } from '../shared/collections.ts';
+import {
+  gitChangedFileDiffArgs,
+  gitUntrackedFileArgs,
+  parseGitChangedFileOutput,
+  parseGitUntrackedFileOutput
+} from '../shared/ci-git-changed-files.ts';
+import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
 import { pathExists } from '../shared/fs.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
@@ -217,7 +222,14 @@ async function gitChangedFiles(): Promise<string[] | null> {
   if (tracked.code !== 0 || untracked.code !== 0) {
     return null;
   }
-  return parseGitChangedFileOutput(`${tracked.stdout}\n${untracked.stdout}`);
+  try {
+    return uniqueSorted([
+      ...parseGitChangedFileOutput(tracked.stdout),
+      ...parseGitUntrackedFileOutput(untracked.stdout)
+    ]);
+  } catch {
+    return null;
+  }
 }
 
 function allowFullFastFallback(): boolean {
