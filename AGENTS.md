@@ -18,16 +18,25 @@
 - 保持 delegation depth 为 1。普通 worker 不得继续递归分派。
 - 可用角色位于 `.codex/agents/`；按任务选择最小角色集合。
 
+## 决策自动归位
+
+- 审计、架构裁决、开发方案优化或验证策略只要具有持续工程价值，就必须在同一变化中写入仓库 Markdown，不得只留在聊天、Issue 或 PR body。
+- 产品/阶段事实归位到 `02/03`；实现协议归位到 `05–14`；测试/CI 归位到测试文档；当前非平凡 Work Package 的 DAG、ownership、并行边界、required evidence、进度反馈和收口计划归位到唯一 `docs/work-packages/<id>.md`。
+- Issue 和 PR body 只保留状态、讨论、exact head/base、证据链接和 remaining gaps，并引用 canonical Markdown；不得长期复制完整合同或成为唯一开发计划。
+- “自动写入”不是复制全部聊天内容。Root 必须提炼长期有效裁决，删除猜测、临时计数、一次性 blocker 和重复描述，再写入正确 owner。
+- Work Package 完成后，把长期事实归位到 authority；对应 `docs/work-packages/**` 改为 historical/archive 或删除，不得与下一阶段竞争。
+
 ## Worker 协议
 
 正式实现 worker 的 Task Envelope 必须包含：task/Issue、current base、branch、architectural goal、ownership、forbidden paths、dependency、acceptance 和 required tests。
 
-预计超过一个 focused implementation cycle、触及 canonical authority、需要 slow/full evidence，或需要其他 reviewer 并行介入的工作，应在第一个可审查提交后立即创建或更新 Draft PR；不得等待全部实现和验证完成后才首次暴露真实 diff。小型 docs/chore 可以在 focused validation 完成后一次性创建 PR。
+预计超过一个 focused implementation cycle、触及 canonical authority、需要 slow/full evidence，或需要其他 reviewer 并行介入的工作，应在实现开始前创建/更新对应 `docs/work-packages/<id>.md`，并在第一个可审查提交后立即创建或更新 Draft PR；不得等待全部实现和验证完成后才首次暴露真实 diff。小型 docs/chore 可以在 focused validation 完成后一次性创建 PR。
 
 Worker 执行：
 
 ```text
 inspect
+→ persist/update active Work Package plan
 → first reviewable commit
 → Draft PR / update existing PR
 → implement
