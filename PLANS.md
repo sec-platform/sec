@@ -31,6 +31,8 @@
 docs/work-packages/<id>.md
 ```
 
+新计划从 `docs/work-packages/_template.md` 开始，删除无关占位内容后再进入 review；不得让模板本身承载当前 Work Package 事实。
+
 推荐状态流：
 
 ```text
