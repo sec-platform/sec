@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -348,7 +348,7 @@ test('adapter registry mismatch is rejected before path IO and stale current byt
   });
 });
 
-test('path boundary rejects lexical escape, ADS, device names, case mismatch, and junction parents', async () => {
+test('path boundary rejects lexical escape, aliases, device names, case mismatch, and junction parents', async () => {
   await withTempWorkspace(async (root) => {
     const transaction = path.join(root, '.sec', 'transactions', 'tx-path');
     await mkdir(transaction, { recursive: true });
@@ -365,6 +365,16 @@ test('path boundary rejects lexical escape, ADS, device names, case mismatch, an
         diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' }
       });
     }
+
+    await link(
+      path.join(root, 'source', 'model', 'Item.yaml'),
+      path.join(root, 'source', 'model', 'hardlink.yaml')
+    );
+    await expect(readSemanticMutationSource(
+      root,
+      transaction,
+      'source/model/hardlink.yaml'
+    )).rejects.toMatchObject({ diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' } });
 
     const realDirectory = path.join(root, 'real-model');
     await mkdir(realDirectory, { recursive: true });

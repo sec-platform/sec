@@ -15,6 +15,7 @@ import {
 type FileIdentity = {
   readonly dev: string;
   readonly ino: string;
+  readonly nlink: number;
   readonly size: number;
   readonly mtimeMs: number;
   readonly mode: number;
@@ -81,6 +82,7 @@ function identity(stat: Awaited<ReturnType<typeof lstat>>): FileIdentity {
   return {
     dev: String(stat.dev),
     ino: String(stat.ino),
+    nlink: Number(stat.nlink),
     size: Number(stat.size),
     mtimeMs: Number(stat.mtimeMs),
     mode: Number(stat.mode)
@@ -135,7 +137,12 @@ async function inspectPathBoundary(
   workspaceRoot: string,
   transactionDirectory: string,
   requestedRelativePath: string
-): Promise<{ evidence: SemanticMutationSourcePathEvidenceV1; target: string; fileMode: number }> {
+): Promise<{
+  evidence: SemanticMutationSourcePathEvidenceV1;
+  target: string;
+  targetIdentity: FileIdentity;
+  fileMode: number;
+}> {
   const relativePath = normalizeRelativePath(requestedRelativePath);
   const root = path.resolve(workspaceRoot);
   const target = path.resolve(root, ...relativePath.split('/'));
@@ -150,6 +157,9 @@ async function inspectPathBoundary(
   try {
     const rootReal = await realpath(root);
     const sourceInspection = await assertTreePath(root, relativePath.split('/').join(path.sep), 'file');
+    if (Number(sourceInspection.targetStat.nlink) !== 1) {
+      pathFailure('Source target must not have hard-link aliases', relativePath);
+    }
     await assertTreePath(root, transactionRelative, 'directory');
     const targetReal = await realpath(sourceInspection.target);
     const parentReal = await realpath(sourceInspection.parent);
@@ -186,6 +196,7 @@ async function inspectPathBoundary(
     return {
       evidence,
       target: sourceInspection.target,
+      targetIdentity: identity(sourceInspection.targetStat),
       fileMode: Number(sourceInspection.targetStat.mode) & 0o7777
     };
   } catch (error) {
@@ -213,6 +224,9 @@ export async function readSemanticMutationSource(
   try {
     const beforeRead = await handle.stat();
     if (!beforeRead.isFile()) casFailure('Source target changed before it could be read', relativePath);
+    if (!sameIdentity(beforeBoundary.targetIdentity, identity(beforeRead))) {
+      casFailure('Opened source handle does not match the inspected target identity', relativePath);
+    }
     const bytes = new Uint8Array(await handle.readFile());
     const afterRead = await handle.stat();
     if (!sameIdentity(identity(beforeRead), identity(afterRead))) {

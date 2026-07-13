@@ -236,3 +236,19 @@ test('only explicit SM-2 owners may import filesystem, path, YAML, or authoring 
     }
   }
 });
+
+test('stable read binds the opened handle identity to the inspected target before reading bytes', async () => {
+  const source = await readFile(path.resolve(
+    import.meta.dir,
+    '../../platform/compiler/semantic-mutation/source-path-boundary.ts'
+  ), 'utf8');
+  const identityBinding = source.indexOf(
+    'sameIdentity(beforeBoundary.targetIdentity, identity(beforeRead))'
+  );
+  const byteRead = source.indexOf('handle.readFile()');
+  expect(identityBinding).toBeGreaterThan(-1);
+  expect(byteRead).toBeGreaterThan(identityBinding);
+  expect(source).toContain(
+    "casFailure('Opened source handle does not match the inspected target identity', relativePath)"
+  );
+});
