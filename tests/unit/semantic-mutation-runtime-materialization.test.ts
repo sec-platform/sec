@@ -1,0 +1,212 @@
+import { createHash } from 'node:crypto';
+import {
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises';
+import path from 'node:path';
+
+import { expect, test } from 'bun:test';
+
+import {
+  assertSemanticMutationRuntimeDestinationManifestForTests,
+  runSemanticMutationRuntimeCanonicalBatchesForTests
+} from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+
+function deferred(): {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+test('runtime materialization scheduler starts exactly eight canonical items at a time', async () => {
+  const releaseFirstBatch = deferred();
+  const started: number[] = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
+    Array.from({ length: 9 }, (_, index) => index),
+    async (item, canonicalIndex) => {
+      expect(item).toBe(canonicalIndex);
+      started.push(canonicalIndex);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      if (canonicalIndex < 8) await releaseFirstBatch.promise;
+      inFlight -= 1;
+      return canonicalIndex;
+    }
+  );
+
+  await Promise.resolve();
+  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  expect(maxInFlight).toBe(8);
+  releaseFirstBatch.resolve();
+
+  expect(await execution).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(maxInFlight).toBe(8);
+});
+
+test('runtime materialization scheduler reports the lowest canonical rejection after the batch settles', async () => {
+  const releaseLowerFailure = deferred();
+  const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
+    Array.from({ length: 8 }, (_, index) => index),
+    async (_item, canonicalIndex) => {
+      if (canonicalIndex === 2) {
+        await releaseLowerFailure.promise;
+        throw new Error('canonical failure 2');
+      }
+      if (canonicalIndex === 6) throw new Error('canonical failure 6');
+      return canonicalIndex;
+    }
+  );
+
+  releaseLowerFailure.resolve();
+  await expect(execution).rejects.toThrow('canonical failure 2');
+});
+
+test('runtime materialization scheduler absorbs synchronous throw and settles every started batch item', async () => {
+  const started: number[] = [];
+  const settled: number[] = [];
+  const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
+    Array.from({ length: 8 }, (_, index) => index),
+    (_item, canonicalIndex) => {
+      started.push(canonicalIndex);
+      if (canonicalIndex === 2) throw new Error('synchronous canonical failure 2');
+      return Promise.resolve().then(() => {
+        settled.push(canonicalIndex);
+        return canonicalIndex;
+      });
+    }
+  );
+
+  await expect(execution).rejects.toThrow('synchronous canonical failure 2');
+  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  expect(settled).toEqual([0, 1, 3, 4, 5, 6, 7]);
+});
+
+test('runtime materialization scheduler does not schedule a later batch after failure or lease loss', async () => {
+  const started: number[] = [];
+  let supervisorStarted = false;
+  const executeThenSupervise = async (): Promise<void> => {
+    await runSemanticMutationRuntimeCanonicalBatchesForTests(
+      Array.from({ length: 16 }, (_, index) => index),
+      async (_item, canonicalIndex) => {
+        started.push(canonicalIndex);
+        if (canonicalIndex === 3) throw new Error('injected workspace lease loss');
+      }
+    );
+    supervisorStarted = true;
+  };
+
+  await expect(executeThenSupervise()).rejects.toThrow('injected workspace lease loss');
+  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  expect(supervisorStarted).toBe(false);
+});
+
+test('runtime launch proof rejects byte, shape, link, reparse, and post-hash identity tamper', async () => {
+  const root = await mkdtemp(path.join(process.cwd(), '.tmp-runtime-launch-proof-'));
+  const compilerRoot = path.join(root, '.isolated-compiler');
+  const browserRoot = path.join(root, '.isolated-process', 'playwright-browsers');
+  const target = path.join(compilerRoot, 'runner.bin');
+  const expectedBytes = Buffer.from('AAAA');
+  const manifest = {
+    stagingRoot: root,
+    directories: ['.isolated-compiler', '.isolated-process/playwright-browsers'],
+    files: [{
+      relativePath: '.isolated-compiler/runner.bin',
+      rawDigest: `sha256:${createHash('sha256').update(expectedBytes).digest('hex')}`,
+      size: expectedBytes.byteLength
+    }]
+  } as const;
+  const reset = async (): Promise<void> => {
+    await rm(compilerRoot, { recursive: true, force: true });
+    await rm(path.join(root, '.isolated-process'), { recursive: true, force: true });
+    await mkdir(compilerRoot, { recursive: true });
+    await mkdir(browserRoot, { recursive: true });
+    await writeFile(target, expectedBytes);
+  };
+
+  try {
+    await reset();
+    await writeFile(target, Buffer.from('BBBB'));
+    await expect(assertSemanticMutationRuntimeDestinationManifestForTests(manifest))
+      .rejects.toThrow('destination manifest is not exact');
+
+    await reset();
+    await rm(target, { force: true });
+    await expect(assertSemanticMutationRuntimeDestinationManifestForTests(manifest))
+      .rejects.toThrow('destination structure is not exact');
+
+    await reset();
+    await writeFile(path.join(compilerRoot, 'extra.bin'), 'extra');
+    await expect(assertSemanticMutationRuntimeDestinationManifestForTests(manifest))
+      .rejects.toThrow('destination structure is not exact');
+
+    await reset();
+    const outsideHardlink = path.join(root, 'outside-hardlink.bin');
+    await rm(outsideHardlink, { force: true });
+    await link(target, outsideHardlink);
+    await expect(assertSemanticMutationRuntimeDestinationManifestForTests(manifest))
+      .rejects.toThrow('contains a hard link');
+    await rm(outsideHardlink, { force: true });
+
+    await reset();
+    const outsideCompiler = path.join(root, 'outside-compiler');
+    await rm(outsideCompiler, { recursive: true, force: true });
+    await rename(compilerRoot, outsideCompiler);
+    await symlink(outsideCompiler, compilerRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    await expect(assertSemanticMutationRuntimeDestinationManifestForTests(manifest))
+      .rejects.toThrow('contains a reparse entry');
+    await rm(compilerRoot, { recursive: true, force: true });
+    await rm(outsideCompiler, { recursive: true, force: true });
+
+    await reset();
+    const replacement = path.join(root, 'replacement.bin');
+    await writeFile(replacement, expectedBytes);
+    await expect(assertSemanticMutationRuntimeDestinationManifestForTests({
+      ...manifest,
+      afterHash: async () => {
+        await rm(target, { force: true });
+        await rename(replacement, target);
+      }
+    })).rejects.toThrow('changed during launch proof');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('disposable runtime does no data fsync and keeps structural and launch byte proofs separate', async () => {
+  const source = await readFile(path.resolve(
+    import.meta.dir,
+    '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts'
+  ), 'utf8');
+  const materializeStart = source.indexOf(
+    'export async function materializeSemanticMutationIsolatedRuntime'
+  );
+  const launchStart = source.indexOf(
+    'export async function assertSemanticMutationIsolatedRuntimeLaunchManifest'
+  );
+  expect(materializeStart).toBeGreaterThanOrEqual(0);
+  expect(launchStart).toBeGreaterThan(materializeStart);
+
+  const materializeBody = source.slice(materializeStart, launchStart);
+  const launchBody = source.slice(launchStart);
+  expect(source).not.toContain('.sync(');
+  expect(materializeBody).toContain('const structure = await exactDestinationStructure(plan, inspector);');
+  expect(materializeBody).toContain('assertExactDestinationStructure(plan, structure);');
+  expect(materializeBody).not.toContain('assertExactDestinationManifest(plan, inspector)');
+  expect(launchBody).toContain('await assertExactDestinationManifest(plan, inspector);');
+  expect(source).toContain('const afterHashStructure = await exactDestinationStructure(plan, inspector);');
+  expect(source).toContain('!sameIdentity(file.identity, before.identity)');
+});

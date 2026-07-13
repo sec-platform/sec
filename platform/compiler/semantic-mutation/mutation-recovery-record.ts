@@ -40,7 +40,8 @@ import {
 import {
   assertSemanticMutationTerminalCompletionReceipt,
   readRejectedSemanticMutationTerminal,
-  reserveSemanticMutationTerminalSequence
+  reserveSemanticMutationTerminalSequence,
+  type SemanticMutationTerminalWriteTestHooks
 } from './mutation-terminal-record.ts';
 
 const RETAINED_TERMINAL_STATES = new Set<SemanticMutationRecoveryState>([
@@ -56,6 +57,7 @@ type RecoveryRecordDraft = Omit<
 export interface SemanticMutationRecoveryRecordWriteTestHooks {
   readonly beforeTempOpenAfterFence?: () => Promise<void>;
   readonly afterTempFileClosed?: () => Promise<void>;
+  readonly terminal?: SemanticMutationTerminalWriteTestHooks;
 }
 
 function recordRevision(
@@ -258,7 +260,8 @@ export function assertSemanticMutationRecoveryRecordInvariant(
 }
 
 export async function loadSemanticMutationRecoveryRecords(
-  transactionRoot: string
+  transactionRoot: string,
+  terminalTestHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<readonly SemanticMutationRecoveryRecordV1[]> {
   const workspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot);
@@ -285,7 +288,8 @@ export async function loadSemanticMutationRecoveryRecords(
         transactionRoot,
         parsed.requestIdentityDigest,
         parsed.state,
-        parsed.terminalSequence
+        parsed.terminalSequence,
+        terminalTestHooks
       );
     }
     if (name !== generationName(parsed.sequence, parsed.state)) {
@@ -297,9 +301,10 @@ export async function loadSemanticMutationRecoveryRecords(
 }
 
 export async function loadLatestSemanticMutationRecoveryRecord(
-  transactionRoot: string
+  transactionRoot: string,
+  terminalTestHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<SemanticMutationRecoveryRecordV1 | null> {
-  return (await loadSemanticMutationRecoveryRecords(transactionRoot)).at(-1) ?? null;
+  return (await loadSemanticMutationRecoveryRecords(transactionRoot, terminalTestHooks)).at(-1) ?? null;
 }
 
 export async function appendSemanticMutationRecoveryRecord(
@@ -316,7 +321,7 @@ export async function appendSemanticMutationRecoveryRecord(
   await assertSemanticMutationRecoveryRecordsDirectory(transactionRoot, draft.requestIdentityDigest);
   await mkdir(directory, { recursive: true });
   await assertSemanticMutationRecoveryRecordsDirectory(transactionRoot, draft.requestIdentityDigest);
-  const previous = await loadLatestSemanticMutationRecoveryRecord(transactionRoot);
+  const previous = await loadLatestSemanticMutationRecoveryRecord(transactionRoot, testHooks.terminal);
   if ((previous === null && draft.state !== 'prepared') ||
     (previous !== null && !legalRecoveryTransition(previous.state, draft.state))) {
     throw new Error('Semantic Mutation recovery state transition is not allowed');
@@ -326,7 +331,8 @@ export async function appendSemanticMutationRecoveryRecord(
          transactionRoot,
          draft.requestIdentityDigest,
          draft.state as 'verified' | 'rolled-back',
-         commitFence
+         commitFence,
+         testHooks.terminal
        )
     : undefined;
   const withoutRevision = {
@@ -376,12 +382,13 @@ export async function appendSemanticMutationRecoveryRecord(
 
 export async function querySemanticMutationRequestRecord(
   workspaceRoot: string,
-  identity: SemanticMutationRequestIdentityV1
+  identity: SemanticMutationRequestIdentityV1,
+  terminalTestHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<SemanticMutationRequestRecordV1 | null> {
   const digest = semanticMutationRequestIdentityDigest(identity);
   const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, digest);
-  return (await readRejectedSemanticMutationTerminal(transactionRoot)) ??
-    loadLatestSemanticMutationRecoveryRecord(transactionRoot);
+  return (await readRejectedSemanticMutationTerminal(transactionRoot, terminalTestHooks)) ??
+    loadLatestSemanticMutationRecoveryRecord(transactionRoot, terminalTestHooks);
 }
 
 export function projectSemanticMutationRequestRecordView(
@@ -488,7 +495,8 @@ export function projectSemanticMutationRequestRecordView(
 
 export async function pruneSemanticMutationTerminalRecords(
   workspaceRoot: string,
-  commitFence: SemanticMutationCommitFence
+  commitFence: SemanticMutationCommitFence,
+  terminalTestHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<void> {
   const transactionsRoot = path.join(
     path.resolve(workspaceRoot),
@@ -499,6 +507,7 @@ export async function pruneSemanticMutationTerminalRecords(
   );
   let identities: string[];
   try {
+    terminalTestHooks.observeIo?.({ kind: 'transactions-scan' });
     identities = (await readdir(transactionsRoot)).sort();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
@@ -512,8 +521,8 @@ export async function pruneSemanticMutationTerminalRecords(
   for (const identity of identities) {
     const root = path.join(transactionsRoot, identity);
     const [rejected, recovery] = await Promise.all([
-      readRejectedSemanticMutationTerminal(root),
-      loadLatestSemanticMutationRecoveryRecord(root)
+      readRejectedSemanticMutationTerminal(root, terminalTestHooks),
+      loadLatestSemanticMutationRecoveryRecord(root, terminalTestHooks)
     ]);
     if (recovery?.state === 'recovery-required') continue;
     if (rejected) {

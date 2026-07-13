@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdir, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { pathExists } from '../../platform/shared/fs.ts';
 import {
   WorkspaceWriteLeaseError,
   createWorkspaceWriteLeaseManager,
@@ -214,6 +215,38 @@ test('native local-state filesystem failures become typed diagnostics without ab
     expect(String(failure)).not.toContain(workspaceRoot);
     expect(JSON.stringify(failure)).not.toContain(workspaceRoot);
   }, 'engineering-compiler-workspace-lease-native-failure-');
+});
+
+test('generic lease acquisition keeps a missing workspace fail closed with path-free identity details', async () => {
+  await withTempWorkspace(async (outerRoot) => {
+    const workspaceRoot = path.join(outerRoot, 'missing-workspace');
+    const manager = createWorkspaceWriteLeaseManager({
+      hostname: 'lease-test-host',
+      pid: 100,
+      processNonce: 'process:missing-workspace',
+      createId: ids('missing-workspace'),
+      processAlive: () => 'alive'
+    });
+
+    let failure: unknown;
+    try {
+      await manager.acquire(workspaceRoot);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(WorkspaceWriteLeaseError);
+    expect(failure).toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-004',
+      details: {
+        operation: 'acquire',
+        phase: 'workspace-identity',
+        reason: 'missing'
+      }
+    });
+    expect(String(failure)).not.toContain(workspaceRoot);
+    expect(JSON.stringify(failure)).not.toContain(workspaceRoot);
+    expect(await pathExists(workspaceRoot)).toBe(false);
+  }, 'engineering-compiler-workspace-lease-missing-root-');
 });
 
 test('lease authority rejects a local-state junction that escapes the canonical workspace', async () => {

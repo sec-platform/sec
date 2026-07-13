@@ -1,0 +1,181 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "sequence": 5,
+  "recordedAt": "2026-07-14T07:23:46.6945763+08:00",
+  "profile": "v0.4-semantic-mutation-apply-r2",
+  "workPackage": "docs/work-packages/sm3-r2-bounded-runtime-gate-v1.md",
+  "selectionWorkPackage": "docs/work-packages/sm3-r1-focused-blocker-repair-v1.md",
+  "branch": "codex/sm3-focused-blocker-repair",
+  "worktree": "D:/Project/sec",
+  "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+  "currentHead": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+  "currentHeadTree": "dcdc37f6353a61a6770f930c54a25c22200a8829",
+  "implementationState": "uncommitted-working-tree",
+  "preRecordTrackedChangedPathCount": 16,
+  "preRecordUntrackedPathCount": 10,
+  "preRecordTrackedPatchObject": "bdb43862da855a432b210ac60f975b48a5a6e86f",
+  "status": "stopped-on-supervised-batch-unknown",
+  "mergeAllowed": false,
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json",
+  "stopReason": "The one authorized supervised 39-file owner batch produced a digest-valid final evidence record with status unknown. The Bun child exited with code 1 and its process tree and streams were proven closed, but the bounded post-run residue census did not complete, unresolved authority was preserved, and the supervisor intentionally persisted only stdout/stderr byte counts and digests. No concrete failing test or typed failure envelope can be reconstructed from the retained evidence, so the batch is neither a pass nor a promotable failed-test diagnosis. All later gates stopped.",
+  "frozenInputs": {
+    "executionManifestDigest": "sha256:158e813f64b958510357d86240d85ee3bb084b81e9f95033806ee48360815951",
+    "selectionManifestDigest": "sha256:a19487b18cdcb23c2c85c189253a0aa8bfd1229e5f9fd4a6a62c919687367af6",
+    "selectionIndex": 0,
+    "argvDigest": "sha256:edf2c83f4b2a57e6d218f058fccba3f754eaf9fde834f96b57b2cc296403518d",
+    "selectionFileCount": 39,
+    "perTestTimeoutMs": 600000,
+    "combinedWatchdogMs": 1800000,
+    "cleanupMs": 120000
+  },
+  "evidenceBundleValidation": {
+    "validator": "assertWorkPackageGateEvidenceBundle",
+    "result": "PASS",
+    "validatedAt": "2026-07-14T07:20:00+08:00",
+    "evidenceDigest": "sha256:73017dde8cdf3416c3cc9a9c993dd14fa3e97162df3de34ba7cc6a92c3119e10",
+    "journalDigest": "sha256:b5f783db0d5db901837685589bbc983bf4d300fff5c31ef5f275b92d6a9d6205",
+    "journalLastSequence": 34,
+    "localArtifactSha256": {
+      ".tmp/sm3-r2-work-package-gate/evidence.json": "sha256:17c86874b0370a19c1171ed28c275f6cb5315f96e5b7512fb89135b4e04143be",
+      ".tmp/sm3-r2-work-package-gate/events.jsonl": "sha256:cd0adb9c928b82dbd184d755b95e8199a6e03ef03373067a0a0cc9c6466585e4",
+      ".tmp/sm3-r2-work-package-gate/checkpoint.json": "sha256:3d1954c975b19c441d01ac46c2504fc2f20b32f27f84087b39364a0084b0f92a",
+      ".tmp/sm3-r2-work-package-gate/state.json": "sha256:d7406514c1035c03f0d11cffce32154efc75bf08f1aeb6f68a23fb908e81c52a"
+    }
+  },
+  "supervisedBatch": {
+    "runId": "sm3-r2-work-package-gate",
+    "startedAt": "2026-07-13T23:02:44.588Z",
+    "completedAt": "2026-07-13T23:10:32.788Z",
+    "durationMs": 468138.1618,
+    "result": "unknown",
+    "child": {
+      "status": "exited",
+      "exitCode": 1,
+      "signal": null,
+      "durationMs": 462978.4256,
+      "stdout": {
+        "byteCount": 332,
+        "sha256": "sha256:428dd6cf3db92166c900c9efbad68d5ae62d062148d3cd5f3424cc1e7ddf661e",
+        "observerTruncated": false,
+        "rawOutputPersisted": false
+      },
+      "stderr": {
+        "byteCount": 68344,
+        "sha256": "sha256:f7f32de317a7bd79a5e541dad04c35ad4fa1c4eca4451d29550eab21bdab81e4",
+        "observerTruncated": false,
+        "rawOutputPersisted": false
+      },
+      "termination": {
+        "requested": false,
+        "gracefulAttempted": false,
+        "forcedAttempted": false,
+        "childCloseObserved": true,
+        "streamsDrained": true,
+        "treeClosed": true
+      }
+    },
+    "recovery": {
+      "attempted": false,
+      "complete": false,
+      "reason": "authority-preserved"
+    },
+    "residue": {
+      "before": {
+        "workspaceRoots": 0,
+        "recoveryOwners": 0,
+        "pendingOwners": 0,
+        "nativeResults": 0,
+        "writerLeases": 0,
+        "appContainerProfileCount": 0,
+        "aclPresentOwnerCount": 0
+      },
+      "after": null,
+      "namespaceRemoved": false
+    },
+    "repository": {
+      "headSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+      "treeSha": "dcdc37f6353a61a6770f930c54a25c22200a8829",
+      "headShaAfter": null,
+      "treeShaAfter": null,
+      "worktreeBeforeDigest": "sha256:6468cf74715c883051ce85bab5d2fd8bbad8e170d73efc48225cb906fb93740c",
+      "worktreeAfterDigest": null,
+      "executionSnapshotDigest": "sha256:6468cf74715c883051ce85bab5d2fd8bbad8e170d73efc48225cb906fb93740c",
+      "executionSnapshotAfterDigest": null,
+      "executionSnapshotRemoved": false
+    }
+  },
+  "blockers": [
+    {
+      "id": "SM3-R2-OWNER-BATCH-UNKNOWN-006",
+      "priority": "P1",
+      "kind": "digest-valid-unknown-without-actionable-test-diagnosis",
+      "observed": [
+        "The single authorized supervisor run completed and its evidence/journal bundle passed the frozen digest validator.",
+        "The Bun child exited with code 1 after 462978.4256 ms; its tree closed and streams drained without requested termination.",
+        "The supervisor retained 332 stdout bytes and 68344 stderr bytes only as counts and digests, so the failing test identity and failure tail are unavailable.",
+        "The final residue census is null; recovery was not attempted because unresolved authority was preserved."
+      ],
+      "impact": "The original 39-file owner batch has no PASS and no actionable failed-test evidence. Typecheck and every downstream delta or hosted gate remain invalid to start, and this branch cannot be merged.",
+      "requiredResolution": "Do not rerun this batch or any selected test under R2. Any diagnostic execution requires a newly frozen Work Package that explicitly persists a bounded redacted failure index or failure tail while retaining the existing process-tree and authority-preservation contracts."
+    },
+    {
+      "id": "SM3-R2-RESIDUE-AUTHORITY-007",
+      "priority": "P1",
+      "kind": "post-run-residue-census-unknown",
+      "observed": [
+        "The final residue census is unknown.",
+        "The execution snapshot and namespace were not removed.",
+        "The owned execution snapshot sidecar remains present and the snapshot contains engineering-compiler-sm3-terminal-retention-fSCj2d plus Semantic Mutation transaction state."
+      ],
+      "impact": "The retained snapshot is unresolved recovery authority and cannot be recursively cleaned or treated as disposable residue.",
+      "requiredResolution": "Preserve the snapshot and owner sidecar exactly. Recovery or cleanup may occur only under a separately frozen owner-aware recovery package; path deletion is forbidden."
+    }
+  ],
+  "preservedAuthority": {
+    "executionSnapshot": ".tmp/gate-execution-snapshots/gate-d4ecb7717e828f3111ae866fa084e957-owned",
+    "executionSnapshotOwner": ".tmp/gate-execution-snapshots/gate-d4ecb7717e828f3111ae866fa084e957-owned.owner-v1.json",
+    "retainedNamespace": "engineering-compiler-sm3-terminal-retention-fSCj2d",
+    "r1ExternalRecoveryWorkspace": {
+      "appContainerProfileCount": 0,
+      "durableOwnerAuthorityCount": 1,
+      "approximateFileCount": 13059,
+      "approximateBytes": 1294000000,
+      "disposition": "preserve"
+    }
+  },
+  "notRun": [
+    "a second 39-file owner batch",
+    "any selected single-test rerun",
+    "post-batch typecheck",
+    "changed-only imports",
+    "canonical affected tests",
+    "Contract Freeze",
+    "docs doctor",
+    "patch Gate",
+    "frozen-head Quick/Risk",
+    "GitHub Actions",
+    "Full",
+    "all-slow",
+    "workspace/reference full chain"
+  ],
+  "closeout": {
+    "staticAuditPassed": true,
+    "evidenceBundleValidated": true,
+    "childTreeClosed": true,
+    "combinedBatchPassed": false,
+    "postRunCensusComplete": false,
+    "implementationCommitted": false,
+    "draftPullRequestCreated": false,
+    "issueUpdated": false,
+    "authorityPreserved": true
+  },
+  "publicationDisposition": "A0 may publish the implementation only as a Draft PR whose body states unknown Gate status, child exit 1, no concrete failed-test output, unresolved preserved authority, no merge authorization, and no CI trigger.",
+  "resumeBoundary": [
+    "Do not rerun the original 39-file batch or any selected test under sm3-r2-bounded-runtime-gate-v1.",
+    "Do not run typecheck, imports, affected, Contract Freeze, docs doctor, Full, slow, workspace/reference, or GitHub Actions after this unknown result.",
+    "Do not delete or modify the retained execution snapshot, owner sidecar, terminal-retention namespace, R1 external recovery workspace, or their Semantic Mutation transactions.",
+    "Do not infer a concrete failing test, AppContainer root cause, cleanup success, or recovery completion from byte digests alone.",
+    "Any continuation must begin with a new frozen Work Package and preserve this record as the R2 terminal stop authority."
+  ]
+}

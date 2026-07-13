@@ -372,6 +372,15 @@ test('runtime plan rejects cloned bindings, stale sources, destination tamper, a
       commitFence,
       stagingWorkspaceRoot: stagingRoot
     });
+    expect(await readFile(path.join(
+      stagingRoot,
+      '.isolated-compiler',
+      'platform',
+      'compiler',
+      'compose',
+      'templates',
+      'template.txt'
+    ), 'utf8')).toBe('template');
     const runnerPath = path.join(
       stagingRoot,
       '.isolated-compiler',

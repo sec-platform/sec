@@ -1,4 +1,4 @@
-import { mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
+import { link, mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
@@ -22,10 +22,13 @@ import {
   semanticMutationWorkspaceRootFromTransactionRoot,
   type SemanticMutationCommitFence
 } from './transaction-identity.ts';
+import { replaceSemanticMutationFileAtomically } from './windows-file-attributes.ts';
 
 const TERMINAL_NAME = 'terminal-rejected.json';
 const TERMINAL_COMPLETION_REVISION = 'semantic-mutation-terminal-completion-v1' as const;
 const TERMINAL_ORDER_DIRECTORY = 'terminal-order';
+const TERMINAL_SEQUENCE_HEAD_NAME = '.sequence-head.json';
+const TERMINAL_SEQUENCE_HEAD_REVISION = 'semantic-mutation-terminal-sequence-head-v1' as const;
 const MAX_TERMINAL_SEQUENCE = 999_999_999_999;
 
 type RetainedTerminalState = 'rejected' | 'verified' | 'rolled-back';
@@ -38,11 +41,38 @@ interface SemanticMutationTerminalCompletionV1 {
   readonly completionRevision: string;
 }
 
+interface SemanticMutationTerminalSequenceHeadV1 {
+  readonly formatRevision: typeof TERMINAL_SEQUENCE_HEAD_REVISION;
+  readonly highestReservedSequence: number;
+  readonly headRevision: string;
+}
+
+type TerminalCompletionReadReason = 'legacy-bootstrap' | 'exact' | 'head-catch-up';
+
+export type SemanticMutationTerminalIoObservation =
+  | { readonly kind: 'terminal-order-scan'; readonly reason: 'legacy-bootstrap' }
+  | {
+      readonly kind: 'completion-probe';
+      readonly reason: TerminalCompletionReadReason;
+      readonly terminalSequence: number;
+      readonly status: 'missing' | 'valid';
+    }
+  | {
+      readonly kind: 'sequence-head-read';
+      readonly status: 'missing' | 'valid';
+      readonly highestReservedSequence?: number;
+    }
+  | { readonly kind: 'sequence-head-write'; readonly highestReservedSequence: number }
+  | { readonly kind: 'completion-publish'; readonly terminalSequence: number }
+  | { readonly kind: 'transactions-scan' };
+
 export interface SemanticMutationTerminalWriteTestHooks {
   readonly beforeCompletionTempOpenAfterFence?: () => Promise<void>;
   readonly afterCompletionTempFileClosed?: () => Promise<void>;
   readonly beforeRejectedTempOpenAfterFence?: () => Promise<void>;
   readonly afterRejectedTempFileClosed?: () => Promise<void>;
+  readonly observeIo?: (event: SemanticMutationTerminalIoObservation) => void;
+  readonly afterCompletionPublishedBeforeHeadWrite?: (terminalSequence: number) => Promise<void>;
 }
 
 function recordRevision(
@@ -55,6 +85,12 @@ function completionRevision(
   value: Omit<SemanticMutationTerminalCompletionV1, 'completionRevision'>
 ): string {
   return sha256({ domain: TERMINAL_COMPLETION_REVISION, ...value });
+}
+
+function sequenceHeadRevision(
+  value: Omit<SemanticMutationTerminalSequenceHeadV1, 'headRevision'>
+): string {
+  return sha256({ domain: TERMINAL_SEQUENCE_HEAD_REVISION, ...value });
 }
 
 async function fsyncDirectory(
@@ -122,8 +158,60 @@ function assertCompletionInvariant(
   }
 }
 
-async function loadSemanticMutationTerminalCompletions(
-  transactionRoot: string
+function assertSequenceHeadInvariant(head: SemanticMutationTerminalSequenceHeadV1): void {
+  if (!isPlainObject(head) || !exactOwnKeys(head, [
+    'formatRevision', 'highestReservedSequence', 'headRevision'
+  ])) {
+    throw new Error('Semantic Mutation terminal sequence head violates the internal v1 schema');
+  }
+  const { headRevision: supplied, ...withoutRevision } = head;
+  if (head.formatRevision !== TERMINAL_SEQUENCE_HEAD_REVISION ||
+    !Number.isSafeInteger(head.highestReservedSequence) || head.highestReservedSequence < 0 ||
+    head.highestReservedSequence > MAX_TERMINAL_SEQUENCE ||
+    supplied !== sequenceHeadRevision(withoutRevision)) {
+    throw new Error('Semantic Mutation terminal sequence head content is invalid');
+  }
+}
+
+async function readSemanticMutationTerminalCompletionBySequence(
+  transactionRoot: string,
+  terminalSequence: number,
+  reason: TerminalCompletionReadReason,
+  testHooks: SemanticMutationTerminalWriteTestHooks = {}
+): Promise<SemanticMutationTerminalCompletionV1 | null> {
+  if (!Number.isSafeInteger(terminalSequence) || terminalSequence <= 0 ||
+    terminalSequence > MAX_TERMINAL_SEQUENCE) {
+    throw new Error('Semantic Mutation terminal completion sequence is invalid');
+  }
+  const directory = await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
+  const name = completionFileName(terminalSequence);
+  let serialized: string;
+  await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
+  try {
+    serialized = await readFile(path.join(directory, name), 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
+      testHooks.observeIo?.({
+        kind: 'completion-probe',
+        reason,
+        terminalSequence,
+        status: 'missing'
+      });
+      return null;
+    }
+    throw error;
+  }
+  await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
+  const completion = JSON.parse(serialized) as SemanticMutationTerminalCompletionV1;
+  assertCompletionInvariant(completion, name);
+  testHooks.observeIo?.({ kind: 'completion-probe', reason, terminalSequence, status: 'valid' });
+  return completion;
+}
+
+async function auditLegacySemanticMutationTerminalCompletions(
+  transactionRoot: string,
+  testHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<readonly SemanticMutationTerminalCompletionV1[]> {
   const directory = await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
   if (path.basename(directory) !== TERMINAL_ORDER_DIRECTORY) {
@@ -131,6 +219,7 @@ async function loadSemanticMutationTerminalCompletions(
   }
   let names: string[];
   try {
+    testHooks.observeIo?.({ kind: 'terminal-order-scan', reason: 'legacy-bootstrap' });
     names = (await readdir(directory)).filter((name) => !name.startsWith('.')).sort();
     await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
   } catch (error) {
@@ -153,20 +242,118 @@ async function loadSemanticMutationTerminalCompletions(
     }
     sequences.add(completion.terminalSequence);
     completions.push(completion);
+    testHooks.observeIo?.({
+      kind: 'completion-probe',
+      reason: 'legacy-bootstrap',
+      terminalSequence: completion.terminalSequence,
+      status: 'valid'
+    });
   }
   return completions;
+}
+
+async function readSemanticMutationTerminalSequenceHead(
+  transactionRoot: string,
+  testHooks: SemanticMutationTerminalWriteTestHooks = {}
+): Promise<SemanticMutationTerminalSequenceHeadV1 | null> {
+  const directory = await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
+  let serialized: string;
+  await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
+  try {
+    serialized = await readFile(path.join(directory, TERMINAL_SEQUENCE_HEAD_NAME), 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      testHooks.observeIo?.({ kind: 'sequence-head-read', status: 'missing' });
+      return null;
+    }
+    throw error;
+  }
+  await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
+  const head = JSON.parse(serialized) as SemanticMutationTerminalSequenceHeadV1;
+  assertSequenceHeadInvariant(head);
+  testHooks.observeIo?.({
+    kind: 'sequence-head-read',
+    status: 'valid',
+    highestReservedSequence: head.highestReservedSequence
+  });
+  return head;
+}
+
+async function writeSemanticMutationTerminalSequenceHead(
+  transactionRoot: string,
+  requestIdentityDigest: string,
+  highestReservedSequence: number,
+  commitFence: SemanticMutationCommitFence,
+  testHooks: SemanticMutationTerminalWriteTestHooks = {}
+): Promise<void> {
+  const directory = await assertSemanticMutationTerminalOrderDirectory(
+    transactionRoot,
+    requestIdentityDigest
+  );
+  const withoutRevision = {
+    formatRevision: TERMINAL_SEQUENCE_HEAD_REVISION,
+    highestReservedSequence
+  } as const;
+  const head = {
+    ...withoutRevision,
+    headRevision: sequenceHeadRevision(withoutRevision)
+  };
+  assertSequenceHeadInvariant(head);
+  const temporary = path.join(directory, `.sequence-head-${process.pid}-${randomUUID()}.tmp`);
+  try {
+    await commitFence();
+    await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
+    const handle = await open(temporary, 'wx', 0o600);
+    try {
+      await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
+      await commitFence();
+      await handle.writeFile(`${JSON.stringify(head, null, 2)}\n`, 'utf8');
+      await commitFence();
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await commitFence();
+    await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
+    await replaceSemanticMutationFileAtomically(
+      temporary,
+      path.join(directory, TERMINAL_SEQUENCE_HEAD_NAME)
+    );
+    await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
+    await fsyncDirectory(
+      directory,
+      commitFence,
+      async () => {
+        await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
+      }
+    );
+    testHooks.observeIo?.({ kind: 'sequence-head-write', highestReservedSequence });
+  } finally {
+    await cleanupTerminalTemp(
+      temporary,
+      commitFence,
+      async () => {
+        await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
+      }
+    );
+  }
 }
 
 export async function assertSemanticMutationTerminalCompletionReceipt(
   transactionRoot: string,
   requestIdentityDigest: string,
   state: RetainedTerminalState,
-  terminalSequence: number
+  terminalSequence: number,
+  testHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<void> {
   const workspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot, requestIdentityDigest);
-  const completion = (await loadSemanticMutationTerminalCompletions(transactionRoot))
-    .find((entry) => entry.terminalSequence === terminalSequence);
+  const completion = await readSemanticMutationTerminalCompletionBySequence(
+    transactionRoot,
+    terminalSequence,
+    'exact',
+    testHooks
+  );
   if (!completion || completion.requestIdentityDigest !== requestIdentityDigest || completion.state !== state) {
     throw new Error('Semantic Mutation terminal record is not bound to its durable completion receipt');
   }
@@ -195,14 +382,36 @@ export async function reserveSemanticMutationTerminalSequence(
   await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
   await mkdir(directory, { recursive: true });
   await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
-  const completions = await loadSemanticMutationTerminalCompletions(transactionRoot);
-  const highest = completions.reduce(
-    (current, completion) => Math.max(current, completion.terminalSequence),
-    0
-  );
-  const terminalSequence = highest + 1;
-  if (!Number.isSafeInteger(terminalSequence) || terminalSequence > MAX_TERMINAL_SEQUENCE) {
-    throw new Error('Semantic Mutation terminal completion sequence is exhausted');
+  const head = await readSemanticMutationTerminalSequenceHead(transactionRoot, testHooks);
+  let highest = head?.highestReservedSequence ?? (await auditLegacySemanticMutationTerminalCompletions(
+    transactionRoot,
+    testHooks
+  )).reduce((current, completion) => Math.max(current, completion.terminalSequence), 0);
+
+  // A crash may durably publish a receipt and stop before advancing the
+  // internal head. Catch up exact receipts one at a time; never rescan steady
+  // state and never reuse the orphaned terminal sequence.
+  let terminalSequence: number;
+  while (true) {
+    terminalSequence = highest + 1;
+    if (!Number.isSafeInteger(terminalSequence) || terminalSequence > MAX_TERMINAL_SEQUENCE) {
+      throw new Error('Semantic Mutation terminal completion sequence is exhausted');
+    }
+    const interrupted = await readSemanticMutationTerminalCompletionBySequence(
+      transactionRoot,
+      terminalSequence,
+      'head-catch-up',
+      testHooks
+    );
+    if (!interrupted) break;
+    await writeSemanticMutationTerminalSequenceHead(
+      transactionRoot,
+      requestIdentityDigest,
+      terminalSequence,
+      commitFence,
+      testHooks
+    );
+    highest = terminalSequence;
   }
   const withoutRevision = {
     formatRevision: TERMINAL_COMPLETION_REVISION,
@@ -233,7 +442,7 @@ export async function reserveSemanticMutationTerminalSequence(
     await testHooks.afterCompletionTempFileClosed?.();
     await commitFence();
     await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
-    await rename(temporary, finalPath);
+    await link(temporary, finalPath);
     await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
     await fsyncDirectory(
       directory,
@@ -241,6 +450,15 @@ export async function reserveSemanticMutationTerminalSequence(
       async () => {
         await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
       }
+    );
+    testHooks.observeIo?.({ kind: 'completion-publish', terminalSequence });
+    await testHooks.afterCompletionPublishedBeforeHeadWrite?.(terminalSequence);
+    await writeSemanticMutationTerminalSequenceHead(
+      transactionRoot,
+      requestIdentityDigest,
+      terminalSequence,
+      commitFence,
+      testHooks
     );
     return terminalSequence;
   } finally {
@@ -305,7 +523,8 @@ export function assertSemanticMutationRejectedTerminalRecordInvariant(
 }
 
 export async function readRejectedSemanticMutationTerminal(
-  transactionRoot: string
+  transactionRoot: string,
+  testHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<SemanticMutationRejectedTerminalRecordV1 | null> {
   const workspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot);
@@ -324,7 +543,8 @@ export async function readRejectedSemanticMutationTerminal(
     transactionRoot,
     parsed.requestIdentityDigest,
     'rejected',
-    parsed.terminalSequence
+    parsed.terminalSequence,
+    testHooks
   );
   return cloneAndDeepFreeze(parsed);
 }
@@ -344,7 +564,7 @@ export async function writeRejectedSemanticMutationTerminal(
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot, requestIdentityDigest);
   await mkdir(transactionRoot, { recursive: true });
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot, requestIdentityDigest);
-  const existing = await readRejectedSemanticMutationTerminal(transactionRoot);
+  const existing = await readRejectedSemanticMutationTerminal(transactionRoot, testHooks);
   if (existing) {
     if (existing.requestIdentityDigest !== requestIdentityDigest ||
       existing.requestRevision !== requestRevision || existing.planRevision !== planRevision ||
@@ -362,7 +582,8 @@ export async function writeRejectedSemanticMutationTerminal(
     transactionRoot,
     requestIdentityDigest,
     'rejected',
-    commitFence
+    commitFence,
+    testHooks
   );
   const withoutRevision = {
     formatRevision: SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,

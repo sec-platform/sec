@@ -17,6 +17,7 @@ import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import {
+  compilerRoot,
   getWorkspacePaths,
   graphViewRelativePath,
   overviewViewRelativePath,
@@ -41,7 +42,7 @@ import { readReviewGovernanceReports } from './read-review-governance-reports.ts
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 import { assertSemanticViewArtifactsAreCurrent } from './semantic-view-artifact-contract.ts';
 
-const TEMPLATES_DIR = path.join(import.meta.dirname, 'templates');
+const TEMPLATES_DIR = path.join(compilerRoot, 'platform', 'compiler', 'emit', 'templates');
 const CANONICAL_LOCAL_VIEW_GENERATED_AT = '1970-01-01T00:00:00.000Z';
 
 function formatList(values: Iterable<string>, fallback = 'none'): string {

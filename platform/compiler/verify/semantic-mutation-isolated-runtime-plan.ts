@@ -21,6 +21,7 @@ const FILE_ATTRIBUTE_REPARSE_POINT = 0x0000_0400;
 const INVALID_FILE_ATTRIBUTES = 0xffff_ffff;
 const HASH_BUFFER_SIZE = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+const RUNTIME_FILE_CONCURRENCY = 8;
 
 export interface SemanticMutationIsolatedRuntimeInputSources {
   readonly browserCache: string;
@@ -77,6 +78,18 @@ interface RuntimeDestinationManifestV1 {
   readonly files: readonly RuntimeDestinationManifestEntryV1[];
 }
 
+interface RuntimeDestinationStructureFileV1 {
+  readonly absolutePath: string;
+  readonly identity: RuntimeSourceIdentityV1;
+  readonly relativePath: string;
+  readonly size: number;
+}
+
+interface RuntimeDestinationStructureV1 {
+  readonly directories: readonly string[];
+  readonly files: readonly RuntimeDestinationStructureFileV1[];
+}
+
 interface SemanticMutationIsolatedRuntimePlanV1 {
   readonly directories: readonly string[];
   readonly files: readonly RuntimeInputFileV1[];
@@ -105,6 +118,32 @@ function sha256Value(value: unknown): string {
 
 function compareCodeUnits(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+async function runCanonicalBatches<T, R>(
+  items: readonly T[],
+  worker: (item: T, canonicalIndex: number) => Promise<R>
+): Promise<readonly R[]> {
+  const output: R[] = [];
+  for (let offset = 0; offset < items.length; offset += RUNTIME_FILE_CONCURRENCY) {
+    const batch = items.slice(offset, offset + RUNTIME_FILE_CONCURRENCY);
+    const settled = await Promise.allSettled(batch.map((item, index) =>
+      Promise.resolve().then(() => worker(item, offset + index))));
+    const failure = settled.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+    for (const result of settled) {
+      if (result.status === 'fulfilled') output.push(result.value);
+    }
+  }
+  return Object.freeze(output);
+}
+
+/** Test-only deterministic scheduler seam; production width remains fixed at eight. */
+export function runSemanticMutationRuntimeCanonicalBatchesForTests<T, R>(
+  items: readonly T[],
+  worker: (item: T, canonicalIndex: number) => Promise<R>
+): Promise<readonly R[]> {
+  return runCanonicalBatches(items, worker);
 }
 
 function foldedPath(filePath: string): string {
@@ -576,7 +615,7 @@ export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
       ),
       ...await captureInputTree(
         input.sources.composeTemplates,
-        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/orchestrator/templates`,
+        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/compiler/compose/templates`,
         inspector,
         false,
         directories
@@ -640,7 +679,7 @@ export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
     }
     const requiredRoots = [
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/policies/official/`,
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/orchestrator/templates/`,
+      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/compiler/compose/templates/`,
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/.shared-deps/node_modules/`,
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules/`,
       `${SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT}/`
@@ -753,15 +792,10 @@ async function writeGeneratedFile(
     throw new Error('Semantic Mutation generated runtime input changed after capability planning');
   }
   await commitFence();
-  await mkdir(path.dirname(destination), { recursive: true });
-  await commitFence();
   const handle = await open(destination, 'wx');
   try {
     await commitFence();
     await handle.writeFile(bytes);
-    await commitFence();
-    await commitFence();
-    await handle.sync();
     await commitFence();
   } finally {
     await handle.close();
@@ -791,8 +825,6 @@ async function copyPlannedFile(
       throw new Error('Semantic Mutation runtime source opened a different identity');
     }
     await commitFence();
-    await mkdir(path.dirname(destination), { recursive: true });
-    await commitFence();
     destinationHandle = await open(destination, 'wx');
     const buffer = Buffer.allocUnsafe(HASH_BUFFER_SIZE);
     const hash = createHash('sha256');
@@ -813,8 +845,6 @@ async function copyPlannedFile(
       total += bytesRead;
     }
     await commitFence();
-    await destinationHandle.sync();
-    await commitFence();
     const afterHandle = await sourceHandle.stat({ bigint: true }) as BigIntMetadata;
     const afterPath = await bigintLstat(file.sourceAbsolutePath);
     assertPhysicalMetadata(afterPath, file.sourceAbsolutePath, inspector, 'file');
@@ -829,55 +859,160 @@ async function copyPlannedFile(
   }
 }
 
-async function scanDestinationTree(
+async function scanDestinationStructure(
   stagingRoot: string,
   relativeRoot: string,
   inspector: ReparsePointInspector
-): Promise<{
-  readonly directories: readonly string[];
-  readonly files: readonly RuntimeDestinationManifestEntryV1[];
-}> {
+): Promise<RuntimeDestinationStructureV1> {
   const absoluteRoot = absoluteDestination(stagingRoot, relativeRoot);
-  await assertCanonicalPhysicalRoot(absoluteRoot, inspector, 'directory');
+  const root = await assertCanonicalPhysicalRoot(absoluteRoot, inspector, 'directory');
   const directories = new Set<string>();
-  const entries = await captureInputTree(
-    absoluteRoot,
-    relativeRoot,
-    inspector,
-    true,
-    directories
-  );
+  const files: RuntimeDestinationStructureFileV1[] = [];
+  const visit = async (directory: string, relativeDirectory: string): Promise<void> => {
+    directories.add(canonicalRelativePath(relativeDirectory));
+    const before = await bigintLstat(directory);
+    assertPhysicalMetadata(before, directory, inspector, 'directory');
+    const beforeIdentity = metadataIdentity(before);
+    const names = (await readdir(directory)).sort(compareCodeUnits);
+    for (const name of names) {
+      if (!name || name === '.' || name === '..' || name.includes('\0')) {
+        throw new Error('Semantic Mutation runtime destination has an invalid entry name');
+      }
+      const absoluteChild = path.join(directory, name);
+      const relativeChild = canonicalRelativePath(`${relativeDirectory}/${name}`);
+      const metadata = await bigintLstat(absoluteChild);
+      if (metadata.isDirectory()) {
+        assertPhysicalMetadata(metadata, absoluteChild, inspector, 'directory');
+        await visit(absoluteChild, relativeChild);
+      } else {
+        assertPhysicalMetadata(metadata, absoluteChild, inspector, 'file', true);
+        if (metadata.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+          throw new Error('Semantic Mutation runtime destination is too large');
+        }
+        files.push(Object.freeze({
+          absolutePath: path.resolve(absoluteChild),
+          identity: metadataIdentity(metadata),
+          relativePath: relativeChild,
+          size: Number(metadata.size)
+        }));
+      }
+    }
+    const after = await bigintLstat(directory);
+    assertPhysicalMetadata(after, directory, inspector, 'directory');
+    const namesAfter = (await readdir(directory)).sort(compareCodeUnits);
+    if (!sameIdentity(beforeIdentity, metadataIdentity(after)) ||
+      JSON.stringify(namesAfter) !== JSON.stringify(names)) {
+      throw new Error('Semantic Mutation runtime destination changed during structural scan');
+    }
+  };
+  await visit(root.absolutePath, canonicalRelativePath(relativeRoot));
+  const afterRoot = await bigintLstat(root.absolutePath);
+  if (!sameDirectoryIdentity(directoryIdentity(metadataIdentity(afterRoot)), directoryIdentity(root.identity))) {
+    throw new Error('Semantic Mutation runtime destination root changed during structural scan');
+  }
   return {
     directories: Object.freeze([...directories].sort(compareCodeUnits)),
-    files: Object.freeze(entries.map((file) => Object.freeze({
-      relativePath: file.destinationRelativePath,
-      rawDigest: file.rawDigest,
-      size: file.size
-    })))
+    files: Object.freeze(files.sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath)))
   };
 }
 
-async function assertExactDestinationManifest(
+async function exactDestinationStructure(
   plan: SemanticMutationIsolatedRuntimePlanV1,
   inspector: ReparsePointInspector
-): Promise<void> {
-  const compiler = await scanDestinationTree(
+): Promise<RuntimeDestinationStructureV1> {
+  const compiler = await scanDestinationStructure(
     plan.stagingRoot,
     SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT,
     inspector
   );
-  const browser = await scanDestinationTree(
+  const browser = await scanDestinationStructure(
     plan.stagingRoot,
     SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT,
     inspector
   );
-  const actual = {
+  return Object.freeze({
     directories: [...compiler.directories, ...browser.directories].sort(compareCodeUnits),
     files: [...compiler.files, ...browser.files]
       .sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath))
+  });
+}
+
+function assertExactDestinationStructure(
+  plan: SemanticMutationIsolatedRuntimePlanV1,
+  actual: RuntimeDestinationStructureV1
+): void {
+  const expected = {
+    directories: plan.manifest.directories,
+    files: plan.manifest.files.map((file) => ({ relativePath: file.relativePath, size: file.size }))
   };
+  const observed = {
+    directories: actual.directories,
+    files: actual.files.map((file) => ({ relativePath: file.relativePath, size: file.size }))
+  };
+  if (JSON.stringify(observed) !== JSON.stringify(expected)) {
+    throw new Error('Semantic Mutation isolated runtime destination structure is not exact');
+  }
+}
+
+async function assertExactDestinationManifest(
+  plan: SemanticMutationIsolatedRuntimePlanV1,
+  inspector: ReparsePointInspector,
+  afterHash?: () => Promise<void>
+): Promise<void> {
+  const structure = await exactDestinationStructure(plan, inspector);
+  assertExactDestinationStructure(plan, structure);
+  const files = await runCanonicalBatches(structure.files, async (file) => {
+    const evidence = await stableFileEvidence(file.absolutePath, inspector, false, true);
+    if (!sameIdentity(file.identity, evidence.identity)) {
+      throw new Error('Semantic Mutation isolated runtime destination changed before launch');
+    }
+    return Object.freeze({
+      relativePath: file.relativePath,
+      rawDigest: evidence.rawDigest,
+      size: evidence.size
+    });
+  });
+  const actual = { directories: structure.directories, files };
   if (JSON.stringify(actual) !== JSON.stringify(plan.manifest)) {
     throw new Error('Semantic Mutation isolated runtime destination manifest is not exact');
+  }
+  await afterHash?.();
+  const afterHashStructure = await exactDestinationStructure(plan, inspector);
+  assertExactDestinationStructure(plan, afterHashStructure);
+  if (afterHashStructure.files.length !== structure.files.length ||
+    afterHashStructure.files.some((file, index) => {
+      const before = structure.files[index];
+      return before === undefined || file.relativePath !== before.relativePath ||
+        !sameIdentity(file.identity, before.identity);
+    })) {
+    throw new Error('Semantic Mutation isolated runtime destination changed during launch proof');
+  }
+}
+
+/**
+ * Test-only launch-proof seam. It exercises the production structural scan,
+ * byte hash, hardlink/reparse checks, and post-hash identity pass without
+ * exposing an issued runtime binding.
+ */
+export async function assertSemanticMutationRuntimeDestinationManifestForTests(input: {
+  readonly afterHash?: () => Promise<void>;
+  readonly directories: readonly string[];
+  readonly files: readonly RuntimeDestinationManifestEntryV1[];
+  readonly stagingRoot: string;
+}): Promise<void> {
+  const plan = {
+    stagingRoot: path.resolve(input.stagingRoot),
+    manifest: Object.freeze({
+      directories: Object.freeze([...input.directories].sort(compareCodeUnits)),
+      files: Object.freeze([...input.files].sort((left, right) =>
+        compareCodeUnits(left.relativePath, right.relativePath)))
+    })
+  } as SemanticMutationIsolatedRuntimePlanV1;
+  const inspector = await createReparsePointInspector();
+  try {
+    await assertExactDestinationManifest(plan, inspector, input.afterHash);
+  } finally {
+    inspector.close();
   }
 }
 
@@ -926,14 +1061,14 @@ export async function materializeSemanticMutationIsolatedRuntime(input: {
       isPathInside(plan.stagingRoot, path.resolve(file.sourceAbsolutePath)))) {
       throw new Error('Semantic Mutation runtime source overlaps a materialization target');
     }
-    for (const file of plan.files) {
-      if (file.sourceAbsolutePath === null || 'generatedDigest' in file.sourceIdentity) continue;
+    await runCanonicalBatches(plan.files, async (file) => {
+      if (file.sourceAbsolutePath === null || 'generatedDigest' in file.sourceIdentity) return;
       const current = await bigintLstat(file.sourceAbsolutePath);
       assertPhysicalMetadata(current, file.sourceAbsolutePath, inspector, 'file');
       if (!sameIdentity(metadataIdentity(current), file.sourceIdentity)) {
         throw new Error('Semantic Mutation runtime source changed before materialization');
       }
-    }
+    });
     const sourceIdentities = new Set(plan.files.flatMap((file) =>
       file.sourceAbsolutePath !== null && !('generatedDigest' in file.sourceIdentity)
         ? [`${file.sourceIdentity.dev}:${file.sourceIdentity.ino}`]
@@ -964,7 +1099,7 @@ export async function materializeSemanticMutationIsolatedRuntime(input: {
       await input.commitFence();
       await mkdir(absoluteDestination(plan.stagingRoot, relativeDirectory), { recursive: true });
     }
-    for (const file of plan.files) {
+    await runCanonicalBatches(plan.files, async (file) => {
       const destination = absoluteDestination(plan.stagingRoot, file.destinationRelativePath);
       if (file.sourceAbsolutePath === null) {
         await writeGeneratedFile(
@@ -976,9 +1111,10 @@ export async function materializeSemanticMutationIsolatedRuntime(input: {
       } else {
         await copyPlannedFile(file, destination, inspector, input.commitFence);
       }
-    }
+    });
     await input.commitFence();
-    await assertExactDestinationManifest(plan, inspector);
+    const structure = await exactDestinationStructure(plan, inspector);
+    assertExactDestinationStructure(plan, structure);
     return {
       browsersPath: absoluteDestination(plan.stagingRoot, SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT),
       runnerRelativePath: SEMANTIC_MUTATION_ISOLATED_RUNNER_RELATIVE_PATH

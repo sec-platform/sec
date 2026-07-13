@@ -164,11 +164,38 @@ function defaultProcessAlive(pid: number): 'alive' | 'dead' | 'unknown' {
   }
 }
 
+type WorkspaceIdentityFailureReason = 'missing' | 'inaccessible' | 'not-directory' | 'unknown';
+
+function systemErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
+  return typeof error.code === 'string' ? error.code.toUpperCase() : undefined;
+}
+
+function workspaceIdentityFailureReason(error: unknown): WorkspaceIdentityFailureReason {
+  if (error instanceof WorkspaceWriteLeaseError &&
+    error.details.reason === 'not-directory') return 'not-directory';
+  switch (systemErrorCode(error)) {
+    case 'ENOENT':
+      return 'missing';
+    case 'EACCES':
+    case 'EPERM':
+      return 'inaccessible';
+    case 'ENOTDIR':
+      return 'not-directory';
+    default:
+      return 'unknown';
+  }
+}
+
 async function workspaceIdentity(workspaceRoot: string): Promise<string> {
   const canonical = await fs.realpath(workspaceRoot);
   const stat = await fs.stat(canonical);
   if (!stat.isDirectory()) {
-    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-004', 'Workspace identity is not a directory');
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-004',
+      'Workspace identity is not a directory',
+      { reason: 'not-directory' }
+    );
   }
   return sha256({
     domain: 'workspace-write-lease-workspace-identity-v1',
@@ -498,8 +525,16 @@ export function createWorkspaceWriteLeaseManager(
   };
 
   const acquireNative = async (workspaceRoot: string): Promise<WorkspaceWriteLeaseHandle> => {
-    const workspaceIdentityDigest = await workspaceIdentity(workspaceRoot).catch(() => {
-      throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-004', 'Workspace identity could not be proven');
+    const workspaceIdentityDigest = await workspaceIdentity(workspaceRoot).catch((error: unknown) => {
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-004',
+        'Workspace identity could not be proven',
+        {
+          operation: 'acquire',
+          phase: 'workspace-identity',
+          reason: workspaceIdentityFailureReason(error)
+        }
+      );
     });
     const { parent, lease } = pathsFor(workspaceRoot);
     await fs.mkdir(parent, { recursive: true });
