@@ -81,7 +81,7 @@ acceptance: []
     );
 
     // 3. 执行应用
-    const report = await applyViewMutations(workspaceRoot);
+    const report = await applyViewMutations(workspaceRoot, async () => undefined);
 
     expect(report.status).toBe('applied');
     expect(report.mutationCount).toBe(4);

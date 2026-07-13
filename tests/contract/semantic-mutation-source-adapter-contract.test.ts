@@ -23,7 +23,7 @@ import {
   SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
   type SemanticMutationLoadedSourceCandidateV1,
   type SemanticMutationRequestV2,
-  type SemanticMutationRollbackManifestV1,
+  type SemanticMutationRollbackManifestV2,
   type SemanticMutationSourceEditPlanV1
 } from '../../platform/shared/semantic-mutation-types.ts';
 import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
@@ -33,7 +33,7 @@ function sha256(value: unknown): string {
 }
 
 function vectors(): {
-  readonly manifest: SemanticMutationRollbackManifestV1;
+  readonly manifest: SemanticMutationRollbackManifestV2;
   readonly plan: SemanticMutationSourceEditPlanV1;
 } {
   const pathEvidenceWithoutRevision = {
@@ -62,6 +62,7 @@ function vectors(): {
     beforeByteLength: 100,
     stagedByteLength: 140,
     fileMode: 0o644,
+    windowsFileAttributes: null,
     encoding: 'utf-8' as const,
     utf8Bom: false,
     lineEnding: 'lf' as const,
@@ -71,7 +72,7 @@ function vectors(): {
   const manifest = {
     ...manifestWithoutRevision,
     rollbackManifestDigest: sha256({
-      domain: 'semantic-mutation-rollback-manifest-v1',
+      domain: 'semantic-mutation-rollback-manifest-v2',
       ...manifestWithoutRevision
     })
   };
@@ -118,7 +119,7 @@ test('SM-2 constants and independent edit-plan/rollback digest vectors stay froz
   expect(SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION).toBe('semantic-contract-yaml-v1');
   expect(SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION).toBe('semantic-mutation-source-path-evidence-v1');
   expect(SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION).toBe('semantic-mutation-source-edit-plan-v1');
-  expect(SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION).toBe('semantic-mutation-rollback-manifest-v1');
+  expect(SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION).toBe('semantic-mutation-rollback-manifest-v2');
   const { manifest, plan } = vectors();
   expect(() => assertSemanticMutationRollbackManifestInvariant(manifest)).not.toThrow();
   expect(() => assertSemanticMutationSourceEditPlanInvariant(plan)).not.toThrow();
@@ -162,7 +163,7 @@ test('unknown fields, stale revisions, digest forgery, and non-canonical operati
   const mismatchedManifest = {
     ...mismatchedWithoutDigest,
     rollbackManifestDigest: sha256({
-      domain: 'semantic-mutation-rollback-manifest-v1',
+      domain: 'semantic-mutation-rollback-manifest-v2',
       ...mismatchedWithoutDigest
     })
   };
@@ -203,7 +204,7 @@ async function sourceFiles(root: string): Promise<string[]> {
   return nested.flat().filter((file) => file.endsWith('.ts'));
 }
 
-test('only explicit SM-2 owners may import filesystem, path, YAML, or authoring loader dependencies', async () => {
+test('only explicit SM-2/SM-3 owners may import filesystem, path, YAML, or authoring loader dependencies', async () => {
   const root = path.resolve(import.meta.dir, '../../platform/compiler/semantic-mutation');
   const moduleSources: Record<string, string> = Object.fromEntries(await Promise.all((await sourceFiles(root)).map(async (file) => [
     path.basename(file),
@@ -221,8 +222,17 @@ test('only explicit SM-2 owners may import filesystem, path, YAML, or authoring 
   const loaderOwners = Object.entries(moduleSources)
     .filter(([, source]) => source.includes('/parse/load-authoring-semantic-contracts'))
     .map(([file]) => file);
-  expect(fsOwners).toEqual(['source-path-boundary.ts']);
-  expect(pathOwners).toEqual(['source-path-boundary.ts']);
+  const filesystemOwners = [
+    'atomic-source-publish.ts',
+    'derive-staged-mutation.ts',
+    'mutation-recovery-record.ts',
+    'mutation-terminal-record.ts',
+    'source-path-boundary.ts',
+    'transaction-identity.ts',
+    'windows-file-attributes.ts'
+  ];
+  expect(fsOwners).toEqual(filesystemOwners);
+  expect(pathOwners).toEqual(filesystemOwners);
   expect(yamlOwners).toEqual(['semantic-contract-yaml-adapter.ts']);
   expect(loaderOwners).toEqual(['source-adapter-registry.ts']);
 

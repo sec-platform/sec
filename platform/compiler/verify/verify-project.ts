@@ -11,12 +11,14 @@ import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
+import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type {
   FastVerificationLaneReport,
   RuntimeVerificationLaneReport,
   VerificationLane,
   VerificationReport
 } from '../../shared/verification-types.ts';
+import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
@@ -25,6 +27,14 @@ import { validateSlotSecurity } from './validate-slot-security.ts';
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;
+}
+
+export interface VerifyProjectOptions {
+  readonly beforeCommit?: () => Promise<void>;
+  readonly emitTiming?: boolean;
+  readonly isolated?: boolean;
+  readonly logger?: Logger;
+  readonly signal?: AbortSignal;
 }
 
 function createSkippedPolicyReport(): PolicyReport {
@@ -102,7 +112,8 @@ async function runSuiteFiles(rootDir: string, suffix: string): Promise<string[]>
 
 async function runFastVerification(
   workspaceRoot: string,
-  projectRoot: string
+  projectRoot: string,
+  isolated: boolean
 ): Promise<{
   lane: FastVerificationLaneReport;
   failure: unknown | null;
@@ -114,7 +125,7 @@ async function runFastVerification(
   let failure: unknown | null = null;
 
   try {
-    await typecheckProject(projectRoot);
+    await typecheckProject(projectRoot, { isolated });
     lane.build.status = 'passed';
   } catch (error) {
     lane.build.status = 'failed';
@@ -241,7 +252,7 @@ export async function verifyProject(
   workspaceRoot: string,
   lock: LockFile,
   lane: VerificationLane = 'all',
-  options: { emitTiming?: boolean; logger?: Logger } = {}
+  options: VerifyProjectOptions = {}
 ): Promise<VerificationReport> {
   const logger = options.logger ?? defaultLogger;
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
@@ -257,12 +268,30 @@ export async function verifyProject(
 
   await checkProjectBeforeVerify(workspaceRoot);
   await validateSlotSecurity(workspaceRoot, lock);
+  if (options.isolated) {
+    await ensureProjectDependencies(projectRoot, {
+      beforeCommit: options.beforeCommit,
+      installMode: 'offline-copy-only',
+      rematerialize: true,
+      signal: options.signal,
+      skipSharedDepsWarmup: true
+    });
+    await assertIsolatedStagingTree(workspaceRoot);
+  }
 
   const fastResult =
-    lane === 'runtime' ? { lane: createSkippedFastLane(), failure: null } : await runFastVerification(workspaceRoot, projectRoot);
+    lane === 'runtime'
+      ? { lane: createSkippedFastLane(), failure: null }
+      : await runFastVerification(workspaceRoot, projectRoot, options.isolated === true);
   const shouldRunRuntime = fastResult.lane.status === 'passed' || lane === 'runtime';
   const runtimeLane = shouldRunRuntime
-    ? await runRuntimeVerification(projectRoot, lane === 'all' ? 'full' : 'service', { emitTiming: options.emitTiming })
+      ? await runRuntimeVerification(projectRoot, lane === 'all' ? 'full' : 'service', {
+        beforeCommit: options.beforeCommit,
+        emitTiming: options.emitTiming,
+        isolated: options.isolated,
+        signal: options.signal,
+        ...(options.isolated ? { stagingWorkspaceRoot: workspaceRoot } : {})
+      })
     : createSkippedRuntimeLane();
   const summary = summarizeReport(lane, fastResult.lane, runtimeLane);
   const report: VerificationReport = {
@@ -282,12 +311,13 @@ export async function verifyProject(
   updateVerifyPassState(lock, report);
   updateVerifiedSlotTasks(lock, report);
 
+  await options.beforeCommit?.();
   await Promise.all([
-    writeJson(verificationReportPath, report),
-    writeJson(runtimeReportPath, runtimeLane),
-    writeJson(policyReportPath, policyReport),
-    writeJson(acceptanceCoveragePath, coverage),
-    writeJson(lockPath, lock)
+    writeJson(verificationReportPath, report, options.beforeCommit),
+    writeJson(runtimeReportPath, runtimeLane, options.beforeCommit),
+    writeJson(policyReportPath, policyReport, options.beforeCommit),
+    writeJson(acceptanceCoveragePath, coverage, options.beforeCommit),
+    writeJson(lockPath, lock, options.beforeCommit)
   ]);
 
   if (summary.status === 'failed') {

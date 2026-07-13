@@ -543,6 +543,19 @@ Source boundary 已冻结 canonical POSIX lexical containment、realpath、symli
 
 下一 reconciliation point 是 SM-2 merge 后从新 `origin/main` 重算 lease、transaction directory、isolated rebuild、Verification execution、atomic publish、rollback/recovery journal 与 replay DAG；不得把 SM-2 edit plan 描述成已经 apply，也不得在 SM-3 前接 Workbench、CLI、AI 或 live mutation consumer。
 
+### SM-3 implementation contract
+
+- **Base**：SM-2 squash merge 后的 `origin/main@49f96d75cd90a4e5b43db5f8b4dfedebb0f3017f`。
+- **Architectural goal**：实现唯一 isolated apply coordinator：通用 cross-process workspace writer lease、deterministic retained transaction directory/staged transaction、lease内 fresh preflight/source plan、base/source/expected-plan CAS、same-volume staging/backup、canonical staged rebuild、actual Delta/expectation/Impact、Verification-owned conservative execution、atomic single-file publish、live full downstream rebuild、verified rollback、crash recovery与replay/query/retention。
+- **Owned files**：Mutation-specific transaction/record/publish modules，`platform/orchestrator/semantic-mutation-orchestrator.ts`，Verification-owned local adapter，generic `platform/shared/workspace-write-lease.ts` 与 Pipeline reentrant lease seam，mutation-specific shared types，Compiler additive facade，唯一 `semantic-mutation` test owner，独立 `semantic.mutation-apply` Contract Freeze target、focused tests与evidence。
+- **Required shared seam**：所有 live workspace writers至少经 canonical `compileWorkspace()` 或同一 generic writer lease；Pipeline不依赖 Mutation，Mutation持 token reentrant调用 live rebuild。Downstream closure只读取现有 Pipeline registry，不复制pass order。Workbench/CLI/AI product adapter仍属于SM-4。
+- **Verification contract**：新增 `semantic-mutation-local-verification-v1` report schema与真实 `reportRevision`；完整 requirement union保守映射到一次 isolated verify-all，逐requirement记录 execution。未知/缺失/non-runnable/non-isolated、wrong plan/endpoint/source/union/report binding均在publish前以010拒绝；不得复用 changed-file selector或旧report冒充semantic verification。
+- **Recovery/replay contract**：`.sec/semantic-mutation/v1` immutable generation journal，状态 `prepared → authoring-committed → verified | rolled-back | recovery-required`；fixed crash digest matrix、request identity/revision collision、retained exact replay、256 terminal retention、active/recovery-required不自动清理、query contract全部冻结。普通合同拒绝以显式 apply outcome返回，不靠throw。
+- **Forbidden**：修改Fact Delta/Impact/IR/Projection shape或revision、把Pipeline journal/Workbench mutex/Repair/Upgrade backup冒充Mutation authority、非原子copy fallback、caller注入path/lease/staging/Verification evidence、接Workbench/API/CLI/AI consumer、修改official Registry contract、运行GitHub Actions或全slow/full矩阵。
+- **Acceptance**：真实child-process lease contention/orphan recovery；dry-run/apply plan revision稳定且lease内重算；publish前所有failure保持live bytes/derivatives不变；publish后mismatch执行committed-digest CAS rollback并精确恢复base；第三方write/restore/rebuild/journal失败进入durable recovery-required；exact replay不二次apply；四种terminal lifecycle、record chain、retention/query、diagnostic脱敏与early-stage call-count均有deterministic vectors。
+- **Required evidence**：完整实现后一次focused owner batch；独立frozen review集中关闭blocker；冻结implementation head后只运行一次canonical affected、完整Contract Freeze、changed-only imports/typecheck，以及selector实际要求的slow batch。默认风险簇为`e2e-graph`、`e2e-local-views`、`e2e-ticket-semantic-vertical`、`e2e-verify-lock`；若generic Pipeline seam使selector增加pipeline suites，则同批追加。复用未被blob交集失效的full-fast、其余slow、workspace/reference与GitHub Actions旧证据，不重复全矩阵。
+- **Reconciliation point**：SM-3 merge后从新main重算SM-4；不得在本包提前迁移Workbench或对齐AI Task Envelope。
+
 ## 14. 后续阶段
 
 完成第 13 节 v0.4 顺序后，再进入：

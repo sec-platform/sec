@@ -20,6 +20,11 @@ import type {
   PipelineSource,
   PipelineStageId
 } from './pipeline-types.ts';
+import {
+  assertWorkspaceWriteLease,
+  withWorkspaceWriteLease,
+  type WorkspaceWriteLeaseToken
+} from './workspace-write-lease.ts';
 
 interface StageExecutionOptions<T> {
   extractLock?: (result: T) => LockFile | Promise<LockFile>;
@@ -125,7 +130,8 @@ async function executeStageWithContext<T>(
   workspaceRoot: string,
   stageId: PipelineStageId,
   context: PipelineExecutionContext,
-  execute: () => Promise<T>,
+  execute: (effectiveContext: PipelineExecutionContext) => Promise<T>,
+  commitFence: () => Promise<void>,
   options: StageExecutionOptions<T>
 ): Promise<T> {
   const definition = getPipelineStageDefinition(stageId);
@@ -137,14 +143,17 @@ async function executeStageWithContext<T>(
     const failure = normalizeFailure(error);
     if (previousLock) {
       blockStageState(previousLock, definition.ownedPasses, definition.invalidates);
-      await saveLock(workspaceRoot, previousLock);
+      await commitFence();
+      await saveLock(workspaceRoot, previousLock, commitFence);
     }
+    await commitFence();
     await recordPipelinePassBlocked(
       workspaceRoot,
       context.transactionId,
       definition.primaryPass,
       failure.code,
       failure.message,
+      commitFence,
       context.onEvent
     );
     throw error;
@@ -152,28 +161,34 @@ async function executeStageWithContext<T>(
 
   if (previousLock) {
     beginStageState(previousLock, definition.ownedPasses, definition.invalidates);
-    await saveLock(workspaceRoot, previousLock);
+    await commitFence();
+    await saveLock(workspaceRoot, previousLock, commitFence);
   }
+  await commitFence();
   await recordPipelinePassStart(
     workspaceRoot,
     context.transactionId,
     definition.primaryPass,
+    commitFence,
     context.onEvent
   );
 
   try {
-    const result = await execute();
+    const result = await execute(context);
     const lock = options.extractLock
       ? await options.extractLock(result)
       : await readExistingLock(workspaceRoot);
     if (lock && !options.preserveOwnedPassStates) {
       completeStageState(lock, definition.ownedPasses);
-      await saveLock(workspaceRoot, lock);
+      await commitFence();
+      await saveLock(workspaceRoot, lock, commitFence);
     }
+    await commitFence();
     await recordPipelinePassSuccess(
       workspaceRoot,
       context.transactionId,
       definition.primaryPass,
+      commitFence,
       context.onEvent
     );
     return result;
@@ -188,14 +203,17 @@ async function executeStageWithContext<T>(
         definition.invalidates,
         failure.code
       );
-      await saveLock(workspaceRoot, lock);
+      await commitFence();
+      await saveLock(workspaceRoot, lock, commitFence);
     }
+    await commitFence();
     await recordPipelinePassFailure(
       workspaceRoot,
       context.transactionId,
       definition.primaryPass,
       failure.code,
       failure.message,
+      commitFence,
       context.onEvent
     );
     throw error;
@@ -207,37 +225,67 @@ export async function withPipelineTransaction<T>(
   source: PipelineSource,
   requestedStages: readonly PipelineStageId[],
   onEvent: PipelineEventHandler | undefined,
-  execute: (context: PipelineExecutionContext) => Promise<T>
+  execute: (context: PipelineExecutionContext) => Promise<T>,
+  workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<T> {
-  const transactionId = await startPipelineTransaction(workspaceRoot, source, requestedStages, onEvent);
-  const context: PipelineExecutionContext = {
-    transactionId,
-    source,
-    ...(onEvent ? { onEvent } : {})
-  };
+  return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (lease) => {
+    const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, lease);
+    await commitFence();
+    const transactionId = await startPipelineTransaction(
+      workspaceRoot,
+      source,
+      requestedStages,
+      commitFence,
+      onEvent
+    );
+    const context: PipelineExecutionContext = {
+      transactionId,
+      source,
+      ...(onEvent ? { onEvent } : {}),
+      workspaceWriteLease: lease
+    };
 
-  try {
-    const result = await execute(context);
-    await commitPipelineTransaction(workspaceRoot, transactionId, onEvent);
-    return result;
-  } catch (error) {
-    const failure = normalizeFailure(error);
-    await failPipelineTransaction(workspaceRoot, transactionId, failure.code, failure.message, onEvent);
-    throw error;
-  }
+    try {
+      const result = await execute(context);
+      await commitFence();
+      await commitPipelineTransaction(workspaceRoot, transactionId, commitFence, onEvent);
+      return result;
+    } catch (error) {
+      const failure = normalizeFailure(error);
+      await commitFence();
+      await failPipelineTransaction(
+        workspaceRoot,
+        transactionId,
+        failure.code,
+        failure.message,
+        commitFence,
+        onEvent
+      );
+      throw error;
+    }
+  });
 }
 
 export async function executePipelineStage<T>(
   workspaceRoot: string,
   stageId: PipelineStageId,
   context: PipelineExecutionContext | undefined,
-  execute: () => Promise<T>,
+  execute: (effectiveContext: PipelineExecutionContext) => Promise<T>,
   options: StageExecutionOptions<T> = {}
 ): Promise<T> {
   if (context) {
-    return executeStageWithContext(workspaceRoot, stageId, context, execute, options);
+    const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, context.workspaceWriteLease);
+    await commitFence();
+    return executeStageWithContext(workspaceRoot, stageId, context, execute, commitFence, options);
   }
   return withPipelineTransaction(workspaceRoot, 'api', [stageId], undefined, (transaction) =>
-    executeStageWithContext(workspaceRoot, stageId, transaction, execute, options)
+    executeStageWithContext(
+      workspaceRoot,
+      stageId,
+      transaction,
+      execute,
+      () => assertWorkspaceWriteLease(workspaceRoot, transaction.workspaceWriteLease),
+      options
+    )
   );
 }

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { CompilerError, formatCompilerFailure } from '../../shared/errors.ts';
-import { copyRecursive, pathExists, removeDir, writeJson } from '../../shared/fs.ts';
+import { copyRecursive, pathExists, removeDir, writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { createPipelineSemanticContext } from '../../shared/pipeline-semantic-context.ts';
@@ -11,12 +11,17 @@ import { composeProject } from '../compose/compose-project.ts';
 import { buildWorkspaceSemanticBundle } from '../semantic-frontend.ts';
 import { typecheckProject } from './typecheck-project.ts';
 
-export async function validateResolvedTemplates(workspaceRoot: string, lock: LockFile): Promise<void> {
+export async function validateResolvedTemplates(
+  workspaceRoot: string,
+  lock: LockFile,
+  commitFence?: CommitFence
+): Promise<void> {
+  await commitFence?.();
   const validationRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-template-'));
   const clonedLock = structuredClone(lock);
 
   try {
-    await ensureProjectBase(validationRoot);
+    await ensureProjectBase(validationRoot, commitFence);
     const registryCopies = new Map<string, string>();
     for (const block of clonedLock.resolvedBlocks) {
       if (block.registryLocation !== 'workspace' || registryCopies.has(block.registryPath)) {
@@ -28,16 +33,16 @@ export async function validateResolvedTemplates(workspaceRoot: string, lock: Loc
       );
     }
     for (const [registryPath, sourceRoot] of registryCopies) {
-      await copyRecursive(sourceRoot, path.join(validationRoot, registryPath));
+      await copyRecursive(sourceRoot, path.join(validationRoot, registryPath), commitFence);
     }
     const sourcePaths = getWorkspacePaths(workspaceRoot);
     const validationPaths = getWorkspacePaths(validationRoot);
-    await copyRecursive(sourcePaths.planPath, validationPaths.planPath);
+    await copyRecursive(sourcePaths.planPath, validationPaths.planPath, commitFence);
     if (await pathExists(sourcePaths.sourcePoliciesRoot)) {
-      await copyRecursive(sourcePaths.sourcePoliciesRoot, validationPaths.sourcePoliciesRoot);
+      await copyRecursive(sourcePaths.sourcePoliciesRoot, validationPaths.sourcePoliciesRoot, commitFence);
     }
     const { lockPath, projectRoot } = validationPaths;
-    await writeJson(lockPath, clonedLock);
+    await writeJson(lockPath, clonedLock, commitFence);
     const { snapshot, generatorPlan, semanticViews } = await buildWorkspaceSemanticBundle(validationRoot);
     const semanticContext = createPipelineSemanticContext(
       `template-validation:${snapshot.ir.inputRevision}`,
@@ -45,7 +50,7 @@ export async function validateResolvedTemplates(workspaceRoot: string, lock: Loc
       generatorPlan,
       semanticViews
     );
-    await composeProject(validationRoot, clonedLock, semanticContext);
+    await composeProject(validationRoot, clonedLock, semanticContext, { commitFence });
     await typecheckProject(projectRoot);
   } catch (error) {
     throw new CompilerError(
@@ -54,6 +59,6 @@ export async function validateResolvedTemplates(workspaceRoot: string, lock: Loc
       formatCompilerFailure(error)
     );
   } finally {
-    await removeDir(validationRoot);
+    await removeDir(validationRoot, commitFence);
   }
 }

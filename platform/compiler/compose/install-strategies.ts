@@ -1,7 +1,7 @@
 import { normalizeNewlines } from '../../shared/collections.ts';
 import { defaultLimit } from '../../shared/concurrency.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { copyRecursive, pathExists, readText, writeText } from '../../shared/fs.ts';
+import { copyRecursive, pathExists, readText, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
 import { posixPath, resolvePathInside, resolveRegistryRoot } from '../../shared/paths.ts';
 
@@ -9,6 +9,7 @@ export interface InstallContext {
   workspaceRoot: string;
   projectRoot: string;
   lock: LockFile;
+  commitFence?: CommitFence;
 }
 
 export interface InstallStrategy {
@@ -45,7 +46,7 @@ export class CopyInstallStrategy implements InstallStrategy {
   async execute(step: InstallPlanStep, context: InstallContext): Promise<void> {
     const sourcePath = resolveSourcePath(step, context);
     const targetPath = resolveTargetPath(step, context);
-    await copyRecursive(sourcePath, targetPath);
+    await copyRecursive(sourcePath, targetPath, context.commitFence);
   }
 }
 
@@ -66,7 +67,7 @@ export class MergePrismaInstallStrategy implements InstallStrategy {
       return;
     }
     const next = `${existing.trimEnd()}\n\n${trimmed}\n`;
-    await writeText(targetPath, next);
+    await writeText(targetPath, next, context.commitFence);
   }
 }
 

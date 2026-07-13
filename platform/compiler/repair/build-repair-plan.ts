@@ -4,7 +4,7 @@ import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { countLineDiff } from '../../shared/diff-utils.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { writeJson } from '../../shared/fs.ts';
+import { writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { rebaseRelativeImports } from '../../shared/path-imports.ts';
@@ -328,7 +328,13 @@ export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, l
   }
 }
 
-export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
+export async function applyRepairPlan(
+  workspaceRoot: string,
+  plan: PlanFile,
+  lock: LockFile,
+  repairPlan: RepairPlan,
+  commitFence?: CommitFence
+): Promise<void> {
   const writeTasks = prepareRepairWriteTasks(workspaceRoot, plan, lock, repairPlan);
 
   if (repairPlan.status === 'pending' && writeTasks.length === 0) {
@@ -336,20 +342,29 @@ export async function applyRepairPlan(workspaceRoot: string, plan: PlanFile, loc
   }
 
   for (const { targetPath, slotTask, source } of writeTasks) {
+    await commitFence?.();
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await commitFence?.();
     await fs.writeFile(targetPath, source, 'utf8');
     if (slotTask.sourcePath) {
       const runtimeTargetPath = resolveWorkspaceArtifactPath(workspaceRoot, slotTask.target);
+      await commitFence?.();
       await fs.mkdir(path.dirname(runtimeTargetPath), { recursive: true });
+      await commitFence?.();
       await fs.writeFile(runtimeTargetPath, rebaseRelativeImports(source, slotTask.sourcePath, toProjectRuntimePath(slotTask.target)), 'utf8');
     }
     slotTask.status = 'filled';
   }
 }
 
-export async function writeRepairPlan(workspaceRoot: string, plan: RepairPlan, lock: LockFile): Promise<void> {
+export async function writeRepairPlan(
+  workspaceRoot: string,
+  plan: RepairPlan,
+  lock: LockFile,
+  commitFence?: CommitFence
+): Promise<void> {
   const { repairPlanPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  await writeJson(repairPlanPath, plan);
-  await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_FILES.repairPlan]);
-  await writeProvenance(workspaceRoot, lock);
+  await writeJson(repairPlanPath, plan, commitFence);
+  await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_FILES.repairPlan], commitFence);
+  await writeProvenance(workspaceRoot, lock, commitFence);
 }

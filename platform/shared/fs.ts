@@ -2,7 +2,10 @@ import { globby } from 'globby';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export async function ensureDir(dirPath: string): Promise<void> {
+export type CommitFence = () => Promise<void>;
+
+export async function ensureDir(dirPath: string, commitFence?: CommitFence): Promise<void> {
+  await commitFence?.();
   await fs.mkdir(dirPath, { recursive: true });
 }
 
@@ -32,26 +35,37 @@ export function formatJsonFile(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-export async function writeJson(filePath: string, value: unknown): Promise<void> {
-  await ensureDir(path.dirname(filePath));
+export async function writeJson(
+  filePath: string,
+  value: unknown,
+  commitFence?: CommitFence
+): Promise<void> {
+  await ensureDir(path.dirname(filePath), commitFence);
+  await commitFence?.();
   await fs.writeFile(filePath, formatJsonFile(value), 'utf8');
 }
 
-export async function removeDir(targetPath: string): Promise<void> {
+export async function removeDir(targetPath: string, commitFence?: CommitFence): Promise<void> {
+  await commitFence?.();
   await fs.rm(targetPath, { recursive: true, force: true });
 }
 
-export async function copyRecursive(source: string, target: string): Promise<void> {
+export async function copyRecursive(
+  source: string,
+  target: string,
+  commitFence?: CommitFence
+): Promise<void> {
   const stat = await fs.stat(source);
   if (stat.isDirectory()) {
-    await ensureDir(target);
+    await ensureDir(target, commitFence);
     const entries = await fs.readdir(source);
     for (const entry of entries) {
-      await copyRecursive(path.join(source, entry), path.join(target, entry));
+      await copyRecursive(path.join(source, entry), path.join(target, entry), commitFence);
     }
     return;
   }
-  await ensureDir(path.dirname(target));
+  await ensureDir(path.dirname(target), commitFence);
+  await commitFence?.();
   await fs.copyFile(source, target);
 }
 
@@ -64,7 +78,8 @@ export async function readText(filePath: string): Promise<string> {
   return fs.readFile(filePath, 'utf8');
 }
 
-export async function writeText(filePath: string, text: string): Promise<void> {
-  await ensureDir(path.dirname(filePath));
+export async function writeText(filePath: string, text: string, commitFence?: CommitFence): Promise<void> {
+  await ensureDir(path.dirname(filePath), commitFence);
+  await commitFence?.();
   await fs.writeFile(filePath, text, 'utf8');
 }

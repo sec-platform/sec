@@ -1,0 +1,290 @@
+import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import { compileWorkspace, initWorkspace } from '../../platform/orchestrator.ts';
+import { withMonitoredWorkspaceWriteLease } from '../../platform/orchestrator/pipeline-orchestrator.ts';
+import { pathExists, writeText } from '../../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { executePipelineStage, withPipelineTransaction } from '../../platform/shared/pipeline-kernel.ts';
+import { runCommand } from '../../platform/shared/process.ts';
+import {
+  acquireWorkspaceWriteLease,
+  assertWorkspaceWriteLease,
+  createWorkspaceWriteLeaseManager,
+  WorkspaceWriteLeaseError
+} from '../../platform/shared/workspace-write-lease.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
+
+test('compileWorkspace acquires the writer lease and accepts only the exact reentrant token', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await initWorkspace(workspaceRoot, { reset: true });
+    const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+
+    await expect(compileWorkspace(workspaceRoot, { through: 'resolve' })).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-001'
+    });
+    await expect(compileWorkspace(workspaceRoot, {
+      through: 'resolve',
+      workspaceWriteLease: { ...lease.token, leaseId: 'forged' }
+    })).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-002'
+    });
+
+    const result = await compileWorkspace(workspaceRoot, {
+      through: 'resolve',
+      workspaceWriteLease: lease.token
+    });
+    expect(result.completedStages).toEqual(['resolve']);
+    await lease.assertOwned();
+    await lease.release();
+
+    const independent = await compileWorkspace(workspaceRoot, { through: 'resolve' });
+    expect(independent.completedStages).toEqual(['resolve']);
+  }, 'engineering-compiler-pipeline-workspace-lease-');
+}, 120000);
+
+test('a child cannot reuse or release a live holder token copied from owner.json', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await initWorkspace(workspaceRoot, { reset: true });
+    const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+    const { localStateRoot } = getWorkspacePaths(workspaceRoot);
+    const ownerPath = path.join(localStateRoot, 'workspace-write-lease', 'owner.json');
+    const resultPath = path.join(workspaceRoot, 'copied-token-attempt.json');
+    const orchestratorUrl = new URL('../../platform/orchestrator.ts', import.meta.url).href;
+    const leaseModuleUrl = new URL('../../platform/shared/workspace-write-lease.ts', import.meta.url).href;
+    const childScript = `
+      import { readFile } from 'node:fs/promises';
+      import { compileWorkspace } from ${JSON.stringify(orchestratorUrl)};
+      import { releaseWorkspaceWriteLease } from ${JSON.stringify(leaseModuleUrl)};
+      const { createdAtMs: _createdAtMs, heartbeatAtMs: _heartbeatAtMs, ...token } =
+        JSON.parse(await readFile(${JSON.stringify(ownerPath)}, 'utf8'));
+      let compileCode = 'unexpected-success';
+      let releaseCode = 'unexpected-success';
+      try {
+        await compileWorkspace(${JSON.stringify(workspaceRoot)}, {
+          through: 'resolve',
+          workspaceWriteLease: token
+        });
+      } catch (error) {
+        compileCode = error?.code ?? 'unknown';
+      }
+      try {
+        await releaseWorkspaceWriteLease(${JSON.stringify(workspaceRoot)}, token);
+      } catch (error) {
+        releaseCode = error?.code ?? 'unknown';
+      }
+      await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ compileCode, releaseCode }));
+    `;
+    const child = Bun.spawn([
+      process.execPath,
+      '--no-env-file',
+      '--eval',
+      childScript
+    ], { stdout: 'pipe', stderr: 'pipe' });
+
+    try {
+      const exitCode = await child.exited;
+      const stderr = await new Response(child.stderr).text();
+      expect(exitCode, stderr).toBe(0);
+      expect(JSON.parse(await fs.readFile(resultPath, 'utf8'))).toEqual({
+        compileCode: 'WORKSPACE-WRITE-LEASE-002',
+        releaseCode: 'WORKSPACE-WRITE-LEASE-002'
+      });
+      await lease.assertOwned();
+    } finally {
+      child.kill();
+      await child.exited;
+      await lease.release();
+    }
+  }, 'engineering-compiler-workspace-lease-copied-token-');
+}, 120000);
+
+test('a stage producer stops the current and subsequent writes when its exact lease token is invalidated', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await initWorkspace(workspaceRoot, { reset: true });
+    const { localStateRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
+    const leasePath = path.join(localStateRoot, 'workspace-write-lease');
+    const parkedLeasePath = path.join(localStateRoot, 'workspace-write-lease.parked-test');
+    const committedPath = path.join(projectRoot, 'producer-committed.txt');
+    const blockedPath = path.join(projectRoot, 'producer-blocked.txt');
+    const subsequentPath = path.join(projectRoot, 'producer-subsequent.txt');
+    let reachedSubsequentWrite = false;
+
+    await expect(withPipelineTransaction(
+      workspaceRoot,
+      'api',
+      ['resolve'],
+      undefined,
+      async (context) => executePipelineStage(
+        workspaceRoot,
+        'resolve',
+        context,
+        async (stageContext) => {
+          const commitFence = () => assertWorkspaceWriteLease(
+            workspaceRoot,
+            stageContext.workspaceWriteLease
+          );
+          await writeText(committedPath, 'committed-before-token-loss\n', commitFence);
+
+          const payloadAfterProducerWork = await Promise.resolve('must-not-commit-after-token-loss\n');
+          await fs.rename(leasePath, parkedLeasePath);
+          let writeFailure: unknown;
+          try {
+            await writeText(blockedPath, payloadAfterProducerWork, commitFence);
+            reachedSubsequentWrite = true;
+            await writeText(subsequentPath, 'must-not-run\n', commitFence);
+          } catch (error) {
+            writeFailure = error;
+          } finally {
+            await fs.rename(parkedLeasePath, leasePath);
+          }
+          if (!writeFailure) throw new Error('Invalidated writer lease unexpectedly allowed a producer write');
+          throw writeFailure;
+        }
+      )
+    )).rejects.toBeInstanceOf(WorkspaceWriteLeaseError);
+
+    expect(await pathExists(committedPath)).toBe(true);
+    expect(await pathExists(blockedPath)).toBe(false);
+    expect(reachedSubsequentWrite).toBe(false);
+    expect(await pathExists(subsequentPath)).toBe(false);
+  }, 'engineering-compiler-pipeline-producer-fence-');
+}, 120000);
+
+test('the pipeline lease monitor aborts a long-running isolated child when the staging token is lost', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { localStateRoot } = getWorkspacePaths(workspaceRoot);
+    const leasePath = path.join(localStateRoot, 'workspace-write-lease');
+    const parkedLeasePath = path.join(localStateRoot, 'workspace-write-lease.parked-monitor-test');
+    const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+    let childStarted = false;
+    let childAborted = false;
+
+    const monitored = withMonitoredWorkspaceWriteLease(
+      workspaceRoot,
+      lease.token,
+      (signal) => new Promise<void>((resolve) => {
+        childStarted = true;
+        const onAbort = (): void => {
+          childAborted = true;
+          resolve();
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      })
+    );
+    while (!childStarted) await Bun.sleep(1);
+    await fs.rename(leasePath, parkedLeasePath);
+    try {
+      await expect(monitored).rejects.toBeInstanceOf(WorkspaceWriteLeaseError);
+      expect(childAborted).toBe(true);
+    } finally {
+      await fs.rename(parkedLeasePath, leasePath);
+      await lease.release();
+    }
+  }, 'engineering-compiler-pipeline-lease-monitor-');
+}, 120000);
+
+test('an aborted live command terminates both the direct Windows child and its descendant tree', async () => {
+  if (process.platform !== 'win32') return;
+  await withTempWorkspace(async (workspaceRoot) => {
+    const parentReady = path.join(workspaceRoot, 'parent-ready');
+    const parentPulse = path.join(workspaceRoot, 'parent-pulse');
+    const descendantReady = path.join(workspaceRoot, 'descendant-ready');
+    const descendantPulse = path.join(workspaceRoot, 'descendant-pulse');
+    const descendantScript = `
+      await Bun.write(${JSON.stringify(descendantReady)}, 'ready');
+      setInterval(() => void Bun.write(${JSON.stringify(descendantPulse)}, String(Date.now())), 10);
+    `;
+    const parentScript = `
+      Bun.spawn([process.execPath, '--no-env-file', '--eval', ${JSON.stringify(descendantScript)}], {
+        stdout: 'ignore', stderr: 'ignore'
+      });
+      await Bun.write(${JSON.stringify(parentReady)}, 'ready');
+      setInterval(() => void Bun.write(${JSON.stringify(parentPulse)}, String(Date.now())), 10);
+    `;
+    const controller = new AbortController();
+    const running = runCommand(process.execPath, ['--no-env-file', '--eval', parentScript], {
+      cwd: workspaceRoot,
+      signal: controller.signal
+    });
+    try {
+      let ready = false;
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        if (await pathExists(parentReady) && await pathExists(descendantReady) &&
+          await pathExists(parentPulse) && await pathExists(descendantPulse)) {
+          ready = true;
+          break;
+        }
+        await Bun.sleep(10);
+      }
+      if (!ready) throw new Error('Live command process-tree sentinel did not become ready');
+      controller.abort();
+      await expect(running).rejects.toThrow('was aborted');
+      const parentAfterAbort = await fs.readFile(parentPulse, 'utf8');
+      const descendantAfterAbort = await fs.readFile(descendantPulse, 'utf8');
+      await Bun.sleep(200);
+      expect(await fs.readFile(parentPulse, 'utf8')).toBe(parentAfterAbort);
+      expect(await fs.readFile(descendantPulse, 'utf8')).toBe(descendantAfterAbort);
+    } finally {
+      controller.abort();
+      await running.catch(() => undefined);
+    }
+  }, 'engineering-compiler-live-command-tree-fence-');
+}, 120000);
+
+test('workspace writer lease contends with and reclaims an orphaned child process', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const signalPath = path.join(workspaceRoot, 'child-lease-ready');
+    const moduleUrl = new URL('../../platform/shared/workspace-write-lease.ts', import.meta.url).href;
+    const childScript = `
+      import { createWorkspaceWriteLeaseManager } from ${JSON.stringify(moduleUrl)};
+      const manager = createWorkspaceWriteLeaseManager({ heartbeatIntervalMs: 25, staleAfterMs: 100 });
+      await manager.acquire(${JSON.stringify(workspaceRoot)});
+      await Bun.write(${JSON.stringify(signalPath)}, 'ready');
+      setInterval(() => undefined, 1_000);
+    `;
+    const child = Bun.spawn([process.execPath, '--eval', childScript], {
+      stdout: 'pipe',
+      stderr: 'pipe'
+    });
+
+    try {
+      let ready = false;
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        if (await fs.readFile(signalPath, 'utf8').catch(() => '') === 'ready') {
+          ready = true;
+          break;
+        }
+        if (await Promise.race([
+          child.exited.then(() => true),
+          Bun.sleep(10).then(() => false)
+        ])) break;
+      }
+      if (!ready) {
+        const stderr = await new Response(child.stderr).text();
+        throw new Error(`Child lease holder failed to start: ${stderr}`);
+      }
+
+      const contender = createWorkspaceWriteLeaseManager({
+        heartbeatIntervalMs: 25,
+        staleAfterMs: 100
+      });
+      await expect(contender.acquire(workspaceRoot)).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-001'
+      });
+
+      child.kill();
+      await child.exited;
+      await Bun.sleep(150);
+
+      const replacement = await contender.acquire(workspaceRoot);
+      await replacement.assertOwned();
+      await replacement.release();
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  }, 'engineering-compiler-workspace-lease-child-process-');
+}, 120000);

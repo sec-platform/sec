@@ -2,7 +2,7 @@ import { globby } from 'globby';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { copyRecursive, pathExists, readJson, removeDir, writeJson } from '../../shared/fs.ts';
+import { copyRecursive, pathExists, readJson, removeDir, writeJson, type CommitFence } from '../../shared/fs.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { readYamlWithSchema } from '../../shared/yaml.ts';
@@ -14,6 +14,7 @@ const opaqueModuleSchema = z.object({
 
 export type InstallOpaqueModulesOptions = {
   buildMode?: boolean;
+  commitFence?: CommitFence;
 };
 
 function resolveBuildMode(options?: InstallOpaqueModulesOptions): boolean {
@@ -31,6 +32,7 @@ export async function installOpaqueModules(
   options?: InstallOpaqueModulesOptions,
 ): Promise<string[]> {
   const { sourceCodeRoot, projectPackagePath } = getWorkspacePaths(workspaceRoot);
+  const commitFence = options?.commitFence;
   const opaqueRoot = path.join(sourceCodeRoot, 'opaque');
 
   // Load project package.json
@@ -70,6 +72,7 @@ export async function installOpaqueModules(
       const nodeModulesPath = path.join(projectRoot, 'node_modules');
       const targetNodeModulesDepPath = path.join(nodeModulesPath, depKey);
       if (await pathExists(targetNodeModulesDepPath)) {
+        await commitFence?.();
         await fs.rm(targetNodeModulesDepPath, { recursive: true, force: true });
       }
     }
@@ -77,7 +80,7 @@ export async function installOpaqueModules(
 
   if (moduleEntries.length === 0) {
     if (packageJsonChanged) {
-      await writeJson(projectPackagePath, packageJson);
+      await writeJson(projectPackagePath, packageJson, commitFence);
     }
     return [];
   }
@@ -95,11 +98,11 @@ export async function installOpaqueModules(
       
       // Clean target if exists
       if (await pathExists(targetDir)) {
-        await removeDir(targetDir);
+        await removeDir(targetDir, commitFence);
       }
       
       // Copy source folder to target
-      await copyRecursive(entry.dirPath, targetDir);
+      await copyRecursive(entry.dirPath, targetDir, commitFence);
       
       // Compute relative path for link in package.json
       const relativePath = path.relative(projectRoot, targetDir);
@@ -116,6 +119,7 @@ export async function installOpaqueModules(
       // Remove node_modules link if it existed
       const targetNodeModulesDepPath = path.join(projectRoot, 'node_modules', depKey);
       if (await pathExists(targetNodeModulesDepPath)) {
+        await commitFence?.();
         await fs.rm(targetNodeModulesDepPath, { recursive: true, force: true });
       }
     } else {
@@ -129,6 +133,7 @@ export async function installOpaqueModules(
       if (await pathExists(nodeModulesPath)) {
         const targetNodeModulesDepPath = path.join(nodeModulesPath, depKey);
         if (!(await pathExists(targetNodeModulesDepPath))) {
+          await commitFence?.();
           await fs.symlink(entry.dirPath, targetNodeModulesDepPath, 'junction');
         }
       }
@@ -136,7 +141,7 @@ export async function installOpaqueModules(
   }
 
   // Save project package.json
-  await writeJson(projectPackagePath, packageJson);
+  await writeJson(projectPackagePath, packageJson, commitFence);
 
   return generatedPaths;
 }

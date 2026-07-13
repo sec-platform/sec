@@ -1,8 +1,6 @@
 import path from 'node:path';
-import fs from 'node:fs/promises';
-import { copyRecursive, pathExists, listFilesRecursive } from '../../shared/fs.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { copyRecursive, listFilesRecursive, pathExists, type CommitFence } from '../../shared/fs.ts';
 
 /**
  * Check if a layout file exists in the directory or any ancestor directory
@@ -34,7 +32,11 @@ async function hasLayoutInChain(dir: string, routesSourceDir: string): Promise<b
   return false;
 }
 
-export async function mapCustomRoutes(workspaceRoot: string, projectRoot: string): Promise<string[]> {
+export async function mapCustomRoutes(
+  workspaceRoot: string,
+  projectRoot: string,
+  commitFence?: CommitFence
+): Promise<string[]> {
   const routesSourceDir = path.join(workspaceRoot, 'source', 'ui', 'routes');
   const fallbackLayoutPath = path.join(workspaceRoot, 'source', 'ui', 'layouts', 'dashboard-layout.tsx');
 
@@ -56,7 +58,7 @@ export async function mapCustomRoutes(workspaceRoot: string, projectRoot: string
     const relativePath = path.relative(routesSourceDir, sourceFile);
     const targetFile = path.join(targetAppRoot, relativePath);
 
-    await copyRecursive(sourceFile, targetFile);
+    await copyRecursive(sourceFile, targetFile, commitFence);
 
     const relativeToProject = path.relative(projectRoot, targetFile).split(path.sep).join('/');
     generatedPaths.push(relativeToProject);
@@ -82,7 +84,7 @@ export async function mapCustomRoutes(workspaceRoot: string, projectRoot: string
     if (!hasLayout) {
       if (await pathExists(fallbackLayoutPath)) {
         const targetLayoutPath = path.join(targetRouteDir, 'layout.tsx');
-        await copyRecursive(fallbackLayoutPath, targetLayoutPath);
+        await copyRecursive(fallbackLayoutPath, targetLayoutPath, commitFence);
 
         const relativeLayoutToProject = path.relative(projectRoot, targetLayoutPath).split(path.sep).join('/');
         if (!generatedPaths.includes(relativeLayoutToProject)) {

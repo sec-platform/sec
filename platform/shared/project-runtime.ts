@@ -2,9 +2,25 @@ import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from './errors.ts';
-import { ensureDir, formatJsonFile, pathExists, readJson, readText, writeJson, writeText } from './fs.ts';
+import {
+  ensureDir,
+  formatJsonFile,
+  pathExists,
+  readJson,
+  readText,
+  writeJson,
+  writeText,
+  type CommitFence
+} from './fs.ts';
 import { compilerRoot } from './paths.ts';
-import { pathEnvKey, runCommand, type CommandResult } from './process.ts';
+import {
+  buildIsolatedProcessEnvironment,
+  ensureIsolatedProcessDirectories,
+  ISOLATED_VERIFICATION_ENV_KEY,
+  pathEnvKey,
+  runCommand,
+  type CommandResult
+} from './process.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
@@ -21,12 +37,16 @@ export interface SharedDepsReadyState {
 }
 
 export interface RuntimeDependencyInstallOptions {
+  beforeCommit?: CommitFence;
   commandRunner?: typeof runCommand;
+  installMode?: 'allow' | 'offline-copy-only';
   lockTimeoutMs?: number;
   now?: () => string;
   pollIntervalMs?: number;
   preferSharedCopy?: boolean;
+  rematerialize?: boolean;
   sharedDepsRoot?: string;
+  signal?: AbortSignal;
   skipSharedDepsWarmup?: boolean;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -35,12 +55,20 @@ function defaultSharedDepsRoot(): string {
   return path.join(compilerRoot, '.shared-deps');
 }
 
-function buildEnv(additionalEnv: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+function buildEnv(
+  additionalEnv: NodeJS.ProcessEnv = {},
+  isolatedWritableRoot?: string
+): NodeJS.ProcessEnv {
   const envPathKey = pathEnvKey();
-  return {
-    [envPathKey]: `${path.join(compilerRoot, 'node_modules', '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`,
+  const overrides = {
+    ...(isolatedWritableRoot ? {} : {
+      [envPathKey]: `${path.join(compilerRoot, 'node_modules', '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`
+    }),
     ...additionalEnv
   };
+  return isolatedWritableRoot
+    ? buildIsolatedProcessEnvironment(isolatedWritableRoot, overrides)
+    : overrides;
 }
 
 function sleepMs(delayMs: number): Promise<void> {
@@ -63,12 +91,16 @@ async function hasInstalledRuntimeDeps(nodeModulesPath: string): Promise<boolean
   }
 }
 
-async function writeManifestIfChanged(filePath: string, value: unknown): Promise<void> {
+async function writeManifestIfChanged(
+  filePath: string,
+  value: unknown,
+  commitFence?: CommitFence
+): Promise<void> {
   const nextText = formatJsonFile(value);
   if ((await pathExists(filePath)) && (await readText(filePath)) === nextText) {
     return;
   }
-  await writeText(filePath, nextText);
+  await writeText(filePath, nextText, commitFence);
 }
 
 export async function readRuntimeDepsStamp(stampPath: string): Promise<RuntimeDepsStamp | null> {
@@ -83,8 +115,12 @@ export async function readRuntimeDepsStamp(stampPath: string): Promise<RuntimeDe
   }
 }
 
-export async function writeRuntimeDepsStamp(stampPath: string, stamp: RuntimeDepsStamp): Promise<void> {
-  await writeJson(stampPath, stamp);
+export async function writeRuntimeDepsStamp(
+  stampPath: string,
+  stamp: RuntimeDepsStamp,
+  commitFence?: CommitFence
+): Promise<void> {
+  await writeJson(stampPath, stamp, commitFence);
 }
 
 async function isCacheReady(nodeModulesPath: string, stampPath: string, manifestHash: string): Promise<boolean> {
@@ -109,14 +145,16 @@ async function withInstallLock<T>(
   const sleep = options.sleep ?? sleepMs;
   const startTime = Date.now();
 
-  await ensureDir(path.dirname(lockPath));
+  await ensureDir(path.dirname(lockPath), options.beforeCommit);
 
   while (true) {
     let handle: FileHandle | null = null;
 
     try {
+      await options.beforeCommit?.();
       handle = await fs.open(lockPath, 'wx');
       const createdAt = (options.now ?? (() => new Date().toISOString()))();
+      await options.beforeCommit?.();
       await handle.writeFile(formatJsonFile({ pid: process.pid, createdAt }), 'utf8');
       break;
     } catch (error) {
@@ -140,6 +178,7 @@ async function withInstallLock<T>(
   try {
     return await callback();
   } finally {
+    await options.beforeCommit?.();
     await fs.rm(lockPath, { force: true });
   }
 }
@@ -151,10 +190,29 @@ async function runBunInstall(
   cacheDir?: string
 ): Promise<{ packageManager: 'bun'; result: CommandResult }> {
   const commandRunner = options.commandRunner ?? runCommand;
-  const bunResult = await commandRunner('bun', bunArgs, {
+  const isolated = options.installMode === 'offline-copy-only';
+  const isolatedWritableRoot = path.join(workingDirectory, '.isolated-process', 'dependency-install');
+  if (isolated) await ensureIsolatedProcessDirectories(isolatedWritableRoot, options.beforeCommit);
+  const isolatedConfigPath = path.join(isolatedWritableRoot, 'bunfig.toml');
+  if (isolated) await writeText(isolatedConfigPath, '# isolated runtime\n', options.beforeCommit);
+  await options.beforeCommit?.();
+  const commandArgs = isolated
+    ? ['--no-env-file', `--config=${isolatedConfigPath}`, ...bunArgs]
+    : bunArgs;
+  const bunResult = await commandRunner(isolated ? process.execPath : 'bun', commandArgs, {
+    beforeSpawn: options.beforeCommit,
     cwd: workingDirectory,
-    env: buildEnv(cacheDir ? { BUN_INSTALL_CACHE_DIR: cacheDir } : {})
+    env: buildEnv(cacheDir ? {
+      BUN_INSTALL_CACHE_DIR: cacheDir,
+      ...(isolated ? {
+        [ISOLATED_VERIFICATION_ENV_KEY]: '1',
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      } : {})
+    } : {}, isolated ? isolatedWritableRoot : undefined),
+    signal: options.signal,
+    ...(isolated ? { envMode: 'replace' as const } : {})
   });
+  await options.beforeCommit?.();
 
   if (bunResult.code === 0) {
     return { packageManager: 'bun', result: bunResult };
@@ -163,6 +221,45 @@ async function runBunInstall(
   throw new CompilerError('RUNTIME-DEPS-001', `Failed to install runtime dependencies in ${workingDirectory}`, {
     bunResult
   });
+}
+
+async function copyPhysicalDependencyTree(
+  source: string,
+  target: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  const metadata = await fs.lstat(source);
+  if (metadata.isSymbolicLink()) {
+    throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree contains a reparse entry');
+  }
+  if (metadata.isDirectory()) {
+    await commitFence?.();
+    await fs.mkdir(target, { recursive: true });
+    const entries = await fs.readdir(source);
+    for (const name of entries.sort((left, right) => left.localeCompare(right))) {
+      await copyPhysicalDependencyTree(path.join(source, name), path.join(target, name), commitFence);
+    }
+    return;
+  }
+  if (!metadata.isFile()) {
+    throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree contains a special entry');
+  }
+  await commitFence?.();
+  await fs.copyFile(source, target);
+}
+
+async function materializeIsolatedNodeModules(
+  sharedDepsRoot: string,
+  target: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  const source = path.join(sharedDepsRoot, 'node_modules');
+  if (!(await hasInstalledRuntimeDeps(source))) {
+    throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree is unavailable for isolated verification');
+  }
+  await commitFence?.();
+  await fs.rm(target, { recursive: true, force: true });
+  await copyPhysicalDependencyTree(source, target, commitFence);
 }
 
 async function resolveProjectDependencyBridgeTarget(): Promise<string> {
@@ -208,8 +305,8 @@ export async function ensureSharedDepsReady(
   const sharedLockPath = path.join(sharedDepsRoot, 'install.lock');
   const manifest = buildRuntimePackageManifest('shared-runtime-deps', runtimeSpec);
 
-  await ensureDir(sharedDepsRoot);
-  await writeManifestIfChanged(sharedPackagePath, manifest);
+  await ensureDir(sharedDepsRoot, options.beforeCommit);
+  await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
 
   if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec.manifestHash)) {
     const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
@@ -222,7 +319,7 @@ export async function ensureSharedDepsReady(
   }
 
   return withInstallLock(sharedLockPath, options, async () => {
-    await writeManifestIfChanged(sharedPackagePath, manifest);
+    await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
 
     if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec.manifestHash)) {
       const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
@@ -241,7 +338,7 @@ export async function ensureSharedDepsReady(
       manifestHash: runtimeSpec.manifestHash,
       packageManager,
       installedAt: (options.now ?? (() => new Date().toISOString()))()
-    });
+    }, options.beforeCommit);
 
     return {
       packageManager,
@@ -257,47 +354,65 @@ export async function ensureProjectDependencies(
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<void> {
   const runtimeSpec = await loadRuntimeDependencySpec();
+  const isolated = options.installMode === 'offline-copy-only';
   const sharedDeps =
-    options.skipSharedDepsWarmup === true ? null : await ensureSharedDepsReady(options);
+    isolated || options.skipSharedDepsWarmup === true ? null : await ensureSharedDepsReady(options);
   const sharedDepsRoot = options.sharedDepsRoot ?? sharedDeps?.root ?? defaultSharedDepsRoot();
   const nodeModulesPath = path.join(projectRoot, 'node_modules');
   const stampPath = projectStampPath(projectRoot);
-
-  if (await isCacheReady(nodeModulesPath, stampPath, runtimeSpec.manifestHash)) {
+  await options.beforeCommit?.();
+  const cacheReady = !options.rematerialize &&
+    await isCacheReady(nodeModulesPath, stampPath, runtimeSpec.manifestHash);
+  await options.beforeCommit?.();
+  if (cacheReady) {
     return;
   }
 
   if (await pathExists(nodeModulesPath)) {
+    await options.beforeCommit?.();
     await fs.rm(nodeModulesPath, { recursive: true, force: true });
   }
 
-  if (options.skipSharedDepsWarmup === true && options.preferSharedCopy !== false) {
+  if (isolated) {
+    await materializeIsolatedNodeModules(sharedDepsRoot, nodeModulesPath, options.beforeCommit);
+    await writeRuntimeDepsStamp(stampPath, {
+      manifestHash: runtimeSpec.manifestHash,
+      packageManager: 'bun',
+      installedAt: (options.now ?? (() => new Date().toISOString()))()
+    }, options.beforeCommit);
+    return;
+  }
+
+  if (!isolated && options.skipSharedDepsWarmup === true && options.preferSharedCopy !== false) {
     const compilerNodeModules = path.join(compilerRoot, 'node_modules');
     if (await hasInstalledRuntimeDeps(compilerNodeModules)) {
+      await options.beforeCommit?.();
       await fs.symlink(compilerNodeModules, nodeModulesPath, 'junction');
       await writeRuntimeDepsStamp(stampPath, {
         manifestHash: runtimeSpec.manifestHash,
         packageManager: 'bun',
         installedAt: (options.now ?? (() => new Date().toISOString()))()
-      });
+      }, options.beforeCommit);
       return;
     }
   }
 
-  if (options.preferSharedCopy !== false) {
+  if (!isolated && options.preferSharedCopy !== false) {
     const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
     const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
     if (sharedStamp && (await hasInstalledRuntimeDeps(sharedNodeModulesPath))) {
       try {
+        await options.beforeCommit?.();
         await fs.symlink(sharedNodeModulesPath, nodeModulesPath, 'junction');
         await writeRuntimeDepsStamp(stampPath, {
           manifestHash: runtimeSpec.manifestHash,
           packageManager: sharedStamp.packageManager,
           installedAt: (options.now ?? (() => new Date().toISOString()))()
-        });
+        }, options.beforeCommit);
         return;
       } catch {
         if (await pathExists(nodeModulesPath)) {
+          await options.beforeCommit?.();
           await fs.rm(nodeModulesPath, { recursive: true, force: true });
         }
       }
@@ -315,5 +430,5 @@ export async function ensureProjectDependencies(
     manifestHash: runtimeSpec.manifestHash,
     packageManager,
     installedAt: (options.now ?? (() => new Date().toISOString()))()
-  });
+  }, options.beforeCommit);
 }

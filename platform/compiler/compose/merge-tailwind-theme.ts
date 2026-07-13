@@ -1,7 +1,7 @@
-import path from 'node:path';
 import fs from 'node:fs/promises';
-import { Project, SyntaxKind, ObjectLiteralExpression, Node } from 'ts-morph';
-import { pathExists, readJson, readText, writeText } from '../../shared/fs.ts';
+import path from 'node:path';
+import { Node, ObjectLiteralExpression, Project, SyntaxKind } from 'ts-morph';
+import { pathExists, readJson, readText, writeText, type CommitFence } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 
 function mergeJsonObjectIntoAst(astObject: ObjectLiteralExpression, jsonObject: any) {
@@ -34,7 +34,11 @@ function mergeJsonObjectIntoAst(astObject: ObjectLiteralExpression, jsonObject: 
   }
 }
 
-export async function mergeTailwindTheme(workspaceRoot: string, projectRoot: string): Promise<string[]> {
+export async function mergeTailwindTheme(
+  workspaceRoot: string,
+  projectRoot: string,
+  commitFence?: CommitFence
+): Promise<string[]> {
   const { sourceCodeRoot } = getWorkspacePaths(workspaceRoot);
   const themeDir = path.join(sourceCodeRoot, 'assets', 'theme');
 
@@ -64,7 +68,7 @@ const config: Config = {
   plugins: []
 };
 export default config;
-`);
+`, commitFence);
     }
 
     const project = new Project();
@@ -114,6 +118,7 @@ export default config;
           mergeJsonObjectIntoAst(extendObject, extendJson);
         }
       }
+      await commitFence?.();
       await sourceFile.save();
       generatedPaths.push('tailwind.config.ts');
     }
@@ -128,6 +133,7 @@ export default config;
     }
 
     if (await pathExists(targetCssPath)) {
+      await commitFence?.();
       await fs.appendFile(targetCssPath, `\n/* Merged from source/assets/theme/globals.css */\n${customCss}\n`, 'utf8');
       const cssRelative = path.relative(projectRoot, targetCssPath).split(path.sep).join('/');
       generatedPaths.push(cssRelative);

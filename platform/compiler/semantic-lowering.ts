@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { CompilerError } from '../shared/errors.ts';
-import { writeText } from '../shared/fs.ts';
+import { writeText, type CommitFence } from '../shared/fs.ts';
 import { getWorkspacePaths, resolvePathInside } from '../shared/paths.ts';
 import type { PipelineSemanticContext } from '../shared/pipeline-types.ts';
 import type {
@@ -93,7 +93,8 @@ function renderTask(task: SemanticGeneratorPlanTask): string {
 
 export async function lowerSemanticTasks(
   workspaceRoot: string,
-  context: PipelineSemanticContext
+  context: PipelineSemanticContext,
+  commitFence?: CommitFence
 ): Promise<SemanticLoweringResult> {
   assertPlanOwnership(context);
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
@@ -106,7 +107,7 @@ export async function lowerSemanticTasks(
       throw new CompilerError('GENERATOR-LOWER-004', `Task "${task.id}" target escapes project root`);
     }
 
-    await writeText(targetPath, renderTask(task));
+    await writeText(targetPath, renderTask(task), commitFence);
     generatedPaths.push(path.relative(projectRoot, targetPath).replaceAll(path.sep, '/'));
     tasks.push({
       ...structuredClone(task),

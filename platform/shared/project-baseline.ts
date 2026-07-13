@@ -3,7 +3,7 @@ import path from 'node:path';
 import { uniqueSorted } from './collections.ts';
 import { createConcurrencyLimit } from './concurrency.ts';
 import { CompilerError } from './errors.ts';
-import { readOptionalJson, writeJson } from './fs.ts';
+import { readOptionalJson, writeJson, type CommitFence } from './fs.ts';
 import type { LockFile } from './lock-types.ts';
 import { getWorkspacePaths, posixPath, resolvePathInside } from './paths.ts';
 import { calculateProjectFileHash } from './project-file-hash.ts';
@@ -120,7 +120,8 @@ export async function assertProjectBaseline(
 export async function writeProjectBaseline(
   workspaceRoot: string,
   lock: LockFile,
-  additionalPaths: readonly string[] = []
+  additionalPaths: readonly string[] = [],
+  commitFence?: CommitFence
 ): Promise<ProjectBaselineFile> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const artifactPaths = currentReadOnlyProjectPaths(lock, additionalPaths);
@@ -141,6 +142,6 @@ export async function writeProjectBaseline(
     formatVersion: PROJECT_BASELINE_FORMAT_VERSION,
     artifacts
   };
-  await writeJson(getProjectBaselinePath(workspaceRoot), baseline);
+  await writeJson(getProjectBaselinePath(workspaceRoot), baseline, commitFence);
   return baseline;
 }

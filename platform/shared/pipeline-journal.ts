@@ -19,6 +19,7 @@ const MAX_RETAINED_TRANSACTIONS = 50;
 const PIPELINE_JOURNAL_FILE = 'pipeline-journal.json';
 export const REFERENCE_PIPELINE_TRANSACTION_ID = 'tx:reference-workspace';
 let journalMutationQueue: Promise<void> = Promise.resolve();
+type PipelineCommitFence = () => Promise<void>;
 
 function pipelineJournalPath(workspaceRoot: string): string {
   return path.join(getWorkspacePaths(workspaceRoot).localStateRoot, PIPELINE_JOURNAL_FILE);
@@ -50,13 +51,14 @@ async function readJournal(workspaceRoot: string): Promise<PipelineJournal> {
 
 async function mutateJournal(
   workspaceRoot: string,
-  mutate: (journal: PipelineJournal) => void | Promise<void>
+  mutate: (journal: PipelineJournal) => void | Promise<void>,
+  commitFence: PipelineCommitFence
 ): Promise<void> {
   const run = async (): Promise<void> => {
     const journal = await readJournal(workspaceRoot);
     await mutate(journal);
     journal.transactions = journal.transactions.slice(-MAX_RETAINED_TRANSACTIONS);
-    await writeJson(pipelineJournalPath(workspaceRoot), journal);
+    await writeJson(pipelineJournalPath(workspaceRoot), journal, commitFence);
   };
   const current = journalMutationQueue.then(run, run);
   journalMutationQueue = current.catch(() => undefined);
@@ -107,6 +109,7 @@ export async function startPipelineTransaction(
   workspaceRoot: string,
   source: PipelineSource,
   requestedStages: readonly PipelineStageId[],
+  commitFence: PipelineCommitFence,
   onEvent?: PipelineEventHandler
 ): Promise<string> {
   const transactionId = source === 'reference'
@@ -130,7 +133,7 @@ export async function startPipelineTransaction(
       passRecords: []
     });
     journal.activeTransactionId = transactionId;
-  });
+  }, commitFence);
   await emitEvent(onEvent, {
     type: 'transaction-start',
     transactionId,
@@ -143,6 +146,7 @@ export async function recordPipelinePassStart(
   workspaceRoot: string,
   transactionId: string,
   passId: PassId,
+  commitFence: PipelineCommitFence,
   onEvent?: PipelineEventHandler
 ): Promise<void> {
   const startedAt = new Date().toISOString();
@@ -153,7 +157,7 @@ export async function recordPipelinePassStart(
       status: 'running',
       startedAt
     });
-  });
+  }, commitFence);
   await emitEvent(onEvent, {
     type: 'pass-start',
     transactionId,
@@ -168,6 +172,7 @@ export async function recordPipelinePassBlocked(
   passId: PassId,
   errorCode: string,
   message: string,
+  commitFence: PipelineCommitFence,
   onEvent?: PipelineEventHandler
 ): Promise<void> {
   const timestamp = new Date().toISOString();
@@ -181,7 +186,7 @@ export async function recordPipelinePassBlocked(
       errorCode,
       message
     });
-  });
+  }, commitFence);
   await emitEvent(onEvent, {
     type: 'pass-blocked',
     transactionId,
@@ -194,6 +199,7 @@ export async function recordPipelinePassSuccess(
   workspaceRoot: string,
   transactionId: string,
   passId: PassId,
+  commitFence: PipelineCommitFence,
   onEvent?: PipelineEventHandler
 ): Promise<void> {
   const completedAt = new Date().toISOString();
@@ -201,7 +207,7 @@ export async function recordPipelinePassSuccess(
     const record = findRunningPass(findTransaction(journal, transactionId), passId);
     record.status = 'succeeded';
     record.completedAt = completedAt;
-  });
+  }, commitFence);
   await emitEvent(onEvent, {
     type: 'pass-success',
     transactionId,
@@ -216,6 +222,7 @@ export async function recordPipelinePassFailure(
   passId: PassId,
   errorCode: string,
   message: string,
+  commitFence: PipelineCommitFence,
   onEvent?: PipelineEventHandler
 ): Promise<void> {
   const completedAt = new Date().toISOString();
@@ -225,7 +232,7 @@ export async function recordPipelinePassFailure(
     record.completedAt = completedAt;
     record.errorCode = errorCode;
     record.message = message;
-  });
+  }, commitFence);
   await emitEvent(onEvent, {
     type: 'pass-failure',
     transactionId,
@@ -237,6 +244,7 @@ export async function recordPipelinePassFailure(
 export async function commitPipelineTransaction(
   workspaceRoot: string,
   transactionId: string,
+  commitFence: PipelineCommitFence,
   onEvent?: PipelineEventHandler
 ): Promise<void> {
   const completedAt = new Date().toISOString();
@@ -246,7 +254,7 @@ export async function commitPipelineTransaction(
     transaction.completedAt = completedAt;
     journal.lastCommittedTransactionId = transactionId;
     if (journal.activeTransactionId === transactionId) delete journal.activeTransactionId;
-  });
+  }, commitFence);
   await emitEvent(onEvent, {
     type: 'transaction-success',
     transactionId,
@@ -259,6 +267,7 @@ export async function failPipelineTransaction(
   transactionId: string,
   errorCode: string,
   message: string,
+  commitFence: PipelineCommitFence,
   onEvent?: PipelineEventHandler
 ): Promise<void> {
   const completedAt = new Date().toISOString();
@@ -269,7 +278,7 @@ export async function failPipelineTransaction(
     transaction.errorCode = errorCode;
     transaction.message = message;
     if (journal.activeTransactionId === transactionId) delete journal.activeTransactionId;
-  });
+  }, commitFence);
   await emitEvent(onEvent, {
     type: 'transaction-failure',
     transactionId,

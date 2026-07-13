@@ -8,7 +8,7 @@ import {
   type SemanticMutationLoadedSourceCandidateV1,
   type SemanticMutationPreflightInputV2,
   type SemanticMutationPreflightV2,
-  type SemanticMutationRollbackManifestV1,
+  type SemanticMutationRollbackManifestV2,
   type SemanticMutationSourceEditPlanV1,
   type SemanticMutationSourceEditPlanningRejectedAt,
   type SemanticMutationSourceEditPlanningResultV1,
@@ -73,9 +73,16 @@ function pathEvidenceRevision(value: Omit<SemanticMutationSourcePathEvidenceV1, 
 }
 
 function rollbackManifestDigest(
-  value: Omit<SemanticMutationRollbackManifestV1, 'rollbackManifestDigest'>
+  value: Omit<SemanticMutationRollbackManifestV2, 'rollbackManifestDigest'>
 ): string {
-  return sha256({ domain: 'semantic-mutation-rollback-manifest-v1', ...value });
+  return sha256({ domain: 'semantic-mutation-rollback-manifest-v2', ...value });
+}
+
+function windowsAttributesLookValid(value: SemanticMutationRollbackManifestV2['windowsFileAttributes']): boolean {
+  return value === null || (isPlainObject(value) && exactOwnKeys(value, [
+    'readOnly', 'hidden', 'system', 'archive'
+  ]) && typeof value.readOnly === 'boolean' && typeof value.hidden === 'boolean' &&
+    typeof value.system === 'boolean' && typeof value.archive === 'boolean');
 }
 
 function sourceEditPlanRevision(value: Omit<SemanticMutationSourceEditPlanV1, 'editPlanRevision'>): string {
@@ -123,7 +130,7 @@ function operationsLookValid(plan: SemanticMutationSourceEditPlanV1): boolean {
 }
 
 export function assertSemanticMutationRollbackManifestInvariant(
-  manifest: SemanticMutationRollbackManifestV1
+  manifest: SemanticMutationRollbackManifestV2
 ): void {
   if (!isPlainObject(manifest) || !exactOwnKeys(manifest, [
     'formatRevision',
@@ -136,13 +143,14 @@ export function assertSemanticMutationRollbackManifestInvariant(
     'beforeByteLength',
     'stagedByteLength',
     'fileMode',
+    'windowsFileAttributes',
     'encoding',
     'utf8Bom',
     'lineEnding',
     'finalNewline',
     'pathEvidenceRevision',
     'rollbackManifestDigest'
-  ])) throw new Error('Semantic Mutation rollback manifest violates the frozen v1 schema');
+  ])) throw new Error('Semantic Mutation rollback manifest violates the frozen v2 schema');
   const { rollbackManifestDigest: revision, ...withoutRevision } = manifest;
   if (manifest.formatRevision !== SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION ||
     !nonEmptyString(manifest.ownerId) || manifest.adapterId !== 'semantic-contract-yaml' ||
@@ -151,6 +159,7 @@ export function assertSemanticMutationRollbackManifestInvariant(
     !digestString(manifest.stagedByteDigest) || !Number.isSafeInteger(manifest.beforeByteLength) ||
     manifest.beforeByteLength < 0 || !Number.isSafeInteger(manifest.stagedByteLength) ||
     manifest.stagedByteLength < 0 || !Number.isSafeInteger(manifest.fileMode) || manifest.fileMode < 0 ||
+    !windowsAttributesLookValid(manifest.windowsFileAttributes) ||
     manifest.encoding !== 'utf-8' ||
     typeof manifest.utf8Bom !== 'boolean' ||
     (manifest.lineEnding !== 'lf' && manifest.lineEnding !== 'crlf' && manifest.lineEnding !== 'none') ||
@@ -205,7 +214,7 @@ export function assertSemanticMutationSourceEditPlanInvariant(plan: SemanticMuta
 
 export function assertSemanticMutationSourceEditArtifactsInvariant(
   plan: SemanticMutationSourceEditPlanV1,
-  manifest: SemanticMutationRollbackManifestV1
+  manifest: SemanticMutationRollbackManifestV2
 ): void {
   assertSemanticMutationSourceEditPlanInvariant(plan);
   assertSemanticMutationRollbackManifestInvariant(manifest);
@@ -302,6 +311,7 @@ export async function planSemanticMutationSourceEdit(
     beforeByteLength: read.bytes.byteLength,
     stagedByteLength: transform.stagedBytes.byteLength,
     fileMode: read.fileMode,
+    windowsFileAttributes: read.windowsFileAttributes,
     encoding: 'utf-8' as const,
     utf8Bom: transform.utf8Bom,
     lineEnding: transform.lineEnding,

@@ -2,7 +2,7 @@ import { groupBy } from 'lodash-es';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
-import { writeJson } from '../../shared/fs.ts';
+import { writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -202,7 +202,7 @@ function buildCoverageSummary(coverage: AcceptanceCoverageReport): NonNullable<R
   };
 }
 
-function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['provenanceSummary'] {
+export function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['provenanceSummary'] {
   const originSummaries = buildPathGroupSummaries(
     provenance.artifacts, (a) => a.originType,
     (originType: ProvenanceOriginType, artifacts) => ({ originType, count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path)) }),
@@ -558,12 +558,13 @@ export async function writeReviewSummary(
   lock: LockFile,
   provenance: ProvenanceFile,
   report: VerificationReport,
-  coverage: AcceptanceCoverageReport
+  coverage: AcceptanceCoverageReport,
+  commitFence?: CommitFence
 ): Promise<ReviewSummary> {
   const { reviewSummaryPath, lockPath } = getWorkspacePaths(workspaceRoot);
   return writeGeneratedArtifactWithLock(lockPath, lock, [CI_ARTIFACT_FILES.reviewSummary], async () => {
     const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
-    await writeJson(reviewSummaryPath, summary);
+    await writeJson(reviewSummaryPath, summary, commitFence);
     return summary;
-  });
+  }, commitFence);
 }

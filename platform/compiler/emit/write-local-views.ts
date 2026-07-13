@@ -1,16 +1,29 @@
 import ejs from 'ejs';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_PATHS } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, countPositiveValues, uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { EXPLAIN_NODE_TYPES, type ExplainGraph } from '../../shared/explain-types.ts';
-import { ensureDir, pathExists, readJson, readOptionalJson } from '../../shared/fs.ts';
+import {
+  ensureDir,
+  pathExists,
+  readJson,
+  readOptionalJson,
+  writeText,
+  type CommitFence
+} from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { defaultLogger } from '../../shared/logger.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
+import {
+  getWorkspacePaths,
+  graphViewRelativePath,
+  overviewViewRelativePath,
+  reviewViewRelativePath,
+  slotRuleViewRelativePath,
+  sourceViewRelativePath
+} from '../../shared/paths.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import {
   buildProjectOverview,
@@ -29,6 +42,7 @@ import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath 
 import { assertSemanticViewArtifactsAreCurrent } from './semantic-view-artifact-contract.ts';
 
 const TEMPLATES_DIR = path.join(import.meta.dirname, 'templates');
+const CANONICAL_LOCAL_VIEW_GENERATED_AT = '1970-01-01T00:00:00.000Z';
 
 function formatList(values: Iterable<string>, fallback = 'none'): string {
   const items = uniqueSorted([...values]);
@@ -124,48 +138,31 @@ function buildOverviewNextAction(overview: ProjectOverview): string {
   }
 }
 
-export async function writeLocalViews(workspaceRoot: string): Promise<void> {
+export interface LocalViewArtifact {
+  readonly relativePath:
+    | typeof overviewViewRelativePath
+    | typeof sourceViewRelativePath
+    | typeof slotRuleViewRelativePath
+    | typeof graphViewRelativePath
+    | typeof reviewViewRelativePath;
+  readonly text: string;
+}
+
+export async function buildLocalViewArtifacts(workspaceRoot: string): Promise<LocalViewArtifact[]> {
   const {
     acceptanceCoveragePath,
     ciArtifactsPath,
     explainGraphPath,
-    generatedViewsDir,
-    graphViewPath,
-    reviewViewPath,
     lockPath,
-    overviewViewPath,
     policyReportPath,
     provenancePath,
     reviewSummaryPath,
-    sourceViewPath,
-    slotRuleViewPath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
 
   const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
   const graph = await readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json');
   assertSemanticViewArtifactsAreCurrent(lock, graph);
-  await ensureDir(generatedViewsDir);
-
-  // Local-First Vis.js offline caching
-  const visLocalPath = path.join(generatedViewsDir, 'vis-network.min.js');
-  if (!(await pathExists(visLocalPath))) {
-    try {
-      defaultLogger.info('Downloading offline vis-network.min.js asset', { visLocalPath });
-      const res = await fetch('https://unpkg.com/vis-network/standalone/umd/vis-network.min.js');
-      if (res.ok) {
-        const text = await res.text();
-        await fs.writeFile(visLocalPath, text, 'utf8');
-        defaultLogger.info('Cached vis-network.min.js locally', { visLocalPath, bytes: text.length });
-      } else {
-        defaultLogger.warn('Download vis-network.min.js failed; falling back to CDN', { status: res.status });
-      }
-    } catch (e) {
-      defaultLogger.warn('Failed to download offline asset; browser will fall back to CDN', { error: e });
-    }
-  }
-
-  await writeLockWithGeneratedPaths(lockPath, lock, CI_ARTIFACT_PATHS.view);
 
   const [provenance, report, coverage, policyReport, review, artifactManifest, codeQuality, architectureBoundary, semanticPattern, governanceReports] = await Promise.all([
     readRequiredArtifact<ProvenanceFile>(provenancePath, 'provenance.json'),
@@ -183,6 +180,7 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
 
   const overview = buildProjectOverview({
     workspaceRoot,
+    generatedAt: CANONICAL_LOCAL_VIEW_GENERATED_AT,
     lock,
     explainGraph: graph,
     provenance,
@@ -210,21 +208,60 @@ export async function writeLocalViews(workspaceRoot: string): Promise<void> {
     nextAction: buildOverviewNextAction(overview)
   });
   const overviewHtml = await renderLayout('Overview', 'overview', overviewBody);
-  await fs.writeFile(overviewViewPath, overviewHtml, 'utf8');
 
   const sourceBody = await renderTemplate('source-view.ejs', sharedData);
   const sourceHtml = await renderLayout('Source View', 'source', sourceBody);
-  await fs.writeFile(sourceViewPath, sourceHtml, 'utf8');
 
   const slotRuleBody = await renderTemplate('slot-rule-view.ejs', { ...sharedData, report, coverage });
   const slotRuleHtml = await renderLayout('Slot / Rule View', 'slot-rule', slotRuleBody);
-  await fs.writeFile(slotRuleViewPath, slotRuleHtml, 'utf8');
 
   const graphBody = await renderTemplate('graph-view.ejs', sharedData);
   const graphHtml = await renderLayout('Graph View', 'graph', graphBody);
-  await fs.writeFile(graphViewPath, graphHtml, 'utf8');
 
   const reviewBody = await renderTemplate('review-view.ejs', sharedData);
   const reviewHtml = await renderLayout('Review View', 'review', reviewBody);
-  await fs.writeFile(reviewViewPath, reviewHtml, 'utf8');
+
+  return [
+    { relativePath: overviewViewRelativePath, text: overviewHtml },
+    { relativePath: sourceViewRelativePath, text: sourceHtml },
+    { relativePath: slotRuleViewRelativePath, text: slotRuleHtml },
+    { relativePath: graphViewRelativePath, text: graphHtml },
+    { relativePath: reviewViewRelativePath, text: reviewHtml }
+  ];
+}
+
+export async function writeLocalViews(
+  workspaceRoot: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  const { explainGraphPath, generatedViewsDir, lockPath } = getWorkspacePaths(workspaceRoot);
+  const lock = await readRequiredArtifact<LockFile>(lockPath, 'graph.lock.json');
+  const graph = await readRequiredArtifact<ExplainGraph>(explainGraphPath, 'explain-graph.json');
+  assertSemanticViewArtifactsAreCurrent(lock, graph);
+  await ensureDir(generatedViewsDir, commitFence);
+
+  // Local-First Vis.js offline caching remains a write-side concern. The pure
+  // renderer below only consumes canonical workspace artifacts.
+  const visLocalPath = path.join(generatedViewsDir, 'vis-network.min.js');
+  if (!(await pathExists(visLocalPath))) {
+    try {
+      defaultLogger.info('Downloading offline vis-network.min.js asset', { visLocalPath });
+      const res = await fetch('https://unpkg.com/vis-network/standalone/umd/vis-network.min.js');
+      if (res.ok) {
+        const text = await res.text();
+        await writeText(visLocalPath, text, commitFence);
+        defaultLogger.info('Cached vis-network.min.js locally', { visLocalPath, bytes: text.length });
+      } else {
+        defaultLogger.warn('Download vis-network.min.js failed; falling back to CDN', { status: res.status });
+      }
+    } catch (e) {
+      defaultLogger.warn('Failed to download offline asset; browser will fall back to CDN', { error: e });
+    }
+  }
+
+  await writeLockWithGeneratedPaths(lockPath, lock, CI_ARTIFACT_PATHS.view, commitFence);
+  const artifacts = await buildLocalViewArtifacts(workspaceRoot);
+  for (const artifact of artifacts) {
+    await writeText(path.join(workspaceRoot, artifact.relativePath), artifact.text, commitFence);
+  }
 }

@@ -6,6 +6,8 @@ import {
   type SemanticMutationResultV2,
   type SemanticMutationVerificationExecutionRefV2
 } from '../../shared/semantic-mutation-types.ts';
+import type { SemanticMutationVerificationReportV1 } from '../../shared/verification-types.ts';
+import { assertSemanticMutationVerificationReportInvariant } from '../verify/semantic-mutation-verification-adapter.ts';
 import {
   canonicalDiagnostics,
   cloneAndDeepFreeze,
@@ -18,6 +20,13 @@ import { assertSemanticMutationPlanInvariant } from './plan-semantic-mutation.ts
 import { semanticMutationRequiredVerificationDigest } from './verification-policy.ts';
 
 type ReadyPlan = Extract<SemanticMutationPlanV2, { readonly status: 'ready' }>;
+const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+
+function exactEndpoint(value: SemanticMutationBaseV2): boolean {
+  return exactOwnKeys(value as unknown as Record<string, unknown>, [
+    'transactionId', 'inputRevision', 'semanticRevision'
+  ]);
+}
 
 export type SemanticMutationTerminalEvidenceV2 =
   | {
@@ -57,11 +66,22 @@ function verificationExecutionRevision(
 }
 
 export function buildSemanticMutationVerificationExecutionRef(
-  input: Omit<SemanticMutationVerificationExecutionRefV2, 'verificationExecutionRevision'>
+  report: SemanticMutationVerificationReportV1
 ): SemanticMutationVerificationExecutionRefV2 {
+  assertSemanticMutationVerificationReportInvariant(report);
+  const withoutRevision = {
+    adapterId: report.adapterId,
+    adapterRevision: report.adapterRevision,
+    reportRevision: report.reportRevision,
+    planRevision: report.planRevision,
+    attempted: report.attempted,
+    stagedSourceDigest: report.stagedSourceDigest,
+    requiredVerificationDigest: report.requiredVerificationDigest,
+    status: report.status
+  };
   return cloneAndDeepFreeze({
-    ...input,
-    verificationExecutionRevision: verificationExecutionRevision(input)
+    ...withoutRevision,
+    verificationExecutionRevision: verificationExecutionRevision(withoutRevision)
   });
 }
 
@@ -79,9 +99,15 @@ function verificationDiagnostic(
   }
   const { verificationExecutionRevision: _revision, ...withoutRevision } = verification;
   const expectedRequiredDigest = semanticMutationRequiredVerificationDigest(plan.requiredVerification);
-  const valid = nonEmptyString(verification.adapterId) &&
+  const valid = exactOwnKeys(verification as unknown as Record<string, unknown>, [
+    'adapterId', 'adapterRevision', 'reportRevision', 'planRevision', 'attempted',
+    'stagedSourceDigest', 'requiredVerificationDigest', 'status', 'verificationExecutionRevision'
+  ]) &&
+    exactEndpoint(verification.attempted) && exactEndpoint(attempted) &&
+    nonEmptyString(verification.adapterId) &&
     nonEmptyString(verification.adapterRevision) &&
     nonEmptyString(verification.reportRevision) &&
+    SHA256_PATTERN.test(verification.reportRevision) &&
     verification.adapterId === plan.verificationAdapterId &&
     verification.adapterRevision === plan.verificationAdapterRevision &&
     verification.planRevision === plan.planRevision &&
@@ -133,8 +159,10 @@ export function buildSemanticMutationResult(
   const diagnostics = canonicalDiagnostics(evidence.status === 'accepted' ? [] : evidence.diagnostics);
   if (evidence.status === 'rejected') {
     if (diagnostics.length === 0) throw new Error('Rejected terminal result requires non-empty diagnostics');
-    const attemptedIsBound = evidence.attempted === undefined ||
-      JSON.stringify(evidence.attempted) === JSON.stringify(plan.staged);
+    const attemptedIsBound = evidence.attempted === undefined || (
+      exactEndpoint(evidence.attempted) &&
+      JSON.stringify(evidence.attempted) === JSON.stringify(plan.staged)
+    );
     const attemptedDiagnostics = attemptedIsBound ? [] : [mutationDiagnostic(
       'SEMANTIC-MUTATION-010',
       'impact-verification',
@@ -198,6 +226,8 @@ export function buildSemanticMutationResult(
     throw new Error('recovery-required terminal result requires SEMANTIC-MUTATION-012');
   }
   if (evidence.status === 'accepted' && (
+    !exactEndpoint(evidence.accepted) ||
+    !exactEndpoint(evidence.attempted) ||
     evidence.accepted.inputRevision !== evidence.attempted.inputRevision ||
     evidence.accepted.semanticRevision !== evidence.attempted.semanticRevision
   )) {
@@ -252,9 +282,7 @@ export function assertSemanticMutationResultInvariant(
     exactOwnKeys(resultRecord, [...commonKeys, ...required], optional);
   const { resultRevision: revision, ...withoutRevision } = result;
   if (result.contractVersion !== SEMANTIC_MUTATION_CONTRACT_VERSION ||
-    !exactOwnKeys(result.base as unknown as Record<string, unknown>, [
-      'transactionId', 'inputRevision', 'semanticRevision'
-    ]) ||
+    !exactEndpoint(result.base) ||
     result.requestId !== plan.requestId || result.requestRevision !== plan.requestRevision ||
     result.planRevision !== plan.planRevision || JSON.stringify(result.base) !== JSON.stringify(plan.base) ||
     JSON.stringify(result.diagnostics) !== JSON.stringify(canonicalDiagnostics(result.diagnostics)) ||
@@ -267,7 +295,8 @@ export function assertSemanticMutationResultInvariant(
     const planHasActualDelta = Object.hasOwn(plan, 'actualDelta');
     const planHasImpact = Object.hasOwn(plan, 'impact');
     const attemptedIsBound = result.attempted === undefined || (
-      'staged' in plan && JSON.stringify(result.attempted) === JSON.stringify(plan.staged)
+      exactEndpoint(result.attempted) && 'staged' in plan &&
+      JSON.stringify(result.attempted) === JSON.stringify(plan.staged)
     );
     const verificationIsBound = result.verification === undefined || (
       plan.status === 'ready' && result.attempted !== undefined &&
@@ -298,6 +327,7 @@ export function assertSemanticMutationResultInvariant(
         : ['transactionId', 'attempted', 'actualDelta', 'impact', 'sourceChanges', 'verification']
   ) ||
     result.sourceChanges.length !== 1 ||
+    !exactEndpoint(result.attempted) ||
     JSON.stringify(result.sourceChanges) !== JSON.stringify(plan.sourceChanges) ||
     JSON.stringify(result.actualDelta) !== JSON.stringify(plan.actualDelta) ||
     JSON.stringify(result.impact) !== JSON.stringify(plan.impact) ||
@@ -305,7 +335,8 @@ export function assertSemanticMutationResultInvariant(
     throw new Error(`${result.status} semantic mutation result does not exactly bind the ready plan`);
   }
   if (result.status === 'accepted') {
-    if (result.diagnostics.length !== 0 || result.verification.status !== 'passed' ||
+    if (!exactEndpoint(result.accepted) || result.diagnostics.length !== 0 ||
+      result.verification.status !== 'passed' ||
       result.accepted.inputRevision !== result.attempted.inputRevision ||
       result.accepted.semanticRevision !== result.attempted.semanticRevision) {
       throw new Error('Accepted semantic mutation result violates terminal invariants');

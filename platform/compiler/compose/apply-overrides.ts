@@ -1,11 +1,15 @@
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
-import { pathExists, readText, writeText } from '../../shared/fs.ts';
+import { pathExists, readText, writeText, type CommitFence } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { OverrideApplyPhase } from '../../shared/provenance-types.ts';
 import { loadOverrideManifest, resolveOverrideManifestPath } from '../parse/load-override-manifest.ts';
 
-export async function applyOverrides(workspaceRoot: string, phase: OverrideApplyPhase): Promise<void> {
+export async function applyOverrides(
+  workspaceRoot: string,
+  phase: OverrideApplyPhase,
+  commitFence?: CommitFence
+): Promise<void> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const manifest = await loadOverrideManifest(workspaceRoot);
   const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
@@ -23,6 +27,6 @@ export async function applyOverrides(workspaceRoot: string, phase: OverrideApply
     }
 
     const content = await readText(sourcePath);
-    await writeText(targetPath, content);
+    await writeText(targetPath, content, commitFence);
   }
 }

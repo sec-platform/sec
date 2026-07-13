@@ -111,7 +111,7 @@ test('test impact selector gives Semantic Impact a focused owner without dedicat
   }
 });
 
-test('test impact selector gives Semantic Mutation a focused owner without dedicated slow coverage', () => {
+test('test impact selector gives Semantic Mutation focused fast and notice-only slow coverage', () => {
   const sourceFiles = [
     'platform/shared/semantic-mutation-types.ts',
     'platform/compiler/semantic-mutation/plan-semantic-mutation.ts'
@@ -131,7 +131,14 @@ test('test impact selector gives Semantic Mutation a focused owner without dedic
     'tests/contract/test-impact.test.ts',
     'tests/contract/contract-freeze.test.ts'
   ]));
-  expect(selection.slow).toEqual([]);
+  expect(selection.slow).toEqual([
+    'tests/e2e/end-to-end.test.ts',
+    'tests/e2e/graph.test.ts',
+    'tests/e2e/local-views.test.ts',
+    'tests/e2e/pipeline.test.ts',
+    'tests/e2e/semantic-runtime-contract.test.ts',
+    'tests/e2e/verification.test.ts'
+  ]);
   for (const source of sourceFiles) {
     expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
       .toEqual([{
@@ -139,6 +146,58 @@ test('test impact selector gives Semantic Mutation a focused owner without dedic
         owner: 'semantic-mutation',
         identity: { kind: 'architecture-owner', id: 'semantic-mutation' }
       }]);
+  }
+});
+
+test('test impact selector owns the SM-3 lease and isolated AppContainer execution boundary', () => {
+  const sourceFiles = [
+    'platform/shared/workspace-write-lease.ts',
+    'platform/shared/windows-appcontainer-executor.ts',
+    'platform/shared/windows-appcontainer-native-helper.ts',
+    'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
+    'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts'
+  ];
+  const selection = selectTestsForSources(sourceFiles);
+
+  expect(selection.owners).toContain('semantic-mutation');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    'tests/unit/windows-appcontainer-executor.test.ts',
+    'tests/unit/workspace-write-lease.test.ts',
+    'tests/integration/pipeline-workspace-write-lease.test.ts',
+    'tests/integration/project-runtime.test.ts',
+    'tests/contract/semantic-mutation-apply-contract.test.ts'
+  ]));
+  for (const source of sourceFiles) {
+    expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
+      .toEqual([{
+        source,
+        owner: 'semantic-mutation',
+        identity: { kind: 'architecture-owner', id: 'semantic-mutation' }
+      }]);
+  }
+});
+
+test('test impact selector assigns neutral isolated Verification capabilities to Pipeline ownership', () => {
+  const sourceFiles = [
+    'platform/shared/verification-artifact-contract.ts',
+    'platform/orchestrator/isolated-verification-capability.ts'
+  ];
+  const selection = selectTestsForSources(sourceFiles);
+
+  expect(selection.owners).toContain('pipeline-orchestrator');
+  expect(selection.owners).not.toContain('semantic-mutation');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/integration/pipeline-kernel.test.ts',
+    'tests/unit/runtime-verification.test.ts',
+    'tests/contract/semantic-mutation-apply-contract.test.ts'
+  ]));
+  for (const source of sourceFiles) {
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'pipeline-orchestrator',
+      identity: { kind: 'pass', id: 'resolve' }
+    }]);
   }
 });
 

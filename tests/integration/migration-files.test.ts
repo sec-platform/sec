@@ -3,22 +3,22 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { formatJsonFile, writeJson } from '../../platform/shared/fs.ts';
-import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
+import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
-    configRewrite,
-    copyDirectory,
-    copyFile,
-    createDirectory,
-    deleteFile,
-    fileReplace,
-    jsonArrayAppend,
-    jsonArrayRemove,
-    jsonObjectMerge,
-    renameDirectory,
-    renameFile,
-    slotContractUpdate,
-    textAppend
+  configRewrite,
+  copyDirectory,
+  copyFile,
+  createDirectory,
+  deleteFile,
+  fileReplace,
+  jsonArrayAppend,
+  jsonArrayRemove,
+  jsonObjectMerge,
+  renameDirectory,
+  renameFile,
+  slotContractUpdate,
+  textAppend
 } from './migration-fixtures.ts';
 
 test('file-replace migration copies manifest source to impacted project target', async () => {

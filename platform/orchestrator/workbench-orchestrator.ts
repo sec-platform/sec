@@ -1,5 +1,24 @@
-import { applyViewMutations, type ViewMutationReport } from '../compiler/index.ts';
+import {
+  applyViewMutations,
+  type ViewMutationReport
+} from '../compiler/workbench/apply-view-mutations.ts';
+import {
+  assertWorkspaceWriteLease,
+  withWorkspaceWriteLease,
+  type WorkspaceWriteLeaseToken
+} from '../shared/workspace-write-lease.ts';
 
-export async function applyWorkbenchMutations(workspaceRoot = process.cwd()): Promise<ViewMutationReport> {
-  return applyViewMutations(workspaceRoot);
+export async function applyWorkbenchMutations(
+  workspaceRoot = process.cwd(),
+  workspaceWriteLease?: WorkspaceWriteLeaseToken
+): Promise<ViewMutationReport> {
+  return withWorkspaceWriteLease(
+    workspaceRoot,
+    workspaceWriteLease,
+    async (token) => {
+      const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
+      await commitFence();
+      return applyViewMutations(workspaceRoot, commitFence);
+    }
+  );
 }

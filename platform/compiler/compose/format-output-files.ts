@@ -1,10 +1,14 @@
 import path from 'node:path';
 import prettier from 'prettier';
-import { pathExists, readText, writeText } from '../../shared/fs.ts';
 import { createConcurrencyLimit } from '../../shared/concurrency.ts';
+import { pathExists, readText, writeText, type CommitFence } from '../../shared/fs.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 
-export async function formatOutputFiles(projectRoot: string, filePaths: string[]): Promise<void> {
+export async function formatOutputFiles(
+  projectRoot: string,
+  filePaths: string[],
+  commitFence?: CommitFence
+): Promise<void> {
   const limit = createConcurrencyLimit(10);
   await Promise.all(
     filePaths.map((relPath) =>
@@ -21,7 +25,7 @@ export async function formatOutputFiles(projectRoot: string, filePaths: string[]
             filepath: fullPath
           });
           if (formatted !== content) {
-            await writeText(fullPath, formatted);
+            await writeText(fullPath, formatted, commitFence);
           }
         } catch (e) {
           // 格式化失败通常由不支持的文件类型或语法错误引起，跳过该文件即可；

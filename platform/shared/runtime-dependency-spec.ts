@@ -30,6 +30,7 @@ const runtimeDevDependencyKeys = [
   '@types/node',
   '@types/react',
   '@types/react-dom',
+  'ts-morph',
   'typescript'
 ] as const;
 

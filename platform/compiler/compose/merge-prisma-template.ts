@@ -1,8 +1,13 @@
 import path from 'node:path';
-import { pathExists, readText, writeText } from '../../shared/fs.ts';
-import { runCommand } from '../../shared/process.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { pathExists, readText, writeText, type CommitFence } from '../../shared/fs.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
+import {
+  buildIsolatedProcessEnvironment,
+  ensureIsolatedProcessDirectories,
+  ISOLATED_VERIFICATION_ENV_KEY,
+  runCommand
+} from '../../shared/process.ts';
 
 export interface PrismaBlock {
   type: string;
@@ -196,14 +201,26 @@ function sqliteDatabasePath(schemaPath: string, schemaContent: string): string |
     : path.resolve(path.dirname(schemaPath), databasePath);
 }
 
-async function ensureSqliteDatabaseFile(schemaPath: string, schemaContent: string): Promise<void> {
+async function ensureSqliteDatabaseFile(
+  schemaPath: string,
+  schemaContent: string,
+  commitFence?: CommitFence
+): Promise<void> {
   const databasePath = sqliteDatabasePath(schemaPath, schemaContent);
   if (databasePath && !(await pathExists(databasePath))) {
-    await writeText(databasePath, '');
+    await writeText(databasePath, '', commitFence);
   }
 }
 
-export async function mergePrismaTemplate(workspaceRoot: string, projectRoot: string): Promise<void> {
+export async function mergePrismaTemplate(
+  workspaceRoot: string,
+  projectRoot: string,
+  options: {
+    readonly commitFence?: CommitFence;
+    readonly signal?: AbortSignal;
+  } = {}
+): Promise<void> {
+  const commitFence = options.commitFence;
   const { developerSourceRoot } = getWorkspacePaths(workspaceRoot);
   const templatePath = path.join(developerSourceRoot, 'schema', 'db.prisma.template');
   const targetPath = path.join(projectRoot, 'prisma', 'schema.prisma');
@@ -216,16 +233,47 @@ export async function mergePrismaTemplate(workspaceRoot: string, projectRoot: st
   const existingContent = (await pathExists(targetPath)) ? await readText(targetPath) : '';
 
   const mergedContent = mergePrismaSchemas(existingContent, templateContent);
-  await writeText(targetPath, mergedContent);
+  await writeText(targetPath, mergedContent, commitFence);
 
   // Prisma 6's Windows schema engine can fail without diagnostics while creating
   // a missing SQLite file. Pre-creating the empty file preserves db push semantics.
-  await ensureSqliteDatabaseFile(targetPath, mergedContent);
+  await ensureSqliteDatabaseFile(targetPath, mergedContent, commitFence);
 
-  // Trigger prisma db push using bunx
-  const result = await runCommand('bunx', ['prisma@6', 'db', 'push', '--accept-data-loss'], {
-    cwd: projectRoot
-  });
+  const isolated = process.env[ISOLATED_VERIFICATION_ENV_KEY] === '1';
+  const isolatedWritableRoot = path.join(workspaceRoot, '.isolated-process', 'prisma');
+  const isolatedConfigPath = path.join(isolatedWritableRoot, 'bunfig.toml');
+  if (isolated) {
+    await commitFence?.();
+    await ensureIsolatedProcessDirectories(isolatedWritableRoot, commitFence);
+    await writeText(isolatedConfigPath, '# isolated runtime\n', commitFence);
+  }
+  await commitFence?.();
+  const result = await runCommand(
+    isolated ? process.execPath : 'bunx',
+    isolated
+      ? [
+          '--no-env-file',
+          `--config=${isolatedConfigPath}`,
+          'x',
+          '--no-install',
+          'prisma@6',
+          'db',
+          'push',
+          '--accept-data-loss'
+        ]
+      : ['prisma@6', 'db', 'push', '--accept-data-loss'],
+    {
+      beforeSpawn: commitFence,
+      cwd: projectRoot,
+      signal: options.signal,
+      ...(isolated ? {
+        env: buildIsolatedProcessEnvironment(isolatedWritableRoot, {
+          [ISOLATED_VERIFICATION_ENV_KEY]: '1'
+        }),
+        envMode: 'replace' as const
+      } : {})
+    }
+  );
 
   if (result.code !== 0) {
     throw new CompilerError(

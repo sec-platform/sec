@@ -26,7 +26,7 @@ export const SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION =
 export const SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION =
   'semantic-mutation-source-edit-plan-v1' as const;
 export const SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION =
-  'semantic-mutation-rollback-manifest-v1' as const;
+  'semantic-mutation-rollback-manifest-v2' as const;
 
 export type SemanticMutationContractVersion = typeof SEMANTIC_MUTATION_CONTRACT_VERSION;
 export type SemanticMutationOperationRegistryRevision =
@@ -237,7 +237,14 @@ export interface SemanticMutationSourcePathEvidenceV1 {
 
 export type SemanticMutationSourceLineEnding = 'lf' | 'crlf' | 'none';
 
-export interface SemanticMutationRollbackManifestV1 {
+export interface SemanticMutationWindowsFileAttributesV1 {
+  readonly readOnly: boolean;
+  readonly hidden: boolean;
+  readonly system: boolean;
+  readonly archive: boolean;
+}
+
+export interface SemanticMutationRollbackManifestV2 {
   readonly formatRevision: SemanticMutationRollbackManifestRevision;
   readonly ownerId: string;
   readonly adapterId: SemanticContractYamlAdapterId;
@@ -248,6 +255,7 @@ export interface SemanticMutationRollbackManifestV1 {
   readonly beforeByteLength: number;
   readonly stagedByteLength: number;
   readonly fileMode: number;
+  readonly windowsFileAttributes: SemanticMutationWindowsFileAttributesV1 | null;
   readonly encoding: 'utf-8';
   readonly utf8Bom: boolean;
   readonly lineEnding: SemanticMutationSourceLineEnding;
@@ -290,7 +298,7 @@ export type SemanticMutationSourceEditPlanningResultV1 =
   | {
       readonly status: 'planned';
       readonly plan: SemanticMutationSourceEditPlanV1;
-      readonly rollbackManifest: SemanticMutationRollbackManifestV1;
+      readonly rollbackManifest: SemanticMutationRollbackManifestV2;
     }
   | {
       readonly status: 'rejected';

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { ensureDir, pathExists, writeJson, writeText } from './fs.ts';
+import { ensureDir, pathExists, writeJson, writeText, type CommitFence } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
 import { emptyOverrideManifest } from './provenance-types.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
@@ -9,7 +9,10 @@ function childDirectories(root: string, relativePaths: readonly string[]): strin
   return relativePaths.map((relativePath) => path.join(root, relativePath));
 }
 
-export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
+export async function ensureProjectBase(
+  workspaceRoot: string,
+  commitFence?: CommitFence
+): Promise<void> {
   const {
     projectRoot,
     developerSourceRoot,
@@ -118,7 +121,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     generatedDir,
     privateRegistryRoot
   ]) {
-    await ensureDir(directory);
+    await ensureDir(directory, commitFence);
   }
 
   for (const directory of [
@@ -146,7 +149,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
     controlCiRoot,
     ...projectOverrideDirs
   ]) {
-    await writeText(path.join(directory, '.gitkeep'), '\n');
+    await writeText(path.join(directory, '.gitkeep'), '\n', commitFence);
   }
 
   const runtimeDependencySpec = await loadRuntimeDependencySpec();
@@ -163,7 +166,7 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       'verify:runtime': 'bun run verify:runtime:full',
       test: 'bun run test:fast && bun run test:unit'
     }
-  });
+  }, commitFence);
 
   await writeJson(path.join(projectRoot, 'tsconfig.json'), {
     compilerOptions: {
@@ -201,19 +204,20 @@ export async function ensureProjectBase(workspaceRoot: string): Promise<void> {
       'playwright.config.ts'
     ],
     exclude: ['node_modules']
-  });
+  }, commitFence);
 
   await writeText(path.join(projectRoot, 'next.config.mjs'), `const nextConfig = {};
 
 export default nextConfig;
-`);
+`, commitFence);
   await writeText(
     path.join(projectRoot, 'next-env.d.ts'),
     `/// <reference types="next" />
 /// <reference types="next/image-types/global" />
 
 // NOTE: This file is managed by the compiler runtime scaffold.
-`
+`,
+    commitFence
   );
   await writeText(path.join(projectRoot, 'app', 'globals.css'), `:root {
   color-scheme: light;
@@ -322,11 +326,12 @@ pre.json {
   background: #0f1d19;
   color: #e6fff8;
 }
-`);
+`, commitFence);
   await writeText(
     path.join(projectRoot, 'bunfig.toml'),
     `[test]
-`
+`,
+    commitFence
   );
   await writeText(
     path.join(projectRoot, 'playwright.config.ts'),
@@ -350,7 +355,8 @@ export default defineConfig({
     timeout: 120000
   }
 });
-`
+`,
+    commitFence
   );
 
   await writeText(
@@ -526,7 +532,8 @@ export function createRuntimeStore(persistence: RuntimePersistence = 'memory'): 
 export function getRuntimeDatabase(store: RuntimeStore): Database {
   return store.database;
 }
-`
+`,
+    commitFence
   );
 
   const prismaSchemaPath = path.join(projectRoot, 'prisma', 'schema.prisma');
@@ -541,28 +548,29 @@ datasource db {
   provider = "sqlite"
   url      = "file:./dev.db"
 }
-`
+`,
+      commitFence
     );
   }
 
   if (!(await pathExists(policySpecPath))) {
     await writeYaml(policySpecPath, {
       policies: []
-    });
+    }, commitFence);
   }
 
   if (!(await pathExists(provenancePath))) {
     await writeJson(provenancePath, {
       formatVersion: '1',
       artifacts: []
-    });
+    }, commitFence);
   }
 
   if (!(await pathExists(overrideManifestPath))) {
-    await writeYaml(overrideManifestPath, emptyOverrideManifest());
+    await writeYaml(overrideManifestPath, emptyOverrideManifest(), commitFence);
   }
 
   if (!(await pathExists(legacyOverrideManifestPath))) {
-    await writeYaml(legacyOverrideManifestPath, emptyOverrideManifest());
+    await writeYaml(legacyOverrideManifestPath, emptyOverrideManifest(), commitFence);
   }
 }

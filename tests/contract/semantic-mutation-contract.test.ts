@@ -6,7 +6,6 @@ import { expect, test } from 'bun:test';
 
 import {
   buildFactDelta,
-  buildSemanticMutationVerificationExecutionRef,
   normalizeSemanticMutationRequest,
   planSemanticMutation,
   preflightSemanticMutation,
@@ -17,7 +16,7 @@ import {
 } from '../../platform/compiler/index.ts';
 import { SEMANTIC_MUTATION_OPERATION_DESCRIPTORS } from '../../platform/compiler/semantic-mutation/operation-registry.ts';
 import { semanticMutationPlanRevision } from '../../platform/compiler/semantic-mutation/plan-semantic-mutation.ts';
-import { semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
 import type { CiArtifactManifest } from '../../platform/shared/ci-artifact-types.ts';
 import type {
@@ -34,7 +33,12 @@ import {
   SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION
 } from '../../platform/shared/semantic-mutation-types.ts';
 import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
-import type { VerificationReport } from '../../platform/shared/verification-types.ts';
+import {
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+  type VerificationReport
+} from '../../platform/shared/verification-types.ts';
+import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 
 function sha256(value: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
@@ -232,8 +236,8 @@ test('independent plan, required-verification, execution, and result digest vect
   });
   expect(semanticMutationRequiredVerificationDigest(requirements)).toBe(requiredVerificationDigest);
   const executionInput = {
-    adapterId: 'verification:local',
-    adapterRevision: 'verification:local:v1',
+    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
     reportRevision: sha256('report'),
     planRevision: expectedPlanRevision,
     attempted: {
@@ -245,10 +249,13 @@ test('independent plan, required-verification, execution, and result digest vect
     requiredVerificationDigest,
     status: 'passed' as const
   };
-  const execution = buildSemanticMutationVerificationExecutionRef(executionInput);
+  const execution = buildSemanticMutationVerificationExecutionRef(
+    semanticMutationVerificationReportFixture({ ...executionInput, requirements })
+  );
+  const { verificationExecutionRevision: _executionRevision, ...executionWithoutRevision } = execution;
   expect(execution.verificationExecutionRevision).toBe(sha256({
     domain: 'semantic-mutation-verification-execution-v1',
-    ...executionInput
+    ...executionWithoutRevision
   }));
 
   const resultDraft = {

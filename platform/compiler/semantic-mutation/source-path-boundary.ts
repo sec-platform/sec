@@ -3,7 +3,8 @@ import path from 'node:path';
 
 import {
   SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
-  type SemanticMutationSourcePathEvidenceV1
+  type SemanticMutationSourcePathEvidenceV1,
+  type SemanticMutationWindowsFileAttributesV1
 } from '../../shared/semantic-mutation-types.ts';
 import {
   SemanticMutationContractError,
@@ -11,6 +12,7 @@ import {
   mutationDiagnostic,
   sha256
 } from './canonical.ts';
+import { readSemanticMutationWindowsFileAttributes } from './windows-file-attributes.ts';
 
 type FileIdentity = {
   readonly dev: string;
@@ -25,6 +27,7 @@ export interface ReadSemanticMutationSourceResultV1 {
   readonly bytes: Uint8Array;
   readonly pathEvidence: SemanticMutationSourcePathEvidenceV1;
   readonly fileMode: number;
+  readonly windowsFileAttributes: SemanticMutationWindowsFileAttributesV1 | null;
 }
 
 const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
@@ -142,6 +145,7 @@ async function inspectPathBoundary(
   target: string;
   targetIdentity: FileIdentity;
   fileMode: number;
+  windowsFileAttributes: SemanticMutationWindowsFileAttributesV1 | null;
 }> {
   const relativePath = normalizeRelativePath(requestedRelativePath);
   const root = path.resolve(workspaceRoot);
@@ -197,7 +201,8 @@ async function inspectPathBoundary(
       evidence,
       target: sourceInspection.target,
       targetIdentity: identity(sourceInspection.targetStat),
-      fileMode: Number(sourceInspection.targetStat.mode) & 0o7777
+      fileMode: Number(sourceInspection.targetStat.mode) & 0o7777,
+      windowsFileAttributes: await readSemanticMutationWindowsFileAttributes(sourceInspection.target)
     };
   } catch (error) {
     if (error instanceof SemanticMutationContractError) throw error;
@@ -236,6 +241,8 @@ export async function readSemanticMutationSource(
     if (beforeBoundary.evidence.targetIdentityDigest !== afterBoundary.evidence.targetIdentityDigest ||
       beforeBoundary.evidence.parentIdentityDigest !== afterBoundary.evidence.parentIdentityDigest ||
       beforeBoundary.evidence.workspaceIdentityDigest !== afterBoundary.evidence.workspaceIdentityDigest ||
+      JSON.stringify(beforeBoundary.windowsFileAttributes) !==
+        JSON.stringify(afterBoundary.windowsFileAttributes) ||
       beforeBoundary.evidence.transactionDirectoryIdentityDigest !==
         afterBoundary.evidence.transactionDirectoryIdentityDigest) {
       casFailure('Source path identity changed during boundary validation', relativePath);
@@ -243,7 +250,8 @@ export async function readSemanticMutationSource(
     return Object.freeze({
       bytes: new Uint8Array(bytes),
       pathEvidence: afterBoundary.evidence,
-      fileMode: afterBoundary.fileMode
+      fileMode: afterBoundary.fileMode,
+      windowsFileAttributes: afterBoundary.windowsFileAttributes
     });
   } catch (error) {
     if (error instanceof SemanticMutationContractError) throw error;
