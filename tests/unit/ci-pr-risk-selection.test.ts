@@ -15,13 +15,14 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
     'tests/setup/runtime-deps.setup.ts',
     'tests/testkit/workspace.ts'
   ]) {
-    expect(selectCiPrRiskSlowSuites([file])).toEqual({
-      suites: baselineSuites,
-      slowTests: [],
-      affectedSlowTests: [],
-      owners: ['bounded-slow-risk'],
-      reason: 'baseline'
-    });
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
+    expect(selection.slowTests).toEqual([]);
+    expect(selection.owners).toContain('bounded-slow-risk');
+    expect(selection.resolved).toBe(true);
+    expect(selection.reasons).toContain(
+      file.startsWith('tests/') ? 'bounded-baseline' : 'mandatory-sentinel'
+    );
   }
 });
 
@@ -32,5 +33,75 @@ test('assertion-only testkit helpers rely on direct test impact instead of broad
   expect(selection.slowTests).toEqual([]);
   expect(selection.affectedSlowTests).toEqual([]);
   expect(selection.owners).toContain('auto-reference');
-  expect(selection.reason).toBe('none');
+  expect(selection.reasons).toContain('ownership-impact');
+  expect(selection.resolved).toBe(true);
+});
+
+test('mixed broad and direct slow changes form a stable union instead of returning early', () => {
+  const selection = selectCiPrRiskSlowSuites([
+    'package.json',
+    'tests/e2e/dry-run-plan.test.ts',
+    'platform/compiler/verify/run-runtime-verification.ts'
+  ]);
+
+  expect(selection.suites).toEqual(expect.arrayContaining([
+    ...baselineSuites,
+    'e2e-dry-run-plan',
+    'e2e-verify-lock'
+  ]));
+  expect(selection.affectedSlowTests).toEqual(expect.arrayContaining([
+    'tests/e2e/dry-run-plan.test.ts',
+    'tests/e2e/verification.test.ts'
+  ]));
+  expect(selection.reasons).toEqual([
+    'bounded-baseline',
+    'direct-slow-test',
+    'ownership-impact'
+  ]);
+  expect(selection.resolved).toBe(true);
+});
+
+test('unresolved file discovery selects bounded sentinels but is never exact selection success', () => {
+  expect(selectCiPrRiskSlowSuites(null)).toEqual({
+    suites: baselineSuites,
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['bounded-slow-risk'],
+    reasons: ['bounded-baseline', 'changed-files-unresolved'],
+    resolved: false
+  });
+});
+
+test('every unmapped changed path fails closed even when another path has known impact', () => {
+  for (const file of ['assets/new.bin', 'platform/new-unreferenced.ts']) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.resolved).toBe(false);
+    expect(selection.reasons).toContain('changed-files-unresolved');
+    expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
+  }
+
+  const mixed = selectCiPrRiskSlowSuites([
+    'platform/compiler/verify/run-runtime-verification.ts',
+    'assets/new.bin'
+  ]);
+  expect(mixed.resolved).toBe(false);
+  expect(mixed.reasons).toEqual(expect.arrayContaining([
+    'changed-files-unresolved',
+    'ownership-impact'
+  ]));
+  expect(mixed.suites).toEqual(expect.arrayContaining([
+    ...baselineSuites,
+    'e2e-verify-lock'
+  ]));
+});
+
+test('explicit documentation ownership and direct slow tests remain resolved', () => {
+  const documentation = selectCiPrRiskSlowSuites(['docs/03-MVP实施计划与路线图.md']);
+  expect(documentation.resolved).toBe(true);
+  expect(documentation.reasons).not.toContain('changed-files-unresolved');
+
+  const directSlowTest = selectCiPrRiskSlowSuites(['tests/e2e/dry-run-plan.test.ts']);
+  expect(directSlowTest.resolved).toBe(true);
+  expect(directSlowTest.reasons).toContain('direct-slow-test');
+  expect(directSlowTest.suites).toContain('e2e-dry-run-plan');
 });
