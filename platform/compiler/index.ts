@@ -24,6 +24,9 @@ export {
   buildValidatedEngineeringIR,
   validateEngineeringIR
 } from './ir/validate-engineering-ir.ts';
+export {
+  loadAuthoringSemanticContractSources
+} from './parse/load-authoring-semantic-contracts.ts';
 export { loadManifestById, loadManifestForResolvedBlock } from './parse/load-manifest.ts';
 export { loadOverrideManifest } from './parse/load-override-manifest.ts';
 export { loadPlan, loadWorkspacePlan } from './parse/load-plan.ts';
@@ -53,6 +56,14 @@ export {
   assertSemanticMutationPlanInvariant,
   planSemanticMutation
 } from './semantic-mutation/plan-semantic-mutation.ts';
+export {
+  assertSemanticMutationRollbackManifestInvariant,
+  assertSemanticMutationSourceEditArtifactsInvariant,
+  assertSemanticMutationSourceEditPlanInvariant,
+  planSemanticMutationSourceEdit,
+  renderSemanticMutationSourceEdit,
+  type SemanticMutationSourceEditPlanningInputV1
+} from './semantic-mutation/plan-source-edit.ts';
 export { preflightSemanticMutation } from './semantic-mutation/preflight-semantic-mutation.ts';
 export {
   assertSemanticMutationResultInvariant,

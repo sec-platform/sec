@@ -1464,12 +1464,14 @@ Block、port、Contract Entity/Operation、permission、effect、ownership、rem
 
 Operation 不携带 path。Platform resolver 必须从 validated loaded contract provenance 和 versioned adapter registry 返回 **唯一 owner、唯一 adapter、唯一 writable relative path**：
 
-- `platform/registry/official/**`、安装的 Registry/Block package 与其他分发资产一律 read-only mutation target。当前 Ticket authoritative contract 因此不能直接回写。
-- `source/model/**` 是规划中的 Authoring Source 区域，但当前 semantic frontend 只从 manifest/Registry entries 装载 semantic contracts；在真实 loader 和唯一 owner adapter 落地前，不得假定某个 `source/model/**` 文件是 official contract 的 writable mirror。
+- `platform/registry/official/**`、安装的 Registry/Block package 与其他分发资产一律 read-only mutation target。`workspace-registry` 与 `compiler-registry` provenance 即使路径文本落在 workspace 或长得像 `source/model/**`，也不能升级为 writable owner；当前 Ticket authoritative contract 因此不能直接回写。
+- Workspace Authoring Source 只通过固定索引 `source/model/semantic-contracts.yaml` 进入 canonical frontend。索引 revision 固定为 `authoring-semantic-contract-index-v1`，只允许 exact `{ formatRevision, contracts: [{ blockId, path }] }` shape；每个 `blockId` 必须已由 workspace resolve，每个 path 必须是 `source/model/**` 下 canonical POSIX `.yaml` 相对路径、不能指向索引自身且不能重复。索引不存在表示没有 authoring contract，不触发目录扫描或同名 mirror 推断。
+- Canonical input loader 同时产生 Registry 与 Authoring `SemanticMutationLoadedSourceCandidateV1`，并把同一 source collection 随 validated snapshot 传出 frontend。Resolver 只接受与 base IR 中 target contract 的 authoritative `sourceId` / `sourcePath`、namespace、contract ID exact 一致的真实 loaded candidate；`sourceKind` 与 `sourceRevision` 必须由 loader 派生并由 resolver 重算。未被该 frontend 装载的 copy/mirror 没有 owner authority。
+- V1 唯一 writable descriptor 是 `workspace-authoring + semantic-contract-yaml@semantic-contract-yaml-v1 + source/model/**`；adapter registry revision 固定为 `semantic-mutation-source-adapters-v1`。Owner ID 固定编码为 ``semantic-contract-owner:${encodeURIComponent(namespace)}:${encodeURIComponent(contractId)}``，禁止用未转义分隔符拼接造成 identity collision。
 - 无 owner、多个 owner、adapter revision 不匹配、read-only provenance 或 target/source namespace 不一致都以 `SEMANTIC-MUTATION-004` reject。
-- `allowedPathPrefixes` 只缩小 resolver 输出。Caller path、contract 中的任意 source-like string、Projection/Evidence path 或 symlink target都不能成为 authority。
+- `allowedPathPrefixes` 只缩小 resolver 输出。Prefix 使用 segment-aware canonical POSIX 语义：可带一个尾随 `/`，授权 exact path 或其子树；空 prefix、absolute/drive/ADS、反斜杠、NUL、空/`.`/`..` segment 都非法，裸字符串前缀不得越过 segment boundary。Caller path、contract 中的任意 source-like string、Projection/Evidence path 或 symlink target都不能成为 authority。
 
-在读取或写入前，adapter 必须对 workspace root、受控 transaction directory、parent 和 target 做 canonical realpath 与 reparse-point 检查；拒绝 symlink/junction/reparse parent/target、root escape、Windows case-fold collision、device name、ADS、重复 canonical path 和不同 textual path 指向同一 target。检查必须在 plan 和 apply lease 内各执行一次，并在 atomic rename 前再次核对；`resolvePathInside()` 的 lexical containment 只能作为第一层，不能独立证明安全。v1 transaction 最多修改一个 Authoring Source file；多文件 publish 必须另行升级 atomicity contract。
+在读取或写入前，adapter 必须对 workspace root、受控 transaction directory、parent 和 target 做 canonical realpath 与 reparse-point 检查；拒绝 symlink/junction/reparse parent/target、root escape、Windows case-fold collision、device name、ADS、重复 canonical path 和不同 textual path 指向同一 target。V1 source target 必须是 `nlink === 1` 的普通文件；stable read 在读取 bytes 前必须把 opened handle stat exact 绑定到 pre-inspection target identity，read 后再核对同一 handle identity，并重复完整 path boundary，禁止 swap-open-restore 或 hardlink alias 绕过。检查必须在 plan 和 apply lease 内各执行一次，并在 atomic rename 前再次核对；`resolvePathInside()` 的 lexical containment 只能作为第一层，不能独立证明安全。v1 transaction 最多修改一个 Authoring Source file；多文件 publish 必须另行升级 atomicity contract。
 
 ### 18.5 Plan、derived policy 与 revisions
 
@@ -1799,14 +1801,14 @@ type SemanticMutationResultV2 =
 
 ### 18.9 Implementation envelope 与 Contract Freeze
 
-SM-1 只实现 pure request normalization、condition/expectation matcher、plan/result builders/invariants、dedicated types/tests/ownership 与 `semantic.mutation` Contract Freeze；不读取 Workspace、path、YAML，不接 source adapter、live apply、Pipeline、Workbench、CLI、AI、Repair 或 Upgrade。SM-2 再实现 owner/path/adapter/edit plan/CAS/rollback manifest；SM-3 实现 lease/staging/rebuild/Delta/Impact/Verification/publish/rollback/recovery；SM-4 才接 Workbench，随后对齐 AI Task Envelope v2。
+SM-1 只实现 pure request normalization、condition/expectation matcher、plan/result builders/invariants、dedicated types/tests/ownership 与 `semantic.mutation` Contract Freeze；不读取 Workspace、path、YAML，不接 source adapter、live apply、Pipeline、Workbench、CLI、AI、Repair 或 Upgrade。SM-2 已实现固定 authoring index、loaded-source provenance、owner/path/adapter/edit plan/CAS/rollback manifest 与 `semantic.mutation-source-adapter` Contract Freeze。SM-3 才实现 lease/staging/rebuild/Delta/Impact/Verification/publish/rollback/recovery；SM-4 才接 Workbench，随后对齐 AI Task Envelope v2。
 
 类型优先放在 mutation-specific module；公共 Compiler consumer 从 `platform/compiler/index.ts` additive export。除非出现独立 shared consumer，不扩张 `platform/shared/types.ts` 宽泛 barrel；mutation-specific IO/path/YAML helper 不修改通用 `fs.ts`、`paths.ts` 或 `yaml.ts`。Mutation 可以单向依赖 Validated IR、Fact Delta、Impact 与 Verification adapter；这些 kernel、Pipeline kernel、Projection、Repair 和 Upgrade不得反向依赖 Mutation。
 
 Contract Freeze 按 package owner 分阶段落地，不能把未来 IO/apply sentinel 冒充 SM-1 已实现能力：
 
 - SM-1 冻结版本/未知字段/空 ID、raw request 与 trusted context 类型隔离、完整 base/preflight binding、caller path/risk/rollback/FactDelta authority 拒绝、condition 三种 variant、exact expectation 的缺项/多项/Entity drift、首版唯一 operation/total registry/transition value-owner-by-duplicate-conflict、operation effect allowlist、Fact Delta/expectation/Impact/Verification planning 逐阶段 rejection shape、verification union 不可缩减、non-runnable/non-isolated/missing capability fail-closed、ready/early-rejected/staged-rejected plan invariant、result/Verification execution pure binding、canonical ordering、手写 digest vector、输入不变、输出 deep-frozen、deterministic repetition与 compile-time authority boundary。
-- SM-2 冻结唯一 owner/adapter、read-only/none/ambiguous owner、path containment/realpath/reparse/case/ADS collision、source edit plan、before-byte CAS 与 rollback manifest。
+- SM-2 冻结固定 authoring index、真实 loaded provenance、唯一 owner/adapter、Registry read-only/none/ambiguous owner、owner 编码与 segment-aware path-prefix、path containment/realpath/reparse/case/device/ADS/file-identity collision、UTF-8 YAML AST transition edit、source/path/edit-plan revisions、before-byte CAS 与 rollback manifest。
 - SM-3 冻结 lease、staged rebuild、Verification report execution、publish/rollback CAS、request replay/revision collision、atomic publish、verified rollback、recovery 与四种真实 terminal lifecycle。
 
 ## 19. Projection

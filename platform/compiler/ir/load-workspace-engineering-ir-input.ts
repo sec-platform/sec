@@ -4,6 +4,11 @@ import { readLockFile } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, posixPath } from '../../shared/paths.ts';
 import type { ManifestEntry } from '../../shared/plan-manifest-types.ts';
 import type { SemanticGeneratorDeclaration } from '../../shared/semantic-generator-types.ts';
+import type { SemanticMutationLoadedSourceCandidateV1 } from '../../shared/semantic-mutation-types.ts';
+import {
+  buildSemanticContractSourceCandidate,
+  loadAuthoringSemanticContractSources
+} from '../parse/load-authoring-semantic-contracts.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { loadPlan } from '../parse/load-plan.ts';
 import { loadPolicyDeclarations } from '../parse/load-policy-declarations.ts';
@@ -18,6 +23,7 @@ function stableManifestPath(entry: ManifestEntry): string {
 export interface WorkspaceEngineeringIRBuildInput {
   engineeringIRInput: BuildEngineeringIRInput;
   generatorDeclarations: SemanticGeneratorDeclaration[];
+  semanticContractSources: SemanticMutationLoadedSourceCandidateV1[];
 }
 
 export async function loadWorkspaceEngineeringIRBuildInput(
@@ -29,12 +35,23 @@ export async function loadWorkspaceEngineeringIRBuildInput(
   const manifestEntries = await Promise.all(
     lock.resolvedBlocks.map((block) => loadManifestForResolvedBlock(workspaceRoot, block))
   );
-  const [semanticContracts, policyDeclarations] = await Promise.all([
+  const [registryContractGroups, authoringContractSources, policyDeclarations] = await Promise.all([
     Promise.all(
       manifestEntries.map((entry) => loadSemanticContractsForManifestEntry(entry))
-    ).then((contracts) => contracts.flat()),
+    ),
+    loadAuthoringSemanticContractSources(
+      workspaceRoot,
+      new Set(lock.resolvedBlocks.map((block) => block.id))
+    ),
     loadPolicyDeclarations(workspaceRoot)
   ]);
+  const registryContractSources = registryContractGroups.flatMap((contracts, index) => {
+    const entry = manifestEntries[index]!;
+    const sourceKind = entry.registryLocation === 'compiler' ? 'compiler-registry' : 'workspace-registry';
+    return contracts.map((contract) => buildSemanticContractSourceCandidate(sourceKind, contract));
+  });
+  const semanticContractSources = [...registryContractSources, ...authoringContractSources];
+  const semanticContracts = semanticContractSources.map((source) => source.loadedContract);
 
   return {
     engineeringIRInput: {
@@ -55,6 +72,7 @@ export async function loadWorkspaceEngineeringIRBuildInput(
       policyDeclarations: policyDeclarations.policies,
       semanticContracts
     },
+    semanticContractSources,
     generatorDeclarations: manifestEntries.flatMap((entry) =>
       entry.manifest.generators.map((declaration) => ({
         blockId: entry.manifest.id,

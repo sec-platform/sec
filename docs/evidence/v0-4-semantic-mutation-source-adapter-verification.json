@@ -1,0 +1,210 @@
+{
+  "schemaVersion": "1",
+  "evidenceId": "v0-4-semantic-mutation-source-adapter-1171597",
+  "recordedAt": "2026-07-13T08:37:25.0236767+08:00",
+  "finalImplementationHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+  "finalImplementationTree": "e1e612e6fa5eb799231ede7a8bae422818350ff8",
+  "baseSha": "de7c7327f8bc9ff1c31e546fab5736cba7ad16c0",
+  "baseTree": "7e1791697dc09b714843752a38ee3dc308d35f90",
+  "profile": "v0.4-semantic-mutation-source-adapter",
+  "contractRevision": "ci-verification-v3",
+  "changedPaths": {
+    "count": 16,
+    "digestAlgorithm": "sha256 of UTF-8 compact JSON over code-unit-sorted paths",
+    "digest": "sha256:25d870d78b71d767076345c28a19a610e919b6f8da9a1953675de4657de57224",
+    "paths": [
+      "platform/compiler/index.ts",
+      "platform/compiler/ir/load-workspace-engineering-ir-input.ts",
+      "platform/compiler/parse/load-authoring-semantic-contracts.ts",
+      "platform/compiler/semantic-frontend.ts",
+      "platform/compiler/semantic-mutation/plan-source-edit.ts",
+      "platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts",
+      "platform/compiler/semantic-mutation/source-adapter-registry.ts",
+      "platform/compiler/semantic-mutation/source-path-boundary.ts",
+      "platform/shared/contract-freeze-contract.ts",
+      "platform/shared/semantic-mutation-types.ts",
+      "platform/shared/test-impact-rules/semantic.ts",
+      "tests/contract/contract-freeze.test.ts",
+      "tests/contract/semantic-mutation-contract.test.ts",
+      "tests/contract/semantic-mutation-source-adapter-contract.test.ts",
+      "tests/contract/test-impact.test.ts",
+      "tests/unit/semantic-mutation-source-adapter.test.ts"
+    ]
+  },
+  "scope": {
+    "productionBlobs": [
+      { "path": "platform/compiler/index.ts", "blob": "8cb135b755d951640d7c3751fa1edb84ff8c9ab3" },
+      { "path": "platform/compiler/ir/load-workspace-engineering-ir-input.ts", "blob": "c129072eec394834a288c69ce4a6c6f07a5dd397" },
+      { "path": "platform/compiler/parse/load-authoring-semantic-contracts.ts", "blob": "1a6f459d3908ee3e953e58d3711f015df365fa13" },
+      { "path": "platform/compiler/semantic-frontend.ts", "blob": "b9a30a349fef69304bfda052ace4630fc6d844be" },
+      { "path": "platform/compiler/semantic-mutation/plan-source-edit.ts", "blob": "1e7eb0468a60bc0f860cf565293dc7ca37a3071f" },
+      { "path": "platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts", "blob": "e85666361e8173c7206081ca1c77525386d2ff8f" },
+      { "path": "platform/compiler/semantic-mutation/source-adapter-registry.ts", "blob": "e6c53f31c0503f6046782f97819cb370c91d0fdd" },
+      { "path": "platform/compiler/semantic-mutation/source-path-boundary.ts", "blob": "e6dbb9a28e1a0f70ff4a81709bbe6182277783f9" },
+      { "path": "platform/shared/semantic-mutation-types.ts", "blob": "93d822517eba99cb36b8fd5d9b577b517d042afe" }
+    ],
+    "contractBlobs": [
+      { "path": "platform/shared/contract-freeze-contract.ts", "blob": "21477d512f85abe5beac842fdd04388e4ad37457" },
+      { "path": "platform/shared/test-impact-rules/semantic.ts", "blob": "39eb41bfcae7778df515aa8add2a15c20a7b9500" },
+      { "path": "tests/contract/contract-freeze.test.ts", "blob": "3647816d61f044cd865085f624fc2d26df0e144c" },
+      { "path": "tests/contract/semantic-mutation-contract.test.ts", "blob": "4ed9dc52965b0a272a96b589aacde59aee3b0a40" },
+      { "path": "tests/contract/semantic-mutation-source-adapter-contract.test.ts", "blob": "1f88264d533d6576c84844c7ac4e1dd3cd0c9183" },
+      { "path": "tests/contract/test-impact.test.ts", "blob": "06a3f19a6ef08a3f910de8175a6f93862ed3dd91" },
+      { "path": "tests/unit/semantic-mutation-source-adapter.test.ts", "blob": "51523b191a4561823b2416a206d864353103c630" }
+    ],
+    "authorityBaselineBlob": {
+      "path": "docs/14-Engineering IR与语义事实规范.md",
+      "blob": "9785e59480fede0cf3358cae1b462f8b2397ebd5"
+    },
+    "forbiddenBoundariesTouched": []
+  },
+  "gates": [
+    {
+      "gateId": "focused-semantic-mutation-owner-batch",
+      "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+      "argv": ["bun", "test", "<12 SEMANTIC_MUTATION_FAST_TESTS files>", "--timeout", "180000"],
+      "execution": "exact-head canonical semantic-mutation owner batch",
+      "status": "passed",
+      "passed": 75,
+      "failed": 0,
+      "assertions": 807,
+      "files": 12
+    },
+    {
+      "gateId": "affected-fast",
+      "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+      "argv": ["bun", "run", "test:affected"],
+      "environment": { "SEC_AFFECTED_TESTS_BASE": "origin/main" },
+      "startedAt": "2026-07-13T00:33:48.7145601Z",
+      "finishedAt": "2026-07-13T00:35:23.5614891Z",
+      "durationMs": 94841,
+      "status": "passed",
+      "passed": 195,
+      "failed": 0,
+      "uniqueFiles": 35,
+      "batchCounts": [152, 29, 1, 13],
+      "stdoutSha256": "sha256:381fab9ef10071332684af483b216f89638521bb14dadaa918c352b5f200eddb"
+    },
+    {
+      "gateId": "contract-freeze",
+      "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+      "argv": ["bun", "run", "test:contract-freeze"],
+      "startedAt": "2026-07-13T00:35:40.9083325Z",
+      "finishedAt": "2026-07-13T00:35:45.4772547Z",
+      "durationMs": 4563,
+      "status": "passed",
+      "passed": 94,
+      "failed": 0,
+      "files": 16,
+      "stdoutSha256": "sha256:5346d3758d457edab3ab6060f66903c783b4116fb08021327612500713c85150"
+    },
+    {
+      "gateId": "selector-required-slow-batch",
+      "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+      "status": "passed",
+      "passedSuites": 3,
+      "failedSuites": 0,
+      "passedTests": 7,
+      "failedTests": 0,
+      "wallDurationMs": 16385,
+      "evidencePath": "docs/evidence/v0-4-semantic-mutation-source-adapter-risk-batch.json"
+    },
+    {
+      "gateId": "changed-imports",
+      "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+      "argv": ["bun", "run", "imports:check"],
+      "environment": {
+        "SEC_IMPORTS_CHANGED_ONLY": "1",
+        "SEC_CHANGED_BASE": "origin/main"
+      },
+      "startedAt": "2026-07-13T00:35:40.9109465Z",
+      "finishedAt": "2026-07-13T00:35:45.2713648Z",
+      "durationMs": 4351,
+      "status": "passed",
+      "stdoutSha256": "sha256:617c6776808c9eec4f157dae6bc588132ee8103e7d25aa85b29dcb5e631dc566"
+    },
+    {
+      "gateId": "typecheck",
+      "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+      "argv": ["bun", "run", "typecheck"],
+      "startedAt": "2026-07-13T00:35:40.9222479Z",
+      "finishedAt": "2026-07-13T00:35:47.8466714Z",
+      "durationMs": 6916,
+      "status": "passed",
+      "stdoutSha256": "sha256:b7ccb1c3e4565d2005e6b57fe60bff22e19bcf6c47806df4e9f87f85424a9872"
+    },
+    {
+      "gateId": "patch-hygiene-and-clean-state",
+      "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+      "argv": ["git", "diff", "--check", "origin/main...HEAD"],
+      "durationMs": 104,
+      "status": "passed",
+      "stdoutSha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "trackedTreeCleanAfter": true
+    }
+  ],
+  "evidenceLedger": {
+    "invalidated": [
+      {
+        "attempt": "bun run test:affected without SEC_AFFECTED_TESTS_BASE",
+        "head": "12b623411e692cbde0eb3ae8f25949919aef7687",
+        "reason": "runner selected no files; this no-op is not used as evidence"
+      },
+      {
+        "attempt": "initial focused design batches",
+        "reason": "static type fixes, canonical fixture normalization, and boundary tightening changed the tested content; only the final exact-head 75/75 owner batch and canonical gates are retained"
+      },
+      {
+        "attempt": "original implementation head 12b623411e692cbde0eb3ae8f25949919aef7687 and all gates bound to it",
+        "reason": "independent frozen review found that the opened handle was not bound to pre-inspection target identity and hard-link aliases were not rejected"
+      },
+      {
+        "attempt": "intermediate implementation head 7e5be0a8c70f55a241ec7bc17e79fd99f5a2572b",
+        "reason": "handle identity binding was fixed, but source target nlink and a real hard-link regression were still missing"
+      }
+    ],
+    "implementationToDocumentation": "the later closeout changes only docs/03, docs/14 and the two SM-2 evidence JSON files; all recorded implementation and contract blobs remain exact",
+    "reusedBaseline": [
+      "SM-1 and earlier v0.4 full-fast evidence",
+      "selector-unselected slow suites",
+      "ordered workspace/reference tail",
+      "benchmark and dependency evidence",
+      "GitHub Actions evidence"
+    ],
+    "notClaimed": [
+      "a new full-fast run",
+      "a new all-slow run",
+      "a new ordered workspace/reference chain",
+      "a latest-head hosted GitHub status",
+      "SM-3 lease, staged rebuild, publish, rollback or recovery lifecycle"
+    ]
+  },
+  "frozenReview": {
+    "testedHead": "117159714b4707e26b5a611e07b0865aabec07b6",
+    "testedTree": "e1e612e6fa5eb799231ede7a8bae422818350ff8",
+    "status": "passed",
+    "blockers": [],
+    "closedFindings": [
+      "opened source handle is exact-bound to the pre-inspection target identity before byte read",
+      "file identity includes nlink and source targets with hard-link aliases fail closed",
+      "real node:fs/promises link regression returns path-stage SEMANTIC-MUTATION-005"
+    ]
+  },
+  "environmentClosure": {
+    "worktree": "D:/Project/sec-worktrees/v0-4-semantic-mutation-adapter",
+    "branch": "codex/v0-4-semantic-mutation-adapter",
+    "junctionPath": "D:/Project/sec-worktrees/v0-4-semantic-mutation-adapter/node_modules",
+    "junctionTarget": "D:/Project/sec/node_modules",
+    "rootCheckoutModified": false
+  },
+  "status": "passed",
+  "invalidationRules": [
+    "any recorded production, public facade, ownership, Contract Freeze, focused-test or selected slow-test blob changes",
+    "authoring semantic index, loaded source kind/revision, canonical frontend provenance, owner encoding, adapter registry or authorization path rules change",
+    "path lexical/realpath/reparse/case/device/ADS/file-identity/nlink proof, opened-handle binding, UTF-8/YAML AST transform, edit-plan/rollback digest or before-byte CAS changes",
+    "SM-2 is connected to lease, staged rebuild, Fact Delta/Impact execution, Verification execution, live publish, rollback/recovery, Workbench, CLI or AI"
+  ],
+  "remainingGaps": [
+    "SM-3 still owns lease, isolated staged rebuild, actual Fact Delta/Impact, Verification execution, atomic publish, verified rollback and recovery journal"
+  ]
+}

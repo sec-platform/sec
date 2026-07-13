@@ -7,6 +7,7 @@ const SEMANTIC_IR_FAST_TESTS = [
   "tests/unit/semantic-contract-ir.test.ts",
   "tests/unit/semantic-contract-responsibility.test.ts",
   "tests/unit/semantic-generator-plan.test.ts",
+  "tests/unit/semantic-mutation-source-adapter.test.ts",
   "tests/unit/validated-engineering-ir.test.ts",
   "tests/unit/workspace-semantic-linker.test.ts",
   "tests/integration/semantic-contract.test.ts",
@@ -52,7 +53,9 @@ const IMPACT_PROPAGATION_FAST_TESTS = [
 
 const SEMANTIC_MUTATION_FAST_TESTS = [
   "tests/unit/semantic-mutation.test.ts",
+  "tests/unit/semantic-mutation-source-adapter.test.ts",
   "tests/contract/semantic-mutation-contract.test.ts",
+  "tests/contract/semantic-mutation-source-adapter-contract.test.ts",
   "tests/unit/semantic-architecture-boundary.test.ts",
   "tests/unit/fact-delta.test.ts",
   "tests/contract/fact-delta-contract.test.ts",
@@ -108,6 +111,7 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/compiler/semantic-frontend.ts",
       "platform/compiler/verify/validate-resolved-templates.ts",
       "platform/compiler/ir/load-workspace-engineering-ir-input.ts",
+      "platform/compiler/parse/load-authoring-semantic-contracts.ts",
       "platform/compiler/parse/load-semantic-contract.ts",
       "platform/compiler/parse/validate-semantic-manifest.ts",
       "platform/orchestrator/semantic-orchestrator.ts",

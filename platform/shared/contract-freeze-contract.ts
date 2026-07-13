@@ -67,6 +67,10 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
     contractFreezeTarget('semantic.fact-delta', 'tests/contract/fact-delta-contract.test.ts'),
     contractFreezeTarget('semantic.impact-propagation', 'tests/contract/impact-propagation-contract.test.ts'),
     contractFreezeTarget('semantic.mutation', 'tests/contract/semantic-mutation-contract.test.ts'),
+    contractFreezeTarget(
+      'semantic.mutation-source-adapter',
+      'tests/contract/semantic-mutation-source-adapter-contract.test.ts'
+    ),
     contractFreezeTarget('verification.budget', 'tests/contract/benchmark-budget.test.ts'),
     contractFreezeTarget('verification.impact', 'tests/contract/test-impact.test.ts'),
     contractFreezeTarget('verification.ci-lanes', 'tests/contract/ci-lanes.test.ts'),

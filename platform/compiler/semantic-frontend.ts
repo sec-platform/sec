@@ -1,5 +1,6 @@
 import type { ValidatedEngineeringIRSnapshot } from '../shared/engineering-ir-types.ts';
 import type { SemanticGeneratorPlan } from '../shared/semantic-generator-types.ts';
+import type { SemanticMutationLoadedSourceCandidateV1 } from '../shared/semantic-mutation-types.ts';
 import type { SemanticViewSet } from '../shared/semantic-view-types.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from './ir/load-workspace-engineering-ir-input.ts';
 import { buildValidatedEngineeringIR } from './ir/validate-engineering-ir.ts';
@@ -10,18 +11,20 @@ export interface WorkspaceSemanticBundle {
   snapshot: ValidatedEngineeringIRSnapshot;
   generatorPlan: SemanticGeneratorPlan;
   semanticViews: SemanticViewSet;
+  semanticContractSources: readonly SemanticMutationLoadedSourceCandidateV1[];
 }
 
 export async function buildWorkspaceSemanticBundle(
   workspaceRoot: string
 ): Promise<WorkspaceSemanticBundle> {
-  const { engineeringIRInput, generatorDeclarations } = await loadWorkspaceEngineeringIRBuildInput(
+  const { engineeringIRInput, generatorDeclarations, semanticContractSources } = await loadWorkspaceEngineeringIRBuildInput(
     workspaceRoot
   );
   const snapshot = buildValidatedEngineeringIR(engineeringIRInput);
   return {
     snapshot,
     generatorPlan: buildSemanticGeneratorPlan(snapshot, generatorDeclarations),
-    semanticViews: buildSemanticViewSet(snapshot)
+    semanticViews: buildSemanticViewSet(snapshot),
+    semanticContractSources
   };
 }
