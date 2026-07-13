@@ -6,33 +6,27 @@ SEC 不是低代码运行时、模板市场或自由 AI 编码器。长期目标
 
 ## 当前状态
 
-当前主干已经具备文件装配与治理闭环：
+当前 `main` 已完成 v0.3 Semantic Core Foundation，并进入 v0.4 Semantic Operations。精确 active Work Package、退出条件和唯一执行顺序只由 `docs/03-MVP实施计划与路线图.md` 维护；README 不复制易失效的阶段清单。
+
+当前 canonical 编译主链为：
 
 ```text
-source/app.yaml
+Authoring Source / Plan / Registry Contract
   → resolve
+  → Semantic Frontend
+  → Workspace Semantic Link
+  → Validated Engineering IR
+  → IR-owned Generator Plan / lowering
   → compose
   → adapt
   → verify
-  → repair / upgrade
   → lock
-  → explain
+  → emit / Explain / Review / Workbench Projection
 ```
 
-已实现的核心能力包括 Block Registry、依赖解析、Slot 合成、Verification、Acceptance Coverage、Policy Gate、Artifact Provenance、Repair、Upgrade、Explain Graph、Review Summary、Workbench 和结构化 Mutation。
+主干已经具备 Block Registry、依赖解析、Slot 合成、Compilation Transaction / Pipeline Journal、Validated Engineering IR、Semantic Projection、Verification、Acceptance Coverage、Policy Gate、Artifact Provenance、Repair、Upgrade、Explain Graph、Review Summary 和 Workbench 等基础能力。Fact Delta、Impact Propagation、Semantic Mutation 与 AI Semantic Operator 按路线图顺序建立在同一 canonical representation 上；不得另建平行语义事实源。
 
-下一阶段的主任务是 **Engineering IR 与 Semantic Fact Provenance**。目标链路为：
-
-```text
-Authoring Source
-  → Semantic Frontend
-  → Engineering IR
-  → Compilation / Verification / AI Runtime
-  → Artifact
-  → Explain / Review / Workbench Projections
-```
-
-`ExplainGraph` 是治理解释投影，不是 Engineering IR，也不是第二事实源。
+`ExplainGraph` 是治理解释投影，不是 Engineering IR，也不是第二事实源。Semantic Mutation 只能修改 Authoring Source，再由 Compiler 重建 IR；AI 不能直接写 IR。
 
 ## 开始开发
 
@@ -94,7 +88,7 @@ AI 不是主控制器。平台生成 Task Envelope 与 Context Packet，限定�
 1. [01-用户能力模块化开发-主题整理稿.md](docs/01-用户能力模块化开发-主题整理稿.md)：核心命题与概念。
 2. [02-工程编译器-MVP-PRD与架构稿.md](docs/02-工程编译器-MVP-PRD与架构稿.md)：产品与总体架构。
 3. [03-MVP实施计划与路线图.md](docs/03-MVP实施计划与路线图.md)：当前阶段与开发顺序。
-4. [14-Engineering IR与语义事实规范.md](docs/14-Engineering IR与语义事实规范.md)：下一阶段语义内核。
+4. [14-Engineering IR与语义事实规范.md](docs/14-Engineering IR与语义事实规范.md)：Engineering IR、Fact、Impact 与 Semantic Mutation authority。
 5. `05–11`：实现级协议。
 6. [12-编译管道与行为流图示.md](docs/12-编译管道与行为流图示.md)：主数据流图。
 
