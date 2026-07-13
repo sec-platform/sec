@@ -22,13 +22,32 @@
 
 正式实现 worker 的 Task Envelope 必须包含：task/Issue、current base、branch、architectural goal、ownership、forbidden paths、dependency、acceptance 和 required tests。
 
+预计超过一个 focused implementation cycle、触及 canonical authority、需要 slow/full evidence，或需要其他 reviewer 并行介入的工作，应在第一个可审查提交后立即创建或更新 Draft PR；不得等待全部实现和验证完成后才首次暴露真实 diff。小型 docs/chore 可以在 focused validation 完成后一次性创建 PR。
+
 Worker 执行：
 
 ```text
-inspect → implement → focused local validation → commit → Draft PR/update existing PR → Completion Report → stop
+inspect
+→ first reviewable commit
+→ Draft PR / update existing PR
+→ implement
+→ focused local validation
+→ update evidence and Completion Report
+→ stop
 ```
 
+Draft PR 用于公开 head/base、ownership、当前阶段、真实 diff、latest tested head 与 remaining gaps；它不是工程事实，也不自动授权 CI、merge 或扩大任务范围。
+
 Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label，不得修改其他 worker ownership，不得顺手全仓重构，也不得通过删除测试或弱化合同解决失败。
+
+## 并行开发与进度可见性
+
+- 一个 canonical owner 保持单写者；architecture、integration 与 verification-evidence reviewer 可在同一 head 上并行只读审查。
+- 独立实现线只有在 owned files、canonical symbols 和 authority 章节不重叠时才并行。共享 seam 变化必须回到 Root 串行裁决。
+- PR body 维护当前 base/head、阶段（contract / implementation / verification / review / merge-ready）、owned/forbidden scope、有效 evidence 与 remaining gaps。历史描述不得覆盖当前代码和 diff。
+- Reviewer 发现 blocker 时应尽早给出具体 file/symbol/contract 证据；只有真正独立的正式缺陷才提炼为单独 `fix/*`、`refactor/*`、`docs/*` 或 `chore/*` 变化。
+- 每个 reconciliation point 都重新读取 latest `main` 与 PR head，复核 diff、证据失效范围和 ownership；不得把并行分支机械拼接为 integration。
+- Draft PR 不等于每次 push 都运行 Actions。远端 Quick/Full 仍由 Root 根据缺失证据和 CI 合同显式触发一次。
 
 ## 验证与 Actions 经济性
 
