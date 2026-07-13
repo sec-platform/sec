@@ -46,6 +46,11 @@ const REQUIRED_CONTEXT_FILES = [
   'AGENTS.md',
   'PLANS.md',
   '.codex/config.toml',
+  '.codex/agents/repo-state-auditor.toml',
+  '.codex/agents/architecture-reviewer.toml',
+  '.codex/agents/implementation-worker.toml',
+  '.codex/agents/integration-reviewer.toml',
+  '.codex/agents/verification-evidence-reviewer.toml',
   'docs/04-AI自主实现执行蓝图.md'
 ];
 
@@ -56,6 +61,14 @@ const REQUIRED_SKILL_NAMES = new Set([
   'sec-verification-evidence',
   'sec-ci-triage',
   'sec-pr-closeout'
+]);
+
+const REQUIRED_CUSTOM_AGENT_NAMES = new Set([
+  'repo-state-auditor',
+  'architecture-reviewer',
+  'implementation-worker',
+  'integration-reviewer',
+  'verification-evidence-reviewer'
 ]);
 
 const DEPRECATED_TOKENS = [
@@ -178,6 +191,22 @@ async function validateRequiredContext(issues: Issue[]): Promise<void> {
         file: plansPath,
         message: 'planning contract must defer stage/order authority to docs/03'
       });
+    }
+  } catch {
+    // Missing file is already reported above.
+  }
+
+  const blueprintPath = path.join(REPO_ROOT, 'docs', '04-AI自主实现执行蓝图.md');
+  try {
+    const blueprint = await fs.readFile(blueprintPath, 'utf8');
+    for (const expected of [...REQUIRED_SKILL_NAMES, ...REQUIRED_CUSTOM_AGENT_NAMES]) {
+      if (!blueprint.includes(`\`${expected}\``)) {
+        issues.push({
+          level: 'error',
+          file: blueprintPath,
+          message: `context blueprint does not index required workflow or role: ${expected}`
+        });
+      }
     }
   } catch {
     // Missing file is already reported above.
