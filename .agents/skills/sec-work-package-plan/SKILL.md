@@ -21,7 +21,7 @@ description: "为跨模块、高风险或多里程碑 SEC 变化创建或更新�
 docs/work-packages/<id>.md
 ```
 
-不得在 Issue、PR body、聊天、`AGENTS.md` 或另一个目录复制完整执行计划。
+从 `docs/work-packages/_template.md` 建立新计划，删除无关占位内容；不得在 Issue、PR body、聊天、`AGENTS.md` 或另一个目录复制完整执行计划。
 
 ## 计划内容
 
