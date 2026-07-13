@@ -16,6 +16,30 @@ import {
 } from '../../platform/shared/workspace-write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
+test('initWorkspace creates a missing workspace root before acquiring its writer lease', async () => {
+  await withTempWorkspace(async (outerRoot) => {
+    const workspaceRoot = path.join(outerRoot, 'workspace');
+    expect(await pathExists(workspaceRoot)).toBe(false);
+
+    const initialized = await initWorkspace(workspaceRoot, { reset: true });
+
+    expect(await pathExists(workspaceRoot)).toBe(true);
+    expect(await pathExists(initialized.planPath)).toBe(true);
+    expect(await pathExists(initialized.lockPath)).toBe(true);
+    expect((await fs.readdir(outerRoot)).sort()).toEqual(['workspace']);
+    expect(await pathExists(path.join(workspaceRoot, '.sec', 'workspace-write-lease'))).toBe(false);
+    const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+    try {
+      await lease.assertOwned();
+      await expect(initWorkspace(workspaceRoot, { reset: true })).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-001'
+      });
+    } finally {
+      await lease.release();
+    }
+  }, 'engineering-compiler-init-missing-workspace-');
+});
+
 test('compileWorkspace acquires the writer lease and accepts only the exact reentrant token', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });

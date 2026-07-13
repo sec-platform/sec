@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises';
+import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { defaultLimit } from '../shared/concurrency.ts';
@@ -10,6 +10,7 @@ import { ensureProjectBase } from '../shared/project-base.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease,
+  WorkspaceWriteLeaseError,
   type WorkspaceWriteLeaseToken
 } from '../shared/workspace-write-lease.ts';
 import { writeYaml } from '../shared/yaml.ts';
@@ -25,6 +26,34 @@ async function resetLocalStatePreservingWriterLease(
     .map((entry) => defaultLimit(async () => {
       await removeDir(path.join(localStateRoot, entry), commitFence);
     })));
+}
+
+function nativeErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
+  return typeof error.code === 'string' ? error.code.toUpperCase() : undefined;
+}
+
+async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<void> {
+  try {
+    // The parent must already exist. initWorkspace creates one requested root,
+    // never an implicit ancestor chain.
+    await mkdir(path.resolve(workspaceRoot));
+  } catch (error) {
+    const code = nativeErrorCode(error);
+    if (code === 'EEXIST') return;
+    const reason = code === 'ENOENT'
+      ? 'missing-parent'
+      : code === 'ENOTDIR'
+        ? 'not-directory'
+        : code === 'EACCES' || code === 'EPERM'
+          ? 'inaccessible'
+          : 'unknown';
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-004',
+      'Workspace root could not be initialized',
+      { operation: 'initialize', phase: 'workspace-root-bootstrap', reason }
+    );
+  }
 }
 
 function defaultPlan(): PlanFile {
@@ -83,6 +112,9 @@ export async function initWorkspace(
   options: { reset?: boolean } = {},
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<{ planPath: string; lockPath: string }> {
+  // A supplied token must be validated before any side effect. Only an
+  // independent initializer is allowed to create the one requested root.
+  if (workspaceWriteLease === undefined) await bootstrapWorkspaceRoot(workspaceRoot);
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
     const { projectRoot, developerSourceRoot, controlRoot, localStateRoot, planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);

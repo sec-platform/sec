@@ -696,7 +696,12 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer).toContain(
     'await durableCreateFile(configPath, ISOLATED_BUN_CONFIG_CONTENT, commitFence)'
   );
-  expect(sources.appContainer).toContain('nativeHelperBundlePromise ??= (async () => {');
+  expect(sources.appContainer).toContain(
+    'if (cachedPromise) return cachedPromise'
+  );
+  expect(sources.appContainer).toContain(
+    'if (cachedPromise === cached) cachedPromise = undefined'
+  );
   expect(sources.appContainer).toContain('entrypoints: [NATIVE_HELPER_PATH]');
   expect(sources.appContainer).toContain('await durableCreateFile(helperPath, helperContents, commitFence)');
   expect(sources.appContainer).toContain("Number(helperMetadata.nlink) !== 1");

@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 
 import {
-  probeWindowsAppContainerCapability,
+  createWindowsAppContainerNativeHelperBundleLoaderForTests,
+  probeWindowsAppContainerCapabilityForTests,
+  publishWindowsAppContainerProvisionalOwnerForTests,
+  redactWindowsAppContainerProbeCapabilityForTests,
+  recoverWindowsAppContainerProvisionalOwnerForTests,
   runWindowsAppContainerChild,
   WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
@@ -25,7 +29,8 @@ async function exists(filePath: string): Promise<boolean> {
 function readAcl(icaclsPath: string, targetPath: string): string {
   const result = Bun.spawnSync([icaclsPath, targetPath], {
     env: { PATH: '', SystemRoot: path.dirname(path.dirname(icaclsPath)) },
-    stderr: 'ignore'
+    stderr: 'ignore',
+    timeout: 30_000
   });
   if (result.exitCode !== 0) throw new Error('ACL probe failed');
   return result.stdout.toString();
@@ -42,7 +47,8 @@ function readSecAppContainerProfiles(regPath: string): readonly string[] {
     '/d'
   ], {
     env: { PATH: '', SystemRoot: path.dirname(path.dirname(regPath)) },
-    stderr: 'ignore'
+    stderr: 'ignore',
+    timeout: 30_000
   });
   if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error('profile probe failed');
   return Object.freeze(result.stdout.toString()
@@ -75,7 +81,8 @@ function windowsProcessesReferencingPath(systemRoot: string, targetPath: string)
     script
   ], {
     env: { PATH: '', SystemRoot: systemRoot, WINDIR: systemRoot },
-    stderr: 'ignore'
+    stderr: 'ignore',
+    timeout: 30_000
   });
   if (result.exitCode !== 0) throw new Error('process residue probe failed');
   const parsed = JSON.parse(result.stdout.toString() || '[]') as unknown;
@@ -156,7 +163,68 @@ test('non-Windows hosts report capability unavailable without a spawn fallback',
   })).rejects.toBeInstanceOf(WindowsAppContainerCapabilityUnavailableError);
 });
 
-test('Windows AppContainer sentinel proves no outside read/write, no network, Job fence, and recovery', async () => {
+test('Windows AppContainer detailed probe evidence redacts to exact status-only capability', () => {
+  const capability = redactWindowsAppContainerProbeCapabilityForTests(Object.freeze({
+    status: 'unavailable',
+    primary: Object.freeze({
+      stage: 'isolated-execution',
+      invariant: 'isolated-child-succeeded',
+      executionPhase: 'launch',
+      nativeCode: 5
+    }),
+    cleanup: Object.freeze([
+      Object.freeze({
+        stage: 'cleanup',
+        invariant: 'probe-root-remove',
+        executionPhase: 'cleanup'
+      })
+    ])
+  }));
+  expect(capability).toEqual({ status: 'unavailable' });
+  expect(Object.keys(capability)).toEqual(['status']);
+});
+
+test('Windows AppContainer native-helper bundle retries one transient rejected build', async () => {
+  let attempts = 0;
+  const expected = new TextEncoder().encode('export default 1;\n');
+  const loader = createWindowsAppContainerNativeHelperBundleLoaderForTests(async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('transient-build-rejection');
+    return expected;
+  });
+  await expect(loader.build()).rejects.toThrow('transient-build-rejection');
+  expect(await loader.build()).toEqual(expected);
+  expect(await loader.build()).toEqual(expected);
+  expect(attempts).toBe(2);
+});
+
+test('Windows AppContainer owner pending publication recovers before rename and after rename', async () => {
+  const root = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-owner-publication-'));
+  const ownerName = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
+  const pendingName = `${ownerName}.pending-v1`;
+  try {
+    const beforeRename = path.join(root, 'before-rename');
+    await mkdir(beforeRename);
+    await expect(publishWindowsAppContainerProvisionalOwnerForTests(beforeRename, 'after-pending'))
+      .rejects.toThrow('simulated-owner-publication-after-pending');
+    expect(await exists(path.join(beforeRename, ownerName))).toBe(false);
+    expect(await exists(path.join(beforeRename, pendingName))).toBe(true);
+    expect(await recoverWindowsAppContainerProvisionalOwnerForTests(beforeRename)).toBe('none');
+    expect(await exists(path.join(beforeRename, pendingName))).toBe(false);
+
+    const afterRename = path.join(root, 'after-rename');
+    await mkdir(afterRename);
+    await expect(publishWindowsAppContainerProvisionalOwnerForTests(afterRename, 'after-rename'))
+      .rejects.toThrow('simulated-owner-publication-after-rename');
+    expect(await exists(path.join(afterRename, ownerName))).toBe(true);
+    expect(await exists(path.join(afterRename, pendingName))).toBe(false);
+    expect(await recoverWindowsAppContainerProvisionalOwnerForTests(afterRename)).toBe('canonical');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.serial('Windows AppContainer sentinel proves no outside read/write, no network, Job fence, and recovery', async () => {
   if (process.platform !== 'win32') return;
 
   const probeRoot = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-probe-'));
@@ -179,7 +247,7 @@ test('Windows AppContainer sentinel proves no outside read/write, no network, Jo
     const parentAclBefore = readAcl(icaclsPath, path.dirname(stagingRoot));
     const rootAclBefore = readAcl(icaclsPath, stagingRoot);
 
-    const capability = await probeWindowsAppContainerCapability({
+    const detailedCapability = await probeWindowsAppContainerCapabilityForTests({
       stagingRoot,
       timeoutMs: 12_000,
       workspaceRoot: probeRoot,
@@ -200,7 +268,9 @@ test('Windows AppContainer sentinel proves no outside read/write, no network, Jo
         TZ: 'UTC'
       }
     });
+    const capability = redactWindowsAppContainerProbeCapabilityForTests(detailedCapability);
 
+    expect(detailedCapability).toEqual({ status: 'available' });
     expect(capability).toEqual({ status: 'available' });
     expect(Object.keys(capability)).toEqual(['status']);
     expect(await exists(path.join(
@@ -211,11 +281,13 @@ test('Windows AppContainer sentinel proves no outside read/write, no network, Jo
     expect(readAcl(icaclsPath, stagingRoot)).toBe(rootAclBefore);
   } finally {
     await lease.release();
-    await rm(probeRoot, { recursive: true, force: true });
+    if (!await exists(path.join(stagingRoot, '.sm3p'))) {
+      await rm(probeRoot, { recursive: true, force: true });
+    }
   }
 }, 45_000);
 
-test('Windows AppContainer canonical workspace just beyond MAX_PATH launches or fails closed cleanly', async () => {
+test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launches or fails closed cleanly', async () => {
   if (process.platform !== 'win32') return;
 
   const maxPath = 260;
@@ -300,38 +372,38 @@ test('Windows AppContainer canonical workspace just beyond MAX_PATH launches or 
     const aclBefore = aclTargets.map((target) => readAcl(icaclsPath, target));
     const profilesBefore = readSecAppContainerProfiles(regPath);
 
-    const capability = await probeWindowsAppContainerCapability({
+    const capability = windowsAppContainerCapability();
+    expect(Object.keys(capability)).toEqual(['status']);
+    expect(capability).toEqual({ status: 'available' });
+    const execution = await runWindowsAppContainerChild({
       stagingRoot,
-      timeoutMs: 12_000,
+      runnerRelativePath: path.basename(runnerPath),
+      environment,
       workspaceRoot,
       workspaceWriteLease: lease.token,
-      environment
+      timeoutMs: 12_000
     });
-    expect(Object.keys(capability)).toEqual(['status']);
-    if (capability.status === 'available') {
-      const execution = await runWindowsAppContainerChild({
-        stagingRoot,
-        runnerRelativePath: path.basename(runnerPath),
-        environment,
-        workspaceRoot,
-        workspaceWriteLease: lease.token,
-        timeoutMs: 12_000
-      });
-      expect(execution).toEqual({ exitCode: 0 });
-      const marker = JSON.parse(await readFile(processMarkerPath, 'utf8')) as unknown;
-      expect(marker && typeof marker === 'object' && !Array.isArray(marker)).toBe(true);
-      expect(Object.keys(marker as object)).toEqual(['processId']);
-      const processId = Number((marker as { readonly processId?: unknown }).processId);
-      expect(Number.isSafeInteger(processId) && processId > 0).toBe(true);
-      expect(processIsAlive(processId)).toBe(false);
-      await rm(processMarkerPath, { force: true });
-    } else {
-      expect(capability).toEqual({ status: 'unavailable' });
-    }
+    expect(execution).toEqual({ exitCode: 0 });
+    const marker = JSON.parse(await readFile(processMarkerPath, 'utf8')) as unknown;
+    expect(marker && typeof marker === 'object' && !Array.isArray(marker)).toBe(true);
+    expect(Object.keys(marker as object)).toEqual(['processId']);
+    const processId = Number((marker as { readonly processId?: unknown }).processId);
+    expect(Number.isSafeInteger(processId) && processId > 0).toBe(true);
+    expect(processIsAlive(processId)).toBe(false);
+    await rm(processMarkerPath, { force: true });
 
     await waitForNoWindowsProcessesReferencingPath(systemRoot, workspaceRoot);
     expect(readSecAppContainerProfiles(regPath)).toEqual(profilesBefore);
     expect(await exists(ownerPath)).toBe(false);
+    expect(await exists(`${ownerPath}.pending-v1`)).toBe(false);
+    expect(await exists(path.join(
+      transactionRoot,
+      '.semantic-mutation-appcontainer-provisional-owner-v1.json'
+    ))).toBe(false);
+    expect(await exists(path.join(
+      transactionRoot,
+      '.semantic-mutation-appcontainer-provisional-owner-v1.json.pending-v1'
+    ))).toBe(false);
     expect(await exists(nativeResultPath)).toBe(false);
     expect(await exists(path.join(
       stagingRoot,

@@ -16,6 +16,12 @@ type NativeHelperEnvelope =
   | Readonly<{ mode: 'create-profile'; request: WindowsAppContainerNativeExecutionRequest }>
   | Readonly<{ mode: 'execute'; request: WindowsAppContainerNativeExecutionRequest }>;
 
+type NativeHelperFailure = Readonly<{
+  status: 'failed';
+  phase: WindowsAppContainerExecutionError['phase'];
+  nativeCode?: number;
+}>;
+
 async function loadNativeHelperExit(): Promise<(exitCode: number) => never> {
   const { dlopen, FFIType } = await import('bun:ffi');
   const kernel32 = dlopen('kernel32.dll', {
@@ -32,6 +38,25 @@ async function loadNativeHelperExit(): Promise<(exitCode: number) => never> {
 
 function exactKeys(value: object, expected: readonly string[]): boolean {
   return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
+}
+
+function nativeHelperFailure(error: unknown): NativeHelperFailure {
+  return error instanceof WindowsAppContainerExecutionError
+    ? Object.freeze({
+        status: 'failed',
+        phase: error.phase,
+        ...(error.nativeCode === undefined ? {} : { nativeCode: error.nativeCode })
+      })
+    : Object.freeze({ status: 'failed', phase: 'preparation' });
+}
+
+async function writeNativeHelperOutput(value: object): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    process.stdout.write(JSON.stringify(value), (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
 
 function decodeRequest(encoded: string | undefined): NativeHelperEnvelope {
@@ -86,37 +111,30 @@ if (envelope.mode === 'derive') {
     const appContainerSid = await deriveWindowsAppContainerSidForNativeHelper(
       envelope.request.appContainerName
     );
-    await new Promise<void>((resolve, reject) => {
-      process.stdout.write(JSON.stringify({ appContainerSid }), (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
+    await writeNativeHelperOutput({ status: 'ok', appContainerSid });
     exitNativeHelper(0);
-  } catch {
+  } catch (error) {
+    await writeNativeHelperOutput(nativeHelperFailure(error)).catch(() => undefined);
     exitNativeHelper(1);
   }
 } else if (envelope.mode === 'create-profile') {
   try {
     assertNativeResultBoundary(envelope.request);
     await createWindowsAppContainerProfileForNativeHelper(envelope.request);
+    await writeNativeHelperOutput({ status: 'ok' });
     exitNativeHelper(0);
-  } catch {
+  } catch (error) {
+    await writeNativeHelperOutput(nativeHelperFailure(error)).catch(() => undefined);
     exitNativeHelper(1);
   }
 } else {
   try {
     assertNativeResultBoundary(envelope.request);
     await runWindowsAppContainerNativeChild(envelope.request);
+    await writeNativeHelperOutput({ status: 'ok' });
     exitNativeHelper(0);
   } catch (error) {
-    const failure = error instanceof WindowsAppContainerExecutionError
-      ? {
-          status: 'failed' as const,
-          phase: error.phase,
-          ...(error.nativeCode === undefined ? {} : { nativeCode: error.nativeCode })
-        }
-      : { status: 'failed' as const, phase: 'preparation' as const };
+    const failure = nativeHelperFailure(error);
     try {
       assertNativeResultBoundary(envelope.request);
       await assertWorkspaceWriteLease(
@@ -132,6 +150,7 @@ if (envelope.mode === 'derive') {
       // Lease loss or an invalid result boundary leaves the exact result absent.
       // The outer durable owner remains the sole recovery authority.
     }
+    await writeNativeHelperOutput(failure).catch(() => undefined);
     exitNativeHelper(1);
   }
 }

@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import {
   copyFile,
   lstat,
@@ -7,6 +6,7 @@ import {
   open,
   readFile,
   realpath,
+  rename,
   rm,
   writeFile
 } from 'node:fs/promises';
@@ -14,6 +14,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import type { Pointer } from 'bun:ffi';
+import {
+  runObservedCommand,
+  type ObservedCommandOutcome
+} from './observed-process.ts';
 import { runCommand } from './process.ts';
 import {
   acquireWorkspaceWriteLease,
@@ -44,32 +48,72 @@ const ISOLATED_BUN_CONFIG_CONTENT = '# isolated runtime\n';
 const NATIVE_HELPER_BUNDLE_NAME = 'windows-appcontainer-native-helper.mjs';
 const RECOVERY_OWNER_FORMAT_VERSION = 'windows-appcontainer-recovery-owner-v1';
 const RECOVERY_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-owner-v1.json';
+const RECOVERY_OWNER_PENDING_FILE_NAME = `${RECOVERY_OWNER_FILE_NAME}.pending-v1`;
+const PROVISIONAL_OWNER_FORMAT_VERSION = 'windows-appcontainer-provisional-owner-v1';
+const PROVISIONAL_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
+const PROVISIONAL_OWNER_PENDING_FILE_NAME = `${PROVISIONAL_OWNER_FILE_NAME}.pending-v1`;
+const PROBE_OWNER_FORMAT_VERSION = 'windows-appcontainer-probe-owner-v1';
+const PROBE_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-probe-owner-v1.json';
+const PROBE_OWNER_PENDING_FILE_NAME = `${PROBE_OWNER_FILE_NAME}.pending-v1`;
 const NATIVE_RESULT_FILE_NAME = '.semantic-mutation-appcontainer-result-v1.json';
 const NATIVE_HELPER_PATH = fileURLToPath(new URL('./windows-appcontainer-native-helper.ts', import.meta.url));
+const WINDOWS_HOST_TOOL_DEADLINE_MS = 120_000;
+const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 type BunFfiToBuffer = (typeof import('bun:ffi'))['toBuffer'];
+type NativeHelperBundleSource = () => Promise<Uint8Array>;
+interface NativeHelperBundleLoader {
+  readonly build: () => Promise<Uint8Array>;
+}
 
-let nativeHelperBundlePromise: Promise<Uint8Array> | undefined;
+async function defaultNativeHelperBundleSource(): Promise<Uint8Array> {
+  const result = await Bun.build({
+    entrypoints: [NATIVE_HELPER_PATH],
+    format: 'esm',
+    minify: false,
+    sourcemap: 'none',
+    splitting: false,
+    target: 'bun'
+  });
+  if (!result.success || result.outputs.length !== 1) throw executionError('preparation');
+  return new Uint8Array(await result.outputs[0].arrayBuffer());
+}
+
+function createNativeHelperBundleLoader(source: NativeHelperBundleSource): NativeHelperBundleLoader {
+  let cachedPromise: Promise<Uint8Array> | undefined;
+  return Object.freeze({
+    build: (): Promise<Uint8Array> => {
+      if (cachedPromise) return cachedPromise;
+      const pending = (async () => {
+        const bytes = await source();
+        const text = new TextDecoder().decode(bytes);
+        if (bytes.byteLength === 0 || /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u.test(text)) {
+          throw executionError('preparation');
+        }
+        return bytes;
+      })();
+      let cached: Promise<Uint8Array>;
+      cached = pending.catch((error: unknown) => {
+        if (cachedPromise === cached) cachedPromise = undefined;
+        throw error;
+      });
+      cachedPromise = cached;
+      return cached;
+    }
+  });
+}
+
+const nativeHelperBundleLoader = createNativeHelperBundleLoader(defaultNativeHelperBundleSource);
 
 function buildNativeHelperBundle(): Promise<Uint8Array> {
-  nativeHelperBundlePromise ??= (async () => {
-    const result = await Bun.build({
-      entrypoints: [NATIVE_HELPER_PATH],
-      format: 'esm',
-      minify: false,
-      sourcemap: 'none',
-      splitting: false,
-      target: 'bun'
-    });
-    if (!result.success || result.outputs.length !== 1) throw executionError('preparation');
-    const bytes = new Uint8Array(await result.outputs[0].arrayBuffer());
-    const text = new TextDecoder().decode(bytes);
-    if (bytes.byteLength === 0 || /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u.test(text)) {
-      throw executionError('preparation');
-    }
-    return bytes;
-  })();
-  return nativeHelperBundlePromise;
+  return nativeHelperBundleLoader.build();
+}
+
+/** Test-only isolated cache factory; never re-exported from a product facade. */
+export function createWindowsAppContainerNativeHelperBundleLoaderForTests(
+  source: NativeHelperBundleSource
+): NativeHelperBundleLoader {
+  return createNativeHelperBundleLoader(source);
 }
 
 const WINDOWS_APPCONTAINER_ENVIRONMENT_KEYS = new Set([
@@ -150,7 +194,7 @@ const result = {
 try { await Bun.write(path.resolve(process.cwd(), 'spawned-inside.txt'), 'inside'); result.insideWrite = true; } catch {}
 try { await Bun.write(path.resolve(process.cwd(), '..', 'spawned-outside.txt'), 'outside'); result.outsideWrite = true; } catch {}
 try { await Bun.file(path.resolve(process.cwd(), '..', '.appcontainer-host-read-canary-v1')).text(); result.parentRead = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); result.outerRead = true; } catch {}
+try { await Bun.file(path.resolve(process.cwd(), '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); result.outerRead = true; } catch {}
 try {
   const response = await fetch('http://127.0.0.1:' + process.env.SEC_APPCONTAINER_PROBE_HTTP_PORT + '/probe', {
     signal: AbortSignal.timeout(800)
@@ -187,7 +231,7 @@ const direct = {
 try { await Bun.write(path.resolve(process.cwd(), 'direct-inside.txt'), 'inside'); direct.insideWrite = true; } catch {}
 try { await Bun.write(path.resolve(process.cwd(), '..', 'direct-outside.txt'), 'outside'); direct.outsideWrite = true; } catch {}
 try { await Bun.file(path.resolve(process.cwd(), '..', '.appcontainer-host-read-canary-v1')).text(); direct.parentRead = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); direct.outerRead = true; } catch {}
+try { await Bun.file(path.resolve(process.cwd(), '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); direct.outerRead = true; } catch {}
 try {
   const response = await fetch('http://127.0.0.1:' + process.env.SEC_APPCONTAINER_PROBE_HTTP_PORT + '/probe', {
     signal: AbortSignal.timeout(800)
@@ -280,6 +324,85 @@ export type WindowsAppContainerExecutionPhase =
   | 'timeout'
   | 'cleanup';
 
+export type WindowsAppContainerHostToolStage =
+  | 'acl-grant'
+  | 'acl-remove'
+  | 'acl-verify-absent'
+  | 'profile-query';
+
+export type WindowsAppContainerHostToolFailureReason =
+  | 'spawn'
+  | 'nonzero-exit'
+  | 'timeout'
+  | 'lease-loss'
+  | 'lifecycle-failure'
+  | 'output-limit'
+  | 'aborted'
+  | 'termination-unconfirmed';
+
+export interface WindowsAppContainerHostToolFailure {
+  readonly stage: WindowsAppContainerHostToolStage;
+  readonly reason: WindowsAppContainerHostToolFailureReason;
+  readonly termination: 'not-requested' | 'confirmed' | 'unconfirmed';
+}
+
+export type WindowsAppContainerProbeStage =
+  | 'capability'
+  | 'boundary'
+  | 'probe-root'
+  | 'server'
+  | 'environment'
+  | 'ownership'
+  | 'canary'
+  | 'initial-recovery'
+  | 'prefix-recovery'
+  | 'lease-loss'
+  | 'isolated-execution'
+  | 'isolation-report'
+  | 'cleanup';
+
+export type WindowsAppContainerProbeInvariant =
+  | 'host-supported'
+  | 'outer-boundary-valid'
+  | 'probe-root-prepared'
+  | 'probe-server-listening'
+  | 'probe-address-valid'
+  | 'probe-environment-valid'
+  | 'probe-lease-owned'
+  | 'probe-owner-valid'
+  | 'canary-owned'
+  | 'probe-input-clean'
+  | 'initial-owner-recovered'
+  | 'prefix-failure-recovered'
+  | 'lease-loss-observed'
+  | 'lease-loss-owner-durable'
+  | 'lease-loss-processes-exited'
+  | 'isolated-child-succeeded'
+  | 'no-resource-residue'
+  | 'isolation-report-valid'
+  | 'canary-intact'
+  | 'lease-release'
+  | 'server-close'
+  | 'outer-canary-remove'
+  | 'probe-root-remove'
+  | 'probe-clean';
+
+export interface WindowsAppContainerProbeFault {
+  readonly stage: WindowsAppContainerProbeStage;
+  readonly invariant: WindowsAppContainerProbeInvariant;
+  readonly executionPhase?: WindowsAppContainerExecutionPhase;
+  readonly hostToolFailure?: WindowsAppContainerHostToolFailure;
+  readonly nativeCode?: number;
+}
+
+export type WindowsAppContainerDetailedProbeCapability =
+  | Readonly<{ status: 'available' }>
+  | Readonly<{
+    status: 'unavailable';
+    primary: WindowsAppContainerProbeFault;
+    cleanup: readonly WindowsAppContainerProbeFault[];
+  }>;
+
 export class WindowsAppContainerCapabilityUnavailableError extends Error {
   public readonly code = 'VERIFY-APPCONTAINER-UNAVAILABLE' as const;
 
@@ -294,7 +417,8 @@ export class WindowsAppContainerExecutionError extends Error {
 
   constructor(
     public readonly phase: WindowsAppContainerExecutionPhase,
-    public readonly nativeCode?: number
+    public readonly nativeCode?: number,
+    public readonly hostToolFailure?: WindowsAppContainerHostToolFailure
   ) {
     super(`Windows AppContainer isolated execution failed during ${phase}`);
     this.name = 'WindowsAppContainerExecutionError';
@@ -339,6 +463,25 @@ export interface WindowsAppContainerRecoveryOwnerV1 {
   readonly appContainerSid: string;
 }
 
+interface WindowsAppContainerProvisionalOwnerV1 {
+  readonly formatVersion: typeof PROVISIONAL_OWNER_FORMAT_VERSION;
+  readonly workspaceIdentityDigest: string;
+  readonly stagingIdentityDigest: string;
+  readonly stagingDirectoryName: string;
+  readonly hostBunConfigRelativePath: typeof HOST_BUN_CONFIG_RELATIVE_ROOT;
+  readonly appContainerName: string;
+}
+
+interface WindowsAppContainerProbeOwnerV1 {
+  readonly formatVersion: typeof PROBE_OWNER_FORMAT_VERSION;
+  readonly outerWorkspaceIdentityDigest: string;
+  readonly probeWorkspaceIdentityDigest: string;
+  readonly outerStagingIdentityDigest: string;
+  readonly probeStagingDirectoryName: 's';
+  readonly parentCanaryName: typeof CAPABILITY_PARENT_CANARY_NAME;
+  readonly outerCanaryName: typeof CAPABILITY_OUTER_CANARY_NAME;
+}
+
 export interface WindowsAppContainerNativeExecutionRequest {
   readonly execution: WindowsAppContainerExecutionRequest;
   readonly nativeResultPath: string;
@@ -367,11 +510,84 @@ interface ValidatedExecutionBoundary {
   readonly stagingIdentityDigest: string;
 }
 
+class WindowsAppContainerProbeFailure extends Error {
+  constructor(public readonly fault: WindowsAppContainerProbeFault) {
+    super(`Windows AppContainer probe failed at ${fault.stage}/${fault.invariant}`);
+    this.name = 'WindowsAppContainerProbeFailure';
+  }
+}
+
+const executionCleanupFailures = new WeakMap<Error, readonly Error[]>();
+
+function executionCleanupChain(error: Error, seen = new Set<Error>()): readonly Error[] {
+  if (seen.has(error)) return Object.freeze([]);
+  seen.add(error);
+  const failures: Error[] = [];
+  for (const cleanup of executionCleanupFailures.get(error) ?? []) {
+    if (seen.has(cleanup)) continue;
+    failures.push(cleanup, ...executionCleanupChain(cleanup, seen));
+  }
+  return Object.freeze(failures);
+}
+
+function rememberExecutionCleanupFailure(primary: Error, cleanup: Error): void {
+  const failures = [
+    ...executionCleanupChain(primary),
+    cleanup,
+    ...executionCleanupChain(cleanup)
+  ];
+  executionCleanupFailures.set(primary, Object.freeze([...new Set(failures)]));
+}
+
+/** Test-only projection of the production primary-plus-cleanup error chain. */
+export function windowsAppContainerExecutionCleanupChainForTests(
+  error: Error
+): readonly Error[] {
+  return executionCleanupChain(error);
+}
+
+function probeFault(
+  stage: WindowsAppContainerProbeStage,
+  invariant: WindowsAppContainerProbeInvariant,
+  error?: unknown
+): WindowsAppContainerProbeFault {
+  if (error instanceof WindowsAppContainerProbeFailure) return error.fault;
+  if (error instanceof WindowsAppContainerExecutionError) {
+    return Object.freeze({
+      stage,
+      invariant,
+      executionPhase: error.phase,
+      ...(error.hostToolFailure === undefined ? {} : { hostToolFailure: error.hostToolFailure }),
+      ...(error.nativeCode === undefined ? {} : { nativeCode: error.nativeCode })
+    });
+  }
+  return Object.freeze({ stage, invariant });
+}
+
+function throwProbeFailure(
+  stage: WindowsAppContainerProbeStage,
+  invariant: WindowsAppContainerProbeInvariant,
+  error?: unknown
+): never {
+  throw new WindowsAppContainerProbeFailure(probeFault(stage, invariant, error));
+}
+
+function associatedProbeCleanupFaults(
+  error: unknown,
+  stage: WindowsAppContainerProbeStage,
+  invariant: WindowsAppContainerProbeInvariant
+): readonly WindowsAppContainerProbeFault[] {
+  if (!(error instanceof Error)) return Object.freeze([]);
+  return Object.freeze(executionCleanupChain(error).map((cleanup) =>
+    probeFault(stage, invariant, cleanup)));
+}
+
 function executionError(
   phase: WindowsAppContainerExecutionPhase,
-  nativeCode?: number
+  nativeCode?: number,
+  hostToolFailure?: WindowsAppContainerHostToolFailure
 ): WindowsAppContainerExecutionError {
-  return new WindowsAppContainerExecutionError(phase, nativeCode);
+  return new WindowsAppContainerExecutionError(phase, nativeCode, hostToolFailure);
 }
 
 function normalizeExecutionError(
@@ -829,7 +1045,7 @@ async function deriveAppContainerSidPointer(
       windowsWide(appContainerName),
       sidHolder
     );
-    if (result < 0) throw executionError('preparation');
+    if (result < 0) throw executionError('preparation', result);
     const sidPointer = read.ptr(ptr(sidHolder)) as Pointer;
     if (!sidPointer) throw executionError('preparation');
     // Bun 1.3.6 can corrupt the process while FreeSid releases an FFI-returned
@@ -872,7 +1088,7 @@ async function createAppContainerProfile(
       0,
       sidHolder
     );
-    if (result < 0) throw executionError('preparation');
+    if (result < 0) throw executionError('preparation', result);
     const sidPointer = read.ptr(ptr(sidHolder)) as Pointer;
     if (!sidPointer || sidPointerToString(sidPointer, advapi32, toBuffer) !== expectedSid) {
       throw executionError('preparation');
@@ -912,71 +1128,186 @@ async function windowsSystemDirectory(): Promise<string> {
 async function runIcacls(
   systemDirectory: string,
   args: readonly string[],
-  commitFence: () => Promise<void>
+  commitFence: () => Promise<void>,
+  phase: 'acl' | 'cleanup',
+  stage: 'acl-grant' | 'acl-remove',
+  signal?: AbortSignal
 ): Promise<string> {
   const result = await runFencedWindowsCommand(
     path.join(systemDirectory, 'icacls.exe'),
     args,
     systemDirectory,
-    commitFence
+    commitFence,
+    phase,
+    stage,
+    signal
   );
-  if (result.code !== 0) throw executionError('acl');
+  if (result.code !== 0) throw hostToolExecutionError(phase, stage, 'nonzero-exit');
   return result.stdout;
+}
+
+function hostToolTermination(
+  result: ObservedCommandOutcome
+): WindowsAppContainerHostToolFailure['termination'] {
+  if (!result.termination.treeClosed) return 'unconfirmed';
+  return result.termination.requested ? 'confirmed' : 'not-requested';
+}
+
+function hostToolFailureReason(
+  result: ObservedCommandOutcome
+): WindowsAppContainerHostToolFailureReason {
+  switch (result.trigger) {
+    case 'timed-out': return 'timeout';
+    case 'fence-lost': return 'lease-loss';
+    case 'lifecycle-failed': return 'lifecycle-failure';
+    case 'observer-failed': return 'output-limit';
+    case 'aborted': return 'aborted';
+    default:
+      return result.status === 'tree-unproven' || result.status === 'termination-unproven'
+        ? 'termination-unconfirmed'
+        : 'spawn';
+  }
+}
+
+function projectWindowsAppContainerHostToolFailure(
+  stage: WindowsAppContainerHostToolStage,
+  result: ObservedCommandOutcome
+): WindowsAppContainerHostToolFailure {
+  return Object.freeze({
+    stage,
+    reason: hostToolFailureReason(result),
+    termination: hostToolTermination(result)
+  });
+}
+
+/** Test-only projection of the production orthogonal trigger/termination evidence. */
+export function projectWindowsAppContainerHostToolFailureForTests(
+  stage: WindowsAppContainerHostToolStage,
+  result: ObservedCommandOutcome
+): WindowsAppContainerHostToolFailure {
+  return projectWindowsAppContainerHostToolFailure(stage, result);
+}
+
+function hostToolExecutionError(
+  phase: 'acl' | 'cleanup',
+  stage: WindowsAppContainerHostToolStage,
+  reason: WindowsAppContainerHostToolFailureReason,
+  termination: WindowsAppContainerHostToolFailure['termination'] = 'not-requested'
+): WindowsAppContainerExecutionError {
+  return executionError(phase, undefined, Object.freeze({ stage, reason, termination }));
+}
+
+interface WindowsAppContainerExecutionSteps {
+  readonly grantAcl: () => Promise<void>;
+  readonly createProfile: () => Promise<void>;
+  readonly execute: () => Promise<void>;
+}
+
+async function runWindowsAppContainerExecutionSteps(
+  steps: WindowsAppContainerExecutionSteps
+): Promise<void> {
+  await steps.grantAcl();
+  await steps.createProfile();
+  await steps.execute();
+}
+
+/** Test-only sequencing seam; production ownership remains in this module. */
+export function runWindowsAppContainerExecutionStepsForTests(
+  steps: WindowsAppContainerExecutionSteps
+): Promise<void> {
+  return runWindowsAppContainerExecutionSteps(steps);
+}
+
+type WindowsAppContainerFailure =
+  | WindowsAppContainerCapabilityUnavailableError
+  | WindowsAppContainerExecutionError;
+
+async function completeWindowsAppContainerOwnedExecution<T>(
+  result: T | undefined,
+  primaryError: WindowsAppContainerFailure | undefined,
+  cleanup: () => Promise<void>,
+  missingResultPhase: WindowsAppContainerExecutionPhase
+): Promise<T> {
+  let cleanupError: WindowsAppContainerFailure | undefined;
+  const terminationUnconfirmed = primaryError instanceof WindowsAppContainerExecutionError &&
+    primaryError.hostToolFailure?.termination === 'unconfirmed';
+  if (!terminationUnconfirmed) {
+    try {
+      await cleanup();
+    } catch (error) {
+      cleanupError = normalizeExecutionError(error, 'cleanup');
+    }
+  }
+  if (primaryError) {
+    if (cleanupError) rememberExecutionCleanupFailure(primaryError, cleanupError);
+    throw primaryError;
+  }
+  if (cleanupError) throw cleanupError;
+  if (result === undefined) throw executionError(missingResultPhase);
+  return result;
+}
+
+/** Test-only entrypoint for the production cleanup suppression/settlement seam. */
+export function completeWindowsAppContainerOwnedExecutionForTests<T>(
+  result: T | undefined,
+  primaryError: WindowsAppContainerFailure | undefined,
+  cleanup: () => Promise<void>,
+  missingResultPhase: WindowsAppContainerExecutionPhase = 'wait'
+): Promise<T> {
+  return completeWindowsAppContainerOwnedExecution(
+    result,
+    primaryError,
+    cleanup,
+    missingResultPhase
+  );
 }
 
 async function runFencedWindowsCommand(
   executable: string,
   args: readonly string[],
   systemDirectory: string,
-  commitFence: () => Promise<void>
+  commitFence: () => Promise<void>,
+  phase: 'acl' | 'cleanup',
+  stage: WindowsAppContainerHostToolStage,
+  signal?: AbortSignal
 ): Promise<{ code: number; stdout: string }> {
-  await commitFence();
-  let stdout = '';
-  let settled = false;
-  const child = spawn(executable, [...args], {
-    // All filesystem arguments are absolute. A staging cwd beyond MAX_PATH
-    // makes libuv report the real system executable as ENOENT on Windows.
+  try {
+    await commitFence();
+  } catch {
+    throw hostToolExecutionError(phase, stage, 'lease-loss');
+  }
+  const stdoutChunks: Buffer[] = [];
+  const result = await runObservedCommand(executable, args, {
     cwd: systemDirectory,
     env: {
       PATH: '',
       SystemRoot: path.dirname(systemDirectory),
       WINDIR: path.dirname(systemDirectory)
     },
-    shell: false,
-    stdio: ['ignore', 'pipe', 'ignore'],
-    windowsHide: true
+    envMode: 'replace',
+    maxObservedOutputBytes: WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES,
+    onOutput: (stream, chunk) => {
+      if (stream === 'stdout') stdoutChunks.push(Buffer.from(chunk));
+    },
+    signal,
+    timeoutMs: WINDOWS_HOST_TOOL_DEADLINE_MS,
+    whileRunning: commitFence
   });
-  child.stdout.on('data', (chunk) => {
-    if (stdout.length <= 1024 * 1024) stdout += String(chunk);
-  });
-  const completion = new Promise<number>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (exitCode) => {
-      settled = true;
-      resolve(exitCode ?? 1);
-    });
-  });
-  try {
-    while (!settled) {
-      const outcome = await Promise.race([
-        completion.then((code) => ({ done: true as const, code })),
-        new Promise<{ done: false }>((resolve) => setTimeout(() => resolve({ done: false }), 20))
-      ]);
-      if (outcome.done) return { code: outcome.code, stdout };
-      await commitFence();
+  const stdout = Buffer.concat(stdoutChunks).toString();
+  if (result.status === 'exited' && result.termination.treeClosed) {
+    if (result.stdout.observerTruncated) {
+      throw hostToolExecutionError(phase, stage, 'output-limit');
     }
-    return { code: await completion, stdout };
-  } catch (error) {
-    child.kill();
-    await completion.catch(() => undefined);
-    throw error;
+    return { code: result.exitCode ?? 1, stdout };
   }
+  throw executionError(phase, undefined, projectWindowsAppContainerHostToolFailure(stage, result));
 }
 
 async function appContainerProfileExists(
   systemDirectory: string,
   appContainerName: string,
-  commitFence: () => Promise<void>
+  commitFence: () => Promise<void>,
+  signal?: AbortSignal
 ): Promise<boolean> {
   const result = await runFencedWindowsCommand(
     path.join(systemDirectory, 'reg.exe'),
@@ -990,8 +1321,14 @@ async function appContainerProfileExists(
       '/e'
     ],
     systemDirectory,
-    commitFence
+    commitFence,
+    'cleanup',
+    'profile-query',
+    signal
   );
+  if (result.code !== 0 && result.code !== 1) {
+    throw hostToolExecutionError('cleanup', 'profile-query', 'nonzero-exit');
+  }
   return result.code === 0 &&
     result.stdout.toLocaleLowerCase('en-US').includes(appContainerName.toLocaleLowerCase('en-US'));
 }
@@ -1000,16 +1337,22 @@ async function assertAppContainerAclAbsent(
   systemDirectory: string,
   stagingRoot: string,
   appContainerSid: string,
-  commitFence: () => Promise<void>
+  commitFence: () => Promise<void>,
+  signal?: AbortSignal
 ): Promise<void> {
   const result = await runFencedWindowsCommand(
     path.join(systemDirectory, 'icacls.exe'),
     [stagingRoot, '/findsid', `*${appContainerSid}`, '/T', '/C', '/Q'],
     systemDirectory,
-    commitFence
+    commitFence,
+    'cleanup',
+    'acl-verify-absent',
+    signal
   );
-  if (result.stdout.toLocaleLowerCase('en-US').includes(foldedWindowsPath(stagingRoot)) ||
-    (result.code !== 0 && result.code !== 1)) {
+  if (result.code !== 0 && result.code !== 1) {
+    throw hostToolExecutionError('cleanup', 'acl-verify-absent', 'nonzero-exit');
+  }
+  if (result.stdout.toLocaleLowerCase('en-US').includes(foldedWindowsPath(stagingRoot))) {
     throw executionError('cleanup', 21);
   }
 }
@@ -1070,6 +1413,52 @@ async function durableRemoveFile(
   await rm(filePath, { force: true });
   await commitFence();
   await fsyncDirectory(path.dirname(filePath), commitFence);
+}
+
+async function durableRemovePendingOwnerFile(
+  pendingPath: string,
+  commitFence: () => Promise<void>
+): Promise<void> {
+  await commitFence();
+  if (!await pathExists(pendingPath)) return;
+  const metadata = await lstat(pendingPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || Number(metadata.nlink) !== 1) {
+    throw executionError('cleanup');
+  }
+  await durableRemoveFile(pendingPath, commitFence);
+}
+
+interface DurableOwnerPublishTestHooks {
+  readonly afterPendingDurableBeforeRename?: () => Promise<void>;
+  readonly afterRenameBeforeDirectorySync?: () => Promise<void>;
+}
+
+async function durablePublishOwnerFile(
+  ownerPath: string,
+  pendingPath: string,
+  contents: string,
+  commitFence: () => Promise<void>,
+  testHooks: DurableOwnerPublishTestHooks = {}
+): Promise<void> {
+  await commitFence();
+  if (await pathExists(ownerPath) || await pathExists(pendingPath)) {
+    throw executionError('preparation');
+  }
+  await durableCreateFile(pendingPath, contents, commitFence);
+  await testHooks.afterPendingDurableBeforeRename?.();
+  await commitFence();
+  await rename(pendingPath, ownerPath);
+  await testHooks.afterRenameBeforeDirectorySync?.();
+  await commitFence();
+  await fsyncDirectory(path.dirname(ownerPath), commitFence);
+  const [metadata, canonicalContents] = await Promise.all([
+    lstat(ownerPath),
+    readFile(ownerPath, 'utf8')
+  ]);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || Number(metadata.nlink) !== 1 ||
+    canonicalContents !== contents) {
+    throw executionError('preparation');
+  }
 }
 
 async function materializeHostBunRuntime(
@@ -1170,8 +1559,10 @@ async function runHostBunCommand(
   encodedRequest: string
 ) {
   const { configPath, helperPath } = await materializeHostBunRuntime(stagingRoot, commitFence);
+  let result: Awaited<ReturnType<typeof runCommand>> | undefined;
+  let primaryError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
   try {
-    const result = await runCommand(process.execPath, [
+    result = await runCommand(process.execPath, [
       '--no-env-file',
       `--config=${configPath}`,
       '--no-install',
@@ -1189,10 +1580,22 @@ async function runHostBunCommand(
       timeoutMs
     });
     await commitFence();
-    return result;
-  } finally {
-    await cleanupHostBunConfig(stagingRoot, commitFence);
+  } catch (error) {
+    primaryError = normalizeExecutionError(error, 'preparation');
   }
+  let cleanupError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
+  try {
+    await cleanupHostBunConfig(stagingRoot, commitFence);
+  } catch (error) {
+    cleanupError = normalizeExecutionError(error, 'cleanup');
+  }
+  if (primaryError) {
+    if (cleanupError) rememberExecutionCleanupFailure(primaryError, cleanupError);
+    throw primaryError;
+  }
+  if (cleanupError) throw cleanupError;
+  if (!result) throw executionError('preparation');
+  return result;
 }
 
 function buildAppContainerName(stagingRoot: string, stagingIdentityDigest: string): string {
@@ -1409,6 +1812,48 @@ function recoveryOwnerLooksValid(value: unknown): value is WindowsAppContainerRe
     typeof owner.appContainerSid === 'string' && /^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/u.test(owner.appContainerSid);
 }
 
+function provisionalOwnerLooksValid(value: unknown): value is WindowsAppContainerProvisionalOwnerV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !exactObjectKeys(value, [
+    'appContainerName',
+    'formatVersion',
+    'hostBunConfigRelativePath',
+    'stagingDirectoryName',
+    'stagingIdentityDigest',
+    'workspaceIdentityDigest'
+  ])) return false;
+  const owner = value as Record<string, unknown>;
+  return owner.formatVersion === PROVISIONAL_OWNER_FORMAT_VERSION &&
+    owner.hostBunConfigRelativePath === HOST_BUN_CONFIG_RELATIVE_ROOT &&
+    typeof owner.workspaceIdentityDigest === 'string' && /^sha256:[0-9a-f]{64}$/u.test(owner.workspaceIdentityDigest) &&
+    typeof owner.stagingIdentityDigest === 'string' && /^sha256:[0-9a-f]{64}$/u.test(owner.stagingIdentityDigest) &&
+    typeof owner.stagingDirectoryName === 'string' && owner.stagingDirectoryName.length > 0 &&
+    path.basename(owner.stagingDirectoryName) === owner.stagingDirectoryName &&
+    typeof owner.appContainerName === 'string' && /^sec\.sm3\.[0-9a-f]{12}\.[0-9a-f]{24}$/u.test(owner.appContainerName);
+}
+
+function probeOwnerLooksValid(value: unknown): value is WindowsAppContainerProbeOwnerV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !exactObjectKeys(value, [
+    'formatVersion',
+    'outerCanaryName',
+    'outerStagingIdentityDigest',
+    'outerWorkspaceIdentityDigest',
+    'parentCanaryName',
+    'probeStagingDirectoryName',
+    'probeWorkspaceIdentityDigest'
+  ])) return false;
+  const owner = value as Record<string, unknown>;
+  return owner.formatVersion === PROBE_OWNER_FORMAT_VERSION &&
+    owner.outerCanaryName === CAPABILITY_OUTER_CANARY_NAME &&
+    owner.parentCanaryName === CAPABILITY_PARENT_CANARY_NAME &&
+    owner.probeStagingDirectoryName === 's' &&
+    typeof owner.outerWorkspaceIdentityDigest === 'string' &&
+    /^sha256:[0-9a-f]{64}$/u.test(owner.outerWorkspaceIdentityDigest) &&
+    typeof owner.probeWorkspaceIdentityDigest === 'string' &&
+    /^sha256:[0-9a-f]{64}$/u.test(owner.probeWorkspaceIdentityDigest) &&
+    typeof owner.outerStagingIdentityDigest === 'string' &&
+    /^sha256:[0-9a-f]{64}$/u.test(owner.outerStagingIdentityDigest);
+}
+
 async function validateRecoveryStagingBoundary(
   stagingRootInput: string,
   workspaceRootInput: string
@@ -1452,6 +1897,26 @@ function recoveryOwnerPath(transactionRoot: string): string {
   return path.join(transactionRoot, RECOVERY_OWNER_FILE_NAME);
 }
 
+function recoveryOwnerPendingPath(transactionRoot: string): string {
+  return path.join(transactionRoot, RECOVERY_OWNER_PENDING_FILE_NAME);
+}
+
+function provisionalOwnerPath(transactionRoot: string): string {
+  return path.join(transactionRoot, PROVISIONAL_OWNER_FILE_NAME);
+}
+
+function provisionalOwnerPendingPath(transactionRoot: string): string {
+  return path.join(transactionRoot, PROVISIONAL_OWNER_PENDING_FILE_NAME);
+}
+
+function probeOwnerPath(probeRoot: string): string {
+  return path.join(probeRoot, PROBE_OWNER_FILE_NAME);
+}
+
+function probeOwnerPendingPath(probeRoot: string): string {
+  return path.join(probeRoot, PROBE_OWNER_PENDING_FILE_NAME);
+}
+
 function nativeResultPath(transactionRoot: string): string {
   return path.join(transactionRoot, NATIVE_RESULT_FILE_NAME);
 }
@@ -1472,9 +1937,10 @@ async function assertRecoveryOwner(
   }
 }
 
-async function readRecoveryOwner(
-  ownerPath: string
-): Promise<WindowsAppContainerRecoveryOwnerV1 | undefined> {
+async function readOwnerRecord<T>(
+  ownerPath: string,
+  looksValid: (value: unknown) => value is T
+): Promise<T | undefined> {
   try {
     const metadata = await lstat(ownerPath);
     if (!metadata.isFile() || metadata.isSymbolicLink() || Number(metadata.nlink) !== 1 ||
@@ -1482,13 +1948,53 @@ async function readRecoveryOwner(
       throw executionError('cleanup');
     }
     const parsed = JSON.parse(await readFile(ownerPath, 'utf8')) as unknown;
-    if (!recoveryOwnerLooksValid(parsed)) throw executionError('cleanup');
+    if (!looksValid(parsed)) throw executionError('cleanup');
     return Object.freeze(parsed);
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
     if (error instanceof WindowsAppContainerExecutionError) throw error;
     throw executionError('cleanup');
   }
+}
+
+function assertProvisionalOwner(
+  owner: WindowsAppContainerProvisionalOwnerV1,
+  boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
+  workspaceWriteLease: WorkspaceWriteLeaseToken
+): void {
+  if (!provisionalOwnerLooksValid(owner) ||
+    owner.workspaceIdentityDigest !== workspaceWriteLease.workspaceIdentityDigest ||
+    owner.stagingIdentityDigest !== boundary.stagingIdentityDigest ||
+    owner.stagingDirectoryName !== path.basename(boundary.stagingRoot) ||
+    owner.appContainerName !== buildAppContainerName(boundary.stagingRoot, boundary.stagingIdentityDigest)) {
+    throw executionError('cleanup');
+  }
+}
+
+function assertProbeOwner(
+  owner: WindowsAppContainerProbeOwnerV1,
+  outerBoundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
+  outerWorkspaceWriteLease: WorkspaceWriteLeaseToken,
+  probeWorkspaceWriteLease: WorkspaceWriteLeaseToken
+): void {
+  if (!probeOwnerLooksValid(owner) ||
+    owner.outerWorkspaceIdentityDigest !== outerWorkspaceWriteLease.workspaceIdentityDigest ||
+    owner.probeWorkspaceIdentityDigest !== probeWorkspaceWriteLease.workspaceIdentityDigest ||
+    owner.outerStagingIdentityDigest !== outerBoundary.stagingIdentityDigest) {
+    throw executionError('cleanup');
+  }
+}
+
+async function readRecoveryOwner(ownerPath: string): Promise<WindowsAppContainerRecoveryOwnerV1 | undefined> {
+  return readOwnerRecord(ownerPath, recoveryOwnerLooksValid);
+}
+
+async function readProvisionalOwner(ownerPath: string): Promise<WindowsAppContainerProvisionalOwnerV1 | undefined> {
+  return readOwnerRecord(ownerPath, provisionalOwnerLooksValid);
+}
+
+async function readProbeOwner(ownerPath: string): Promise<WindowsAppContainerProbeOwnerV1 | undefined> {
+  return readOwnerRecord(ownerPath, probeOwnerLooksValid);
 }
 
 async function invokeNativeHelper(
@@ -1498,7 +2004,7 @@ async function invokeNativeHelper(
   environment: Readonly<Record<string, string>>,
   commitFence: () => Promise<void>,
   timeoutMs: number | undefined
-): Promise<number> {
+): Promise<void> {
   const serialized = Buffer.from(JSON.stringify({ mode, request: helperRequest }), 'utf8').toString('base64url');
   const result = await runHostBunCommand(
     stagingRoot,
@@ -1507,7 +2013,49 @@ async function invokeNativeHelper(
     timeoutMs,
     serialized
   );
-  return result.code;
+  parseNativeHelperOutput(mode, result.code, result.stdout, result.stderr);
+}
+
+function parseNativeHelperOutput(
+  mode: 'derive' | 'create-profile' | 'execute',
+  exitCode: number,
+  stdout: string,
+  stderr: string
+): string | undefined {
+  if (stderr !== '') throw executionError('preparation');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw executionError('preparation');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw executionError('preparation');
+  }
+  const record = parsed as Record<string, unknown>;
+  if (record.status === 'failed') {
+    const expectedKeys = ['phase', 'status', ...(record.nativeCode === undefined ? [] : ['nativeCode'])].sort();
+    if (exitCode === 0 || !exactObjectKeys(record, expectedKeys) ||
+      !['invalid-input', 'preparation', 'acl', 'launch', 'wait', 'timeout', 'cleanup'].includes(String(record.phase)) ||
+      (record.nativeCode !== undefined && !Number.isSafeInteger(record.nativeCode))) {
+      throw executionError('preparation');
+    }
+    throw executionError(
+      record.phase as WindowsAppContainerExecutionPhase,
+      record.nativeCode === undefined ? undefined : Number(record.nativeCode)
+    );
+  }
+  if (exitCode !== 0 || record.status !== 'ok') throw executionError('preparation');
+  if (mode === 'derive') {
+    if (!exactObjectKeys(record, ['appContainerSid', 'status'])) throw executionError('preparation');
+    const sid = record.appContainerSid;
+    if (typeof sid !== 'string' || !/^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/u.test(sid)) {
+      throw executionError('preparation');
+    }
+    return sid;
+  }
+  if (!exactObjectKeys(record, ['status'])) throw executionError('preparation');
+  return undefined;
 }
 
 async function deriveAppContainerSidViaHelper(
@@ -1527,21 +2075,8 @@ async function deriveAppContainerSidViaHelper(
     10_000,
     serialized
   );
-  if (result.code !== 0 || result.stderr !== '') throw executionError('preparation');
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    throw executionError('preparation');
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
-    !exactObjectKeys(parsed, ['appContainerSid'])) {
-    throw executionError('preparation');
-  }
-  const sid = (parsed as Record<string, unknown>).appContainerSid;
-  if (typeof sid !== 'string' || !/^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/u.test(sid)) {
-    throw executionError('preparation');
-  }
+  const sid = parseNativeHelperOutput('derive', result.code, result.stdout, result.stderr);
+  if (!sid) throw executionError('preparation');
   return sid;
 }
 
@@ -1644,9 +2179,11 @@ export async function runWindowsAppContainerNativeChild(
 /** Native cleanup helper. Every planned resource is removed unconditionally. */
 async function cleanupWindowsAppContainerNativeOwner(
   request: WindowsAppContainerNativeCleanupRequest,
-  provenAppContainerSid: string
+  provenAppContainerSid: string,
+  signal?: AbortSignal
 ): Promise<void> {
   assertCapability();
+  signal?.throwIfAborted();
   const commitFence = () => assertWorkspaceWriteLease(
     request.workspaceRoot,
     request.workspaceWriteLease
@@ -1670,7 +2207,8 @@ async function cleanupWindowsAppContainerNativeOwner(
     '/T',
     '/C',
     '/Q'
-  ], commitFence);
+  ], commitFence, 'cleanup', 'acl-remove', signal);
+  signal?.throwIfAborted();
   await commitFence();
   await rm(path.join(boundary.stagingRoot, request.owner.runtimeRelativePath), {
     recursive: true,
@@ -1681,18 +2219,23 @@ async function cleanupWindowsAppContainerNativeOwner(
   if (await appContainerProfileExists(
     systemDirectory,
     request.owner.appContainerName,
-    commitFence
+    commitFence,
+    signal
   )) {
+    signal?.throwIfAborted();
     await deleteAppContainerProfile(request.owner.appContainerName, commitFence);
   }
+  signal?.throwIfAborted();
   await commitFence();
   await rm(request.nativeResultPath, { force: true });
   await assertAppContainerAclAbsent(
     systemDirectory,
     boundary.stagingRoot,
     request.owner.appContainerSid,
-    commitFence
+    commitFence,
+    signal
   );
+  signal?.throwIfAborted();
   await commitFence();
   if (await pathExists(path.join(boundary.stagingRoot, request.owner.runtimeRelativePath))) {
     throw executionError('cleanup', 22);
@@ -1701,7 +2244,8 @@ async function cleanupWindowsAppContainerNativeOwner(
   if (await appContainerProfileExists(
     systemDirectory,
     request.owner.appContainerName,
-    commitFence
+    commitFence,
+    signal
   )) throw executionError('cleanup', 24);
 }
 
@@ -1728,23 +2272,190 @@ async function cleanupPlannedOwner(
   await cleanupWindowsAppContainerNativeOwner(cleanupRequest, provenAppContainerSid);
   await commitFence();
   const ownerPath = recoveryOwnerPath(boundary.transactionRoot);
+  await durableRemovePendingOwnerFile(recoveryOwnerPendingPath(boundary.transactionRoot), commitFence);
   await durableRemoveFile(ownerPath, commitFence);
 }
 
-async function recoverPreviousOwner(
+async function cleanupProvisionalOwner(
+  owner: WindowsAppContainerProvisionalOwnerV1,
+  boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
+  workspaceWriteLease: WorkspaceWriteLeaseToken,
+  commitFence: () => Promise<void>,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
+  assertProvisionalOwner(owner, boundary, workspaceWriteLease);
+  await cleanupHostBunConfig(boundary.stagingRoot, commitFence);
+  signal?.throwIfAborted();
+  await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(boundary.transactionRoot), commitFence);
+  signal?.throwIfAborted();
+  await durableRemoveFile(provisionalOwnerPath(boundary.transactionRoot), commitFence);
+}
+
+async function publishProvisionalOwner(
+  owner: WindowsAppContainerProvisionalOwnerV1,
+  transactionRoot: string,
+  commitFence: () => Promise<void>,
+  testHooks: DurableOwnerPublishTestHooks = {}
+): Promise<void> {
+  await durablePublishOwnerFile(
+    provisionalOwnerPath(transactionRoot),
+    provisionalOwnerPendingPath(transactionRoot),
+    `${JSON.stringify(owner)}\n`,
+    commitFence,
+    testHooks
+  );
+  const canonical = await readProvisionalOwner(provisionalOwnerPath(transactionRoot));
+  if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
+    throw executionError('preparation');
+  }
+}
+
+/** Test-only atomic publication vector; never re-exported from a product facade. */
+export async function publishWindowsAppContainerProvisionalOwnerForTests(
+  transactionRoot: string,
+  interruption: 'after-pending' | 'after-rename'
+): Promise<void> {
+  const owner: WindowsAppContainerProvisionalOwnerV1 = Object.freeze({
+    formatVersion: PROVISIONAL_OWNER_FORMAT_VERSION,
+    workspaceIdentityDigest: `sha256:${'a'.repeat(64)}`,
+    stagingIdentityDigest: `sha256:${'b'.repeat(64)}`,
+    stagingDirectoryName: 's',
+    hostBunConfigRelativePath: HOST_BUN_CONFIG_RELATIVE_ROOT,
+    appContainerName: `sec.sm3.${'c'.repeat(12)}.${'d'.repeat(24)}`
+  });
+  const interrupted = async (): Promise<void> => {
+    throw new Error(`simulated-owner-publication-${interruption}`);
+  };
+  await publishProvisionalOwner(owner, transactionRoot, async () => undefined, {
+    ...(interruption === 'after-pending'
+      ? { afterPendingDurableBeforeRename: interrupted }
+      : { afterRenameBeforeDirectorySync: interrupted })
+  });
+}
+
+/** Test-only pending recovery vector; never re-exported from a product facade. */
+export async function recoverWindowsAppContainerProvisionalOwnerForTests(
+  transactionRoot: string
+): Promise<'canonical' | 'none'> {
+  await durableRemovePendingOwnerFile(
+    provisionalOwnerPendingPath(transactionRoot),
+    async () => undefined
+  );
+  return await readProvisionalOwner(provisionalOwnerPath(transactionRoot)) ? 'canonical' : 'none';
+}
+
+async function publishRecoveryOwner(
+  owner: WindowsAppContainerRecoveryOwnerV1,
+  transactionRoot: string,
+  commitFence: () => Promise<void>
+): Promise<void> {
+  await durablePublishOwnerFile(
+    recoveryOwnerPath(transactionRoot),
+    recoveryOwnerPendingPath(transactionRoot),
+    `${JSON.stringify(owner)}\n`,
+    commitFence
+  );
+  const canonical = await readRecoveryOwner(recoveryOwnerPath(transactionRoot));
+  if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
+    throw executionError('preparation');
+  }
+}
+
+async function recoverPreviousOwnership(
   execution: WindowsAppContainerExecutionRequest,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
   commitFence: () => Promise<void>
 ): Promise<void> {
+  await durableRemovePendingOwnerFile(recoveryOwnerPendingPath(boundary.transactionRoot), commitFence);
+  await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(boundary.transactionRoot), commitFence);
   const owner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));
-  if (!owner) return;
-  await assertRecoveryOwner(
-    owner,
-    boundary,
-    execution.workspaceWriteLease,
-    nativeResultPath(boundary.transactionRoot)
+  const provisional = await readProvisionalOwner(provisionalOwnerPath(boundary.transactionRoot));
+  if (owner) {
+    await assertRecoveryOwner(
+      owner,
+      boundary,
+      execution.workspaceWriteLease,
+      nativeResultPath(boundary.transactionRoot)
+    );
+    await cleanupPlannedOwner(execution, owner, boundary, commitFence);
+  }
+  if (provisional) {
+    await cleanupProvisionalOwner(
+      provisional,
+      boundary,
+      execution.workspaceWriteLease,
+      commitFence
+    );
+  }
+}
+
+export interface WindowsAppContainerOwnedRecoveryRequest {
+  readonly stagingRoot: string;
+  readonly workspaceRoot: string;
+  readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Bounded-supervisor recovery entrypoint. The caller must first own the exact
+ * workspace lease; this function revalidates the transaction boundary and
+ * durable owner before removing any ACL, profile, runtime, or owner authority.
+ */
+export async function recoverWindowsAppContainerOwnedTransaction(
+  request: WindowsAppContainerOwnedRecoveryRequest
+): Promise<'not-needed' | 'recovered'> {
+  assertCapability();
+  request.signal?.throwIfAborted();
+  const commitFence = () => assertWorkspaceWriteLease(
+    request.workspaceRoot,
+    request.workspaceWriteLease
   );
-  await cleanupPlannedOwner(execution, owner, boundary, commitFence);
+  await commitFence();
+  request.signal?.throwIfAborted();
+  const boundary = await validateRecoveryStagingBoundary(
+    request.stagingRoot,
+    request.workspaceRoot
+  );
+  request.signal?.throwIfAborted();
+  const hadRecoveryPending = await pathExists(recoveryOwnerPendingPath(boundary.transactionRoot));
+  const hadProvisionalPending = await pathExists(provisionalOwnerPendingPath(boundary.transactionRoot));
+  await durableRemovePendingOwnerFile(recoveryOwnerPendingPath(boundary.transactionRoot), commitFence);
+  request.signal?.throwIfAborted();
+  await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(boundary.transactionRoot), commitFence);
+  request.signal?.throwIfAborted();
+  const owner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));
+  const provisional = await readProvisionalOwner(provisionalOwnerPath(boundary.transactionRoot));
+  if (!owner && !provisional) {
+    return hadRecoveryPending || hadProvisionalPending ? 'recovered' : 'not-needed';
+  }
+  if (owner) {
+    const resultPath = nativeResultPath(boundary.transactionRoot);
+    await assertRecoveryOwner(owner, boundary, request.workspaceWriteLease, resultPath);
+    request.signal?.throwIfAborted();
+    const derived = await deriveAppContainerSidPointer(owner.appContainerName);
+    request.signal?.throwIfAborted();
+    if (derived.sid !== owner.appContainerSid) throw executionError('cleanup');
+    await cleanupWindowsAppContainerNativeOwner({
+      stagingRoot: boundary.stagingRoot,
+      nativeResultPath: resultPath,
+      workspaceRoot: request.workspaceRoot,
+      workspaceWriteLease: request.workspaceWriteLease,
+      owner
+    }, derived.sid, request.signal);
+    request.signal?.throwIfAborted();
+    await durableRemoveFile(recoveryOwnerPath(boundary.transactionRoot), commitFence);
+  }
+  if (provisional) {
+    await cleanupProvisionalOwner(
+      provisional,
+      boundary,
+      request.workspaceWriteLease,
+      commitFence,
+      request.signal
+    );
+  }
+  return 'recovered';
 }
 
 export async function runWindowsAppContainerChild(
@@ -1758,50 +2469,51 @@ export async function runWindowsAppContainerChild(
   await commitFence();
   const validated = await validateExecutionRequest(request);
   validateAndSortEnvironment(request.environment, validated.stagingRoot);
-  await recoverPreviousOwner(request, validated, commitFence);
+  await recoverPreviousOwnership(request, validated, commitFence);
 
   const appContainerName = buildAppContainerName(
     validated.stagingRoot,
     validated.stagingIdentityDigest
   );
-  const owner: WindowsAppContainerRecoveryOwnerV1 = Object.freeze({
-    formatVersion: RECOVERY_OWNER_FORMAT_VERSION,
+  const provisionalOwner: WindowsAppContainerProvisionalOwnerV1 = Object.freeze({
+    formatVersion: PROVISIONAL_OWNER_FORMAT_VERSION,
     workspaceIdentityDigest: request.workspaceWriteLease.workspaceIdentityDigest,
     stagingIdentityDigest: validated.stagingIdentityDigest,
     stagingDirectoryName: path.basename(validated.stagingRoot),
-    runtimeRelativePath: RUNTIME_DIRECTORY_NAME,
-    resultFileName: NATIVE_RESULT_FILE_NAME,
-    appContainerName,
-    appContainerSid: await deriveAppContainerSidViaHelper(
-      appContainerName,
-      validated.stagingRoot,
-      request.environment,
-      commitFence
-    )
+    hostBunConfigRelativePath: HOST_BUN_CONFIG_RELATIVE_ROOT,
+    appContainerName
   });
-  const ownerPath = recoveryOwnerPath(validated.transactionRoot);
   const resultPath = nativeResultPath(validated.transactionRoot);
-  let ownerCreationAttempted = false;
   let result: WindowsAppContainerExecutionResult | undefined;
+  let owner: WindowsAppContainerRecoveryOwnerV1 | undefined;
   let primaryError:
     | WindowsAppContainerCapabilityUnavailableError
     | WindowsAppContainerExecutionError
     | undefined;
 
   try {
-    await commitFence();
-    ownerCreationAttempted = true;
-    await durableCreateFile(ownerPath, `${JSON.stringify(owner)}\n`, commitFence);
+    await publishProvisionalOwner(provisionalOwner, validated.transactionRoot, commitFence);
+    const appContainerSid = await deriveAppContainerSidViaHelper(
+      appContainerName,
+      validated.stagingRoot,
+      request.environment,
+      commitFence
+    );
+    owner = Object.freeze({
+      formatVersion: RECOVERY_OWNER_FORMAT_VERSION,
+      workspaceIdentityDigest: request.workspaceWriteLease.workspaceIdentityDigest,
+      stagingIdentityDigest: validated.stagingIdentityDigest,
+      stagingDirectoryName: path.basename(validated.stagingRoot),
+      runtimeRelativePath: RUNTIME_DIRECTORY_NAME,
+      resultFileName: NATIVE_RESULT_FILE_NAME,
+      appContainerName,
+      appContainerSid
+    });
+    await publishRecoveryOwner(owner, validated.transactionRoot, commitFence);
+    await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(validated.transactionRoot), commitFence);
+    await durableRemoveFile(provisionalOwnerPath(validated.transactionRoot), commitFence);
     await materializeRuntime(validated.stagingRoot, commitFence);
     const systemDirectory = await windowsSystemDirectory();
-    await runIcacls(systemDirectory, [
-      validated.stagingRoot,
-      '/grant',
-      `*${owner.appContainerSid}:(OI)(CI)(M)`,
-      '/T',
-      '/C',
-      '/Q'
-    ], commitFence);
     const nativeRequest: WindowsAppContainerNativeExecutionRequest = {
       execution: {
         ...request,
@@ -1811,23 +2523,38 @@ export async function runWindowsAppContainerChild(
       nativeResultPath: resultPath,
       owner
     };
-    const profileHelperCode = await invokeNativeHelper(
-      'create-profile',
-      nativeRequest,
-      validated.stagingRoot,
-      request.environment,
-      commitFence,
-      10_000
-    );
-    if (profileHelperCode !== 0) throw executionError('preparation');
-    await invokeNativeHelper(
-      'execute',
-      nativeRequest,
-      validated.stagingRoot,
-      request.environment,
-      commitFence,
-      request.timeoutMs === undefined ? undefined : request.timeoutMs + 10_000
-    );
+    await runWindowsAppContainerExecutionSteps({
+      grantAcl: async () => {
+        await runIcacls(systemDirectory, [
+          validated.stagingRoot,
+          '/grant',
+          `*${nativeRequest.owner.appContainerSid}:(OI)(CI)(M)`,
+          '/T',
+          '/C',
+          '/Q'
+        ], commitFence, 'acl', 'acl-grant');
+      },
+      createProfile: async () => {
+        await invokeNativeHelper(
+          'create-profile',
+          nativeRequest,
+          validated.stagingRoot,
+          request.environment,
+          commitFence,
+          10_000
+        );
+      },
+      execute: async () => {
+        await invokeNativeHelper(
+          'execute',
+          nativeRequest,
+          validated.stagingRoot,
+          request.environment,
+          commitFence,
+          request.timeoutMs === undefined ? undefined : request.timeoutMs + 10_000
+        );
+      }
+    });
     await commitFence();
     const resultMetadata = await lstat(resultPath);
     if (!resultMetadata.isFile() || resultMetadata.isSymbolicLink() ||
@@ -1839,17 +2566,27 @@ export async function runWindowsAppContainerChild(
     primaryError = normalizeExecutionError(error, 'preparation');
   }
 
-  if (ownerCreationAttempted) {
-    try {
-      await cleanupPlannedOwner(request, owner, validated, commitFence);
-    } catch (error) {
-      if (error instanceof WindowsAppContainerExecutionError) throw error;
-      throw executionError('cleanup');
+  return completeWindowsAppContainerOwnedExecution(result, primaryError, async () => {
+    await commitFence();
+    const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(validated.transactionRoot));
+    if (canonicalOwner) {
+      if (!owner || JSON.stringify(canonicalOwner) !== JSON.stringify(owner)) {
+        throw executionError('cleanup');
+      }
+      await cleanupPlannedOwner(request, canonicalOwner, validated, commitFence);
     }
-  }
-  if (primaryError) throw primaryError;
-  if (!result) throw executionError('wait');
-  return result;
+    const canonicalProvisional = await readProvisionalOwner(provisionalOwnerPath(validated.transactionRoot));
+    if (canonicalProvisional) {
+      await cleanupProvisionalOwner(
+        canonicalProvisional,
+        validated,
+        request.workspaceWriteLease,
+        commitFence
+      );
+    }
+    await durableRemovePendingOwnerFile(recoveryOwnerPendingPath(validated.transactionRoot), commitFence);
+    await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(validated.transactionRoot), commitFence);
+  }, 'wait');
 }
 
 function capabilityProbeEnvironment(
@@ -1886,8 +2623,11 @@ function capabilityProbeEnvironment(
 }
 
 async function closeProbeServer(server: { close(callback: (error?: Error) => void): void }): Promise<void> {
-  await new Promise<void>((resolve) => {
-    server.close(() => resolve());
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
   });
 }
 
@@ -1937,6 +2677,48 @@ async function waitForProcessesToExit(processIds: readonly number[], timeoutMs: 
   throw executionError('wait');
 }
 
+async function publishProbeOwner(
+  owner: WindowsAppContainerProbeOwnerV1,
+  probeRoot: string,
+  commitFence: () => Promise<void>
+): Promise<void> {
+  await durablePublishOwnerFile(
+    probeOwnerPath(probeRoot),
+    probeOwnerPendingPath(probeRoot),
+    `${JSON.stringify(owner)}\n`,
+    commitFence
+  );
+  const canonical = await readProbeOwner(probeOwnerPath(probeRoot));
+  if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
+    throw executionError('preparation');
+  }
+}
+
+async function executionRecoveryResidueExists(transactionRoot: string): Promise<boolean> {
+  for (const candidate of [
+    recoveryOwnerPath(transactionRoot),
+    recoveryOwnerPendingPath(transactionRoot),
+    provisionalOwnerPath(transactionRoot),
+    provisionalOwnerPendingPath(transactionRoot),
+    nativeResultPath(transactionRoot)
+  ]) {
+    if (await pathExists(candidate)) return true;
+  }
+  return false;
+}
+
+async function executionRecoveryAuthorityExists(transactionRoot: string): Promise<boolean> {
+  for (const candidate of [
+    recoveryOwnerPath(transactionRoot),
+    recoveryOwnerPendingPath(transactionRoot),
+    provisionalOwnerPath(transactionRoot),
+    provisionalOwnerPendingPath(transactionRoot)
+  ]) {
+    if (await pathExists(candidate)) return true;
+  }
+  return false;
+}
+
 function capabilityReportLooksIsolated(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
     !exactObjectKeys(value, ['direct', 'spawned', 'spawnedExitCode'])) return false;
@@ -1962,25 +2744,57 @@ function capabilityReportLooksIsolated(value: unknown): boolean {
     report.spawnedExitCode === 0;
 }
 
+/** Pure status-only projection used by the product facade and redaction tests. */
+export function redactWindowsAppContainerProbeCapabilityForTests(
+  detailed: WindowsAppContainerDetailedProbeCapability
+): WindowsAppContainerProbeCapability {
+  return detailed.status === 'available'
+    ? Object.freeze({ status: 'available' })
+    : Object.freeze({ status: 'unavailable' });
+}
+
 /**
- * Runs the complete, opaque AppContainer sentinel in a deterministic subtree of
- * staging. Native helpers execute only a cached bundle materialized beneath
- * staging; neither helper nor AppContainer child reads host TypeScript source.
- * No diagnostic path or child output is returned. Any missing invariant is
- * exactly unavailable.
+ * Test-only detailed sentinel seam. Evidence is canonical and path-free; the
+ * product API below always redacts it to exactly { status }.
  */
-export async function probeWindowsAppContainerCapability(
+export async function probeWindowsAppContainerCapabilityForTests(
   request: WindowsAppContainerCapabilityProbeRequest
-): Promise<WindowsAppContainerProbeCapability> {
+): Promise<WindowsAppContainerDetailedProbeCapability> {
   if (windowsAppContainerCapability().status !== 'available') {
-    return Object.freeze({ status: 'unavailable' });
+    return Object.freeze({
+      status: 'unavailable',
+      primary: probeFault('capability', 'host-supported'),
+      cleanup: Object.freeze([])
+    });
   }
-  const unavailable = (): WindowsAppContainerProbeCapability =>
-    Object.freeze({ status: 'unavailable' });
   const outerFence = () => assertWorkspaceWriteLease(
     request.workspaceRoot,
     request.workspaceWriteLease
   );
+  let currentStage: WindowsAppContainerProbeStage = 'boundary';
+  let currentInvariant: WindowsAppContainerProbeInvariant = 'outer-boundary-valid';
+  const at = (
+    stage: WindowsAppContainerProbeStage,
+    invariant: WindowsAppContainerProbeInvariant
+  ): void => {
+    currentStage = stage;
+    currentInvariant = invariant;
+  };
+  const cleanupFaults: WindowsAppContainerProbeFault[] = [];
+  const captureCleanup = async (
+    invariant: WindowsAppContainerProbeInvariant,
+    action: () => Promise<void>
+  ): Promise<boolean> => {
+    try {
+      await action();
+      return true;
+    } catch (error) {
+      cleanupFaults.push(probeFault('cleanup', invariant, error));
+      cleanupFaults.push(...associatedProbeCleanupFaults(error, 'cleanup', invariant));
+      return false;
+    }
+  };
+
   let probeLease: WorkspaceWriteLeaseHandle | undefined;
   let probeLeaseReleased = false;
   let httpServer: Awaited<ReturnType<(typeof import('node:http'))['createServer']>> | undefined;
@@ -1988,23 +2802,31 @@ export async function probeWindowsAppContainerCapability(
   let probeRoot: string | undefined;
   let outerCanaryPath: string | undefined;
   let outerCanaryOwned = false;
-  let probeSucceeded = false;
+  let observedLeaseLossProcessIds: readonly number[] = Object.freeze([]);
+  let primaryFault: WindowsAppContainerProbeFault | undefined;
+  let availableCandidate = false;
+
   try {
+    at('boundary', 'outer-boundary-valid');
     await outerFence();
     const boundary = await validateRecoveryStagingBoundary(request.stagingRoot, request.workspaceRoot);
     validateAndSortEnvironment(request.environment, boundary.stagingRoot);
     probeRoot = path.join(boundary.stagingRoot, CAPABILITY_PROBE_RELATIVE_ROOT);
     outerCanaryPath = path.join(boundary.stagingRoot, CAPABILITY_OUTER_CANARY_NAME);
     const probeStagingRoot = path.join(probeRoot, 's');
-    const probeOwnerPath = recoveryOwnerPath(probeRoot);
-    const needsInitialRecovery = await pathExists(probeOwnerPath);
-    if (await pathExists(probeRoot) && !needsInitialRecovery) {
+    const hadProbeOwner = await pathExists(probeOwnerPath(probeRoot));
+    const hadProbeOwnerPending = await pathExists(probeOwnerPendingPath(probeRoot));
+    const needsInitialRecovery = await executionRecoveryAuthorityExists(probeRoot);
+
+    at('probe-root', 'probe-root-prepared');
+    if (await pathExists(probeRoot) && !hadProbeOwner && !hadProbeOwnerPending && !needsInitialRecovery) {
       await outerFence();
       await rm(probeRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
     }
     await outerFence();
     await mkdir(probeStagingRoot, { recursive: true });
 
+    at('server', 'probe-server-listening');
     const { createServer: createHttpServer } = await import('node:http');
     const { createServer: createRawServer } = await import('node:net');
     let httpConnections = 0;
@@ -2031,7 +2853,11 @@ export async function probeWindowsAppContainerCapability(
     const httpAddress = httpServer.address();
     const rawAddress = rawServer.address();
     if (!httpAddress || typeof httpAddress === 'string' ||
-      !rawAddress || typeof rawAddress === 'string') return unavailable();
+      !rawAddress || typeof rawAddress === 'string') {
+      throwProbeFailure('server', 'probe-address-valid');
+    }
+
+    at('environment', 'probe-environment-valid');
     const environment = capabilityProbeEnvironment(
       request.environment,
       probeStagingRoot,
@@ -2052,22 +2878,56 @@ export async function probeWindowsAppContainerCapability(
       await mkdir(directory, { recursive: true });
     }
 
+    at('ownership', 'probe-lease-owned');
     probeLease = await acquireWorkspaceWriteLease(probeRoot);
     await new Promise((resolve) => setTimeout(resolve, 100));
     await probeLease.assertOwned();
+    const probeFence = async (): Promise<void> => {
+      await outerFence();
+      await probeLease!.assertOwned();
+    };
+    await durableRemovePendingOwnerFile(probeOwnerPendingPath(probeRoot), probeFence);
+    const existingProbeOwner = await readProbeOwner(probeOwnerPath(probeRoot));
+    if (existingProbeOwner) {
+      at('ownership', 'probe-owner-valid');
+      assertProbeOwner(existingProbeOwner, boundary, request.workspaceWriteLease, probeLease.token);
+      outerCanaryOwned = true;
+    } else {
+      const parentCanaryPath = path.join(probeRoot, CAPABILITY_PARENT_CANARY_NAME);
+      const existingCanary = await pathExists(parentCanaryPath) || await pathExists(outerCanaryPath);
+      if (existingCanary && !needsInitialRecovery) {
+        throwProbeFailure('canary', 'canary-owned');
+      }
+      const probeOwner: WindowsAppContainerProbeOwnerV1 = Object.freeze({
+        formatVersion: PROBE_OWNER_FORMAT_VERSION,
+        outerWorkspaceIdentityDigest: request.workspaceWriteLease.workspaceIdentityDigest,
+        probeWorkspaceIdentityDigest: probeLease.token.workspaceIdentityDigest,
+        outerStagingIdentityDigest: boundary.stagingIdentityDigest,
+        probeStagingDirectoryName: 's',
+        parentCanaryName: CAPABILITY_PARENT_CANARY_NAME,
+        outerCanaryName: CAPABILITY_OUTER_CANARY_NAME
+      });
+      at('ownership', 'probe-owner-valid');
+      await publishProbeOwner(probeOwner, probeRoot, probeFence);
+      outerCanaryOwned = true;
+    }
+
+    at('canary', 'canary-owned');
     const parentCanaryPath = path.join(probeRoot, CAPABILITY_PARENT_CANARY_NAME);
     for (const canaryPath of [parentCanaryPath, outerCanaryPath]) {
       if (await pathExists(canaryPath)) {
-        if (!needsInitialRecovery ||
-          await readFile(canaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT) return unavailable();
-        if (canaryPath === outerCanaryPath) outerCanaryOwned = true;
+        await probeFence();
+        if (await readFile(canaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT) {
+          throwProbeFailure('canary', 'canary-owned');
+        }
       } else {
         await outerFence();
         await probeLease.assertOwned();
         await writeFile(canaryPath, CAPABILITY_CANARY_CONTENT, { flag: 'wx' });
-        if (canaryPath === outerCanaryPath) outerCanaryOwned = true;
       }
     }
+
+    at('probe-root', 'probe-input-clean');
     for (const relativePath of [
       'lease-loss-marker.json',
       'capability-result.json',
@@ -2092,6 +2952,7 @@ export async function probeWindowsAppContainerCapability(
 
     const timeoutMs = request.timeoutMs ?? 10_000;
     if (needsInitialRecovery) {
+      at('initial-recovery', 'initial-owner-recovered');
       const recoveryExecution = await runWindowsAppContainerChild({
         stagingRoot: probeStagingRoot,
         runnerRelativePath: 'vector-runner.mjs',
@@ -2100,10 +2961,10 @@ export async function probeWindowsAppContainerCapability(
         workspaceWriteLease: probeLease.token,
         timeoutMs
       });
-      if (recoveryExecution.exitCode !== 0 || await pathExists(probeOwnerPath) ||
-        await pathExists(nativeResultPath(probeRoot)) ||
-        await pathExists(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME))) {
-        return unavailable();
+      if (recoveryExecution.exitCode !== 0 || await executionRecoveryResidueExists(probeRoot) ||
+        await pathExists(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME)) ||
+        await pathExists(path.join(probeStagingRoot, HOST_BUN_CONFIG_RELATIVE_ROOT))) {
+        throwProbeFailure('initial-recovery', 'initial-owner-recovered');
       }
       for (const relativePath of [
         'capability-result.json',
@@ -2117,8 +2978,7 @@ export async function probeWindowsAppContainerCapability(
       }
     }
 
-    // Force an owner+runtime prefix failure before any profile/ACL creation.
-    // Recovery must treat every still-absent planned resource as already clean.
+    at('prefix-recovery', 'prefix-failure-recovered');
     await outerFence();
     await probeLease.assertOwned();
     await mkdir(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME));
@@ -2130,12 +2990,13 @@ export async function probeWindowsAppContainerCapability(
       workspaceWriteLease: probeLease.token,
       timeoutMs
     }).then(() => false, () => true);
-    if (!prefixRejected || await pathExists(recoveryOwnerPath(probeRoot)) ||
-      await pathExists(nativeResultPath(probeRoot)) ||
-      await pathExists(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME))) {
-      return unavailable();
+    if (!prefixRejected || await executionRecoveryResidueExists(probeRoot) ||
+      await pathExists(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME)) ||
+      await pathExists(path.join(probeStagingRoot, HOST_BUN_CONFIG_RELATIVE_ROOT))) {
+      throwProbeFailure('prefix-recovery', 'prefix-failure-recovered');
     }
 
+    at('lease-loss', 'lease-loss-observed');
     const leaseLossRejected = runWindowsAppContainerChild({
       stagingRoot: probeStagingRoot,
       runnerRelativePath: 'lease-loss-runner.mjs',
@@ -2148,13 +3009,17 @@ export async function probeWindowsAppContainerCapability(
       path.join(probeStagingRoot, 'lease-loss-marker.json'),
       timeoutMs
     );
+    observedLeaseLossProcessIds = Object.freeze([marker.processId, marker.descendantProcessId]);
     await probeLease.release();
     probeLeaseReleased = true;
     if (!await leaseLossRejected || !await pathExists(recoveryOwnerPath(probeRoot))) {
-      return unavailable();
+      throwProbeFailure('lease-loss', 'lease-loss-owner-durable');
     }
-    await waitForProcessesToExit([marker.processId, marker.descendantProcessId], 5_000);
+    at('lease-loss', 'lease-loss-processes-exited');
+    await waitForProcessesToExit(observedLeaseLossProcessIds, 5_000);
+    observedLeaseLossProcessIds = Object.freeze([]);
 
+    at('isolated-execution', 'isolated-child-succeeded');
     probeLease = await acquireWorkspaceWriteLease(probeRoot);
     probeLeaseReleased = false;
     const execution = await runWindowsAppContainerChild({
@@ -2165,63 +3030,101 @@ export async function probeWindowsAppContainerCapability(
       workspaceWriteLease: probeLease.token,
       timeoutMs
     });
-    if (execution.exitCode !== 0 || httpConnections !== 0 || rawConnections !== 0 ||
-      await pathExists(recoveryOwnerPath(probeRoot)) ||
-      await pathExists(nativeResultPath(probeRoot)) ||
+    if (execution.exitCode !== 0) {
+      throwProbeFailure('isolated-execution', 'isolated-child-succeeded');
+    }
+    at('isolated-execution', 'no-resource-residue');
+    if (httpConnections !== 0 || rawConnections !== 0 ||
+      await executionRecoveryResidueExists(probeRoot) ||
       await pathExists(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME)) ||
+      await pathExists(path.join(probeStagingRoot, HOST_BUN_CONFIG_RELATIVE_ROOT)) ||
       await pathExists(path.join(probeRoot, 'direct-outside.txt')) ||
       await pathExists(path.join(probeRoot, 'spawned-outside.txt'))) {
-      return unavailable();
+      throwProbeFailure('isolated-execution', 'no-resource-residue');
     }
+
+    at('isolation-report', 'isolation-report-valid');
     const report = JSON.parse(await readFile(
       path.join(probeStagingRoot, 'capability-result.json'),
       'utf8'
     )) as unknown;
-    if (!capabilityReportLooksIsolated(report) ||
-      await readFile(parentCanaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT ||
-      await readFile(outerCanaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT) {
-      return unavailable();
-    }
-    await probeLease.release();
-    probeLeaseReleased = true;
-    await closeProbeServer(httpServer);
-    httpServer = undefined;
-    await closeProbeServer(rawServer);
-    rawServer = undefined;
-    if (outerCanaryOwned) {
-      await outerFence();
-      await rm(outerCanaryPath, { force: true });
-      outerCanaryOwned = false;
+    if (!capabilityReportLooksIsolated(report)) {
+      throwProbeFailure('isolation-report', 'isolation-report-valid');
     }
     await outerFence();
-    await rm(probeRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
-    if (await pathExists(probeRoot) || await pathExists(outerCanaryPath)) {
-      return unavailable();
+    await probeLease.assertOwned();
+    if (await readFile(parentCanaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT ||
+      await readFile(outerCanaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT) {
+      throwProbeFailure('isolation-report', 'canary-intact');
     }
-    probeSucceeded = true;
-    probeRoot = undefined;
-    outerCanaryPath = undefined;
-    return Object.freeze({ status: 'available' });
-  } catch {
-    return unavailable();
+    availableCandidate = true;
+  } catch (error) {
+    primaryFault = probeFault(currentStage, currentInvariant, error);
+    cleanupFaults.push(...associatedProbeCleanupFaults(error, 'cleanup', 'probe-clean'));
   } finally {
-    if (probeLease && !probeLeaseReleased) {
-      await probeLease.release().catch(() => undefined);
+    let processesExitedForRootCleanup = observedLeaseLossProcessIds.length === 0;
+    if (!processesExitedForRootCleanup) {
+      processesExitedForRootCleanup = await captureCleanup('lease-loss-processes-exited', async () => {
+        await waitForProcessesToExit(observedLeaseLossProcessIds, 5_000);
+        observedLeaseLossProcessIds = Object.freeze([]);
+      });
     }
-    if (httpServer) await closeProbeServer(httpServer).catch(() => undefined);
-    if (rawServer) await closeProbeServer(rawServer).catch(() => undefined);
-    if (probeRoot && (probeSucceeded || !await pathExists(recoveryOwnerPath(probeRoot)))) {
-      try {
+    let leaseReleasedForRootCleanup = probeLease === undefined || probeLeaseReleased;
+    if (probeLease && !probeLeaseReleased) {
+      leaseReleasedForRootCleanup = await captureCleanup('lease-release', async () => {
+        await probeLease!.release();
+        probeLeaseReleased = true;
+      });
+    }
+    if (httpServer) {
+      await captureCleanup('server-close', async () => closeProbeServer(httpServer!));
+      httpServer = undefined;
+    }
+    if (rawServer) {
+      await captureCleanup('server-close', async () => closeProbeServer(rawServer!));
+      rawServer = undefined;
+    }
+
+    let outerCanaryRemoved = !outerCanaryOwned;
+    if (outerCanaryPath && outerCanaryOwned) {
+      outerCanaryRemoved = await captureCleanup('outer-canary-remove', async () => {
         await outerFence();
-        await rm(probeRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
-        if (outerCanaryPath && outerCanaryOwned) {
-          await outerFence();
-          await rm(outerCanaryPath, { force: true });
-          outerCanaryOwned = false;
-        }
-      } catch {
-        probeSucceeded = false;
-      }
+        await rm(outerCanaryPath!, { force: true });
+        await fsyncDirectory(path.dirname(outerCanaryPath!), outerFence);
+        if (await pathExists(outerCanaryPath!)) throw executionError('cleanup');
+        outerCanaryOwned = false;
+      });
+    }
+    if (probeRoot && processesExitedForRootCleanup && leaseReleasedForRootCleanup && outerCanaryRemoved) {
+      await captureCleanup('probe-root-remove', async () => {
+        if (await executionRecoveryAuthorityExists(probeRoot!)) return;
+        await outerFence();
+        await rm(probeRoot!, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+        if (await pathExists(probeRoot!)) throw executionError('cleanup');
+      });
     }
   }
+
+  if (!primaryFault && cleanupFaults.length > 0) primaryFault = cleanupFaults.shift();
+  if (primaryFault || !availableCandidate) {
+    return Object.freeze({
+      status: 'unavailable',
+      primary: primaryFault ?? probeFault('cleanup', 'probe-clean'),
+      cleanup: Object.freeze([...cleanupFaults])
+    });
+  }
+  return Object.freeze({ status: 'available' });
+}
+
+/**
+ * Runs the complete opaque sentinel and exposes only the frozen status-only
+ * product capability. No diagnostic path, child output, or typed detail leaves
+ * this boundary.
+ */
+export async function probeWindowsAppContainerCapability(
+  request: WindowsAppContainerCapabilityProbeRequest
+): Promise<WindowsAppContainerProbeCapability> {
+  return redactWindowsAppContainerProbeCapabilityForTests(
+    await probeWindowsAppContainerCapabilityForTests(request)
+  );
 }

@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
+import { compilerRoot } from '../../shared/paths.ts';
+
+const TEMPLATES_DIR = path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates');
 
 export class TemplateEngine {
   private static cache = new Map<string, string>();
@@ -14,7 +17,7 @@ export class TemplateEngine {
   public static render(
     templateName: string,
     context: Record<string, any>,
-    templatesDir: string = path.join(import.meta.dirname, 'templates')
+    templatesDir: string = TEMPLATES_DIR
   ): string {
     const filePath = path.join(templatesDir, templateName);
     let templateContent = this.cache.get(filePath);
