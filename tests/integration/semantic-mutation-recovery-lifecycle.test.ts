@@ -1,0 +1,590 @@
+import { createHash } from 'node:crypto';
+import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { expect, test } from 'bun:test';
+
+import {
+  buildFactDelta,
+  buildWorkspaceSemanticBundle,
+  type SemanticMutationAuthorizationContextV2,
+  type SemanticMutationBaseV2,
+  type SemanticMutationRequestV2
+} from '../../platform/compiler/index.ts';
+import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
+import { loadSemanticMutationRecoveryRecords } from '../../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
+import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
+import { renderSemanticContractYamlEdit } from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
+import {
+  semanticMutationRequestIdentityDigest,
+  semanticMutationTransactionRoot
+} from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
+import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
+import {
+  addBlock,
+  applySemanticMutation,
+  initWorkspace,
+  planSemanticMutationTransaction,
+  querySemanticMutationRequest,
+  recoverSemanticMutationWorkspace,
+  resolveWorkspace
+} from '../../platform/orchestrator.ts';
+import {
+  applySemanticMutationWithAfterPreparedTestCrash,
+  applySemanticMutationWithTestDependencies,
+  planSemanticMutationTransactionWithTestDependencies
+} from '../../platform/orchestrator/semantic-mutation-orchestrator.ts';
+import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
+import type { SemanticMutationRecoveryState } from '../../platform/shared/semantic-mutation-transaction-types.ts';
+import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
+import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
+
+const AUTHORING_SOURCE = [
+  'formatVersion: "1"',
+  'id: item-core',
+  'namespace: item',
+  'entities:',
+  '  - id: Item',
+  '    fields:',
+  '      - id: status',
+  '        type: ItemStatus',
+  '        required: false',
+  '        mutable: true',
+  'states:',
+  '  - id: item-status',
+  '    entity: Item',
+  '    field: status',
+  '    owner: ItemStateMachine',
+  '    values: [closed, open]',
+  '    transitions: []',
+  'responsibilities:',
+  '  - id: ItemStateMachine',
+  '    role: Own item status',
+  '    owns: [Item.status]',
+  '    implements: [closeItem]',
+  '    dependsOn: []',
+  'operations:',
+  '  - id: closeItem',
+  '    responsibility: ItemStateMachine',
+  '    inputs: [Item]',
+  '    output: Item',
+  '    reads: [Item.status]',
+  '    writes: []',
+  '    mutates: [Item.status]',
+  '    requiresPolicies: []',
+  '    requiresPermissions: []',
+  '    performsEffects: []',
+  '    emits: []',
+  '    invokes: []',
+  '    awaits: []',
+  'events: []',
+  'policies: []',
+  'permissions: []',
+  'effects: []',
+  'scenarios: []',
+  ''
+].join('\n');
+
+const TERMINAL_HISTORY_AUTHORING_SOURCE = AUTHORING_SOURCE
+  .replace('    values: [closed, open]', '    values: [closed, open, pending]')
+  .replace('    transitions: []', '    transitions: [] # retain transition comment');
+
+function sha256(value: unknown): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function endpoint(
+  snapshot: Awaited<ReturnType<typeof buildWorkspaceSemanticBundle>>['snapshot'],
+  transactionId: string
+): FactDeltaEndpointContext {
+  return {
+    transactionId,
+    inputRevision: snapshot.ir.inputRevision,
+    semanticRevision: snapshot.ir.semanticRevision,
+    snapshot
+  };
+}
+
+function authorization(stateId = 'item-status'): SemanticMutationAuthorizationContextV2 {
+  const draft: Omit<SemanticMutationAuthorizationContextV2, 'authorizationRevision'> = {
+    taskId: 'task:sm3-lifecycle',
+    envelopeRevision: 'envelope:v2',
+    allowedOperationKinds: ['add-state-transition'],
+    allowedTargetEntityIds: [`state:item:${stateId}`],
+    allowedSourceOwnerIds: ['semantic-contract-owner:item:item-core'],
+    allowedPathPrefixes: ['source/model/'],
+    requiredPreconditions: [],
+    requiredPostconditions: [],
+    minimumVerification: []
+  };
+  return { ...draft, authorizationRevision: semanticMutationAuthorizationRevision(draft) };
+}
+
+async function createTemplate(
+  workspaceRoot: string,
+  authoringSource = AUTHORING_SOURCE
+): Promise<void> {
+  await initWorkspace(workspaceRoot, { reset: true });
+  await installPrivateBannerBlock(workspaceRoot);
+  await addBlock(workspaceRoot, 'private/banner-basic');
+  await resolveWorkspace(workspaceRoot);
+  const modelRoot = path.join(workspaceRoot, 'source', 'model');
+  await mkdir(modelRoot, { recursive: true });
+  await writeFile(path.join(modelRoot, 'item.yaml'), authoringSource, 'utf8');
+  await writeFile(path.join(modelRoot, 'semantic-contracts.yaml'), [
+    'formatRevision: authoring-semantic-contract-index-v1',
+    'contracts:',
+    '  - blockId: private/banner-basic',
+    '    path: source/model/item.yaml',
+    ''
+  ].join('\n'), 'utf8');
+}
+
+interface MutationTransitionFixture {
+  readonly operationId: string;
+  readonly stateId: string;
+  readonly from: string;
+  readonly to: string;
+  readonly by: string;
+}
+
+const DEFAULT_MUTATION_TRANSITION: MutationTransitionFixture = Object.freeze({
+  operationId: 'operation:add-transition',
+  stateId: 'item-status',
+  from: 'open',
+  to: 'closed',
+  by: 'closeItem'
+});
+
+const RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE = () =>
+  Object.freeze({ status: 'available' as const });
+
+async function mutationInput(
+  workspaceRoot: string,
+  requestId: string,
+  transition: MutationTransitionFixture = DEFAULT_MUTATION_TRANSITION
+) {
+  const sourcePath = path.join(workspaceRoot, 'source', 'model', 'item.yaml');
+  const beforeBundle = await buildWorkspaceSemanticBundle(workspaceRoot);
+  const base = endpoint(beforeBundle.snapshot, 'tx:sm3-lifecycle-base');
+  const operation = {
+    operationId: transition.operationId,
+    kind: 'add-state-transition' as const,
+    contract: { namespace: 'item', contractId: 'item-core' },
+    stateId: transition.stateId,
+    from: transition.from,
+    to: transition.to,
+    by: transition.by
+  };
+  const beforeBytes = new Uint8Array(await readFile(sourcePath));
+  const transformed = renderSemanticContractYamlEdit(beforeBytes, [operation]);
+  await writeFile(sourcePath, transformed.stagedBytes);
+  const afterBundle = await buildWorkspaceSemanticBundle(workspaceRoot);
+  const expectedAfter = endpoint(afterBundle.snapshot, 'tx:sm3-lifecycle-expected');
+  const expectedDelta = buildFactDelta(base, expectedAfter);
+  await writeFile(sourcePath, beforeBytes);
+  const request: SemanticMutationRequestV2 = {
+    contractVersion: '2',
+    requestId,
+    graphId: base.snapshot.ir.graphId,
+    appId: base.snapshot.ir.appId,
+    base: {
+      transactionId: base.transactionId,
+      inputRevision: base.inputRevision,
+      semanticRevision: base.semanticRevision
+    },
+    preconditions: [],
+    operations: [operation],
+    expectation: expectationFromFactDelta(expectedDelta, base.snapshot, expectedAfter.snapshot),
+    postconditions: [],
+    additionalVerification: []
+  };
+  return {
+    sourcePath,
+    beforeBytes,
+    request,
+    input: { request, base, authorization: authorization(transition.stateId) }
+  };
+}
+
+async function applyAccepted(workspaceRoot: string, requestId: string) {
+  const prepared = await mutationInput(workspaceRoot, requestId);
+  const plan = await planSemanticMutationTransaction(workspaceRoot, prepared.input);
+  expect(plan.status).toBe('ready');
+  if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
+  const outcome = await applySemanticMutation(workspaceRoot, {
+    ...prepared.input,
+    expectedPlanRevision: plan.planRevision
+  });
+  expect(outcome.status).toBe('terminal');
+  if (outcome.status !== 'terminal') throw new Error(JSON.stringify(outcome));
+  expect(outcome.result.status).toBe('accepted');
+  if (outcome.result.status !== 'accepted') throw new Error(JSON.stringify(outcome.result));
+  const identity = {
+    graphId: prepared.request.graphId,
+    appId: prepared.request.appId,
+    requestId: prepared.request.requestId
+  } as const;
+  const transactionRoot = semanticMutationTransactionRoot(
+    workspaceRoot,
+    semanticMutationRequestIdentityDigest(identity)
+  );
+  return { ...prepared, identity, transactionRoot, outcome };
+}
+
+async function applyAcceptedWithTestDependencies(
+  workspaceRoot: string,
+  requestId: string,
+  transition: MutationTransitionFixture
+) {
+  const prepared = await mutationInput(workspaceRoot, requestId, transition);
+  const plan = await planSemanticMutationTransactionWithTestDependencies(
+    workspaceRoot,
+    prepared.input,
+    { isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE }
+  );
+  expect(plan.status).toBe('ready');
+  if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
+
+  let staged: SemanticMutationBaseV2 | undefined;
+  const outcome = await applySemanticMutationWithTestDependencies(workspaceRoot, {
+    ...prepared.input,
+    expectedPlanRevision: plan.planRevision
+  }, {
+    isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE,
+    verify: async (derived) => {
+      staged = derived.plan.staged;
+      return buildSemanticMutationVerificationExecutionRef(semanticMutationVerificationReportFixture({
+        adapterId: derived.plan.verificationAdapterId,
+        adapterRevision: derived.plan.verificationAdapterRevision,
+        planRevision: derived.plan.planRevision,
+        attempted: derived.plan.staged,
+        stagedSourceDigest: derived.plan.sourceChanges[0].stagedByteDigest,
+        requiredVerificationDigest: semanticMutationRequiredVerificationDigest(
+          derived.plan.requiredVerification
+        ),
+        status: 'passed',
+        requirements: derived.plan.requiredVerification
+      }));
+    },
+    rebuildLive: async () => {
+      if (!staged) throw new Error('Test verification did not bind a staged endpoint');
+      return staged;
+    }
+  });
+  expect(outcome.status).toBe('terminal');
+  if (outcome.status !== 'terminal') throw new Error(JSON.stringify(outcome));
+  expect(outcome.result.status).toBe('accepted');
+  if (outcome.result.status !== 'accepted') throw new Error(JSON.stringify(outcome.result));
+  const identity = {
+    graphId: prepared.request.graphId,
+    appId: prepared.request.appId,
+    requestId: prepared.request.requestId
+  } as const;
+  const transactionRoot = semanticMutationTransactionRoot(
+    workspaceRoot,
+    semanticMutationRequestIdentityDigest(identity)
+  );
+  return { ...prepared, identity, transactionRoot, outcome };
+}
+
+async function crashAfterPrepared(workspaceRoot: string, requestId: string) {
+  const prepared = await mutationInput(workspaceRoot, requestId);
+  const plan = await planSemanticMutationTransaction(workspaceRoot, prepared.input);
+  expect(plan.status).toBe('ready');
+  if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
+  await expect(applySemanticMutationWithAfterPreparedTestCrash(workspaceRoot, {
+    ...prepared.input,
+    expectedPlanRevision: plan.planRevision
+  })).rejects.toMatchObject({
+    name: 'SemanticMutationAfterPreparedTestCrash',
+    code: 'SEMANTIC_MUTATION_TEST_CRASH_AFTER_PREPARED'
+  });
+  const identity = {
+    graphId: prepared.request.graphId,
+    appId: prepared.request.appId,
+    requestId: prepared.request.requestId
+  } as const;
+  const transactionRoot = semanticMutationTransactionRoot(
+    workspaceRoot,
+    semanticMutationRequestIdentityDigest(identity)
+  );
+  return { ...prepared, identity, transactionRoot };
+}
+
+async function expectRecoveryChain(
+  transactionRoot: string,
+  expectedStates: readonly SemanticMutationRecoveryState[]
+): Promise<void> {
+  const records = await loadSemanticMutationRecoveryRecords(transactionRoot);
+  expect(records.map((record) => record.state)).toEqual([...expectedStates]);
+  for (const [index, record] of records.entries()) {
+    expect(record.sequence).toBe(index + 1);
+    expect(record.previousRecordRevision).toBe(index === 0 ? '' : records[index - 1]!.recordRevision);
+  }
+}
+
+test('SM-3 retained terminal history does not become recovery authority for later legal mutations', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await createTemplate(workspaceRoot, TERMINAL_HISTORY_AUTHORING_SOURCE);
+    const first = await applyAcceptedWithTestDependencies(
+      workspaceRoot,
+      'request:terminal-history-first',
+      {
+        operationId: 'operation:first-transition',
+        stateId: 'item-status',
+        from: 'open',
+        to: 'closed',
+        by: 'closeItem'
+      }
+    );
+    const second = await applyAcceptedWithTestDependencies(
+      workspaceRoot,
+      'request:terminal-history-second',
+      {
+        operationId: 'operation:second-transition',
+        stateId: 'item-status',
+        from: 'closed',
+        to: 'pending',
+        by: 'closeItem'
+      }
+    );
+
+    expect(await querySemanticMutationRequest(workspaceRoot, first.identity))
+      .toMatchObject({ recordKind: 'transaction', state: 'verified' });
+    expect(await querySemanticMutationRequest(workspaceRoot, second.identity))
+      .toMatchObject({ recordKind: 'transaction', state: 'verified' });
+    const sourceBytesAfterSecond = await readFile(second.sourcePath);
+    const sourceAfterSecond = sourceBytesAfterSecond.toString('utf8');
+    expect(sourceAfterSecond.match(/from:/gu)).toHaveLength(2);
+    expect(sourceAfterSecond.indexOf('from: closed')).toBeLessThan(sourceAfterSecond.indexOf('from: open'));
+    expect(sourceAfterSecond).toContain('# retain transition comment');
+    const firstRecordsBeforeReplay = await loadSemanticMutationRecoveryRecords(first.transactionRoot);
+    const secondRecordsBeforeReplay = await loadSemanticMutationRecoveryRecords(second.transactionRoot);
+    const replay = await applySemanticMutation(workspaceRoot, {
+      ...first.input,
+      expectedPlanRevision: first.outcome.result.planRevision
+    });
+    expect(replay).toEqual(first.outcome);
+    expect(await readFile(second.sourcePath)).toEqual(sourceBytesAfterSecond);
+    expect(await loadSemanticMutationRecoveryRecords(first.transactionRoot)).toEqual(firstRecordsBeforeReplay);
+    expect(await loadSemanticMutationRecoveryRecords(second.transactionRoot)).toEqual(secondRecordsBeforeReplay);
+    expect(await querySemanticMutationRequest(workspaceRoot, first.identity))
+      .toMatchObject({ recordKind: 'transaction', state: 'verified' });
+    expect(await recoverSemanticMutationWorkspace(workspaceRoot)).toEqual({ status: 'clean' });
+    await expectRecoveryChain(first.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
+    await expectRecoveryChain(second.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
+
+    const third = await mutationInput(
+      workspaceRoot,
+      'request:terminal-history-third',
+      {
+        operationId: 'operation:third-transition',
+        stateId: 'item-status',
+        from: 'pending',
+        to: 'open',
+        by: 'closeItem'
+      }
+    );
+    const thirdPlan = await planSemanticMutationTransactionWithTestDependencies(
+      workspaceRoot,
+      third.input,
+      { isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE }
+    );
+    expect(thirdPlan.status).toBe('ready');
+    expect(await querySemanticMutationRequest(workspaceRoot, first.identity))
+      .toMatchObject({ recordKind: 'transaction', state: 'verified' });
+  }, 'sm3-terminal-history-');
+}, 600_000);
+
+test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-back, recovery-required recovery', async () => {
+  await withTempWorkspace(async (root) => {
+    const template = path.join(root, 'template');
+    await createTemplate(template);
+
+    const casWorkspace = path.join(root, 'plan-cas');
+    await cp(template, casWorkspace, { recursive: true });
+    const cas = await mutationInput(casWorkspace, 'request:plan-cas');
+    const casPlan = await planSemanticMutationTransaction(casWorkspace, cas.input);
+    expect(casPlan.status).toBe('ready');
+    if (casPlan.status !== 'ready') throw new Error(JSON.stringify(casPlan));
+    const rejected = await applySemanticMutation(casWorkspace, {
+      ...cas.input,
+      expectedPlanRevision: sha256('wrong-plan')
+    });
+    expect(rejected.status).toBe('terminal');
+    if (rejected.status !== 'terminal') throw new Error(JSON.stringify(rejected));
+    expect(rejected.result.status).toBe('rejected');
+    expect(rejected.result.diagnostics.map((entry) => entry.code)).toEqual(['SEMANTIC-MUTATION-007']);
+    expect(await readFile(cas.sourcePath)).toEqual(Buffer.from(cas.beforeBytes));
+    expect(await applySemanticMutation(casWorkspace, {
+      ...cas.input,
+      expectedPlanRevision: sha256('wrong-plan')
+    })).toEqual(rejected);
+    const collisionRequest = {
+      ...cas.request,
+      operations: [{ ...cas.request.operations[0]!, operationId: 'operation:collision' }]
+    };
+    const collision = await applySemanticMutation(casWorkspace, {
+      ...cas.input,
+      request: collisionRequest,
+      expectedPlanRevision: casPlan.planRevision
+    });
+    expect(collision.status).toBe('request-rejected');
+    if (collision.status !== 'request-rejected') throw new Error(JSON.stringify(collision));
+    expect(collision.diagnostics.map((entry) => entry.code)).toEqual(['SEMANTIC-MUTATION-001']);
+    const rejectedView = await querySemanticMutationRequest(casWorkspace, {
+      graphId: cas.request.graphId,
+      appId: cas.request.appId,
+      requestId: cas.request.requestId
+    });
+    expect(rejectedView).toMatchObject({ recordKind: 'rejected-terminal', state: 'rejected' });
+    const casTransactionRoot = semanticMutationTransactionRoot(
+      casWorkspace,
+      semanticMutationRequestIdentityDigest({
+        graphId: cas.request.graphId,
+        appId: cas.request.appId,
+        requestId: cas.request.requestId
+      })
+    );
+    await expectRecoveryChain(casTransactionRoot, []);
+
+    const preparedWorkspace = path.join(root, 'prepared-crash');
+    await cp(template, preparedWorkspace, { recursive: true });
+    const prepared = await crashAfterPrepared(preparedWorkspace, 'request:prepared-crash');
+    await expectRecoveryChain(prepared.transactionRoot, ['prepared']);
+    expect(await readFile(prepared.sourcePath)).toEqual(Buffer.from(prepared.beforeBytes));
+    const preparedRecovery = await recoverSemanticMutationWorkspace(preparedWorkspace);
+    expect(preparedRecovery.status).toBe('terminal');
+    if (preparedRecovery.status !== 'terminal') throw new Error(JSON.stringify(preparedRecovery));
+    expect(preparedRecovery.result.status).toBe('accepted');
+    expect(await readFile(prepared.sourcePath, 'utf8')).toContain('from: open');
+    expect(await querySemanticMutationRequest(preparedWorkspace, prepared.identity))
+      .toMatchObject({ recordKind: 'transaction', state: 'verified' });
+    await expectRecoveryChain(prepared.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
+
+    const rolledBackWorkspace = path.join(root, 'rolled-back');
+    await cp(template, rolledBackWorkspace, { recursive: true });
+    const rolledBack = await applyAccepted(rolledBackWorkspace, 'request:rolled-back');
+    await expectRecoveryChain(rolledBack.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
+    await rm(path.join(rolledBack.transactionRoot, 'records', '000003-verified.json'));
+    await expectRecoveryChain(rolledBack.transactionRoot, ['prepared', 'authoring-committed']);
+    await writeFile(rolledBack.sourcePath, rolledBack.beforeBytes);
+    const rolledBackRecovery = await recoverSemanticMutationWorkspace(rolledBackWorkspace);
+    expect(rolledBackRecovery.status).toBe('terminal');
+    if (rolledBackRecovery.status !== 'terminal') throw new Error(JSON.stringify(rolledBackRecovery));
+    expect(rolledBackRecovery.result.status).toBe('rolled-back');
+    expect(await readFile(rolledBack.sourcePath)).toEqual(Buffer.from(rolledBack.beforeBytes));
+    expect(await querySemanticMutationRequest(rolledBackWorkspace, rolledBack.identity))
+      .toMatchObject({ recordKind: 'transaction', state: 'rolled-back' });
+    await expectRecoveryChain(rolledBack.transactionRoot, ['prepared', 'authoring-committed', 'rolled-back']);
+
+    const recoveryWorkspace = path.join(root, 'recovery-required');
+    await cp(template, recoveryWorkspace, { recursive: true });
+    const recoveryRequired = await applyAccepted(recoveryWorkspace, 'request:recovery-required');
+    await expectRecoveryChain(recoveryRequired.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
+    await rm(path.join(recoveryRequired.transactionRoot, 'records', '000003-verified.json'));
+    await expectRecoveryChain(recoveryRequired.transactionRoot, ['prepared', 'authoring-committed']);
+    const thirdPartyBytes = new TextEncoder().encode('third-party: true\n');
+    await writeFile(recoveryRequired.sourcePath, thirdPartyBytes);
+    const unresolved = await recoverSemanticMutationWorkspace(recoveryWorkspace);
+    expect(unresolved.status).toBe('recovery-required');
+    if (unresolved.status !== 'recovery-required') throw new Error(JSON.stringify(unresolved));
+    expect(unresolved.record).toMatchObject({
+      recordKind: 'transaction',
+      state: 'recovery-required',
+      recoveryState: 'concurrent-write'
+    });
+    expect(Object.keys(unresolved.record)).not.toContain('relativePath');
+    expect(Object.keys(unresolved.record)).not.toContain('beforeByteDigest');
+    expect(await readFile(recoveryRequired.sourcePath)).toEqual(Buffer.from(thirdPartyBytes));
+    await expect(access(path.join(recoveryRequired.transactionRoot, 'original.backup'))).resolves.toBeNull();
+    await expectRecoveryChain(recoveryRequired.transactionRoot, [
+      'prepared',
+      'authoring-committed',
+      'recovery-required'
+    ]);
+
+    const missingSourceWorkspace = path.join(root, 'missing-terminal-source');
+    await cp(template, missingSourceWorkspace, { recursive: true });
+    const missingSource = await applyAccepted(missingSourceWorkspace, 'request:missing-terminal-source');
+    const missingSourceRecords = await loadSemanticMutationRecoveryRecords(missingSource.transactionRoot);
+    await rm(missingSource.sourcePath);
+    expect(await recoverSemanticMutationWorkspace(missingSourceWorkspace)).toEqual({ status: 'clean' });
+    const missingSourceReplay = await applySemanticMutation(missingSourceWorkspace, {
+      ...missingSource.input,
+      expectedPlanRevision: missingSource.outcome.result.planRevision
+    });
+    expect(missingSourceReplay).toEqual(missingSource.outcome);
+    expect(await querySemanticMutationRequest(missingSourceWorkspace, missingSource.identity)).toMatchObject({
+      state: 'verified',
+      result: { status: 'accepted' }
+    });
+    expect(JSON.stringify(missingSourceReplay)).not.toContain(missingSourceWorkspace);
+    expect(await loadSemanticMutationRecoveryRecords(missingSource.transactionRoot))
+      .toEqual(missingSourceRecords);
+
+    const missingActiveSourceWorkspace = path.join(root, 'missing-active-source');
+    await cp(template, missingActiveSourceWorkspace, { recursive: true });
+    const missingActiveSource = await crashAfterPrepared(
+      missingActiveSourceWorkspace,
+      'request:missing-active-source'
+    );
+    await rm(missingActiveSource.sourcePath);
+    const missingActiveRecovery = await recoverSemanticMutationWorkspace(missingActiveSourceWorkspace);
+    expect(missingActiveRecovery.status).toBe('recovery-required');
+    if (missingActiveRecovery.status !== 'recovery-required') {
+      throw new Error(JSON.stringify(missingActiveRecovery));
+    }
+    expect(missingActiveRecovery.record).toMatchObject({
+      state: 'recovery-required',
+      recoveryState: 'concurrent-write'
+    });
+    expect(JSON.stringify(missingActiveRecovery)).not.toContain(missingActiveSourceWorkspace);
+    await expectRecoveryChain(missingActiveSource.transactionRoot, ['prepared', 'recovery-required']);
+
+    const frontendFailureWorkspace = path.join(root, 'prepared-frontend-failure');
+    await cp(template, frontendFailureWorkspace, { recursive: true });
+    const frontendFailure = await crashAfterPrepared(
+      frontendFailureWorkspace,
+      'request:prepared-frontend-failure'
+    );
+    await writeFile(path.join(frontendFailureWorkspace, 'source', 'app.yaml'), 'invalid: [\n', 'utf8');
+    const frontendRecovery = await recoverSemanticMutationWorkspace(frontendFailureWorkspace);
+    expect(frontendRecovery.status).toBe('recovery-required');
+    if (frontendRecovery.status !== 'recovery-required') throw new Error(JSON.stringify(frontendRecovery));
+    expect(frontendRecovery.record).toMatchObject({
+      state: 'recovery-required',
+      recoveryState: 'rebuild-failed'
+    });
+    expect(JSON.stringify(frontendRecovery)).not.toContain(frontendFailureWorkspace);
+    await expectRecoveryChain(frontendFailure.transactionRoot, ['prepared', 'recovery-required']);
+
+    const restoreValidationWorkspace = path.join(root, 'restore-validation-failure');
+    await cp(template, restoreValidationWorkspace, { recursive: true });
+    const restoreValidation = await applyAccepted(
+      restoreValidationWorkspace,
+      'request:restore-validation-failure'
+    );
+    await rm(path.join(restoreValidation.transactionRoot, 'records', '000003-verified.json'));
+    await writeFile(restoreValidation.sourcePath, restoreValidation.beforeBytes);
+    await writeFile(path.join(restoreValidationWorkspace, 'source', 'app.yaml'), 'invalid: [\n', 'utf8');
+    const restoreValidationRecovery = await recoverSemanticMutationWorkspace(restoreValidationWorkspace);
+    expect(restoreValidationRecovery.status).toBe('recovery-required');
+    if (restoreValidationRecovery.status !== 'recovery-required') {
+      throw new Error(JSON.stringify(restoreValidationRecovery));
+    }
+    expect(restoreValidationRecovery.record).toMatchObject({
+      state: 'recovery-required',
+      recoveryState: 'restore-validation-failed'
+    });
+    expect(JSON.stringify(restoreValidationRecovery)).not.toContain(restoreValidationWorkspace);
+    await expectRecoveryChain(restoreValidation.transactionRoot, [
+      'prepared',
+      'authoring-committed',
+      'recovery-required'
+    ]);
+  }, 'sm3-life-');
+}, 600_000);

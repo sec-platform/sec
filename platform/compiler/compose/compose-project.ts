@@ -3,7 +3,7 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { defaultLimit } from '../../shared/concurrency.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { ensureDir, pathExists, writeJson, writeText } from '../../shared/fs.ts';
+import { ensureDir, pathExists, writeJson, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
@@ -122,19 +122,23 @@ export async function composeProject(
   workspaceRoot: string,
   lock: LockFile,
   semanticContext: PipelineSemanticContext,
-  options?: { lockFiles?: boolean }
+  options?: { lockFiles?: boolean; commitFence?: CommitFence; signal?: AbortSignal }
 ): Promise<LockFile> {
+  const commitFence = options?.commitFence;
   const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
 
-  await setProjectReadOnlyLock(projectRoot, true);
-  await ensureProjectBase(workspaceRoot);
+  await setProjectReadOnlyLock(projectRoot, true, [], commitFence);
+  await ensureProjectBase(workspaceRoot, commitFence);
 
-  const installContext = { workspaceRoot, projectRoot, lock };
+  const installContext = { workspaceRoot, projectRoot, lock, commitFence };
   await defaultInstallRegistry.executeAll(lock.installPlan, installContext);
-  await mergePrismaTemplate(workspaceRoot, projectRoot);
-  const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, projectRoot);
-  const tailwindGeneratedPaths = await mergeTailwindTheme(workspaceRoot, projectRoot);
-  const customRoutesGeneratedPaths = await mapCustomRoutes(workspaceRoot, projectRoot);
+  await mergePrismaTemplate(workspaceRoot, projectRoot, {
+    commitFence,
+    signal: options?.signal
+  });
+  const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, projectRoot, { commitFence });
+  const tailwindGeneratedPaths = await mergeTailwindTheme(workspaceRoot, projectRoot, commitFence);
+  const customRoutesGeneratedPaths = await mapCustomRoutes(workspaceRoot, projectRoot, commitFence);
 
   const installManifest: Array<InstallPlanStep & { status: 'installed' }> = lock.installPlan.map((step) => ({
     ...step,
@@ -143,19 +147,19 @@ export async function composeProject(
 
   const [routesContent] = await Promise.all([
     renderRouteGraph(workspaceRoot, lock),
-    ensureDir(generatedDir),
-    ensureDir(path.dirname(blockUsageMapPath)),
-    ensureDir(path.dirname(installManifestPath))
+    ensureDir(generatedDir, commitFence),
+    ensureDir(path.dirname(blockUsageMapPath), commitFence),
+    ensureDir(path.dirname(installManifestPath), commitFence)
   ]);
 
   await Promise.all([
-    writeText(path.join(generatedDir, 'routes.ts'), routesContent),
+    writeText(path.join(generatedDir, 'routes.ts'), routesContent, commitFence),
     writeJson(blockUsageMapPath, {
       blocks: lock.resolvedBlocks.map((block) => ({
         id: block.id,
         installOrder: block.installOrder
       }))
-    })
+    }, commitFence)
   ]);
 
   await Promise.all(
@@ -165,17 +169,17 @@ export async function composeProject(
         throw new CompilerError('SLOT-SECURITY-001', `Slot target "${task.target}" escapes project root`);
       }
       if (!(await pathExists(targetPath))) {
-        await writeText(targetPath, renderSlotSkeleton(task));
+        await writeText(targetPath, renderSlotSkeleton(task), commitFence);
       }
       task.status = 'generated';
     }))
   );
 
-  const semanticLowering = await lowerSemanticTasks(workspaceRoot, semanticContext);
+  const semanticLowering = await lowerSemanticTasks(workspaceRoot, semanticContext, commitFence);
   lock.semanticLoweringTasks = semanticLowering.tasks;
   const semanticGeneratedPaths = semanticLowering.generatedPaths;
-  const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock);
-  const microservicePaths = await lowerToMicroservices(workspaceRoot, lock);
+  const runtimeScaffoldPaths = await generateRuntimeHostScaffold(workspaceRoot, lock, commitFence);
+  const microservicePaths = await lowerToMicroservices(workspaceRoot, lock, commitFence);
 
   const initialGeneratedPaths = [
     ...semanticGeneratedPaths,
@@ -188,23 +192,23 @@ export async function composeProject(
     ...customRoutesGeneratedPaths,
     ...microservicePaths
   ];
-  const sandboxedPaths = await applyPrefixSandboxing(projectRoot, initialGeneratedPaths);
+  const sandboxedPaths = await applyPrefixSandboxing(projectRoot, initialGeneratedPaths, undefined, commitFence);
 
   addGeneratedPaths(lock, [
     ...initialGeneratedPaths,
     ...sandboxedPaths
   ]);
 
-  await applyOverrides(workspaceRoot, 'compose');
-  await formatOutputFiles(projectRoot, lock.generatedPaths);
-  await writeJson(installManifestPath, installManifest);
+  await applyOverrides(workspaceRoot, 'compose', commitFence);
+  await formatOutputFiles(projectRoot, lock.generatedPaths, commitFence);
+  await writeJson(installManifestPath, installManifest, commitFence);
   lock.passStatus.compose = 'succeeded';
 
   if (options?.lockFiles) {
     const slotTargets = lock.slotTasks.map((task) => task.target);
-    await setProjectReadOnlyLock(projectRoot, false, slotTargets);
+    await setProjectReadOnlyLock(projectRoot, false, slotTargets, commitFence);
   }
 
-  await saveLock(workspaceRoot, lock);
+  await saveLock(workspaceRoot, lock, commitFence);
   return lock;
 }

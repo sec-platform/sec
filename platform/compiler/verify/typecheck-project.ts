@@ -16,8 +16,11 @@ function formatDiagnostic(diagnostic: ts.Diagnostic): string {
   return `${filePath}:${position.line + 1}:${position.character + 1} ${message}`;
 }
 
-export async function typecheckProject(projectRoot: string): Promise<void> {
-  await withProjectDependencyBridge(projectRoot, async () => {
+export async function typecheckProject(
+  projectRoot: string,
+  options: { readonly isolated?: boolean } = {}
+): Promise<void> {
+  const execute = async (): Promise<void> => {
     const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
     if (!(await pathExists(tsconfigPath))) {
       throw new CompilerError('VERIFY-BUILD-001', 'Generated project is missing tsconfig.json');
@@ -49,7 +52,7 @@ export async function typecheckProject(projectRoot: string): Promise<void> {
           ...new Set([
             ...(parsed.options.typeRoots ?? []),
             path.join(projectRoot, 'node_modules', '@types'),
-            path.join(compilerRoot, 'node_modules', '@types')
+            ...(options.isolated ? [] : [path.join(compilerRoot, 'node_modules', '@types')])
           ])
         ]
       }
@@ -62,5 +65,13 @@ export async function typecheckProject(projectRoot: string): Promise<void> {
         diagnostics.map(formatDiagnostic)
       );
     }
-  });
+  };
+  if (options.isolated) {
+    if (!(await pathExists(path.join(projectRoot, 'node_modules', 'typescript', 'package.json')))) {
+      throw new CompilerError('VERIFY-ISOLATION-002', 'Isolated typecheck dependencies were not materialized physically');
+    }
+    await execute();
+    return;
+  }
+  await withProjectDependencyBridge(projectRoot, execute);
 }

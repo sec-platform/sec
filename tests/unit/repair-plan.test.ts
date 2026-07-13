@@ -2,7 +2,11 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { buildRepairPlan, writeRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
+import {
+  applyRepairPlan,
+  buildRepairPlan,
+  writeRepairPlan
+} from '../../platform/compiler/repair/build-repair-plan.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { readJson, writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -91,6 +95,32 @@ test('writeRepairPlan persists generated path in a missing generated directory',
     const persistedLock = await readJson<LockFile>(lockPath);
     expect(persistedRepairPlan).toEqual(repairPlan);
     expect(persistedLock.generatedPaths).toHaveLength(2);
+  });
+});
+
+test('applyRepairPlan checks the commit fence immediately before each live file write', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const repairLock = structuredClone(lock);
+    const repairPlan = buildRepairPlan(plan, repairLock, failedReport);
+    expect(repairPlan.status).toBe('pending');
+    expect(repairPlan.tasks).toHaveLength(1);
+    const targetPath = path.join(workspaceRoot, ...repairPlan.tasks[0].targetFile.split('/'));
+    const leaseLost = new Error('injected lease loss');
+    let fenceChecks = 0;
+
+    await expect(applyRepairPlan(
+      workspaceRoot,
+      plan,
+      repairLock,
+      repairPlan,
+      async () => {
+        fenceChecks += 1;
+        if (fenceChecks === 2) throw leaseLost;
+      }
+    )).rejects.toBe(leaseLost);
+
+    expect(fenceChecks).toBe(2);
+    await expect(fs.readFile(targetPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 

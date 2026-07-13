@@ -185,26 +185,70 @@ export function throwMutationDiagnostic(
   throw new SemanticMutationContractError(mutationDiagnostic(code, stage, message, fields));
 }
 
+const TRUSTED_NESTED_PRODUCER_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  'FACT-DELTA-001': 'Fact Delta endpoint binding failed',
+  'FACT-DELTA-002': 'Fact Delta endpoint lineage mismatch',
+  'FACT-DELTA-003': 'Fact Delta revision invariant failed',
+  'FACT-DELTA-004': 'Semantic Fact identity collision',
+  'FACT-DELTA-005': 'Fact assertion identity collision',
+  'FACT-DELTA-006': 'Fact Delta validity is unsupported',
+  'FACT-DELTA-007': 'Fact Delta canonical invariant failed',
+  'IMPACT-001': 'Impact endpoint binding failed',
+  'IMPACT-002': 'Impact canonical Delta binding failed',
+  'IMPACT-003': 'Impact propagation rule invariant failed',
+  'IMPACT-004': 'Impact Entity identity collision',
+  'IMPACT-005': 'Impact Verification mapping is invalid',
+  'IMPACT-006': 'Impact reference or canonical invariant failed'
+});
+
+function redactedNestedProducerDetails(
+  origin: Exclude<SemanticMutationDiagnosticOrigin, 'semantic-mutation'>,
+  code: string,
+  details: unknown
+): Readonly<Record<string, unknown>> | undefined {
+  try {
+    const canonical = canonicalJson(details);
+    if (!isPlainObject(canonical) || Object.keys(canonical).length === 0) return undefined;
+    return {
+      redactedDetailRevision: sha256({
+        domain: 'semantic-mutation-redacted-nested-detail-v1',
+        origin,
+        code,
+        details: canonical
+      })
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export function nestedDiagnostic(
   error: unknown,
   origin: Exclude<SemanticMutationDiagnosticOrigin, 'semantic-mutation'>,
   stage: SemanticMutationDiagnosticStage
 ): SemanticMutationDiagnosticV2 {
-  if (error instanceof SemanticMutationContractError) return error.diagnostic;
-  if (error instanceof CompilerError) {
+  const trustedMessage = error instanceof CompilerError
+    ? TRUSTED_NESTED_PRODUCER_MESSAGES[error.code]
+    : undefined;
+  const trustedProducerCode = trustedMessage !== undefined && (
+    (origin === 'fact-delta' && error instanceof CompilerError && error.code.startsWith('FACT-DELTA-')) ||
+    (origin === 'impact' && error instanceof CompilerError && error.code.startsWith('IMPACT-'))
+  );
+  if (trustedProducerCode && error instanceof CompilerError) {
+    const details = redactedNestedProducerDetails(origin, error.code, error.details);
     return {
       origin,
       code: error.code,
       stage,
-      message: error.message,
-      ...(error.details === undefined ? {} : { details: canonicalJson(error.details) as Readonly<Record<string, unknown>> })
+      message: trustedMessage,
+      ...(details === undefined ? {} : { details })
     };
   }
   return {
     origin,
     code: origin === 'impact' ? 'IMPACT-UNKNOWN' : 'COMPILER-UNKNOWN',
     stage,
-    message: error instanceof Error ? error.message : 'Unknown producer failure'
+    message: 'Unknown producer failure'
   };
 }
 

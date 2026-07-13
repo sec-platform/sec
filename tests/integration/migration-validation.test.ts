@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
+import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import { slotContractUpdate } from './migration-fixtures.ts';
 

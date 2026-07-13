@@ -22,6 +22,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/fact-delta-contract.test.ts',
     'tests/contract/impact-propagation-contract.test.ts',
     'tests/contract/semantic-mutation-contract.test.ts',
+    'tests/contract/semantic-mutation-apply-contract.test.ts',
     'tests/contract/semantic-mutation-source-adapter-contract.test.ts',
     'tests/contract/test-architecture.test.ts',
     'tests/contract/test-impact.test.ts'
@@ -34,7 +35,8 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'semantic.fact-delta',
     'semantic.impact-propagation',
     'semantic.mutation',
-    'semantic.mutation-source-adapter'
+    'semantic.mutation-source-adapter',
+    'semantic.mutation-apply'
   ]));
   expect(contract.contractIds).toEqual([...contract.targets.map((target) => target.contractId)].sort());
 
@@ -46,6 +48,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(formatted).toContain('Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts');
   expect(formatted).toContain('Target semantic.mutation; file=tests/contract/semantic-mutation-contract.test.ts; command=bun test tests/contract/semantic-mutation-contract.test.ts');
   expect(formatted).toContain('Target semantic.mutation-source-adapter; file=tests/contract/semantic-mutation-source-adapter-contract.test.ts; command=bun test tests/contract/semantic-mutation-source-adapter-contract.test.ts');
+  expect(formatted).toContain('Target semantic.mutation-apply; file=tests/contract/semantic-mutation-apply-contract.test.ts; command=bun test tests/contract/semantic-mutation-apply-contract.test.ts');
 
   const runnerInvocations = buildContractFreezeRunnerInvocations(contract.targets);
   expect(runnerInvocations).toHaveLength(1);

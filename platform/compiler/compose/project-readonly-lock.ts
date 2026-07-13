@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { globby } from 'globby';
 
-import { pathExists } from '../../shared/fs.ts';
+import { pathExists, type CommitFence } from '../../shared/fs.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import { checkProjectWriteBoundary } from '../../shared/project-write-boundary.ts';
 
@@ -13,7 +13,11 @@ function isIgnorableChmodError(error: unknown): boolean {
   return code === 'ENOENT' || code === 'EPERM' || code === 'EACCES';
 }
 
-export async function setFileWritable(filePath: string, writable: boolean): Promise<void> {
+export async function setFileWritable(
+  filePath: string,
+  writable: boolean,
+  commitFence?: CommitFence
+): Promise<void> {
   try {
     const stat = await fs.stat(filePath);
     if (!stat.isFile()) return;
@@ -25,6 +29,7 @@ export async function setFileWritable(filePath: string, writable: boolean): Prom
       newMode = currentMode & ~0o222;
     }
     if (newMode !== currentMode) {
+      await commitFence?.();
       await fs.chmod(filePath, newMode);
     }
   } catch (err) {
@@ -37,7 +42,8 @@ export async function setFileWritable(filePath: string, writable: boolean): Prom
 export async function setProjectReadOnlyLock(
   projectRoot: string,
   writable: boolean,
-  slotTargets: string[] = []
+  slotTargets: string[] = [],
+  commitFence?: CommitFence
 ): Promise<void> {
   if (writable) {
     await checkProjectWriteBoundary(path.dirname(projectRoot));
@@ -59,9 +65,9 @@ export async function setProjectReadOnlyLock(
   for (const file of files) {
     const isSlot = absoluteSlots.has(path.resolve(file));
     if (isSlot) {
-      await setFileWritable(file, true);
+      await setFileWritable(file, true, commitFence);
     } else {
-      await setFileWritable(file, writable);
+      await setFileWritable(file, writable, commitFence);
     }
   }
 }

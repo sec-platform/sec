@@ -16,7 +16,10 @@ import {
 } from '../../platform/compiler/index.ts';
 import { buildSemanticContractSourceCandidate } from '../../platform/compiler/parse/load-authoring-semantic-contracts.ts';
 import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
-import { semanticMutationByteDigest } from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
+import {
+  renderSemanticContractYamlEdit,
+  semanticMutationByteDigest
+} from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
 import { resolveSemanticMutationSource } from '../../platform/compiler/semantic-mutation/source-adapter-registry.ts';
 import { readSemanticMutationSource } from '../../platform/compiler/semantic-mutation/source-path-boundary.ts';
 import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
@@ -84,6 +87,7 @@ function sourceYaml(options: {
   readonly bom?: boolean;
   readonly eol?: '\n' | '\r\n';
   readonly finalNewline?: boolean;
+  readonly stateValues?: string;
 } = {}): Uint8Array {
   const eol = options.eol ?? '\n';
   let text = [
@@ -103,7 +107,7 @@ function sourceYaml(options: {
     '    entity: Item',
     '    field: status',
     '    owner: ItemStateMachine',
-    '    values: [closed, open]',
+    `    values: [${options.stateValues ?? 'closed, open'}]`,
     '    transitions: [] # keep transition comment',
     'responsibilities:',
     '  - id: ItemStateMachine',
@@ -281,6 +285,52 @@ test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, 
     expect(text.endsWith('\n')).toBe(false);
     expect(text.replaceAll('\r\n', '')).not.toContain('\n');
   });
+});
+
+test('SM-2 adds consecutive transitions to one state as canonical YAML nodes without style loss', () => {
+  const before = sourceYaml({
+    bom: true,
+    eol: '\r\n',
+    finalNewline: false,
+    stateValues: 'closed, open, pending'
+  });
+  const secondOperation = {
+    operationId: 'operation:second-transition',
+    kind: 'add-state-transition' as const,
+    contract: { namespace: 'item', contractId: 'item-core' },
+    stateId: 'item-status',
+    from: 'closed',
+    to: 'pending',
+    by: 'closeItem'
+  };
+
+  const commentedBody = new TextEncoder().encode(
+    new TextDecoder().decode(before.slice(3)).replace(
+      '    transitions: [] # keep transition comment',
+      [
+        '    transitions: # keep transition comment',
+        '      - from: open',
+        '        to: closed',
+        '        by: closeItem # retain existing transition node comment'
+      ].join('\r\n')
+    )
+  );
+  const commentedAfterFirst = new Uint8Array(commentedBody.byteLength + 3);
+  commentedAfterFirst.set([0xef, 0xbb, 0xbf]);
+  commentedAfterFirst.set(commentedBody, 3);
+  const afterSecond = renderSemanticContractYamlEdit(commentedAfterFirst, [secondOperation]).stagedBytes;
+  expect(renderSemanticContractYamlEdit(commentedAfterFirst, [secondOperation]).stagedBytes)
+    .toEqual(afterSecond);
+  expect(afterSecond.slice(0, 3)).toEqual(new Uint8Array([0xef, 0xbb, 0xbf]));
+
+  const text = new TextDecoder().decode(afterSecond.slice(3));
+  expect(text).toContain('# authoring contract comment');
+  expect(text).toContain('# keep transition comment');
+  expect(text).toContain('# retain existing transition node comment');
+  expect(text.indexOf('from: closed')).toBeLessThan(text.indexOf('from: open'));
+  expect(text.match(/from:/gu)).toHaveLength(2);
+  expect(text.endsWith('\n')).toBe(false);
+  expect(text.replaceAll('\r\n', '')).not.toContain('\n');
 });
 
 test('owner resolution fails closed for none, read-only, ambiguous, forged, mismatched, or unauthorized provenance', () => {

@@ -2,17 +2,26 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import semver from 'semver';
+import { writeProvenance } from '../compiler/emit/write-provenance.ts';
 import {
   loadManifestById,
   loadOverrideManifest,
-  loadWorkspacePlan,
-  writeProvenance
+  loadWorkspacePlan
 } from '../compiler/index.ts';
 import { compileWorkspace } from '../orchestrator/pipeline-orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../shared/collections.ts';
 import { CompilerError } from '../shared/errors.ts';
-import { copyRecursive, ensureDir, isFileNotFoundError, pathExists, readJson, removeDir, writeJson } from '../shared/fs.ts';
+import {
+  copyRecursive,
+  ensureDir,
+  isFileNotFoundError,
+  pathExists,
+  readJson,
+  removeDir,
+  writeJson,
+  type CommitFence
+} from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { addGeneratedPaths, readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside, resolveWorkspaceLockPath } from '../shared/paths.ts';
@@ -27,6 +36,10 @@ import type {
   UpgradePlan,
   UpgradePreflightCheck
 } from '../shared/upgrade-types.ts';
+import {
+  assertWorkspaceWriteLease,
+  type WorkspaceWriteLeaseToken
+} from '../shared/workspace-write-lease.ts';
 import { writeYaml } from '../shared/yaml.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
@@ -508,13 +521,23 @@ function applyTextReplaceRegex(
   return source.replace(pattern, entry.replacement);
 }
 
-async function removeFileMigrationTarget(targetPath: string, target: string): Promise<void> {
+async function removeFileMigrationTarget(
+  targetPath: string,
+  target: string,
+  commitFence: CommitFence
+): Promise<void> {
   await statFileMigrationTarget(targetPath, target);
+  await commitFence();
   await fs.rm(targetPath);
 }
 
-async function removeDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
+async function removeDirectoryMigrationTarget(
+  targetPath: string,
+  target: string,
+  commitFence: CommitFence
+): Promise<void> {
   await statDirectoryMigrationTarget(targetPath, target);
+  await commitFence();
   await fs.rm(targetPath, { recursive: true });
 }
 
@@ -596,16 +619,13 @@ type BaseMigrationOperationContext = {
 
 type MigrationApplyContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
   BaseMigrationOperationContext & {
+    commitFence: CommitFence;
     entry: Extract<UpgradeMigrationEntry, { kind: K }>;
   };
 
-type ManifestFileMigrationContext = BaseMigrationOperationContext & {
-  entry: Extract<UpgradeMigrationEntry, { kind: ManifestFileMigrationKind }>;
-};
+type ManifestFileMigrationContext = MigrationApplyContext<ManifestFileMigrationKind>;
 
-type TextReplaceMigrationContext = BaseMigrationOperationContext & {
-  entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace' | 'text-replace-regex' }>;
-};
+type TextReplaceMigrationContext = MigrationApplyContext<'text-replace' | 'text-replace-regex'>;
 
 type FileOperationEvidenceContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
   BaseMigrationOperationContext & {
@@ -695,18 +715,20 @@ function ensureMigrationImpacts(impacts: string[], entry: UpgradeMigrationEntry)
 }
 
 async function applyManifestFileMigration(context: ManifestFileMigrationContext): Promise<void> {
-  const { entry, targetManifestRoot, targetPath } = context;
+  const { commitFence, entry, targetManifestRoot, targetPath } = context;
   const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
   await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
   await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
-  await ensureDir(path.dirname(targetPath));
+  await ensureDir(path.dirname(targetPath), commitFence);
+  await commitFence();
   await fs.copyFile(sourcePath, targetPath);
 }
 
 async function applyTextReplaceMigration(context: TextReplaceMigrationContext): Promise<void> {
-  const { entry, targetPath } = context;
+  const { commitFence, entry, targetPath } = context;
   await statFileMigrationTarget(targetPath, entry.target, entry.kind);
   const source = await fs.readFile(targetPath, 'utf8');
+  await commitFence();
   await fs.writeFile(
     targetPath,
     entry.kind === 'text-replace'
@@ -717,7 +739,7 @@ async function applyTextReplaceMigration(context: TextReplaceMigrationContext): 
 }
 
 async function applyDbExpandContractMigration(context: MigrationApplyContext<'db-expand-contract'>): Promise<void> {
-  const { entry, targetPath, projectRoot } = context;
+  const { commitFence, entry, targetPath, projectRoot } = context;
   await statFileMigrationTarget(targetPath, entry.target, entry.kind);
   let content = await fs.readFile(targetPath, 'utf8');
 
@@ -755,11 +777,12 @@ async function applyDbExpandContractMigration(context: MigrationApplyContext<'db
   }
 
   content = content.substring(0, modelStart) + updatedModelContent + content.substring(modelEnd);
+  await commitFence();
   await fs.writeFile(targetPath, content, 'utf8');
 
   if (entry.copyJobCode) {
     const jobDir = path.join(projectRoot, 'src', 'jobs', 'db-migrations');
-    await ensureDir(jobDir);
+    await ensureDir(jobDir, commitFence);
     const jobFile = path.join(jobDir, `${entry.id}.ts`);
     const jobContent = `// @generated-db-migration-job migration-id:${entry.id}
 export async function runMigrationJob(prisma: any): Promise<void> {
@@ -768,6 +791,7 @@ export async function runMigrationJob(prisma: any): Promise<void> {
   console.log('[Migration Job ${entry.id}] Copy process completed successfully.');
 }
 `;
+    await commitFence();
     await fs.writeFile(jobFile, jobContent, 'utf8');
   }
 }
@@ -776,7 +800,8 @@ async function applyMigrationEntry(
   projectRoot: string,
   targetManifestRoot: string,
   impacts: string[],
-  entry: UpgradeMigrationEntry
+  entry: UpgradeMigrationEntry,
+  commitFence: CommitFence
 ): Promise<void> {
   ensureMigrationImpacts(impacts, entry);
   const targetPath = resolveProjectMigrationTarget(projectRoot, entry);
@@ -784,18 +809,19 @@ async function applyMigrationEntry(
   if (!spec) {
     throw unsupportedMigrationKindError(entry as { kind: string });
   }
-  await spec.apply({ entry, projectRoot, targetManifestRoot, targetPath });
+  await spec.apply({ commitFence, entry, projectRoot, targetManifestRoot, targetPath });
 }
 
 export async function applyMigrationEntries(
   projectRoot: string,
   targetManifestRoot: string,
   impacts: string[],
-  entries: UpgradeMigrationEntry[]
+  entries: UpgradeMigrationEntry[],
+  commitFence: CommitFence
 ): Promise<void> {
   for (const entry of entries) {
     try {
-      await applyMigrationEntry(projectRoot, targetManifestRoot, impacts, entry);
+      await applyMigrationEntry(projectRoot, targetManifestRoot, impacts, entry, commitFence);
     } catch (error) {
       if (error instanceof CompilerError) {
         throw withMigrationErrorDetails(entry, error);
@@ -877,9 +903,15 @@ async function statFileMigrationTarget(
   return 'file';
 }
 
-async function appendTextMigrationTarget(targetPath: string, target: string, content: string): Promise<void> {
-  await ensureDir(path.dirname(targetPath));
+async function appendTextMigrationTarget(
+  targetPath: string,
+  target: string,
+  content: string,
+  commitFence: CommitFence
+): Promise<void> {
+  await ensureDir(path.dirname(targetPath), commitFence);
   try {
+    await commitFence();
     await fs.appendFile(targetPath, content, 'utf8');
   } catch (error) {
     const failure = error as NodeJS.ErrnoException;
@@ -999,12 +1031,12 @@ function createManifestFileMigrationSpec<K extends ManifestFileMigrationKind>():
 
 function createDeleteMigrationSpec<K extends 'delete-file' | 'delete-directory'>(
   role: 'file' | 'directory',
-  remove: (targetPath: string, target: string) => Promise<void>,
+  remove: (targetPath: string, target: string, commitFence: CommitFence) => Promise<void>,
   stat: (targetPath: string, target: string) => Promise<unknown>
 ): MigrationOperationSpec<K> {
   return {
-    apply: async ({ entry, targetPath }: MigrationApplyContext<'delete-file' | 'delete-directory'>) => {
-      await remove(targetPath, entry.target);
+    apply: async ({ commitFence, entry, targetPath }: MigrationApplyContext<'delete-file' | 'delete-directory'>) => {
+      await remove(targetPath, entry.target, commitFence);
     },
     collectFileEvidence: async ({ entry, targetPath }: FileOperationEvidenceContext<'delete-file' | 'delete-directory'>) => {
       await stat(targetPath, entry.target);
@@ -1037,9 +1069,10 @@ function createRenameMigrationSpec<K extends ProjectSourceMigrationEntry['kind']
   return {
     validate: validateSourceMigrationEntry,
     collectImpacts: (entry: ProjectSourceMigrationEntry) => [entry.source, entry.target],
-    apply: async ({ entry, projectRoot, targetPath }: MigrationApplyContext<ProjectSourceMigrationEntry['kind']>) => {
+    apply: async ({ commitFence, entry, projectRoot, targetPath }: MigrationApplyContext<ProjectSourceMigrationEntry['kind']>) => {
       const sourcePath = await prepareRenameMigrationTarget(entry, projectRoot, targetPath, label, statSource);
-      await ensureDir(path.dirname(targetPath));
+      await ensureDir(path.dirname(targetPath), commitFence);
+      await commitFence();
       await fs.rename(sourcePath, targetPath);
     },
     collectFileEvidence: async ({ entry, projectRoot, targetPath }: FileOperationEvidenceContext<ProjectSourceMigrationEntry['kind']>) => {
@@ -1050,7 +1083,7 @@ function createRenameMigrationSpec<K extends ProjectSourceMigrationEntry['kind']
   };
 }
 
-async function prepareCopyDirectoryMigration(context: MigrationApplyContext<'copy-directory'>): Promise<string> {
+async function prepareCopyDirectoryMigration(context: FileOperationEvidenceContext<'copy-directory'>): Promise<string> {
   const { entry, targetManifestRoot, targetPath } = context;
   const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
   await statCopyDirectoryMigrationSource(sourcePath, entry.source);
@@ -1062,7 +1095,8 @@ async function applyJsonTargetMigration(
   entry: JsonTargetMigrationEntry,
   targetPath: string,
   update: (config: unknown) => unknown,
-  createMissing: boolean
+  createMissing: boolean,
+  commitFence: CommitFence
 ): Promise<void> {
   const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
   if (targetStatus === 'missing' && !createMissing) {
@@ -1070,9 +1104,9 @@ async function applyJsonTargetMigration(
   }
   const config = update(targetStatus === 'file' ? await readJson<unknown>(targetPath) : {});
   if (createMissing) {
-    await ensureDir(path.dirname(targetPath));
+    await ensureDir(path.dirname(targetPath), commitFence);
   }
-  await writeJson(targetPath, config);
+  await writeJson(targetPath, config, commitFence);
 }
 
 const migrationOperationSpecs = {
@@ -1081,7 +1115,11 @@ const migrationOperationSpecs = {
   'copy-directory': {
     validate: validateSourceMigrationEntry,
     apply: async (context) => {
-      await copyRecursive(await prepareCopyDirectoryMigration(context), context.targetPath);
+      await copyRecursive(
+        await prepareCopyDirectoryMigration(context),
+        context.targetPath,
+        context.commitFence
+      );
     },
     collectFileEvidence: async (context) => {
       await prepareCopyDirectoryMigration(context);
@@ -1091,31 +1129,49 @@ const migrationOperationSpecs = {
   },
   'config-rewrite': {
     validate: validateConfigRewriteMigrationEntry,
-    apply: async ({ entry, targetPath }) => {
+    apply: async ({ commitFence, entry, targetPath }) => {
       await statFileMigrationTarget(targetPath, entry.target, entry.kind);
       const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
-      await writeJson(targetPath, config);
+      await writeJson(targetPath, config, commitFence);
     },
     buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', { updateCount: entry.updates.length })
   },
   'json-array-append': {
     validate: validateJsonArrayMigrationEntry,
-    apply: async ({ entry, targetPath }) => {
-      await applyJsonTargetMigration(entry, targetPath, (config) => applyJsonArrayAppend(config, entry), true);
+    apply: async ({ commitFence, entry, targetPath }) => {
+      await applyJsonTargetMigration(
+        entry,
+        targetPath,
+        (config) => applyJsonArrayAppend(config, entry),
+        true,
+        commitFence
+      );
     },
     buildOperation: buildJsonItemMigrationOperation
   },
   'json-array-remove': {
     validate: validateJsonArrayMigrationEntry,
-    apply: async ({ entry, targetPath }) => {
-      await applyJsonTargetMigration(entry, targetPath, (config) => applyJsonArrayRemove(config, entry), false);
+    apply: async ({ commitFence, entry, targetPath }) => {
+      await applyJsonTargetMigration(
+        entry,
+        targetPath,
+        (config) => applyJsonArrayRemove(config, entry),
+        false,
+        commitFence
+      );
     },
     buildOperation: buildJsonItemMigrationOperation
   },
   'json-object-merge': {
     validate: validateJsonObjectMergeMigrationEntry,
-    apply: async ({ entry, targetPath }) => {
-      await applyJsonTargetMigration(entry, targetPath, (config) => applyJsonObjectMerge(config, entry), true);
+    apply: async ({ commitFence, entry, targetPath }) => {
+      await applyJsonTargetMigration(
+        entry,
+        targetPath,
+        (config) => applyJsonObjectMerge(config, entry),
+        true,
+        commitFence
+      );
     },
     buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
       path: [...entry.path],
@@ -1126,8 +1182,8 @@ const migrationOperationSpecs = {
     validate: ({ entry, entryPath }) => {
       ensureMigrationString(entry.content, 'content', entryPath);
     },
-    apply: async ({ entry, targetPath }) => {
-      await appendTextMigrationTarget(targetPath, entry.target, entry.content);
+    apply: async ({ commitFence, entry, targetPath }) => {
+      await appendTextMigrationTarget(targetPath, entry.target, entry.content, commitFence);
     },
     collectFileEvidence: async ({ entry, targetPath }) => [
       `${entry.id}:target:${await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true })}`
@@ -1155,9 +1211,9 @@ const migrationOperationSpecs = {
     })
   },
   'create-directory': {
-    apply: async ({ entry, targetPath }) => {
+    apply: async ({ commitFence, entry, targetPath }) => {
       await statCreateDirectoryMigrationTarget(targetPath, entry.target);
-      await ensureDir(targetPath);
+      await ensureDir(targetPath, commitFence);
     },
     collectFileEvidence: async ({ entry, targetPath }) => {
       await statCreateDirectoryMigrationTarget(targetPath, entry.target);
@@ -1635,9 +1691,14 @@ function isEmptyDiagnosticsDetails(details: unknown): boolean {
   return Object.getPrototypeOf(details) === Object.prototype && Object.keys(details).length === 0;
 }
 
-async function recordUpgradeGeneratedArtifact(workspaceRoot: string, lock: LockFile, artifactPath: string): Promise<void> {
+async function recordUpgradeGeneratedArtifact(
+  workspaceRoot: string,
+  lock: LockFile,
+  artifactPath: string,
+  commitFence: CommitFence
+): Promise<void> {
   addGeneratedPaths(lock, [artifactPath]);
-  await writeProvenance(workspaceRoot, lock);
+  await writeProvenance(workspaceRoot, lock, commitFence);
 }
 
 const PREFLIGHT_FAILURE_BY_ERROR_CODE = new Map<string, UpgradeDiagnostics['failedCheck']>([
@@ -1690,7 +1751,8 @@ async function writeUpgradeDiagnostics(
   targetVersion: string,
   phase: UpgradeDiagnostics['phase'],
   error: CompilerError,
-  lock: LockFile | null
+  lock: LockFile | null,
+  commitFence: CommitFence
 ): Promise<void> {
   const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
   const details = isEmptyDiagnosticsDetails(error.details) ? undefined : error.details;
@@ -1704,11 +1766,16 @@ async function writeUpgradeDiagnostics(
     errorCode: error.code,
     message: error.message,
     ...(details === undefined ? {} : { details })
-  } satisfies UpgradeDiagnostics);
+  } satisfies UpgradeDiagnostics, commitFence);
   if (!lock) {
     return;
   }
-  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradeDiagnostics);
+  await recordUpgradeGeneratedArtifact(
+    workspaceRoot,
+    lock,
+    CI_ARTIFACT_FILES.upgradeDiagnostics,
+    commitFence
+  );
 }
 
 function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Record<string, number> {
@@ -1766,7 +1833,11 @@ function buildUpgradePlan(
 
 const VOLATILE_PROJECT_SNAPSHOT_ENTRIES = new Set(['node_modules', '.next', 'test-results', 'playwright-report', 'coverage']);
 
-async function copyProjectSnapshot(source: string, target: string): Promise<void> {
+async function copyProjectSnapshot(
+  source: string,
+  target: string,
+  commitFence?: CommitFence
+): Promise<void> {
   let stat: Awaited<ReturnType<typeof fs.stat>>;
   try {
     stat = await fs.stat(source);
@@ -1778,7 +1849,7 @@ async function copyProjectSnapshot(source: string, target: string): Promise<void
   }
 
   if (stat.isDirectory()) {
-    await ensureDir(target);
+    await ensureDir(target, commitFence);
     let entries: string[];
     try {
       entries = await fs.readdir(source);
@@ -1792,13 +1863,14 @@ async function copyProjectSnapshot(source: string, target: string): Promise<void
       if (VOLATILE_PROJECT_SNAPSHOT_ENTRIES.has(entry)) {
         continue;
       }
-      await copyProjectSnapshot(path.join(source, entry), path.join(target, entry));
+      await copyProjectSnapshot(path.join(source, entry), path.join(target, entry), commitFence);
     }
     return;
   }
 
-  await ensureDir(path.dirname(target));
+  await ensureDir(path.dirname(target), commitFence);
   try {
+    await commitFence?.();
     await fs.copyFile(source, target);
   } catch (error) {
     if (isFileNotFoundError(error)) {
@@ -1808,7 +1880,10 @@ async function copyProjectSnapshot(source: string, target: string): Promise<void
   }
 }
 
-async function removeProjectSnapshotContents(projectRoot: string): Promise<void> {
+async function removeProjectSnapshotContents(
+  projectRoot: string,
+  commitFence: CommitFence
+): Promise<void> {
   if (!(await pathExists(projectRoot))) {
     return;
   }
@@ -1818,47 +1893,65 @@ async function removeProjectSnapshotContents(projectRoot: string): Promise<void>
     if (VOLATILE_PROJECT_SNAPSHOT_ENTRIES.has(entry)) {
       continue;
     }
-    await removeDir(path.join(projectRoot, entry));
+    await removeDir(path.join(projectRoot, entry), commitFence);
   }
 }
 
-async function snapshotProject(projectRoot: string): Promise<string> {
+async function snapshotProject(projectRoot: string, commitFence: CommitFence): Promise<string> {
+  await commitFence();
   const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'engineering-compiler-upgrade-'));
-  await copyProjectSnapshot(projectRoot, backupRoot);
-  return backupRoot;
+  try {
+    await copyProjectSnapshot(projectRoot, backupRoot, commitFence);
+    return backupRoot;
+  } catch (error) {
+    await removeDir(backupRoot).catch(() => undefined);
+    throw error;
+  }
 }
 
-async function restoreProject(projectRoot: string, backupRoot: string): Promise<void> {
-  await ensureDir(projectRoot);
-  await removeProjectSnapshotContents(projectRoot);
-  await copyProjectSnapshot(backupRoot, projectRoot);
+async function restoreProject(
+  projectRoot: string,
+  backupRoot: string,
+  commitFence: CommitFence
+): Promise<void> {
+  await ensureDir(projectRoot, commitFence);
+  await removeProjectSnapshotContents(projectRoot, commitFence);
+  await copyProjectSnapshot(backupRoot, projectRoot, commitFence);
 }
 
 async function snapshotTextFile(filePath: string): Promise<string | null> {
   return (await pathExists(filePath)) ? fs.readFile(filePath, 'utf8') : null;
 }
 
-async function restoreTextFile(filePath: string, snapshot: string | null): Promise<void> {
+async function restoreTextFile(
+  filePath: string,
+  snapshot: string | null,
+  commitFence: CommitFence
+): Promise<void> {
   if (snapshot === null) {
-    await removeDir(filePath);
+    await removeDir(filePath, commitFence);
     return;
   }
-  await ensureDir(path.dirname(filePath));
+  await ensureDir(path.dirname(filePath), commitFence);
+  await commitFence();
   await fs.writeFile(filePath, snapshot, 'utf8');
 }
 
 type UpgradeApplyContext = PlannedWorkspaceUpgrade & {
+  commitFence: CommitFence;
   lockPath: string;
   plan: PlanFile;
   planPath: string;
   projectRoot: string;
   targetVersion: string;
   upgradePlanPath: string;
+  workspaceWriteLease: WorkspaceWriteLeaseToken;
   workspaceRoot: string;
 };
 
 async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promise<LockFile> {
   const {
+    commitFence,
     impacts,
     migrationEntries,
     plan,
@@ -1869,31 +1962,47 @@ async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promi
     targetVersion,
     upgradePlan,
     upgradePlanPath,
+    workspaceWriteLease,
     workspaceRoot
   } = context;
 
   currentBlock.version = targetVersion;
-  await writeYaml(planPath, plan);
-  await applyMigrationEntries(projectRoot, targetManifestRoot, impacts, migrationEntries);
+  await writeYaml(planPath, plan, commitFence);
+  await applyMigrationEntries(
+    projectRoot,
+    targetManifestRoot,
+    impacts,
+    migrationEntries,
+    commitFence
+  );
 
   const { lock } = await compileWorkspace(workspaceRoot, {
     source: 'upgrade',
     through: 'lock',
-    verificationLane: 'all'
+    verificationLane: 'all',
+    workspaceWriteLease
   });
-  await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
+  await recordUpgradeGeneratedArtifact(
+    workspaceRoot,
+    lock,
+    CI_ARTIFACT_FILES.upgradePlan,
+    commitFence
+  );
 
   upgradePlan.status = 'applied';
-  await writeJson(upgradePlanPath, upgradePlan);
+  await writeJson(upgradePlanPath, upgradePlan, commitFence);
   return lock;
 }
 
-export async function upgradeWorkspace(
+export async function runUpgradeWorkspaceWithLease(
   workspaceRoot: string,
   blockId: string,
   targetVersion: string,
+  workspaceWriteLease: WorkspaceWriteLeaseToken,
   options: { dryRun?: boolean } = {}
 ): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
+  const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+  await commitFence();
   const { lockPath, projectRoot, planPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadWorkspacePlan(workspaceRoot);
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
@@ -1911,7 +2020,15 @@ export async function upgradeWorkspace(
     });
   } catch (error) {
     if (error instanceof CompilerError) {
-      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'planning', error, existingLock);
+      await writeUpgradeDiagnostics(
+        workspaceRoot,
+        blockId,
+        targetVersion,
+        'planning',
+        error,
+        existingLock,
+        commitFence
+      );
     }
     throw error;
   }
@@ -1920,35 +2037,51 @@ export async function upgradeWorkspace(
 
   if (options.dryRun) {
     const lock = await readLockFile(workspaceRoot);
-    await writeJson(upgradePlanPath, upgradePlan);
-    await recordUpgradeGeneratedArtifact(workspaceRoot, lock, CI_ARTIFACT_FILES.upgradePlan);
+    await writeJson(upgradePlanPath, upgradePlan, commitFence);
+    await recordUpgradeGeneratedArtifact(
+      workspaceRoot,
+      lock,
+      CI_ARTIFACT_FILES.upgradePlan,
+      commitFence
+    );
     return { plan, lock, upgradePlan };
   }
 
-  const backupRoot = await snapshotProject(projectRoot);
   const planSnapshot = await snapshotTextFile(planPath);
   const lockSnapshot = await snapshotTextFile(lockPath);
-  await writeJson(upgradePlanPath, upgradePlan);
+  const backupRoot = await snapshotProject(projectRoot, commitFence);
 
   try {
+    await writeJson(upgradePlanPath, upgradePlan, commitFence);
     const lock = await applyPlannedWorkspaceUpgrade({
       ...plannedUpgrade,
+      commitFence,
       lockPath,
       plan,
       planPath,
       projectRoot,
       targetVersion,
       upgradePlanPath,
+      workspaceWriteLease,
       workspaceRoot
     });
     return { plan, lock, upgradePlan };
   } catch (error) {
-    await restoreProject(projectRoot, backupRoot);
-    await restoreTextFile(planPath, planSnapshot);
-    await restoreTextFile(lockPath, lockSnapshot);
+    await commitFence();
+    await restoreProject(projectRoot, backupRoot, commitFence);
+    await restoreTextFile(planPath, planSnapshot, commitFence);
+    await restoreTextFile(lockPath, lockSnapshot, commitFence);
     if (error instanceof CompilerError) {
       const rollbackError = withRollbackDiagnostics(error);
-      await writeUpgradeDiagnostics(workspaceRoot, blockId, targetVersion, 'apply', rollbackError, existingLock);
+      await writeUpgradeDiagnostics(
+        workspaceRoot,
+        blockId,
+        targetVersion,
+        'apply',
+        rollbackError,
+        existingLock,
+        commitFence
+      );
       throw rollbackError;
     }
     throw error;

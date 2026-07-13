@@ -100,6 +100,8 @@ export interface ViewMutationReport {
   mutations: ViewMutationResult[];
 }
 
+export type ViewMutationCommitFence = () => Promise<void>;
+
 const SUPPORTED_APP_MODES = new Set<AppMode>(['single-tenant', 'multi-tenant']);
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -362,9 +364,12 @@ async function loadMutationFiles(workspaceRoot: string): Promise<Array<{ sourceP
   return loaded;
 }
 
-export async function applyViewMutations(workspaceRoot: string): Promise<ViewMutationReport> {
+export async function applyViewMutations(
+  workspaceRoot: string,
+  commitFence: ViewMutationCommitFence
+): Promise<ViewMutationReport> {
   const { planPath, viewMutationReportPath, sourceViewMutationsRoot } = getWorkspacePaths(workspaceRoot);
-  await ensureDir(sourceViewMutationsRoot);
+  await ensureDir(sourceViewMutationsRoot, commitFence);
   const plan = await loadPlan(planPath);
   const mutationFiles = await loadMutationFiles(workspaceRoot);
   const mutations = mutationFiles.flatMap((entry) =>
@@ -385,8 +390,8 @@ export async function applyViewMutations(workspaceRoot: string): Promise<ViewMut
   };
 
   if (appliedCount > 0) {
-    await writeYaml(planPath, plan);
+    await writeYaml(planPath, plan, commitFence);
   }
-  await writeJson(viewMutationReportPath, report);
+  await writeJson(viewMutationReportPath, report, commitFence);
   return report;
 }

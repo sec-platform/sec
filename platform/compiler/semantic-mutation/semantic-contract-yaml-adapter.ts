@@ -131,7 +131,15 @@ function applyOperation(
     transformFailure('Operation transition already exists or conflicts in the current source', operation.operationId);
   }
   const transitions = transitionSequence(document, state.index);
-  transitions.add({ from: operation.from, to: operation.to, by: operation.by });
+  const transitionNode = document.createNode({
+    from: operation.from,
+    to: operation.to,
+    by: operation.by
+  });
+  if (!isMap(transitionNode)) {
+    transformFailure('Semantic contract transition could not be represented as a YAML mapping');
+  }
+  transitions.add(transitionNode);
   transitions.items.sort((left, right) => compareCodeUnits(
     transitionKey(transitionFromNode(left as Node)),
     transitionKey(transitionFromNode(right as Node))

@@ -9,7 +9,7 @@ import {
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { readOptionalJson, writeJson } from '../../shared/fs.ts';
+import { readOptionalJson, writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -224,7 +224,11 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
   };
 }
 
-export async function writeProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
+export async function writeProvenance(
+  workspaceRoot: string,
+  lock: LockFile,
+  commitFence?: CommitFence
+): Promise<ProvenanceFile> {
   const { provenancePath, lockPath } = getWorkspacePaths(workspaceRoot);
   return writeGeneratedArtifactWithLock(
     lockPath,
@@ -232,8 +236,9 @@ export async function writeProvenance(workspaceRoot: string, lock: LockFile): Pr
     [CI_ARTIFACT_FILES.provenance],
     async () => {
       const provenance = await buildProvenance(workspaceRoot, lock);
-      await writeJson(provenancePath, provenance);
+      await writeJson(provenancePath, provenance, commitFence);
       return provenance;
-    }
+    },
+    commitFence
   );
 }

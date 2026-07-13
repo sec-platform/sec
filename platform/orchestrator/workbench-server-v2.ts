@@ -12,15 +12,21 @@ import {
   posixPath,
   sourceSlotsRelativePath
 } from '../shared/paths.ts';
+import {
+  assertWorkspaceWriteLease,
+  withWorkspaceWriteLease,
+  WorkspaceWriteLeaseError,
+  type WorkspaceWriteLeaseToken
+} from '../shared/workspace-write-lease.ts';
 import { createWorkbenchCompileStream } from './workbench-compile-handler.ts';
 import {
-  WORKBENCH_COLORS,
-  WORKBENCH_SECURITY_HEADERS,
-  WorkbenchMutex,
   logWorkbenchHttp,
   logWorkbenchMutex,
+  WORKBENCH_COLORS,
+  WORKBENCH_SECURITY_HEADERS,
   workbenchErrorResponse,
   workbenchJsonResponse,
+  WorkbenchMutex,
   workbenchSseResponse
 } from './workbench-http-support.ts';
 
@@ -45,6 +51,20 @@ interface RouteContext {
 }
 
 type RouteHandler = (context: RouteContext) => Promise<Response>;
+
+async function withWorkbenchWriterLease(
+  context: RouteContext,
+  operation: (token: WorkspaceWriteLeaseToken) => Promise<Response>
+): Promise<Response> {
+  try {
+    return await withWorkspaceWriteLease(context.workspaceRoot, undefined, operation);
+  } catch (error) {
+    if (error instanceof WorkspaceWriteLeaseError) {
+      return workbenchErrorResponse('Workspace writer is busy', 409);
+    }
+    throw error;
+  }
+}
 
 interface RouteEntry {
   method: string | null;
@@ -83,15 +103,19 @@ async function handleBootstrapSlot(context: RouteContext): Promise<Response> {
   const { slotId, block } = await context.req.json() as BootstrapSlotBody;
   if (!slotId) return workbenchErrorResponse('Missing slotId', 400);
 
-  const slotsDir = path.join(context.workspaceRoot, sourceSlotsRelativePath);
-  await fs.mkdir(slotsDir, { recursive: true });
-  const targetPath = path.join(slotsDir, `${slotId}.ts`);
-  const exists = await fs.access(targetPath).then(() => true).catch(() => false);
+  return withWorkbenchWriterLease(context, async (token) => {
+    const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
+    const slotsDir = path.join(context.workspaceRoot, sourceSlotsRelativePath);
+    await commitFence();
+    await fs.mkdir(slotsDir, { recursive: true });
+    const targetPath = path.join(slotsDir, `${slotId}.ts`);
+    const exists = await fs.access(targetPath).then(() => true).catch(() => false);
 
-  if (!exists) {
-    const rawCamel = slotId.replace(/_([a-z])/g, (_, character: string) => character.toUpperCase());
-    const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
-    await fs.writeFile(targetPath, `/**
+    if (!exists) {
+      const rawCamel = slotId.replace(/_([a-z])/g, (_, character: string) => character.toUpperCase());
+      const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
+      await commitFence();
+      await fs.writeFile(targetPath, `/**
  * SpecEngineer Auto-Bootstrapped Slot Handler
  * Slot ID: ${slotId}
  * Associated Block: ${block || 'none'}
@@ -106,11 +130,12 @@ export async function handle${symbolName}(input: unknown): Promise<unknown> {
   };
 }
 `, 'utf8');
-  }
+    }
 
-  return workbenchJsonResponse({
-    status: 'success',
-    path: posixPath(`${sourceSlotsRelativePath}/${slotId}.ts`)
+    return workbenchJsonResponse({
+      status: 'success',
+      path: posixPath(`${sourceSlotsRelativePath}/${slotId}.ts`)
+    });
   });
 }
 
@@ -134,9 +159,17 @@ async function handleReview(context: RouteContext): Promise<Response> {
 
 async function handleMutations(context: RouteContext): Promise<Response> {
   const body = await context.req.json();
-  await fs.mkdir(context.paths.sourceViewMutationsRoot, { recursive: true });
-  await writeJson(path.join(context.paths.sourceViewMutationsRoot, 'graph-action.json'), body);
-  return workbenchJsonResponse({ status: 'success' });
+  return withWorkbenchWriterLease(context, async (token) => {
+    const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
+    await commitFence();
+    await fs.mkdir(context.paths.sourceViewMutationsRoot, { recursive: true });
+    await writeJson(
+      path.join(context.paths.sourceViewMutationsRoot, 'graph-action.json'),
+      body,
+      commitFence
+    );
+    return workbenchJsonResponse({ status: 'success' });
+  });
 }
 
 async function findBlockTest(workspaceRoot: string, blockId: string): Promise<string | null> {

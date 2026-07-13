@@ -221,3 +221,35 @@ Verification 不只验证文件存在。v0.3 后逐步增加：
 结果仍以结构化 Report 输出；禁止 Workbench 模板自行实现验证规则。
 
 Impact kernel 只能推荐 canonical Acceptance entity ID 或 IR 中已验证的 selector value。把 recommendation 解析为 runnable plan、测试文件、fast/slow lane 或 CI gate，仍由 Verification adapter 与测试合同拥有；Impact 不执行 Verification，也不得复用 changed-file test selection 冒充 semantic propagation。
+
+## 10. Semantic Mutation isolated Verification adapter v1
+
+SM-3 使用 Verification-owned adapter `semantic-mutation-local-verification` / `semantic-mutation-local-verification-v1`。Mutation 只提交完整 canonical requirement union与 staged binding；adapter 负责 capability、runnable mapping、执行顺序和 report，不允许 caller或 Mutation伪造 report revision。
+
+```ts
+interface SemanticMutationVerificationExecutionV1 {
+  readonly requirement: VerificationRequirementV1;
+  readonly runner: "verify-all";
+  readonly status: "passed" | "failed" | "blocked";
+  readonly evidenceDigest: string;
+}
+
+interface SemanticMutationVerificationReportV1 {
+  readonly formatRevision: "semantic-mutation-verification-report-v1";
+  readonly adapterId: "semantic-mutation-local-verification";
+  readonly adapterRevision: "semantic-mutation-local-verification-v1";
+  readonly planRevision: string;
+  readonly attempted: SemanticMutationBaseV2;
+  readonly stagedSourceDigest: string;
+  readonly requiredVerificationDigest: string;
+  readonly executions: readonly SemanticMutationVerificationExecutionV1[];
+  readonly status: "passed" | "failed" | "blocked";
+  readonly reportRevision: string;
+}
+```
+
+`SemanticMutationVerificationReportV1` 是 exact schema：只能包含上列 `formatRevision, adapterId, adapterRevision, planRevision, attempted, stagedSourceDigest, requiredVerificationDigest, executions, status, reportRevision`，未知/缺失字段 fail closed。`capabilityPlanRevision` 只属于 adapter 内部的 `SemanticMutationVerificationCapabilityPlanV1`，不得出现在 report；report 也不得复制 capability plan、绝对路径、原始日志或 source bytes。
+
+V1 采用保守 superset mapping：`pass:verify`、validated IR 中存在的 Acceptance entity，以及满足 frozen safe selector grammar 且来自 validated `VERIFIED_BY` Fact 的 selector，都映射到 staging workspace 的 canonical `resolve → semantic → compose → adapt → verify --lane all`。所有 requirements 共享同一次 isolated verify-all execution，但 report 为每个 requirement记录独立 execution binding；未知 pass、缺失 Acceptance、非 canonical/未验证 selector、duplicate requirement、不可隔离环境或外部不可逆副作用都在 publish 前 `blocked`。不得把 repo changed-file test selector或旧 Lock/report status当作 runnable mapping。
+
+Runner 使用固定 staging cwd、argv array和显式环境 allowlist。Report不保存绝对路径、原始日志或 source bytes；`evidenceDigest` 绑定 canonical Verification report summary与关键 generated report digests。`reportRevision` payload为 `{ domain: "semantic-mutation-verification-report-v1", ...除 reportRevision 外全部字段 }`；requirements/executions按 `(kind,target)` canonical order。Mutation随后用 `semantic-mutation-verification-execution-v1` 只引用该真实 report，并 exact绑定 plan、attempted endpoint、staged source digest和完整 requirement digest。

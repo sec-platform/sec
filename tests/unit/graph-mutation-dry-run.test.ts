@@ -135,7 +135,7 @@ test('expected node delta matches the graph after applying the generated mutatio
     if (!mutationFile) throw new Error('expected ready dry-run mutation file');
 
     await writeJson(path.join(paths.sourceViewMutationsRoot, 'add-review-acceptance.json'), mutationFile);
-    await applyViewMutations(workspaceRoot);
+    await applyViewMutations(workspaceRoot, async () => undefined);
     // buildExplainGraph 把 lock.acceptancePlan 中每个 id 映射为 acceptance:<id> 节点；
     // lock.acceptancePlan 又派生自 plan.acceptance。直接读 plan 校验源头即可，
     // 避免再做一次 resolveWorkspace + buildExplainGraph（每次 ~2-3s）。

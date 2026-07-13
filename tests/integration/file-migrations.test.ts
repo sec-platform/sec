@@ -7,7 +7,7 @@ import {
 } from '../../platform/orchestrator.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
+import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

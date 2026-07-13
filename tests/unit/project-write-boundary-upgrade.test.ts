@@ -64,7 +64,12 @@ test('active upgrade transaction authorizes only declared project impacts', asyn
     await writeProjectBaseline(workspaceRoot, lockFor([allowedPath, deniedPath]));
     await writeJson(upgradePlanPath, plannedUpgrade([allowedPath]));
 
-    const transactionId = await startPipelineTransaction(workspaceRoot, 'upgrade', ['resolve', 'compose']);
+    const transactionId = await startPipelineTransaction(
+      workspaceRoot,
+      'upgrade',
+      ['resolve', 'compose'],
+      async () => undefined
+    );
     try {
       await writeText(allowedAbsolute, 'export const allowed = 2;\n');
       await checkProjectWriteBoundary(workspaceRoot);
@@ -75,7 +80,13 @@ test('active upgrade transaction authorizes only declared project impacts', asyn
         details: { path: deniedPath }
       });
     } finally {
-      await failPipelineTransaction(workspaceRoot, transactionId, 'TEST-END', 'test transaction closed');
+      await failPipelineTransaction(
+        workspaceRoot,
+        transactionId,
+        'TEST-END',
+        'test transaction closed',
+        async () => undefined
+      );
     }
   }, 'engineering-compiler-upgrade-write-boundary-');
 });

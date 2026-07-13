@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { ensureDir, writeText } from '../../shared/fs.ts';
+import { ensureDir, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { blockDirName, getWorkspacePaths } from '../../shared/paths.ts';
 import { CodeBuilder } from '../codegen/code-builder.ts';
@@ -12,7 +12,8 @@ import { CodeBuilder } from '../codegen/code-builder.ts';
  */
 export async function lowerToMicroservices(
   workspaceRoot: string,
-  lock: LockFile
+  lock: LockFile,
+  commitFence?: CommitFence
 ): Promise<string[]> {
   // 如果编译目标不是微服务，则静默跳过
   if (lock.app.target !== 'microservices') {
@@ -29,7 +30,7 @@ export async function lowerToMicroservices(
     const rpcRouteDir = path.join(projectRoot, 'app', 'api', 'rpc', dirName);
     const rpcRouteFile = path.join(rpcRouteDir, 'route.ts');
 
-    await ensureDir(rpcRouteDir);
+    await ensureDir(rpcRouteDir, commitFence);
 
     // 使用 CodeBuilder 程序化构造 RPC Gateway，类似 LLVM IRBuilder 的 SSA 构造方式。
     // 顶层声明（import / type alias / const / function）通过 Structure API 构造为 AST，
@@ -54,14 +55,14 @@ export async function lowerToMicroservices(
         body: buildRpcRouteBody(block.id)
       });
 
-    await writeText(rpcRouteFile, rpcRouteBuilder.getText());
+    await writeText(rpcRouteFile, rpcRouteBuilder.getText(), commitFence);
     generatedPaths.push(`app/api/rpc/${dirName}/route.ts`);
 
     // 2. 生成 RPC 客户端代理桩 (RPC Client Proxies)，注入熔断重试韧性机制
     const clientDir = path.join(projectRoot, 'src', 'rpc-clients');
     const clientFile = path.join(clientDir, `${dirName}-client.ts`);
 
-    await ensureDir(clientDir);
+    await ensureDir(clientDir, commitFence);
 
     // 使用 CodeBuilder 程序化构造 RPC Client。
     // CircuitBreaker 类的属性与方法通过 Structure API 构造为 AST 节点，
@@ -120,14 +121,14 @@ export async function lowerToMicroservices(
         body: buildCallRpcBody(block.id, dirName, envVarName)
       });
 
-    await writeText(clientFile, rpcClientBuilder.getText());
+    await writeText(clientFile, rpcClientBuilder.getText(), commitFence);
     generatedPaths.push(`src/rpc-clients/${dirName}-client.ts`);
 
     // 3. 生成物理隔离部署的 Dockerfile 容器定义 (Containerization)
     const dockerDir = path.join(projectRoot, 'docker', dirName);
     const dockerFile = path.join(dockerDir, 'Dockerfile');
     
-    await ensureDir(dockerDir);
+    await ensureDir(dockerDir, commitFence);
     
     const dockerfileContent = `# @generated-dockerfile block-id:${block.id}
 FROM bun:1.3.6-alpine
@@ -149,7 +150,7 @@ EXPOSE 3000
 
 CMD ["bun", "run", "dev"]
 `;
-    await writeText(dockerFile, dockerfileContent);
+    await writeText(dockerFile, dockerfileContent, commitFence);
     generatedPaths.push(`docker/${dirName}/Dockerfile`);
   }
 

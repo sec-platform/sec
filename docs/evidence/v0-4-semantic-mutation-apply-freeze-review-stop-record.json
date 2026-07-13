@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "sequence": 2,
+  "recordedAt": "2026-07-13T23:09:40.7008546+08:00",
+  "profile": "v0.4-semantic-mutation-apply",
+  "branch": "codex/v0-4-semantic-mutation-apply",
+  "worktree": "D:/Project/sec-worktrees/v0-4-semantic-mutation-apply",
+  "baseSha": "49f96d75cd90a4e5b43db5f8b4dfedebb0f3017f",
+  "currentHead": "49f96d75cd90a4e5b43db5f8b4dfedebb0f3017f",
+  "currentHeadTree": "581c3d9ccae186cef7d56254d929bff952d869bc",
+  "implementationState": "uncommitted-working-tree",
+  "reviewPhase": "pre-batch-static-audit",
+  "status": "stopped-on-new-blocker",
+  "mergeAllowed": false,
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-apply-stop-record.json",
+  "stopReason": "The bounded pre-batch static audit found new deterministic journal-safety and typecheck blockers. Indexing, the remaining parallel audit, imports organization, residue sampling, tests, and typecheck were stopped immediately instead of opening another fix-and-retest loop.",
+  "authority": [
+    "docs/03-MVP实施计划与路线图.md:553",
+    "docs/03-MVP实施计划与路线图.md:555",
+    "docs/03-MVP实施计划与路线图.md:556",
+    "docs/14-Engineering IR与语义事实规范.md:1758",
+    "docs/14-Engineering IR与语义事实规范.md:1770"
+  ],
+  "blockers": [
+    {
+      "id": "SM3-JOURNAL-CALLBACK-TYPE-002",
+      "priority": "P1",
+      "kind": "deterministic-typecheck-failure",
+      "observed": [
+        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:56 requires assertDirectory to return Promise<void>",
+        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:215 passes an async expression-body callback whose returned assertion resolves to string"
+      ],
+      "impact": "The implementation does not satisfy the required typecheck gate and cannot be frozen or promoted.",
+      "requiredResolution": "Wrap the assertion in a block-body async callback that awaits it without returning its string result, then validate only in the next authorized combined batch."
+    },
+    {
+      "id": "SM3-JOURNAL-TEMP-CONTAINMENT-003",
+      "priority": "P1",
+      "kind": "journal-containment-and-cleanup-violation",
+      "observed": [
+        "platform/compiler/semantic-mutation/mutation-recovery-record.ts:326 can create a temp record after the pre-open containment check",
+        "platform/compiler/semantic-mutation/mutation-recovery-record.ts:343 reasserts containment before line 345 cleanup, so a failing post-open containment check can prevent rm",
+        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:198 can create a completion temp after the pre-open containment check",
+        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:219 reasserts containment before line 221 cleanup, so a failing post-open containment check can prevent rm",
+        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:350 can create a rejected-terminal temp after the pre-open containment check",
+        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:375 reasserts containment before line 377 cleanup, so a failing post-open containment check can prevent rm",
+        "tests/unit/semantic-mutation-apply.test.ts:543-597 covers pre-created junction rejection but not a directory swap after the pre-open check"
+      ],
+      "impact": "If a verified journal directory is replaced by a junction between the pre-open check and open, the temp file may be created outside the transaction boundary. The post-open check rejects the write, but the finally block can throw before cleanup and leave the external temp behind.",
+      "requiredResolution": "Make cleanup reachable even when containment revalidation fails, while preserving the original failure and avoiding any unsafe deletion target. Add deterministic post-open swap regression coverage for recovery records, terminal completion, and rejected terminal records."
+    }
+  ],
+  "executionLedger": {
+    "importsOrganizeRun": false,
+    "residueBaselineRecorded": false,
+    "focusedBatchRun": false,
+    "typecheckRun": false,
+    "implementationCommitted": false,
+    "frozenReviewCompleted": false,
+    "canonicalGatesRun": false,
+    "slowRiskBatchRun": false,
+    "docsDoctorRun": false,
+    "githubActionsRun": false,
+    "fullFastRun": false,
+    "allSlowRun": false,
+    "workspaceReferenceFullChainRun": false,
+    "gitNexusIndexing": "started-then-terminated-on-stop",
+    "testsPromoted": []
+  },
+  "interruptedWork": [
+    "GitNexus local indexing",
+    "Pipeline proof and isolation capability read-only audit",
+    "Requirements and test-impact read-only audit"
+  ],
+  "closeout": {
+    "implementationCommitted": false,
+    "frozenReviewPassed": false,
+    "evidenceGenerated": false,
+    "roadmapClosed": false,
+    "mergedToLocalMain": false,
+    "worktreeCleaned": false,
+    "rootUserChangesTouched": false
+  },
+  "resumeBoundary": [
+    "Treat both new P1 findings as one bounded implementation batch; do not promote any earlier test result.",
+    "Repeat the pre-batch static audit after the bounded repair. Only a clean audit may proceed to the single combined focused batch and typecheck.",
+    "If another new blocker appears, append another stop record and stop again instead of expanding the loop."
+  ]
+}

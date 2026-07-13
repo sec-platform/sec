@@ -71,6 +71,10 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
       'semantic.mutation-source-adapter',
       'tests/contract/semantic-mutation-source-adapter-contract.test.ts'
     ),
+    contractFreezeTarget(
+      'semantic.mutation-apply',
+      'tests/contract/semantic-mutation-apply-contract.test.ts'
+    ),
     contractFreezeTarget('verification.budget', 'tests/contract/benchmark-budget.test.ts'),
     contractFreezeTarget('verification.impact', 'tests/contract/test-impact.test.ts'),
     contractFreezeTarget('verification.ci-lanes', 'tests/contract/ci-lanes.test.ts'),

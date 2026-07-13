@@ -1,4 +1,10 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+
+import type { CommitFence } from './fs.ts';
+
+export const ISOLATED_VERIFICATION_ENV_KEY = 'SEC_ISOLATED_VERIFICATION' as const;
 
 export function pathEnvKey(): string {
   return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
@@ -11,10 +17,127 @@ export interface CommandResult {
 }
 
 export interface RunCommandOptions {
+  beforeSpawn?: CommitFence;
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  envMode?: 'inherit' | 'replace';
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+const ISOLATED_READ_ONLY_ENV_KEYS = [
+  'SYSTEMROOT',
+  'WINDIR'
+] as const;
+
+const ISOLATED_ADDITIONAL_ENV_KEYS = new Set([
+  ISOLATED_VERIFICATION_ENV_KEY,
+  'BUN_INSTALL_CACHE_DIR',
+  'CI',
+  'PLAYWRIGHT_BROWSERS_PATH',
+  'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD',
+  'TEST_PORT'
+]);
+
+export interface IsolatedProcessDirectories {
+  readonly appData: string;
+  readonly home: string;
+  readonly localAppData: string;
+  readonly root: string;
+  readonly temp: string;
+}
+
+export function isolatedProcessDirectories(writableRoot: string): IsolatedProcessDirectories {
+  const root = path.resolve(writableRoot);
+  return {
+    root,
+    home: path.join(root, 'home'),
+    appData: path.join(root, 'appdata'),
+    localAppData: path.join(root, 'localappdata'),
+    temp: path.join(root, 'tmp')
+  };
+}
+
+export async function ensureIsolatedProcessDirectories(
+  writableRoot: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  const directories = isolatedProcessDirectories(writableRoot);
+  for (const directory of Object.values(directories)) {
+    await commitFence?.();
+    await mkdir(directory, { recursive: true });
+  }
+}
+
+/**
+ * Builds the fixed environment boundary used by isolated compiler children.
+ * Variables with command-injection or network effects (for example
+ * NODE_OPTIONS, BUN_OPTIONS, and proxy settings) are deliberately absent.
+ */
+export function buildIsolatedProcessEnvironment(
+  writableRoot: string,
+  additionalEnv: NodeJS.ProcessEnv = {},
+  source: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const directories = isolatedProcessDirectories(writableRoot);
+  const env: NodeJS.ProcessEnv = {
+    PATH: '',
+    HOME: directories.home,
+    USERPROFILE: directories.home,
+    APPDATA: directories.appData,
+    LOCALAPPDATA: directories.localAppData,
+    TEMP: directories.temp,
+    TMP: directories.temp,
+    TMPDIR: directories.temp,
+    LANG: 'C',
+    LC_ALL: 'C',
+    TZ: 'UTC'
+  };
+  for (const key of ISOLATED_READ_ONLY_ENV_KEYS) {
+    if (source[key] !== undefined) env[key] = source[key];
+  }
+  for (const [key, value] of Object.entries(additionalEnv)) {
+    if (!ISOLATED_ADDITIONAL_ENV_KEYS.has(key)) {
+      throw new Error(`Environment key "${key}" is outside the isolated process allowlist`);
+    }
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+async function terminateCommandProcessTree(child: ChildProcess): Promise<void> {
+  if (process.platform !== 'win32' || !child.pid) {
+    child.kill('SIGTERM');
+    return;
+  }
+  const configuredRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? String.raw`C:\Windows`;
+  const systemRoot = path.isAbsolute(configuredRoot) ? configuredRoot : String.raw`C:\Windows`;
+  const taskkill = path.join(systemRoot, 'System32', 'taskkill.exe');
+  await new Promise<void>((resolve) => {
+    const killer = spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], {
+      env: {
+        SystemRoot: systemRoot,
+        SYSTEMROOT: systemRoot,
+        WINDIR: systemRoot
+      },
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    let complete = false;
+    const finish = (): void => {
+      if (complete) return;
+      complete = true;
+      clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      killer.kill('SIGKILL');
+      finish();
+    }, 5_000);
+    killer.once('error', finish);
+    killer.once('close', finish);
+  });
+  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 }
 
 export async function runCommand(
@@ -22,13 +145,17 @@ export async function runCommand(
   args: string[],
   options: RunCommandOptions
 ): Promise<CommandResult> {
+  const inheritedEnv = options.envMode === 'replace' ? {} : process.env;
   const env = Object.fromEntries(
     Object.entries({
-      ...process.env,
+      ...inheritedEnv,
       ...options.env
     }).filter(([, value]) => value !== undefined)
   ) as NodeJS.ProcessEnv;
 
+  options.signal?.throwIfAborted();
+  await options.beforeSpawn?.();
+  options.signal?.throwIfAborted();
   return new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -39,18 +166,38 @@ export async function runCommand(
     let stdout = '';
     let stderr = '';
 
+    let settled = false;
+    let terminating = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = (): void => {
+      if (timeoutId) clearTimeout(timeoutId);
+      options.signal?.removeEventListener('abort', onAbort);
+    };
+    const settleReject = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const terminateAndReject = (message: string): void => {
+      if (settled || terminating) return;
+      terminating = true;
+      void terminateCommandProcessTree(child).then(
+        () => settleReject(new Error(message)),
+        () => settleReject(new Error(message))
+      );
+    };
     const onAbort = (): void => {
-      child.kill('SIGTERM');
-      reject(new Error(`Command "${command}" was aborted`));
+      terminateAndReject(`Command "${command}" was aborted`);
     };
 
     options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
 
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (options.timeoutMs && options.timeoutMs > 0) {
       timeoutId = setTimeout(() => {
-        child.kill('SIGTERM');
-        reject(new Error(`Command "${command}" timed out after ${options.timeoutMs}ms`));
+        terminateAndReject(`Command "${command}" timed out after ${options.timeoutMs}ms`);
       }, options.timeoutMs);
     }
 
@@ -61,13 +208,12 @@ export async function runCommand(
       stderr += String(chunk);
     });
     child.on('error', (error) => {
-      if (timeoutId) clearTimeout(timeoutId);
-      options.signal?.removeEventListener('abort', onAbort);
-      reject(error);
+      if (!terminating) settleReject(error);
     });
     child.on('close', (code) => {
-      if (timeoutId) clearTimeout(timeoutId);
-      options.signal?.removeEventListener('abort', onAbort);
+      if (settled || terminating) return;
+      settled = true;
+      cleanup();
       resolve({
         code: code ?? 1,
         stdout,

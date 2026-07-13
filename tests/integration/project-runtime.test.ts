@@ -442,6 +442,7 @@ describe('project base', () => {
       const playwrightConfig = await fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8');
 
       expect(runtimeSpec.devDependencies['@playwright/test']).toBeDefined();
+      expect(runtimeSpec.devDependencies['ts-morph']).toBeDefined();
       expect(projectPackage.devDependencies['@playwright/test']).toBe(runtimeSpec.devDependencies['@playwright/test']);
       expect(projectPackage.scripts.dev).toBe('next dev --webpack');
       expect(projectPackage.scripts['test:acceptance']).toBe('playwright test --config playwright.config.ts');
@@ -507,5 +508,79 @@ describe('ensureProjectDependencies', () => {
         path.join(sharedDepsRoot, 'node_modules')
       );
     }, 'engineering-compiler-runtime-link-');
+  });
+
+  test('isolated dependency materialization fences a physical preinstalled tree without spawning', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+      const sharedPackageFile = path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json');
+      const sharedBinaryFile = path.join(sharedDepsRoot, 'node_modules', 'seed', 'cache.bin');
+      await ensureProjectBase(workspaceRoot);
+      await fs.mkdir(path.dirname(sharedPackageFile), { recursive: true });
+      await fs.mkdir(path.dirname(sharedBinaryFile), { recursive: true });
+      await fs.writeFile(sharedPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8');
+      await fs.writeFile(sharedBinaryFile, new Uint8Array([0, 1, 127, 128, 255]));
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const sequence: string[] = [];
+      const controller = new AbortController();
+      const beforeCommit = async (): Promise<void> => {
+        sequence.push('fence');
+      };
+
+      await ensureProjectDependencies(projectRoot, {
+        beforeCommit,
+        commandRunner: async () => {
+          sequence.push('unexpected-spawn');
+          return { code: 1, stdout: '', stderr: 'unexpected' };
+        },
+        installMode: 'offline-copy-only',
+        rematerialize: true,
+        sharedDepsRoot,
+        signal: controller.signal,
+        skipSharedDepsWarmup: true
+      });
+
+      expect(sequence).not.toContain('unexpected-spawn');
+      expect(sequence.filter((entry) => entry === 'fence').length).toBeGreaterThanOrEqual(6);
+      expect(await fs.readFile(
+        path.join(projectRoot, 'node_modules', 'seed', 'cache.bin')
+      )).toEqual(Buffer.from([0, 1, 127, 128, 255]));
+      expect(await readRuntimeDepsStamp(path.join(projectRoot, '.runtime-deps.stamp.json')))
+        .toMatchObject({ packageManager: 'bun' });
+    }, 'engineering-compiler-runtime-isolated-fence-');
+  });
+
+  test('isolated dependency materialization stops during physical copy when its fence is lost', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+      const sharedPackageFile = path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json');
+      await ensureProjectBase(workspaceRoot);
+      await fs.mkdir(path.dirname(sharedPackageFile), { recursive: true });
+      await fs.writeFile(sharedPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8');
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const targetModulesRoot = path.join(projectRoot, 'node_modules');
+      const targetPackageFile = path.join(targetModulesRoot, 'next', 'package.json');
+      let installCalls = 0;
+      const beforeCommit = async (): Promise<void> => {
+        const rootExists = await fs.stat(targetModulesRoot).then(() => true, () => false);
+        const fileExists = await fs.stat(targetPackageFile).then(() => true, () => false);
+        if (rootExists && !fileExists) throw new Error('injected dependency materialization lease loss');
+      };
+
+      await expect(ensureProjectDependencies(projectRoot, {
+        beforeCommit,
+        commandRunner: async () => {
+          installCalls += 1;
+          return { code: 0, stdout: 'unexpected', stderr: '' };
+        },
+        installMode: 'offline-copy-only',
+        rematerialize: true,
+        sharedDepsRoot,
+        skipSharedDepsWarmup: true
+      })).rejects.toThrow('injected dependency materialization lease loss');
+
+      expect(installCalls).toBe(0);
+      await expect(fs.stat(targetPackageFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-runtime-isolated-fence-loss-');
   });
 });

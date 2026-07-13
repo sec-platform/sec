@@ -1,4 +1,6 @@
-import { adaptProject, composeProject, loadWorkspacePlan } from '../compiler/index.ts';
+import { composeProject } from '../compiler/compose/compose-project.ts';
+import { loadWorkspacePlan } from '../compiler/index.ts';
+import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { pathExists } from '../shared/fs.ts';
 import { readLockFile } from '../shared/lock-utils.ts';
@@ -7,12 +9,14 @@ import { executePipelineStage, withPipelineTransaction } from '../shared/pipelin
 import { requirePipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
 import type { PipelineExecutionContext, PipelineSemanticContext } from '../shared/pipeline-types.ts';
 import type { LockFile, PlanFile } from '../shared/types.ts';
+import { createWorkspaceWriteCommitFence } from '../shared/workspace-write-lease.ts';
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 
 async function composeWorkspaceCore(
   workspaceRoot: string,
   semanticContext: PipelineSemanticContext,
-  options?: { lock?: boolean }
+  context: PipelineExecutionContext,
+  options?: { lock?: boolean; signal?: AbortSignal }
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   if (!(await pathExists(readableLockPath))) {
@@ -20,13 +24,18 @@ async function composeWorkspaceCore(
   }
   const plan = await loadWorkspacePlan(workspaceRoot);
   const lock = await readLockFile(workspaceRoot);
-  await composeProject(workspaceRoot, lock, semanticContext, { lockFiles: !!options?.lock });
+  const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
+  await composeProject(workspaceRoot, lock, semanticContext, {
+    lockFiles: !!options?.lock,
+    commitFence,
+    signal: options?.signal
+  });
   return { plan, lock };
 }
 
 export async function composeWorkspace(
   workspaceRoot = process.cwd(),
-  options?: { lock?: boolean },
+  options?: { lock?: boolean; signal?: AbortSignal },
   context?: PipelineExecutionContext
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   if (!context) {
@@ -45,15 +54,24 @@ export async function composeWorkspace(
     workspaceRoot,
     'compose',
     context,
-    () => composeWorkspaceCore(workspaceRoot, requirePipelineSemanticContext(context), options),
+    (stageContext) => composeWorkspaceCore(
+      workspaceRoot,
+      requirePipelineSemanticContext(stageContext),
+      stageContext,
+      options
+    ),
     { extractLock: (result) => result.lock }
   );
 }
 
-async function adaptWorkspaceCore(workspaceRoot: string): Promise<{ plan: PlanFile; lock: LockFile }> {
+async function adaptWorkspaceCore(
+  workspaceRoot: string,
+  context: PipelineExecutionContext
+): Promise<{ plan: PlanFile; lock: LockFile }> {
   const plan = await loadWorkspacePlan(workspaceRoot);
   const lock = await readLockFile(workspaceRoot);
-  await adaptProject(workspaceRoot, plan, lock);
+  const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
+  await adaptProject(workspaceRoot, plan, lock, commitFence);
   return { plan, lock };
 }
 
@@ -65,7 +83,7 @@ export async function adaptWorkspace(
     workspaceRoot,
     'adapt',
     context,
-    () => adaptWorkspaceCore(workspaceRoot),
+    (stageContext) => adaptWorkspaceCore(workspaceRoot, stageContext),
     { extractLock: (result) => result.lock }
   );
 }

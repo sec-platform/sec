@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { uniqueSorted } from '../../shared/collections.ts';
-import { ensureDir, writeText } from '../../shared/fs.ts';
+import { ensureDir, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { TemplateEngine } from './template-engine.ts';
@@ -388,14 +388,18 @@ function generatedPathsForScaffold(lock: LockFile): string[] {
   return uniqueSorted([...BASE_RUNTIME_SCAFFOLD_PATHS, ...entries]);
 }
 
-export async function generateRuntimeHostScaffold(workspaceRoot: string, lock: LockFile): Promise<string[]> {
+export async function generateRuntimeHostScaffold(
+  workspaceRoot: string,
+  lock: LockFile,
+  commitFence?: CommitFence
+): Promise<string[]> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const entries = scaffoldEntries(lock);
 
   for (const entry of entries) {
     const targetPath = path.join(projectRoot, entry.relativePath);
-    await ensureDir(path.dirname(targetPath));
-    await writeText(targetPath, entry.source);
+    await ensureDir(path.dirname(targetPath), commitFence);
+    await writeText(targetPath, entry.source, commitFence);
   }
 
   return generatedPathsForScaffold(lock);

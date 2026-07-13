@@ -21,7 +21,7 @@ import type {
 } from '../../shared/ci-artifact-types.ts';
 import { countMatching } from '../../shared/collections.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
-import { pathExists, readJson, writeJson } from '../../shared/fs.ts';
+import { pathExists, readJson, writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { readLockFile, writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../shared/paths.ts';
@@ -146,13 +146,16 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   };
 }
 
-export async function writeCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
+export async function writeCiArtifactManifest(
+  workspaceRoot = process.cwd(),
+  commitFence?: CommitFence
+): Promise<CiArtifactManifest> {
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
   const lock = await readLockFile(workspaceRoot);
-  await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_MANIFEST_PATH]);
-  await writeJson(ciArtifactsPath, emptyCiArtifactManifest());
+  await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_MANIFEST_PATH], commitFence);
+  await writeJson(ciArtifactsPath, emptyCiArtifactManifest(), commitFence);
   const manifest = await buildCiArtifactManifest(workspaceRoot);
-  await writeJson(ciArtifactsPath, manifest);
-  await writeProvenance(workspaceRoot, lock);
+  await writeJson(ciArtifactsPath, manifest, commitFence);
+  await writeProvenance(workspaceRoot, lock, commitFence);
   return manifest;
 }

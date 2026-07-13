@@ -1,0 +1,790 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { expect, test } from 'bun:test';
+import ts from 'typescript';
+
+import {
+  executeSemanticMutationVerification,
+  planSemanticMutationVerificationCapabilities
+} from '../../platform/compiler/index.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
+import { isSemanticMutationStagingWorkspace } from '../../platform/compiler/verify/semantic-mutation-staging-boundary.ts';
+import { assertSemanticMutationVerificationReportInvariant } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
+import { applySemanticMutation } from '../../platform/orchestrator.ts';
+import type { IsolatedVerificationCapability } from '../../platform/orchestrator/isolated-verification-capability.ts';
+import {
+  PIPELINE_COMPLETION_PROOF_REVISION,
+  PIPELINE_STAGE_IDS,
+  type PipelineExecutionContext
+} from '../../platform/shared/pipeline-types.ts';
+import {
+  SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION
+} from '../../platform/shared/semantic-mutation-types.ts';
+import {
+  SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
+  SEMANTIC_MUTATION_RECOVERY_TRANSITIONS,
+  SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,
+  SEMANTIC_MUTATION_REQUEST_RECORD_VIEW_REVISION,
+  SEMANTIC_MUTATION_STAGED_TRANSACTION_REVISION,
+  SEMANTIC_MUTATION_TERMINAL_RETENTION,
+  type SemanticMutationApplyOutcomeV1,
+  type SemanticMutationRequestRecordViewV1
+} from '../../platform/shared/semantic-mutation-transaction-types.ts';
+import {
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+  SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
+  SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
+} from '../../platform/shared/verification-types.ts';
+import { WORKSPACE_WRITE_LEASE_TOKEN_VERSION } from '../../platform/shared/workspace-write-lease.ts';
+
+function sha256(value: unknown): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+test('semantic mutation staging layout is exactly the canonical transaction workspace', () => {
+  const workspaceRoot = path.resolve('contract-workspace');
+  const digest = sha256('canonical-transaction-layout');
+  const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, digest);
+  const transactionName = digest.slice('sha256:'.length);
+  expect(transactionRoot).toBe(path.join(
+    workspaceRoot,
+    '.sec',
+    'semantic-mutation',
+    'v1',
+    'transactions',
+    transactionName
+  ));
+  expect(isSemanticMutationStagingWorkspace(path.join(transactionRoot, 'workspace'))).toBe(true);
+  expect(isSemanticMutationStagingWorkspace(path.join(workspaceRoot, '.sec', 's', transactionName))).toBe(false);
+  expect(isSemanticMutationStagingWorkspace(path.join(transactionRoot, 'staging'))).toBe(false);
+  expect(isSemanticMutationStagingWorkspace(path.join(
+    workspaceRoot,
+    '.sec',
+    'semantic-mutation',
+    'v1',
+    'transactions',
+    'not-a-digest',
+    'workspace'
+  ))).toBe(false);
+});
+
+function propertyName(member: ts.TypeElement): string | null {
+  if (!ts.isPropertySignature(member) || member.name === undefined) return null;
+  return member.name.getText().replace(/^['"]|['"]$/gu, '');
+}
+
+function interfaceKeys(source: string, interfaceName: string): string[] {
+  const file = ts.createSourceFile('contract.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declaration = file.statements.find((statement): statement is ts.InterfaceDeclaration =>
+    ts.isInterfaceDeclaration(statement) && statement.name.text === interfaceName);
+  if (!declaration) throw new Error(`Missing interface ${interfaceName}`);
+  return declaration.members.map(propertyName).filter((name): name is string => name !== null);
+}
+
+function typeLiteralKeys(source: string, aliasName: string): string[][] {
+  const file = ts.createSourceFile('contract.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declaration = file.statements.find((statement): statement is ts.TypeAliasDeclaration =>
+    ts.isTypeAliasDeclaration(statement) && statement.name.text === aliasName);
+  if (!declaration) throw new Error(`Missing type alias ${aliasName}`);
+  const results: string[][] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isTypeLiteralNode(node)) {
+      results.push(node.members.map(propertyName).filter((name): name is string => name !== null));
+      return;
+    }
+    node.forEachChild(visit);
+  };
+  visit(declaration.type);
+  return results;
+}
+
+test('SM-3 freezes lease, journal, query, rollback, Pipeline proof, and Verification revisions', () => {
+  expect({
+    lease: WORKSPACE_WRITE_LEASE_TOKEN_VERSION,
+    recovery: SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
+    rejectedTerminal: SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,
+    requestView: SEMANTIC_MUTATION_REQUEST_RECORD_VIEW_REVISION,
+    stagedTransaction: SEMANTIC_MUTATION_STAGED_TRANSACTION_REVISION,
+    rollbackManifest: SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION,
+    pipelineCompletionProof: PIPELINE_COMPLETION_PROOF_REVISION,
+    terminalRetention: SEMANTIC_MUTATION_TERMINAL_RETENTION,
+    verificationAdapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+    verificationAdapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+    capabilityPlanRevision: SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
+    verificationReportRevision: SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
+  }).toEqual({
+    lease: 'workspace-write-lease-token-v1',
+    recovery: 'semantic-mutation-recovery-record-v1',
+    rejectedTerminal: 'semantic-mutation-rejected-terminal-record-v1',
+    requestView: 'semantic-mutation-request-record-view-v1',
+    stagedTransaction: 'semantic-mutation-staged-transaction-v1',
+    rollbackManifest: 'semantic-mutation-rollback-manifest-v2',
+    pipelineCompletionProof: 'pipeline-completion-proof-v1',
+    terminalRetention: 256,
+    verificationAdapterId: 'semantic-mutation-local-verification',
+    verificationAdapterRevision: 'semantic-mutation-local-verification-v1',
+    capabilityPlanRevision: 'semantic-mutation-verification-capability-plan-v1',
+    verificationReportRevision: 'semantic-mutation-verification-report-v1'
+  });
+  expect(PIPELINE_STAGE_IDS).toEqual([
+    'resolve', 'semantic', 'compose', 'adapt', 'verify', 'lock', 'emit'
+  ]);
+  expect(SEMANTIC_MUTATION_RECOVERY_TRANSITIONS).toEqual({
+    prepared: ['authoring-committed', 'recovery-required'],
+    'authoring-committed': ['verified', 'rolled-back', 'recovery-required'],
+    verified: [],
+    'rolled-back': [],
+    'recovery-required': []
+  });
+  expect(Object.values(SEMANTIC_MUTATION_RECOVERY_TRANSITIONS)
+    .every((states) => Object.isFrozen(states))).toBe(true);
+  const preparedTransitions: readonly ('authoring-committed' | 'recovery-required')[] =
+    SEMANTIC_MUTATION_RECOVERY_TRANSITIONS.prepared;
+  const committedTransitions: readonly ('verified' | 'rolled-back' | 'recovery-required')[] =
+    SEMANTIC_MUTATION_RECOVERY_TRANSITIONS['authoring-committed'];
+  expect(preparedTransitions).toHaveLength(2);
+  expect(committedTransitions).toHaveLength(3);
+});
+
+test('ordinary malformed requests return the exact redacted request-rejected outcome before lease acquisition', async () => {
+  const outcome = await applySemanticMutation('Z:\\must-not-be-observed', {
+    request: { contractVersion: '1', requestId: 'request:malformed' }
+  } as never);
+  expect(Object.keys(outcome)).toEqual([
+    'status', 'requestId', 'requestRevision', 'diagnostics', 'diagnosticRevision'
+  ]);
+  expect(outcome).toMatchObject({
+    status: 'request-rejected',
+    requestId: 'request:malformed',
+    requestRevision: ''
+  });
+  if (outcome.status !== 'request-rejected') throw new Error(JSON.stringify(outcome));
+  expect(outcome.diagnostics).toHaveLength(1);
+  expect(JSON.stringify(outcome)).not.toContain('Z:\\must-not-be-observed');
+  expect(outcome.diagnosticRevision).toBe(sha256({
+    domain: 'semantic-mutation-diagnostic-v2',
+    diagnostics: outcome.diagnostics
+  }));
+});
+
+test('Verification adapter emits the exact frozen report and execution binding, and forged unions never run', async () => {
+  const inputRevision = sha256('input');
+  const semanticRevision = sha256('semantic');
+  const snapshot = {
+    ir: { inputRevision, semanticRevision, entities: [], facts: [] }
+  } as never;
+  const requirements = [{ kind: 'pass' as const, passId: 'verify' }];
+  const isolationCapabilityProbe = () => ({ status: 'available' });
+  const capabilityPlan = await planSemanticMutationVerificationCapabilities({
+    snapshot,
+    requirements,
+    isolationCapabilityProbe
+  });
+  const attempted = { transactionId: 'tx:staged', inputRevision, semanticRevision };
+  const planRevision = sha256('plan');
+  const stagedSourceDigest = sha256('staged-source');
+  const requiredVerificationDigest = sha256({
+    domain: 'semantic-mutation-required-verification-v1',
+    requirements
+  });
+  let calls = 0;
+  const runner = (runnerInput: unknown) => {
+    calls += 1;
+    expect(Object.isFrozen(runnerInput)).toBe(true);
+    expect(Object.keys(runnerInput as object)).toEqual([
+      'runner', 'planRevision', 'attempted', 'stagedSourceDigest',
+      'requiredVerificationDigest', 'requirements'
+    ]);
+    return { status: 'passed' as const, evidenceDigest: sha256('verify-all') };
+  };
+  const report = await executeSemanticMutationVerification({
+    capabilityPlan,
+    requirements,
+    planRevision,
+    attempted,
+    stagedSourceDigest,
+    requiredVerificationDigest
+  }, runner);
+  expect(calls).toBe(1);
+  expect(Object.keys(report)).toEqual([
+    'formatRevision', 'adapterId', 'adapterRevision', 'planRevision', 'attempted',
+    'stagedSourceDigest', 'requiredVerificationDigest', 'executions', 'status', 'reportRevision'
+  ]);
+  expect(Object.keys(report.executions[0]!)).toEqual([
+    'requirement', 'runner', 'status', 'evidenceDigest'
+  ]);
+  const { reportRevision, ...withoutReportRevision } = report;
+  expect(reportRevision).toBe(sha256({
+    domain: 'semantic-mutation-verification-report-v1',
+    ...withoutReportRevision
+  }));
+  expect(() => assertSemanticMutationVerificationReportInvariant(report)).not.toThrow();
+
+  const execution = buildSemanticMutationVerificationExecutionRef(report);
+  expect(Object.keys(execution)).toEqual([
+    'adapterId', 'adapterRevision', 'reportRevision', 'planRevision', 'attempted',
+    'stagedSourceDigest', 'requiredVerificationDigest', 'status', 'verificationExecutionRevision'
+  ]);
+  expect(() => buildSemanticMutationVerificationExecutionRef({
+    ...report,
+    reportRevision: sha256('forged-report-revision')
+  })).toThrow('revision is stale or forged');
+  expect(() => buildSemanticMutationVerificationExecutionRef({
+    ...report,
+    forgedExtra: true
+  } as never)).toThrow('non-canonical schema');
+
+  await expect(executeSemanticMutationVerification({
+    capabilityPlan,
+    requirements,
+    planRevision,
+    attempted,
+    stagedSourceDigest,
+    requiredVerificationDigest: sha256('forged-union')
+  }, runner)).rejects.toThrow('invalid or blocked');
+  expect(calls).toBe(1);
+
+  await expect(executeSemanticMutationVerification({
+    capabilityPlan,
+    requirements,
+    planRevision,
+    attempted: { ...attempted, transactionId: '' },
+    stagedSourceDigest,
+    requiredVerificationDigest
+  }, runner)).rejects.toThrow('invalid or blocked');
+  const nonShaEndpointPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
+  nonShaEndpointPlan.snapshotInputRevision = 'not-a-sha256-revision';
+  delete nonShaEndpointPlan.capabilityPlanRevision;
+  nonShaEndpointPlan.capabilityPlanRevision = sha256({
+    domain: 'semantic-mutation-verification-capability-plan-v1',
+    ...nonShaEndpointPlan
+  });
+  await expect(executeSemanticMutationVerification({
+    capabilityPlan: nonShaEndpointPlan as never,
+    requirements,
+    planRevision,
+    attempted: { ...attempted, inputRevision: 'not-a-sha256-revision' },
+    stagedSourceDigest,
+    requiredVerificationDigest
+  }, runner)).rejects.toThrow('invalid or blocked');
+  await expect(executeSemanticMutationVerification({
+    capabilityPlan,
+    requirements: [{ ...requirements[0]!, forgedExtra: true }] as never,
+    planRevision,
+    attempted,
+    stagedSourceDigest,
+    requiredVerificationDigest
+  }, runner)).rejects.toThrow('invalid or blocked');
+  expect(calls).toBe(1);
+
+  const forgedCapabilityPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
+  const forgedCapabilities = forgedCapabilityPlan.capabilities as Array<Record<string, unknown>>;
+  forgedCapabilities[0] = { ...forgedCapabilities[0], isolated: false };
+  delete forgedCapabilityPlan.capabilityPlanRevision;
+  forgedCapabilityPlan.capabilityPlanRevision = sha256({
+    domain: 'semantic-mutation-verification-capability-plan-v1',
+    ...forgedCapabilityPlan
+  });
+  await expect(executeSemanticMutationVerification({
+    capabilityPlan: forgedCapabilityPlan as never,
+    requirements,
+    planRevision,
+    attempted,
+    stagedSourceDigest,
+    requiredVerificationDigest
+  }, runner)).rejects.toThrow('invalid or blocked');
+  expect(calls).toBe(1);
+
+  const externalEffectPlan = await planSemanticMutationVerificationCapabilities({
+    snapshot: {
+      ir: {
+        inputRevision,
+        semanticRevision,
+        entities: [{
+          id: 'effect:external',
+          kind: 'effect',
+          label: 'External call',
+          attributes: [{ key: 'effectKind', value: 'external-service-call' }]
+        }],
+        facts: []
+      }
+    } as never,
+    requirements,
+    isolationCapabilityProbe
+  });
+  expect(externalEffectPlan.status).toBe('blocked');
+  expect(externalEffectPlan.capabilities[0]).toMatchObject({
+    status: 'non-runnable',
+    isolated: false
+  });
+});
+
+test('storage, query-view, Verification, and Pipeline proof interfaces retain exact property sets', async () => {
+  const transactionTypes = await readFile(path.resolve(
+    import.meta.dir,
+    '../../platform/shared/semantic-mutation-transaction-types.ts'
+  ), 'utf8');
+  const verificationTypes = await readFile(path.resolve(
+    import.meta.dir,
+    '../../platform/shared/verification-types.ts'
+  ), 'utf8');
+  const mutationTypes = await readFile(path.resolve(
+    import.meta.dir,
+    '../../platform/shared/semantic-mutation-types.ts'
+  ), 'utf8');
+  const pipelineTypes = await readFile(path.resolve(
+    import.meta.dir,
+    '../../platform/shared/pipeline-types.ts'
+  ), 'utf8');
+
+  expect(interfaceKeys(transactionTypes, 'SemanticMutationRecoveryRecordBaseV1')).toEqual([
+    'formatRevision', 'sequence', 'previousRecordRevision', 'transactionId',
+    'requestIdentityDigest', 'requestRevision', 'authorizationRevision',
+    'expectedPlanRevision', 'planRevision', 'editPlanRevision', 'rollbackManifestDigest',
+    'relativePath', 'beforeByteDigest', 'committedByteDigest', 'base', 'staged',
+    'verificationExecutionRevision', 'verificationReportRevision', 'request', 'authorization',
+    'plan', 'verification', 'result', 'recoveryState', 'diagnostics', 'recordRevision'
+  ]);
+  expect(interfaceKeys(transactionTypes, 'SemanticMutationRejectedTerminalRecordV1')).toEqual([
+    'formatRevision', 'requestIdentityDigest', 'requestRevision', 'planRevision',
+    'terminalSequence', 'result', 'recordRevision'
+  ]);
+  expect(typeLiteralKeys(transactionTypes, 'SemanticMutationRecoveryRecordV1')).toEqual([
+    ['state', 'terminalSequence'],
+    ['state', 'terminalSequence']
+  ]);
+  expect(interfaceKeys(mutationTypes, 'SemanticMutationRollbackManifestV2')).toEqual([
+    'formatRevision', 'ownerId', 'adapterId', 'adapterRevision', 'relativePath',
+    'beforeByteDigest', 'stagedByteDigest', 'beforeByteLength', 'stagedByteLength',
+    'fileMode', 'windowsFileAttributes', 'encoding', 'utf8Bom', 'lineEnding',
+    'finalNewline', 'pathEvidenceRevision', 'rollbackManifestDigest'
+  ]);
+  expect(interfaceKeys(transactionTypes, 'SemanticMutationRequestTransactionRecordViewBaseV1')).toEqual([
+    'formatRevision', 'recordKind', 'identity', 'requestIdentityDigest',
+    'transactionId', 'requestRevision', 'authorizationRevision', 'expectedPlanRevision',
+    'planRevision', 'editPlanRevision', 'rollbackManifestDigest', 'base', 'staged',
+    'verificationExecutionRevision', 'verificationReportRevision', 'diagnostics',
+    'recordRevision'
+  ]);
+  expect(typeLiteralKeys(transactionTypes, 'SemanticMutationRequestTransactionRecordViewV1')).toEqual([
+    ['state', 'terminalSequence', 'result', 'recoveryState'],
+    ['state', 'terminalSequence', 'result', 'recoveryState'],
+    ['state', 'terminalSequence', 'result', 'recoveryState'],
+    ['state', 'terminalSequence', 'result', 'recoveryState']
+  ]);
+  expect(typeLiteralKeys(transactionTypes, 'SemanticMutationRequestRecordViewV1')).toEqual([
+    [
+      'formatRevision', 'recordKind', 'identity', 'requestIdentityDigest', 'state',
+      'requestRevision', 'planRevision', 'terminalSequence', 'result', 'diagnostics',
+      'recordRevision'
+    ]
+  ]);
+  expect(typeLiteralKeys(transactionTypes, 'SemanticMutationApplyOutcomeV1')).toEqual([
+    ['status', 'result'],
+    ['status', 'requestId', 'requestRevision', 'diagnostics', 'diagnosticRevision']
+  ]);
+  expect(typeLiteralKeys(transactionTypes, 'SemanticMutationRecoveryOutcomeV1')).toEqual([
+    ['status'],
+    ['status', 'result'],
+    ['status', 'record']
+  ]);
+  expect(interfaceKeys(verificationTypes, 'SemanticMutationVerificationReportV1')).toEqual([
+    'formatRevision', 'adapterId', 'adapterRevision', 'planRevision', 'attempted',
+    'stagedSourceDigest', 'requiredVerificationDigest', 'executions', 'status', 'reportRevision'
+  ]);
+  expect(interfaceKeys(pipelineTypes, 'PipelineCompletionProofV1')).toEqual([
+    'formatRevision', 'transactionId', 'inputRevision', 'semanticRevision',
+    'completedStages', 'completedPasses', 'verificationDigest', 'provenanceDigest',
+    'explainGraphDigest', 'reviewSummaryDigest', 'localViewDigests', 'proofRevision'
+  ]);
+});
+
+test('writer authority, immutable journal, atomic publish/rollback CAS, and public redaction stay closed', async () => {
+  const root = path.resolve(import.meta.dir, '../..');
+  const sources = Object.fromEntries(await Promise.all(Object.entries({
+    compilerFacade: 'platform/compiler/index.ts',
+    blockOrchestrator: 'platform/orchestrator/block-orchestrator.ts',
+    composeOrchestrator: 'platform/orchestrator/compose-orchestrator.ts',
+    emitOrchestrator: 'platform/orchestrator/emit-orchestrator.ts',
+    orchestratorFacade: 'platform/orchestrator.ts',
+    orchestratorIndex: 'platform/orchestrator/index.ts',
+    mutationOrchestrator: 'platform/orchestrator/semantic-mutation-orchestrator.ts',
+    repairOrchestrator: 'platform/orchestrator/repair-orchestrator.ts',
+    repairWriter: 'platform/compiler/repair/build-repair-plan.ts',
+    workbenchOrchestrator: 'platform/orchestrator/workbench-orchestrator.ts',
+    viewMutationWriter: 'platform/compiler/workbench/apply-view-mutations.ts',
+    workspaceOrchestrator: 'platform/orchestrator/workspace-orchestrator.ts',
+    journal: 'platform/compiler/semantic-mutation/mutation-recovery-record.ts',
+    terminal: 'platform/compiler/semantic-mutation/mutation-terminal-record.ts',
+    transactionIdentity: 'platform/compiler/semantic-mutation/transaction-identity.ts',
+    stagedMutation: 'platform/compiler/semantic-mutation/derive-staged-mutation.ts',
+    stagingBoundary: 'platform/compiler/verify/semantic-mutation-staging-boundary.ts',
+    atomicPublish: 'platform/compiler/semantic-mutation/atomic-source-publish.ts',
+    lease: 'platform/shared/workspace-write-lease.ts',
+    pipelineKernel: 'platform/shared/pipeline-kernel.ts',
+    pipelineOrchestrator: 'platform/orchestrator/pipeline-orchestrator.ts',
+    verifyOrchestrator: 'platform/orchestrator/verify-orchestrator.ts',
+    neutralIsolationCapability: 'platform/orchestrator/isolated-verification-capability.ts',
+    workbench: 'platform/orchestrator/workbench-server-v2.ts',
+    upgrade: 'platform/upgrade/upgrade-workspace.ts',
+    processRunner: 'platform/shared/process.ts',
+    projectRuntime: 'platform/shared/project-runtime.ts',
+    runtimeVerification: 'platform/compiler/verify/run-runtime-verification.ts',
+    verifyProject: 'platform/compiler/verify/verify-project.ts',
+    verificationAdapter: 'platform/compiler/verify/semantic-mutation-verification-adapter.ts',
+    isolatedChild: 'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
+    isolatedRuntimeBinding: 'platform/compiler/verify/semantic-mutation-isolated-runtime-binding.ts',
+    isolatedRuntimePlan: 'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts',
+    runtimeDependencySpec: 'platform/shared/runtime-dependency-spec.ts',
+    isolationCapability: 'platform/compiler/verify/semantic-mutation-isolation-capability.ts',
+    isolatedRunner: 'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts',
+    stagingTree: 'platform/compiler/verify/assert-isolated-staging-tree.ts',
+    composeProject: 'platform/compiler/compose/compose-project.ts',
+    prismaMerge: 'platform/compiler/compose/merge-prisma-template.ts',
+    appContainer: 'platform/shared/windows-appcontainer-executor.ts',
+    appContainerHelper: 'platform/shared/windows-appcontainer-native-helper.ts'
+  }).map(async ([name, relative]) => [name, await readFile(path.join(root, relative), 'utf8')] as const)));
+
+  for (const forbiddenWriter of [
+    'composeProject', 'adaptProject', 'verifyProject',
+    'writeCiArtifactManifest', 'lockProject', 'writeExplainGraph', 'writeLocalViews',
+    'writeProvenance', 'writeReviewSummary', 'applyRepairPlan', 'writeRepairPlan',
+    'writePolicySnapshot', 'applyViewMutations', 'buildSemanticMutationVerificationExecutionRef'
+  ]) {
+    expect(sources.compilerFacade, `public Compiler facade exports ${forbiddenWriter}`)
+      .not.toMatch(new RegExp(`export[^;]+\\b${forbiddenWriter}\\b`, 'su'));
+  }
+
+  const normalizeIndex = sources.mutationOrchestrator.indexOf('normalizeSemanticMutationRequest(input.request)');
+  const acquireIndex = sources.mutationOrchestrator.indexOf('acquireWorkspaceWriteLease(workspaceRoot)');
+  expect(normalizeIndex).toBeGreaterThan(-1);
+  expect(acquireIndex).toBeGreaterThan(normalizeIndex);
+  expect(sources.mutationOrchestrator).toContain('projectSemanticMutationRequestRecordView');
+  expect(sources.mutationOrchestrator).toContain('return terminalRecoveryOutcome(recovery)');
+  expect(sources.mutationOrchestrator).toContain('proof = compiled.completionProof');
+  for (const internalSeam of [
+    'applySemanticMutationWithAfterPreparedTestCrash',
+    'applySemanticMutationWithTestDependencies',
+    'planSemanticMutationTransactionWithTestDependencies'
+  ]) {
+    expect(sources.mutationOrchestrator).toContain(internalSeam);
+    expect(sources.orchestratorFacade).not.toContain(internalSeam);
+    expect(sources.orchestratorIndex).not.toContain(internalSeam);
+    expect(sources.compilerFacade).not.toContain(internalSeam);
+  }
+
+  expect(sources.journal).toContain('handle.sync()');
+  expect(sources.journal).toContain('await rename(tempPath, finalPath)');
+  expect(sources.journal).toContain('await fsyncDirectory(directory, commitFence)');
+  expect(sources.terminal).toContain('reserveSemanticMutationTerminalSequence');
+  expect(sources.terminal).toContain('terminal-order');
+  expect(sources.transactionIdentity).toContain(
+    "const TRANSACTION_PARENT_SEGMENTS = ['.sec', 'semantic-mutation', 'v1', 'transactions'] as const"
+  );
+  expect(sources.transactionIdentity).toContain('const TRANSACTION_NAME_PATTERN = /^[0-9a-f]{64}$/u');
+  expect(sources.stagedMutation).toContain("const stagingWorkspaceRoot = path.join(transactionRoot, 'workspace')");
+  expect(sources.stagingBoundary).toContain(
+    "const STAGING_PARENT_SEGMENTS = ['.sec', 'semantic-mutation', 'v1', 'transactions'] as const"
+  );
+  expect(sources.stagingBoundary).toContain("if (path.basename(resolved) !== 'workspace') return false");
+  expect(sources.pipelineOrchestrator).not.toContain('semantic-mutation-staging-boundary');
+  expect(sources.pipelineOrchestrator).not.toContain('isSemanticMutationStagingWorkspace');
+  expect(sources.pipelineOrchestrator).not.toContain('isolated: true');
+  expect(sources.pipelineOrchestrator).toContain(
+    'isolatedVerificationCapability?: IsolatedVerificationCapability'
+  );
+
+  expect(sources.atomicPublish).toContain('assertSameDevice(target, transactionRoot');
+  expect(sources.atomicPublish).toContain('Live source changed during final publish CAS');
+  expect(sources.atomicPublish).toContain('Rollback CAS refused to overwrite source bytes not committed by this transaction');
+  expect(sources.atomicPublish).toContain('await operations.rename(publishTemp, target)');
+  expect(sources.atomicPublish).toContain('await operations.rename(restoreTemp, target)');
+  expect(sources.atomicPublish).toContain('{ details: safeDetails }');
+  expect(sources.atomicPublish).not.toContain('copyFile');
+
+  const ownerWrite = sources.lease.indexOf('await durableWriteOwner(candidate, owner, createId)');
+  const leasePublish = sources.lease.indexOf('await publishLeaseCandidateNoReplace(candidate, lease)', ownerWrite);
+  const parentFsync = sources.lease.indexOf('await fsyncDirectory(parent)', leasePublish);
+  expect(ownerWrite).toBeGreaterThan(-1);
+  expect(leasePublish).toBeGreaterThan(ownerWrite);
+  expect(parentFsync).toBeGreaterThan(leasePublish);
+  expect(sources.lease).toContain('const RENAME_NOREPLACE = 1');
+  expect(sources.lease).toContain('async function publishLeaseCandidateNoReplace');
+  expect(sources.lease).toContain("await import('bun:ffi')");
+  expect(sources.lease).toContain('library.symbols.renameat2(');
+  expect(sources.lease).toContain('const assertManagerHolder = (token: WorkspaceWriteLeaseToken)');
+  expect(sources.lease).toContain('assertManagerHolder(reentrantToken)');
+  expect(sources.lease).toContain('assertManagerHolder(token);\n    await assertOwned(workspaceRoot, token)');
+  const noReplacePublish = sources.lease.indexOf('async function publishLeaseCandidateNoReplace');
+  const unsupportedPlatformGuard = sources.lease.indexOf("if (process.platform !== 'win32')", noReplacePublish);
+  const windowsRenameFallback = sources.lease.indexOf('await fs.rename(candidate, lease)', unsupportedPlatformGuard);
+  expect(unsupportedPlatformGuard).toBeGreaterThan(noReplacePublish);
+  expect(windowsRenameFallback).toBeGreaterThan(unsupportedPlatformGuard);
+  expect(sources.pipelineKernel).toContain('const commitFence = () => assertWorkspaceWriteLease(');
+  expect(sources.pipelineKernel).toContain('await commitFence();');
+  expect((sources.workbench.match(/withWorkbenchWriterLease/gu) ?? []).length).toBeGreaterThanOrEqual(3);
+  expect(sources.workspaceOrchestrator).toContain('ensureProjectBase(workspaceRoot, commitFence)');
+  expect(sources.workspaceOrchestrator).toContain('writeYaml(planPath, defaultPlan(), commitFence)');
+  expect(sources.repairOrchestrator).toContain(
+    'applyRepairPlan(workspaceRoot, plan, lock, repairPlan, commitFence)'
+  );
+  expect(sources.repairWriter).toContain('await commitFence?.();');
+  expect(sources.repairWriter).toContain('writeProvenance(workspaceRoot, lock, commitFence)');
+  expect(sources.viewMutationWriter).toContain('writeYaml(planPath, plan, commitFence)');
+  expect(sources.viewMutationWriter).toContain('writeJson(viewMutationReportPath, report, commitFence)');
+  for (const [source, minimumFences] of [
+    [sources.blockOrchestrator, 1],
+    [sources.workspaceOrchestrator, 3],
+    [sources.emitOrchestrator, 2],
+    [sources.repairOrchestrator, 5],
+    [sources.workbenchOrchestrator, 1],
+    [sources.upgrade, 10]
+  ] as const) {
+    const directFences = (source.match(/await assertWorkspaceWriteLease\(workspaceRoot, /gu) ?? []).length;
+    const localFences = (source.match(/await commitFence\(\)/gu) ?? []).length;
+    const delegatedFences = (source.match(/, commitFence\)/gu) ?? []).length;
+    expect(directFences + localFences + delegatedFences)
+      .toBeGreaterThanOrEqual(minimumFences);
+  }
+  expect(sources.upgrade).toContain('workspaceWriteLease: WorkspaceWriteLeaseToken');
+  expect(sources.mutationOrchestrator).toContain('runSemanticMutationIsolatedVerificationChild');
+  expect(sources.mutationOrchestrator).toContain('status: artifacts.status');
+  expect(sources.mutationOrchestrator).toContain("reason: 'isolated-verification-unavailable'");
+  expect(sources.mutationOrchestrator).toContain('generatedArtifactRawDigests: artifacts.rawDigests');
+  expect(sources.mutationOrchestrator).toContain('build: generatedReport.runtime.build');
+  expect(sources.mutationOrchestrator).not.toContain("errorCode: 'isolated-child-failed'");
+  expect(sources.isolatedChild).toContain('options.appContainerRunner ?? runWindowsAppContainerChild');
+  expect(sources.isolatedChild).toContain(
+    "compilerModulesRoot: path.join(compilerRoot, '.shared-deps', 'node_modules')"
+  );
+  expect(sources.runtimeDependencySpec).toContain("'ts-morph'");
+  expect(sources.isolatedChild).toContain("external: ['ts-morph', 'typescript']");
+  expect(sources.isolatedChild).toContain('materializeSemanticMutationIsolatedRuntime({');
+  expect(sources.isolatedChild).toContain('assertSemanticMutationIsolatedRuntimeLaunchManifest({');
+  expect(sources.isolatedChild).toContain('Custom compiler registry closure is unavailable in isolated verification');
+  expect(sources.isolatedChild).not.toContain('Isolated verification requires a project baseline');
+  const isolatedBoundary = sources.isolatedRunner.indexOf(
+    '!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)'
+  );
+  const isolatedTree = sources.isolatedRunner.indexOf(
+    'await assertIsolatedStagingTree(stagingWorkspaceRoot)',
+    isolatedBoundary
+  );
+  const isolatedMint = sources.isolatedRunner.indexOf(
+    'const isolatedVerificationCapability = mintIsolatedVerificationCapability(stagingWorkspaceRoot)',
+    isolatedTree
+  );
+  const isolatedCompile = sources.isolatedRunner.indexOf('const compiled = await compileWorkspace(', isolatedMint);
+  const isolatedBaseline = sources.isolatedRunner.indexOf(
+    'const baseline = await readProjectBaseline(stagingWorkspaceRoot)',
+    isolatedCompile
+  );
+  expect(isolatedBoundary).toBeGreaterThan(-1);
+  expect(isolatedTree).toBeGreaterThan(isolatedBoundary);
+  expect(isolatedMint).toBeGreaterThan(isolatedTree);
+  expect(isolatedCompile).toBeGreaterThan(isolatedMint);
+  expect(isolatedBaseline).toBeGreaterThan(isolatedCompile);
+  const verifyCapabilityAssertion = sources.verifyOrchestrator.indexOf(
+    'assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability)'
+  );
+  const isolatedVerifyProject = sources.verifyOrchestrator.indexOf(
+    'const report = await verifyProject(',
+    verifyCapabilityAssertion
+  );
+  expect(verifyCapabilityAssertion).toBeGreaterThan(-1);
+  expect(isolatedVerifyProject).toBeGreaterThan(verifyCapabilityAssertion);
+  expect(sources.neutralIsolationCapability).toContain(
+    'const workspaceRootsByCapability = new WeakMap<object, string>()'
+  );
+  for (const facade of [sources.compilerFacade, sources.orchestratorFacade, sources.orchestratorIndex]) {
+    expect(facade).not.toContain('mintIsolatedVerificationCapability');
+  }
+  expect(sources.isolatedRuntimePlan).toContain(
+    "export const SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT = '.isolated-compiler'"
+  );
+  expect(sources.isolatedRuntimePlan).toContain(
+    'const runtimePlansByBinding = new WeakMap<object, SemanticMutationIsolatedRuntimePlanV1>()'
+  );
+  expect(sources.isolatedRuntimePlan).toContain('runtimePlansByBinding.set(result, plan)');
+  expect(sources.isolatedRuntimePlan).toContain(
+    'registerSemanticMutationIsolatedRuntimePlanBinding(result)'
+  );
+  expect(sources.isolatedRuntimeBinding).toContain('const runtimeBindingRoots = new WeakSet<object>()');
+  expect(sources.isolatedRuntimeBinding).toContain('const forwardedRuntimeBindings = new WeakMap<object, object>()');
+  expect(sources.isolatedRuntimeBinding).toContain('forwardedRuntimeBindings.set(');
+  expect(sources.isolatedRuntimePlan).toContain(
+    'resolveSemanticMutationIsolatedRuntimePlanBinding(binding)'
+  );
+  expect(sources.isolationCapability).toContain(
+    'forwardSemanticMutationIsolatedRuntimePlanBinding(result, proven)'
+  );
+  expect(sources.verificationAdapter).toContain(
+    'forwardSemanticMutationIsolatedRuntimePlanBinding(isolationCapability, plan)'
+  );
+  expect(sources.isolatedRuntimePlan).toContain('readonly directories: readonly string[]');
+  expect(sources.isolatedRuntimePlan).toContain('readonly files: readonly RuntimeDestinationManifestEntryV1[]');
+  expect(sources.isolatedRuntimePlan).toContain('sourceIdentity: file.sourceIdentity');
+  expect(sources.isolatedRuntimePlan).toContain('rawDigest: file.rawDigest');
+  expect(sources.isolatedRuntimePlan).toContain('Semantic Mutation runtime source changed before materialization');
+  expect(sources.isolatedRuntimePlan).toContain('Semantic Mutation isolated runtime destination manifest is not exact');
+  expect(sources.isolatedChild).toContain("envMode: 'replace'");
+  expect(sources.isolatedChild).toContain('classifySemanticMutationIsolatedVerificationArtifactSet');
+  expect(sources.isolatedChild).not.toContain("if (result.code !== 0)");
+  const freshReportRemoval = sources.isolatedChild.indexOf('await rm(reportPath');
+  const isolatedChildSpawn = sources.isolatedChild.indexOf('const result = await supervisor({', freshReportRemoval);
+  const exactArtifactRead = sources.isolatedChild.indexOf('readJsonArtifact(paths.verificationReportPath, commitFence)');
+  expect(freshReportRemoval).toBeGreaterThan(-1);
+  expect(isolatedChildSpawn).toBeGreaterThan(freshReportRemoval);
+  expect(exactArtifactRead).toBeGreaterThan(isolatedChildSpawn);
+  expect(sources.verifyProject).toContain("installMode: 'offline-copy-only'");
+  expect(sources.projectRuntime).toContain("['--no-env-file', `--config=${isolatedConfigPath}`, ...bunArgs]");
+  expect(sources.projectRuntime).toContain(
+    'await materializeIsolatedNodeModules(sharedDepsRoot, nodeModulesPath, options.beforeCommit)'
+  );
+  expect(sources.projectRuntime).not.toContain(
+    "['install', '--offline', '--no-save', '--ignore-scripts', '--backend=copyfile']"
+  );
+  expect(sources.runtimeVerification).toContain(
+    "['--no-env-file', `--config=${isolatedConfigPath!}`, '--no-install', 'run', script]"
+  );
+  expect(sources.runtimeVerification).not.toContain('...process.env,\n    [envPathKey]');
+  expect(sources.prismaMerge).toContain(
+    "const isolatedConfigPath = path.join(isolatedWritableRoot, 'bunfig.toml')"
+  );
+  expect(sources.prismaMerge).toMatch(
+    /'--no-env-file',\s*`--config=\$\{isolatedConfigPath\}`,\s*'x',\s*'--no-install',\s*'prisma@6'/u
+  );
+  expect(sources.pipelineOrchestrator).toContain(
+    'composeWorkspace(workspaceRoot, { signal: leaseSignal }, context)'
+  );
+  expect(sources.composeOrchestrator).toContain('signal: options?.signal');
+  expect(sources.composeProject).toContain('signal: options?.signal');
+  expect(sources.prismaMerge).toContain('beforeSpawn: commitFence');
+  expect(sources.prismaMerge).toContain('signal: options.signal');
+  expect(sources.stagingTree).toContain("Number(before.nlink) !== 1");
+  expect(sources.stagingTree).toContain('FILE_ATTRIBUTE_REPARSE_POINT');
+  expect(sources.processRunner).toContain("options.envMode === 'replace' ? {} : process.env");
+  expect(sources.appContainer).toContain('PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES');
+  expect(sources.appContainer).toContain('JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE');
+  expect(sources.appContainer).toContain('probeWindowsAppContainerCapability');
+  expect(sources.appContainer).toContain('rawConnect === false');
+  expect(sources.appContainer).toContain('recoveryOwnerPath');
+  const createProfileHelper = sources.appContainer.indexOf("'create-profile',\n      nativeRequest");
+  const executeHelper = sources.appContainer.indexOf("'execute',\n      nativeRequest", createProfileHelper);
+  expect(createProfileHelper).toBeGreaterThan(-1);
+  expect(executeHelper).toBeGreaterThan(createProfileHelper);
+  expect(sources.appContainer).toContain('createWindowsAppContainerProfileForNativeHelper');
+  expect(sources.appContainer).toContain('deriveWindowsAppContainerSidForNativeHelper');
+  expect(sources.appContainer).not.toContain('[sm3-native]');
+  expect(sources.appContainer).not.toContain('SEC_DEBUG_ISOLATED_RUNTIME');
+  const helperExitPreload = sources.appContainerHelper.indexOf(
+    'const exitNativeHelper = await loadNativeHelperExit()'
+  );
+  const helperProfileCreate = sources.appContainerHelper.indexOf(
+    'await createWindowsAppContainerProfileForNativeHelper(envelope.request)'
+  );
+  expect(helperExitPreload).toBeGreaterThan(-1);
+  expect(helperProfileCreate).toBeGreaterThan(helperExitPreload);
+  expect(sources.appContainerHelper).toContain("mode: 'create-profile'");
+  expect(sources.appContainer).toContain(
+    "const HOST_BUN_CONFIG_RELATIVE_ROOT = '.sm3h'"
+  );
+  expect(sources.appContainer).toContain(
+    'await durableCreateFile(configPath, ISOLATED_BUN_CONFIG_CONTENT, commitFence)'
+  );
+  expect(sources.appContainer).toContain('nativeHelperBundlePromise ??= (async () => {');
+  expect(sources.appContainer).toContain('entrypoints: [NATIVE_HELPER_PATH]');
+  expect(sources.appContainer).toContain('await durableCreateFile(helperPath, helperContents, commitFence)');
+  expect(sources.appContainer).toContain("Number(helperMetadata.nlink) !== 1");
+  expect(sources.appContainer).toContain(
+    'await cleanupWindowsAppContainerNativeOwner(cleanupRequest, provenAppContainerSid)'
+  );
+  expect(sources.appContainerHelper).not.toContain("mode: 'cleanup'");
+  expect(sources.appContainer).toMatch(
+    /'--no-env-file',\s*`--config=\$\{configPath\}`,\s*'--no-install',\s*helperPath,\s*encodedRequest/u
+  );
+  expect(sources.appContainer).not.toContain('[NATIVE_HELPER_PATH, serialized]');
+  expect(sources.appContainer.match(
+    /'--no-env-file',\s*'--config=' \+ bunConfigPath,\s*'--no-install'/gu
+  )?.length).toBe(2);
+  expect(sources.appContainer.match(
+    /const bunConfigPath = path\.join\(path\.dirname\(process\.execPath\), 'bunfig\.toml'\)/gu
+  )?.length).toBe(2);
+  expect(sources.appContainer).toContain('await cleanupHostBunConfig(stagingRoot, commitFence)');
+  expect(sources.verificationAdapter).toContain('!exactEndpoint(input.attempted)');
+  expect(sources.verificationAdapter).toContain('JSON.stringify(input.requirements) !== JSON.stringify(requirements)');
+  expect(sources.verificationAdapter).toContain('assertSemanticMutationVerificationReportInvariant(report)');
+});
+
+test('compile-time boundaries reject lease-free Pipeline contexts and raw journal fields in public views', () => {
+  const outcome = {} as SemanticMutationApplyOutcomeV1;
+  const view = {} as SemanticMutationRequestRecordViewV1;
+  type TransactionView = Extract<SemanticMutationRequestRecordViewV1, { readonly recordKind: 'transaction' }>;
+  type ActiveView = TransactionView & { readonly state: 'prepared' | 'authoring-committed' };
+  if (false) {
+    // @ts-expect-error Isolated Verification authority cannot be forged structurally.
+    const forgedIsolationCapability: IsolatedVerificationCapability = {};
+    // @ts-expect-error Every manual Pipeline execution context must carry the exact writer lease token.
+    const leaseFree: PipelineExecutionContext = { transactionId: 'tx:test', source: 'api' };
+    // @ts-expect-error Public request-record views never expose retained source paths.
+    const pathLeak: string = view.relativePath;
+    // @ts-expect-error Public request-record views never expose retained before bytes/digests.
+    const beforeLeak: string = view.beforeByteDigest;
+    // @ts-expect-error Apply outcomes are discriminated; a rejection has no terminal result.
+    const result = outcome.result;
+    const prepared = {} as ActiveView & { readonly state: 'prepared' };
+    const authoringCommitted = {} as ActiveView & { readonly state: 'authoring-committed' };
+    const verified = {} as TransactionView & { readonly state: 'verified' };
+    const rolledBack = {} as TransactionView & { readonly state: 'rolled-back' };
+    const recoveryRequired = {} as TransactionView & { readonly state: 'recovery-required' };
+    // @ts-expect-error Prepared views never carry terminal completion order.
+    const invalidPrepared: TransactionView = { ...prepared, terminalSequence: 1 };
+    // @ts-expect-error Authoring-committed views never carry terminal results.
+    const invalidAuthoringCommitted: TransactionView = { ...authoringCommitted, result: verified.result };
+    // @ts-expect-error Verified views never carry recovery failure state.
+    const invalidVerified: TransactionView = { ...verified, recoveryState: 'concurrent-write' };
+    // @ts-expect-error Rolled-back views require a rolled-back result.
+    const invalidRolledBack: TransactionView = { ...rolledBack, result: verified.result };
+    // @ts-expect-error Recovery-required views never carry terminal completion order.
+    const invalidRecoveryRequired: TransactionView = { ...recoveryRequired, terminalSequence: 1 };
+    const { recoveryState: omittedRecoveryState, ...recoveryWithoutState } = recoveryRequired;
+    // @ts-expect-error Recovery-required views require their matching recovery state.
+    const invalidRecoveryWithoutState: TransactionView = recoveryWithoutState;
+    void forgedIsolationCapability;
+    void leaseFree;
+    void pathLeak;
+    void beforeLeak;
+    void result;
+    void invalidPrepared;
+    void invalidAuthoringCommitted;
+    void invalidVerified;
+    void invalidRolledBack;
+    void invalidRecoveryRequired;
+    void invalidRecoveryWithoutState;
+    void omittedRecoveryState;
+  }
+  expect(true).toBe(true);
+});
+
+test('SM-3 digest domains remain independently reproducible', () => {
+  const requirements = [{ kind: 'pass', passId: 'verify' }] as const;
+  expect(sha256({
+    domain: 'semantic-mutation-required-verification-v1',
+    requirements
+  })).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(sha256({
+    domain: 'semantic-mutation-request-identity-v1',
+    graphId: 'graph:1',
+    appId: 'app:1',
+    requestId: 'request:1'
+  })).not.toBe(sha256({
+    domain: 'semantic-mutation-verification-report-v1',
+    graphId: 'graph:1',
+    appId: 'app:1',
+    requestId: 'request:1'
+  }));
+});

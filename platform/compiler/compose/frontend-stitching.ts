@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { Node, Project, SyntaxKind } from 'ts-morph';
-import { pathExists, readText, writeText } from '../../shared/fs.ts';
+import { pathExists, readText, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { Logger } from '../../shared/logger.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 
@@ -43,7 +43,11 @@ export function prefixCssContent(content: string, prefix = 'block-attachment-'):
   return content.replace(classSelectorRegex, `.${prefix}$1`);
 }
 
-export async function injectTailwindPrefix(projectRoot: string, logger: Logger = defaultLogger): Promise<boolean> {
+export async function injectTailwindPrefix(
+  projectRoot: string,
+  logger: Logger = defaultLogger,
+  commitFence?: CommitFence
+): Promise<boolean> {
   const configPath = path.join(projectRoot, 'tailwind.config.ts');
   if (!(await pathExists(configPath))) return false;
 
@@ -71,6 +75,7 @@ export async function injectTailwindPrefix(projectRoot: string, logger: Logger =
           name: 'prefix',
           initializer: '"block-attachment-"'
         });
+        await commitFence?.();
         await sourceFile.save();
         return true;
       }
@@ -81,7 +86,12 @@ export async function injectTailwindPrefix(projectRoot: string, logger: Logger =
   return false;
 }
 
-export async function prefixJsxClassNames(filePath: string, prefix = 'block-attachment-', logger: Logger = defaultLogger): Promise<boolean> {
+export async function prefixJsxClassNames(
+  filePath: string,
+  prefix = 'block-attachment-',
+  logger: Logger = defaultLogger,
+  commitFence?: CommitFence
+): Promise<boolean> {
   try {
     const project = new Project({
       skipLoadingLibFiles: true,
@@ -122,6 +132,7 @@ export async function prefixJsxClassNames(filePath: string, prefix = 'block-atta
     }
 
     if (changed) {
+      await commitFence?.();
       await sourceFile.save();
     }
     return changed;
@@ -131,10 +142,15 @@ export async function prefixJsxClassNames(filePath: string, prefix = 'block-atta
   }
 }
 
-export async function applyPrefixSandboxing(projectRoot: string, generatedPaths: string[], logger: Logger = defaultLogger): Promise<string[]> {
+export async function applyPrefixSandboxing(
+  projectRoot: string,
+  generatedPaths: string[],
+  logger: Logger = defaultLogger,
+  commitFence?: CommitFence
+): Promise<string[]> {
   const newGeneratedPaths: string[] = [];
 
-  const injected = await injectTailwindPrefix(projectRoot, logger);
+  const injected = await injectTailwindPrefix(projectRoot, logger, commitFence);
   if (injected) {
     newGeneratedPaths.push('tailwind.config.ts');
   }
@@ -148,10 +164,10 @@ export async function applyPrefixSandboxing(projectRoot: string, generatedPaths:
       const content = await readText(filePath);
       const updated = prefixCssContent(content);
       if (content !== updated) {
-        await writeText(filePath, updated);
+        await writeText(filePath, updated, commitFence);
       }
     } else if (ext === '.tsx' || ext === '.jsx') {
-      await prefixJsxClassNames(filePath, 'block-attachment-', logger);
+      await prefixJsxClassNames(filePath, 'block-attachment-', logger, commitFence);
     }
   }
 

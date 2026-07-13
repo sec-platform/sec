@@ -7,6 +7,12 @@ export type {
   CompileWorkspaceResult
 } from './orchestrator/pipeline-orchestrator.ts';
 export { repairWorkspace } from './orchestrator/repair-orchestrator.ts';
+export {
+  applySemanticMutation,
+  planSemanticMutationTransaction,
+  querySemanticMutationRequest,
+  recoverSemanticMutationWorkspace
+} from './orchestrator/semantic-mutation-orchestrator.ts';
 export { buildWorkspaceEngineeringIR } from './orchestrator/semantic-orchestrator.ts';
 export { upgradeWorkspace } from './orchestrator/upgrade-orchestrator.ts';
 export { verifyWorkspace } from './orchestrator/verify-orchestrator.ts';

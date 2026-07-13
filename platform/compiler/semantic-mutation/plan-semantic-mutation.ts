@@ -10,6 +10,7 @@ import {
   type SemanticMutationPlanV2,
   type SemanticMutationRisk,
   type SemanticMutationSourceChangeV2,
+  type SemanticMutationVerificationPlanningContextV1,
   type VerificationRequirementV1
 } from '../../shared/semantic-mutation-types.ts';
 import { buildFactDelta } from '../ir/build-fact-delta.ts';
@@ -44,6 +45,29 @@ import { preflightSemanticMutation } from './preflight-semantic-mutation.ts';
 import { evaluateSemanticMutationVerificationPlanning } from './verification-policy.ts';
 
 type NonRequestPlanDraft = Exclude<SemanticMutationPlanV2, { readonly rejectedAt: 'request' }>;
+
+export interface SemanticMutationPlanProducerSeamForTest {
+  readonly buildFactDelta: typeof buildFactDelta;
+  readonly buildImpactPropagation: typeof buildImpactPropagation;
+  readonly evaluateVerificationPlanning: typeof evaluateSemanticMutationVerificationPlanning;
+}
+
+export interface SemanticMutationVerificationPlanningProducerV1 {
+  readonly produce: (input: {
+    readonly staged: FactDeltaEndpointContext;
+    readonly impact: ReturnType<typeof buildImpactPropagation>;
+    readonly requirements: readonly VerificationRequirementV1[];
+  }) => SemanticMutationVerificationPlanningContextV1 |
+    Promise<SemanticMutationVerificationPlanningContextV1>;
+}
+
+type SemanticMutationMaybeAsyncPlan = SemanticMutationPlanV2 | Promise<SemanticMutationPlanV2>;
+
+const DEFAULT_PLAN_PRODUCERS: SemanticMutationPlanProducerSeamForTest = {
+  buildFactDelta,
+  buildImpactPropagation,
+  evaluateVerificationPlanning: evaluateSemanticMutationVerificationPlanning
+};
 
 function endpointBase(endpoint: FactDeltaEndpointContext): SemanticMutationBaseV2 {
   return {
@@ -162,7 +186,11 @@ function validEndpoint(value: unknown): value is FactDeltaEndpointContext {
     isPlainObject(value.snapshot) && isPlainObject(value.snapshot.ir);
 }
 
-export function planSemanticMutation(input: SemanticMutationInputV2): SemanticMutationPlanV2 {
+function planSemanticMutationWithProducers(
+  input: SemanticMutationInputV2,
+  producers: SemanticMutationPlanProducerSeamForTest,
+  verificationPlanningProducer?: SemanticMutationVerificationPlanningProducerV1
+): SemanticMutationMaybeAsyncPlan {
   if (!isPlainObject(input) || !exactOwnKeys(input, ['request', 'base', 'authorization', 'preparation', 'verificationPlanning'])) {
     return preflightSemanticMutation(input as never) as Extract<SemanticMutationPlanV2, { readonly rejectedAt: 'request' }>;
   }
@@ -235,7 +263,7 @@ export function planSemanticMutation(input: SemanticMutationInputV2): SemanticMu
   };
   let actualDelta;
   try {
-    actualDelta = buildFactDelta(input.base, input.preparation.staged);
+    actualDelta = producers.buildFactDelta(input.base, input.preparation.staged);
   } catch (error) {
     return finalizePlan({
       ...stageFields,
@@ -265,11 +293,11 @@ export function planSemanticMutation(input: SemanticMutationInputV2): SemanticMu
         stage: 'expectation'
       })
     ];
-  } catch (error) {
+  } catch {
     expectationDiagnostics.push(mutationDiagnostic(
       'SEMANTIC-MUTATION-001',
       'request',
-      error instanceof Error ? error.message : 'Conflicting postcondition identity'
+      'Conflicting postcondition identity'
     ));
   }
   if (expectationDiagnostics.length > 0) {
@@ -284,7 +312,7 @@ export function planSemanticMutation(input: SemanticMutationInputV2): SemanticMu
 
   let impact;
   try {
-    impact = buildImpactPropagation({
+    impact = producers.buildImpactPropagation({
       delta: actualDelta,
       from: input.base,
       to: input.preparation.staged
@@ -306,32 +334,108 @@ export function planSemanticMutation(input: SemanticMutationInputV2): SemanticMu
     request.additionalVerification
   );
   const risk: SemanticMutationRisk = 'high';
-  const verificationDiagnostics = evaluateSemanticMutationVerificationPlanning(
-    input.verificationPlanning,
-    impact,
-    requiredVerification
-  );
-  const finalFields = {
-    ...stageFields,
-    ...baseFields(preflight, input.verificationPlanning),
-    actualDelta,
-    impact,
-    risk,
-    requiredVerification
-  };
-  if (verificationDiagnostics.length > 0) {
+  const finalizeVerificationPlanning = (
+    verificationPlanning: SemanticMutationVerificationPlanningContextV1 | undefined,
+    producerFailed = false
+  ): SemanticMutationPlanV2 => {
+    let verificationDiagnostics: readonly SemanticMutationDiagnosticV2[];
+    if (producerFailed || verificationPlanning === undefined) {
+      verificationDiagnostics = [mutationDiagnostic(
+        'SEMANTIC-MUTATION-010',
+        'impact-verification',
+        'Verification capability planning failed'
+      )];
+    } else {
+      try {
+        verificationDiagnostics = producers.evaluateVerificationPlanning(
+          verificationPlanning,
+          impact,
+          requiredVerification
+        );
+      } catch {
+        verificationDiagnostics = [mutationDiagnostic(
+          'SEMANTIC-MUTATION-010',
+          'impact-verification',
+          'Verification capability planning failed'
+        )];
+      }
+    }
+    const finalFields = {
+      ...stageFields,
+      ...baseFields(preflight, verificationPlanning),
+      actualDelta,
+      impact,
+      risk,
+      requiredVerification
+    };
+    if (verificationDiagnostics.length > 0) {
+      return finalizePlan({
+        ...finalFields,
+        status: 'rejected',
+        rejectedAt: 'impact-verification',
+        diagnostics: canonicalDiagnostics(verificationDiagnostics)
+      } as Omit<NonRequestPlanDraft, 'planRevision'>);
+    }
     return finalizePlan({
       ...finalFields,
-      status: 'rejected',
-      rejectedAt: 'impact-verification',
-      diagnostics: canonicalDiagnostics(verificationDiagnostics)
+      status: 'ready',
+      diagnostics: []
     } as Omit<NonRequestPlanDraft, 'planRevision'>);
+  };
+
+  try {
+    const producedPlanning = verificationPlanningProducer?.produce({
+      staged: input.preparation.staged,
+      impact,
+      requirements: requiredVerification
+    });
+    if (producedPlanning instanceof Promise) {
+      return producedPlanning.then(
+        (verificationPlanning) => finalizeVerificationPlanning(verificationPlanning),
+        () => finalizeVerificationPlanning(input.verificationPlanning, true)
+      );
+    }
+    return finalizeVerificationPlanning(producedPlanning ?? input.verificationPlanning);
+  } catch {
+    return finalizeVerificationPlanning(input.verificationPlanning, true);
   }
-  return finalizePlan({
-    ...finalFields,
-    status: 'ready',
-    diagnostics: []
-  } as Omit<NonRequestPlanDraft, 'planRevision'>);
+}
+
+export function planSemanticMutation(input: SemanticMutationInputV2): SemanticMutationPlanV2 {
+  const plan = planSemanticMutationWithProducers(input, DEFAULT_PLAN_PRODUCERS);
+  if (plan instanceof Promise) {
+    throw new Error('Synchronous Semantic Mutation planning unexpectedly returned an async plan');
+  }
+  return plan;
+}
+
+/** Internal compiler composition seam; intentionally absent from the public Compiler facade. */
+export async function planSemanticMutationWithVerificationPlanningProducer(
+  input: SemanticMutationInputV2,
+  producer: SemanticMutationVerificationPlanningProducerV1
+): Promise<SemanticMutationPlanV2> {
+  return planSemanticMutationWithProducers(input, DEFAULT_PLAN_PRODUCERS, producer);
+}
+
+/** Local-module-only deterministic failure seam. It is intentionally not re-exported by the Compiler facade. */
+export function planSemanticMutationWithProducerSeamForTest(
+  input: SemanticMutationInputV2,
+  producers: SemanticMutationPlanProducerSeamForTest
+): SemanticMutationPlanV2 {
+  const plan = planSemanticMutationWithProducers(input, producers);
+  if (plan instanceof Promise) {
+    throw new Error('Synchronous Semantic Mutation producer seam unexpectedly returned an async plan');
+  }
+  return plan;
+}
+
+/** Local-module-only async finalization seam. It is intentionally absent from the Compiler facade. */
+export async function planSemanticMutationWithAsyncProducerSeamForTest(
+  input: SemanticMutationInputV2,
+  producers: SemanticMutationPlanProducerSeamForTest,
+  verificationPlanningProducer: SemanticMutationVerificationPlanningProducerV1
+): Promise<SemanticMutationPlanV2> {
+  return planSemanticMutationWithProducers(input, producers, verificationPlanningProducer);
 }
 
 export function semanticMutationPlanRevision(

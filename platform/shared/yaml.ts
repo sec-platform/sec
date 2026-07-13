@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { z } from 'zod';
-import { ensureDir, isFileNotFoundError } from './fs.ts';
+import { ensureDir, isFileNotFoundError, type CommitFence } from './fs.ts';
 
 export async function readYaml<T>(filePath: string): Promise<T> {
   const raw = await fs.readFile(filePath, 'utf8');
@@ -36,8 +36,13 @@ export async function readYamlWithSchema<T>(filePath: string, schema: z.ZodType<
   return result.data;
 }
 
-export async function writeYaml(filePath: string, value: unknown): Promise<void> {
-  await ensureDir(path.dirname(filePath));
+export async function writeYaml(
+  filePath: string,
+  value: unknown,
+  commitFence?: CommitFence
+): Promise<void> {
+  await ensureDir(path.dirname(filePath), commitFence);
   const raw = YAML.stringify(value, { indent: 2 });
+  await commitFence?.();
   await fs.writeFile(filePath, raw, 'utf8');
 }

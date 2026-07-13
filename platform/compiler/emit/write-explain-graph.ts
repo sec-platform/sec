@@ -5,7 +5,7 @@ import {
 } from '../../shared/ci-artifact-contract.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainEdgeType, ExplainGraph, ExplainGraphEdge, ExplainGraphNode, ExplainNodeType } from '../../shared/explain-types.ts';
-import { pathExists, readJson, writeJson, writeText } from '../../shared/fs.ts';
+import { pathExists, readJson, writeJson, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -327,7 +327,7 @@ function buildMermaidNodeIds(graph: ExplainGraph): Map<string, string> {
   return ids;
 }
 
-function renderExplainGraphMermaid(graph: ExplainGraph): string {
+export function renderExplainGraphMermaid(graph: ExplainGraph): string {
   const nodeIds = buildMermaidNodeIds(graph);
   const lines = ['flowchart TD'];
   for (const node of graph.nodes) {
@@ -340,7 +340,7 @@ function renderExplainGraphMermaid(graph: ExplainGraph): string {
   return `${lines.join('\n')}\n`;
 }
 
-function renderExplainGraphDot(graph: ExplainGraph): string {
+export function renderExplainGraphDot(graph: ExplainGraph): string {
   const lines = ['digraph ExplainGraph {'];
   for (const node of graph.nodes) {
     const id = escapeProjectionLabel(node.id);
@@ -359,7 +359,8 @@ function renderExplainGraphDot(graph: ExplainGraph): string {
 export async function writeExplainGraph(
   workspaceRoot: string,
   lock: LockFile,
-  provenance: ProvenanceFile
+  provenance: ProvenanceFile,
+  commitFence?: CommitFence
 ): Promise<ExplainGraph> {
   const {
     acceptanceCoveragePath,
@@ -384,12 +385,13 @@ export async function writeExplainGraph(
       const nextGraph = await buildExplainGraph(
         workspaceRoot, lock, nextProvenance, coverage, policyReport, upgradePlan, repairPlan, upgradeDiagnostics
       );
-      await writeJson(explainGraphPath, nextGraph);
-      await writeText(explainGraphMermaidPath, renderExplainGraphMermaid(nextGraph));
-      await writeText(explainGraphDotPath, renderExplainGraphDot(nextGraph));
+      await writeJson(explainGraphPath, nextGraph, commitFence);
+      await writeText(explainGraphMermaidPath, renderExplainGraphMermaid(nextGraph), commitFence);
+      await writeText(explainGraphDotPath, renderExplainGraphDot(nextGraph), commitFence);
       return nextGraph;
-    }
+    },
+    commitFence
   );
-  await writeProvenance(workspaceRoot, lock);
+  await writeProvenance(workspaceRoot, lock, commitFence);
   return graph;
 }

@@ -1304,6 +1304,12 @@ interface SemanticMutationPreflightInputV2 {
   readonly authorization: SemanticMutationAuthorizationContextV2;
 }
 
+interface SemanticMutationRequestIdentityV1 {
+  readonly graphId: string;
+  readonly appId: SemanticEntityId;
+  readonly requestId: string;
+}
+
 interface SemanticMutationInputV2 {
   readonly request: SemanticMutationRequestV2;
   readonly base: FactDeltaEndpointContext;
@@ -1338,10 +1344,27 @@ type SemanticMutationPreflightV2 =
 preflightSemanticMutation(input: SemanticMutationPreflightInputV2): SemanticMutationPreflightV2
 planSemanticMutation(input: SemanticMutationInputV2): SemanticMutationPlanV2
 
-applySemanticMutation(input: {
-  readonly input: SemanticMutationInputV2;
+planSemanticMutationTransaction(workspaceRoot: string, input: {
+  readonly request: SemanticMutationRequestV2;
+  readonly base: FactDeltaEndpointContext;
+  readonly authorization: SemanticMutationAuthorizationContextV2;
+}): Promise<SemanticMutationPlanV2>
+
+applySemanticMutation(workspaceRoot: string, input: {
+  readonly request: SemanticMutationRequestV2;
+  readonly base: FactDeltaEndpointContext;
+  readonly authorization: SemanticMutationAuthorizationContextV2;
   readonly expectedPlanRevision: string;
-}): Promise<SemanticMutationResultV2>
+}): Promise<SemanticMutationApplyOutcomeV1>
+
+recoverSemanticMutationWorkspace(
+  workspaceRoot: string
+): Promise<SemanticMutationRecoveryOutcomeV1>
+
+querySemanticMutationRequest(
+  workspaceRoot: string,
+  identity: SemanticMutationRequestIdentityV1
+): Promise<SemanticMutationRequestRecordViewV1 | null>
 ```
 
 `SemanticMutationInputV2` 只能由 platform boundary 构造。Request 的 base/graph/app 必须与 `FactDeltaEndpointContext` exact match，Task Envelope 的 allowed operations/targets/paths、required facts、must-preserve facts 和 verification minimum 分别由平台并入 authorization 的 allowed fields、`requiredPreconditions`、`requiredPostconditions` 与 `minimumVerification`；proposal 或 Context Packet 不能扩大或删除它们。Planner 分别对 `requiredPreconditions ∪ request.preconditions` 和 `requiredPostconditions ∪ request.postconditions` 去重后要求全部满足，任何一项失败即 reject。`preflightSemanticMutation()` 先纯计算 request/base/precondition/operation registry 结果与 `preflightRevision`；SM-2/SM-3 只有在 preflight ready 后才可做 source resolution、isolated deterministic transform/rebuild，且 preparation 必须 exact 绑定该 revision，避免为一个早已失败的 request 先执行 staging。Async preparation coordinator 只形成单一 source change、staged `FactDeltaEndpointContext` 与 rollback manifest；它不构造 actual Delta/Impact。`planSemanticMutation()` 重算 preflight，并对这些只读、trusted evidence 执行 `buildFactDelta → expectation/postconditions → buildImpactPropagation → verification union/policy`；较早阶段失败不得调用后续 producer。Apply 必须在 lease 内重新生成 preflight、preparation 和 plan，不能信任旧 preparation 对 workspace freshness 的判断。
@@ -1349,6 +1372,8 @@ applySemanticMutation(input: {
 Verification planning context 是 platform Verification adapter 对 planner 已计算的 exact Impact 与完整 requirement union 的可信、可重算绑定，不是 proposal authority。`planningRevision` payload 固定为 `{ domain: "semantic-mutation-verification-planning-v1", policyRevision, adapterId, adapterRevision, impactRevision, requiredVerificationDigest, uncertaintyStatus, capabilities }`；capabilities 按 requirement canonical order 唯一排序。缺项、额外项、non-runnable、非 isolated、Impact/requirement digest stale、`uncertaintyStatus: "blocked"` 或 revision mismatch 都以 `SEMANTIC-MUTATION-010` 在 live publish 前拒绝。`uncertaintyStatus: "covered"` 只表示完整 conservative union 已由 isolated verifier capability 覆盖，不删除 Impact uncertainty，也不把 selector 解析或执行 authority 移入 Mutation。
 
 `authorizationRevision` 由 platform builder 计算，表达为 `sha256:<lowercase-hex>`。Canonical payload 固定为 `{ domain: "semantic-mutation-authorization-v2", taskId, envelopeRevision, allowedOperationKinds, allowedTargetEntityIds, allowedSourceOwnerIds, allowedPathPrefixes, requiredPreconditions, requiredPostconditions, minimumVerification }`；optional ID 缺失按空字符串，operations/targets/owners/path prefixes lexical 去重排序，conditions 和 verification 使用第 18.5 节 canonical order。Planner 必须重算并 exact match，不能信任 caller 或 adapter 提供的 revision string；payload 或 revision 不匹配以 `SEMANTIC-MUTATION-001` 拒绝。因此任何 authority 内容变化都会改变 planRevision。
+
+Public transaction planner 负责构造 preparation 与 Verification planning context；caller 不能注入这两个 trusted evidence。Dry-run 与 apply 都以 request identity 建立并保留同一个受控 transaction directory，apply 在 lease 内重新读取 source、重做 path proof、transform 与 canonical rebuild，绝不信任旧 staged bytes。Staged transaction ID 固定为 `tx:semantic-mutation-stage:<sha256-lowercase-hex>`；digest payload 为 `{ domain: "semantic-mutation-staged-transaction-v1", requestRevision, authorizationRevision, base, sourceEditPlanRevision }`。因此相同 request/authority/base/source plan 在 dry-run 与 apply 中产生相同 staged endpoint 和 `planRevision`，而 source/path/base 任一变化仍通过 CAS 改变或拒绝 plan。
 
 ### 18.2 Restricted condition 与 expectation DSL
 
@@ -1472,6 +1497,39 @@ Operation 不携带 path。Platform resolver 必须从 validated loaded contract
 - `allowedPathPrefixes` 只缩小 resolver 输出。Prefix 使用 segment-aware canonical POSIX 语义：可带一个尾随 `/`，授权 exact path 或其子树；空 prefix、absolute/drive/ADS、反斜杠、NUL、空/`.`/`..` segment 都非法，裸字符串前缀不得越过 segment boundary。Caller path、contract 中的任意 source-like string、Projection/Evidence path 或 symlink target都不能成为 authority。
 
 在读取或写入前，adapter 必须对 workspace root、受控 transaction directory、parent 和 target 做 canonical realpath 与 reparse-point 检查；拒绝 symlink/junction/reparse parent/target、root escape、Windows case-fold collision、device name、ADS、重复 canonical path 和不同 textual path 指向同一 target。V1 source target 必须是 `nlink === 1` 的普通文件；stable read 在读取 bytes 前必须把 opened handle stat exact 绑定到 pre-inspection target identity，read 后再核对同一 handle identity，并重复完整 path boundary，禁止 swap-open-restore 或 hardlink alias 绕过。检查必须在 plan 和 apply lease 内各执行一次，并在 atomic rename 前再次核对；`resolvePathInside()` 的 lexical containment 只能作为第一层，不能独立证明安全。v1 transaction 最多修改一个 Authoring Source file；多文件 publish 必须另行升级 atomicity contract。
+
+Rollback manifest 的 authority schema 固定为 V2；`SemanticMutationSourceEditPlanV1` 的版本不能用来命名或降级 rollback manifest：
+
+```ts
+interface SemanticMutationWindowsFileAttributesV1 {
+  readonly readOnly: boolean;
+  readonly hidden: boolean;
+  readonly system: boolean;
+  readonly archive: boolean;
+}
+
+interface SemanticMutationRollbackManifestV2 {
+  readonly formatRevision: "semantic-mutation-rollback-manifest-v2";
+  readonly ownerId: string;
+  readonly adapterId: "semantic-contract-yaml";
+  readonly adapterRevision: "semantic-contract-yaml-v1";
+  readonly relativePath: string;
+  readonly beforeByteDigest: string;
+  readonly stagedByteDigest: string;
+  readonly beforeByteLength: number;
+  readonly stagedByteLength: number;
+  readonly fileMode: number;
+  readonly windowsFileAttributes: SemanticMutationWindowsFileAttributesV1 | null;
+  readonly encoding: "utf-8";
+  readonly utf8Bom: boolean;
+  readonly lineEnding: "lf" | "crlf" | "none";
+  readonly finalNewline: boolean;
+  readonly pathEvidenceRevision: string;
+  readonly rollbackManifestDigest: string;
+}
+```
+
+该对象拒绝未知/缺失字段；`rollbackManifestDigest` 是 `{ domain: "semantic-mutation-rollback-manifest-v2", ...除 rollbackManifestDigest 外全部字段 }` 的 SHA-256。Windows 的 R/H/S/A 分别由 `readOnly / hidden / system / archive` 四个 exact boolean 保存和恢复，不能只保留 POSIX-like `fileMode`；只有非 Windows 才为 `null`，Windows 读取不到完整属性集必须在 publish 前 fail closed。Before/staged bytes、长度、BOM、EOL、final newline、path evidence 与属性任一不一致都不能进入 publish，恢复后也必须逐项复核。
 
 ### 18.5 Plan、derived policy 与 revisions
 
@@ -1691,7 +1749,13 @@ acquire cross-process exclusive workspace mutation lease
 → release lease
 ```
 
+Lease 是 workspace 级通用 writer lease，而不是 Mutation 私有 mutex。`compileWorkspace()`、Workbench source apply、live Repair/Upgrade 与其他会写 Authoring Source、Lock、Projection、Artifact 或 View 的入口必须持有同一 lease；Pipeline 只依赖中立 lease module，不得反向依赖 Mutation。Mutation 持 lease 调用 live rebuild 时传递 exact reentrant token，避免自锁。Lease 目录固定为 `.sec/workspace-write-lease`；acquire 先在同一 parent 构造并 durable 写完 unique candidate directory，再以 atomic rename 发布为固定 lease directory，固定目录已存在即表示 contention。owner record 绑定 workspace identity、hostname、pid、process-start nonce、lease ID 与 heartbeat。活 holder 绝不按超时抢占；无法证明 holder 已死、foreign-host owner、PID reuse 或 owner record 不完整时 fail closed。只允许在 same-host PID 已不存在且 heartbeat stale 时，把旧 lease directory atomic rename 到 unique quarantine 后重新获取；release 与每个 live side effect 前都必须 exact 核对 token 和 lease-directory identity。
+
+Lease busy 或无法安全 reclaim 是公开的 pre-publish `rejected`，产生脱敏 `SEMANTIC-MUTATION-007`，不返回绝对 lease 路径。Generic Pipeline caller 可等待或返回 writer-busy，但不得绕过 lease。Lease token 不是 proposal 字段，也不进入 Semantic Mutation request/plan/result digest。
+
 Planning/dry-run never writes live source. Before publish，所有 parse、precondition、transform、resolve/frontend、actual Delta/Impact、expectation 与可隔离 Verification 必须先在 staging 完成。Temp/backup 与 target 位于同卷受控目录；backup 保留 exact original bytes、BOM/EOL 和 file mode/attributes needed for restoration。Atomic rename 前再次验证 live digest 等于 before digest；semantic revision 相同不能替代 byte CAS，因为 formatting/comment/source bytes 可能已变。
+
+V1 transaction root 固定为 `.sec/semantic-mutation/v1/transactions/<request-identity-digest>/`；其中 `workspace/` 是无 hardlink 的 isolated copy，`staged-source`、`original.backup` 与 immutable `records/*.json` 都与 target parent 通过 `stat.dev` 证明同 volume。Copy 排除 `.git`、`.sec/semantic-mutation` 和 workspace lease；禁止 hardlink/symlink/junction/reparse 穿透 live workspace。Backup 除 exact bytes 外以 `semantic-mutation-rollback-manifest-v2` 保存 mode，以及 Windows 可移植读取到的 readonly/hidden/system/archive 属性；无法证明恢复所需属性时 publish 前拒绝。Atomic publish 只允许 same-device temp-to-target replace；Windows 因 ACL、antivirus 或 open handle 失败时返回 `SEMANTIC-MUTATION-011`，不得降级为 unlink+copy 或 in-place byte write。
 
 Publish 后 live canonical rebuild 必须得到与 staged plan 相同的 input/semantic revisions；任何 post-publish failure 进入 rollback。Rollback 之前再次 CAS：只有 live digest 仍等于本 transaction committed digest 才可恢复，禁止覆盖并发用户修改；恢复后 exact byte digest 必须等于 before digest，并重新 resolve/frontend 验证 base input/semantic revision。若 CAS 已被第三方改变、restore、rebuild 或 journal finalization 失败，状态必须是 `recovery-required`，保留 backup/recovery record，禁止声称 workspace 已恢复。
 
@@ -1703,11 +1767,121 @@ prepared → authoring-committed → verified
                          ↘ recovery-required
 ```
 
+Recovery journal 固定在 `.sec/semantic-mutation/v1/`，format revision 为 `semantic-mutation-recovery-record-v1`。每个 state transition 写新的 immutable generation record：sequence 连续递增、`previousRecordRevision` exact 串联，`recordRevision` 为 `{ domain: "semantic-mutation-recovery-record-v1", ...除 recordRevision 外全部字段 }` 的 SHA-256。写入顺序固定为 unique temp → file fsync → atomic rename → records directory fsync；未知字段、未知 format revision、断链或 digest mismatch fail closed，不能静默迁移。Schema migration 只允许显式 reader + rewrite 到新版本，禁止原地猜测旧字段。
+
+Record 至少绑定 transaction/request identity 与 revisions、authorization/expected plan/actual plan、edit plan/rollback manifest、relative path、before/committed byte digest、base/staged endpoint、Verification execution/report revision、diagnostics、terminal result（如有）与 recovery state。Raw `SemanticMutationRequestRecordV1` 只属于内部 journal/recovery authority；public query 与 public recovery-required outcome 只能返回下述脱敏 view，不能暴露 raw request、authorization、plan、temp/backup absolute path、source bytes 或完整 rollback manifest：
+
+```ts
+interface SemanticMutationRequestTransactionRecordViewBaseV1 {
+  readonly formatRevision: "semantic-mutation-request-record-view-v1";
+  readonly recordKind: "transaction";
+  readonly identity: SemanticMutationRequestIdentityV1;
+  readonly requestIdentityDigest: string;
+  readonly transactionId: string;
+  readonly requestRevision: string;
+  readonly authorizationRevision: string;
+  readonly expectedPlanRevision: string;
+  readonly planRevision: string;
+  readonly editPlanRevision: string;
+  readonly rollbackManifestDigest: string;
+  readonly base: SemanticMutationBaseV2;
+  readonly staged: SemanticMutationBaseV2;
+  readonly verificationExecutionRevision: string;
+  readonly verificationReportRevision: string;
+  readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+  readonly recordRevision: string;
+}
+
+type SemanticMutationRequestTransactionRecordViewV1 =
+  SemanticMutationRequestTransactionRecordViewBaseV1 & (
+    | {
+        readonly state: "prepared" | "authoring-committed";
+        readonly terminalSequence?: never;
+        readonly result?: never;
+        readonly recoveryState?: never;
+      }
+    | {
+        readonly state: "verified";
+        readonly terminalSequence: number;
+        readonly result: Extract<SemanticMutationResultV2, { readonly status: "accepted" }>;
+        readonly recoveryState?: never;
+      }
+    | {
+        readonly state: "rolled-back";
+        readonly terminalSequence: number;
+        readonly result: Extract<SemanticMutationResultV2, { readonly status: "rolled-back" }>;
+        readonly recoveryState?: never;
+      }
+    | {
+        readonly state: "recovery-required";
+        readonly terminalSequence?: never;
+        readonly result: Extract<SemanticMutationResultV2, { readonly status: "recovery-required" }>;
+        readonly recoveryState: "rollback-failed" | "restore-validation-failed" | "rebuild-failed" | "concurrent-write";
+      }
+  );
+
+type SemanticMutationRequestRecordViewV1 =
+  | SemanticMutationRequestTransactionRecordViewV1
+  | {
+      readonly formatRevision: "semantic-mutation-request-record-view-v1";
+      readonly recordKind: "rejected-terminal";
+      readonly identity: SemanticMutationRequestIdentityV1;
+      readonly requestIdentityDigest: string;
+      readonly state: "rejected";
+      readonly requestRevision: string;
+      readonly planRevision: string;
+      readonly terminalSequence: number;
+      readonly result: Extract<SemanticMutationResultV2, { readonly status: "rejected" }>;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+      readonly recordRevision: string;
+    };
+
+type SemanticMutationRecoveryOutcomeV1 =
+  | { readonly status: "clean" }
+  | { readonly status: "terminal"; readonly result: SemanticMutationResultV2 }
+  | {
+      readonly status: "recovery-required";
+      readonly record: Extract<SemanticMutationRequestRecordViewV1, { readonly recordKind: "transaction" }>;
+    };
+```
+
+View 是 exact schema：未知字段不允许。`prepared` / `authoring-committed` 没有 `terminalSequence`、`result` 或 `recoveryState`；`verified` 与 `rolled-back` 必须有匹配 lifecycle 的 `result` 和正整数 `terminalSequence`；`recovery-required` 必须有匹配的 result/recoveryState，但没有 `terminalSequence`。Rejected view 只能使用第二个 variant，`diagnostics` exact 等于 rejected result diagnostics。`querySemanticMutationRequest()` 返回该 union 或 `null`；`recoverSemanticMutationWorkspace().status === "recovery-required"` 的 `record` 也只能是 transaction view，禁止泄露内部 record。
+
 Crash restart 必须在取得 lease 后读取未终结 record，并依据 current/before/committed byte digest选择完成验证、CAS-safe rollback 或 recovery-required；不得先开始下一 mutation。Recovery journal 是 transaction governance state，不是 Engineering IR 或第二 Authoring Source；SM-3 必须冻结其存储位置、schema migration 和 retention 后才可宣称 crash recovery 完成。
+
+Crash decision 固定为：`prepared + before` 重新计算 exact base/plan/report，一致才继续，否则安全终结为 rejected；`prepared + committed` 补写 `authoring-committed` 后继续 live rebuild；`authoring-committed + committed` 继续 live rebuild；`authoring-committed + before` 验证 base 后终结 `rolled-back`；任一 active state遇到第三方 digest都进入 `recovery-required/concurrent-write`。`verified`、`rolled-back` 与 `rejected` 是 immutable retained history，不再作为当前 workspace recovery authority；全局 recovery scan 与 exact replay 都不得把它们重新同当前 head 做 source/semantic CAS。Exact replay 只校验 retained record 自身的 revision chain、completion receipt 与 request revision binding，并返回原 terminal result；后续合法 mutation 导致 head advance 不得把历史 record 改写为 `recovery-required`。
 
 `requestId` 是 `(graphId, appId)` 内的 replay identity。同一 retained journal/terminal record 中，request ID 对应不同 `requestRevision` 以 `SEMANTIC-MUTATION-001` 拒绝；exact replay 必须返回/恢复原 transaction，不能再执行一次 operation。即使 terminal record 已按 retention 清理，旧 request 仍受 exact base、source-byte 和 plan CAS 约束：已接受的 mutation 不会以新 transaction 重放为成功 no-op。V1 不承诺跨 record retention 的无限期 result cache；SM-3 必须在公开 apply 前冻结 terminal record retention 与 query contract。
 
+`terminalSequence` 是 `rejected`、`verified`、`rolled-back` 三类 retained terminal 共用的 workspace-global durable completion order，不是各 transaction 的 generation `sequence`。三类完成都在 writer lease 下通过同一个 allocator写入 `.sec/semantic-mutation/v1/terminal-order/<12-digit-sequence>.json` 后再固化 terminal record；值必须是唯一、严格递增的正 safe integer，crash 可留下空洞但不能复用，重复 sequence fail closed。`recovery-required` 不分配 terminalSequence。Retention 固定为：unfinished 与 `recovery-required` 永不自动删除；terminal records 每个 workspace 保留最新 256 条，先按 terminalSequence 降序、再按 requestIdentityDigest 升序形成确定性裁剪顺序；只有持有 writer lease时可 prune。`verified` / `rolled-back` terminal record durable 后才可删除 staging workspace与普通 backup；`recovery-required` backup 永不自动删除。Exact replay 只承诺 retained window，query 返回 retained terminal/active view或 `null`。
+
 Accepted transaction 必须按 `invalidationFromStage` 重新生成或明确失效全部 downstream Lock、Projection、Artifact 和 View；stale derivative 不能与新 source 并存为 accepted canonical state。该闭包从既有 Pipeline registry 读取，Mutation 不自建 pass order。若 live canonical rebuild、derivative invalidation/publish 或 staged revision一致性未完成，则不得 accepted，必须走 rollback/recovery。
+
+Live completion proof 固定为：从 Pipeline registry 的 `resolve` stage 计算完整 downstream closure并执行到 `emit`；Mutation 不维护第二张 pass order或 artifact清单。Exact schema 为：
+
+```ts
+interface PipelineCompletionProofV1 {
+  readonly formatRevision: "pipeline-completion-proof-v1";
+  readonly transactionId: string;
+  readonly inputRevision: string;
+  readonly semanticRevision: string;
+  readonly completedStages: readonly PipelineStageId[];
+  readonly completedPasses: readonly PassId[];
+  readonly verificationDigest: string;
+  readonly provenanceDigest: string;
+  readonly explainGraphDigest: string;
+  readonly reviewSummaryDigest: string;
+  readonly localViewDigests: readonly {
+    readonly relativePath: string;
+    readonly digest: string;
+  }[];
+  readonly proofRevision: string;
+}
+```
+
+字段不可缺失或扩张；stage/pass 必须按 Pipeline registry-derived closure exact 排序且全部 succeeded。`proofRevision` 固定为 `sha256(JSON.stringify({ domain: "pipeline-completion-proof-v1", ...除 proofRevision 外按上述字段顺序排列的全部 proof 字段 }))`。Verification、完整 Provenance file、ExplainGraph 与 ReviewSummary 各自的 digest 必须与同一证据对象 exact match；local-view closure/path 顺序固定，每个 `digest` 直接对落盘文件的原始 bytes 做 SHA-256，禁止 `JSON.stringify(Uint8Array)`。
+
+Provenance file 整体仍由 `provenanceDigest` 绑定，但 transaction-binding predicate 只强制本次 `semanticContext.generatorPlan.tasks` 拥有的每个当前 Generator artifact exact 绑定 proof 的 `semanticRevision` 与 `transactionId`，并核对 generator task/entity/artifact identity。与当前 Generator task 无关的历史/block/legacy Provenance entry 可以保留旧 transaction/revision，不得因此误拒；反之，声称属于当前 transaction 的 artifact 不能带 stale semanticRevision。Lock semantic views、ExplainGraph semantic/provenance overlay、ReviewSummary semantic/provenance summary、`verificationLane: "all"` report 与 local-view bytes 任一缺失或 stale，都不能形成 proof。Live rebuilt `inputRevision` / `semanticRevision` 与 staged endpoint exact match，live source digest 与 committed digest exact match；失败进入 rollback/recovery。
 
 ### 18.8 Result contract 与无部分成功
 
@@ -1719,6 +1893,16 @@ type SemanticMutationTerminalStatus =
   | "rejected"
   | "rolled-back"
   | "recovery-required";
+
+type SemanticMutationApplyOutcomeV1 =
+  | { readonly status: "terminal"; readonly result: SemanticMutationResultV2 }
+  | {
+      readonly status: "request-rejected";
+      readonly requestId: string;
+      readonly requestRevision: string;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+      readonly diagnosticRevision: string;
+    };
 
 interface SemanticMutationVerificationExecutionRefV2 {
   readonly adapterId: string;
@@ -1796,6 +1980,8 @@ type SemanticMutationResultV2 =
 - `recovery-required`：source publish 后无法证明安全恢复；必须有 transaction、source changes、`recoveryState`、`SEMANTIC-MUTATION-012` 和 durable recovery record，没有 accepted endpoint。
 
 不存在 `partial-success`、`accepted-with-warning` 或把若干 operation 标成功后继续的状态；v1 request 是单 atomic unit。`resultRevision` digest domain 固定为 `semantic-mutation-result-v2`，包含除自身以外的全部 canonical result 字段，不含时间戳或日志路径。Result 同样 clone、canonical order、deep-freeze。
+
+Retained identity collision、无法形成带 canonical base/plan 的 request rejection，以及 lease/recovery gate 在 transaction plan 之前拒绝时，使用 `SemanticMutationApplyOutcomeV1.status = "request-rejected"`；不得靠 throw 隐式表达普通合同拒绝。进入 canonical non-request plan 后一律返回 `status = "terminal"` 并承载四种 `SemanticMutationResultV2` lifecycle。Process crash、I/O runtime fault可抛出，但下次入口必须先通过 journal recovery收敛到公开 outcome。
 
 `requiredVerificationDigest` 使用 `sha256:<lowercase-hex>`，payload 固定为 `{ domain: "semantic-mutation-required-verification-v1", requirements }`，requirements 必须等于 plan 的完整 canonical union。`verificationExecutionRevision` 使用同一 SHA-256 表达，payload 固定为 `{ domain: "semantic-mutation-verification-execution-v1", adapterId, adapterRevision, reportRevision, planRevision, attempted, stagedSourceDigest, requiredVerificationDigest, status }`。Apply 必须重算两个 digest，并 exact 核对 execution ref 的 planRevision、attempted endpoint、`sourceChanges[0].stagedByteDigest` 和 required union；旧 plan、错误 endpoint/source digest、partial union、failed/blocked 或 digest mismatch 一律以 `SEMANTIC-MUTATION-010` 拒绝，绝不能产生 accepted。该 binding 只引用 `08` authority 的 report，不复制其 report schema或把 runnable decision ownership移入 Mutation。
 

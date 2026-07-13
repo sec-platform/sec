@@ -1,9 +1,7 @@
-import {
-  buildAcceptanceCoverage,
-  createSkippedRuntimeLane,
-  verifyProject,
-  writePolicySnapshot
-} from '../compiler/index.ts';
+import { buildAcceptanceCoverage } from '../compiler/verify/build-acceptance-coverage.ts';
+import { createSkippedRuntimeLane } from '../compiler/verify/run-runtime-verification.ts';
+import { verifyProject } from '../compiler/verify/verify-project.ts';
+import { writePolicySnapshot } from '../compiler/verify/write-policy-snapshot.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { formatCompilerFailure } from '../shared/errors.ts';
 import { writeJson } from '../shared/fs.ts';
@@ -13,14 +11,27 @@ import { getWorkspacePaths } from '../shared/paths.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
 import type { VerificationLane, VerificationReport } from '../shared/verification-types.ts';
+import { assertWorkspaceWriteLease } from '../shared/workspace-write-lease.ts';
+import {
+  assertIsolatedVerificationCapability,
+  type IsolatedVerificationCapability
+} from './isolated-verification-capability.ts';
+
+export interface VerifyWorkspaceOptions {
+  readonly emitTiming?: boolean;
+  readonly isolatedVerificationCapability?: IsolatedVerificationCapability;
+  readonly lane?: VerificationLane;
+  readonly signal?: AbortSignal;
+}
 
 async function writeBlockedVerificationSnapshot(
   workspaceRoot: string,
   lock: LockFile,
   lane: Exclude<VerificationLane, 'runtime'>,
-  failure: unknown
+  failure: unknown,
+  beforeCommit: () => Promise<void>
 ): Promise<void> {
-  const policyReport = await writePolicySnapshot(workspaceRoot);
+  const policyReport = await writePolicySnapshot(workspaceRoot, beforeCommit);
   const runtime = createSkippedRuntimeLane();
   const message = formatCompilerFailure(failure);
   const fast: VerificationReport['fast'] = {
@@ -58,28 +69,38 @@ async function writeBlockedVerificationSnapshot(
   ]);
   lock.passStatus.verify = 'failed';
 
+  await beforeCommit();
   await Promise.all([
-    writeJson(verificationReportPath, report),
-    writeJson(runtimeReportPath, runtime),
-    writeJson(acceptanceCoveragePath, coverage),
-    writeJson(lockPath, lock)
+    writeJson(verificationReportPath, report, beforeCommit),
+    writeJson(runtimeReportPath, runtime, beforeCommit),
+    writeJson(acceptanceCoveragePath, coverage, beforeCommit),
+    writeJson(lockPath, lock, beforeCommit)
   ]);
 }
 
 async function verifyWorkspaceCore(
   workspaceRoot: string,
-  options: { lane?: VerificationLane; emitTiming?: boolean }
+  options: VerifyWorkspaceOptions,
+  context: PipelineExecutionContext
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
   const lock = await readLockFile(workspaceRoot);
   const lane = options.lane ?? 'all';
+  const isolated = options.isolatedVerificationCapability !== undefined;
+  if (isolated) {
+    assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability);
+  }
+  const beforeCommit = () => assertWorkspaceWriteLease(workspaceRoot, context.workspaceWriteLease);
   try {
     const report = await verifyProject(workspaceRoot, lock, lane, {
-      emitTiming: options.emitTiming
+      emitTiming: options.emitTiming,
+      isolated,
+      beforeCommit,
+      signal: options.signal
     });
     return { lock, report };
   } catch (error) {
     if (lane !== 'runtime' && error instanceof Error && 'code' in error && error.code === 'ERROR-DRIFT-001') {
-      await writeBlockedVerificationSnapshot(workspaceRoot, lock, lane, error);
+      await writeBlockedVerificationSnapshot(workspaceRoot, lock, lane, error, beforeCommit);
     }
     throw error;
   }
@@ -87,14 +108,14 @@ async function verifyWorkspaceCore(
 
 export async function verifyWorkspace(
   workspaceRoot = process.cwd(),
-  options: { lane?: VerificationLane; emitTiming?: boolean } = {},
+  options: VerifyWorkspaceOptions = {},
   context?: PipelineExecutionContext
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
   return executePipelineStage(
     workspaceRoot,
     'verify',
     context,
-    () => verifyWorkspaceCore(workspaceRoot, options),
+    (stageContext) => verifyWorkspaceCore(workspaceRoot, options, stageContext),
     {
       extractLock: (result) => result.lock,
       preserveOwnedPassStates: true

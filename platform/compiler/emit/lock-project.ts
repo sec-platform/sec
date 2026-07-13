@@ -1,12 +1,16 @@
 import { CompilerError } from '../../shared/errors.ts';
-import { readJson } from '../../shared/fs.ts';
+import { readJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { assertPassStatus, saveLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { writeProvenance } from './write-provenance.ts';
 
-export async function lockProject(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
+export async function lockProject(
+  workspaceRoot: string,
+  lock: LockFile,
+  commitFence?: CommitFence
+): Promise<LockFile> {
   const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
 
   assertPassStatus(lock, 'verify', 'succeeded', new CompilerError('LOCK-BLOCKED-001', 'verify must succeed before lock'));
@@ -17,7 +21,7 @@ export async function lockProject(workspaceRoot: string, lock: LockFile): Promis
   }
 
   lock.passStatus.lock = 'succeeded';
-  await writeProvenance(workspaceRoot, lock);
-  await saveLock(workspaceRoot, lock);
+  await writeProvenance(workspaceRoot, lock, commitFence);
+  await saveLock(workspaceRoot, lock, commitFence);
   return lock;
 }

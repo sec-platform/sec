@@ -1,0 +1,233 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "sequence": 3,
+  "recordedAt": "2026-07-13T23:54:07.6644645+08:00",
+  "profile": "v0.4-semantic-mutation-apply",
+  "branch": "codex/v0-4-semantic-mutation-apply",
+  "worktree": "D:/Project/sec-worktrees/v0-4-semantic-mutation-apply",
+  "baseSha": "49f96d75cd90a4e5b43db5f8b4dfedebb0f3017f",
+  "currentHead": "49f96d75cd90a4e5b43db5f8b4dfedebb0f3017f",
+  "currentHeadTree": "581c3d9ccae186cef7d56254d929bff952d869bc",
+  "implementationState": "uncommitted-working-tree",
+  "trackedChangedPathCount": 86,
+  "untrackedPathCountBeforeThisRecord": 36,
+  "status": "stopped-on-failed-combined-focused-batch",
+  "mergeAllowed": false,
+  "previousStopRecords": [
+    "docs/evidence/v0-4-semantic-mutation-apply-stop-record.json",
+    "docs/evidence/v0-4-semantic-mutation-apply-freeze-review-stop-record.json"
+  ],
+  "stopReason": "The single combined 39-file focused owner batch completed with five failing tests. Typecheck passed in the same recorded batch. No repair, rerun, commit, canonical gate, slow batch, merge, or branch cleanup was started after the failures.",
+  "importOrganization": {
+    "invalidAttempt": {
+      "argv": [
+        "bun",
+        "run",
+        "imports:organize"
+      ],
+      "environment": {
+        "SEC_IMPORTS_CHANGED_ONLY": "1",
+        "SEC_CHANGED_BASE": "origin/main"
+      },
+      "exitCode": 0,
+      "selectedFileCount": 0,
+      "disposition": "invalid-no-target setup result",
+      "reason": "The organizer compares baseRef to committed HEAD; the implementation was still entirely uncommitted and HEAD equaled origin/main."
+    },
+    "effectiveRun": {
+      "selectionMethod": "temporary Git tree and unreachable commit object; branch, HEAD, and real index unchanged",
+      "selectionTree": "fb1f18c66a7f84c63f0afa62c2759d57ddcc33b0",
+      "selectionCommit": "4fb4f21c29189548f653e3abc44c4c2a25731914",
+      "exitCode": 0,
+      "organizedFileCount": 79
+    }
+  },
+  "combinedBatch": {
+    "schemaVersion": "1",
+    "runId": "sm3-focused-20260713T233801-37f52050115c",
+    "startedAt": "2026-07-13T23:38:01.2223270+08:00",
+    "endedAt": "2026-07-13T23:47:30.9271049+08:00",
+    "durationMs": 569700,
+    "cwd": "D:/Project/sec-worktrees/v0-4-semantic-mutation-apply",
+    "environment": {
+      "bunVersion": "1.3.6",
+      "gitVersion": "git version 2.53.0.windows.3",
+      "osVersion": "Microsoft Windows NT 10.0.26200.0",
+      "osArchitecture": "X64",
+      "processArchitecture": "X64",
+      "powershellVersion": "7.6.1",
+      "CI": null,
+      "SEC_CHANGED_BASE": null,
+      "SEC_AFFECTED_TESTS_BASE": null,
+      "SEC_IMPORTS_CHANGED_ONLY": null
+    },
+    "selection": {
+      "ownerSource": "platform/shared/test-impact-rules/semantic.ts",
+      "ownerFileCount": 27,
+      "appendedFileCount": 12,
+      "uniqueFileCount": 39,
+      "missingFileCount": 0
+    },
+    "focused": {
+      "argvShape": "bun test <27 current semantic-mutation owner files> <12 deduplicated shared-writer/pipeline/upgrade/migration files> --timeout 600000",
+      "startedAt": "2026-07-13T23:38:01.2297040+08:00",
+      "endedAt": "2026-07-13T23:47:22.4610262+08:00",
+      "durationMs": 561190,
+      "exitCode": 1,
+      "fileCount": 39,
+      "testCount": 268,
+      "passedTestCount": 263,
+      "failedTestCount": 5,
+      "assertionCount": 1852,
+      "stdout": {
+        "byteCount": 332,
+        "sha256": "sha256:630c091e716e42216cea3c77a279ca66b379e57076bb7a93d0068d87d582ba97"
+      },
+      "stderr": {
+        "byteCount": 29990,
+        "sha256": "sha256:0e42abc39dbf5d27ef80adcd88e906d78a8145ec56bb0a318a3467daf6817ed8"
+      }
+    },
+    "typecheck": {
+      "argv": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "startedAt": "2026-07-13T23:47:22.5291915+08:00",
+      "endedAt": "2026-07-13T23:47:30.9234000+08:00",
+      "durationMs": 8392,
+      "exitCode": 0,
+      "stdout": {
+        "byteCount": 0,
+        "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": {
+        "byteCount": 41,
+        "sha256": "sha256:b7ccb1c3e4565d2005e6b57fe60bff22e19bcf6c47806df4e9f87f85424a987"
+      }
+    },
+    "overallStatus": "FAIL"
+  },
+  "blockers": [
+    {
+      "id": "SM3-FOCUSED-PLAN-001",
+      "priority": "P1",
+      "kind": "core-apply-plan-regression",
+      "observed": "tests/integration/semantic-mutation-apply.test.ts:358 expected the first dry-run plan status to be ready but received rejected.",
+      "impact": "The canonical happy-path apply/replay lifecycle cannot start, so no implementation snapshot can be frozen.",
+      "requiredResolution": "In the next bounded implementation batch, expose and inspect the rejected plan diagnostics, determine whether this is an AppContainer capability cascade or an independent planner regression, and repair it without running a single-test loop."
+    },
+    {
+      "id": "SM3-FOCUSED-LEASE-002",
+      "priority": "P1",
+      "kind": "recovery-lifecycle-workspace-identity-failure",
+      "observed": "tests/integration/semantic-mutation-recovery-lifecycle.test.ts failed with WORKSPACE-WRITE-LEASE-004: Workspace identity could not be proven, originating at platform/shared/workspace-write-lease.ts:501-503.",
+      "impact": "The real CAS/recovery lifecycle does not complete and the exact failing lifecycle subcase is not surfaced by the current test output.",
+      "requiredResolution": "Localize the failing subcase from static control flow and add safe structured context that preserves path redaction; fix the workspace lifetime or identity race in the same bounded batch."
+    },
+    {
+      "id": "SM3-FOCUSED-RETENTION-003",
+      "priority": "P1",
+      "kind": "retention-performance-boundary",
+      "observed": "tests/unit/semantic-mutation-apply.test.ts:1166-1282 timed out at its frozen 180000 ms limit while constructing/pruning the 256-terminal retention boundary; the aborted run left 77 transaction directories in its current test workspace.",
+      "impact": "The immutable terminal retention contract is not proven and the focused owner batch takes more than nine minutes before failing.",
+      "requiredResolution": "Redesign the journal lookup/allocation path to avoid repeated full-chain and full-directory scans at the retention boundary. Do not close this by increasing the timeout or rerunning the single test."
+    },
+    {
+      "id": "SM3-FOCUSED-APPCONTAINER-004",
+      "priority": "P1",
+      "kind": "windows-isolation-capability-unavailable",
+      "observed": [
+        "tests/unit/semantic-mutation-isolated-child-fence.test.ts:481-483 expected the host-path-free production runner bundle probe to be available but received unavailable.",
+        "tests/unit/windows-appcontainer-executor.test.ts:182-204 expected the Windows AppContainer sentinel probe to be available but received unavailable."
+      ],
+      "impact": "The required Windows AppContainer isolation boundary is not proven on the local Windows host; isolated Verification cannot be promoted.",
+      "requiredResolution": "Use the already captured failure path and static native-helper lifecycle to identify the shared unavailable cause. Repair capability provisioning/cleanup once, then validate only through the next combined owner batch."
+    }
+  ],
+  "knownRepairEvidenceInsideFailedBatch": {
+    "typecheckPassed": true,
+    "journalPreOpenFenceRegressionsPassed": 3,
+    "journalPostOpenDecoyRegressionsPassed": 3,
+    "pipelineProofAndCapabilityStaticAudits": "CLEAN",
+    "promotionStatus": "notPromoted because the combined batch is FAIL"
+  },
+  "residueLedger": {
+    "preProbe": {
+      "capturedAt": "2026-07-13T23:36:21.4663444+08:00",
+      "profiles": 0,
+      "processes": 0,
+      "tempDirectoriesInOriginalProbeScope": 0,
+      "leaseDirectoriesInOriginalProbeScope": 0,
+      "transactionDirectoriesInOriginalProbeScope": 0,
+      "journalTempFilesInOriginalProbeScope": 0,
+      "appContainerAclEntriesInOriginalProbeScope": 0
+    },
+    "preProbeLimitation": "The original probe did not include the repository-local .tmp/test-workspaces namespace. Creation times show three repository-local directories predated this batch; therefore the expanded post count is not presented as a direct six-from-zero delta.",
+    "postProbe": {
+      "capturedAt": "2026-07-13T23:51:45.5139703+08:00",
+      "profiles": 0,
+      "processes": 0,
+      "expandedTempDirectoryCount": 6,
+      "expandedTransactionDirectoryCount": 157,
+      "leaseDirectoryCount": 0,
+      "journalTempFileCount": 0,
+      "appContainerAclEntryCount": 0,
+      "batchCreatedResidualTempDirectoryCount": 2,
+      "batchCreatedResidualTransactionDirectoryCount": 77
+    },
+    "cleanupStatus": {
+      "status": "batch-created-residue-removed",
+      "removedAt": "2026-07-13T23:56:32.4492158+08:00",
+      "removedPathCount": 3,
+      "removed": [
+        "current-batch semantic-core temporary workspace",
+        "current-batch terminal-retention temporary workspace",
+        "current-batch raw-log directory after digest capture"
+      ],
+      "postCleanup": {
+        "profiles": 0,
+        "processes": 0,
+        "expandedTempDirectoryCount": 3,
+        "expandedTransactionDirectoryCount": 80,
+        "leaseDirectoryCount": 0,
+        "journalTempFileCount": 0,
+        "appContainerAclEntryCount": 0
+      },
+      "preservedPreexistingState": "Three repository-local temp/cache directories and 80 transaction descendant directories predated this batch and were not deleted because ownership by this run was not proven.",
+      "batchCreatedResidualAfterCleanup": 0
+    }
+  },
+  "notRun": [
+    "implementation commit and tree-equivalence proof",
+    "independent frozen review",
+    "canonical test:affected",
+    "canonical Contract Freeze",
+    "canonical imports:check",
+    "canonical frozen-head typecheck",
+    "10-suite slow risk batch",
+    "full-fast",
+    "all-slow",
+    "workspace/reference full chain",
+    "GitHub Actions",
+    "docs doctor",
+    "local merge and branch/worktree cleanup"
+  ],
+  "closeout": {
+    "implementationCommitted": false,
+    "frozenReviewPassed": false,
+    "evidenceGenerated": false,
+    "roadmapClosed": false,
+    "mergedToLocalMain": false,
+    "worktreeCleaned": false,
+    "rootUserChangesTouched": false
+  },
+  "resumeBoundary": [
+    "Treat the four failure clusters as one bounded implementation batch; do not rerun any individual failed test.",
+    "Use static inspection and deterministic instrumentation before the next validation run.",
+    "After all four clusters are repaired and the full diff passes one concentrated static audit, run the same 39-file owner batch plus typecheck exactly once.",
+    "If another new blocker appears, append another stop record and stop again."
+  ]
+}

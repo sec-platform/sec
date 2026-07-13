@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
-import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { WorkspaceWriteLeaseError } from '../../platform/shared/workspace-write-lease.ts';
+import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('applies db-expand-contract migration correctly', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -51,7 +52,8 @@ model Customer {
       workspaceRoot,
       targetManifestRoot,
       ['prisma/schema.prisma'], // impacts
-      [migrationEntry]
+      [migrationEntry],
+      async () => undefined
     );
 
     // 4. 断言验证
@@ -70,4 +72,57 @@ model Customer {
     expect(jobContent).toContain('runMigrationJob');
     expect(jobContent).toContain("phoneNumber: 'copied-phone'");
   });
+});
+
+test('db-expand-contract stops before its next live write when the commit fence is lost', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const prismaDir = path.join(workspaceRoot, 'prisma');
+    await fs.mkdir(prismaDir, { recursive: true });
+    const schemaPath = path.join(prismaDir, 'schema.prisma');
+    await fs.writeFile(schemaPath, `model Customer {
+  id    String @id
+  phone String
+}
+`, 'utf8');
+
+    const migrationEntry = {
+      id: 'mig-fence-loss',
+      kind: 'db-expand-contract' as const,
+      reason: 'Exercise the deep commit fence',
+      target: 'prisma/schema.prisma',
+      entity: 'Customer',
+      expandField: 'phoneNumber String?',
+      contractField: 'phone',
+      copyJobCode: 'await prisma.customer.updateMany({ data: { phoneNumber: null } });'
+    };
+    let fenceChecks = 0;
+    const commitFence = async (): Promise<void> => {
+      fenceChecks += 1;
+      if (fenceChecks === 2) {
+        throw new WorkspaceWriteLeaseError(
+          'WORKSPACE-WRITE-LEASE-002',
+          'Workspace writer lease token no longer owns the lease'
+        );
+      }
+    };
+
+    await expect(applyMigrationEntries(
+      workspaceRoot,
+      path.join(workspaceRoot, 'manifests'),
+      ['prisma/schema.prisma'],
+      [migrationEntry],
+      commitFence
+    )).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-002' });
+
+    expect(await fs.readFile(schemaPath, 'utf8')).toContain('phoneNumber String?');
+    const jobPath = path.join(
+      workspaceRoot,
+      'src',
+      'jobs',
+      'db-migrations',
+      'mig-fence-loss.ts'
+    );
+    expect(await fs.stat(jobPath).then(() => true).catch(() => false)).toBe(false);
+    expect(fenceChecks).toBe(2);
+  }, 'engineering-compiler-upgrade-fence-loss-');
 });

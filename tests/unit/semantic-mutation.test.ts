@@ -7,7 +7,6 @@ import {
   buildFactDelta,
   buildImpactPropagation,
   buildSemanticMutationResult,
-  buildSemanticMutationVerificationExecutionRef,
   buildSemanticMutationVerificationPlanningContext,
   buildValidatedEngineeringIR,
   normalizeSemanticMutationRequest,
@@ -16,6 +15,7 @@ import {
   validateEngineeringIR,
   type BuildEngineeringIRInput,
   type SemanticMutationAuthorizationContextV2,
+  type SemanticMutationInputV2,
   type SemanticMutationPlanV2,
   type SemanticMutationRequestV2,
   type VerificationRequirementV1
@@ -24,6 +24,7 @@ import { factAssertionId } from '../../platform/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../platform/compiler/ir/ir-revision.ts';
 import {
   canonicalVerificationUnion,
+  nestedDiagnostic,
   sha256
 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import {
@@ -32,11 +33,25 @@ import {
 } from '../../platform/compiler/semantic-mutation/match-conditions.ts';
 import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
 import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
-import { semanticMutationPlanRevision } from '../../platform/compiler/semantic-mutation/plan-semantic-mutation.ts';
-import { semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
-import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
+import {
+  planSemanticMutationWithAsyncProducerSeamForTest,
+  planSemanticMutationWithProducerSeamForTest,
+  semanticMutationPlanRevision,
+  type SemanticMutationPlanProducerSeamForTest
+} from '../../platform/compiler/semantic-mutation/plan-semantic-mutation.ts';
+import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
+import {
+  evaluateSemanticMutationVerificationPlanning,
+  semanticMutationRequiredVerificationDigest
+} from '../../platform/compiler/semantic-mutation/verification-policy.ts';
 import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
+import { CompilerError } from '../../platform/shared/errors.ts';
 import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
+import {
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION
+} from '../../platform/shared/verification-types.ts';
+import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 
 function contract(withTransition: boolean): LoadedSemanticContract {
   return {
@@ -217,8 +232,8 @@ function fixture() {
     [{ kind: 'pass', passId: 'verify' }]
   );
   const verificationPlanning = buildSemanticMutationVerificationPlanningContext({
-    adapterId: 'verification:local',
-    adapterRevision: 'verification:local:v1',
+    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
     impactRevision: impact.impactRevision,
     uncertaintyStatus: 'covered',
     capabilities: requiredVerification.map((requirement) => ({
@@ -397,8 +412,8 @@ test('planner accepts only the exact registry effect and conservative isolated v
   expect(() => assertSemanticMutationPlanInvariant(plan)).not.toThrow();
 
   const blockedPlanning = buildSemanticMutationVerificationPlanningContext({
-    adapterId: 'verification:local',
-    adapterRevision: 'verification:local:v1',
+    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
     impactRevision: value.impact.impactRevision,
     uncertaintyStatus: 'blocked',
     capabilities: value.requiredVerification.map((requirement) => ({ requirement, status: 'runnable', isolated: true }))
@@ -413,8 +428,8 @@ test('planner accepts only the exact registry effect and conservative isolated v
     value.requiredVerification.map((requirement) => ({ requirement, status: 'runnable' as const, isolated: false }))
   ]) {
     const invalidPlanning = buildSemanticMutationVerificationPlanningContext({
-      adapterId: 'verification:local',
-      adapterRevision: 'verification:local:v1',
+      adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+      adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
       impactRevision: value.impact.impactRevision,
       uncertaintyStatus: 'covered',
       capabilities
@@ -519,6 +534,210 @@ test('expectation and operation allowlist reject missing, extra, and entity drif
   expect(factDeltaRejected.diagnostics[0]?.code).toBe('FACT-DELTA-001');
 });
 
+test('planner stops later producers at every frozen failure boundary', () => {
+  const value = fixture();
+  const input: SemanticMutationInputV2 = {
+    request: value.request,
+    base: value.base,
+    authorization: value.auth,
+    preparation: value.preparation,
+    verificationPlanning: value.verificationPlanning
+  };
+  const run = (
+    candidate: SemanticMutationInputV2,
+    failAt?: 'fact-delta' | 'impact'
+  ) => {
+    const calls = { factDelta: 0, impact: 0, verification: 0 };
+    const producers: SemanticMutationPlanProducerSeamForTest = {
+      buildFactDelta(...args) {
+        calls.factDelta += 1;
+        if (failAt === 'fact-delta') {
+          throw new CompilerError('FACT-DELTA-001', 'Injected trusted Fact Delta failure');
+        }
+        return buildFactDelta(...args);
+      },
+      buildImpactPropagation(...args) {
+        calls.impact += 1;
+        if (failAt === 'impact') {
+          throw new CompilerError('IMPACT-001', 'Injected trusted Impact failure');
+        }
+        return buildImpactPropagation(...args);
+      },
+      evaluateVerificationPlanning(...args) {
+        calls.verification += 1;
+        return evaluateSemanticMutationVerificationPlanning(...args);
+      }
+    };
+    return {
+      plan: planSemanticMutationWithProducerSeamForTest(candidate, producers),
+      calls
+    };
+  };
+
+  const preconditionRequest = {
+    ...value.request,
+    preconditions: [{
+      conditionId: 'condition:missing-entity',
+      kind: 'entity' as const,
+      entityId: 'state:item:missing',
+      exists: true
+    }]
+  };
+  const precondition = run({ ...input, request: preconditionRequest });
+  expect(precondition.plan).toMatchObject({ status: 'rejected', rejectedAt: 'precondition' });
+  expect(precondition.calls).toEqual({ factDelta: 0, impact: 0, verification: 0 });
+
+  for (const rejectedAt of ['transform', 'staged-rebuild'] as const) {
+    const preparation = {
+      status: 'rejected' as const,
+      preflightRevision: value.preflight.preflightRevision,
+      rejectedAt,
+      diagnostics: [{
+        origin: 'semantic-mutation' as const,
+        code: rejectedAt === 'transform' ? 'SEMANTIC-MUTATION-006' as const : 'SEMANTIC-MUTATION-008' as const,
+        stage: rejectedAt,
+        message: 'Injected preparation failure'
+      }]
+    };
+    const rejected = run({ ...input, preparation });
+    expect(rejected.plan).toMatchObject({ status: 'rejected', rejectedAt });
+    expect(rejected.calls).toEqual({ factDelta: 0, impact: 0, verification: 0 });
+  }
+
+  const factDelta = run(input, 'fact-delta');
+  expect(factDelta.plan).toMatchObject({ status: 'rejected', rejectedAt: 'fact-delta' });
+  expect(factDelta.calls).toEqual({ factDelta: 1, impact: 0, verification: 0 });
+
+  const missingExpectationRequest = {
+    ...value.request,
+    expectation: { ...value.request.expectation, addedFacts: value.request.expectation.addedFacts.slice(1) }
+  };
+  const missingExpectationPreflight = preflightSemanticMutation({
+    request: missingExpectationRequest,
+    base: value.base,
+    authorization: value.auth
+  });
+  if (missingExpectationPreflight.status !== 'ready') throw new Error(JSON.stringify(missingExpectationPreflight));
+  const expectation = run({
+    ...input,
+    request: missingExpectationRequest,
+    preparation: {
+      ...value.preparation,
+      preflightRevision: missingExpectationPreflight.preflightRevision
+    }
+  });
+  expect(expectation.plan).toMatchObject({ status: 'rejected', rejectedAt: 'expectation' });
+  expect(expectation.calls).toEqual({ factDelta: 1, impact: 0, verification: 0 });
+
+  const impact = run(input, 'impact');
+  expect(impact.plan).toMatchObject({ status: 'rejected', rejectedAt: 'impact' });
+  expect(impact.calls).toEqual({ factDelta: 1, impact: 1, verification: 0 });
+
+  const blockedPlanning = buildSemanticMutationVerificationPlanningContext({
+    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+    impactRevision: value.impact.impactRevision,
+    uncertaintyStatus: 'blocked',
+    capabilities: value.requiredVerification.map((requirement) => ({
+      requirement,
+      status: 'runnable' as const,
+      isolated: true
+    }))
+  }, value.requiredVerification);
+  const verification = run({ ...input, verificationPlanning: blockedPlanning });
+  expect(verification.plan).toMatchObject({ status: 'rejected', rejectedAt: 'impact-verification' });
+  expect(verification.calls).toEqual({ factDelta: 1, impact: 1, verification: 1 });
+
+  const ready = run(input);
+  expect(ready.plan.status).toBe('ready');
+  expect(ready.calls).toEqual({ factDelta: 1, impact: 1, verification: 1 });
+});
+
+test('async Verification finalization executes Fact Delta, Impact, and the requirement-union producer once', async () => {
+  const value = fixture();
+  const calls = { factDelta: 0, impact: 0, verificationPlanning: 0, verificationEvaluation: 0 };
+  const plan = await planSemanticMutationWithAsyncProducerSeamForTest({
+    request: value.request,
+    base: value.base,
+    authorization: value.auth,
+    preparation: value.preparation,
+    verificationPlanning: value.verificationPlanning
+  }, {
+    buildFactDelta(...args) {
+      calls.factDelta += 1;
+      return buildFactDelta(...args);
+    },
+    buildImpactPropagation(...args) {
+      calls.impact += 1;
+      return buildImpactPropagation(...args);
+    },
+    evaluateVerificationPlanning(...args) {
+      calls.verificationEvaluation += 1;
+      return evaluateSemanticMutationVerificationPlanning(...args);
+    }
+  }, {
+    async produce({ impact, requirements }) {
+      calls.verificationPlanning += 1;
+      expect(impact.impactRevision).toBe(value.impact.impactRevision);
+      expect(requirements).toEqual(value.requiredVerification);
+      await Promise.resolve();
+      return value.verificationPlanning;
+    }
+  });
+
+  expect(plan.status).toBe('ready');
+  expect(calls).toEqual({
+    factDelta: 1,
+    impact: 1,
+    verificationPlanning: 1,
+    verificationEvaluation: 1
+  });
+});
+
+test('nested producer diagnostics preserve only trusted FACT/Impact failures and redact unknown errors', () => {
+  const absolutePath = String.raw`C:\private\workspace\source.yaml`;
+  const secret = 'token=do-not-publish';
+  const trusted = nestedDiagnostic(
+    new CompilerError('FACT-DELTA-001', `${absolutePath} ${secret}`, { absolutePath, secret }),
+    'fact-delta',
+    'fact-delta'
+  );
+  expect(trusted).toMatchObject({
+    origin: 'fact-delta',
+    code: 'FACT-DELTA-001',
+    stage: 'fact-delta',
+    message: 'Fact Delta endpoint binding failed',
+    details: { redactedDetailRevision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/) }
+  });
+  expect(JSON.stringify(trusted)).not.toContain(absolutePath);
+  expect(JSON.stringify(trusted)).not.toContain(secret);
+
+  const diagnostics = [
+    nestedDiagnostic(new Error(`${absolutePath} ${secret}`), 'fact-delta', 'fact-delta'),
+    nestedDiagnostic(
+      new CompilerError('VERIFY-BUILD-001', `${absolutePath} ${secret}`, { absolutePath, secret }),
+      'impact',
+      'impact'
+    )
+  ];
+  expect(diagnostics).toEqual([
+    {
+      origin: 'fact-delta',
+      code: 'COMPILER-UNKNOWN',
+      stage: 'fact-delta',
+      message: 'Unknown producer failure'
+    },
+    {
+      origin: 'impact',
+      code: 'IMPACT-UNKNOWN',
+      stage: 'impact',
+      message: 'Unknown producer failure'
+    }
+  ]);
+  expect(JSON.stringify(diagnostics)).not.toContain(absolutePath);
+  expect(JSON.stringify(diagnostics)).not.toContain(secret);
+});
+
 test('plan invariant rejects digest-correct wrong-stage shapes and empty Verification bindings', () => {
   const value = fixture();
   const plan = planSemanticMutation({
@@ -568,16 +787,50 @@ test('result builder binds passed verification to exact plan, endpoint, source d
     verificationPlanning: value.verificationPlanning
   });
   if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
-  const verification = buildSemanticMutationVerificationExecutionRef({
+  const verificationReport = semanticMutationVerificationReportFixture({
     adapterId: plan.verificationAdapterId,
     adapterRevision: plan.verificationAdapterRevision,
-    reportRevision: sha256('verification-report'),
     planRevision: plan.planRevision,
     attempted: plan.staged,
     stagedSourceDigest: plan.sourceChanges[0].stagedByteDigest,
     requiredVerificationDigest: semanticMutationRequiredVerificationDigest(plan.requiredVerification),
-    status: 'passed'
+    status: 'passed',
+    requirements: plan.requiredVerification
   });
+  const verification = buildSemanticMutationVerificationExecutionRef(verificationReport);
+  const forgedExtraInput = {
+    ...verificationReport,
+    forgedExtra: 'must-not-enter-execution-evidence',
+  };
+  expect(() => buildSemanticMutationVerificationExecutionRef(forgedExtraInput as never))
+    .toThrow('non-canonical schema');
+  expectDeepFrozen(verification);
+  const {
+    verificationExecutionRevision: _verificationExecutionRevision,
+    ...forgedExecutionWithoutRevision
+  } = verification;
+  const forgedExecutionDraft = {
+    ...forgedExecutionWithoutRevision,
+    forgedExtra: 'self-consistent-but-forbidden'
+  };
+  const forgedExecution = {
+    ...forgedExecutionDraft,
+    verificationExecutionRevision: sha256({
+      domain: 'semantic-mutation-verification-execution-v1',
+      ...forgedExecutionDraft
+    })
+  };
+  const forgedExecutionResult = buildSemanticMutationResult(plan, {
+    status: 'accepted',
+    transactionId: 'tx:forged-execution',
+    attempted: plan.staged,
+    accepted: plan.staged,
+    verification: forgedExecution as never
+  });
+  expect(forgedExecutionResult.status).toBe('rejected');
+  expect(forgedExecutionResult.diagnostics.some((diagnostic) =>
+    diagnostic.code === 'SEMANTIC-MUTATION-010')).toBe(true);
+  expect(Object.hasOwn(forgedExecutionResult, 'verification')).toBe(false);
   const accepted = buildSemanticMutationResult(plan, {
     status: 'accepted',
     transactionId: 'tx:live',
@@ -590,13 +843,14 @@ test('result builder binds passed verification to exact plan, endpoint, source d
   expectDeepFrozen(accepted);
   expect(() => assertSemanticMutationResultInvariant(accepted, plan)).not.toThrow();
 
-  for (const variant of ['plan', 'source', 'attempted', 'requirements', 'execution-revision'] as const) {
+  for (const variant of ['plan', 'source', 'attempted', 'requirements', 'report-revision', 'execution-revision'] as const) {
     const forged = structuredClone(accepted) as unknown as Record<string, unknown>;
     const execution = forged.verification as Record<string, unknown>;
     const { verificationExecutionRevision: _executionRevision, ...executionDraft } = execution;
     if (variant === 'plan') executionDraft.planRevision = sha256('wrong-plan');
     if (variant === 'source') executionDraft.stagedSourceDigest = sha256('wrong-source');
     if (variant === 'requirements') executionDraft.requiredVerificationDigest = sha256('wrong-requirements');
+    if (variant === 'report-revision') executionDraft.reportRevision = 'forged-non-sha-report';
     if (variant === 'attempted') {
       const wrongAttempted = {
         ...(forged.attempted as FactDeltaEndpointContext),
@@ -605,7 +859,13 @@ test('result builder binds passed verification to exact plan, endpoint, source d
       forged.attempted = wrongAttempted;
       executionDraft.attempted = wrongAttempted;
     }
-    const forgedExecution = buildSemanticMutationVerificationExecutionRef(executionDraft as never);
+    const forgedExecution = {
+      ...executionDraft,
+      verificationExecutionRevision: sha256({
+        domain: 'semantic-mutation-verification-execution-v1',
+        ...executionDraft
+      })
+    };
     forged.verification = variant === 'execution-revision'
       ? { ...forgedExecution, verificationExecutionRevision: sha256('wrong-execution-revision') }
       : forgedExecution;
@@ -628,16 +888,17 @@ test('result builder binds passed verification to exact plan, endpoint, source d
 
   const rejectedWrongVerification = structuredClone(publishRejected) as unknown as Record<string, unknown>;
   rejectedWrongVerification.attempted = plan.staged;
-  rejectedWrongVerification.verification = buildSemanticMutationVerificationExecutionRef({
+  rejectedWrongVerification.verification = buildSemanticMutationVerificationExecutionRef(
+    semanticMutationVerificationReportFixture({
     adapterId: plan.verificationAdapterId,
     adapterRevision: plan.verificationAdapterRevision,
-    reportRevision: sha256('verification-report'),
     planRevision: sha256('wrong-rejected-plan'),
     attempted: plan.staged,
     stagedSourceDigest: plan.sourceChanges[0].stagedByteDigest,
     requiredVerificationDigest: semanticMutationRequiredVerificationDigest(plan.requiredVerification),
-    status: 'failed'
-  });
+    status: 'failed',
+    requirements: plan.requiredVerification
+  }));
   delete rejectedWrongVerification.resultRevision;
   rejectedWrongVerification.resultRevision = semanticMutationResultRevision(rejectedWrongVerification as never);
   expect(() => assertSemanticMutationResultInvariant(rejectedWrongVerification as never, plan))
@@ -719,7 +980,13 @@ test('result builder binds passed verification to exact plan, endpoint, source d
     ...blockedVerification
   } = forgedRollback.verification as Record<string, unknown>;
   blockedVerification.status = 'blocked';
-  forgedRollback.verification = buildSemanticMutationVerificationExecutionRef(blockedVerification as never);
+  forgedRollback.verification = {
+    ...blockedVerification,
+    verificationExecutionRevision: sha256({
+      domain: 'semantic-mutation-verification-execution-v1',
+      ...blockedVerification
+    })
+  };
   const { resultRevision: _resultRevision, ...forgedResultDraft } = forgedRollback;
   forgedRollback.resultRevision = semanticMutationResultRevision(forgedResultDraft as never);
   expect(() => assertSemanticMutationResultInvariant(forgedRollback as unknown as typeof rolledBack, plan))
