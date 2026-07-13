@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 import ts from 'typescript';
+import { parse } from 'yaml';
 
 import {
   CodexDevelopmentFinalizeVerificationEvidenceV2,
@@ -36,6 +37,63 @@ const MANIFEST_PATH = 'docs/work-packages/example.md';
 const CHECKED_AT = '2026-07-14T00:00:00.000Z';
 const EXPIRES_AT = '2026-10-12T00:00:00.000Z';
 
+type PlannerPull = {
+  number: number;
+  draft: boolean;
+  head: { sha: string; repo: { id: number } };
+  base: { ref: string; repo: { id: number } };
+};
+
+type PlannerEnv = {
+  EVENT_NAME: string;
+  EVENT_HEAD: string;
+  EVENT_TITLE: string;
+  WORKFLOW_STATUS: string;
+};
+
+async function runRevalidationPlanner(pulls: PlannerPull[], env: Partial<PlannerEnv> = {}) {
+  const workflow = parse(await readCompilerFile('.github/workflows/sec-merge-gate.yml')) as {
+    jobs: Record<string, { steps: Array<{ id?: string; with?: { script?: string } }> }>;
+  };
+  const script = workflow.jobs['plan-revalidation']?.steps.find((step) => step.id === 'plan')?.with?.script;
+  if (!script) throw new Error('plan-revalidation github-script source is missing.');
+  const statuses: Array<{ sha: string; state: string; description: string }> = [];
+  let matrix = '';
+  const execute = new Function(
+    'github', 'context', 'core', 'process',
+    `return (async () => { ${script}\n })();`
+  ) as (github: unknown, context: unknown, core: unknown, processValue: unknown) => Promise<void>;
+  await execute({
+    paginate: async () => pulls,
+    rest: {
+      pulls: { list: () => undefined },
+      repos: {
+        createCommitStatus: async (status: { sha: string; state: string; description: string }) => {
+          statuses.push(status);
+        }
+      }
+    }
+  }, {
+    repo: { owner: 'sec-platform', repo: 'sec' },
+    payload: { repository: { default_branch: 'main' } },
+    serverUrl: 'https://github.com',
+    runId: 123
+  }, {
+    setOutput: (name: string, value: string) => {
+      if (name === 'matrix') matrix = value;
+    }
+  }, {
+    env: {
+      EVENT_NAME: 'push',
+      EVENT_HEAD: '',
+      EVENT_TITLE: '',
+      WORKFLOW_STATUS: '',
+      ...env
+    }
+  });
+  return { statuses, matrix };
+}
+
 function gitBlobSha(bytes: Uint8Array): string {
   return createHash('sha1')
     .update(`blob ${bytes.byteLength}\0`)
@@ -55,7 +113,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v4
+ciRevision: ci-verification-v5
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -134,7 +192,7 @@ function fixture(manifest = manifestSource()) {
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v4',
+    contractRevision: 'ci-verification-v5',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -184,7 +242,7 @@ function fixture(manifest = manifestSource()) {
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v4-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v5-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -550,6 +608,31 @@ test('scope attestation binds the manifest profile and CI revision', () => {
   })).toThrow('CI revision mismatch');
 });
 
+test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
+  const current = fixture();
+  const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v5', 'ci-verification-v4'));
+  const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
+  expect(legacyManifest.ciRevision).toBe('ci-verification-v4');
+
+  expect(() => CodexDevelopmentBuildScopeAttestationV1({
+    ...current.scopeRequest,
+    expectedManifestDigest: CodexDevelopmentWorkPackageManifestDigest(legacyBytes),
+    expectedManifestBlobSha: gitBlobSha(legacyBytes),
+    expectedManifestByteLength: legacyBytes.byteLength
+  }, legacyBytes)).toThrow('CI revision is not current');
+
+  expect(() => CodexDevelopmentEvaluateMergeGateV1({
+    rawInput: {
+      ...current.rawInput,
+      manifestBlobSha: gitBlobSha(legacyBytes),
+      manifestByteLength: legacyBytes.byteLength
+    },
+    manifestBytes: legacyBytes,
+    rawAttestation: current.attestation,
+    rawEvidence: current.rawEvidence
+  })).toThrow('CI revision is not current');
+});
+
 test('artifact metadata and repository_dispatch run identity fail closed', () => {
   const mutations: Array<(value: ReturnType<typeof fixture>) => void> = [
     (value) => { value.rawInput.attestationArtifact.digest = null; },
@@ -592,9 +675,83 @@ test('manifest and artifact JSON decoding use fatal UTF-8', async () => {
   expect(source).toContain('stat.size > 1_048_576');
 });
 
+test('revalidation planner records Draft failure without scheduling a Draft matrix runner', async () => {
+  const draft: PlannerPull = {
+    number: 107,
+    draft: true,
+    head: { sha: '7'.repeat(40), repo: { id: 1 } },
+    base: { ref: 'main', repo: { id: 1 } }
+  };
+  const ready: PlannerPull = {
+    number: 108,
+    draft: false,
+    head: { sha: '8'.repeat(40), repo: { id: 1 } },
+    base: { ref: 'main', repo: { id: 1 } }
+  };
+
+  for (const env of [
+    { EVENT_NAME: 'push' },
+    { EVENT_NAME: 'schedule' },
+    { EVENT_NAME: 'pull_request_target', EVENT_HEAD: draft.head.sha }
+  ]) {
+    const draftOnly = await runRevalidationPlanner([draft], env);
+    expect(JSON.parse(draftOnly.matrix)).toEqual({ include: [] });
+    expect(draftOnly.statuses).toEqual([expect.objectContaining({
+      sha: draft.head.sha,
+      state: 'failure',
+      description: 'Draft PR is not eligible for merge-gate execution'
+    })]);
+  }
+
+  const mixed = await runRevalidationPlanner([draft, ready]);
+  expect(JSON.parse(mixed.matrix)).toEqual({ include: [{ pull_request: 108, head: ready.head.sha }] });
+  expect(mixed.statuses).toEqual([
+    expect.objectContaining({ sha: draft.head.sha, state: 'failure' }),
+    expect.objectContaining({ sha: ready.head.sha, state: 'pending' })
+  ]);
+
+  const sharedHeadReady = { ...ready, head: draft.head };
+  const duplicateHead = await runRevalidationPlanner([draft, sharedHeadReady]);
+  expect(JSON.parse(duplicateHead.matrix)).toEqual({ include: [] });
+  expect(duplicateHead.statuses).toEqual([expect.objectContaining({
+    sha: draft.head.sha,
+    state: 'failure',
+    description: 'Multiple open pull requests share one exact head'
+  })]);
+});
+
+test('workflow_run planner invalidates early attempts and executes one completed ready head', async () => {
+  const ready: PlannerPull = {
+    number: 108,
+    draft: false,
+    head: { sha: '8'.repeat(40), repo: { id: 1 } },
+    base: { ref: 'main', repo: { id: 1 } }
+  };
+  const event = {
+    EVENT_NAME: 'workflow_run',
+    EVENT_TITLE: `verify frozen PR #108 quick @ ${ready.head.sha} base ${'9'.repeat(40)}`
+  };
+
+  for (const WORKFLOW_STATUS of ['requested', 'in_progress']) {
+    const early = await runRevalidationPlanner([ready], { ...event, WORKFLOW_STATUS });
+    expect(JSON.parse(early.matrix)).toEqual({ include: [] });
+    expect(early.statuses).toEqual([expect.objectContaining({ sha: ready.head.sha, state: 'pending' })]);
+  }
+
+  const completed = await runRevalidationPlanner([ready], { ...event, WORKFLOW_STATUS: 'completed' });
+  expect(JSON.parse(completed.matrix)).toEqual({ include: [{ pull_request: 108, head: ready.head.sha }] });
+  expect(completed.statuses).toEqual([expect.objectContaining({ sha: ready.head.sha, state: 'pending' })]);
+});
+
 test('trusted workflows pin actions, revalidate TTL/base drift, and never execute PR head in merge gate', async () => {
-  const mergeWorkflow = await readCompilerFile('.github/workflows/sec-merge-gate.yml');
-  const prWorkflow = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
+  const mergeWorkflow = (await readCompilerFile('.github/workflows/sec-merge-gate.yml')).replaceAll(
+    '\r\n',
+    '\n',
+  );
+  const prWorkflow = (await readCompilerFile('.github/workflows/compiler-pr-validation.yml')).replaceAll(
+    '\r\n',
+    '\n',
+  );
   expect(mergeWorkflow).toContain("cron: '17 */6 * * *'");
   expect(mergeWorkflow).toContain('push:');
   expect(mergeWorkflow).toContain('pull_request_target:');
@@ -631,13 +788,19 @@ test('trusted workflows pin actions, revalidate TTL/base drift, and never execut
   expect(mergeWorkflow).toContain("- requested\n      - in_progress\n      - completed");
   expect(mergeWorkflow).toContain("process.env.EVENT_NAME === 'workflow_run'");
   expect(mergeWorkflow).toContain("pull.number === Number(match[1]) && pull.head.sha === match[2]");
+  expect(mergeWorkflow).toContain('const selectedHeads = [...new Set(selected.map((pull) => pull.head.sha))].sort();');
+  expect(mergeWorkflow).toContain("description: 'Multiple open pull requests share one exact head'");
+  expect(mergeWorkflow).toContain("description: 'Draft PR is not eligible for merge-gate execution'");
+  expect(mergeWorkflow).toContain(': executableSelection;');
   expect(mergeWorkflow).toContain("process.env.EVENT_NAME === 'workflow_run' && process.env.WORKFLOW_STATUS !== 'completed'");
-  expect(mergeWorkflow).toContain('? []\n              : selected;');
+  expect(mergeWorkflow).toContain('? []\n              : executableSelection;');
   expect(mergeWorkflow).toContain('digest: artifact.digest ?? null');
   expect(mergeWorkflow).toContain('expiresAt.toISOString() !== artifact.expiresAt');
   expect(mergeWorkflow).toContain('!Number.isSafeInteger(artifact.sizeInBytes)');
   expect(mergeWorkflow).toContain('93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5');
   expect(mergeWorkflow).toContain('d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4');
+  expect((mergeWorkflow.match(/sec-verification-v5-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).not.toContain('sec-verification-v4-');
   expect(prWorkflow).toContain('repository_dispatch:');
   expect(prWorkflow).toContain('sec-verify-frozen-v1');
   expect(prWorkflow).toContain('pull-requests: read');

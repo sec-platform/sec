@@ -18,7 +18,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v4
+ciRevision: ci-verification-v5
 tasks:
   - id: b0-bootstrap-v1
     owner: b0-writer
@@ -64,8 +64,12 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     base: BASE,
     manifestState: 'frozen',
     requiredProfile: 'quick',
-    ciRevision: 'ci-verification-v4'
+    ciRevision: 'ci-verification-v5'
   });
+  const historical = CodexDevelopmentParseWorkPackageManifestV1(
+    source.replace('ci-verification-v5', 'ci-verification-v4')
+  );
+  expect(historical.ciRevision).toBe('ci-verification-v4');
   expect(CodexDevelopmentWorkPackageManifestDigest(source)).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(CodexDevelopmentAssertWorkPackageOwnership(parsed, [
     'platform/shared/ci-contract.ts',
@@ -88,6 +92,11 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
     manifest().replace('manifestState: frozen', 'manifestState: draft')
   )).toThrow('must be frozen');
+  for (const revision of ['ci-verification-v0', 'ci-verification-v05', 'ci-verification-latest']) {
+    expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+      manifest().replace('ci-verification-v5', revision)
+    )).toThrow('stable positive verification revision');
+  }
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
     manifest().replace('id: b0-bootstrap-v1', 'id: !custom b0-bootstrap-v1')
   )).toThrow('YAML tags are forbidden');

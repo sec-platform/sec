@@ -217,7 +217,10 @@ function manifestBinding(env: NodeJS.ProcessEnv): { manifestPath: string | null;
   }
   const source = readFileSync(path.resolve(manifestPath));
   const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
-  CodexDevelopmentParseWorkPackageManifestV1(text, manifestPath);
+  const manifest = CodexDevelopmentParseWorkPackageManifestV1(text, manifestPath);
+  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
+    throw new Error('Work Package manifest does not target the current CI verification revision.');
+  }
   return {
     manifestPath,
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(source)
