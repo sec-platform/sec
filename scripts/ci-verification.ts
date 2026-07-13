@@ -173,7 +173,10 @@ function manifestBinding(env: NodeJS.ProcessEnv): { manifestPath: string | null;
   }
   const source = readFileSync(path.resolve(manifestPath));
   const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
-  CodexDevelopmentParseWorkPackageManifestV1(text, manifestPath);
+  const manifest = CodexDevelopmentParseWorkPackageManifestV1(text, manifestPath);
+  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
+    throw new Error('Work Package manifest does not target the current CI verification revision.');
+  }
   return {
     manifestPath,
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(source)
@@ -255,7 +258,7 @@ export async function CodexDevelopmentCiVerificationMain(
     if (!cleanBefore) throw new Error('CI verification requires a clean complete worktree before execution.');
     binding = manifestBinding(env);
     if (binding.manifestPath !== null && (prBaseSha !== affectedBaseSha || directParentSha !== prBaseSha)) {
-      throw new Error('CI verification v4 requires affected base = HEAD^1 = current PR base.');
+      throw new Error('CI verification v5 requires affected base = HEAD^1 = current PR base.');
     }
     const plan = CodexDevelopmentBuildVerificationPlanV1(profile, changedFileResolver(prBaseRef));
     files = plan.changedFiles;

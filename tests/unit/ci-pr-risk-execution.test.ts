@@ -58,7 +58,7 @@ test('CI risk argv failures still atomically project failed Evidence V2', async 
   expect(code).toBe(1);
   expect(captured.evidence).toMatchObject({
     schema: 'codex-development-verification-evidence-v2',
-    contractRevision: 'ci-verification-v4',
+    contractRevision: 'ci-verification-v5',
     kind: 'risk',
     profile: 'risk',
     headSha: HEAD,
@@ -268,7 +268,7 @@ for (const scenario of [
     expect(writes).toBe(1);
     expect(captured.evidence).toMatchObject({
       schema: 'codex-development-verification-evidence-v2',
-      contractRevision: 'ci-verification-v4',
+      contractRevision: 'ci-verification-v5',
       kind: 'risk',
       status: 'failed'
     });
@@ -307,4 +307,31 @@ test('CI risk manifest binding failure writes exactly one failed Evidence V2', a
     failure: { stage: 'manifest' }
   });
   expect(captured.evidence?.failure?.tail).toContain('SEC_WORK_PACKAGE_MANIFEST_PATH');
+});
+
+test('CI risk rejects a parseable historical Work Package revision', async () => {
+  const captured: { evidence?: CodexDevelopmentVerificationEvidenceV2 } = {};
+  let writes = 0;
+  const code = await CodexDevelopmentCiPrRiskMain({
+    argv: [],
+    env: {
+      SEC_CHANGED_BASE: BASE,
+      SEC_AFFECTED_TESTS_BASE: BASE,
+      SEC_WORK_PACKAGE_MANIFEST_PATH: 'docs/work-packages/b0-bootstrap-v1.md'
+    },
+    now: clock(),
+    gitRevision,
+    trackedTreeIsClean: () => true,
+    changedFiles: () => [],
+    runGate: async () => ({ code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' }),
+    writeEvidence: (_path, value) => {
+      writes += 1;
+      captured.evidence = value;
+    }
+  });
+
+  expect(code).toBe(1);
+  expect(writes).toBe(1);
+  expect(captured.evidence).toMatchObject({ kind: 'risk', status: 'failed', failure: { stage: 'manifest' } });
+  expect(captured.evidence?.failure?.tail).toContain('current CI verification revision');
 });

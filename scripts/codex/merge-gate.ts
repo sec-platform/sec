@@ -355,6 +355,9 @@ export function CodexDevelopmentBuildScopeAttestationV1(
   }
   const manifestSource = decodeUtf8(manifestBytes, 'Work Package manifest');
   const manifest = CodexDevelopmentParseWorkPackageManifestV1(manifestSource, request.manifestPath);
+  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
+    throw new Error('Scope attestation Work Package CI revision is not current.');
+  }
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes);
   const manifestBlobSha = gitBlobSha(manifestBytes);
   if (
@@ -502,13 +505,16 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     || input.headParents.length !== 1
     || input.headParents[0] !== input.currentBase
   ) {
-    throw new Error('CI v4 requires one exact head commit whose only parent is current base.');
+    throw new Error('CI v5 requires one exact head commit whose only parent is current base.');
   }
   if (CodexDevelopmentParseWorkPackageLocator(input.body) !== input.manifestPath) {
     throw new Error('PR body Work Package locator does not match merge gate input.');
   }
   const manifestSource = decodeUtf8(options.manifestBytes, 'Work Package manifest');
   const manifest = CodexDevelopmentParseWorkPackageManifestV1(manifestSource, input.manifestPath);
+  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
+    throw new Error('Merge gate Work Package CI revision is not current.');
+  }
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(options.manifestBytes);
   const manifestBlobSha = gitBlobSha(options.manifestBytes);
   if (
@@ -587,7 +593,7 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     throw new Error('Verification workflow run is not exact-head trusted evidence.');
   }
   const expectedVerificationName = [
-    'sec-verification-v4',
+    'sec-verification-v5',
     manifest.requiredProfile,
     `pr-${input.pullRequest}`,
     `base-${input.currentBase}`,
