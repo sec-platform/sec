@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel、Semantic Mutation canonical contract design 与 SM-1 pure kernels 均已完成，当前唯一 active next 是 SM-2 source adapter and edit-plan boundary。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel、Semantic Mutation canonical contract design、SM-1 pure kernels 与 SM-2 source adapter / edit-plan boundary 均已完成，当前唯一 active next 是 SM-3 isolated apply coordinator。
 
 当前真实形态：
 
@@ -435,7 +435,7 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE NEXT（SM-2 source adapter and edit-plan boundary）**。
+状态：**ACTIVE NEXT（SM-3 isolated apply coordinator）**。
 
 只有 v0.3 完成后进入：
 
@@ -504,13 +504,13 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | --- | --- | --- | --- |
 | SM-0 | canonical contract design | **COMPLETED** | `docs/14` 已冻结 request/plan/result v2、单一首版 operation registry、source ownership、restricted expectation、diagnostic precedence、transaction/CAS/rollback/recovery 与 Verification ownership；`00/09/11/12` 只保留各自 owner 摘要 |
 | SM-1 | pure request/plan/result kernels | **COMPLETED** | 纯 normalization、condition/expectation matcher、plan/result invariant 与 Contract Freeze 已落地；没有 Workspace IO、source adapter、consumer 或 live apply |
-| SM-2 | source adapter and edit-plan boundary | **ACTIVE NEXT** | 唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 落地 |
-| SM-3 | isolated apply coordinator | **BLOCKED BY SM-2** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 落地 |
+| SM-2 | source adapter and edit-plan boundary | **COMPLETED** | 固定 authoring index、真实 loaded provenance、唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 已落地 |
+| SM-3 | isolated apply coordinator | **ACTIVE NEXT** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 落地 |
 | SM-4 | product adapters and Task Envelope reconciliation | **BLOCKED BY SM-3** | Workbench 先迁移为 v2 caller；AI Task Envelope v2 随后只提供 trusted authorization minimum |
 
 ### SM-0 退出审查与 SM-1 implementation contract
 
-SM-0 的关键裁决是：Semantic Mutation 是独立 Authoring Source transaction，不是 View Mutation、IR patch、Fact Delta patch、Repair、Upgrade 或 Pipeline journal 的别名。Proposal 与 trusted platform context 分离；caller 不能提交 filesystem path、actual `FactDelta` / Impact、risk、required passes、rollback 或 verification reduction。首版 registry 只冻结 `add-state-transition`，且只有平台能从 loaded contract provenance 唯一解析到 non-registry writable owner 时才可 ready；当前 official Registry Ticket contract 不可写，`source/model/**` 也不能在尚未进入 semantic contract loader 前被假定为 owner。
+SM-0 的关键裁决是：Semantic Mutation 是独立 Authoring Source transaction，不是 View Mutation、IR patch、Fact Delta patch、Repair、Upgrade 或 Pipeline journal 的别名。Proposal 与 trusted platform context 分离；caller 不能提交 filesystem path、actual `FactDelta` / Impact、risk、required passes、rollback 或 verification reduction。首版 registry 只冻结 `add-state-transition`，且只有平台能从 loaded contract provenance 唯一解析到 non-registry writable owner 时才可 ready；official Registry Ticket contract 仍不可写，`source/model/**` 文件也只有经固定 authoring index 被 canonical frontend 真实装载并产生 exact IR provenance 后才能成为 owner，不能把同名 copy 当作 writable mirror。
 
 SM-1 Work Package implementation contract：
 
@@ -532,6 +532,16 @@ SM-1 已实现 mutation-specific shared types 与纯 Compiler kernels：严格 r
 退出证据绑定 exact implementation head `c0e3d93ceaf6ac03b5e98e299176f8c1a0848665` 与 tree `6508831df479e329c116203c574970757fffa20b`：focused Semantic Mutation 13/13（包含于 canonical affected batch）、affected fast 165/165、Contract Freeze 89/89、typecheck、changed-only imports、patch hygiene 与独立 frozen review 全部 PASS；selector 唯一要求的 `e2e-graph`、`e2e-local-views` 两条 slow suite 共 6/6 tests PASS，失败数 0，测试后 tracked tree clean。第一次 implementation head 因 changed-only imports gate 失败而整体失效；机械 import 排序被 amend 后，全部 canonical gate 已在新头重跑。最终只追加本路线图与两份 evidence，recorded production/contract/authority blobs 保持 exact；不重跑 full-fast、其余 slow、workspace/reference chain 或 GitHub Actions。完整 argv、时间、duration、changed-path digest、blob、raw evidence digest 与失效/复用账本位于 `docs/evidence/v0-4-semantic-mutation-kernel-verification.json` 和 `docs/evidence/v0-4-semantic-mutation-risk-batch.json`。
 
 下一 reconciliation point 是 SM-1 merge 后从新 `main` 重新读取 source ownership、path containment、realpath/reparse、byte CAS 与 rollback authority，设计 SM-2；不得从当前纯 preparation shell 推断已有 writable owner 或 live apply 能力。
+
+### SM-2 退出审查
+
+SM-2 已把 Authoring Source 接入唯一 workspace semantic input：canonical frontend 对 Authoring Source 只读取固定 `source/model/semantic-contracts.yaml` 索引，并把 Registry 与 Authoring contract 的真实 source kind/revision 和 loaded contract provenance 随 validated snapshot 一并传出。未被该 loader 装载的 mirror 不具有 authority；`workspace-registry` / `compiler-registry` 始终 read-only。Resolver 从 base IR 的 authoritative contract provenance 重算唯一 source，固定 owner ID 的 percent-encoding、`semantic-contract-yaml-v1` adapter 与 segment-aware `allowedPathPrefixes`，且 v1 多 operation 必须汇聚到一个 authoring file。
+
+Source boundary 已冻结 canonical POSIX lexical containment、realpath、symlink/junction/reparse、Windows case-fold/device/ADS、duplicate canonical path/hardlink identity 与 stable-read TOCTOU 防护。YAML adapter 以 AST 只添加并排序 exact transition，保留 UTF-8 BOM、LF/CRLF、comments 与 final-newline 形态；edit plan 绑定 preflight/request/authorization/registry/source/path revisions、before/staged byte digests 和 rollback manifest，replay 先执行 before-byte CAS 并重算 transform。SM-2 只形成 deterministic source edit plan 和不可变 rollback metadata，没有创建 lease/staging、执行 canonical rebuild/Fact Delta/Impact/Verification、写 live source、publish、rollback 或 recovery journal；这些生命周期仍全部属于 SM-3。
+
+退出证据绑定 exact implementation head `117159714b4707e26b5a611e07b0865aabec07b6` 与 tree `e1e612e6fa5eb799231ede7a8bae422818350ff8`：focused Semantic Mutation owner batch 75/75、807 assertions；affected fast 195/195；Contract Freeze 94/94；typecheck、changed-only imports 与 patch hygiene 全部 PASS。Canonical selector 要求的 `e2e-graph` 5/5、`e2e-ticket-semantic-vertical` 1/1、`e2e-local-views` 1/1 共 7/7 tests PASS，测试后 tracked tree clean。独立 frozen review 发现并关闭了 opened-handle 未绑定 pre-inspection target identity 与 hardlink alias 未 fail-closed 两个 blocker，最终 review PASS、无 blocker。首次未设置 `SEC_AFFECTED_TESTS_BASE` 的 affected run 选择 0 files，原 `12b6234` 与中间 `7e5be0a` evidence 也因上述 blocker 明确失效；最终 exact-head run 使用 `SEC_AFFECTED_TESTS_BASE=origin/main`。Docs/evidence closeout 不修改任何 recorded production/contract blob，继续复用既有 full-fast、未选择 slow suites、workspace/reference chain 与 GitHub Actions 证据，不重跑全矩阵。完整 head/base、argv、duration、blob ledger、raw evidence digest 与失效规则位于 `docs/evidence/v0-4-semantic-mutation-source-adapter-verification.json` 和 `docs/evidence/v0-4-semantic-mutation-source-adapter-risk-batch.json`。
+
+下一 reconciliation point 是 SM-2 merge 后从新 `origin/main` 重算 lease、transaction directory、isolated rebuild、Verification execution、atomic publish、rollback/recovery journal 与 replay DAG；不得把 SM-2 edit plan 描述成已经 apply，也不得在 SM-3 前接 Workbench、CLI、AI 或 live mutation consumer。
 
 ## 14. 后续阶段
 
@@ -602,7 +612,9 @@ v0.4 SM-0 Semantic Mutation canonical contract design       COMPLETED
   ↓
 v0.4 SM-1 pure request/plan/result kernels                  COMPLETED
   ↓
-v0.4 SM-2 source adapter and edit-plan boundary             ACTIVE NEXT
+v0.4 SM-2 source adapter and edit-plan boundary             COMPLETED
+  ↓
+v0.4 SM-3 isolated apply coordinator                         ACTIVE NEXT
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。

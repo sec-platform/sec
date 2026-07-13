@@ -121,7 +121,9 @@ test('test impact selector gives Semantic Mutation a focused owner without dedic
   expect(selection.owners).toContain('semantic-mutation');
   expect(selection.fast).toEqual(expect.arrayContaining([
     'tests/unit/semantic-mutation.test.ts',
+    'tests/unit/semantic-mutation-source-adapter.test.ts',
     'tests/contract/semantic-mutation-contract.test.ts',
+    'tests/contract/semantic-mutation-source-adapter-contract.test.ts',
     'tests/unit/fact-delta.test.ts',
     'tests/contract/fact-delta-contract.test.ts',
     'tests/unit/impact-propagation.test.ts',

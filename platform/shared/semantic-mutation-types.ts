@@ -7,6 +7,7 @@ import type {
   SemanticFactObject,
   SemanticPredicate
 } from './engineering-ir-types.ts';
+import type { LoadedSemanticContract } from './semantic-contract-types.ts';
 import type { SemanticImpactPropagation } from './semantic-impact-types.ts';
 
 export const SEMANTIC_MUTATION_CONTRACT_VERSION = '2' as const;
@@ -16,6 +17,16 @@ export const SEMANTIC_MUTATION_EXPECTATION_REVISION =
   'semantic-mutation-expectation-v1' as const;
 export const SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION =
   'semantic-mutation-verification-policy-v1' as const;
+export const SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION =
+  'semantic-mutation-source-adapters-v1' as const;
+export const SEMANTIC_CONTRACT_YAML_ADAPTER_ID = 'semantic-contract-yaml' as const;
+export const SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION = 'semantic-contract-yaml-v1' as const;
+export const SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION =
+  'semantic-mutation-source-path-evidence-v1' as const;
+export const SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION =
+  'semantic-mutation-source-edit-plan-v1' as const;
+export const SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION =
+  'semantic-mutation-rollback-manifest-v1' as const;
 
 export type SemanticMutationContractVersion = typeof SEMANTIC_MUTATION_CONTRACT_VERSION;
 export type SemanticMutationOperationRegistryRevision =
@@ -24,6 +35,16 @@ export type SemanticMutationExpectationRevision =
   typeof SEMANTIC_MUTATION_EXPECTATION_REVISION;
 export type SemanticMutationVerificationPolicyRevision =
   typeof SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION;
+export type SemanticMutationSourceAdapterRegistryRevision =
+  typeof SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION;
+export type SemanticContractYamlAdapterId = typeof SEMANTIC_CONTRACT_YAML_ADAPTER_ID;
+export type SemanticContractYamlAdapterRevision = typeof SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION;
+export type SemanticMutationSourcePathEvidenceRevision =
+  typeof SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION;
+export type SemanticMutationSourceEditPlanRevision =
+  typeof SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION;
+export type SemanticMutationRollbackManifestRevision =
+  typeof SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION;
 
 export interface SemanticMutationBaseV2 {
   readonly transactionId: string;
@@ -191,6 +212,92 @@ export interface SemanticMutationSourceChangeV2 {
   readonly stagedByteDigest: string;
   readonly invalidationFromStage: 'resolve';
 }
+
+export type SemanticMutationSourceKind =
+  | 'workspace-authoring'
+  | 'workspace-registry'
+  | 'compiler-registry';
+
+/** Trusted loader output. Proposal/request callers never supply source candidates. */
+export interface SemanticMutationLoadedSourceCandidateV1 {
+  readonly sourceKind: SemanticMutationSourceKind;
+  readonly loadedContract: LoadedSemanticContract;
+  readonly sourceRevision: string;
+}
+
+export interface SemanticMutationSourcePathEvidenceV1 {
+  readonly formatRevision: SemanticMutationSourcePathEvidenceRevision;
+  readonly relativePath: string;
+  readonly workspaceIdentityDigest: string;
+  readonly transactionDirectoryIdentityDigest: string;
+  readonly parentIdentityDigest: string;
+  readonly targetIdentityDigest: string;
+  readonly pathEvidenceRevision: string;
+}
+
+export type SemanticMutationSourceLineEnding = 'lf' | 'crlf' | 'none';
+
+export interface SemanticMutationRollbackManifestV1 {
+  readonly formatRevision: SemanticMutationRollbackManifestRevision;
+  readonly ownerId: string;
+  readonly adapterId: SemanticContractYamlAdapterId;
+  readonly adapterRevision: SemanticContractYamlAdapterRevision;
+  readonly relativePath: string;
+  readonly beforeByteDigest: string;
+  readonly stagedByteDigest: string;
+  readonly beforeByteLength: number;
+  readonly stagedByteLength: number;
+  readonly fileMode: number;
+  readonly encoding: 'utf-8';
+  readonly utf8Bom: boolean;
+  readonly lineEnding: SemanticMutationSourceLineEnding;
+  readonly finalNewline: boolean;
+  readonly pathEvidenceRevision: string;
+  readonly rollbackManifestDigest: string;
+}
+
+export interface SemanticMutationSourceEditPlanV1 {
+  readonly formatRevision: SemanticMutationSourceEditPlanRevision;
+  readonly requestRevision: string;
+  readonly authorizationRevision: string;
+  readonly preflightRevision: string;
+  readonly operationRegistryRevision: SemanticMutationOperationRegistryRevision;
+  readonly sourceAdapterRegistryRevision: SemanticMutationSourceAdapterRegistryRevision;
+  readonly sourceResolutionRevision: string;
+  readonly sourceRevision: string;
+  readonly sourceKind: 'workspace-authoring';
+  readonly ownerId: string;
+  readonly adapterId: SemanticContractYamlAdapterId;
+  readonly adapterRevision: SemanticContractYamlAdapterRevision;
+  readonly namespace: string;
+  readonly contractId: string;
+  readonly relativePath: string;
+  readonly pathEvidence: SemanticMutationSourcePathEvidenceV1;
+  readonly operations: readonly SemanticMutationOperationV1[];
+  readonly beforeByteDigest: string;
+  readonly stagedByteDigest: string;
+  readonly rollbackManifestDigest: string;
+  readonly editPlanRevision: string;
+}
+
+export type SemanticMutationSourceEditPlanningRejectedAt =
+  | 'source-resolution'
+  | 'path'
+  | 'transform'
+  | 'cas';
+
+export type SemanticMutationSourceEditPlanningResultV1 =
+  | {
+      readonly status: 'planned';
+      readonly plan: SemanticMutationSourceEditPlanV1;
+      readonly rollbackManifest: SemanticMutationRollbackManifestV1;
+    }
+  | {
+      readonly status: 'rejected';
+      readonly rejectedAt: SemanticMutationSourceEditPlanningRejectedAt;
+      readonly preflightRevision: string;
+      readonly diagnostics: readonly SemanticMutationDiagnosticV2[];
+    };
 
 export type SemanticMutationPreparationRejectedAt =
   | 'source-resolution'
