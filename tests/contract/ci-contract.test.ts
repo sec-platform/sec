@@ -8,8 +8,9 @@ import {
   buildCiQuickGatePlan,
   CI_VERIFICATION_CONTRACT_REVISION,
   CI_VERIFICATION_EXECUTION_MODEL,
+  CI_VERIFICATION_PR_DISPATCH_TYPE,
+  CI_VERIFICATION_PR_EVENT,
   CI_VERIFICATION_PR_STEP_ORDER,
-  CI_VERIFICATION_PR_TRIGGER_TYPES,
   CI_VERIFICATION_RELEASE_STEP_ORDER
 } from '../../platform/shared/ci-contract.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
@@ -21,11 +22,17 @@ type WorkflowStep = {
   uses?: string;
   run?: string;
   env?: Record<string, string>;
-  with?: Record<string, string>;
+  with?: Record<string, unknown>;
 };
 
 type Workflow = {
-  on: { pull_request?: { types?: string[] }; workflow_dispatch?: unknown; workflow_call?: unknown };
+  on: {
+    repository_dispatch?: { types?: string[] };
+    pull_request?: unknown;
+    workflow_dispatch?: unknown;
+    workflow_call?: unknown;
+  };
+  permissions?: Record<string, string>;
   concurrency?: { group?: string };
   jobs: Record<string, { if?: string; steps: WorkflowStep[] }>;
 };
@@ -45,65 +52,73 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   const contract = buildCiContract();
 
   expect(contract.verificationContractRevision).toBe(CI_VERIFICATION_CONTRACT_REVISION);
-  expect(contract.verificationContractRevision).toBe('ci-verification-v3');
+  expect(contract.verificationContractRevision).toBe('ci-verification-v4');
   expect(contract.executionModel).toBe(CI_VERIFICATION_EXECUTION_MODEL);
-  expect(contract.triggerLabels).toEqual(['run-full', 'run-quick']);
-  expect(contract.prTriggerTypes).toEqual([...CI_VERIFICATION_PR_TRIGGER_TYPES]);
-  expect(contract.prSynchronizeRequiredLabel).toBe('run-full');
+  expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
+  expect(contract.prDispatchType).toBe(CI_VERIFICATION_PR_DISPATCH_TYPE);
   expect(contract.prWorkflowStepOrder).toEqual([...CI_VERIFICATION_PR_STEP_ORDER]);
   expect(contract.releaseWorkflowStepOrder).toEqual([...CI_VERIFICATION_RELEASE_STEP_ORDER]);
   expect(contract.prWorkflowCommands.filter((command) => !prWorkflowSource.includes(command))).toEqual([]);
   expect(contract.releaseWorkflowCommands.filter((command) => !releaseWorkflowSource.includes(command))).toEqual([]);
 
-  expect(prWorkflow.on.pull_request?.types).toEqual([...CI_VERIFICATION_PR_TRIGGER_TYPES]);
+  expect(prWorkflow.on.repository_dispatch?.types).toEqual([CI_VERIFICATION_PR_DISPATCH_TYPE]);
+  expect(prWorkflow.on.pull_request).toBeUndefined();
+  expect(prWorkflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
   const prJob = prWorkflow.jobs['compiler-pr-verification'];
   if (!prJob) throw new Error('Missing compiler-pr-verification job');
-  expect(prJob.if).toContain("github.event.action == 'synchronize'");
-  expect(prJob.if).toContain("contains(github.event.pull_request.labels.*.name, 'run-full')");
-  expect(prWorkflow.concurrency?.group).toBe('${{ github.workflow }}-pr-${{ github.event.pull_request.number }}');
+  expect(prJob.if).toBeUndefined();
+  expect(prWorkflow.concurrency?.group).toBe('compiler-pr-verification-${{ github.event.client_payload.pull_request }}');
   expect(prJob.steps.map((step) => step.name)).toEqual([...CI_VERIFICATION_PR_STEP_ORDER]);
 
   const resolve = workflowStep(prWorkflow, 'compiler-pr-verification', CI_VERIFICATION_PR_STEP_ORDER[0]);
+  expect(resolve.with?.script).toContain("payload.schema !== 'codex-development-frozen-verification-request-v1'");
+  expect(resolve.with?.script).toContain("process.env.EVENT_TYPE !== 'sec-verify-frozen-v1'");
+  expect(resolve.with?.script).toContain('getCollaboratorPermissionLevel');
   expect(resolve.with?.script).toContain('getBranch');
-  expect(resolve.with?.script).toContain('baseBranch.commit.sha');
-  expect(resolve.with?.script).toContain('compareCommitsWithBasehead');
-  expect(resolve.with?.script).toContain('comparison.behind_by !== 0');
-  expect(resolve.with?.script).toContain("core.setOutput('head', headSha)");
-  expect(resolve.with?.script).toContain("core.setOutput('base', baseSha)");
-  expect(resolve.with?.script).toContain('ci-verification-v3/base-${baseSha}');
+  expect(resolve.with?.script).toContain('headCommit.data.parents.length !== 1');
+  expect(resolve.with?.script).toContain('headCommit.data.parents[0].sha !== currentBase');
+  expect(resolve.with?.script).toContain('manual-bootstrap-required');
+  expect(resolve.with?.script).toContain("core.setOutput('head', payload.expected_head)");
+  expect(resolve.with?.script).toContain("core.setOutput('base', currentBase)");
 
   const checkout = workflowStep(prWorkflow, 'compiler-pr-verification', 'Checkout exact PR head');
   expect(checkout.with?.ref).toBe('${{ steps.verification.outputs.head }}');
+  expect(checkout.with?.['persist-credentials']).toBe(false);
   const verify = workflowStep(prWorkflow, 'compiler-pr-verification', 'Run exact-head verification');
   expect(verify.run).toBe('bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"');
   expect(verify.env).toMatchObject({
     SEC_CHANGED_BASE: '${{ steps.verification.outputs.base }}',
-    SEC_AFFECTED_TESTS_BASE: '${{ steps.verification.outputs.base }}',
-    SEC_EXPECTED_HEAD_SHA: '${{ steps.verification.outputs.head }}'
+    SEC_AFFECTED_TESTS_BASE: '${{ steps.verification.outputs.affected-base }}',
+    SEC_EXPECTED_HEAD_SHA: '${{ steps.verification.outputs.head }}',
+    SEC_WORK_PACKAGE_MANIFEST_PATH: '${{ steps.verification.outputs.manifest }}'
   });
   expect(prWorkflowSource).not.toContain('continue-on-error: true');
-  expect(prWorkflowSource).not.toContain('Fail failed verification');
+  expect(prWorkflowSource).not.toContain('statuses: write');
+  expect(prWorkflowSource).not.toContain('run-quick');
+  expect(prWorkflowSource).not.toContain('run-full');
   expect(prJob.steps.filter((step) => step.if?.includes('always()')).map((step) => step.name)).toEqual([
-    'Upload compact verification evidence',
-    'Record exact-head verification status'
+    'Upload compact verification evidence'
   ]);
 
   expect(releaseWorkflow.on.workflow_dispatch).toBeDefined();
   expect(releaseWorkflow.on.workflow_call).toBeDefined();
   expect(releaseWorkflow.on.pull_request).toBeUndefined();
+  expect(releaseWorkflow.permissions).toEqual({ contents: 'read' });
   const releaseJob = releaseWorkflow.jobs['compiler-release-verification'];
   if (!releaseJob) throw new Error('Missing compiler-release-verification job');
   expect(releaseJob.steps.map((step) => step.name)).toEqual([...CI_VERIFICATION_RELEASE_STEP_ORDER]);
   const releaseCheckout = workflowStep(releaseWorkflow, 'compiler-release-verification', 'Checkout exact release head');
   expect(releaseCheckout.with?.ref).toBe('${{ steps.verification.outputs.sha }}');
+  expect(releaseCheckout.with?.['persist-credentials']).toBe(false);
   const releaseVerify = workflowStep(releaseWorkflow, 'compiler-release-verification', 'Run exact-head full verification');
   expect(releaseVerify.env?.SEC_EXPECTED_HEAD_SHA).toBe('${{ steps.verification.outputs.sha }}');
-  expect(releaseWorkflowSource).toContain('sec-verification/full/ci-verification-v3');
+  expect(releaseWorkflowSource).toContain('sec-verification-v4-full-release-head-');
+  expect(releaseWorkflowSource).toContain('manual-bootstrap-required');
   expect(releaseWorkflowSource).not.toContain('continue-on-error: true');
   expect(releaseWorkflowSource).not.toContain('schedule:');
+  expect(releaseWorkflowSource).not.toContain('statuses: write');
   expect(releaseJob.steps.filter((step) => step.if?.includes('always()')).map((step) => step.name)).toEqual([
-    'Upload compact full verification evidence',
-    'Record exact-head full verification status'
+    'Upload compact full verification evidence'
   ]);
 
   expect(buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: true }).map((step) => step.id)).toEqual([
@@ -136,10 +151,12 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
   expect(verificationSource).toContain('assertCiExpectedHead(headSha');
-  expect(verificationSource.indexOf('assertCiExpectedHead(headSha')).toBeLessThan(verificationSource.indexOf('buildCiFullGatePlan()'));
-  expect(verificationSource).toContain('baseSha');
-  expect(verificationSource).toContain('coverageProfiles');
-  expect(verificationSource).not.toContain('quickFastGate');
+  expect(verificationSource.indexOf('assertCiExpectedHead(headSha')).toBeLessThan(
+    verificationSource.indexOf('CodexDevelopmentBuildVerificationPlanV1(profile')
+  );
+  expect(verificationSource).toContain('affectedBaseSha');
+  expect(verificationSource).toContain('CodexDevelopmentFinalizeVerificationEvidenceV2');
+  expect(verificationSource).not.toContain('process.exit(');
 
   await expect(readCompilerFile('.github/workflows/compiler-validation.yml')).rejects.toMatchObject({
     code: 'ENOENT'

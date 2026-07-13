@@ -10,86 +10,46 @@ import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 import { platformCommand } from './platform-command.ts';
 import { slowTestSuiteIds } from './test-budget-contract.ts';
+import {
+  CI_VERIFICATION_CONTRACT_REVISION,
+  CI_VERIFICATION_EXECUTION_MODEL
+} from './ci-verification-plan.ts';
 
-export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v3' as const;
-export const CI_VERIFICATION_EXECUTION_MODEL = 'frozen-delivery-single-runner' as const;
-export const CI_VERIFICATION_TRIGGER_LABELS = ['run-full', 'run-quick'] as const;
-export const CI_VERIFICATION_PR_TRIGGER_TYPES = ['labeled', 'synchronize'] as const;
+export {
+  assertCiExpectedHead,
+  buildCiFullGatePlan,
+  buildCiQuickGatePlan,
+  CodexDevelopmentBuildVerificationInputV2,
+  CodexDevelopmentBuildVerificationPlanV1,
+  CodexDevelopmentCanonicalChangedFilesV1,
+  CI_VERIFICATION_CONTRACT_REVISION,
+  CI_VERIFICATION_EXECUTION_MODEL
+} from './ci-verification-plan.ts';
+export type {
+  CiVerificationGatePhase,
+  CiVerificationGateStep,
+  CodexDevelopmentVerificationPlanProfileV1,
+  CodexDevelopmentVerificationPlanV1
+} from './ci-verification-plan.ts';
+
+export const CI_VERIFICATION_PR_EVENT = 'repository_dispatch' as const;
+export const CI_VERIFICATION_PR_DISPATCH_TYPE = 'sec-verify-frozen-v1' as const;
 export const CI_VERIFICATION_PR_STEP_ORDER = [
-  'Resolve exact head, current base, profile, and dedupe key',
+  'Resolve trusted frozen request, exact head, current base, and profile',
   'Checkout exact PR head',
   'Setup Bun',
   'Install dependencies once',
   'Run exact-head verification',
-  'Upload compact verification evidence',
-  'Record exact-head verification status'
+  'Upload compact verification evidence'
 ] as const;
 export const CI_VERIFICATION_RELEASE_STEP_ORDER = [
-  'Resolve and dedupe exact full verification key',
+  'Resolve trusted release request, exact head, and verifier boundary',
   'Checkout exact release head',
   'Setup Bun',
   'Install dependencies once',
   'Run exact-head full verification',
-  'Upload compact full verification evidence',
-  'Record exact-head full verification status'
+  'Upload compact full verification evidence'
 ] as const;
-
-export type CiVerificationGatePhase = 'quick' | 'risk' | 'full' | 'workspace';
-
-export type CiVerificationGateStep = {
-  id: string;
-  phase: CiVerificationGatePhase;
-  args: string[];
-};
-
-export function assertCiExpectedHead(actualHeadSha: string, expectedHeadSha: string | undefined): void {
-  if (!expectedHeadSha) {
-    throw new Error('CI verification requires an exact expected head SHA.');
-  }
-  if (actualHeadSha !== expectedHeadSha) {
-    throw new Error(`CI verification head mismatch: expected ${expectedHeadSha}, actual ${actualHeadSha}.`);
-  }
-}
-
-function gate(id: string, phase: CiVerificationGatePhase, ...args: string[]): CiVerificationGateStep {
-  return { id, phase, args };
-}
-
-export function buildCiQuickGatePlan(options: {
-  includeImports: boolean;
-  includeDocs: boolean;
-  includeRisk: boolean;
-}): CiVerificationGateStep[] {
-  return [
-    ...(options.includeImports ? [gate('imports', 'quick', 'run', 'imports:check')] : []),
-    ...(options.includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
-    gate('typecheck', 'quick', 'run', 'typecheck'),
-    gate('affected-tests', 'quick', 'run', 'test:affected'),
-    ...(options.includeRisk ? [gate('impact-risk', 'risk', 'scripts/ci-pr-risk.ts')] : [])
-  ];
-}
-
-export function buildCiFullGatePlan(): CiVerificationGateStep[] {
-  return [
-    gate('imports', 'quick', 'run', 'imports:check'),
-    gate('typecheck', 'quick', 'run', 'typecheck'),
-    gate('docs-doctor', 'quick', 'run', 'docs:doctor'),
-    gate('affected-tests', 'quick', 'run', 'test:affected'),
-    gate('full-fast', 'full', 'run', 'test:fast'),
-    gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
-    gate('contract-freeze', 'risk', 'run', 'test:contract-freeze'),
-    gate('all-slow-risk', 'risk', 'scripts/ci-pr-risk.ts', '--all-slow'),
-    gate('benchmark-task-suite', 'full', 'run', 'sec', '--', 'benchmark', 'suite', '--json', '--compact'),
-    gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),
-    gate('resolve', 'workspace', 'run', 'sec', '--', 'resolve'),
-    gate('compose', 'workspace', 'run', 'sec', '--', 'compose'),
-    gate('adapt', 'workspace', 'run', 'sec', '--', 'adapt'),
-    gate('verify-all', 'workspace', 'run', 'sec', '--', 'verify', '--lane', 'all', '--json', '--compact'),
-    gate('lock', 'workspace', 'run', 'sec', '--', 'lock'),
-    gate('explain', 'workspace', 'run', 'sec', '--', 'explain'),
-    gate('reference-check', 'workspace', 'run', 'sec', '--', 'reference', 'check', '--json', '--compact')
-  ];
-}
 
 export type CiContractStep = {
   id: string;
@@ -108,11 +68,8 @@ export type CiContract = {
   fullRuntimeGate: string;
   verificationContractRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
   executionModel: typeof CI_VERIFICATION_EXECUTION_MODEL;
-  triggerLabelCount: number;
-  triggerLabels: string[];
-  prTriggerTypeCount: number;
-  prTriggerTypes: string[];
-  prSynchronizeRequiredLabel: 'run-full';
+  prWorkflowEvent: typeof CI_VERIFICATION_PR_EVENT;
+  prDispatchType: typeof CI_VERIFICATION_PR_DISPATCH_TYPE;
   prWorkflowStepCount: number;
   prWorkflowStepOrder: string[];
   releaseWorkflowStepCount: number;
@@ -347,11 +304,8 @@ export function buildCiContract(): CiContract {
     fullRuntimeGate: 'full-runtime-verify',
     verificationContractRevision: CI_VERIFICATION_CONTRACT_REVISION,
     executionModel: CI_VERIFICATION_EXECUTION_MODEL,
-    triggerLabelCount: CI_VERIFICATION_TRIGGER_LABELS.length,
-    triggerLabels: [...CI_VERIFICATION_TRIGGER_LABELS],
-    prTriggerTypeCount: CI_VERIFICATION_PR_TRIGGER_TYPES.length,
-    prTriggerTypes: [...CI_VERIFICATION_PR_TRIGGER_TYPES],
-    prSynchronizeRequiredLabel: 'run-full',
+    prWorkflowEvent: CI_VERIFICATION_PR_EVENT,
+    prDispatchType: CI_VERIFICATION_PR_DISPATCH_TYPE,
     prWorkflowStepCount: CI_VERIFICATION_PR_STEP_ORDER.length,
     prWorkflowStepOrder: [...CI_VERIFICATION_PR_STEP_ORDER],
     releaseWorkflowStepCount: CI_VERIFICATION_RELEASE_STEP_ORDER.length,
@@ -393,11 +347,8 @@ export function formatCiContract(contract: CiContract): string {
     `Full runtime gate: ${contract.fullRuntimeGate}`,
     `Verification contract revision: ${contract.verificationContractRevision}`,
     `Execution model: ${contract.executionModel}`,
-    `Trigger label count: ${contract.triggerLabelCount}`,
-    `Trigger labels: ${contract.triggerLabels.join(', ')}`,
-    `PR trigger type count: ${contract.prTriggerTypeCount}`,
-    `PR trigger types: ${contract.prTriggerTypes.join(', ')}`,
-    `PR synchronize required label: ${contract.prSynchronizeRequiredLabel}`,
+    `PR workflow event: ${contract.prWorkflowEvent}`,
+    `PR dispatch type: ${contract.prDispatchType}`,
     `PR workflow step count: ${contract.prWorkflowStepCount}`,
     `PR workflow step order: ${contract.prWorkflowStepOrder.join(' -> ')}`,
     `Release workflow step count: ${contract.releaseWorkflowStepCount}`,
