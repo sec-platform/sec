@@ -1,0 +1,138 @@
+import { createHash } from 'node:crypto';
+import { access } from 'node:fs/promises';
+import path from 'node:path';
+
+import { CompilerError } from '../../shared/errors.ts';
+import { isSafeRelativePath, posixPath, resolvePathInside } from '../../shared/paths.ts';
+import type { LoadedSemanticContract, SemanticContract } from '../../shared/semantic-contract-types.ts';
+import type {
+  SemanticMutationLoadedSourceCandidateV1,
+  SemanticMutationSourceKind
+} from '../../shared/semantic-mutation-types.ts';
+import { readYaml } from '../../shared/yaml.ts';
+import { normalizeSemanticContract } from './load-semantic-contract.ts';
+
+export const AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH =
+  'source/model/semantic-contracts.yaml' as const;
+export const AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION =
+  'authoring-semantic-contract-index-v1' as const;
+
+interface AuthoringSemanticContractIndexEntryV1 {
+  readonly blockId: string;
+  readonly path: string;
+}
+
+interface AuthoringSemanticContractIndexV1 {
+  readonly formatRevision: typeof AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION;
+  readonly contracts: readonly AuthoringSemanticContractIndexEntryV1[];
+}
+
+export function semanticContractSourceRevision(
+  sourceKind: SemanticMutationSourceKind,
+  loadedContract: LoadedSemanticContract
+): string {
+  const payload = JSON.stringify({
+    domain: 'semantic-mutation-loaded-source-v1',
+    sourceKind,
+    blockId: loadedContract.blockId,
+    contractPath: loadedContract.contractPath,
+    contract: loadedContract.contract
+  });
+  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+export function buildSemanticContractSourceCandidate(
+  sourceKind: SemanticMutationSourceKind,
+  loadedContract: LoadedSemanticContract
+): SemanticMutationLoadedSourceCandidateV1 {
+  const candidate = {
+    sourceKind,
+    loadedContract: structuredClone(loadedContract),
+    sourceRevision: semanticContractSourceRevision(sourceKind, loadedContract)
+  };
+  const freeze = (value: unknown): void => {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
+    for (const nested of Object.values(value as Record<string, unknown>)) freeze(nested);
+    Object.freeze(value);
+  };
+  freeze(candidate);
+  return candidate;
+}
+
+function validateIndex(
+  value: unknown,
+  resolvedBlockIds: ReadonlySet<string>
+): AuthoringSemanticContractIndexEntryV1[] {
+  const exactKeys = (entry: unknown, keys: readonly string[]): entry is Record<string, unknown> =>
+    entry !== null && typeof entry === 'object' && !Array.isArray(entry) &&
+    Object.keys(entry).length === keys.length && keys.every((key) => Object.hasOwn(entry, key));
+  if (!exactKeys(value, ['formatRevision', 'contracts']) ||
+    value.formatRevision !== AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION || !Array.isArray(value.contracts)) {
+    throw new CompilerError(
+      'CONTRACT-SEMANTIC-019',
+      `Authoring semantic contract index must use ${AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION}`
+    );
+  }
+  const seenPaths = new Set<string>();
+  return value.contracts.map((entry) => {
+    if (!exactKeys(entry, ['blockId', 'path']) || typeof entry.blockId !== 'string' ||
+      typeof entry.path !== 'string') {
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-020',
+        'Every authoring semantic contract index entry requires only blockId and path'
+      );
+    }
+    const contractPath = posixPath(entry.path);
+    if (!entry.blockId.trim() || !resolvedBlockIds.has(entry.blockId)) {
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-020',
+        `Authoring semantic contract block "${entry.blockId}" must be resolved in the workspace`
+      );
+    }
+    if (contractPath !== entry.path || !isSafeRelativePath(contractPath) ||
+      !contractPath.startsWith('source/model/') ||
+      !contractPath.endsWith('.yaml') || contractPath === AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH) {
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-021',
+        `Authoring semantic contract path "${contractPath}" must be a YAML file under source/model/`
+      );
+    }
+    if (seenPaths.has(contractPath)) {
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-022',
+        `Authoring semantic contract index repeats path "${contractPath}"`
+      );
+    }
+    seenPaths.add(contractPath);
+    return { blockId: entry.blockId, path: contractPath };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export async function loadAuthoringSemanticContractSources(
+  workspaceRoot: string,
+  resolvedBlockIds: ReadonlySet<string>
+): Promise<SemanticMutationLoadedSourceCandidateV1[]> {
+  const indexPath = path.resolve(workspaceRoot, ...AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH.split('/'));
+  try {
+    await access(indexPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+  const index = validateIndex(await readYaml<AuthoringSemanticContractIndexV1>(indexPath), resolvedBlockIds);
+  return Promise.all(index.map(async (entry) => {
+    const absolutePath = resolvePathInside(workspaceRoot, entry.path);
+    if (!absolutePath) {
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-021',
+        `Authoring semantic contract path "${entry.path}" escapes the workspace`
+      );
+    }
+    const loadedContract: LoadedSemanticContract = {
+      blockId: entry.blockId,
+      contractPath: entry.path,
+      contract: normalizeSemanticContract(await readYaml<SemanticContract>(absolutePath))
+    };
+    return buildSemanticContractSourceCandidate('workspace-authoring', loadedContract);
+  }));
+}

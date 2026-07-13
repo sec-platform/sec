@@ -312,9 +312,19 @@ async function sourceFiles(root: string): Promise<string[]> {
   return nested.flat().filter((file) => file.endsWith('.ts'));
 }
 
-test('Semantic Mutation pure kernels keep forbidden IO, product, and reverse-dependency boundaries closed', async () => {
+test('Semantic Mutation SM-1 pure kernels and SM-2 adapter modules keep dependency boundaries closed', async () => {
   const root = path.resolve(import.meta.dir, '../../platform/compiler/semantic-mutation');
-  const files = await sourceFiles(root);
+  const pureFiles = [
+    'canonical.ts',
+    'match-conditions.ts',
+    'match-expectation.ts',
+    'normalize-request.ts',
+    'operation-registry.ts',
+    'plan-semantic-mutation.ts',
+    'preflight-semantic-mutation.ts',
+    'semantic-mutation-result.ts',
+    'verification-policy.ts'
+  ].map((file) => path.join(root, file));
   const forbidden = [
     "from 'node:fs",
     'from "node:fs',
@@ -327,10 +337,26 @@ test('Semantic Mutation pure kernels keep forbidden IO, product, and reverse-dep
     '/orchestrator',
     '/parse/load-semantic-contract'
   ];
-  for (const file of files) {
+  for (const file of pureFiles) {
     const source = await readFile(file, 'utf8');
     for (const marker of forbidden) expect(source, `${path.basename(file)} imports ${marker}`).not.toContain(marker);
   }
+
+  const sm2Files = [
+    'plan-source-edit.ts',
+    'semantic-contract-yaml-adapter.ts',
+    'source-adapter-registry.ts',
+    'source-path-boundary.ts'
+  ].map((file) => path.join(root, file));
+  for (const file of sm2Files) {
+    const source = await readFile(file, 'utf8');
+    for (const marker of ['/workspace', '/workbench', '/repair', '/upgrade', '/orchestrator']) {
+      expect(source, `${path.basename(file)} imports ${marker}`).not.toContain(marker);
+    }
+  }
+  expect(await readFile(path.join(root, 'source-adapter-registry.ts'), 'utf8')).not.toContain("from 'node:fs");
+  expect(await readFile(path.join(root, 'source-adapter-registry.ts'), 'utf8')).not.toContain("from 'node:path");
+  expect(await readFile(path.join(root, 'plan-source-edit.ts'), 'utf8')).not.toContain("from 'node:fs");
 
   const reverseOwners = [
     path.resolve(import.meta.dir, '../../platform/compiler/ir'),
