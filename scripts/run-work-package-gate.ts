@@ -26,6 +26,7 @@ import {
   semanticMutationWorkspaceRootFromTransactionRoot
 } from '../platform/compiler/semantic-mutation/transaction-identity.ts';
 import { CodexDevelopmentVerificationDigest } from '../platform/shared/ci-evidence-contract.ts';
+import { normalizeNewlines } from '../platform/shared/collections.ts';
 import {
   runObservedCommand,
   type ObservedCommandOutcome
@@ -197,6 +198,23 @@ function sha256Text(value: string): `sha256:${string}` {
   return sha256Bytes(Buffer.from(value, 'utf8'));
 }
 
+type ProtectedLedgerKindV4 = 'custody' | 'local-artifact';
+
+function protectedLedgerContentDigest(
+  kind: ProtectedLedgerKindV4,
+  bytes: Uint8Array
+): `sha256:${string}` {
+  if (kind === 'local-artifact') return sha256Bytes(bytes);
+  return sha256Text(normalizeNewlines(Buffer.from(bytes).toString('utf8')));
+}
+
+export function workPackageGateProtectedLedgerDigestForTests(
+  kind: ProtectedLedgerKindV4,
+  bytes: Uint8Array
+): `sha256:${string}` {
+  return protectedLedgerContentDigest(kind, bytes);
+}
+
 function pathContainsOrEquals(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative === '' || (!path.isAbsolute(relative) && relative !== '..' &&
@@ -351,14 +369,13 @@ async function assertExistingPathChainPhysical(repoRoot: string, target: string)
   }
 }
 
-async function assertProtectedLedger(
+async function assertProtectedLedgerEntries(
   repoRoot: string,
+  kind: ProtectedLedgerKindV4,
+  ledger: Readonly<Record<string, `sha256:${string}`>>,
   readBytes: (filePath: string) => Promise<Uint8Array>
 ): Promise<void> {
-  for (const [relativePath, expectedDigest] of Object.entries({
-    ...WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4,
-    ...WORK_PACKAGE_GATE_LOCAL_ARTIFACT_LEDGER_V4
-  })) {
+  for (const [relativePath, expectedDigest] of Object.entries(ledger)) {
     const absolutePath = path.join(repoRoot, ...relativePath.split('/'));
     const before = await physicalPathIdentity(absolutePath, true);
     if (before?.kind !== 'file') {
@@ -370,7 +387,7 @@ async function assertProtectedLedger(
     } catch {
       throw new Error(`Work Package gate protected ledger input is missing: ${relativePath}`);
     }
-    if (sha256Bytes(bytes) !== expectedDigest) {
+    if (protectedLedgerContentDigest(kind, bytes) !== expectedDigest) {
       throw new Error(`Work Package gate protected ledger drifted: ${relativePath}`);
     }
     const after = await physicalPathIdentity(absolutePath, true);
@@ -378,6 +395,24 @@ async function assertProtectedLedger(
       throw new Error(`Work Package gate protected ledger identity changed: ${relativePath}`);
     }
   }
+}
+
+async function assertProtectedLedger(
+  repoRoot: string,
+  readBytes: (filePath: string) => Promise<Uint8Array>
+): Promise<void> {
+  await assertProtectedLedgerEntries(
+    repoRoot,
+    'custody',
+    WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4,
+    readBytes
+  );
+  await assertProtectedLedgerEntries(
+    repoRoot,
+    'local-artifact',
+    WORK_PACKAGE_GATE_LOCAL_ARTIFACT_LEDGER_V4,
+    readBytes
+  );
 }
 
 async function assertV4PathAuthority(

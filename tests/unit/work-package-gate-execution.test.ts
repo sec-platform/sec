@@ -19,6 +19,7 @@ import {
   workPackageGateNamespaceStructureForTests,
   workPackageGateProbeOutcomeAcceptedForTests,
   workPackageGateProtectedPathAuthorityForTests,
+  workPackageGateProtectedLedgerDigestForTests,
   workPackageGateR2ExecutionSnapshotOwnerAcceptedForTests,
   workPackageGateRecoveryRecordAuthorityPathForTests,
   workPackageGateRecoveryRecordEntryPathForTests,
@@ -30,6 +31,7 @@ import {
   type WorkPackageGateOptions
 } from '../../scripts/run-work-package-gate.ts';
 import {
+  WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4,
   WORK_PACKAGE_GATE_RUN_DIRECTORY_V4,
   assertWorkPackageGateEvidenceBundleV4,
   assertWorkPackageGateEvidenceV4,
@@ -639,6 +641,22 @@ test('protected ledger drift stops before checkpoint publication and child launc
   })).rejects.toThrow('protected ledger drifted');
   expect(counters.child).toBe(0);
   await expect(readFile(path.join(v4RunDir, 'checkpoint.json'), 'utf8')).rejects.toThrow();
+});
+
+test('custody ledger canonicalizes checkout CRLF while local artifacts remain byte-exact', async () => {
+  const custodyPath = 'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json';
+  const checkoutBytes = await readFile(path.join(repoRoot, ...custodyPath.split('/')));
+  expect(workPackageGateProtectedLedgerDigestForTests('custody', checkoutBytes))
+    .toBe(WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4[custodyPath]);
+
+  const lf = Buffer.from('first\nsecond\n', 'utf8');
+  const crlf = Buffer.from('first\r\nsecond\r\n', 'utf8');
+  expect(workPackageGateProtectedLedgerDigestForTests('custody', crlf))
+    .toBe(workPackageGateProtectedLedgerDigestForTests('custody', lf));
+  expect(workPackageGateProtectedLedgerDigestForTests('custody', Buffer.from('first\nchanged\n', 'utf8')))
+    .not.toBe(workPackageGateProtectedLedgerDigestForTests('custody', lf));
+  expect(workPackageGateProtectedLedgerDigestForTests('local-artifact', crlf))
+    .not.toBe(workPackageGateProtectedLedgerDigestForTests('local-artifact', lf));
 });
 
 test('dynamic protected authority additions are fatal after consuming the attempt and suppressing the side effect', async () => {
