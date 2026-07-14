@@ -1785,16 +1785,17 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     const stagingA = stagingWorkspaceRoot(root, 'a'.repeat(64));
     const stagingB = stagingWorkspaceRoot(root, 'b'.repeat(64));
     const stagingC = stagingWorkspaceRoot(root, 'c'.repeat(64));
-    await Promise.all([stagingA, stagingB, stagingC].map(async (stagingRoot) => {
+    const stagingD = stagingWorkspaceRoot(root, 'd'.repeat(64));
+    await Promise.all([stagingA, stagingB, stagingC, stagingD].map(async (stagingRoot) => {
       await mkdir(stagingRoot, { recursive: true });
       await writeProjectBaseline(stagingRoot);
     }));
     const browserSource = path.join(root, 'browser-source');
     const sources = await createRuntimeInputSources(root, browserSource);
     const runnerBytes = new TextEncoder().encode('console.log("snapshot-cache")');
-    const probe = async (stagingRoot: string) => {
+    const probe = async (stagingRoot: string, runnerBundle = runnerBytes) => {
       const result = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-        buildRunnerBundle: async () => runnerBytes.slice(),
+        buildRunnerBundle: async () => runnerBundle.slice(),
         runtimeInputSources: sources
       });
       expect(result.status).toBe('available');
@@ -1845,6 +1846,38 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
       commitFence: async () => undefined,
       stagingWorkspaceRoot: stagingA
     })).rejects.toThrow('source changed before materialization');
+
+    const addedTemplateSource = path.join(sources.composeTemplates, 'added-template.txt');
+    await writeFile(addedTemplateSource, 'added-after-snapshot', 'utf8');
+    await probe(stagingD);
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+      captures: 3, entries: 1, flights: 0, revalidations: 3
+    });
+
+    const runnerSourceV2 = 'console.log("snapshot-cache-v2")';
+    const runnerBytesV2 = new TextEncoder().encode(runnerSourceV2);
+    const capabilityD = await probe(stagingD, runnerBytesV2);
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+      captures: 4, entries: 2, flights: 0, revalidations: 3
+    });
+    await materializeSemanticMutationIsolatedRuntime({
+      binding: capabilityD,
+      commitFence: async () => undefined,
+      stagingWorkspaceRoot: stagingD
+    });
+    expect(await readFile(path.join(
+      stagingD,
+      '.isolated-compiler',
+      'platform',
+      'compiler',
+      'compose',
+      'templates',
+      'added-template.txt'
+    ), 'utf8')).toBe('added-after-snapshot');
+    expect(await readFile(path.join(
+      stagingD,
+      ...SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH.split('/')
+    ), 'utf8')).toBe(runnerSourceV2);
   }, 'engineering-compiler-sm3-runtime-source-snapshot-cache-');
 });
 
