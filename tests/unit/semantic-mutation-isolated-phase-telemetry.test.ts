@@ -26,6 +26,7 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
     for (const phase of [
       'source-snapshot-revalidate',
       'source-snapshot-capture',
+      'source-snapshot-single-flight-wait',
       'runtime-materialize',
       'compile-workspace',
       'next-build',
@@ -41,7 +42,9 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
         { phase: 'source-snapshot-revalidate', state: 'started', durationMs: 0 },
         { phase: 'source-snapshot-revalidate', state: 'completed' },
         { phase: 'source-snapshot-capture', state: 'started', durationMs: 0 },
-        { phase: 'source-snapshot-capture', state: 'completed' }
+        { phase: 'source-snapshot-capture', state: 'completed' },
+        { phase: 'source-snapshot-single-flight-wait', state: 'started', durationMs: 0 },
+        { phase: 'source-snapshot-single-flight-wait', state: 'completed' }
       ]
     });
 
