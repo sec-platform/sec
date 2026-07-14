@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  executeSemanticMutationVerification,
+  planSemanticMutationVerificationCapabilities,
+  probeSemanticMutationIsolatedRuntimeCapability,
+  runSemanticMutationIsolatedVerificationChild,
+  SemanticMutationIsolatedVerificationUnavailableError,
+  type IsolatedVerificationArtifacts,
+  type SemanticMutationIsolatedVerificationFailure
+} from '../compiler/index.ts';
 import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import {
   atomicPublishSemanticMutationSource,
@@ -42,17 +51,6 @@ import {
   type SemanticMutationCommitFence
 } from '../compiler/semantic-mutation/transaction-identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../compiler/semantic-mutation/verification-policy.ts';
-import {
-  probeSemanticMutationIsolatedRuntimeCapability,
-  runSemanticMutationIsolatedVerificationChild,
-  SemanticMutationIsolatedVerificationUnavailableError,
-  type IsolatedVerificationArtifacts,
-  type SemanticMutationIsolatedVerificationFailure
-} from '../compiler/verify/run-semantic-mutation-isolated-child.ts';
-import {
-  executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities
-} from '../compiler/verify/semantic-mutation-verification-adapter.ts';
 import type { FactDeltaEndpointContext } from '../shared/engineering-ir-types.ts';
 import {
   type SemanticMutationApplyInputV1,
