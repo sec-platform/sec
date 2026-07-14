@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { workPackageGateProbeOutcomeAcceptedForTests } from '../../scripts/run-work-package-gate.ts';
@@ -63,38 +62,16 @@ test('V4 residue contract accepts only namespace structure and ACL authority', (
   })).toThrow();
 });
 
-test('failed real census evidence stays immutable and cannot authorize a retry', async () => {
+test('retired profile census evidence stays absent and cannot authorize a runtime retry', async () => {
   const evidencePath = path.join(
     repoRoot,
     'docs',
     'evidence',
     'v0-4-semantic-mutation-profile-census-repair-verification.json'
   );
-  const bytes = await readFile(evidencePath);
-  expect(createHash('sha256').update(bytes).digest('hex'))
-    .toBe('ae7f10c990d05b345a7ac64bf3c7294e77ccb6d837fd340c42ca4bdc2329762c');
-  const evidence = JSON.parse(bytes.toString()) as {
-    readonly status: string;
-    readonly result: {
-      readonly realCensusAttempted: boolean;
-      readonly complete: boolean;
-      readonly reason: unknown;
-      readonly reasonAvailability: string;
-      readonly rawRegistryOutputPersisted: boolean;
-      readonly rawProfileIdentityPersisted: boolean;
-      readonly retryAuthorized: boolean;
-      readonly classification: string;
-    };
-  };
-  expect(evidence.status).toBe('failed');
-  expect(evidence.result).toEqual({
-    realCensusAttempted: true,
-    complete: false,
-    reason: null,
-    reasonAvailability: 'not-emitted-by-test-assertion',
-    rawRegistryOutputPersisted: false,
-    rawProfileIdentityPersisted: false,
-    retryAuthorized: false,
-    classification: 'profile-census-incomplete-unreported-reason'
-  });
+  await expect(stat(evidencePath)).rejects.toMatchObject({ code: 'ENOENT' });
+
+  const runner = await readFile(path.join(repoRoot, 'scripts', 'run-work-package-gate.ts'), 'utf8');
+  expect(runner).not.toContain('v0-4-semantic-mutation-profile-census-repair-verification.json');
+  expect(runner).not.toContain('retryAuthorized');
 });
