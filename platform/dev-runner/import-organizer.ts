@@ -58,12 +58,26 @@ const importPreferences: ts.UserPreferences = {
   quotePreference: 'single'
 };
 
+function sourceNewLine(source: string): '\n' | '\r\n' {
+  const firstLineFeed = source.indexOf('\n');
+  return firstLineFeed > 0 && source[firstLineFeed - 1] === '\r' ? '\r\n' : '\n';
+}
+
+function normalizeNewLines(value: string, newLine: '\n' | '\r\n'): string {
+  return value.replace(/\r\n?|\n/gu, newLine);
+}
+
 function applyTextChanges(source: string, changes: readonly ts.TextChange[]): string {
+  const newLine = sourceNewLine(source);
   return [...changes]
     .sort((left, right) => right.span.start - left.span.start)
     .reduce((updated, change) => (
-      `${updated.slice(0, change.span.start)}${change.newText}${updated.slice(change.span.start + change.span.length)}`
+      `${updated.slice(0, change.span.start)}${normalizeNewLines(change.newText, newLine)}${updated.slice(change.span.start + change.span.length)}`
     ), source);
+}
+
+export function applyImportTextChangesForTests(source: string, changes: readonly ts.TextChange[]): string {
+  return applyTextChanges(source, changes);
 }
 
 export function selectChangedImportsOnly(env: ImportSelectionEnvironment = process.env): boolean {

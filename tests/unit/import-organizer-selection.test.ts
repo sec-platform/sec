@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  applyImportTextChangesForTests,
   resolveImportDiffBase,
   selectChangedImportsOnly
 } from '../../platform/dev-runner/import-organizer.ts';
@@ -39,4 +40,42 @@ describe('import organizer selection', () => {
     })).toBe('origin/main');
     expect(resolveImportDiffBase({})).toBe('HEAD^1');
   });
+});
+
+describe('import organizer newline preservation', () => {
+  for (const newLine of ['\n', '\r\n'] as const) {
+    test(`keeps ${newLine === '\n' ? 'LF' : 'CRLF'} files stable and preserves the body when imports reorder`, () => {
+      const sortedImports = [
+        "import { alpha } from './alpha.ts';",
+        "import { beta } from './beta.ts';"
+      ].join(newLine);
+      const body = [
+        '',
+        '',
+        'const answer = alpha + beta;',
+        'export { answer };',
+        ''
+      ].join(newLine);
+      const sortedSource = `${sortedImports}${body}`;
+      const importSpan = { start: 0, length: sortedImports.length };
+
+      expect(applyImportTextChangesForTests(sortedSource, [{
+        span: importSpan,
+        newText: sortedImports.replaceAll(newLine, '\n')
+      }])).toBe(sortedSource);
+
+      const unsortedImports = [
+        "import { beta } from './beta.ts';",
+        "import { alpha } from './alpha.ts';"
+      ].join(newLine);
+      const unsortedSource = `${unsortedImports}${body}`;
+      const reordered = applyImportTextChangesForTests(unsortedSource, [{
+        span: { start: 0, length: unsortedImports.length },
+        newText: sortedImports.replaceAll(newLine, '\n')
+      }]);
+
+      expect(reordered).toBe(sortedSource);
+      expect(reordered.slice(sortedImports.length)).toBe(body);
+    });
+  }
 });
