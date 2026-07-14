@@ -2,16 +2,18 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-import { readReviewGovernanceReports } from '../compiler/emit/read-review-governance-reports.ts';
-import { buildExplainGraph, renderExplainGraphDot, renderExplainGraphMermaid } from '../compiler/emit/write-explain-graph.ts';
-import { buildLocalViewArtifacts } from '../compiler/emit/write-local-views.ts';
-import { buildProvenance } from '../compiler/emit/write-provenance.ts';
 import {
+  buildAcceptanceCoverage,
+  buildExplainGraph,
+  buildLocalViewArtifacts,
+  buildProvenance,
   buildProvenanceSummary,
   buildReviewSummary,
-  buildSemanticViewSummary
-} from '../compiler/emit/write-review-summary.ts';
-import { buildAcceptanceCoverage } from '../compiler/verify/build-acceptance-coverage.ts';
+  buildSemanticViewSummary,
+  readReviewGovernanceReports,
+  renderExplainGraphDot,
+  renderExplainGraphMermaid
+} from '../compiler/index.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import { formatJsonFile } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';

@@ -1,6 +1,10 @@
 import path from 'node:path';
 
 import {
+  assertIsolatedStagingTree,
+  isSemanticMutationStagingWorkspace
+} from '../compiler/index.ts';
+import {
   buildSemanticMutationIsolatedChildOutcome,
   publishSemanticMutationIsolatedChildOutcome,
   type SemanticMutationIsolatedChildFailureStage,
@@ -14,8 +18,6 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
-import { assertIsolatedStagingTree } from '../compiler/verify/assert-isolated-staging-tree.ts';
-import { isSemanticMutationStagingWorkspace } from '../compiler/verify/semantic-mutation-staging-boundary.ts';
 import { listFilesRecursive, pathExists } from '../shared/fs.ts';
 import type { PipelineExecutionBoundary } from '../shared/pipeline-types.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../shared/process.ts';

@@ -1,7 +1,9 @@
-import { buildAcceptanceCoverage } from '../compiler/verify/build-acceptance-coverage.ts';
-import { createSkippedRuntimeLane } from '../compiler/verify/run-runtime-verification.ts';
-import { verifyProject } from '../compiler/verify/verify-project.ts';
-import { writePolicySnapshot } from '../compiler/verify/write-policy-snapshot.ts';
+import {
+  buildAcceptanceCoverage,
+  createSkippedRuntimeLane,
+  verifyProject,
+  writePolicySnapshot
+} from '../compiler/index.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { formatCompilerFailure } from '../shared/errors.ts';
 import { writeJson } from '../shared/fs.ts';
