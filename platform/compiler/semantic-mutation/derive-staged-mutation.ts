@@ -1,13 +1,17 @@
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { FactDeltaEndpointContext } from '../../shared/engineering-ir-types.ts';
+import type { SemanticMutationTransactionInputV1 } from '../../shared/semantic-mutation-transaction-types.ts';
 import type {
   SemanticMutationPlanV2,
   SemanticMutationRollbackManifestV2,
   SemanticMutationSourceEditPlanV1,
   VerificationRequirementV1
 } from '../../shared/semantic-mutation-types.ts';
-import type { SemanticMutationTransactionInputV1 } from '../../shared/semantic-mutation-transaction-types.ts';
+import {
+  SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
+  SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION
+} from '../../shared/semantic-mutation-types.ts';
 import type { SemanticMutationVerificationCapabilityPlanV1 } from '../../shared/verification-types.ts';
 import { buildWorkspaceSemanticBundle } from '../semantic-frontend.ts';
 import { mutationDiagnostic } from './canonical.ts';
@@ -23,17 +27,13 @@ import {
 import { preflightSemanticMutation } from './preflight-semantic-mutation.ts';
 import { semanticMutationByteDigest } from './semantic-contract-yaml-adapter.ts';
 import {
-  SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-  SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION
-} from '../../shared/semantic-mutation-types.ts';
-import { buildSemanticMutationVerificationPlanningContext } from './verification-policy.ts';
-import {
   assertSemanticMutationTransactionRoot,
   semanticMutationRequestIdentityDigest,
   semanticMutationStagedTransactionId,
   semanticMutationTransactionRoot,
   type SemanticMutationCommitFence
 } from './transaction-identity.ts';
+import { buildSemanticMutationVerificationPlanningContext } from './verification-policy.ts';
 import { isSemanticMutationWindowsReparsePoint } from './windows-file-attributes.ts';
 
 export interface SemanticMutationPlanningCapabilityAdapterV1 {

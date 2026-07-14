@@ -1,12 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import {
   atomicPublishSemanticMutationSource,
   atomicRestoreSemanticMutationSource,
   readSemanticMutationTransactionArtifacts,
   writeSemanticMutationTransactionArtifacts
 } from '../compiler/semantic-mutation/atomic-source-publish.ts';
+import {
+  canonicalDiagnostics,
+  diagnosticRevision,
+  mutationDiagnostic,
+  SemanticMutationContractError,
+  sha256
+} from '../compiler/semantic-mutation/canonical.ts';
 import {
   deriveStagedSemanticMutation,
   type DerivedSemanticMutationTransactionV1
@@ -20,31 +28,20 @@ import {
   recoveryDiagnostic
 } from '../compiler/semantic-mutation/mutation-recovery-record.ts';
 import { readRejectedSemanticMutationTerminal, writeRejectedSemanticMutationTerminal } from '../compiler/semantic-mutation/mutation-terminal-record.ts';
-import {
-  canonicalDiagnostics,
-  diagnosticRevision,
-  mutationDiagnostic,
-  SemanticMutationContractError,
-  sha256
-} from '../compiler/semantic-mutation/canonical.ts';
 import { normalizeSemanticMutationRequest } from '../compiler/semantic-mutation/normalize-request.ts';
+import { semanticMutationByteDigest } from '../compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
 import {
   buildSemanticMutationResult,
   buildSemanticMutationVerificationExecutionRef
 } from '../compiler/semantic-mutation/semantic-mutation-result.ts';
-import { semanticMutationRequiredVerificationDigest } from '../compiler/semantic-mutation/verification-policy.ts';
 import { readSemanticMutationSource } from '../compiler/semantic-mutation/source-path-boundary.ts';
-import { semanticMutationByteDigest } from '../compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
 import {
   assertSemanticMutationTransactionRoot,
   semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot,
   type SemanticMutationCommitFence
 } from '../compiler/semantic-mutation/transaction-identity.ts';
-import {
-  executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities
-} from '../compiler/verify/semantic-mutation-verification-adapter.ts';
+import { semanticMutationRequiredVerificationDigest } from '../compiler/semantic-mutation/verification-policy.ts';
 import {
   probeSemanticMutationIsolatedRuntimeCapability,
   runSemanticMutationIsolatedVerificationChild,
@@ -52,16 +49,11 @@ import {
   type IsolatedVerificationArtifacts,
   type SemanticMutationIsolatedVerificationFailure
 } from '../compiler/verify/run-semantic-mutation-isolated-child.ts';
-import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
+import {
+  executeSemanticMutationVerification,
+  planSemanticMutationVerificationCapabilities
+} from '../compiler/verify/semantic-mutation-verification-adapter.ts';
 import type { FactDeltaEndpointContext } from '../shared/engineering-ir-types.ts';
-import type {
-  NormalizedSemanticMutationRequestV2,
-  SemanticMutationBaseV2,
-  SemanticMutationDiagnosticV2,
-  SemanticMutationPlanV2,
-  SemanticMutationResultV2,
-  SemanticMutationVerificationExecutionRefV2
-} from '../shared/semantic-mutation-types.ts';
 import {
   type SemanticMutationApplyInputV1,
   type SemanticMutationApplyOutcomeV1,
@@ -73,19 +65,27 @@ import {
   type SemanticMutationRequestRecordViewV1,
   type SemanticMutationTransactionInputV1
 } from '../shared/semantic-mutation-transaction-types.ts';
+import type {
+  NormalizedSemanticMutationRequestV2,
+  SemanticMutationBaseV2,
+  SemanticMutationDiagnosticV2,
+  SemanticMutationPlanV2,
+  SemanticMutationResultV2,
+  SemanticMutationVerificationExecutionRefV2
+} from '../shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
   type SemanticMutationVerificationCapabilityPlanV1
 } from '../shared/verification-types.ts';
+import { windowsAppContainerCapability } from '../shared/windows-appcontainer-executor.ts';
 import {
   acquireWorkspaceWriteLease,
   assertWorkspaceWriteLease,
-  WorkspaceWriteLeaseError,
   withWorkspaceWriteLease,
+  WorkspaceWriteLeaseError,
   type WorkspaceWriteLeaseToken
 } from '../shared/workspace-write-lease.ts';
-import { windowsAppContainerCapability } from '../shared/windows-appcontainer-executor.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 type ReadyPlan = Extract<SemanticMutationPlanV2, { readonly status: 'ready' }>;

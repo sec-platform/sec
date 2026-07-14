@@ -1,7 +1,7 @@
+import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import type { ChildProcess } from 'node:child_process';
 
 import { expect, test } from 'bun:test';
 

@@ -1,9 +1,8 @@
 import { expect, test } from 'bun:test';
-import { cp, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { relocateSemanticMutationIsolatedRunnerBundleForTests } from
-  '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
   createWindowsAppContainerNativeHelperBundleLoaderForTests,
   encodeWindowsAppContainerNativeDerivedSid,
@@ -11,14 +10,14 @@ import {
   encodeWindowsAppContainerNativeOk,
   probeWindowsAppContainerCapabilityForTests,
   publishWindowsAppContainerProvisionalOwnerForTests,
-  redactWindowsAppContainerProbeCapabilityForTests,
   recoverWindowsAppContainerProvisionalOwnerForTests,
+  redactWindowsAppContainerProbeCapabilityForTests,
   runWindowsAppContainerChild,
   settleWindowsAppContainerNativeHelperInvocationForTests,
   WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
-  WindowsAppContainerCapabilityUnavailableError,
   windowsAppContainerCapability,
+  WindowsAppContainerCapabilityUnavailableError,
   WindowsAppContainerExecutionError,
   windowsAppContainerNativeHelperObservationForTests
 } from '../../platform/shared/windows-appcontainer-executor.ts';

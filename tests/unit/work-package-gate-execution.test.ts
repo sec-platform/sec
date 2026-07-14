@@ -1,12 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { link, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
-import type { ObservedCommandOutcome } from '../../platform/shared/observed-process.ts';
 import { CodexDevelopmentVerificationDigest } from '../../platform/shared/ci-evidence-contract.ts';
+import type { ObservedCommandOutcome } from '../../platform/shared/observed-process.ts';
 import {
   prepareWorkPackageExecutionSnapshotForTests,
   publishWorkPackageExecutionSnapshotOwnerForTests,

@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { workPackageGateProbeOutcomeAcceptedForTests } from '../../scripts/run-work-package-gate.ts';
 import {
   assertWorkPackageGateResidueCensusV4,
   type WorkPackageGateResidueCensusV4
 } from '../../scripts/work-package-gate-contract.ts';
-import { workPackageGateProbeOutcomeAcceptedForTests } from '../../scripts/run-work-package-gate.ts';
 
 const repoRoot = path.resolve(import.meta.dir, '../..');
 const emptyIdentities = Object.freeze({
