@@ -88,6 +88,7 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     sourceFiles: [
       "platform/shared/semantic-mutation-types.ts",
       "platform/shared/semantic-mutation-transaction-types.ts",
+      "platform/shared/semantic-mutation-staging-boundary.ts",
       "platform/shared/workspace-write-lease.ts",
       "platform/shared/windows-appcontainer-executor.ts",
       "platform/shared/windows-appcontainer-native-helper.ts",

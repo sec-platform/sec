@@ -105,3 +105,19 @@ test('explicit documentation ownership and direct slow tests remain resolved', (
   expect(directSlowTest.reasons).toContain('direct-slow-test');
   expect(directSlowTest.suites).toContain('e2e-dry-run-plan');
 });
+
+test('verification evidence is non-executable without generalizing JSON ownership', () => {
+  const evidence = selectCiPrRiskSlowSuites([
+    'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
+    'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json'
+  ]);
+  expect(evidence.resolved).toBe(true);
+  expect(evidence.reasons).not.toContain('changed-files-unresolved');
+  expect(evidence.suites).toEqual([]);
+
+  for (const file of ['docs/project-state.json', 'docs/evidence/archive/probe.json']) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.resolved).toBe(false);
+    expect(selection.reasons).toContain('changed-files-unresolved');
+  }
+});
