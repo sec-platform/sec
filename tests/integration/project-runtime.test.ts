@@ -12,7 +12,11 @@ import {
   withProjectDependencyBridge,
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
-import { loadRuntimeDependencySpec } from '../../platform/shared/runtime-dependency-spec.ts';
+import {
+  buildRuntimeDepsPreboundBinding,
+  loadRuntimeDependencySpec,
+  RUNTIME_DEPS_PREBOUND_BINDING_FILE
+} from '../../platform/shared/runtime-dependency-spec.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -432,7 +436,7 @@ describe('project and shared runtime manifests', () => {
 });
 
 describe('project base', () => {
-  test('keeps Playwright as the runtime full browser smoke', async () => {
+  test('reuses the production build for the Playwright runtime smoke', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
 
@@ -450,7 +454,8 @@ describe('project base', () => {
       expect(projectPackage.scripts['test:fast']).not.toContain('playwright');
       expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
       expect(playwrightConfig).toContain('workers: 1');
-      expect(playwrightConfig).toContain('next dev --webpack --hostname 127.0.0.1');
+      expect(playwrightConfig).toContain('next start --hostname 127.0.0.1');
+      expect(playwrightConfig).not.toContain('next dev');
     }, 'engineering-compiler-runtime-trace-');
   });
 });
@@ -474,6 +479,94 @@ describe('dependency bridge', () => {
 });
 
 describe('ensureProjectDependencies', () => {
+  test('prebound dependency readiness is constant-work and preserves the plan-owned tree', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const nodeModulesRoot = path.join(projectRoot, 'node_modules');
+      const nextPackageFile = path.join(nodeModulesRoot, 'next', 'package.json');
+      const fillerRoot = path.join(nodeModulesRoot, 'synthetic-package');
+      const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
+      const runtimeSpec = await loadRuntimeDependencySpec();
+      await fs.mkdir(path.dirname(nextPackageFile), { recursive: true });
+      await fs.mkdir(fillerRoot, { recursive: true });
+      await Promise.all([
+        fs.writeFile(nextPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8'),
+        fs.writeFile(bindingPath, `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`, 'utf8'),
+        ...Array.from({ length: 1024 }, (_, index) =>
+          fs.writeFile(path.join(fillerRoot, `${String(index).padStart(4, '0')}.bin`), 'x', 'utf8'))
+      ]);
+      const beforeRoot = await fs.stat(nodeModulesRoot);
+      const beforeSample = await fs.stat(path.join(fillerRoot, '0512.bin'));
+      let fenceCalls = 0;
+      let installCalls = 0;
+
+      await ensureProjectDependencies(projectRoot, {
+        beforeCommit: async () => {
+          fenceCalls += 1;
+        },
+        commandRunner: async () => {
+          installCalls += 1;
+          return { code: 1, stdout: '', stderr: 'unexpected' };
+        },
+        installMode: 'prebound-only',
+        sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
+      });
+
+      const afterRoot = await fs.stat(nodeModulesRoot);
+      const afterSample = await fs.stat(path.join(fillerRoot, '0512.bin'));
+      expect(fenceCalls).toBe(2);
+      expect(installCalls).toBe(0);
+      expect({ dev: afterRoot.dev, ino: afterRoot.ino }).toEqual({ dev: beforeRoot.dev, ino: beforeRoot.ino });
+      expect({ dev: afterSample.dev, ino: afterSample.ino })
+        .toEqual({ dev: beforeSample.dev, ino: beforeSample.ino });
+    }, 'engineering-compiler-runtime-prebound-constant-work-');
+  });
+
+  test('prebound dependency readiness rejects stale markers without mutation or spawn', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const nodeModulesRoot = path.join(projectRoot, 'node_modules');
+      const nextPackageFile = path.join(nodeModulesRoot, 'next', 'package.json');
+      const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
+      await fs.mkdir(path.dirname(nextPackageFile), { recursive: true });
+      await fs.writeFile(nextPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8');
+      await fs.writeFile(bindingPath, JSON.stringify({
+        formatVersion: 'runtime-deps-prebound-binding-v1',
+        manifestHash: 'stale',
+        unexpected: true
+      }), 'utf8');
+      const before = await fs.stat(nextPackageFile);
+      const beforeBytes = await fs.readFile(nextPackageFile);
+      let installCalls = 0;
+
+      await expect(ensureProjectDependencies(projectRoot, {
+        commandRunner: async () => {
+          installCalls += 1;
+          return { code: 0, stdout: 'unexpected', stderr: '' };
+        },
+        installMode: 'prebound-only',
+        sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
+      })).rejects.toThrow('Plan-bound dependency tree is unavailable');
+
+      await fs.rm(bindingPath, { force: true });
+      await expect(ensureProjectDependencies(projectRoot, {
+        commandRunner: async () => {
+          installCalls += 1;
+          return { code: 0, stdout: 'unexpected', stderr: '' };
+        },
+        installMode: 'prebound-only',
+        sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
+      })).rejects.toThrow('Plan-bound dependency tree is unavailable');
+
+      const after = await fs.stat(nextPackageFile);
+      expect(installCalls).toBe(0);
+      expect({ dev: after.dev, ino: after.ino }).toEqual({ dev: before.dev, ino: before.ino });
+      expect(await fs.readFile(nextPackageFile)).toEqual(beforeBytes);
+    }, 'engineering-compiler-runtime-prebound-stale-');
+  });
+
   test('links shared cache without copying when project deps are cold', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');

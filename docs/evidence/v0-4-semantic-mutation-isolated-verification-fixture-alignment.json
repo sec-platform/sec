@@ -1,0 +1,123 @@
+{
+  "schema": "codex-development-isolated-verification-fixture-alignment-v1",
+  "status": "failed",
+  "recordedAt": "2026-07-14T16:00:08.7159623+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The fixture-alignment files are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFailedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-feedback-repair.json",
+    "fileSha256": "sha256:80343e56514b74400c3262d04129b1737a489ccc5de9f58f189e27296c85e83a",
+    "status": "failed",
+    "retryAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-fixture-alignment-v1.md",
+      "fileSha256": "sha256:cdc8da0df277991b239372a044ad4782f4691d2b0a05ac26b91c81370fa097a4"
+    },
+    "orchestrator": {
+      "path": "platform/orchestrator/semantic-mutation-orchestrator.ts",
+      "fileSha256": "sha256:26c1bc4204aa028838b3fb20c2f1f1381e5e24f4640d0101625dba89b4d386af"
+    },
+    "isolatedChild": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:62a5fcdc84d758151179a11d676da7e5a1a0d5d7515440ddf0983521521ccd98"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:76a33b3a0fbd4e34f09e949d8e47da5039258e8514562825c0a87248a85a39c2"
+    },
+    "isolatedChildSentinel": {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "fileSha256": "sha256:9b48a36b6de8699538092a5584e3bc60e94556d18c83ab18230bf5b1b936f544"
+    }
+  },
+  "frozenStaticReview": {
+    "result": "passed",
+    "reviewers": 1,
+    "reviewConclusion": "NO BLOCKER",
+    "reviewedBoundary": "Ten-space source fixture, canonical compose-template destination, distinct exact-structure and exact-manifest sentinels, and injected no-side-effect execution seams."
+  },
+  "focusedGate": {
+    "gateId": "sm3-isolated-verification-fixture-alignment-focused",
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "--timeout",
+      "180000"
+    ],
+    "exitCode": 1,
+    "shellObservedDurationMs": 3239.179,
+    "runnerReportedDurationMs": 3100,
+    "tests": 18,
+    "passed": 17,
+    "failed": 1,
+    "assertions": 278,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "failures": [
+    {
+      "id": "SM3-FIXTURE-MANIFEST-DIGEST-001",
+      "kind": "sentinel-fixture-boundary-order",
+      "file": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "line": 508,
+      "observed": "The runner fixture changed from console.log(\"runner\") to tampered-runner, which changed byte length and therefore failed at the earlier exact destination structure/size boundary with destination structure is not exact.",
+      "expected": "destination manifest is not exact",
+      "productRuntimeFailure": false,
+      "repairBoundary": "Use a same-byte-length runner replacement so the sentinel crosses the exact structure/size boundary and reaches the manifest digest mismatch boundary; keep the final readback exact."
+    }
+  ],
+  "passedCoverage": [
+    "The current ten-space nativeRequest indentation and strict create-profile-before-execute ordering passed.",
+    "The canonical platform/compiler/compose/templates materialization readback passed.",
+    "The extra-directory sentinel passed at the exact destination structure boundary.",
+    "All typed redaction and no-real-side-effect focused cases in the selected files passed."
+  ],
+  "sideEffectBoundary": {
+    "productionAppContainerStarted": false,
+    "registryQueryStarted": false,
+    "recoveryAttempted": false,
+    "cleanupProbeAttempted": false,
+    "retainedR2R3AuthorityTouched": false,
+    "basis": "The selected tests use injected supervisors and synthetic runtime materialization; the real product vertical and old Work Package Gate were not selected."
+  },
+  "decision": {
+    "packageTerminal": true,
+    "focusedGatePassed": false,
+    "rerunAuthorized": false,
+    "productVerticalAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze one pure same-length manifest-digest fixture successor. Do not modify production runtime or rerun this package."
+  },
+  "notRun": [
+    "real add-state-transition vertical",
+    "production AppContainer child",
+    "registry/profile query",
+    "old Work Package Gate",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick",
+    "Risk",
+    "Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This failure applies only to the individually hashed manifest, production sources and focused tests on the recorded head/tree/base.",
+    "The single fixture failure does not invalidate the 17 passing tests or the earlier typed-redaction and planning/execution static review.",
+    "Any repair requires a separately frozen successor and new evidence; this command must not be rerun under the current manifest."
+  ]
+}

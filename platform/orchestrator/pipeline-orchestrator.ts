@@ -25,6 +25,7 @@ import {
   sourceViewRelativePath
 } from '../shared/paths.ts';
 import { withPipelineTransaction } from '../shared/pipeline-kernel.ts';
+import { emitPipelineExecutionBoundary } from '../shared/pipeline-journal.ts';
 import { getPipelineStageDefinition } from '../shared/pipeline-pass-registry.ts';
 import { requirePipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
 import {
@@ -50,10 +51,16 @@ import {
 import { resolveWorkspace } from './block-orchestrator.ts';
 import { adaptWorkspace, composeWorkspace } from './compose-orchestrator.ts';
 import { explainWorkspace, lockWorkspace } from './emit-orchestrator.ts';
-import type { IsolatedVerificationCapability } from './isolated-verification-capability.ts';
+import {
+  assertIsolatedVerificationCapability,
+  type IsolatedVerificationCapability
+} from './isolated-verification-capability.ts';
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 import { verifyWorkspace } from './verify-orchestrator.ts';
 import { applyWorkbenchMutations } from './workbench-orchestrator.ts';
+
+const PIPELINE_LEASE_MONITOR_INTERVAL_MS = 250;
+const PIPELINE_PENDING_TRANSACTION_ID = 'tx:pending';
 
 export interface CompileWorkspaceOptions {
   source?: PipelineSource;
@@ -86,7 +93,7 @@ export async function withMonitoredWorkspaceWriteLease<T>(
         checkingLease = false;
       });
   };
-  const monitor = setInterval(checkLease, 50);
+  const monitor = setInterval(checkLease, PIPELINE_LEASE_MONITOR_INTERVAL_MS);
   try {
     await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
     const result = await callback(controller.signal);
@@ -643,9 +650,31 @@ export async function compileWorkspace(
   if (options.applyWorkbenchMutations && !stages.includes('resolve')) {
     throw new Error('Workbench mutations require a pipeline range that includes resolve');
   }
+  if (options.isolatedVerificationCapability) {
+    assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability);
+  }
+  const leaseAcquireOptions = options.isolatedVerificationCapability && process.platform === 'win32'
+    ? { executionBoundary: 'windows-appcontainer' as const }
+    : undefined;
 
-  return withWorkspaceWriteLease(workspaceRoot, options.workspaceWriteLease, async (workspaceWriteLease) =>
-    withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, (leaseSignal) => withPipelineTransaction(
+  await emitPipelineExecutionBoundary(
+    options.onEvent,
+    PIPELINE_PENDING_TRANSACTION_ID,
+    'pipeline-lease-bind'
+  );
+  return withWorkspaceWriteLease(workspaceRoot, options.workspaceWriteLease, async (workspaceWriteLease) => {
+    await emitPipelineExecutionBoundary(
+      options.onEvent,
+      PIPELINE_PENDING_TRANSACTION_ID,
+      'pipeline-lease-bound'
+    );
+    return withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (leaseSignal) => {
+      await emitPipelineExecutionBoundary(
+        options.onEvent,
+        PIPELINE_PENDING_TRANSACTION_ID,
+        'pipeline-transaction-bootstrap'
+      );
+      return withPipelineTransaction(
       workspaceRoot,
       options.source ?? 'api',
       stages,
@@ -667,6 +696,11 @@ export async function compileWorkspace(
 
         for (const stage of stages) {
           await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+          await emitPipelineExecutionBoundary(
+            context.onEvent,
+            context.transactionId,
+            `pipeline-${stage}`
+          );
           if (stage === 'resolve') {
             const result = await resolveWorkspace(workspaceRoot, context);
             plan = result.plan;
@@ -735,6 +769,7 @@ export async function compileWorkspace(
         };
       },
       workspaceWriteLease
-    ))
-  );
+      );
+    });
+  }, leaseAcquireOptions);
 }

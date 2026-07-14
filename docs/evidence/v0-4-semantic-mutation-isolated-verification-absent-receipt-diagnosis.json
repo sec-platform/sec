@@ -1,0 +1,195 @@
+{
+  "schema": "codex-development-isolated-verification-absent-receipt-diagnosis-v1",
+  "status": "failed",
+  "recordedAt": "2026-07-14T17:37:53.8343885+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The diagnosis inputs are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFailedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-add-state-transition-vertical-v3-verification.json",
+    "fileSha256": "sha256:8ef309b07e33272312edc40c61616f3887ce40453bf5816800d0006c3024d929",
+    "status": "failed",
+    "retryAuthorized": false,
+    "observedChildOutcome": "absent",
+    "observedFirstArtifactFailure": {
+      "stage": "artifact-missing",
+      "artifact": "verification-report"
+    }
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-absent-receipt-diagnosis-v1.md",
+      "fileSha256": "sha256:79b35086ee16de1d42e0ed3f4efc23ba8eaceca47b8ae53b0baffabc49a57d3d"
+    },
+    "runner": {
+      "path": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+      "fileSha256": "sha256:8baddc3bcbd59738639a342270fbce3ac444044b62ba0c0e96f90593f074eeb5"
+    },
+    "childOutcome": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-outcome.ts",
+      "fileSha256": "sha256:1e9a650a84b5f20dac99eced505d79cd86cd7e6cf58031ed71fe0ba117e7aabc"
+    },
+    "isolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:12167894b77f625d9ca2a39294ea44873c33173c8346709329421211da897a6a"
+    },
+    "appContainerExecutor": {
+      "path": "platform/shared/windows-appcontainer-executor.ts",
+      "fileSha256": "sha256:0a719e7793cb91e165fe0de0233803f92c5e5782d745aba3766df126159d34a5"
+    },
+    "nativeHelper": {
+      "path": "platform/shared/windows-appcontainer-native-helper.ts",
+      "fileSha256": "sha256:b6f9111c45f067e2e6d8225f794ff5b2de37187e1f6a5550533d27a2509b702a"
+    },
+    "verificationWriter": {
+      "path": "platform/compiler/verify/verify-project.ts",
+      "fileSha256": "sha256:6029f5066864964ab78ecf5aa1ed48557ae24a463569346b22dbabede7fde1d7"
+    },
+    "productOrchestrator": {
+      "path": "platform/orchestrator/semantic-mutation-orchestrator.ts",
+      "fileSha256": "sha256:26c1bc4204aa028838b3fb20c2f1f1381e5e24f4640d0101625dba89b4d386af"
+    }
+  },
+  "provenFacts": [
+    {
+      "id": "SM3-ABSENT-RECEIPT-DEFAULT-SUPERVISOR-001",
+      "fact": "The product orchestrator does not inject the test supervisor seam. The default Windows AppContainer supervisor therefore ran and resolved before host artifact classification.",
+      "sourceLines": "platform/orchestrator/semantic-mutation-orchestrator.ts:378-382; platform/compiler/verify/run-semantic-mutation-isolated-child.ts:648-693"
+    },
+    {
+      "id": "SM3-ABSENT-RECEIPT-TERMINAL-EXIT-002",
+      "fact": "A normally returned supervisor result proves that the child reached a terminal exit, the native result was readable and parsed, and owned AppContainer cleanup settled. The later artifact-missing classification additionally proves a safe nonnegative child exit code, but the public failure discards its value.",
+      "sourceLines": "platform/shared/windows-appcontainer-executor.ts:2461-2569; platform/compiler/verify/run-semantic-mutation-isolated-child.ts:686-743"
+    },
+    {
+      "id": "SM3-ABSENT-RECEIPT-ENOENT-003",
+      "fact": "The post-supervisor commit fence and whole-tree assertion passed. Both the failure-only child receipt and the verification report returned ENOENT at read time; later canonical report states were not exposed because the host reports the first failure in canonical order.",
+      "sourceLines": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts:695-715"
+    },
+    {
+      "id": "SM3-ABSENT-RECEIPT-CONTROL-FLOW-004",
+      "fact": "An ordinary failure after the runner inner catch is armed is insufficient by itself: the catch performs a second tree assertion and returns a typed receipt, which the outer scope publishes before setting exit code 1.",
+      "sourceLines": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts:31-76"
+    },
+    {
+      "id": "SM3-ABSENT-RECEIPT-REPORT-PUBLICATION-005",
+      "fact": "The verification report is published only near the end of verifyProject with the other canonical reports. A failure or termination before or during this concurrent publication can leave verification-report absent.",
+      "sourceLines": "platform/compiler/verify/verify-project.ts:304-320"
+    }
+  ],
+  "excludedPaths": [
+    "A detected AppContainer launch failure, wait failure, executor timeout, lease loss, native-result parse failure, cleanup failure or profile-query failure: each rejects the supervisor and would remain appcontainer-execution rather than reach artifact-missing.",
+    "An invalid or negative supervisor result code: host classification would emit artifact-protocol before the missing-artifact branch.",
+    "Successful runner completion: it requires a passed verification report.",
+    "A postcondition failure after compileWorkspace returns: verifyProject has already published the verification report.",
+    "A canonical VERIFY-ACCEPTANCE-003 failure: verifyProject publishes the report set before throwing it.",
+    "A source-controlled deletion after successful report or final-receipt publication: no such deletion exists in the traced runner, pipeline or normal AppContainer cleanup path.",
+    "A malformed or unreadable child receipt or verification report: the host would classify artifact-parse or artifact-read rather than artifact-missing.",
+    "A valid child receipt combined with the observed first missing report: the host would expose child-failed-before-artifacts or include the allowlisted child stage."
+  ],
+  "ambiguitySet": [
+    {
+      "id": "before-runner-outer-try",
+      "description": "Bootstrap, import resolution, static module evaluation or runtime termination before the runner outer try begins. The generated executor bootstrap dynamically imports the bundled runner without a pre-import checkpoint."
+    },
+    {
+      "id": "before-inner-catch",
+      "description": "process.cwd, environment/path validation or the first staging-tree assertion fails before the inner catch is armed."
+    },
+    {
+      "id": "primary-failure-plus-catch-tree-failure",
+      "description": "A preflight or pipeline failure occurs before report publication, then the catch-time staging-tree assertion fails or the process terminates before returning the receipt."
+    },
+    {
+      "id": "outcome-publication-before-rename",
+      "description": "The receipt pending-file open, write, file sync, close or rename fails, or the process terminates in that interval. A failure only after successful rename is inconsistent with final receipt absence unless an external actor removes it."
+    },
+    {
+      "id": "abnormal-termination",
+      "description": "A runtime crash, OOM or external termination occurs before canonical report or final receipt publication. The executor can still return the native terminal code when the executor itself did not initiate a timeout failure."
+    },
+    {
+      "id": "shared-publication-boundary-or-external-removal",
+      "description": "A shared write-permission or filesystem failure prevents both publications, or an external actor removes a previously published artifact before the host read. Existing evidence records only read-time state, not publication history."
+    }
+  ],
+  "rootCause": null,
+  "rootCauseAvailability": "The exact evidence identifies an information-loss boundary: a pre-report failure or abnormal termination plus no final receipt visible at host read time. Current source and evidence cannot distinguish the ambiguity set without adding transient child progress and preserving a coarse termination class.",
+  "smallestDeterministicSuccessorProtocol": {
+    "authority": "mutation-specific transient child control protocol",
+    "hostTerminationClass": [
+      "zero",
+      "runner-controlled-failure",
+      "runner-entry-failure",
+      "runner-catch-tree-failure",
+      "outcome-publication-failure",
+      "unclassified-nonzero"
+    ],
+    "monotonicCheckpoints": [
+      "bootstrap-entered",
+      "module-entered",
+      "catch-armed",
+      "verify-all",
+      "postcondition",
+      "failure-caught",
+      "outcome-publish-started"
+    ],
+    "publication": "Each finite checkpoint is create-exclusive, file-synced and directory-synced so the host can validate a continuous prefix without an overwrite window. bootstrap-entered must be published by a tiny mutation-specific bootstrap before dynamic import of the heavyweight runner core.",
+    "hostRead": [
+      "terminationClass",
+      "highestContinuousCheckpoint",
+      "failureReceiptState",
+      "pendingReceiptState",
+      "firstCanonicalArtifactFailure"
+    ],
+    "securityBoundary": [
+      "No path, message, stdout, stderr, raw output, timestamp, transaction id or extensible payload.",
+      "The host maps only fixed reserved exit codes and exact finite checkpoint names.",
+      "Transient state remains under .isolated-process/child and does not enter generic WorkspacePaths, canonical Verification artifacts, success rawDigests or selector trust roots.",
+      "A checkpoint or termination class can only refine a failure. PASS still requires exit zero, no failure receipt and a complete canonical passed artifact set.",
+      "No retry is implied or authorized."
+    ]
+  },
+  "staticReview": {
+    "reviewers": 2,
+    "securityConclusion": "NO BLOCKER",
+    "failureAlgebraConclusion": "rootCause=null; successor requires both a termination anchor and pre-import progress",
+    "testsOrProbesRunByReviewers": false
+  },
+  "decision": {
+    "packageTerminal": true,
+    "diagnosisComplete": true,
+    "rootCauseProven": false,
+    "rerunAuthorized": false,
+    "profileOrRegistryProbeAuthorized": false,
+    "timeoutChangeAuthorized": false,
+    "implementationSuccessorAuthorized": true,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze a separate implementation successor for coarse exit classification and crash-safe monotonic checkpoints. Only its own focused gate may run after static review."
+  },
+  "notRun": [
+    "Bun tests",
+    "real add-state-transition retry",
+    "AppContainer/profile/registry probe",
+    "cleanup",
+    "timeout expansion",
+    "typecheck",
+    "imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "The diagnosis is bound to the exact manifest, failed vertical evidence, source hashes, head, tree and base recorded above.",
+    "A later progress or termination protocol may identify the runtime interval but cannot convert vertical-v3 to PASS.",
+    "Any source change requires a separately frozen implementation manifest and new evidence; vertical-v3 must not be rerun under its terminal manifest."
+  ]
+}

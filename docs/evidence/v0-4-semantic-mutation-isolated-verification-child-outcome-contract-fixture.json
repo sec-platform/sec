@@ -1,0 +1,124 @@
+{
+  "schema": "codex-development-isolated-verification-child-outcome-contract-fixture-v1",
+  "status": "passed",
+  "recordedAt": "2026-07-14T17:12:06.2600069+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The successor files are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFailedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-child-outcome-repair.json",
+    "fileSha256": "sha256:e1fca68e72fffe6d03ec5e33defe249c0c1ee34a858eadf3ba895fb9437339b1",
+    "status": "failed",
+    "retryAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-child-outcome-contract-fixture-v1.md",
+      "fileSha256": "sha256:6a02e64996c50353cacf6a583cb6d47b4c33e0a988f38caa71f1e1eee161a0e6"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:3e072afc71c91de47ce0924a9fc98f747e5a10be4fd609a75eba5e2fd738fd15"
+    },
+    "childOutcome": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-outcome.ts",
+      "fileSha256": "sha256:1e9a650a84b5f20dac99eced505d79cd86cd7e6cf58031ed71fe0ba117e7aabc"
+    },
+    "isolatedChild": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:12167894b77f625d9ca2a39294ea44873c33173c8346709329421211da897a6a"
+    },
+    "runner": {
+      "path": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+      "fileSha256": "sha256:8baddc3bcbd59738639a342270fbce3ac444044b62ba0c0e96f90593f074eeb5"
+    }
+  },
+  "frozenStaticReview": {
+    "result": "passed",
+    "reviewers": 1,
+    "reviewConclusion": "NO BLOCKER",
+    "predecessorReconstruction": "Replacing only the two successor assertions with the old failed assertion reproduced sha256:58e60b98019f7c4afcb40a3862785f1721709f65318eefe5c918724f9d4539c0 exactly.",
+    "reviewedBoundary": "The two unique fragments freeze the exported artifact-missing failure-stage member and artifactFailureStage missing mapping without changing production or weakening the contract.",
+    "patchHygieneBeforeRun": "passed"
+  },
+  "focusedGate": {
+    "gateId": "sm3-isolated-verification-child-outcome-contract-fixture",
+    "argv": [
+      "bun",
+      "test",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "--timeout",
+      "180000"
+    ],
+    "startedAt": "2026-07-14T09:12:05.1022332Z",
+    "finishedAt": "2026-07-14T09:12:06.2600069Z",
+    "exitCode": 0,
+    "shellObservedDurationMs": 1157.7737,
+    "runnerReportedDurationMs": 1073,
+    "tests": 8,
+    "passed": 8,
+    "failed": 0,
+    "assertions": 258,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "composedFocusedCoverage": {
+    "status": "passed",
+    "tests": 51,
+    "passed": 51,
+    "failed": 0,
+    "composition": [
+      "The predecessor repair evidence retains 15/15 isolated-child fence tests, 7/7 Verification adapter tests and 21/21 test-impact contract tests at their exact recorded hashes.",
+      "This successor supplies the exact 8/8 Semantic Mutation contract-file result after changing only the failed source-string sentinel.",
+      "The predecessor package remains terminal failed; this successor is the sole PASS authority for the repaired contract test."
+    ]
+  },
+  "passedCoverage": [
+    "The exported artifact-missing failure-stage member and the artifactFailureStage missing mapping are both frozen by unique source fragments.",
+    "All other Semantic Mutation staging, lease, journal, Verification, public-redaction, compile-time and digest-domain contracts passed in the same file-level Gate.",
+    "Production child-outcome, host and runner files remained byte-exact to the failed predecessor package."
+  ],
+  "sideEffectBoundary": {
+    "productionAppContainerStarted": false,
+    "registryQueryStarted": false,
+    "recoveryAttempted": false,
+    "cleanupProbeAttempted": false,
+    "retainedR2R3AuthorityTouched": false,
+    "basis": "The successor ran one contract test file containing source and pure contract assertions; it launched no product vertical, AppContainer, resolver, registry/profile query or old Work Package Gate."
+  },
+  "decision": {
+    "packageTerminal": true,
+    "focusedGatePassed": true,
+    "rerunAuthorized": false,
+    "productVerticalAuthorized": true,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze a separate real add-state-transition vertical-v3 against the exact composed focused inputs. Do not rerun this successor or the failed predecessor."
+  },
+  "notRun": [
+    "real add-state-transition vertical",
+    "production AppContainer child",
+    "resolver or production registry/profile query",
+    "old Work Package Gate",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick",
+    "Risk",
+    "Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This PASS applies only to the individually hashed successor manifest, contract test and unchanged production sources on the recorded head/tree/base.",
+    "The PASS composes only with the explicitly retained predecessor PASS units and authorizes one separately frozen real add-state-transition vertical-v3.",
+    "Any change to the child outcome, host, runner, selected contract test or retained focused test inputs requires a new invalidation decision; this command must not be rerun under the current manifest."
+  ]
+}

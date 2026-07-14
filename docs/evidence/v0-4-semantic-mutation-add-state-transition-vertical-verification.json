@@ -1,0 +1,162 @@
+{
+  "schema": "codex-development-add-state-transition-vertical-verification-v1",
+  "status": "failed",
+  "recordedAt": "2026-07-14T15:20:10.3554566+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "platformWorkingDiff": "none",
+    "selectedTestWorkingDiff": "none"
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-add-state-transition-vertical-v1.md",
+      "fileSha256": "sha256:509380484fa35f76408d3b160581d821d396d744cdebf79873724f58399c9296"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:331360c825c9f065342e864fa1d7dbe60a79bd99cf3730c4f86562507cfc744a"
+    },
+    "integrationTest": {
+      "path": "tests/integration/semantic-mutation-apply.test.ts",
+      "fileSha256": "sha256:eb557a8cb6b70cb4d32282c94ce572abb467508018c7323412d792b54ecf16f1"
+    },
+    "ownedProfileAuthorityEvidence": {
+      "path": "docs/evidence/v0-4-semantic-mutation-owned-profile-authority-verification.json",
+      "fileSha256": "sha256:dfbcc99018941c222652af91f5049b4640d49a9cdc4aa592ad36a084c5ab30dc"
+    },
+    "r2StopAuthority": {
+      "path": "docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json",
+      "fileSha256": "sha256:6acd57b02a319268b2ce2b0e81508894addd71b9d20d37d6d463c286a90fe8a3"
+    },
+    "r3v4StopAuthority": {
+      "path": "docs/evidence/v0-4-semantic-mutation-apply-r3-v4-verification.json",
+      "fileSha256": "sha256:a035318656987a61a8adcc703c40b53826c74c5c5512573359c7248067da6492"
+    }
+  },
+  "gate": {
+    "gateId": "sm3-add-state-transition-contract-plus-real-apply",
+    "argv": [
+      "bun",
+      "test",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--timeout",
+      "600000"
+    ],
+    "exitCode": 1,
+    "shellObservedDurationMs": 417612.382,
+    "runnerReportedDurationMs": 417190,
+    "tests": 12,
+    "passed": 10,
+    "failed": 2,
+    "unhandledErrors": 1,
+    "assertions": 188,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "failures": [
+    {
+      "id": "SM3-VERTICAL-CONTRACT-EOL-001",
+      "kind": "cross-platform-source-text-sentinel",
+      "file": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "line": 521,
+      "test": "writer authority, immutable journal, atomic publish/rollback CAS, and public redaction stay closed",
+      "observed": "The source-text assertion expected an LF-only two-line substring while the read workspace-write-lease source contained CRLF at that boundary.",
+      "productRuntimeFailure": false,
+      "repairBoundary": "Make the contract assertion line-ending-independent without weakening the two ordered calls it freezes."
+    },
+    {
+      "id": "SM3-VERTICAL-ISOLATED-VERIFICATION-002",
+      "kind": "real-apply-verification-blocked-after-test-timeout",
+      "file": "tests/integration/semantic-mutation-apply.test.ts",
+      "line": 368,
+      "test": "SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once",
+      "testTimeoutMs": 300000,
+      "testObservedDurationMs": 300016,
+      "lateApplyOutcome": {
+        "status": "rejected",
+        "planRevision": "sha256:7bde24e8e139f0b892cbf9399b8193ef6d1d3c3010c635710c534c244711ecdb",
+        "resultRevision": "sha256:da2f07930f90e46cab8bd4cf7d0f3f6d3f7d0ef97b263c41050571351c6bbe32",
+        "actualDeltaRevision": "sha256:e6a70999fff6aff2978c59e498e1fe491d70964b401d065a3ce9fdfdbf19fa01",
+        "addedFacts": [
+          {
+            "subject": "operation:item:closeItem",
+            "predicate": "MUTATES",
+            "objectEntityId": "state:item:item-status"
+          },
+          {
+            "subject": "state:item:item-status",
+            "predicate": "TRANSITIONS_TO",
+            "value": {
+              "by": "operation:item:closeItem",
+              "from": "open",
+              "to": "closed"
+            }
+          }
+        ],
+        "verification": {
+          "adapterId": "semantic-mutation-local-verification",
+          "adapterRevision": "semantic-mutation-local-verification-v1",
+          "status": "blocked",
+          "reportRevision": "sha256:6a306ee93a1d5dbc8a2292cb88cb3b78f1d09a5ac8b3a43b02ef3564c13e0342",
+          "verificationExecutionRevision": "sha256:358998aec5d1210cd5a6042831fb9bdb2bbf8ce578bf9ebb0ed2b67040b1ccdd"
+        },
+        "diagnostic": {
+          "origin": "semantic-mutation",
+          "code": "SEMANTIC-MUTATION-010",
+          "stage": "impact-verification",
+          "message": "Isolated Semantic Mutation Verification did not pass"
+        }
+      },
+      "rootCause": null,
+      "rootCauseAvailability": "The public result contains only the blocked verification projection; no typed internal failure envelope or raw isolated child output was persisted by this run.",
+      "publishAndLiveSourceStateIndependentlyChecked": false,
+      "repairBoundary": "Statically trace the blocked verification report and its bounded host-tool/child outcome before freezing one implementation repair package. Do not infer an AppContainer, ACL, lease or runtime-plan root cause from status alone."
+    }
+  ],
+  "passedCoverage": [
+    "Seven of eight semantic-mutation apply contract cases passed, including request redaction, Verification binding, public type closure and digest domains.",
+    "The public dry-run recovery guard passed in 13672 ms.",
+    "The complete pre-publish failure matrix passed in 64812 ms.",
+    "The post-publish restore and journal failure matrix passed in 37484 ms.",
+    "The real happy path reached canonical source resolution, staged rebuild, actual Fact Delta and Impact before isolated Verification blocked publication."
+  ],
+  "residue": {
+    "probeRun": false,
+    "cleanupRun": false,
+    "retainedR2R3AuthorityTouched": false,
+    "disposition": "No post-run probe or cleanup was authorized. Test-owned cleanup behavior is not promoted as independent residue evidence."
+  },
+  "decision": {
+    "packageTerminal": true,
+    "productVerticalPassed": false,
+    "rerunAuthorized": false,
+    "oldGateExpansionAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze one bounded static-and-implementation package for the EOL-sensitive contract assertion and the isolated Verification blocked path, then validate once with a newly authorized exact command."
+  },
+  "notRun": [
+    "old 39-file owner batch",
+    "test-name filtered retry",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick",
+    "Risk",
+    "Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This failure applies only to the exact manifest, tests, head, tree and base bound above.",
+    "The late rejected result proves Delta/Impact construction and a blocked Verification projection; it does not prove the internal root cause, publish state, cleanup state or recovery completion.",
+    "A source repair cannot convert this run into PASS and requires a separately frozen successor with new evidence."
+  ]
+}

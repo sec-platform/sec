@@ -1,0 +1,164 @@
+{
+  "schema": "codex-development-owned-profile-authority-verification-v1",
+  "status": "passed",
+  "recordedAt": "2026-07-14T14:59:13.3151437+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The successor files are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFailedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-profile-census-repair-verification.json",
+    "fileSha256": "sha256:ae7f10c990d05b345a7ac64bf3c7294e77ccb6d837fd340c42ca4bdc2329762c",
+    "status": "failed",
+    "classification": "profile-census-incomplete-unreported-reason",
+    "retryAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-owned-profile-authority-repair-v1.md",
+      "fileSha256": "sha256:e121bb25917897c4b808e9f668857f23c6461033f5de05b84b0d4b985594e98b"
+    },
+    "runner": {
+      "path": "scripts/run-work-package-gate.ts",
+      "fileSha256": "sha256:b8df2a92b22081a6c312fc8ea3281481c0768d5bfa1da3ed1f621eec239dbddc"
+    },
+    "contract": {
+      "path": "scripts/work-package-gate-contract.ts",
+      "fileSha256": "sha256:7c201fabacc361cf44011c1294441fc755da42fdd07106110046cc707754541d"
+    },
+    "contractTestFixture": {
+      "path": "tests/unit/work-package-gate-contract.test.ts",
+      "fileSha256": "sha256:1f81330be1138534bef33fc37e2b396fbac1f83c164b972254852d32534297a9"
+    },
+    "executionTestFixture": {
+      "path": "tests/unit/work-package-gate-execution.test.ts",
+      "fileSha256": "sha256:04024b3e5be56d2f946d412bd54dab7f288639755a6766616fa99ee996f3efdc"
+    },
+    "focusedSentinel": {
+      "path": "tests/unit/work-package-profile-census-repair.test.ts",
+      "fileSha256": "sha256:343a736c3065fc4b01b392895fe406e495009f8d07b554e640457ab171f02b15"
+    }
+  },
+  "staticAuthorityAudit": {
+    "result": "passed",
+    "runnerForbiddenTokensAbsent": [
+      "WORK_PACKAGE_PROFILE_MAPPING_ROOT",
+      "WORK_PACKAGE_PROFILE_QUERY_SCRIPT",
+      "PROFILE_PROBE_TIMEOUT_MS",
+      "boundedProfileIdentities",
+      "workPackageGateProfileCensusForTests",
+      "workPackageGateProfileQueryScriptForTests",
+      "profileSetMatches",
+      "Microsoft.Win32.RegistryKey",
+      "AppContainer\\Mappings",
+      "registry-root-absent"
+    ],
+    "v4ResidueExactKeys": [
+      "structure",
+      "aclPresentOwners"
+    ],
+    "historicalV1CompatibilityRetained": true,
+    "historicalV1CompatibilityNote": "Remaining appContainerProfiles references are confined to the V1 residue type, validator, clean algebra and V1 fixtures.",
+    "productPlatformWorkingDiff": "none",
+    "patchHygiene": "passed"
+  },
+  "independentOwnerLifecycleAudit": {
+    "result": "passed",
+    "method": "read-only source, diff and direct-call audit; no GitNexus conclusion was used because the local index was stale",
+    "ownerBeforeProfileCreate": {
+      "result": "passed",
+      "evidence": [
+        "platform/shared/windows-appcontainer-executor.ts:1436",
+        "platform/shared/windows-appcontainer-executor.ts:2494",
+        "platform/shared/windows-appcontainer-executor.ts:2526",
+        "platform/shared/windows-appcontainer-executor.ts:2105",
+        "platform/shared/windows-appcontainer-executor.ts:1070"
+      ]
+    },
+    "profileAbsentBeforeOwnerRemoval": {
+      "result": "passed",
+      "evidence": [
+        "platform/shared/windows-appcontainer-executor.ts:2219",
+        "platform/shared/windows-appcontainer-executor.ts:2240",
+        "platform/shared/windows-appcontainer-executor.ts:2252",
+        "platform/shared/windows-appcontainer-executor.ts:2432"
+      ]
+    },
+    "gateRecoveryAndDeletionAuthority": {
+      "result": "passed",
+      "evidence": [
+        "scripts/run-work-package-gate.ts:1057",
+        "scripts/run-work-package-gate.ts:1159",
+        "scripts/run-work-package-gate.ts:1261",
+        "scripts/run-work-package-gate.ts:1922",
+        "scripts/run-work-package-gate.ts:2038",
+        "scripts/run-work-package-gate.ts:3636",
+        "scripts/run-work-package-gate.ts:3696"
+      ],
+      "conclusion": "Recovery remains bound to exact physical namespace owner records. Namespace deletion still requires empty structure and ACL authority plus an exact side-effect census recheck."
+    }
+  },
+  "focusedGate": {
+    "gateId": "sm3-owned-profile-authority-pure-sentinel",
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/work-package-profile-census-repair.test.ts",
+      "--timeout",
+      "180000"
+    ],
+    "exitCode": 0,
+    "shellObservedDurationMs": 887.104,
+    "runnerReportedDurationMs": 804,
+    "tests": 3,
+    "passed": 3,
+    "failed": 0,
+    "assertions": 16,
+    "externalCensusAttempted": false,
+    "powershellStarted": false,
+    "registryAccessAttempted": false,
+    "appContainerHelperStarted": false,
+    "ownerChildStarted": false,
+    "recoveryAttempted": false,
+    "cleanupAttempted": false
+  },
+  "decision": {
+    "packageTerminal": true,
+    "globalProfileCensusRemovedFromV4": true,
+    "failedCensusRetryAuthorized": false,
+    "oldGateExpansionAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Stop this repair and recompute the remaining Issue 106 semantic-mutation apply vertical from the live source."
+  },
+  "notRun": [
+    "R2",
+    "R3-v1",
+    "R3-v2",
+    "R3-v3",
+    "R3-v4",
+    "R4 probe",
+    "selected owner batch",
+    "work-package-gate-execution.test.ts",
+    "typecheck",
+    "imports",
+    "affected",
+    "Contract Freeze",
+    "docs doctor",
+    "Quick",
+    "Risk",
+    "Full",
+    "slow",
+    "workspace",
+    "reference",
+    "recovery",
+    "cleanup",
+    "GitHub Actions"
+  ],
+  "invalidationRules": [
+    "This PASS applies only to the individually hashed successor files on the recorded head/tree/base.",
+    "Any change to the V4 residue schema, runner census/deletion/recovery path, focused sentinel, failed census evidence or product owner lifecycle invalidates the corresponding conclusion.",
+    "This focused PASS does not convert the retained R2 or failed real census evidence into PASS and does not authorize a retry, hosted verification, commit, push or merge."
+  ]
+}

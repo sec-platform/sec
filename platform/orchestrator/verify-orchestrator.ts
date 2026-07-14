@@ -95,7 +95,20 @@ async function verifyWorkspaceCore(
       emitTiming: options.emitTiming,
       isolated,
       beforeCommit,
-      signal: options.signal
+      ...(context.onEvent
+        ? { pipelineObserver: { onEvent: context.onEvent, transactionId: context.transactionId } }
+        : {}),
+      signal: options.signal,
+      ...(isolated
+        ? {
+            stagingTreeOptions: {
+              workspaceWriteLease: context.workspaceWriteLease,
+              ...(process.platform === 'win32'
+                ? { executionBoundary: 'windows-appcontainer' as const }
+                : {})
+            }
+          }
+        : {})
     });
     return { lock, report };
   } catch (error) {

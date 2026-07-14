@@ -1,0 +1,124 @@
+{
+  "schema": "codex-development-isolated-verification-artifact-read-diagnosis-v1",
+  "status": "diagnosed",
+  "recordedAt": "2026-07-14T16:33:34.0055616+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "All diagnosis inputs are bound individually by SHA-256 below."
+  },
+  "consumedFailedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-add-state-transition-vertical-v2-verification.json",
+    "fileSha256": "sha256:876a3663a57f4e3b81419fcfd50b73b7a6864267522e0d3994339867cbcc8f2c",
+    "status": "failed",
+    "retryAuthorized": false,
+    "typedStage": "artifact-read"
+  },
+  "inputs": {
+    "isolatedRunner": {
+      "path": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+      "fileSha256": "sha256:89163751a3c8137877741236eab555d3f0379ecbeaa5dc130ad999c2d784ca67"
+    },
+    "isolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:62a5fcdc84d758151179a11d676da7e5a1a0d5d7515440ddf0983521521ccd98"
+    },
+    "verificationWriter": {
+      "path": "platform/compiler/verify/verify-project.ts",
+      "fileSha256": "sha256:6029f5066864964ab78ecf5aa1ed48557ae24a463569346b22dbabede7fde1d7"
+    },
+    "canonicalArtifactContract": {
+      "path": "platform/shared/verification-artifact-contract.ts",
+      "fileSha256": "sha256:faebf6d85deffdcaa2ec61046ea0bb0e6f42330da2b75928c72d90f33a36eba1"
+    },
+    "unitSentinel": {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "fileSha256": "sha256:eb0e0c1ed14916830fc929b8c0767ed91ce23b6bde26de35a50859b2d063216e"
+    },
+    "contractSentinel": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:76a33b3a0fbd4e34f09e949d8e47da5039258e8514562825c0a87248a85a39c2"
+    },
+    "roadmapAuthority": {
+      "path": "docs/03-MVP实施计划与路线图.md",
+      "fileSha256": "sha256:9562f0ff0aaf4c5c9752f330f02ea79e713766d0c2dce652e04053a65ba65793"
+    },
+    "semanticAuthority": {
+      "path": "docs/14-Engineering IR与语义事实规范.md",
+      "fileSha256": "sha256:e6f21b2b5c1e1315078b3bdb420a5e18f5174bffa1ec658e964ed764bc156621"
+    }
+  },
+  "findings": [
+    {
+      "id": "SM3-ARTIFACT-READ-COLLAPSE-001",
+      "kind": "host-stage-collapse",
+      "evidence": "After supervisor completion the host sets failureStage to artifact-read, then executes the post-run fence, whole-tree assertion and four throwing file reads under the same stage.",
+      "sourceLines": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts:580-586"
+    },
+    {
+      "id": "SM3-CHILD-CAUSE-ERASURE-002",
+      "kind": "child-terminal-cause-erasure",
+      "evidence": "The isolated runner catches every error, emits one fixed stderr string and sets exit code 1; it publishes no typed terminal outcome.",
+      "sourceLines": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts:57-61"
+    },
+    {
+      "id": "SM3-ARTIFACT-SET-NONATOMIC-003",
+      "kind": "non-atomic-report-set",
+      "evidence": "The four canonical reports are written concurrently as separate files. A child failure can therefore leave a missing, partial or incomplete set without identifying which boundary failed.",
+      "sourceLines": "platform/compiler/verify/verify-project.ts:314-320"
+    },
+    {
+      "id": "SM3-NONZERO-COMPLETE-FAILURE-004",
+      "kind": "required-existing-semantics",
+      "evidence": "The canonical classifier intentionally accepts nonzero child exit plus a complete canonical failed Verification report as status failed; the contract forbids a simple early result.code rejection.",
+      "sourceLines": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts:294-307; tests/contract/semantic-mutation-apply-contract.test.ts:643-650"
+    }
+  ],
+  "rootCause": {
+    "protocolCause": "The host lacks a failure-only child terminal receipt and collapses distinct post-child read boundaries into artifact-read.",
+    "isolatedChildRuntimeCause": null,
+    "runtimeCauseAvailability": "The retained evidence cannot determine whether the child failed before compileWorkspace, inside verify-all, in postconditions, during final staging validation, or while publishing an outcome."
+  },
+  "repairContract": {
+    "artifactKind": "transient-child-control-receipt",
+    "successAuthority": false,
+    "canonicalVerificationArtifact": false,
+    "pathOwner": "mutation-specific isolated child outcome module",
+    "allowedStatus": ["failed"],
+    "allowedStages": ["preflight", "verify-all", "postcondition"],
+    "forbiddenFields": ["message", "path", "stdout", "stderr", "rawOutput", "error", "timestamp"],
+    "publication": "fixed stale cleanup; same-directory temp create-exclusive; canonical bytes; file fsync; close; atomic rename; directory fsync; temp cleanup",
+    "hostRule": "A receipt can only refine a failure. Success still requires exit 0, receipt absence, complete canonical artifacts, semantic rebuild and exact canonical classification."
+  },
+  "decision": {
+    "packageTerminal": true,
+    "diagnosisComplete": true,
+    "rerunAuthorized": false,
+    "repairAuthorized": true,
+    "profileCleanupRepairAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze one child terminal outcome repair package. Do not alter generic WorkspacePaths, canonical Verification artifacts, AppContainer executor or timeout."
+  },
+  "notRun": [
+    "Bun tests",
+    "real add-state-transition retry",
+    "AppContainer/profile/registry probe",
+    "cleanup",
+    "old Work Package Gate",
+    "typecheck",
+    "imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "The diagnosis is bound to the exact live source and failed evidence hashes above.",
+    "A later typed receipt can refine the runtime failure but cannot convert the recorded vertical-v2 run to PASS.",
+    "Any implementation requires a separately frozen manifest and new focused evidence."
+  ]
+}

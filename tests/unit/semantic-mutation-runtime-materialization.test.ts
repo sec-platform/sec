@@ -57,6 +57,20 @@ test('runtime materialization scheduler starts exactly eight canonical items at 
   expect(maxInFlight).toBe(8);
 });
 
+test('runtime materialization scheduler proves lease only at canonical batch boundaries', async () => {
+  let boundaryCalls = 0;
+  const completed = await runSemanticMutationRuntimeCanonicalBatchesForTests(
+    Array.from({ length: 1024 }, (_, index) => index),
+    async (item) => item,
+    async () => {
+      boundaryCalls += 1;
+    }
+  );
+
+  expect(completed).toHaveLength(1024);
+  expect(boundaryCalls).toBe(129);
+});
+
 test('runtime materialization scheduler reports the lowest canonical rejection after the batch settles', async () => {
   const releaseLowerFailure = deferred();
   const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
@@ -114,15 +128,44 @@ test('runtime materialization scheduler does not schedule a later batch after fa
   expect(supervisorStarted).toBe(false);
 });
 
+test('runtime materialization scheduler stops before the next batch when its boundary fence is lost', async () => {
+  const started: number[] = [];
+  const settled: number[] = [];
+  let boundaryCalls = 0;
+  const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
+    Array.from({ length: 16 }, (_, index) => index),
+    async (_item, canonicalIndex) => {
+      started.push(canonicalIndex);
+      await Promise.resolve();
+      settled.push(canonicalIndex);
+      return canonicalIndex;
+    },
+    async () => {
+      boundaryCalls += 1;
+      if (boundaryCalls === 2) throw new Error('injected post-batch lease loss');
+    }
+  );
+
+  await expect(execution).rejects.toThrow('injected post-batch lease loss');
+  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  expect(settled).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  expect(boundaryCalls).toBe(2);
+});
+
 test('runtime launch proof rejects byte, shape, link, reparse, and post-hash identity tamper', async () => {
   const root = await mkdtemp(path.join(process.cwd(), '.tmp-runtime-launch-proof-'));
   const compilerRoot = path.join(root, '.isolated-compiler');
   const browserRoot = path.join(root, '.isolated-process', 'playwright-browsers');
+  const projectDepsRoot = path.join(root, 'project', 'node_modules');
   const target = path.join(compilerRoot, 'runner.bin');
   const expectedBytes = Buffer.from('AAAA');
   const manifest = {
     stagingRoot: root,
-    directories: ['.isolated-compiler', '.isolated-process/playwright-browsers'],
+    directories: [
+      '.isolated-compiler',
+      '.isolated-process/playwright-browsers',
+      'project/node_modules'
+    ],
     files: [{
       relativePath: '.isolated-compiler/runner.bin',
       rawDigest: `sha256:${createHash('sha256').update(expectedBytes).digest('hex')}`,
@@ -132,8 +175,10 @@ test('runtime launch proof rejects byte, shape, link, reparse, and post-hash ide
   const reset = async (): Promise<void> => {
     await rm(compilerRoot, { recursive: true, force: true });
     await rm(path.join(root, '.isolated-process'), { recursive: true, force: true });
+    await rm(path.join(root, 'project'), { recursive: true, force: true });
     await mkdir(compilerRoot, { recursive: true });
     await mkdir(browserRoot, { recursive: true });
+    await mkdir(projectDepsRoot, { recursive: true });
     await writeFile(target, expectedBytes);
   };
 

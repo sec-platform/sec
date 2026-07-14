@@ -12,7 +12,10 @@ import {
 } from '../../shared/process.ts';
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
-import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
+import {
+  assertIsolatedStagingTree,
+  type IsolatedStagingTreeOptions
+} from './assert-isolated-staging-tree.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
 
@@ -21,6 +24,7 @@ type RuntimeVerificationOptions = {
   emitTiming?: boolean;
   isolated?: boolean;
   signal?: AbortSignal;
+  stagingTreeOptions?: IsolatedStagingTreeOptions;
   stagingWorkspaceRoot?: string;
 };
 
@@ -193,7 +197,7 @@ export async function runRuntimeVerification(
     beforeCommit: options.beforeCommit,
     signal: options.signal,
     skipSharedDepsWarmup: true,
-    ...(isolated ? { installMode: 'offline-copy-only' as const } : {})
+    ...(isolated ? { installMode: 'prebound-only' as const } : {})
   }));
 
   const isolatedRuntimeRoot = options.stagingWorkspaceRoot
@@ -215,7 +219,9 @@ export async function runRuntimeVerification(
         PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath()
       };
   const lane = createSkippedRuntimeLane();
-  if (isolated) await assertIsolatedStagingTree(options.stagingWorkspaceRoot!);
+  if (isolated) {
+    await assertIsolatedStagingTree(options.stagingWorkspaceRoot!, options.stagingTreeOptions);
+  }
   const runRuntimeCommand = async (
     invocation: { readonly command: string; readonly args: string[] },
     env: NodeJS.ProcessEnv
@@ -306,7 +312,7 @@ export async function runRuntimeVerification(
   } finally {
     if (isolated) {
       await options.beforeCommit?.();
-      await assertIsolatedStagingTree(options.stagingWorkspaceRoot!);
+      await assertIsolatedStagingTree(options.stagingWorkspaceRoot!, options.stagingTreeOptions);
       await options.beforeCommit?.();
     }
   }

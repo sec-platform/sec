@@ -8,6 +8,7 @@ import {
   type PassId,
   type PipelineEvent,
   type PipelineEventHandler,
+  type PipelineExecutionBoundary,
   type PipelineJournal,
   type PipelinePassRecord,
   type PipelineSource,
@@ -39,6 +40,19 @@ async function emitEvent(handler: PipelineEventHandler | undefined, event: Pipel
   } catch {
     // Pipeline observers are intentionally non-authoritative and cannot fail compilation.
   }
+}
+
+export async function emitPipelineExecutionBoundary(
+  handler: PipelineEventHandler | undefined,
+  transactionId: string,
+  boundary: PipelineExecutionBoundary
+): Promise<void> {
+  await emitEvent(handler, {
+    type: 'execution-boundary',
+    transactionId,
+    boundary,
+    message: `Pipeline execution entered ${boundary}`
+  });
 }
 
 async function readJournal(workspaceRoot: string): Promise<PipelineJournal> {

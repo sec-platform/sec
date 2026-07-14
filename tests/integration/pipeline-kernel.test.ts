@@ -122,13 +122,25 @@ test('isolated Verification capability is opaque and bound to one exact workspac
 test('compile coordinator runs resolve and compose in one committed transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });
+    const boundaries: string[] = [];
 
     const result = await compileWorkspace(workspaceRoot, {
       source: 'ci',
-      through: 'compose'
+      through: 'compose',
+      onEvent: (event) => {
+        if (event.type === 'execution-boundary' && event.boundary) boundaries.push(event.boundary);
+      }
     });
 
     expect(result.completedStages).toEqual(['resolve', 'semantic', 'compose']);
+    expect(boundaries).toEqual([
+      'pipeline-lease-bind',
+      'pipeline-lease-bound',
+      'pipeline-transaction-bootstrap',
+      'pipeline-resolve',
+      'pipeline-semantic',
+      'pipeline-compose'
+    ]);
     expect(result.semanticContext).toMatchObject({
       transactionId: result.transactionId,
       inputRevision: result.semanticContext?.snapshot.ir.inputRevision,

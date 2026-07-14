@@ -1,0 +1,101 @@
+{
+  "schema": "codex-development-isolated-verification-bootstrap-tamper-fixture-v1",
+  "status": "passed",
+  "recordedAt": "2026-07-14T18:18:18.2581187+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The fixture successor is uncommitted and is bound by SHA-256 below."
+  },
+  "consumedTerminalAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-termination-trace-repair.json",
+    "fileSha256": "sha256:fd04a419982e12ea270d028afa5a9875b1d0661bc48c2b81701f2739e1789fcc",
+    "status": "failed",
+    "validPassingTests": 53,
+    "failedTests": 1,
+    "retryAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-bootstrap-tamper-fixture-v1.md",
+      "fileSha256": "sha256:b559ad2c4901a155813ea478be47aeb37b4b626d6fe8c30bbd995e3c945b0607"
+    },
+    "unitSentinel": {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "fileSha256": "sha256:e96bd97c3e5a47157095c11e8ce74afa7e144594c8bcadd7e5553453957ddf27"
+    },
+    "predecessorUnitSentinel": {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "fileSha256": "sha256:f20e8aeb9b6dfcaab662a53dbe5089c8b0cad2195369d3f945b9adf09e9c11a9"
+    }
+  },
+  "delta": {
+    "ownedChange": "The bootstrap tamper fixture now copies the materialized bytes and flips one byte while preserving size.",
+    "productionFilesChanged": false,
+    "contractOrAdapterFilesChanged": false,
+    "otherTestCasesChanged": false,
+    "invalidation": "Only the predecessor's one failed bootstrap tamper assertion is invalidated. Its 53 passing tests remain valid against unchanged production and contract inputs."
+  },
+  "focusedGate": {
+    "gateId": "sm3-isolated-verification-bootstrap-tamper-fixture-filtered",
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "-t",
+      "runtime plan rejects cloned bindings, stale sources, destination tamper, and extra empty directories",
+      "--timeout",
+      "180000"
+    ],
+    "startedAt": "2026-07-14T10:18:16.6611595Z",
+    "finishedAt": "2026-07-14T10:18:18.2581187Z",
+    "exitCode": 0,
+    "shellObservedDurationMs": 1596.9592,
+    "runnerReportedDurationMs": 1530,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "filteredOut": 17,
+    "assertions": 11,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "combinedEvidence": {
+    "tests": 54,
+    "passed": 54,
+    "failed": 0,
+    "composition": "53 unaffected exact-input PASS results from the terminal repair package plus this one delta-focused PASS.",
+    "productionAppContainerLaunched": false,
+    "realProductVerticalRun": false
+  },
+  "decision": {
+    "packageTerminal": true,
+    "fixtureAligned": true,
+    "focusedRepairPassed": true,
+    "realVerticalV4Authorized": true,
+    "typecheckOrImportsAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze a separate real add-state-transition vertical-v4 bound to the exact repaired production and combined 54/54 focused authority."
+  },
+  "notRun": [
+    "full 54-test focused batch rerun",
+    "real add-state-transition vertical-v4",
+    "production AppContainer/profile/registry probe",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This PASS is bound to the exact manifest, test, consumed evidence, head, tree and base hashes above.",
+    "Any production, runtime-plan, runner, host, progress protocol, contract or adapter change invalidates the combined authority.",
+    "The combined 54/54 result authorizes only a separately frozen real vertical-v4; it does not retroactively convert the predecessor package itself to PASS."
+  ]
+}

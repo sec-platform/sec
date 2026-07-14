@@ -46,10 +46,11 @@ import {
   planSemanticMutationVerificationCapabilities
 } from '../compiler/verify/semantic-mutation-verification-adapter.ts';
 import {
-  buildSemanticMutationIsolatedVerificationEnvironment,
   probeSemanticMutationIsolatedRuntimeCapability,
   runSemanticMutationIsolatedVerificationChild,
-  type IsolatedVerificationArtifacts
+  SemanticMutationIsolatedVerificationUnavailableError,
+  type IsolatedVerificationArtifacts,
+  type SemanticMutationIsolatedVerificationFailure
 } from '../compiler/verify/run-semantic-mutation-isolated-child.ts';
 import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import type { FactDeltaEndpointContext } from '../shared/engineering-ir-types.ts';
@@ -84,7 +85,7 @@ import {
   withWorkspaceWriteLease,
   type WorkspaceWriteLeaseToken
 } from '../shared/workspace-write-lease.ts';
-import { probeWindowsAppContainerCapability } from '../shared/windows-appcontainer-executor.ts';
+import { windowsAppContainerCapability } from '../shared/windows-appcontainer-executor.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 type ReadyPlan = Extract<SemanticMutationPlanV2, { readonly status: 'ready' }>;
@@ -114,15 +115,7 @@ const DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE:
       request.stagingWorkspaceRoot
     );
     if (runtime.status !== 'available') return Object.freeze({ status: 'unavailable' });
-    const appContainer = await probeWindowsAppContainerCapability({
-      stagingRoot: request.stagingWorkspaceRoot,
-      environment: buildSemanticMutationIsolatedVerificationEnvironment(
-        request.stagingWorkspaceRoot
-      ),
-      workspaceRoot: request.workspaceRoot,
-      workspaceWriteLease: request.workspaceWriteLease
-    });
-    return appContainer.status === 'available'
+    return windowsAppContainerCapability().status === 'available'
       ? runtime
       : Object.freeze({ status: 'unavailable' as const });
   };
@@ -313,7 +306,9 @@ function nextRecordDraft(
   };
 }
 
-function isolatedVerificationBlockedResult(): {
+function isolatedVerificationBlockedResult(
+  failure?: SemanticMutationIsolatedVerificationFailure
+): {
   readonly status: 'blocked';
   readonly evidenceDigest: string;
 } {
@@ -321,7 +316,8 @@ function isolatedVerificationBlockedResult(): {
     status: 'blocked',
     evidenceDigest: sha256({
       domain: 'semantic-mutation-isolated-verification-evidence-v1',
-      reason: 'isolated-verification-unavailable'
+      reason: 'isolated-verification-unavailable',
+      ...(failure === undefined ? {} : { failure })
     })
   };
 }
@@ -360,6 +356,9 @@ async function runIsolatedVerification(
   },
   leaseContext: {
     readonly commitFence: SemanticMutationCommitFence;
+    readonly recordBlockedFailure?: (
+      failure: SemanticMutationIsolatedVerificationFailure
+    ) => void;
     readonly workspaceRoot: string;
     readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
   }
@@ -394,14 +393,20 @@ async function runIsolatedVerification(
         (artifacts.status === 'passed' &&
           (generatedReport.summary.failedLanes.length !== 0 ||
             generatedReport.fast.status !== 'passed' || generatedReport.runtime.status !== 'passed'))) {
-        return isolatedVerificationBlockedResult();
+        const failure = Object.freeze({ stage: 'binding-mismatch' as const });
+        leaseContext.recordBlockedFailure?.(failure);
+        return isolatedVerificationBlockedResult(failure);
       }
       return {
         status: artifacts.status,
         evidenceDigest: isolatedVerificationEvidenceDigest(artifacts)
       };
-    } catch {
-      return isolatedVerificationBlockedResult();
+    } catch (error) {
+      const failure = error instanceof SemanticMutationIsolatedVerificationUnavailableError
+        ? error.failure
+        : Object.freeze({ stage: 'binding-mismatch' as const });
+      leaseContext.recordBlockedFailure?.(failure);
+      return isolatedVerificationBlockedResult(failure);
     }
   });
   await commitFence();
@@ -1171,6 +1176,7 @@ async function applySemanticMutationInternal(
       return { status: 'terminal', result };
     }
 
+    let isolatedVerificationFailure: SemanticMutationIsolatedVerificationFailure | undefined;
     const verification = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
       dependencies.verify(derived as typeof derived & {
         readonly plan: ReadyPlan;
@@ -1179,6 +1185,9 @@ async function applySemanticMutationInternal(
         readonly verificationCapabilityPlan: SemanticMutationVerificationCapabilityPlanV1;
       }, {
         commitFence,
+        recordBlockedFailure: (failure) => {
+          isolatedVerificationFailure = failure;
+        },
         workspaceRoot,
         workspaceWriteLease: token
       })
@@ -1193,7 +1202,10 @@ async function applySemanticMutationInternal(
         diagnostics: [mutationDiagnostic(
           'SEMANTIC-MUTATION-010',
           'impact-verification',
-          'Isolated Semantic Mutation Verification did not pass'
+          'Isolated Semantic Mutation Verification did not pass',
+          isolatedVerificationFailure === undefined
+            ? {}
+            : { details: { isolatedVerification: isolatedVerificationFailure } }
         )]
       });
       if (result.status !== 'rejected') throw new Error('Verification rejection did not form rejected result');

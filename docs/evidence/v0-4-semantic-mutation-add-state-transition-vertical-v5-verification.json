@@ -1,0 +1,174 @@
+{
+  "schema": "codex-development-add-state-transition-vertical-verification-v5",
+  "status": "failed",
+  "recordedAt": "2026-07-14T19:17:17.1382691+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The vertical inputs are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFocusedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-staged-loader-failure-fixture.json",
+    "fileSha256": "sha256:b54ce5b48afb3995c8cee8cc718d40ca0494afd272478c2fcf07444dd6a87573",
+    "status": "passed",
+    "combinedTests": 27,
+    "combinedPassed": 27,
+    "retryAuthorized": false
+  },
+  "consumedVerticalAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-add-state-transition-vertical-v4-verification.json",
+    "fileSha256": "sha256:ac04b179c88b4aea3588e3293c972265ab65f49cfc88052aff4d99edb181aa0f",
+    "status": "failed",
+    "retryAuthorized": false,
+    "lastCheckpoint": "bootstrap-entered"
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-add-state-transition-vertical-v5.md",
+      "fileSha256": "sha256:40427d1a2f647a5445234962901dd2882ffba5d435cf25f8568dae6000fb707c"
+    },
+    "orchestrator": {
+      "path": "platform/orchestrator/semantic-mutation-orchestrator.ts",
+      "fileSha256": "sha256:26c1bc4204aa028838b3fb20c2f1f1381e5e24f4640d0101625dba89b4d386af"
+    },
+    "childProgress": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-progress.ts",
+      "fileSha256": "sha256:cc6b6ab681e61310d4a777a9f230014fa793505cb52f5a601c221cea12bf6e90"
+    },
+    "childOutcome": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-outcome.ts",
+      "fileSha256": "sha256:1e9a650a84b5f20dac99eced505d79cd86cd7e6cf58031ed71fe0ba117e7aabc"
+    },
+    "runtimePlan": {
+      "path": "platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts",
+      "fileSha256": "sha256:5111020c3b65ef5fa404d7e4cc8da01e017b9667cd12e0a0c6be3de64910ee09"
+    },
+    "isolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:8c147484261e37ce6e19475f473c7245f8c66680f2d296a9d0aff1fa66e6bcae"
+    },
+    "runner": {
+      "path": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+      "fileSha256": "sha256:9c00a0aaa25fae1b17fbb98cf3a7761e7785d50744e18c027631fdb1a5784fdb"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:2c22879dc8e88334c1860b77820721623c864d23a4d0ab38ab98eb8232683d26"
+    },
+    "integrationTest": {
+      "path": "tests/integration/semantic-mutation-apply.test.ts",
+      "fileSha256": "sha256:eb557a8cb6b70cb4d32282c94ce572abb467508018c7323412d792b54ecf16f1"
+    }
+  },
+  "gate": {
+    "gateId": "sm3-add-state-transition-contract-plus-real-apply-v5",
+    "argv": [
+      "bun",
+      "test",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--timeout",
+      "600000"
+    ],
+    "exitCode": 1,
+    "shellObservedDurationMs": 391466.961,
+    "runnerReportedDurationMs": 391120,
+    "tests": 12,
+    "passed": 11,
+    "failed": 1,
+    "unhandledErrors": 1,
+    "assertions": 372,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "failures": [
+    {
+      "id": "SM3-VERTICAL-V5-TYPESCRIPT-IMPORT-INTERVAL-001",
+      "kind": "real-apply-child-terminated-after-loader-before-typescript-import",
+      "file": "tests/integration/semantic-mutation-apply.test.ts",
+      "line": 368,
+      "test": "SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once",
+      "testTimeoutMs": 300000,
+      "testObservedDurationMs": 300016,
+      "lateApplyOutcome": {
+        "status": "rejected",
+        "planRevision": "sha256:8d4fcaf2a0cfe180fc18b29e2b6470fd8ddfbe4ef8d038890f11cbc5bacc9d5d",
+        "resultRevision": "sha256:f749579ab4319fcbeeb903f70e3b4ef5b86d527e2a331cfe80dedd11593a8415",
+        "actualDeltaRevision": "sha256:e6a70999fff6aff2978c59e498e1fe491d70964b401d065a3ce9fdfdbf19fa01",
+        "impactRevision": "sha256:cdbbc67b755b7dcbde9e3bdc8c75bebef4f54145ce2179d885b666bed05ab2e5",
+        "isolatedVerification": {
+          "stage": "child-terminated-without-outcome",
+          "artifact": "verification-report",
+          "termination": {
+            "class": "unclassified-nonzero",
+            "checkpoint": "loader-entered"
+          }
+        }
+      },
+      "provenInterval": "bootstrap-entered and loader-entered were durably published; typescript-imported and every later dependency/core/runner checkpoint were absent.",
+      "rootCause": null,
+      "rootCauseAvailability": "The exact trace confines failure to await import('typescript') or abnormal termination in that interval. Exit class unclassified-nonzero does not distinguish a caught import rejection from abnormal loader/runtime termination.",
+      "repairBoundary": "Add one fixed loader-import-failure exit code mapped by the host. Keep abnormal nonzero termination separate and do not change the package closure, pipeline or timeouts."
+    }
+  ],
+  "newlyProvenFacts": [
+    "The physical bootstrap successfully resolved and evaluated the exact sibling staged-loader asset.",
+    "The staged loader successfully resolved its Node builtins and durably published loader-entered.",
+    "The failure occurred before the loader completed import('typescript').",
+    "ts-morph, the heavyweight core, runner entry, compileWorkspace, Verification reports and outcome publication were not reached."
+  ],
+  "excludedPaths": [
+    "Bootstrap publication or bootstrap-to-loader sibling resolution failure: loader-entered exists.",
+    "Staged-loader Node builtin resolution or checkpoint writer initialization failure: loader-entered was durably published.",
+    "ts-morph or its transitive closure: typescript-imported was not published.",
+    "Heavyweight core linking/evaluation and runner entry: core-import-started and module-entered were not published.",
+    "Preflight, compileWorkspace, verify-all, report publication, postconditions, catch-time tree assertion and child outcome publication: catch-armed and later checkpoints were not reached.",
+    "A detected AppContainer launch, wait, executor timeout, native-result parse or cleanup failure: those reject the supervisor instead of returning this post-supervisor typed termination."
+  ],
+  "passedCoverage": [
+    "All eight Semantic Mutation contract tests passed against the staged-loader protocol.",
+    "The public dry-run recovery guard passed in 9563 ms.",
+    "The complete pre-publish failure matrix passed in 50312 ms.",
+    "The post-publish restore and journal failure matrix passed in 30063 ms.",
+    "The real happy path again reached deterministic source edit, staged semantic rebuild, exact Fact Delta and Impact before isolated Verification blocked publication."
+  ],
+  "residue": {
+    "probeRun": false,
+    "cleanupRun": false,
+    "registryOrProfileState": "unknown-not-probed",
+    "disposition": "No post-run probe or cleanup was authorized. Test-owned teardown is not promoted as independent residue evidence."
+  },
+  "decision": {
+    "packageTerminal": true,
+    "productVerticalPassed": false,
+    "rerunAuthorized": false,
+    "timeoutChangeAuthorized": false,
+    "loaderImportExitRepairAuthorized": true,
+    "dependencyClosureRepairAuthorized": false,
+    "pipelineOrVerificationRepairAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze a minimal loader-import exit classification repair. A fixed caught-import class plus the last checkpoint must distinguish import rejection from abnormal termination before any package-resolution repair is considered."
+  },
+  "notRun": [
+    "second real add-state-transition attempt",
+    "post-run AppContainer/profile/registry probe",
+    "cleanup repair",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This failure applies only to the exact manifest, tests, production hashes, head, tree and base bound above.",
+    "The loader-entered/unclassified-nonzero trace supersedes the v4 bootstrap-entered interval but does not prove that the TypeScript import rejected.",
+    "Any exit-class repair requires a separately frozen successor and new focused evidence; this command must not be rerun under vertical-v5."
+  ]
+}

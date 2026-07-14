@@ -21,7 +21,12 @@ import {
   runCommand,
   type CommandResult
 } from './process.ts';
-import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
+import {
+  buildRuntimePackageManifest,
+  isRuntimeDepsPreboundBinding,
+  loadRuntimeDependencySpec,
+  RUNTIME_DEPS_PREBOUND_BINDING_FILE
+} from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
   manifestHash: string;
@@ -39,7 +44,7 @@ export interface SharedDepsReadyState {
 export interface RuntimeDependencyInstallOptions {
   beforeCommit?: CommitFence;
   commandRunner?: typeof runCommand;
-  installMode?: 'allow' | 'offline-copy-only';
+  installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
   lockTimeoutMs?: number;
   now?: () => string;
   pollIntervalMs?: number;
@@ -354,11 +359,27 @@ export async function ensureProjectDependencies(
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<void> {
   const runtimeSpec = await loadRuntimeDependencySpec();
+  const nodeModulesPath = path.join(projectRoot, 'node_modules');
+  if (options.installMode === 'prebound-only') {
+    await options.beforeCommit?.();
+    const [binding, installed] = await Promise.all([
+      readJson<unknown>(path.join(nodeModulesPath, RUNTIME_DEPS_PREBOUND_BINDING_FILE))
+        .catch(() => null),
+      hasInstalledRuntimeDeps(nodeModulesPath)
+    ]);
+    await options.beforeCommit?.();
+    if (!installed || !isRuntimeDepsPreboundBinding(binding, runtimeSpec.manifestHash)) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-004',
+        'Plan-bound dependency tree is unavailable for isolated verification'
+      );
+    }
+    return;
+  }
   const isolated = options.installMode === 'offline-copy-only';
   const sharedDeps =
     isolated || options.skipSharedDepsWarmup === true ? null : await ensureSharedDepsReady(options);
   const sharedDepsRoot = options.sharedDepsRoot ?? sharedDeps?.root ?? defaultSharedDepsRoot();
-  const nodeModulesPath = path.join(projectRoot, 'node_modules');
   const stampPath = projectStampPath(projectRoot);
   await options.beforeCommit?.();
   const cacheReady = !options.rematerialize &&

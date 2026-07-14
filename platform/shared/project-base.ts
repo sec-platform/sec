@@ -349,7 +349,7 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   webServer: {
-    command: \`next dev --webpack --hostname 127.0.0.1 --port \${port}\`,
+    command: \`next start --hostname 127.0.0.1 --port \${port}\`,
     url: \`\${baseURL}/login\`,
     reuseExistingServer: !process.env.CI,
     timeout: 120000

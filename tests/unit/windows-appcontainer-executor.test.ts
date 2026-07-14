@@ -1,18 +1,26 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { relocateSemanticMutationIsolatedRunnerBundleForTests } from
+  '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
   createWindowsAppContainerNativeHelperBundleLoaderForTests,
+  encodeWindowsAppContainerNativeDerivedSid,
+  encodeWindowsAppContainerNativeFailure,
+  encodeWindowsAppContainerNativeOk,
   probeWindowsAppContainerCapabilityForTests,
   publishWindowsAppContainerProvisionalOwnerForTests,
   redactWindowsAppContainerProbeCapabilityForTests,
   recoverWindowsAppContainerProvisionalOwnerForTests,
   runWindowsAppContainerChild,
+  settleWindowsAppContainerNativeHelperInvocationForTests,
   WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
   WindowsAppContainerCapabilityUnavailableError,
-  windowsAppContainerCapability
+  windowsAppContainerCapability,
+  WindowsAppContainerExecutionError,
+  windowsAppContainerNativeHelperObservationForTests
 } from '../../platform/shared/windows-appcontainer-executor.ts';
 import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 
@@ -117,19 +125,32 @@ function processIsAlive(processId: number): boolean {
 test('Windows AppContainer native structure contract is frozen with no capabilities', () => {
   expect(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1).toEqual({
     pointerBytes: 8,
+    securityAttributesBytes: 24,
+    securityAttributesLengthOffset: 0,
+    securityAttributesDescriptorOffset: 8,
+    securityAttributesInheritHandleOffset: 16,
     securityCapabilitiesBytes: 24,
     securityCapabilitiesAppContainerSidOffset: 0,
     securityCapabilitiesCapabilitiesOffset: 8,
     securityCapabilitiesCapabilityCountOffset: 16,
     securityCapabilitiesReservedOffset: 20,
     startupInfoExBytes: 112,
+    startupInfoExFlagsOffset: 60,
+    startupInfoExStdInputOffset: 80,
+    startupInfoExStdOutputOffset: 88,
+    startupInfoExStdErrorOffset: 96,
     startupInfoExAttributeListOffset: 104,
     processInformationBytes: 24,
     processInformationProcessHandleOffset: 0,
     processInformationThreadHandleOffset: 8,
     jobObjectExtendedLimitInformationBytes: 144,
     jobObjectLimitFlagsOffset: 16,
+    procThreadAttributeHandleList: 0x0002_0002,
     procThreadAttributeSecurityCapabilities: 0x0002_0009,
+    procThreadAttributeCount: 2,
+    standardHandleCount: 3,
+    startfUseStdHandles: 0x0000_0100,
+    inheritHandles: 1,
     capabilityCount: 0,
     reserved: 0,
     creationFlags: 0x0808_0404,
@@ -143,6 +164,143 @@ test('Windows AppContainer native structure contract is frozen with no capabilit
     runtimeRelativePath: '.sm3r'
   });
   expect(Object.isFrozen(WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1)).toBe(true);
+});
+
+test('Windows AppContainer helper observations are finite and redact protocol content', () => {
+  const captureFailure = (
+    run: () => unknown
+  ): WindowsAppContainerExecutionError => {
+    let captured: unknown;
+    try {
+      run();
+    } catch (error) {
+      captured = error;
+    }
+    expect(captured).toBeInstanceOf(WindowsAppContainerExecutionError);
+    return captured as WindowsAppContainerExecutionError;
+  };
+
+  expect(settleWindowsAppContainerNativeHelperInvocationForTests(
+    'execute',
+    0,
+    encodeWindowsAppContainerNativeOk(),
+    false,
+    { value: { exitCode: 3_221_225_477 } }
+  )).toEqual({ exitCode: 3_221_225_477 });
+
+  const diagnosticFailure = captureFailure(() =>
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute', 0, encodeWindowsAppContainerNativeOk(), true, { value: { exitCode: 0 } }
+    ));
+  expect(diagnosticFailure.phase).toBe('preparation');
+  expect(windowsAppContainerNativeHelperObservationForTests(diagnosticFailure)).toEqual({
+    mode: 'execute',
+    helperExit: 0,
+    diagnosticStream: 'present',
+    protocol: 'ok',
+    nativeReceipt: 'exit-code'
+  });
+
+  const declaredFailure = captureFailure(() =>
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute',
+      1,
+      JSON.stringify({ status: 'failed', phase: 'launch', nativeCode: 5 }),
+      false,
+      { value: { status: 'failed', phase: 'launch', nativeCode: 5 } }
+    ));
+  expect({ phase: declaredFailure.phase, nativeCode: declaredFailure.nativeCode }).toEqual({
+    phase: 'launch',
+    nativeCode: 5
+  });
+  expect(windowsAppContainerNativeHelperObservationForTests(declaredFailure)).toEqual({
+    mode: 'execute',
+    helperExit: 1,
+    diagnosticStream: 'empty',
+    protocol: 'declared-failure',
+    nativeReceipt: 'declared-failure'
+  });
+
+  const abnormalHelperExit = captureFailure(() =>
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute', 3_221_225_477, '{"status":"ok"}', false, { value: { exitCode: 0 } }
+    ));
+  expect(abnormalHelperExit.phase).toBe('preparation');
+  expect(windowsAppContainerNativeHelperObservationForTests(abnormalHelperExit)?.helperExit)
+    .toBe(3_221_225_477);
+
+  for (const [receiptRead, nativeReceipt] of [
+    ['absent', 'absent'],
+    ['read-error', 'read-error'],
+    [{ value: { exitCode: 0, extra: true } }, 'invalid']
+  ] as const) {
+    const receiptFailure = captureFailure(() =>
+      settleWindowsAppContainerNativeHelperInvocationForTests(
+        'execute', 0, encodeWindowsAppContainerNativeOk(), false, receiptRead
+      ));
+    expect(receiptFailure.phase).toBe('wait');
+    expect(windowsAppContainerNativeHelperObservationForTests(receiptFailure)?.nativeReceipt)
+      .toBe(nativeReceipt);
+  }
+
+  expect(settleWindowsAppContainerNativeHelperInvocationForTests(
+    'create-profile', 0, encodeWindowsAppContainerNativeOk(), false, 'not-applicable'
+  )).toBeUndefined();
+
+  const secretProtocol = 'secret-protocol-path';
+  const secretReceipt = 'secret-receipt-path';
+  const redactedFailure = captureFailure(() =>
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute',
+      1,
+      JSON.stringify({ status: 'failed', message: secretProtocol }),
+      true,
+      { value: { exitCode: 0, extra: secretReceipt } }
+    ));
+  const redactedObservation = windowsAppContainerNativeHelperObservationForTests(redactedFailure);
+  expect(redactedObservation).toEqual({
+    mode: 'execute',
+    helperExit: 1,
+    diagnosticStream: 'present',
+    protocol: 'invalid',
+    nativeReceipt: 'invalid'
+  });
+  expect(`${redactedFailure.message}${JSON.stringify(redactedFailure)}${JSON.stringify(redactedObservation)}`)
+    .not.toContain('secret-');
+  expect(Object.isFrozen(redactedObservation)).toBe(true);
+
+  for (const invalidRun of [
+    () => settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute', 0, JSON.stringify({ status: 'ok', extra: true }), false, { value: { exitCode: 0 } }
+    ),
+    () => settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute', 0, encodeWindowsAppContainerNativeOk(), false, { value: { exitCode: -1 } }
+    ),
+    () => settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute',
+      0,
+      encodeWindowsAppContainerNativeOk(),
+      false,
+      { value: { exitCode: 0x1_0000_0000 } }
+    ),
+    () => settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute',
+      1,
+      JSON.stringify({ status: 'failed', phase: 'launch', nativeCode: Number.MAX_SAFE_INTEGER + 1 }),
+      false,
+      { value: { exitCode: 0 } }
+    )
+  ]) {
+    expect(['preparation', 'wait']).toContain(captureFailure(invalidRun).phase);
+  }
+
+  expect(String(encodeWindowsAppContainerNativeFailure(new Error('secret-error-path'))))
+    .toBe('{"status":"failed","phase":"preparation"}');
+  expect(String(encodeWindowsAppContainerNativeFailure(
+    new WindowsAppContainerExecutionError('launch', 0x1_0000_0000)
+  ))).toBe('{"status":"failed","phase":"preparation"}');
+  expect(String(encodeWindowsAppContainerNativeDerivedSid('S-1-15-2-1-2-3-4-5-6-7')))
+    .toBe('{"status":"ok","appContainerSid":"S-1-15-2-1-2-3-4-5-6-7"}');
 });
 
 test('non-Windows hosts report capability unavailable without a spawn fallback', async () => {
@@ -286,6 +444,174 @@ test.serial('Windows AppContainer sentinel proves no outside read/write, no netw
     }
   }
 }, 45_000);
+
+test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and evaluates the relocated bundled compiler', async () => {
+  if (process.platform !== 'win32') return;
+
+  const workspaceRoot = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-bundled-compiler-'));
+  const transactionDigest = 'e'.repeat(64);
+  const stagingRoot = path.join(
+    workspaceRoot,
+    '.sec',
+    'semantic-mutation',
+    'v1',
+    'transactions',
+    transactionDigest,
+    'workspace'
+  );
+  const runnerRelativePath =
+    '.isolated-compiler/platform/orchestrator/bundled-compiler-sentinel.mjs';
+  const runnerPath = path.join(stagingRoot, runnerRelativePath);
+  const bundleEntryPath = path.join(workspaceRoot, 'bundled-compiler-sentinel.ts');
+  const stagedTypeScriptRoot = path.join(
+    stagingRoot,
+    '.isolated-compiler',
+    'node_modules',
+    'typescript'
+  );
+  const stagedTsMorphCommonRoot = path.join(
+    stagingRoot,
+    '.isolated-compiler',
+    'node_modules',
+    '@ts-morph',
+    'common'
+  );
+  const resultPath = path.join(stagingRoot, 'bundled-compiler-sentinel.json');
+  let lease: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>> | undefined;
+
+  try {
+    await mkdir(path.dirname(runnerPath), { recursive: true });
+    await Promise.all([
+      cp(path.join(process.cwd(), 'package.json'), path.join(stagingRoot, '.isolated-compiler', 'package.json')),
+      writeFile(path.join(stagingRoot, '.isolated-compiler', 'bunfig.toml'), '# isolated runtime\n', 'utf8')
+    ]);
+    await cp(
+      path.join(process.cwd(), '.shared-deps', 'node_modules', 'typescript'),
+      stagedTypeScriptRoot,
+      { recursive: true }
+    );
+    await cp(
+      path.join(process.cwd(), '.shared-deps', 'node_modules', '@ts-morph', 'common'),
+      stagedTsMorphCommonRoot,
+      { recursive: true }
+    );
+    await writeFile(bundleEntryPath, [
+      `import { assertIsolatedStagingTree } from ${JSON.stringify(path.relative(
+        path.dirname(bundleEntryPath),
+        path.join(process.cwd(), 'platform', 'compiler', 'verify', 'assert-isolated-staging-tree.ts')
+      ).split(path.sep).join('/'))};`,
+      "import ejs from 'ejs';",
+      "import { Project } from 'ts-morph';",
+      "import typescript from 'typescript';",
+      'const stdinText = await Bun.stdin.text();',
+      "process.stdout.write('bundled-compiler-stdout-marker');",
+      "process.stderr.write('bundled-compiler-stderr-marker');",
+      "const sourceFile = typescript.createSourceFile('sentinel.ts', 'const value: number = 1;', typescript.ScriptTarget.Latest);",
+      'const project = new Project({ useInMemoryFileSystem: true });',
+      "const projectFile = project.createSourceFile('project-sentinel.ts', 'export const value = 1;');",
+      "const rendered = ejs.render('<%= value %>', { value: 'ejs-ok' });",
+      "let stagingTreeBoundary = 'passed';",
+      "let stagingTreeErrorCode = 'none';",
+      "let stagingTreeOperation = 'none';",
+      "try { await assertIsolatedStagingTree(process.cwd(), { executionBoundary: 'windows-appcontainer' }); } catch (error) {",
+      "  stagingTreeBoundary = error instanceof Error ? error.message : 'unknown';",
+      "  stagingTreeErrorCode = error && typeof error === 'object' && 'details' in error &&",
+      "    error.details && typeof error.details === 'object' && 'errorCode' in error.details",
+      "    ? String(error.details.errorCode) : 'classified';",
+      "  stagingTreeOperation = error && typeof error === 'object' && 'details' in error &&",
+      "    error.details && typeof error.details === 'object' && 'operation' in error.details",
+      "    ? String(error.details.operation) : 'classified';",
+      "}",
+      "await Bun.write('bundled-compiler-sentinel.json', JSON.stringify({",
+      "  ciExact: process.env.CI === 'true',",
+      "  ejs: rendered === 'ejs-ok',",
+      "  isolatedVerificationExact: process.env.SEC_ISOLATED_VERIFICATION === '1',",
+      "  pathExact: process.env.PATH === '',",
+      '  stagingTreeBoundary,',
+      '  stagingTreeErrorCode,',
+      '  stagingTreeOperation,',
+      "  stdinEof: stdinText === '',",
+      "  systemRootPresent: typeof process.env.SYSTEMROOT === 'string' && process.env.SYSTEMROOT.length > 0,",
+      '  typescript: sourceFile.statements.length === 1,',
+      "  tsMorph: projectFile.getVariableDeclarationOrThrow('value').getName() === 'value',",
+      "  windirPresent: typeof process.env.WINDIR === 'string' && process.env.WINDIR.length > 0",
+      '}));',
+      ''
+    ].join('\n'), 'utf8');
+    const build = await Bun.build({
+      entrypoints: [bundleEntryPath],
+      format: 'esm',
+      minify: false,
+      sourcemap: 'none',
+      splitting: false,
+      target: 'bun'
+    });
+    expect(build.success).toBe(true);
+    expect(build.outputs).toHaveLength(1);
+    const relocatedBundle = relocateSemanticMutationIsolatedRunnerBundleForTests(
+      new Uint8Array(await build.outputs[0]!.arrayBuffer())
+    );
+    const relocatedSource = new TextDecoder().decode(relocatedBundle);
+    expect(relocatedSource).not.toContain(path.resolve(process.cwd()));
+    expect(relocatedSource).toContain('__secSemanticMutationRuntimePathV1');
+    await writeFile(runnerPath, relocatedBundle);
+
+    const processRoot = path.join(stagingRoot, '.process');
+    const directories = {
+      home: path.join(processRoot, 'home'),
+      appData: path.join(processRoot, 'appdata'),
+      localAppData: path.join(processRoot, 'localappdata'),
+      temp: path.join(processRoot, 'tmp')
+    };
+    await Promise.all(Object.values(directories).map((directory) => mkdir(directory, { recursive: true })));
+    lease = await acquireWorkspaceWriteLease(workspaceRoot);
+    const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+    if (!systemRoot) throw new Error('Windows system root is unavailable for the sentinel');
+
+    const execution = await runWindowsAppContainerChild({
+      stagingRoot,
+      runnerRelativePath,
+      environment: {
+        PATH: '',
+        SYSTEMROOT: systemRoot,
+        WINDIR: systemRoot,
+        HOME: directories.home,
+        USERPROFILE: directories.home,
+        APPDATA: directories.appData,
+        LOCALAPPDATA: directories.localAppData,
+        TEMP: directories.temp,
+        TMP: directories.temp,
+        TMPDIR: directories.temp,
+        LANG: 'C',
+        LC_ALL: 'C',
+        TZ: 'UTC',
+        CI: 'true',
+        SEC_ISOLATED_VERIFICATION: '1'
+      },
+      workspaceRoot,
+      workspaceWriteLease: lease.token,
+      timeoutMs: 20_000
+    });
+    expect(execution).toEqual({ exitCode: 0 });
+    expect(JSON.parse(await readFile(resultPath, 'utf8'))).toEqual({
+      ciExact: true,
+      ejs: true,
+      isolatedVerificationExact: true,
+      pathExact: true,
+      stagingTreeBoundary: 'passed',
+      stagingTreeErrorCode: 'none',
+      stagingTreeOperation: 'none',
+      stdinEof: true,
+      systemRootPresent: true,
+      typescript: true,
+      tsMorph: true,
+      windirPresent: true
+    });
+  } finally {
+    await lease?.release().catch(() => undefined);
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+  }
+}, 60_000);
 
 test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launches or fails closed cleanly', async () => {
   if (process.platform !== 'win32') return;

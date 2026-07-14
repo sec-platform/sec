@@ -1,0 +1,187 @@
+{
+  "schema": "codex-development-add-state-transition-vertical-verification-v7",
+  "status": "failed",
+  "recordedAt": "2026-07-14T21:02:36.0866413+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The vertical inputs are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFocusedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-typescript-resolution-fixture-repair.json",
+    "fileSha256": "sha256:1302ce6f678acac3940f92e1dec95389c1211897c82555314910ebc278f0dba8",
+    "status": "passed",
+    "compositeTests": 28,
+    "passed": 28,
+    "verticalV7Authorized": true
+  },
+  "consumedVerticalAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-add-state-transition-vertical-v6-verification.json",
+    "fileSha256": "sha256:7630b3637cc0a4df3ab5ad683e573f5addc32e2887a8cf4d3890478199330ab7",
+    "status": "failed",
+    "lastCheckpoint": "loader-entered",
+    "terminationClass": "loader-import-failure",
+    "rerunAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-add-state-transition-vertical-v7.md",
+      "fileSha256": "sha256:6b1eb89eea548f44eceb5834cefc7781f28fe0d9284090155ace67c58a085262"
+    },
+    "orchestrator": {
+      "path": "platform/orchestrator/semantic-mutation-orchestrator.ts",
+      "fileSha256": "sha256:26c1bc4204aa028838b3fb20c2f1f1381e5e24f4640d0101625dba89b4d386af"
+    },
+    "childProgress": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-progress.ts",
+      "fileSha256": "sha256:09c1414baa5ae4fd3a8a4840a110ee44b0d6d1a03a62e7f20786b75953328149"
+    },
+    "childOutcome": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-outcome.ts",
+      "fileSha256": "sha256:1e9a650a84b5f20dac99eced505d79cd86cd7e6cf58031ed71fe0ba117e7aabc"
+    },
+    "runtimePlan": {
+      "path": "platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts",
+      "fileSha256": "sha256:2cd0347b372dcb0007d2bbaaa8a5c861264aff64310df7e399ca766c0a77d4c3"
+    },
+    "isolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:3e9f1911d65e0c01da54d05b9a163f8d76d78b26141c943a678988a31f684143"
+    },
+    "runner": {
+      "path": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+      "fileSha256": "sha256:9c00a0aaa25fae1b17fbb98cf3a7761e7785d50744e18c027631fdb1a5784fdb"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:301cff1e5ce1d4282cf88d21190c290a6c360d735ef7370f35cfbff5a1ea31c3"
+    },
+    "integrationTest": {
+      "path": "tests/integration/semantic-mutation-apply.test.ts",
+      "fileSha256": "sha256:eb557a8cb6b70cb4d32282c94ce572abb467508018c7323412d792b54ecf16f1"
+    }
+  },
+  "preflightReview": {
+    "reviewers": 2,
+    "conclusion": "NO BLOCKER",
+    "manifestSha256": "sha256:6b1eb89eea548f44eceb5834cefc7781f28fe0d9284090155ace67c58a085262",
+    "exactInputsMatched": true,
+    "integrationTimeoutMs": 300000,
+    "testsOrGeneratedCodeRunByReviewers": false
+  },
+  "gate": {
+    "gateId": "sm3-add-state-transition-contract-plus-real-apply-v7",
+    "argv": [
+      "bun",
+      "test",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--timeout",
+      "600000"
+    ],
+    "attempt": 1,
+    "exitCode": 1,
+    "shellObservedDurationMs": 406332,
+    "runnerReportedDurationMs": 406080,
+    "tests": 12,
+    "passed": 11,
+    "failed": 1,
+    "unhandledErrors": 1,
+    "assertions": 393,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "failures": [
+    {
+      "id": "SM3-VERTICAL-V7-TYPESCRIPT-RESOLUTION-FAILURE-001",
+      "kind": "real-appcontainer-child-typescript-resolution-failure",
+      "file": "tests/integration/semantic-mutation-apply.test.ts",
+      "line": 368,
+      "test": "SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once",
+      "testTimeoutMs": 300000,
+      "testObservedDurationMs": 300015,
+      "lateApplyOutcome": {
+        "status": "rejected",
+        "planRevision": "sha256:2049cf988bc587a8887a986e2a14ded62977e7b9d7faccf68aeed41c44cc9679",
+        "resultRevision": "sha256:d3dd831e01603c11dff0f2de085cdfbd90358af311372490598455b83a2f677d",
+        "actualDeltaRevision": "sha256:e6a70999fff6aff2978c59e498e1fe491d70964b401d065a3ce9fdfdbf19fa01",
+        "impactRevision": "sha256:cdbbc67b755b7dcbde9e3bdc8c75bebef4f54145ce2179d885b666bed05ab2e5",
+        "verificationReportRevision": "sha256:2b07a1e42b0bbe0800f38d988cf7dd8826b28e9f76a0e8d6bacb25c20cf4076f",
+        "verificationExecutionRevision": "sha256:29f88349ea7853e24e784388048e86a1611ee989f8c9318fb8621cfbb4d2b50a",
+        "isolatedVerification": {
+          "stage": "child-terminated-without-outcome",
+          "artifact": "verification-report",
+          "termination": {
+            "class": "typescript-resolution-failure",
+            "checkpoint": "loader-entered"
+          }
+        }
+      },
+      "provenInterval": "The real AppContainer child entered the staged loader, then child-local Bun.resolveSync threw or returned a non-string/non-absolute value before typescript-specifier-resolved.",
+      "rootCause": null,
+      "rootCauseAvailability": "The finite boundary proves a real child resolver failure. It does not expose or distinguish resolver message, AppContainer ACL traversal, package discovery policy or another runtime-internal cause.",
+      "successorBoundary": "Freeze a minimal child-resolution architecture review. Preserve the manifest-bound exact entry and prelaunch digest proof; determine whether the product should remove bare-resolution authority or repair AppContainer package discovery before changing ts-morph/core continuation."
+    }
+  ],
+  "newlyProvenFacts": [
+    "The real Windows AppContainer child cannot produce the required absolute TypeScript resolution from the staged loader parent.",
+    "The failure occurs before package-entry identity comparison, exact-entry import/evaluation and the fixed TypeScript runtime probe.",
+    "The v6 caught import rejection is now refined to the child-local resolution sub-boundary rather than entry import/evaluation.",
+    "The host recorded only the allowlisted typescript-resolution-failure and loader-entered checkpoint; no resolved value, path, Error, raw exit or output crossed the boundary."
+  ],
+  "excludedPaths": [
+    "Package-entry identity mismatch: typescript-specifier-resolved was not published.",
+    "Exact-entry own or transitive import rejection: typescript-entry-identity-verified was not published.",
+    "Post-import TypeScript API contract failure: typescript-imported was not published.",
+    "ts-morph or heavyweight-core import failure: typescript-runtime-verified was not published.",
+    "Runner entry, preflight, compileWorkspace, Verification report publication and outcome publication: no later checkpoint was reached.",
+    "A host-side launch, manifest, wait, parse or cleanup rejection: the supervisor returned a typed post-child termination instead."
+  ],
+  "passedCoverage": [
+    "All eight Semantic Mutation contract tests passed against exit-algebra v2, exact entry binding, host fail-closed and redaction contracts.",
+    "The public dry-run recovery guard passed in 12579 ms.",
+    "The complete pre-publish failure matrix passed in 59765 ms.",
+    "The post-publish restore and journal failure matrix passed in 32047 ms.",
+    "The real happy path again reached deterministic source edit, staged semantic rebuild, exact Fact Delta and Impact before isolated child resolution blocked publication."
+  ],
+  "residue": {
+    "probeRun": false,
+    "cleanupRun": false,
+    "registryOrProfileState": "unknown-not-probed",
+    "disposition": "No post-run probe or cleanup was authorized. Test-owned teardown is not promoted as independent residue evidence."
+  },
+  "decision": {
+    "packageTerminal": true,
+    "productVerticalPassed": false,
+    "rerunAuthorized": false,
+    "timeoutChangeAuthorized": false,
+    "childResolutionArchitectureReviewAuthorized": true,
+    "entryImportRepairAuthorized": false,
+    "pipelineOrVerificationRepairAuthorized": false,
+    "integrationCloseoutAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze the smallest architecture package for real-child TypeScript resolution. Do not change dependency closure, timeout or downstream pipeline until it decides between exact manifest-bound loading and AppContainer package-discovery repair."
+  },
+  "notRun": [
+    "second real add-state-transition attempt",
+    "post-run AppContainer/profile/registry probe",
+    "cleanup repair",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This failure applies only to the exact manifest, tests, production hashes, head, tree and base bound above.",
+    "The typescript-resolution-failure at loader-entered supersedes v6's broader caught-import interval but does not identify the resolver-internal cause.",
+    "Any resolver strategy, AppContainer visibility, loader, binding or test change requires a separately frozen successor; this command must not be rerun under vertical-v7."
+  ]
+}

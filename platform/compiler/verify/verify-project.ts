@@ -9,6 +9,8 @@ import { addGeneratedPaths, assertPassStatus } from '../../shared/lock-utils.ts'
 import type { Logger } from '../../shared/logger.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
+import { emitPipelineExecutionBoundary } from '../../shared/pipeline-journal.ts';
+import type { PipelineEventHandler, PipelineExecutionBoundary } from '../../shared/pipeline-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
@@ -18,7 +20,10 @@ import type {
   VerificationLane,
   VerificationReport
 } from '../../shared/verification-types.ts';
-import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
+import {
+  assertIsolatedStagingTree,
+  type IsolatedStagingTreeOptions
+} from './assert-isolated-staging-tree.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
@@ -34,7 +39,24 @@ export interface VerifyProjectOptions {
   readonly emitTiming?: boolean;
   readonly isolated?: boolean;
   readonly logger?: Logger;
+  readonly pipelineObserver?: Readonly<{
+    readonly onEvent: PipelineEventHandler;
+    readonly transactionId: string;
+  }>;
   readonly signal?: AbortSignal;
+  readonly stagingTreeOptions?: IsolatedStagingTreeOptions;
+}
+
+async function emitVerifyBoundary(
+  options: VerifyProjectOptions,
+  boundary: Extract<PipelineExecutionBoundary, `verify-${string}`>
+): Promise<void> {
+  if (!options.pipelineObserver) return;
+  await emitPipelineExecutionBoundary(
+    options.pipelineObserver.onEvent,
+    options.pipelineObserver.transactionId,
+    boundary
+  );
 }
 
 function createSkippedPolicyReport(): PolicyReport {
@@ -266,33 +288,41 @@ export async function verifyProject(
 
   assertPassStatus(lock, 'adapt', 'succeeded', new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify'));
 
+  await emitVerifyBoundary(options, 'verify-preflight');
   await checkProjectBeforeVerify(workspaceRoot);
   await validateSlotSecurity(workspaceRoot, lock);
   if (options.isolated) {
     await ensureProjectDependencies(projectRoot, {
       beforeCommit: options.beforeCommit,
-      installMode: 'offline-copy-only',
-      rematerialize: true,
+      installMode: 'prebound-only',
       signal: options.signal,
       skipSharedDepsWarmup: true
     });
-    await assertIsolatedStagingTree(workspaceRoot);
+    await assertIsolatedStagingTree(workspaceRoot, options.stagingTreeOptions);
   }
 
-  const fastResult =
-    lane === 'runtime'
-      ? { lane: createSkippedFastLane(), failure: null }
-      : await runFastVerification(workspaceRoot, projectRoot, options.isolated === true);
+  let fastResult: Awaited<ReturnType<typeof runFastVerification>>;
+  if (lane === 'runtime') {
+    fastResult = { lane: createSkippedFastLane(), failure: null };
+  } else {
+    await emitVerifyBoundary(options, 'verify-fast');
+    fastResult = await runFastVerification(workspaceRoot, projectRoot, options.isolated === true);
+  }
   const shouldRunRuntime = fastResult.lane.status === 'passed' || lane === 'runtime';
-  const runtimeLane = shouldRunRuntime
-      ? await runRuntimeVerification(projectRoot, lane === 'all' ? 'full' : 'service', {
+  let runtimeLane: RuntimeVerificationLaneReport;
+  if (shouldRunRuntime) {
+    await emitVerifyBoundary(options, 'verify-runtime');
+    runtimeLane = await runRuntimeVerification(projectRoot, lane === 'all' ? 'full' : 'service', {
         beforeCommit: options.beforeCommit,
         emitTiming: options.emitTiming,
         isolated: options.isolated,
         signal: options.signal,
+        stagingTreeOptions: options.stagingTreeOptions,
         ...(options.isolated ? { stagingWorkspaceRoot: workspaceRoot } : {})
-      })
-    : createSkippedRuntimeLane();
+      });
+  } else {
+    runtimeLane = createSkippedRuntimeLane();
+  }
   const summary = summarizeReport(lane, fastResult.lane, runtimeLane);
   const report: VerificationReport = {
     build: fastResult.lane.build,
@@ -311,6 +341,9 @@ export async function verifyProject(
   updateVerifyPassState(lock, report);
   updateVerifiedSlotTasks(lock, report);
 
+  if (summary.status === 'passed') {
+    await emitVerifyBoundary(options, 'verify-artifact-publish');
+  }
   await options.beforeCommit?.();
   await Promise.all([
     writeJson(verificationReportPath, report, options.beforeCommit),

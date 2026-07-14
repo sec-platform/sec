@@ -18,6 +18,25 @@ export const PIPELINE_STAGE_IDS = [
 
 export type PassId = keyof PassStatus;
 export type PipelineStageId = (typeof PIPELINE_STAGE_IDS)[number];
+export const PIPELINE_EXECUTION_BOUNDARIES = [
+  'pipeline-bootstrap',
+  'pipeline-lease-bind',
+  'pipeline-lease-bound',
+  'pipeline-transaction-bootstrap',
+  'pipeline-transaction',
+  'pipeline-resolve',
+  'pipeline-semantic',
+  'pipeline-compose',
+  'pipeline-adapt',
+  'pipeline-verify',
+  'pipeline-lock',
+  'pipeline-emit',
+  'verify-preflight',
+  'verify-fast',
+  'verify-runtime',
+  'verify-artifact-publish'
+] as const;
+export type PipelineExecutionBoundary = (typeof PIPELINE_EXECUTION_BOUNDARIES)[number];
 export type PipelineSource = 'api' | 'cli' | 'workbench' | 'reference' | 'upgrade' | 'repair' | 'ci';
 export type PipelineTransactionStatus = 'running' | 'succeeded' | 'failed';
 export type PipelinePassStatus = 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
@@ -71,6 +90,7 @@ export interface PipelineJournal {
 }
 
 export type PipelineEventType =
+  | 'execution-boundary'
   | 'transaction-start'
   | 'pass-start'
   | 'pass-success'
@@ -83,6 +103,7 @@ export interface PipelineEvent {
   type: PipelineEventType;
   transactionId: string;
   passId?: PassId;
+  boundary?: PipelineExecutionBoundary;
   message: string;
 }
 

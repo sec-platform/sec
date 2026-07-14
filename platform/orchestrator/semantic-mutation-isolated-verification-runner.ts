@@ -1,31 +1,81 @@
 import path from 'node:path';
 
+import {
+  buildSemanticMutationIsolatedChildOutcome,
+  publishSemanticMutationIsolatedChildOutcome,
+  type SemanticMutationIsolatedChildFailureStage,
+  type SemanticMutationIsolatedChildOutcomeV1
+} from '../compiler/semantic-mutation/isolated-verification-child-outcome.ts';
+import {
+  publishSemanticMutationIsolatedProgressCheckpoint,
+  SemanticMutationIsolatedProgressPublicationError,
+  SEMANTIC_MUTATION_ISOLATED_EXIT_CODES
+} from '../compiler/semantic-mutation/isolated-verification-child-progress.ts';
 import { assertIsolatedStagingTree } from '../compiler/verify/assert-isolated-staging-tree.ts';
 import { isSemanticMutationStagingWorkspace } from '../compiler/verify/semantic-mutation-staging-boundary.ts';
 import { listFilesRecursive, pathExists } from '../shared/fs.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../shared/process.ts';
 import { readProjectBaseline } from '../shared/project-baseline.ts';
+import type { PipelineExecutionBoundary } from '../shared/pipeline-types.ts';
 import { mintIsolatedVerificationCapability } from './isolated-verification-capability.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 const EXPECTED_STAGES = ['resolve', 'semantic', 'compose', 'adapt', 'verify'] as const;
+
+class SemanticMutationIsolatedCatchTreeFailure extends Error {
+  constructor() {
+    super('Semantic Mutation isolated catch tree validation failed');
+    this.name = 'SemanticMutationIsolatedCatchTreeFailure';
+  }
+}
+
+class SemanticMutationIsolatedStagingTreeFailure extends Error {
+  constructor() {
+    super('Semantic Mutation isolated staging tree validation failed');
+    this.name = 'SemanticMutationIsolatedStagingTreeFailure';
+  }
+}
+
+class SemanticMutationIsolatedEnvironmentBoundaryFailure extends Error {
+  constructor() {
+    super('Semantic Mutation isolated runner environment boundary is invalid');
+    this.name = 'SemanticMutationIsolatedEnvironmentBoundaryFailure';
+  }
+}
+
+class SemanticMutationIsolatedStagingLayoutBoundaryFailure extends Error {
+  constructor() {
+    super('Semantic Mutation isolated runner staging layout boundary is invalid');
+    this.name = 'SemanticMutationIsolatedStagingLayoutBoundaryFailure';
+  }
+}
 
 function sameStages(actual: readonly string[]): boolean {
   return actual.length === EXPECTED_STAGES.length &&
     actual.every((stage, index) => stage === EXPECTED_STAGES[index]);
 }
 
-async function main(): Promise<void> {
+async function main(): Promise<SemanticMutationIsolatedChildOutcomeV1 | null> {
   const stagingWorkspaceRoot = path.resolve(process.cwd());
-  if (process.env[ISOLATED_VERIFICATION_ENV_KEY] !== '1' ||
-    !isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
-    throw new Error('Semantic Mutation isolated runner boundary is invalid');
+  if (process.env[ISOLATED_VERIFICATION_ENV_KEY] !== '1') {
+    throw new SemanticMutationIsolatedEnvironmentBoundaryFailure();
   }
+  if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
+    throw new SemanticMutationIsolatedStagingLayoutBoundaryFailure();
+  }
+  const stagingTreeOptions = process.platform === 'win32'
+    ? { executionBoundary: 'windows-appcontainer' as const }
+    : undefined;
 
-  let boundaryEstablished = false;
   try {
-    await assertIsolatedStagingTree(stagingWorkspaceRoot);
-    boundaryEstablished = true;
+    await assertIsolatedStagingTree(stagingWorkspaceRoot, stagingTreeOptions);
+  } catch {
+    throw new SemanticMutationIsolatedStagingTreeFailure();
+  }
+  let failureStage: SemanticMutationIsolatedChildFailureStage = 'preflight';
+  let failureBoundary: PipelineExecutionBoundary | undefined;
+  try {
+    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'catch-armed');
     if (await pathExists(path.join(stagingWorkspaceRoot, 'source', 'schema', 'db.prisma.template'))) {
       throw new Error('Semantic Mutation isolated runner cannot execute Prisma without a staged toolchain');
     }
@@ -35,13 +85,25 @@ async function main(): Promise<void> {
       throw new Error('Semantic Mutation isolated runner cannot install linked opaque modules');
     }
     const isolatedVerificationCapability = mintIsolatedVerificationCapability(stagingWorkspaceRoot);
+    failureStage = 'verify-all';
+    failureBoundary = 'pipeline-bootstrap';
+    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'verify-all');
     const compiled = await compileWorkspace(stagingWorkspaceRoot, {
       source: 'api',
       from: 'resolve',
       through: 'verify',
       isolatedVerificationCapability,
+      onEvent: (event) => {
+        if (event.type === 'execution-boundary' && event.boundary) {
+          failureBoundary = event.boundary;
+        } else if (event.type === 'transaction-start') {
+          failureBoundary = 'pipeline-transaction';
+        }
+      },
       verificationLane: 'all'
     });
+    failureStage = 'postcondition';
+    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'postcondition');
     const baseline = await readProjectBaseline(stagingWorkspaceRoot);
     if (!baseline || !sameStages(compiled.completedStages) ||
       !compiled.semanticContext ||
@@ -49,14 +111,53 @@ async function main(): Promise<void> {
       compiled.verificationReport.summary.requestedLane !== 'all') {
       throw new Error('Semantic Mutation isolated runner did not complete verify-all');
     }
-  } finally {
-    if (boundaryEstablished) await assertIsolatedStagingTree(stagingWorkspaceRoot);
+    await assertIsolatedStagingTree(stagingWorkspaceRoot, stagingTreeOptions);
+    return null;
+  } catch (error) {
+    if (error instanceof SemanticMutationIsolatedProgressPublicationError) throw error;
+    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'failure-caught');
+    try {
+      await assertIsolatedStagingTree(stagingWorkspaceRoot, stagingTreeOptions);
+    } catch {
+      throw new SemanticMutationIsolatedCatchTreeFailure();
+    }
+    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'catch-tree-validated');
+    return buildSemanticMutationIsolatedChildOutcome(
+      failureStage,
+      failureStage === 'verify-all' ? failureBoundary : undefined
+    );
   }
 }
 
 try {
-  await main();
-} catch {
+  await publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'module-entered');
+  const outcome = await main();
+  if (outcome !== null) {
+    await publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'outcome-publish-started');
+    let outcomePublished = false;
+    try {
+      await publishSemanticMutationIsolatedChildOutcome(process.cwd(), outcome);
+      outcomePublished = true;
+    } catch {
+      console.error('Semantic Mutation isolated verification failed');
+      process.exitCode = SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.outcomePublicationFailure;
+    }
+    if (outcomePublished) {
+      console.error('Semantic Mutation isolated verification failed');
+      process.exitCode = SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerControlledFailure;
+    }
+  }
+} catch (error) {
   console.error('Semantic Mutation isolated verification failed');
-  process.exitCode = 1;
+  process.exitCode = error instanceof SemanticMutationIsolatedProgressPublicationError
+    ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.progressPublicationFailure
+    : error instanceof SemanticMutationIsolatedEnvironmentBoundaryFailure
+      ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerEnvironmentBoundaryFailure
+      : error instanceof SemanticMutationIsolatedStagingLayoutBoundaryFailure
+        ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerStagingLayoutBoundaryFailure
+    : error instanceof SemanticMutationIsolatedCatchTreeFailure
+      ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerCatchTreeFailure
+      : error instanceof SemanticMutationIsolatedStagingTreeFailure
+        ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerStagingTreeFailure
+        : SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerEntryFailure;
 }

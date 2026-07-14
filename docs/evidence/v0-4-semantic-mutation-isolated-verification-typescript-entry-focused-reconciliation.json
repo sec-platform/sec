@@ -1,0 +1,140 @@
+{
+  "schema": "codex-development-isolated-verification-typescript-entry-focused-reconciliation-v1",
+  "status": "failed",
+  "recordedAt": "2026-07-14T20:33:31.9741905+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The reconciliation sources and focused tests are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedTerminalAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-typescript-entry-diagnosis.json",
+    "fileSha256": "sha256:2f296fda7696f54610edd14b4c75947d2d28f8617cc4415c04a762366574470c",
+    "status": "failed",
+    "passed": 25,
+    "failed": 3,
+    "rerunAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-typescript-entry-focused-reconciliation-v1.md",
+      "fileSha256": "sha256:4a41c2dcde4625bf5880e38c15f807a91e95f349fb4c6ed820bacfe5e81afbff"
+    },
+    "childProgress": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-progress.ts",
+      "fileSha256": "sha256:09c1414baa5ae4fd3a8a4840a110ee44b0d6d1a03a62e7f20786b75953328149"
+    },
+    "isolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:3e9f1911d65e0c01da54d05b9a163f8d76d78b26141c943a678988a31f684143"
+    },
+    "runtimePlan": {
+      "path": "platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts",
+      "fileSha256": "sha256:2cd0347b372dcb0007d2bbaaa8a5c861264aff64310df7e399ca766c0a77d4c3"
+    },
+    "unitTest": {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "fileSha256": "sha256:9113366cc520ea671768435c70d13e452914f72f79a7b6353575a6433966d61c"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:301cff1e5ce1d4282cf88d21190c290a6c360d735ef7370f35cfbff5a1ea31c3"
+    }
+  },
+  "staticReview": {
+    "reviewers": 2,
+    "conclusion": "NO BLOCKER",
+    "manifestAndOwnedHashesMatched": true,
+    "provenBoundaries": [
+      "Throw, non-string and non-absolute resolver outcomes map to 76 before typescript-specifier-resolved; absolute wrong identity maps to 77 after it.",
+      "The observable 76/77 partition is bound by typescript-entry-exit-algebra-v2 through loader binding, runtime entry binding, plan revision and coherence validation.",
+      "Early canonical reports remain artifact-protocol and may project only an already parsed allowlisted child stage.",
+      "Same-size TypeScript manifest, entry and runner tamper reaches the digest manifest proof while structure proof remains earlier and fail closed.",
+      "Exact-entry import, module-cache identity, runtime probe, later loader continuation, PASS and redaction remain closed."
+    ],
+    "testsOrGeneratedCodeRunByReviewers": false
+  },
+  "focusedGate": {
+    "gateId": "sm3-isolated-verification-typescript-entry-focused-reconciliation",
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "--timeout",
+      "180000"
+    ],
+    "attempt": 1,
+    "exitCode": 1,
+    "shellObservedDurationMs": 47054,
+    "runnerReportedDurationMs": 46960,
+    "tests": 28,
+    "passed": 27,
+    "failed": 1,
+    "assertions": 511,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "failures": [
+    {
+      "id": "SM3-TYPESCRIPT-RESOLUTION-FIXTURE-ABSOLUTE-FALLBACK-001",
+      "kind": "physical-resolution-fixture-did-not-produce-resolution-failure",
+      "file": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "line": 789,
+      "test": "staged loader classifies the manifest-bound TypeScript entry without exposing errors or paths",
+      "fixture": "typescript-resolution",
+      "expectedExitCode": 76,
+      "observedExitCode": 77,
+      "observed": "After the staged TypeScript package root was removed, Bun.resolveSync still returned an absolute identity that differed from the manifest-bound exact entry. The v2 loader therefore correctly classified the observation as typescript-entry-identity-mismatch.",
+      "provenInterval": "The v2 non-string/non-absolute guard did not fire; typescript-specifier-resolved was published and the subsequent folded exact-entry identity comparison failed. The trace assertion did not execute after the exit assertion failed, so no additional durable-trace claim is recorded.",
+      "rootCause": "The test assumed deleting the nearest staged package forces Bun.resolveSync to reject or return a non-absolute unresolved value. On this checkout the resolver found an absolute fallback identity, so the fixture cannot witness exit 76.",
+      "productRuntimeFailure": false,
+      "successorBoundary": "Freeze a fixture-only successor that creates a deterministic resolver rejection at the same generated-loader parent while retaining the absolute-fallback removal case as exit 77. Do not weaken v2, suppress absolute fallback or change exact-entry/runtime/cache semantics."
+    }
+  ],
+  "passedCoverage": [
+    "All eight Semantic Mutation contract tests passed, including the v2 resolution-guard order, entry binding, plan binding and redaction sentinels.",
+    "The physical cache-identity success path passed and still proves loader exact-URL import, ts-morph bare require and core bare import share one TypeScript API instance.",
+    "The complete host receipt/report coherence tail passed, including allowlisted preflight child-stage projection and rejection of early poisoned reports.",
+    "The complete runtime-plan tamper tail passed: extra structure, bootstrap, loader, TypeScript manifest, TypeScript entry, runner and stale-source preservation were all rejected at their intended first boundary.",
+    "Nineteen of twenty unit tests passed; the only failure was the resolution fixture assumption above."
+  ],
+  "decision": {
+    "packageTerminal": true,
+    "focusedGatePassed": false,
+    "exitAlgebraV2ValidatedByContracts": true,
+    "absoluteFallbackCorrectlyClassifiedAs77": true,
+    "physicalExit76Witnessed": false,
+    "productionRepairAuthorized": false,
+    "fixtureOnlySuccessorAuthorized": true,
+    "verticalV6RerunAuthorized": false,
+    "verticalV7Authorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze a fixture-only resolver-rejection successor. Preserve the current absolute-fallback observation as 77 and add one deterministic same-parent resolution rejection for 76; do not rerun this package."
+  },
+  "notRun": [
+    "second focused attempt",
+    "production AppContainer",
+    "real add-state-transition vertical",
+    "vertical-v6",
+    "old Gate",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This failed result applies only to the exact manifest, source, test, head, tree and base hashes recorded above.",
+    "The 27 passed tests remain exact evidence for their hashed inputs, but they do not promote this package or authorize vertical-v7.",
+    "The observed 77 is positive evidence for the v2 absolute-identity branch; it must not be rewritten as 76 merely to satisfy the old fixture expectation.",
+    "Any fixture repair requires a separately frozen successor and new evidence; this focused command must not be rerun under the current manifest."
+  ]
+}

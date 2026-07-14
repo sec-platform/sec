@@ -1,0 +1,200 @@
+{
+  "schema": "codex-development-isolated-verification-core-import-diagnosis-v1",
+  "status": "completed",
+  "recordedAt": "2026-07-14T18:45:22.6801807+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The diagnosis inputs are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFailedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-add-state-transition-vertical-v4-verification.json",
+    "fileSha256": "sha256:ac04b179c88b4aea3588e3293c972265ab65f49cfc88052aff4d99edb181aa0f",
+    "status": "failed",
+    "retryAuthorized": false,
+    "provenInterval": "bootstrap-entered was durably published; module-entered was not published",
+    "terminationClass": "unclassified-nonzero"
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-core-import-diagnosis-v1.md",
+      "fileSha256": "sha256:f9774b1c39daa500c62c3aea2161cbcd22b80df2475b41c33938cd3fedcdad68"
+    },
+    "isolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:8e0ea1e50799c038a8d3ab89060b92cbb9fe373721d8911c02933bc40209f969"
+    },
+    "runtimePlan": {
+      "path": "platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts",
+      "fileSha256": "sha256:ab6081c8db6c7919eef72952634298b1cfbb664946dd05c460d863b58ec67c91"
+    },
+    "childProgress": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-progress.ts",
+      "fileSha256": "sha256:f16a2bd42030775a9879cfc0645f04f51eeddc66fb845de27c3bd01f8be7ba18"
+    },
+    "runner": {
+      "path": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+      "fileSha256": "sha256:9c00a0aaa25fae1b17fbb98cf3a7761e7785d50744e18c027631fdb1a5784fdb"
+    },
+    "repositoryManifest": {
+      "path": "package.json",
+      "fileSha256": "sha256:4f1460bcae3ec1a521ab494aff3c7dd95b247082e148dd90c97976a25b4b3cb0"
+    },
+    "packageManifests": [
+      {
+        "name": "ts-morph",
+        "version": "28.0.0",
+        "main": "dist/ts-morph.js",
+        "fileSha256": "sha256:8318b74ce9398ad5bedf8d08a01c6fce5c15be62074f0771a628a526096acf3f"
+      },
+      {
+        "name": "typescript",
+        "version": "6.0.3",
+        "main": "./lib/typescript.js",
+        "fileSha256": "sha256:9332e97c30d3e53ed54910b89207ed657fb444066484df6e5b6965bf130865e9"
+      },
+      {
+        "name": "@ts-morph/common",
+        "version": "0.29.0",
+        "main": "dist/ts-morph-common.js",
+        "fileSha256": "sha256:503a31364718379c92bb5b15b44d38c8e9c8dc1cff9710f44706127d7a16f931"
+      },
+      {
+        "name": "code-block-writer",
+        "version": "13.0.3",
+        "main": "./script/mod.js",
+        "fileSha256": "sha256:9cda7d438f24804ee55fea9e8ebec2d27bc7fbe86a5a412f0f1843a2fa1d29dd"
+      }
+    ]
+  },
+  "boundedScan": {
+    "bunVersion": "1.3.6",
+    "buildInvocations": 1,
+    "scanInvocations": 1,
+    "entrypoint": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+    "buildOptions": {
+      "format": "esm",
+      "minify": false,
+      "sourcemap": "none",
+      "splitting": false,
+      "target": "bun",
+      "external": [
+        "ts-morph",
+        "typescript"
+      ]
+    },
+    "outputWritten": false,
+    "outputImported": false,
+    "runnerExecuted": false,
+    "imports": [
+      { "specifier": "assert", "kind": "import-statement" },
+      { "specifier": "buffer", "kind": "import-statement" },
+      { "specifier": "bun:ffi", "kind": "dynamic-import" },
+      { "specifier": "child_process", "kind": "import-statement" },
+      { "specifier": "crypto", "kind": "import-statement" },
+      { "specifier": "events", "kind": "import-statement" },
+      { "specifier": "fs", "kind": "import-statement" },
+      { "specifier": "fs/promises", "kind": "import-statement" },
+      { "specifier": "module", "kind": "import-statement" },
+      { "specifier": "os", "kind": "import-statement" },
+      { "specifier": "path", "kind": "import-statement" },
+      { "specifier": "process", "kind": "import-statement" },
+      { "specifier": "stream", "kind": "import-statement" },
+      { "specifier": "stream/promises", "kind": "import-statement" },
+      { "specifier": "ts-morph", "kind": "import-statement" },
+      { "specifier": "typescript", "kind": "import-statement" },
+      { "specifier": "url", "kind": "import-statement" },
+      { "specifier": "util", "kind": "import-statement" },
+      { "specifier": "v8", "kind": "import-statement" }
+    ]
+  },
+  "provenFacts": [
+    {
+      "id": "SM3-CORE-IMPORT-EXTERNAL-SURFACE-001",
+      "fact": "The production-equivalent emitted bundle has exactly two non-builtin package imports: ts-morph and typescript. No unexpected third-party external specifier is present."
+    },
+    {
+      "id": "SM3-CORE-IMPORT-CLOSURE-002",
+      "fact": "The runtime plan uses the same two package names as recursive dependency-closure seeds and materializes every discovered package below .isolated-compiler/node_modules, which is an ancestor resolution location for the heavyweight core."
+    },
+    {
+      "id": "SM3-CORE-IMPORT-PACKAGES-003",
+      "fact": "The inspected physical closure is ts-morph, typescript, @ts-morph/common, code-block-writer, minimatch, path-browserify, tinyglobby, brace-expansion, fdir, picomatch and balanced-match; each declared package entry exists and no native .node file is required by this closure."
+    },
+    {
+      "id": "SM3-CORE-IMPORT-BUILTIN-004",
+      "fact": "All remaining emitted import specifiers are Bun-provided Node builtins, plus the function-local dynamic bun:ffi import. The scan does not prove AppContainer-time loader access or module evaluation."
+    }
+  ],
+  "staticReview": {
+    "reviewers": 2,
+    "externalClosureConclusion": "NO SOURCE-PROVEN MISMATCH",
+    "moduleEvaluationConclusion": "rootCause=null; a manifest-bound staged loader is required",
+    "testsOrRuntimeProbesRunByReviewers": false
+  },
+  "ambiguitySet": [
+    "heavyweight core URL resolution or bundle parse/link failure",
+    "typescript package resolution or evaluation failure",
+    "ts-morph or its CommonJS dependency-closure resolution or evaluation failure",
+    "top-level evaluation of the unsplit bundled repository and third-party modules before the runner body",
+    "abnormal Bun loader/runtime termination in the bootstrap-entered to module-entered interval"
+  ],
+  "rootCause": null,
+  "rootCauseAvailability": "The bounded scan proves there is no unexpected emitted third-party external and source inspection proves a matching physical dependency closure. Neither fact proves AppContainer-time package resolution, dependency evaluation, bundled top-level evaluation or runtime survival, so selecting one cause would be speculation.",
+  "smallestDeterministicSuccessor": {
+    "authority": "mutation-specific manifest-bound staged loader between bootstrap and heavyweight core",
+    "checkpoints": [
+      "bootstrap-entered",
+      "loader-entered",
+      "typescript-imported",
+      "ts-morph-imported",
+      "core-import-started",
+      "module-entered"
+    ],
+    "requirements": [
+      "The loader is a tiny literal generated asset bound into the existing runtime destination manifest and plan revision.",
+      "It imports typescript and ts-morph sequentially before importing the sibling heavyweight core.",
+      "Each completed boundary is durably published using the existing finite path-free checkpoint protocol.",
+      "Caught imports expose no Error, message, path or output; failure remains a fixed coarse termination plus the last valid checkpoint.",
+      "The heavyweight core keeps module-entered as its first body action, so the final interval remains core linking or bundled top-level evaluation.",
+      "No generic AppContainer executor, pipeline, canonical Verification artifact, WorkspacePaths or success digest changes."
+    ]
+  },
+  "decision": {
+    "packageTerminal": true,
+    "diagnosisComplete": true,
+    "rootCauseProven": false,
+    "verticalRerunAuthorized": false,
+    "timeoutChangeAuthorized": false,
+    "stagedLoaderSuccessorAuthorized": true,
+    "pipelineOrVerificationRepairAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze a separate staged-loader implementation successor with finite dependency checkpoints and focused non-AppContainer sentinels."
+  },
+  "notRun": [
+    "emitted bundle write or import",
+    "runner main",
+    "runtime materialization",
+    "AppContainer",
+    "profile or registry probe",
+    "Bun tests",
+    "vertical-v4 retry",
+    "timeout expansion",
+    "typecheck",
+    "imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This diagnosis is bound to the exact manifest, failed vertical evidence, source hashes, package manifests, Bun version, head, tree and base recorded above.",
+    "A staged loader may refine the runtime interval but cannot convert vertical-v4 to PASS.",
+    "Any source change requires a separately frozen implementation manifest and new focused evidence; vertical-v4 must not be rerun under its terminal manifest."
+  ]
+}

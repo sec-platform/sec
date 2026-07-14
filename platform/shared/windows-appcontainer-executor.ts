@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import {
   copyFile,
   lstat,
@@ -26,11 +27,19 @@ import {
   type WorkspaceWriteLeaseToken
 } from './workspace-write-lease.ts';
 
+const PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x0002_0002;
 const PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x0002_0009;
 const EXTENDED_STARTUPINFO_PRESENT = 0x0008_0000;
 const CREATE_UNICODE_ENVIRONMENT = 0x0000_0400;
 const CREATE_NO_WINDOW = 0x0800_0000;
 const CREATE_SUSPENDED = 0x0000_0004;
+const STARTF_USESTDHANDLES = 0x0000_0100;
+const GENERIC_READ = 0x8000_0000;
+const GENERIC_WRITE = 0x4000_0000;
+const FILE_SHARE_READ = 0x0000_0001;
+const FILE_SHARE_WRITE = 0x0000_0002;
+const OPEN_EXISTING = 3;
+const FILE_ATTRIBUTE_NORMAL = 0x0000_0080;
 const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9;
 const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x0000_2000;
 const WAIT_OBJECT_0 = 0x0000_0000;
@@ -39,6 +48,9 @@ const WAIT_FAILED = 0xffff_ffff;
 const MAXIMUM_SID_BYTES = 68;
 const MAXIMUM_ATTRIBUTE_LIST_BYTES = 1024 * 1024;
 const MAXIMUM_RESUME_THREAD_RESULT = 0xffff_ffff;
+const MAX_WINDOWS_DWORD = 0xffff_ffff;
+const MAX_NATIVE_RECEIPT_BYTES = 1024;
+const INVALID_HANDLE_VALUE = 0xffff_ffff_ffff_ffffn;
 const TERMINATED_EXIT_CODE = 0x534d_3301;
 const RUNTIME_DIRECTORY_NAME = '.sm3r';
 const RUNTIME_EXECUTABLE_NAME = 'bun.exe';
@@ -59,6 +71,8 @@ const NATIVE_RESULT_FILE_NAME = '.semantic-mutation-appcontainer-result-v1.json'
 const NATIVE_HELPER_PATH = fileURLToPath(new URL('./windows-appcontainer-native-helper.ts', import.meta.url));
 const WINDOWS_HOST_TOOL_DEADLINE_MS = 120_000;
 const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+const WINDOWS_APPCONTAINER_LEASE_MONITOR_INTERVAL_MS = 250;
+const WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS = 20;
 
 type BunFfiToBuffer = (typeof import('bun:ffi'))['toBuffer'];
 type NativeHelperBundleSource = () => Promise<Uint8Array>;
@@ -274,19 +288,32 @@ process.exit(ok ? 0 : 44);
  */
 export const WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1 = Object.freeze({
   pointerBytes: 8,
+  securityAttributesBytes: 24,
+  securityAttributesLengthOffset: 0,
+  securityAttributesDescriptorOffset: 8,
+  securityAttributesInheritHandleOffset: 16,
   securityCapabilitiesBytes: 24,
   securityCapabilitiesAppContainerSidOffset: 0,
   securityCapabilitiesCapabilitiesOffset: 8,
   securityCapabilitiesCapabilityCountOffset: 16,
   securityCapabilitiesReservedOffset: 20,
   startupInfoExBytes: 112,
+  startupInfoExFlagsOffset: 60,
+  startupInfoExStdInputOffset: 80,
+  startupInfoExStdOutputOffset: 88,
+  startupInfoExStdErrorOffset: 96,
   startupInfoExAttributeListOffset: 104,
   processInformationBytes: 24,
   processInformationProcessHandleOffset: 0,
   processInformationThreadHandleOffset: 8,
   jobObjectExtendedLimitInformationBytes: 144,
   jobObjectLimitFlagsOffset: 16,
+  procThreadAttributeHandleList: PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
   procThreadAttributeSecurityCapabilities: PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+  procThreadAttributeCount: 2,
+  standardHandleCount: 3,
+  startfUseStdHandles: STARTF_USESTDHANDLES,
+  inheritHandles: 1,
   capabilityCount: 0,
   reserved: 0,
   creationFlags:
@@ -345,6 +372,49 @@ export interface WindowsAppContainerHostToolFailure {
   readonly reason: WindowsAppContainerHostToolFailureReason;
   readonly termination: 'not-requested' | 'confirmed' | 'unconfirmed';
 }
+
+export type WindowsAppContainerNativeHelperMode = 'derive' | 'create-profile' | 'execute';
+
+const WINDOWS_APPCONTAINER_SID_PATTERN = /^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/u;
+
+const WINDOWS_APPCONTAINER_EXECUTION_PHASE_VALUES = [
+  'invalid-input',
+  'preparation',
+  'acl',
+  'launch',
+  'wait',
+  'timeout',
+  'cleanup'
+] as const satisfies readonly WindowsAppContainerExecutionPhase[];
+
+const WINDOWS_APPCONTAINER_EXECUTION_PHASES = new Set<WindowsAppContainerExecutionPhase>(
+  WINDOWS_APPCONTAINER_EXECUTION_PHASE_VALUES
+);
+
+function isWindowsDword(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= MAX_WINDOWS_DWORD;
+}
+
+export type WindowsAppContainerNativeHelperProtocolClass =
+  | 'ok'
+  | 'declared-failure'
+  | 'invalid';
+
+export type WindowsAppContainerNativeReceiptClass =
+  | 'not-applicable'
+  | 'absent'
+  | 'exit-code'
+  | 'declared-failure'
+  | 'invalid'
+  | 'read-error';
+
+export type WindowsAppContainerNativeHelperObservation = Readonly<{
+  readonly mode: WindowsAppContainerNativeHelperMode;
+  readonly helperExit: number;
+  readonly diagnosticStream: 'empty' | 'present';
+  readonly protocol: WindowsAppContainerNativeHelperProtocolClass;
+  readonly nativeReceipt: WindowsAppContainerNativeReceiptClass;
+}>;
 
 export type WindowsAppContainerProbeStage =
   | 'capability'
@@ -517,7 +587,50 @@ class WindowsAppContainerProbeFailure extends Error {
   }
 }
 
+export type WindowsAppContainerNativeHelperWirePayload = string & Readonly<{
+  __windowsAppContainerNativeHelperWirePayload: 'v1';
+}>;
+
+function encodeWindowsAppContainerNativeHelperWireValue(
+  value: Readonly<Record<string, unknown>>
+): WindowsAppContainerNativeHelperWirePayload {
+  return JSON.stringify(value) as WindowsAppContainerNativeHelperWirePayload;
+}
+
+/** Canonical redacted wire producer shared by the native helper and its host decoder. */
+export function encodeWindowsAppContainerNativeFailure(
+  error: unknown
+): WindowsAppContainerNativeHelperWirePayload {
+  if (!(error instanceof WindowsAppContainerExecutionError) ||
+    !WINDOWS_APPCONTAINER_EXECUTION_PHASES.has(error.phase) ||
+    (error.nativeCode !== undefined && !isWindowsDword(error.nativeCode))) {
+    return encodeWindowsAppContainerNativeHelperWireValue({
+      status: 'failed',
+      phase: 'preparation'
+    });
+  }
+  return encodeWindowsAppContainerNativeHelperWireValue({
+    status: 'failed',
+    phase: error.phase,
+    ...(error.nativeCode === undefined ? {} : { nativeCode: error.nativeCode })
+  });
+}
+
+export function encodeWindowsAppContainerNativeOk(): WindowsAppContainerNativeHelperWirePayload {
+  return encodeWindowsAppContainerNativeHelperWireValue({ status: 'ok' });
+}
+
+export function encodeWindowsAppContainerNativeDerivedSid(
+  appContainerSid: string
+): WindowsAppContainerNativeHelperWirePayload {
+  if (!WINDOWS_APPCONTAINER_SID_PATTERN.test(appContainerSid)) {
+    throw executionError('preparation');
+  }
+  return encodeWindowsAppContainerNativeHelperWireValue({ status: 'ok', appContainerSid });
+}
+
 const executionCleanupFailures = new WeakMap<Error, readonly Error[]>();
+const nativeHelperObservations = new WeakMap<Error, WindowsAppContainerNativeHelperObservation>();
 
 function executionCleanupChain(error: Error, seen = new Set<Error>()): readonly Error[] {
   if (seen.has(error)) return Object.freeze([]);
@@ -544,6 +657,13 @@ export function windowsAppContainerExecutionCleanupChainForTests(
   error: Error
 ): readonly Error[] {
   return executionCleanupChain(error);
+}
+
+/** Test-only redacted helper observation; raw helper output is never retained here. */
+export function windowsAppContainerNativeHelperObservationForTests(
+  error: Error
+): WindowsAppContainerNativeHelperObservation | undefined {
+  return nativeHelperObservations.get(error);
 }
 
 function probeFault(
@@ -842,7 +962,19 @@ function prepareMaterializedExecution(
   const executablePath = path.join(runtimeRoot, RUNTIME_EXECUTABLE_NAME);
   const configPath = path.join(runtimeRoot, RUNTIME_CONFIG_NAME);
   const runnerPath = path.join(stagingRoot, runnerRelativePath);
-  const bootstrap = `process.chdir(${JSON.stringify(stagingRoot)});await import(${JSON.stringify(pathToFileURL(runnerPath).href)});`;
+  const bootstrapEnvironment = Object.fromEntries(validateAndSortEnvironment(environment, stagingRoot));
+  // Bun 1.3.6 starts a SECURITY_CAPABILITIES child with an empty JS process.env
+  // even when CreateProcessW receives a complete Unicode environment block.
+  // Rebind the same validated replacement environment in the trusted bootstrap
+  // before any staged module is imported. AppContainer ACL/network isolation is
+  // already active, and no project-controlled code runs before this boundary.
+  const bootstrap = [
+    `const __secEnvironment=${JSON.stringify(bootstrapEnvironment)};`,
+    'for(const key of Object.keys(process.env))delete process.env[key];',
+    'for(const [key,value] of Object.entries(__secEnvironment))process.env[key]=value;',
+    `process.chdir(${JSON.stringify(stagingRoot)});`,
+    `await import(${JSON.stringify(pathToFileURL(runnerPath).href)});`
+  ].join('');
   const argv = [
     executablePath,
     '--no-env-file',
@@ -960,6 +1092,18 @@ async function loadWindowsAppContainerKernel32() {
     DeleteProcThreadAttributeList: {
       args: [FFIType.ptr],
       returns: FFIType.void
+    },
+    CreateFileW: {
+      args: [
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.u64
+      ],
+      returns: FFIType.u64
     },
     CreateProcessW: {
       args: [
@@ -1561,27 +1705,50 @@ async function runHostBunCommand(
   const { configPath, helperPath } = await materializeHostBunRuntime(stagingRoot, commitFence);
   let result: Awaited<ReturnType<typeof runCommand>> | undefined;
   let primaryError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
+  const controller = new AbortController();
+  let monitorStopped = false;
+  let monitorError: unknown;
+  const monitor = (async (): Promise<void> => {
+    while (!monitorStopped) {
+      await new Promise((resolve) => setTimeout(resolve, WINDOWS_APPCONTAINER_LEASE_MONITOR_INTERVAL_MS));
+      if (monitorStopped) return;
+      try {
+        await commitFence();
+      } catch (error) {
+        monitorError = error;
+        controller.abort();
+        return;
+      }
+    }
+  })();
   try {
-    result = await runCommand(process.execPath, [
-      '--no-env-file',
-      `--config=${configPath}`,
-      '--no-install',
-      helperPath,
-      encodedRequest
-    ], {
-      beforeSpawn: commitFence,
-      // libuv cannot spawn with a Windows working directory beyond MAX_PATH even
-      // though Bun can read the absolute long-path config and helper arguments.
-      // The trusted helper uses only absolute staging-bound paths, so keep the
-      // process cwd at the volume root while the executable payload stays fenced.
-      cwd: path.parse(stagingRoot).root,
-      envMode: 'replace',
-      env: environment,
-      timeoutMs
-    });
+    try {
+      result = await runCommand(process.execPath, [
+        '--no-env-file',
+        `--config=${configPath}`,
+        '--no-install',
+        helperPath,
+        encodedRequest
+      ], {
+        beforeSpawn: commitFence,
+        // libuv cannot spawn with a Windows working directory beyond MAX_PATH even
+        // though Bun can read the absolute long-path config and helper arguments.
+        // The trusted helper uses only absolute staging-bound paths, so keep the
+        // process cwd at the volume root while the executable payload stays fenced.
+        cwd: path.parse(stagingRoot).root,
+        envMode: 'replace',
+        env: environment,
+        timeoutMs,
+        signal: controller.signal
+      });
+    } finally {
+      monitorStopped = true;
+      await monitor;
+    }
+    if (monitorError) throw monitorError;
     await commitFence();
   } catch (error) {
-    primaryError = normalizeExecutionError(error, 'preparation');
+    primaryError = normalizeExecutionError(monitorError ?? error, 'preparation');
   }
   let cleanupError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
   try {
@@ -1620,9 +1787,13 @@ async function executeNativeAppContainer(
   let kernel32: Awaited<ReturnType<typeof openWindowsAppContainerKernel32>> | undefined;
   let attributeList: Buffer | undefined;
   let attributeListInitialized = false;
+  const attributePayloads: Buffer[] = [];
   let processHandle = 0n;
   let threadHandle = 0n;
   let jobHandle = 0n;
+  let standardInputHandle = 0n;
+  let standardOutputHandle = 0n;
+  let standardErrorHandle = 0n;
   let processCompleted = false;
 
   try {
@@ -1648,9 +1819,61 @@ async function executeNativeAppContainer(
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.reserved,
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.securityCapabilitiesReservedOffset
     );
+    attributePayloads.push(securityCapabilities);
+    const inheritableHandleSecurityAttributes = Buffer.alloc(
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.securityAttributesBytes
+    );
+    inheritableHandleSecurityAttributes.writeUInt32LE(
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.securityAttributesBytes,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.securityAttributesLengthOffset
+    );
+    inheritableHandleSecurityAttributes.writeBigUInt64LE(
+      0n,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.securityAttributesDescriptorOffset
+    );
+    inheritableHandleSecurityAttributes.writeUInt32LE(
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.inheritHandles,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.securityAttributesInheritHandleOffset
+    );
+    const nullDeviceName = windowsWide('NUL');
+    const openNullHandle = (desiredAccess: number): bigint => {
+      const handle = kernel32!.symbols.CreateFileW(
+        nullDeviceName,
+        desiredAccess,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        inheritableHandleSecurityAttributes,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        0n
+      );
+      if (handle === 0n || handle === INVALID_HANDLE_VALUE) throw executionError('launch');
+      return handle;
+    };
+    standardInputHandle = openNullHandle(GENERIC_READ);
+    standardOutputHandle = openNullHandle(GENERIC_WRITE);
+    standardErrorHandle = openNullHandle(GENERIC_WRITE);
 
+    const standardHandleList = Buffer.alloc(
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.pointerBytes *
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.standardHandleCount
+    );
+    standardHandleList.writeBigUInt64LE(standardInputHandle, 0);
+    standardHandleList.writeBigUInt64LE(
+      standardOutputHandle,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.pointerBytes
+    );
+    standardHandleList.writeBigUInt64LE(
+      standardErrorHandle,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.pointerBytes * 2
+    );
+    attributePayloads.push(standardHandleList);
     const attributeListSize = Buffer.alloc(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.pointerBytes);
-    kernel32.symbols.InitializeProcThreadAttributeList(null, 1, 0, attributeListSize);
+    kernel32.symbols.InitializeProcThreadAttributeList(
+      null,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.procThreadAttributeCount,
+      0,
+      attributeListSize
+    );
     const requiredAttributeBytes = Number(attributeListSize.readBigUInt64LE(0));
     if (!Number.isSafeInteger(requiredAttributeBytes) || requiredAttributeBytes <= 0 ||
       requiredAttributeBytes > MAXIMUM_ATTRIBUTE_LIST_BYTES) {
@@ -1659,7 +1882,7 @@ async function executeNativeAppContainer(
     attributeList = Buffer.alloc(requiredAttributeBytes);
     if (kernel32.symbols.InitializeProcThreadAttributeList(
       attributeList,
-      1,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.procThreadAttributeCount,
       0,
       attributeListSize
     ) === 0) {
@@ -1677,9 +1900,35 @@ async function executeNativeAppContainer(
     ) === 0) {
       throw executionError('launch');
     }
-
+    if (kernel32.symbols.UpdateProcThreadAttribute(
+      attributeList,
+      0,
+      BigInt(PROC_THREAD_ATTRIBUTE_HANDLE_LIST),
+      standardHandleList,
+      BigInt(standardHandleList.byteLength),
+      null,
+      null
+    ) === 0) {
+      throw executionError('launch');
+    }
     const startupInfoEx = Buffer.alloc(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExBytes);
     startupInfoEx.writeUInt32LE(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExBytes, 0);
+    startupInfoEx.writeUInt32LE(
+      STARTF_USESTDHANDLES,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExFlagsOffset
+    );
+    startupInfoEx.writeBigUInt64LE(
+      standardInputHandle,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExStdInputOffset
+    );
+    startupInfoEx.writeBigUInt64LE(
+      standardOutputHandle,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExStdOutputOffset
+    );
+    startupInfoEx.writeBigUInt64LE(
+      standardErrorHandle,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExStdErrorOffset
+    );
     startupInfoEx.writeBigUInt64LE(
       BigInt(ptr(attributeList)),
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExAttributeListOffset
@@ -1711,7 +1960,7 @@ async function executeNativeAppContainer(
       prepared.commandLine,
       null,
       null,
-      0,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.inheritHandles,
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.creationFlags,
       prepared.environmentBlock,
       prepared.currentDirectory,
@@ -1737,7 +1986,10 @@ async function executeNativeAppContainer(
 
     const startedAt = Date.now();
     while (true) {
-      const waitResult = kernel32.symbols.WaitForSingleObject(processHandle, 0);
+      const waitResult = kernel32.symbols.WaitForSingleObject(
+        processHandle,
+        WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS
+      );
       if (waitResult === WAIT_OBJECT_0) break;
       if (waitResult === WAIT_FAILED || waitResult !== WAIT_TIMEOUT) {
         throw executionError('wait');
@@ -1746,8 +1998,6 @@ async function executeNativeAppContainer(
         kernel32.symbols.TerminateProcess(processHandle, TERMINATED_EXIT_CODE);
         throw executionError('timeout');
       }
-      await commitFence();
-      await new Promise((resolve) => setTimeout(resolve, 20));
     }
 
     const exitCodeBuffer = Buffer.alloc(4);
@@ -1756,8 +2006,7 @@ async function executeNativeAppContainer(
     }
     processCompleted = true;
     const exitCode = exitCodeBuffer.readUInt32LE(0);
-    await commitFence();
-    await writeFile(nativeResultPath, `${JSON.stringify({ exitCode })}\n`, { flag: 'wx' });
+    writeFileSync(nativeResultPath, `${JSON.stringify({ exitCode })}\n`, { flag: 'wx' });
     return exitCode;
   } catch (error) {
     if (error instanceof WindowsAppContainerExecutionError) throw error;
@@ -1775,9 +2024,19 @@ async function executeNativeAppContainer(
       }
       if (threadHandle !== 0n) kernel32.symbols.CloseHandle(threadHandle);
       if (processHandle !== 0n) kernel32.symbols.CloseHandle(processHandle);
+      if (standardErrorHandle !== 0n && standardErrorHandle !== INVALID_HANDLE_VALUE) {
+        kernel32.symbols.CloseHandle(standardErrorHandle);
+      }
+      if (standardOutputHandle !== 0n && standardOutputHandle !== INVALID_HANDLE_VALUE) {
+        kernel32.symbols.CloseHandle(standardOutputHandle);
+      }
+      if (standardInputHandle !== 0n && standardInputHandle !== INVALID_HANDLE_VALUE) {
+        kernel32.symbols.CloseHandle(standardInputHandle);
+      }
       if (attributeListInitialized && attributeList) {
         kernel32.symbols.DeleteProcThreadAttributeList(attributeList);
       }
+      for (const payload of attributePayloads) void payload.byteLength;
     }
     // Bun 1.3.6 can crash while releasing this SID after an AppContainer child exits.
     // The native helper boundary is process-scoped, so Windows reclaims it at helper exit.
@@ -1997,6 +2256,276 @@ async function readProbeOwner(ownerPath: string): Promise<WindowsAppContainerPro
   return readOwnerRecord(ownerPath, probeOwnerLooksValid);
 }
 
+type DecodedNativeHelperOutput =
+  | Readonly<{ classification: 'ok'; appContainerSid: string | null }>
+  | Readonly<{
+      classification: 'declared-failure';
+      failure: DecodedNativeFailure;
+    }>
+  | Readonly<{ classification: 'invalid' }>;
+
+type DecodedNativeFailure = Readonly<{
+  phase: WindowsAppContainerExecutionPhase;
+  nativeCode: number | null;
+}>;
+
+type DecodedNativeReceipt =
+  | Readonly<{ classification: 'not-applicable' }>
+  | Readonly<{ classification: 'absent' }>
+  | Readonly<{
+      classification: 'exit-code';
+      result: WindowsAppContainerExecutionResult;
+    }>
+  | Readonly<{
+      classification: 'declared-failure';
+      failure: DecodedNativeFailure;
+    }>
+  | Readonly<{ classification: 'invalid' | 'read-error' }>;
+
+function decodeNativeFailureRecord(value: unknown): DecodedNativeFailure | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.status !== 'failed') return undefined;
+  const expectedKeys = ['phase', 'status', ...(record.nativeCode === undefined ? [] : ['nativeCode'])].sort();
+  if (!exactObjectKeys(record, expectedKeys) ||
+    !WINDOWS_APPCONTAINER_EXECUTION_PHASES.has(record.phase as WindowsAppContainerExecutionPhase) ||
+    (record.nativeCode !== undefined && !isWindowsDword(record.nativeCode))) {
+    return undefined;
+  }
+  return Object.freeze({
+    phase: record.phase as WindowsAppContainerExecutionPhase,
+    nativeCode: record.nativeCode === undefined ? null : Number(record.nativeCode)
+  });
+}
+
+function decodeNativeHelperOutput(
+  mode: WindowsAppContainerNativeHelperMode,
+  exitCode: number,
+  protocolOutput: string
+): DecodedNativeHelperOutput {
+  if (!isWindowsDword(exitCode)) return Object.freeze({ classification: 'invalid' });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(protocolOutput);
+  } catch {
+    return Object.freeze({ classification: 'invalid' });
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return Object.freeze({ classification: 'invalid' });
+  }
+  const record = parsed as Record<string, unknown>;
+  if (record.status === 'failed') {
+    const failure = decodeNativeFailureRecord(parsed);
+    return failure && exitCode !== 0
+      ? Object.freeze({ classification: 'declared-failure', failure })
+      : Object.freeze({ classification: 'invalid' });
+  }
+  if (exitCode !== 0 || record.status !== 'ok') {
+    return Object.freeze({ classification: 'invalid' });
+  }
+  if (mode === 'derive') {
+    if (!exactObjectKeys(record, ['appContainerSid', 'status'])) {
+      return Object.freeze({ classification: 'invalid' });
+    }
+    const sid = record.appContainerSid;
+    if (typeof sid !== 'string' || !WINDOWS_APPCONTAINER_SID_PATTERN.test(sid)) {
+      return Object.freeze({ classification: 'invalid' });
+    }
+    return Object.freeze({ classification: 'ok', appContainerSid: sid });
+  }
+  return exactObjectKeys(record, ['status'])
+    ? Object.freeze({ classification: 'ok', appContainerSid: null })
+    : Object.freeze({ classification: 'invalid' });
+}
+
+function decodeNativeReceiptValue(value: unknown): DecodedNativeReceipt {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return Object.freeze({ classification: 'invalid' });
+  }
+  const record = value as Record<string, unknown>;
+  if (record.status === 'failed') {
+    const failure = decodeNativeFailureRecord(value);
+    return failure
+      ? Object.freeze({ classification: 'declared-failure', failure })
+      : Object.freeze({ classification: 'invalid' });
+  }
+  if (!exactObjectKeys(record, ['exitCode']) ||
+    !isWindowsDword(record.exitCode)) {
+    return Object.freeze({ classification: 'invalid' });
+  }
+  return Object.freeze({
+    classification: 'exit-code',
+    result: Object.freeze({ exitCode: Number(record.exitCode) })
+  });
+}
+
+async function readNativeReceipt(
+  resultPath: string,
+  commitFence: () => Promise<void>
+): Promise<DecodedNativeReceipt> {
+  await commitFence();
+  let before: Awaited<ReturnType<typeof lstat>>;
+  try {
+    before = await lstat(resultPath);
+  } catch (error) {
+    await commitFence();
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return Object.freeze({ classification: 'absent' });
+    }
+    return Object.freeze({ classification: 'read-error' });
+  }
+  if (!before.isFile() || before.isSymbolicLink() || Number(before.nlink) !== 1 ||
+    before.size < 1 || before.size > MAX_NATIVE_RECEIPT_BYTES) {
+    await commitFence();
+    return Object.freeze({ classification: 'invalid' });
+  }
+  let handle;
+  try {
+    handle = await open(resultPath, 'r');
+  } catch (error) {
+    await commitFence();
+    return Object.freeze({
+      classification: error instanceof Error && 'code' in error && error.code === 'ENOENT'
+        ? 'absent'
+        : 'read-error'
+    });
+  }
+  let bytes: Uint8Array | undefined;
+  let readFailure: 'invalid' | 'read-error' | undefined;
+  try {
+    const after = await handle.stat();
+    if (!after.isFile() || Number(after.nlink) !== 1 ||
+      String(after.dev) !== String(before.dev) || String(after.ino) !== String(before.ino)) {
+      readFailure = 'read-error';
+    } else if (after.size < 1 || after.size > MAX_NATIVE_RECEIPT_BYTES) {
+      readFailure = 'invalid';
+    } else {
+      const buffer = Buffer.alloc(MAX_NATIVE_RECEIPT_BYTES + 1);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
+      if (bytesRead < 1 || bytesRead > MAX_NATIVE_RECEIPT_BYTES) readFailure = 'invalid';
+      else bytes = new Uint8Array(buffer.subarray(0, bytesRead));
+    }
+  } catch {
+    readFailure = 'read-error';
+  }
+  try {
+    await handle.close();
+  } catch {
+    await commitFence();
+    return Object.freeze({ classification: 'read-error' });
+  }
+  await commitFence();
+  if (readFailure !== undefined) return Object.freeze({ classification: readFailure });
+  if (bytes === undefined) return Object.freeze({ classification: 'read-error' });
+  try {
+    return decodeNativeReceiptValue(
+      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown
+    );
+  } catch {
+    return Object.freeze({ classification: 'invalid' });
+  }
+}
+
+function projectNativeHelperObservation(
+  mode: WindowsAppContainerNativeHelperMode,
+  exitCode: number,
+  protocol: DecodedNativeHelperOutput,
+  diagnosticStreamPresent: boolean,
+  nativeReceipt: DecodedNativeReceipt
+): WindowsAppContainerNativeHelperObservation {
+  return Object.freeze({
+    mode,
+    helperExit: exitCode,
+    diagnosticStream: diagnosticStreamPresent ? 'present' : 'empty',
+    protocol: protocol.classification,
+    nativeReceipt: nativeReceipt.classification
+  });
+}
+
+function settleNativeHelperInvocation(
+  mode: 'derive',
+  exitCode: number,
+  protocolOutput: string,
+  diagnosticStreamPresent: boolean,
+  nativeReceipt: DecodedNativeReceipt
+): string;
+function settleNativeHelperInvocation(
+  mode: 'create-profile',
+  exitCode: number,
+  protocolOutput: string,
+  diagnosticStreamPresent: boolean,
+  nativeReceipt: DecodedNativeReceipt
+): void;
+function settleNativeHelperInvocation(
+  mode: 'execute',
+  exitCode: number,
+  protocolOutput: string,
+  diagnosticStreamPresent: boolean,
+  nativeReceipt: DecodedNativeReceipt
+): WindowsAppContainerExecutionResult;
+function settleNativeHelperInvocation(
+  mode: WindowsAppContainerNativeHelperMode,
+  exitCode: number,
+  protocolOutput: string,
+  diagnosticStreamPresent: boolean,
+  nativeReceipt: DecodedNativeReceipt
+): string | WindowsAppContainerExecutionResult | undefined {
+  const protocol = decodeNativeHelperOutput(mode, exitCode, protocolOutput);
+  const observation = projectNativeHelperObservation(
+    mode,
+    exitCode,
+    protocol,
+    diagnosticStreamPresent,
+    nativeReceipt
+  );
+  try {
+    if (diagnosticStreamPresent || protocol.classification === 'invalid') {
+      throw executionError('preparation');
+    }
+    if (protocol.classification === 'declared-failure') {
+      throw executionError(
+        protocol.failure.phase,
+        protocol.failure.nativeCode ?? undefined
+      );
+    }
+    if (mode === 'execute') {
+      if (nativeReceipt.classification === 'declared-failure') {
+        throw executionError(
+          nativeReceipt.failure.phase,
+          nativeReceipt.failure.nativeCode ?? undefined
+        );
+      }
+      if (nativeReceipt.classification !== 'exit-code') throw executionError('wait');
+      return nativeReceipt.result;
+    }
+    if (nativeReceipt.classification !== 'not-applicable') throw executionError('preparation');
+    if (mode === 'derive') {
+      if (!protocol.appContainerSid) throw executionError('preparation');
+      return protocol.appContainerSid;
+    }
+    return undefined;
+  } catch (error) {
+    if (error instanceof Error) nativeHelperObservations.set(error, observation);
+    throw error;
+  }
+}
+
+function invokeNativeHelper(
+  mode: 'create-profile',
+  helperRequest: WindowsAppContainerNativeExecutionRequest,
+  stagingRoot: string,
+  environment: Readonly<Record<string, string>>,
+  commitFence: () => Promise<void>,
+  timeoutMs: number | undefined
+): Promise<void>;
+function invokeNativeHelper(
+  mode: 'execute',
+  helperRequest: WindowsAppContainerNativeExecutionRequest,
+  stagingRoot: string,
+  environment: Readonly<Record<string, string>>,
+  commitFence: () => Promise<void>,
+  timeoutMs: number | undefined
+): Promise<WindowsAppContainerExecutionResult>;
 async function invokeNativeHelper(
   mode: 'create-profile' | 'execute',
   helperRequest: WindowsAppContainerNativeExecutionRequest,
@@ -2004,7 +2533,7 @@ async function invokeNativeHelper(
   environment: Readonly<Record<string, string>>,
   commitFence: () => Promise<void>,
   timeoutMs: number | undefined
-): Promise<void> {
+): Promise<void | WindowsAppContainerExecutionResult> {
   const serialized = Buffer.from(JSON.stringify({ mode, request: helperRequest }), 'utf8').toString('base64url');
   const result = await runHostBunCommand(
     stagingRoot,
@@ -2013,49 +2542,58 @@ async function invokeNativeHelper(
     timeoutMs,
     serialized
   );
-  parseNativeHelperOutput(mode, result.code, result.stdout, result.stderr);
-}
-
-function parseNativeHelperOutput(
-  mode: 'derive' | 'create-profile' | 'execute',
-  exitCode: number,
-  stdout: string,
-  stderr: string
-): string | undefined {
-  if (stderr !== '') throw executionError('preparation');
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    throw executionError('preparation');
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw executionError('preparation');
-  }
-  const record = parsed as Record<string, unknown>;
-  if (record.status === 'failed') {
-    const expectedKeys = ['phase', 'status', ...(record.nativeCode === undefined ? [] : ['nativeCode'])].sort();
-    if (exitCode === 0 || !exactObjectKeys(record, expectedKeys) ||
-      !['invalid-input', 'preparation', 'acl', 'launch', 'wait', 'timeout', 'cleanup'].includes(String(record.phase)) ||
-      (record.nativeCode !== undefined && !Number.isSafeInteger(record.nativeCode))) {
-      throw executionError('preparation');
-    }
-    throw executionError(
-      record.phase as WindowsAppContainerExecutionPhase,
-      record.nativeCode === undefined ? undefined : Number(record.nativeCode)
+  const nativeReceipt = mode === 'execute'
+    ? await readNativeReceipt(helperRequest.nativeResultPath, commitFence)
+    : Object.freeze({ classification: 'not-applicable' as const });
+  if (mode === 'execute') {
+    return settleNativeHelperInvocation(
+      'execute',
+      result.code,
+      result.stdout,
+      result.stderr !== '',
+      nativeReceipt
     );
   }
-  if (exitCode !== 0 || record.status !== 'ok') throw executionError('preparation');
+  settleNativeHelperInvocation(
+    'create-profile',
+    result.code,
+    result.stdout,
+    result.stderr !== '',
+    nativeReceipt
+  );
+}
+
+export type WindowsAppContainerNativeReceiptReadForTests =
+  | 'not-applicable'
+  | 'absent'
+  | 'read-error'
+  | Readonly<{ value: unknown }>;
+
+/** Pure settlement seam; it accepts wire values and never spawns an AppContainer. */
+export function settleWindowsAppContainerNativeHelperInvocationForTests(
+  mode: WindowsAppContainerNativeHelperMode,
+  exitCode: number,
+  protocolOutput: string,
+  diagnosticStreamPresent: boolean,
+  receiptRead: WindowsAppContainerNativeReceiptReadForTests
+): string | WindowsAppContainerExecutionResult | undefined {
+  const nativeReceipt: DecodedNativeReceipt = typeof receiptRead === 'string'
+    ? Object.freeze({ classification: receiptRead })
+    : decodeNativeReceiptValue(receiptRead.value);
   if (mode === 'derive') {
-    if (!exactObjectKeys(record, ['appContainerSid', 'status'])) throw executionError('preparation');
-    const sid = record.appContainerSid;
-    if (typeof sid !== 'string' || !/^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/u.test(sid)) {
-      throw executionError('preparation');
-    }
-    return sid;
+    return settleNativeHelperInvocation(
+      'derive', exitCode, protocolOutput, diagnosticStreamPresent, nativeReceipt
+    );
   }
-  if (!exactObjectKeys(record, ['status'])) throw executionError('preparation');
-  return undefined;
+  if (mode === 'create-profile') {
+    settleNativeHelperInvocation(
+      'create-profile', exitCode, protocolOutput, diagnosticStreamPresent, nativeReceipt
+    );
+    return undefined;
+  }
+  return settleNativeHelperInvocation(
+    'execute', exitCode, protocolOutput, diagnosticStreamPresent, nativeReceipt
+  );
 }
 
 async function deriveAppContainerSidViaHelper(
@@ -2075,31 +2613,13 @@ async function deriveAppContainerSidViaHelper(
     10_000,
     serialized
   );
-  const sid = parseNativeHelperOutput('derive', result.code, result.stdout, result.stderr);
-  if (!sid) throw executionError('preparation');
-  return sid;
-}
-
-function parseNativeResult(value: unknown): WindowsAppContainerExecutionResult {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw executionError('wait');
-  const record = value as Record<string, unknown>;
-  if (record.status === 'failed') {
-    const expectedKeys = ['phase', 'status', ...(record.nativeCode === undefined ? [] : ['nativeCode'])].sort();
-    if (!exactObjectKeys(record, expectedKeys) ||
-      !['invalid-input', 'preparation', 'acl', 'launch', 'wait', 'timeout', 'cleanup'].includes(String(record.phase)) ||
-      (record.nativeCode !== undefined && !Number.isSafeInteger(record.nativeCode))) {
-      throw executionError('wait');
-    }
-    throw executionError(
-      record.phase as WindowsAppContainerExecutionPhase,
-      record.nativeCode === undefined ? undefined : Number(record.nativeCode)
-    );
-  }
-  if (!exactObjectKeys(record, ['exitCode']) ||
-    !Number.isSafeInteger(record.exitCode) || Number(record.exitCode) < 0) {
-    throw executionError('wait');
-  }
-  return Object.freeze({ exitCode: Number(record.exitCode) });
+  return settleNativeHelperInvocation(
+    'derive',
+    result.code,
+    result.stdout,
+    result.stderr !== '',
+    Object.freeze({ classification: 'not-applicable' })
+  );
 }
 
 /** Native-helper-only profile creation. The durable outer owner is the recovery authority. */
@@ -2545,7 +3065,7 @@ export async function runWindowsAppContainerChild(
         );
       },
       execute: async () => {
-        await invokeNativeHelper(
+        result = await invokeNativeHelper(
           'execute',
           nativeRequest,
           validated.stagingRoot,
@@ -2555,13 +3075,6 @@ export async function runWindowsAppContainerChild(
         );
       }
     });
-    await commitFence();
-    const resultMetadata = await lstat(resultPath);
-    if (!resultMetadata.isFile() || resultMetadata.isSymbolicLink() ||
-      Number(resultMetadata.nlink) !== 1 || resultMetadata.size < 1 || resultMetadata.size > 1024) {
-      throw executionError('wait');
-    }
-    result = parseNativeResult(JSON.parse(await readFile(resultPath, 'utf8')) as unknown);
   } catch (error) {
     primaryError = normalizeExecutionError(error, 'preparation');
   }
