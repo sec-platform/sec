@@ -669,16 +669,39 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     "let failureStage: SemanticMutationIsolatedChildFailureStage = 'preflight'"
   );
   const runnerVerifyAll = sources.isolatedRunner.indexOf("failureStage = 'verify-all'");
-  const runnerCompile = sources.isolatedRunner.indexOf('const compiled = await compileWorkspace(', runnerVerifyAll);
+  const runnerCompileTelemetry = sources.isolatedRunner.indexOf(
+    'const compiled = await withSemanticMutationIsolatedPhaseTelemetry(',
+    runnerVerifyAll
+  );
+  const runnerCompilePhase = sources.isolatedRunner.indexOf(
+    "'compile-workspace'",
+    runnerCompileTelemetry
+  );
+  const runnerCompile = sources.isolatedRunner.indexOf(
+    'async () => await compileWorkspace(',
+    runnerCompilePhase
+  );
   const runnerPostcondition = sources.isolatedRunner.indexOf("failureStage = 'postcondition'", runnerCompile);
-  const runnerPublishFailure = sources.isolatedRunner.indexOf(
-    'await publishSemanticMutationIsolatedChildOutcome(process.cwd(), outcome)',
+  const runnerPostconditionCheckpoint = sources.isolatedRunner.indexOf(
+    "publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'postcondition')",
     runnerPostcondition
   );
+  const runnerOutcomePublishStarted = sources.isolatedRunner.indexOf(
+    "publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'outcome-publish-started')",
+    runnerPostconditionCheckpoint
+  );
+  const runnerPublishFailure = sources.isolatedRunner.indexOf(
+    'await publishSemanticMutationIsolatedChildOutcome(process.cwd(), outcome)',
+    runnerOutcomePublishStarted
+  );
   expect(runnerVerifyAll).toBeGreaterThan(-1);
-  expect(runnerCompile).toBeGreaterThan(runnerVerifyAll);
+  expect(runnerCompileTelemetry).toBeGreaterThan(runnerVerifyAll);
+  expect(runnerCompilePhase).toBeGreaterThan(runnerCompileTelemetry);
+  expect(runnerCompile).toBeGreaterThan(runnerCompilePhase);
   expect(runnerPostcondition).toBeGreaterThan(runnerCompile);
-  expect(runnerPublishFailure).toBeGreaterThan(runnerPostcondition);
+  expect(runnerPostconditionCheckpoint).toBeGreaterThan(runnerPostcondition);
+  expect(runnerOutcomePublishStarted).toBeGreaterThan(runnerPostconditionCheckpoint);
+  expect(runnerPublishFailure).toBeGreaterThan(runnerOutcomePublishStarted);
   expect(sources.isolatedRunner).toContain(
     "publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'module-entered')"
   );
@@ -708,7 +731,14 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     'const isolatedVerificationCapability = mintIsolatedVerificationCapability(stagingWorkspaceRoot)',
     isolatedTree
   );
-  const isolatedCompile = sources.isolatedRunner.indexOf('const compiled = await compileWorkspace(', isolatedMint);
+  const isolatedCompileTelemetry = sources.isolatedRunner.indexOf(
+    'const compiled = await withSemanticMutationIsolatedPhaseTelemetry(',
+    isolatedMint
+  );
+  const isolatedCompile = sources.isolatedRunner.indexOf(
+    'async () => await compileWorkspace(',
+    isolatedCompileTelemetry
+  );
   const isolatedBaseline = sources.isolatedRunner.indexOf(
     'const baseline = await readProjectBaseline(stagingWorkspaceRoot)',
     isolatedCompile
@@ -716,7 +746,8 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(isolatedBoundary).toBeGreaterThan(-1);
   expect(isolatedTree).toBeGreaterThan(isolatedBoundary);
   expect(isolatedMint).toBeGreaterThan(isolatedTree);
-  expect(isolatedCompile).toBeGreaterThan(isolatedMint);
+  expect(isolatedCompileTelemetry).toBeGreaterThan(isolatedMint);
+  expect(isolatedCompile).toBeGreaterThan(isolatedCompileTelemetry);
   expect(isolatedBaseline).toBeGreaterThan(isolatedCompile);
   const verifyCapabilityAssertion = sources.verifyOrchestrator.indexOf(
     'assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability)'

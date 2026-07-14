@@ -225,6 +225,9 @@ test('only explicit SM-2/SM-3 owners may import filesystem, path, YAML, or autho
   const filesystemOwners = [
     'atomic-source-publish.ts',
     'derive-staged-mutation.ts',
+    'isolated-verification-child-outcome.ts',
+    'isolated-verification-child-progress.ts',
+    'isolated-verification-phase-telemetry.ts',
     'mutation-recovery-record.ts',
     'mutation-terminal-record.ts',
     'source-path-boundary.ts',
