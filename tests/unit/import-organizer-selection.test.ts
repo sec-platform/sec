@@ -1,10 +1,42 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import ts from 'typescript';
 
 import {
-  applyImportTextChangesForTests,
+  organizeImportsInSource,
   resolveImportDiffBase,
   selectChangedImportsOnly
 } from '../../platform/dev-runner/import-organizer.ts';
+
+function organizeFixtureImports(source: string): string {
+  const fixtureRoot = path.resolve(import.meta.dir, 'import-organizer-newline-fixture');
+  const fileName = path.join(fixtureRoot, 'fixture.ts');
+  const sources = new Map<string, string>([
+    [fileName, source],
+    [path.join(fixtureRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;']
+  ]);
+  const host: ts.LanguageServiceHost = {
+    getScriptFileNames: () => [...sources.keys()],
+    getScriptVersion: () => '0',
+    getScriptSnapshot: (requestedFileName) => {
+      const content = sources.get(path.resolve(requestedFileName)) ?? ts.sys.readFile(requestedFileName);
+      return content === undefined ? undefined : ts.ScriptSnapshot.fromString(content);
+    },
+    getCompilationSettings: () => ({
+      allowImportingTsExtensions: true,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      target: ts.ScriptTarget.ES2022
+    }),
+    getCurrentDirectory: () => fixtureRoot,
+    getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
+    readFile: (requestedFileName) => sources.get(path.resolve(requestedFileName)) ?? ts.sys.readFile(requestedFileName),
+    fileExists: (requestedFileName) => sources.has(path.resolve(requestedFileName)) || ts.sys.fileExists(requestedFileName),
+    getNewLine: () => '\n'
+  };
+
+  return organizeImportsInSource(ts.createLanguageService(host), fileName, source);
+}
 
 describe('import organizer selection', () => {
   test('explicit changed-only setting overrides CI context', () => {
@@ -46,8 +78,10 @@ describe('import organizer newline preservation', () => {
   for (const newLine of ['\n', '\r\n'] as const) {
     test(`keeps ${newLine === '\n' ? 'LF' : 'CRLF'} files stable and preserves the body when imports reorder`, () => {
       const sortedImports = [
-        "import { alpha } from './alpha.ts';",
-        "import { beta } from './beta.ts';"
+        'import {',
+        '  alpha,',
+        '  beta',
+        "} from './values.ts';"
       ].join(newLine);
       const body = [
         '',
@@ -57,25 +91,22 @@ describe('import organizer newline preservation', () => {
         ''
       ].join(newLine);
       const sortedSource = `${sortedImports}${body}`;
-      const importSpan = { start: 0, length: sortedImports.length };
-
-      expect(applyImportTextChangesForTests(sortedSource, [{
-        span: importSpan,
-        newText: sortedImports.replaceAll(newLine, '\n')
-      }])).toBe(sortedSource);
+      expect(organizeFixtureImports(sortedSource)).toBe(sortedSource);
 
       const unsortedImports = [
-        "import { beta } from './beta.ts';",
-        "import { alpha } from './alpha.ts';"
+        'import {',
+        '  beta,',
+        '  alpha',
+        "} from './values.ts';"
       ].join(newLine);
       const unsortedSource = `${unsortedImports}${body}`;
-      const reordered = applyImportTextChangesForTests(unsortedSource, [{
-        span: { start: 0, length: unsortedImports.length },
-        newText: sortedImports.replaceAll(newLine, '\n')
-      }]);
+      const reordered = organizeFixtureImports(unsortedSource);
 
       expect(reordered).toBe(sortedSource);
       expect(reordered.slice(sortedImports.length)).toBe(body);
+      if (newLine === '\r\n') {
+        expect(reordered.replaceAll('\r\n', '')).not.toContain('\n');
+      }
     });
   }
 });
