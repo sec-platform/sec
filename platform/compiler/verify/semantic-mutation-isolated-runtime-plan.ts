@@ -17,6 +17,9 @@ import {
   SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH
 } from '../semantic-mutation/isolated-verification-child-progress.ts';
 import {
+  withSemanticMutationIsolatedPhaseTelemetry
+} from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
+import {
   registerSemanticMutationIsolatedRuntimePlanBinding,
   resolveSemanticMutationIsolatedRuntimePlanBinding
 } from './semantic-mutation-isolated-runtime-binding.ts';
@@ -855,7 +858,11 @@ export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
       runnerBundle: input.runnerBundle.slice(),
       sources: input.sources
     });
-    const snapshot = await getRuntimeSourceSnapshot(snapshotInput, inspector);
+    const snapshot = await getRuntimeSourceSnapshot(
+      snapshotInput,
+      inspector,
+      input.stagingWorkspaceRoot
+    );
     for (const file of snapshot.files) {
       if (file.sourceAbsolutePath !== null &&
         isPathInside(staging.absolutePath, path.resolve(file.sourceAbsolutePath))) {
@@ -1371,7 +1378,8 @@ function trimRuntimeSourceSnapshotBucket(
 
 async function getRuntimeSourceSnapshot(
   input: RuntimeSourceSnapshotInputV1,
-  inspector: ReparsePointInspector
+  inspector: ReparsePointInspector,
+  stagingWorkspaceRoot: string
 ): Promise<RuntimeSourceSnapshotV1> {
   const key = runtimeSourceSnapshotCacheKey(input);
   let bucket = runtimeSourceSnapshotsBySources.get(input.sources);
@@ -1391,14 +1399,23 @@ async function getRuntimeSourceSnapshot(
   if (slot.flight) return await slot.flight;
   const activeSlot = slot;
   const flight = (async () => {
-    if (activeSlot.snapshot) {
+    const currentSnapshot = activeSlot.snapshot;
+    if (currentSnapshot) {
       activeSlot.revalidations += 1;
-      if (await revalidateRuntimeSourceSnapshot(activeSlot.snapshot, inspector)) {
-        return activeSlot.snapshot;
+      if (await withSemanticMutationIsolatedPhaseTelemetry(
+        stagingWorkspaceRoot,
+        'source-snapshot-revalidate',
+        async () => await revalidateRuntimeSourceSnapshot(currentSnapshot, inspector)
+      )) {
+        return currentSnapshot;
       }
     }
     activeSlot.captures += 1;
-    return await captureRuntimeSourceSnapshot(input, inspector);
+    return await withSemanticMutationIsolatedPhaseTelemetry(
+      stagingWorkspaceRoot,
+      'source-snapshot-capture',
+      async () => await captureRuntimeSourceSnapshot(input, inspector)
+    );
   })();
   activeSlot.flight = flight;
   try {
