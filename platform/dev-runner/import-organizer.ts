@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import ts from 'typescript';
 
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
@@ -63,21 +64,31 @@ function sourceNewLine(source: string): '\n' | '\r\n' {
   return firstLineFeed > 0 && source[firstLineFeed - 1] === '\r' ? '\r\n' : '\n';
 }
 
-function normalizeNewLines(value: string, newLine: '\n' | '\r\n'): string {
-  return value.replace(/\r\n?|\n/gu, newLine);
+function isSameFilePath(left: string, right: string): boolean {
+  return path.resolve(left) === path.resolve(right);
 }
 
 function applyTextChanges(source: string, changes: readonly ts.TextChange[]): string {
-  const newLine = sourceNewLine(source);
   return [...changes]
     .sort((left, right) => right.span.start - left.span.start)
     .reduce((updated, change) => (
-      `${updated.slice(0, change.span.start)}${normalizeNewLines(change.newText, newLine)}${updated.slice(change.span.start + change.span.length)}`
+      `${updated.slice(0, change.span.start)}${change.newText}${updated.slice(change.span.start + change.span.length)}`
     ), source);
 }
 
-export function applyImportTextChangesForTests(source: string, changes: readonly ts.TextChange[]): string {
-  return applyTextChanges(source, changes);
+export function organizeImportsInSource(
+  service: Pick<ts.LanguageService, 'organizeImports'>,
+  fileName: string,
+  source: string
+): string {
+  const edits = service
+    .organizeImports(
+      { type: 'file', fileName, mode: ts.OrganizeImportsMode.All },
+      { ...importFormatOptions, newLineCharacter: sourceNewLine(source) },
+      importPreferences
+    )
+    .flatMap((change) => isSameFilePath(change.fileName, fileName) ? change.textChanges : []);
+  return applyTextChanges(source, edits);
 }
 
 export function selectChangedImportsOnly(env: ImportSelectionEnvironment = process.env): boolean {
@@ -172,18 +183,7 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
       continue;
     }
 
-    const edits = service
-      .organizeImports(
-        { type: 'file', fileName, mode: ts.OrganizeImportsMode.All },
-        importFormatOptions,
-        importPreferences
-      )
-      .flatMap((change) => change.fileName === fileName ? change.textChanges : []);
-    if (edits.length === 0) {
-      continue;
-    }
-
-    const updated = applyTextChanges(file.content, edits);
+    const updated = organizeImportsInSource(service, fileName, file.content);
     if (updated === file.content) {
       continue;
     }
