@@ -151,6 +151,7 @@ test('test impact selector gives Semantic Mutation focused fast and notice-only 
 
 test('test impact selector owns the SM-3 lease and isolated AppContainer execution boundary', () => {
   const sourceFiles = [
+    'platform/shared/semantic-mutation-staging-boundary.ts',
     'platform/shared/workspace-write-lease.ts',
     'platform/shared/windows-appcontainer-executor.ts',
     'platform/shared/windows-appcontainer-native-helper.ts',
