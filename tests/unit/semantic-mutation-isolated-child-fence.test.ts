@@ -30,6 +30,9 @@ import {
   type SemanticMutationIsolatedProgressCheckpoint
 } from '../../platform/compiler/semantic-mutation/isolated-verification-child-progress.ts';
 import {
+  readSemanticMutationIsolatedPhaseTelemetry
+} from '../../platform/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
+import {
   assertIsolatedStagingTree,
   runIsolatedStagingScanBatchesForTests
 } from '../../platform/compiler/verify/assert-isolated-staging-tree.ts';
@@ -1918,6 +1921,27 @@ test('runtime source snapshot cache single-flights concurrent probes and evicts 
     expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
       captures: 1, entries: 1, flights: 0, revalidations: 0
     });
+
+    const telemetry = await Promise.all([stagingA, stagingB].map(async (stagingRoot) => {
+      const result = await readSemanticMutationIsolatedPhaseTelemetry(stagingRoot);
+      expect(result.status).toBe('valid');
+      if (result.status !== 'valid') throw new Error('Snapshot cache telemetry was not readable');
+      const events = new Set(result.events.map((event) => `${event.phase}:${event.state}`));
+      return {
+        captureStarted: events.has('source-snapshot-capture:started'),
+        captureCompleted: events.has('source-snapshot-capture:completed'),
+        waitStarted: events.has('source-snapshot-single-flight-wait:started'),
+        waitCompleted: events.has('source-snapshot-single-flight-wait:completed')
+      };
+    }));
+    for (const phases of telemetry) {
+      expect(phases.captureCompleted).toBe(phases.captureStarted);
+      expect(phases.waitCompleted).toBe(phases.waitStarted);
+    }
+    expect(telemetry.filter((phases) => phases.captureStarted)).toHaveLength(1);
+    expect(telemetry.filter((phases) => phases.waitStarted)).toHaveLength(1);
+    expect(telemetry.filter((phases) => phases.captureStarted && phases.waitStarted))
+      .toHaveLength(0);
   }, 'engineering-compiler-sm3-runtime-source-snapshot-flight-');
 });
 
