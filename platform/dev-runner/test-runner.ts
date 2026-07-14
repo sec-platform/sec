@@ -23,7 +23,7 @@ import {
 import { formatSlowImpactNotice, isTestImpactSourceFile, selectTestsForSources } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
-import { partitionFastTestFiles } from './fast-test-policy.ts';
+import { planFastTestProcesses } from './fast-test-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -115,12 +115,12 @@ function fastTestInvocations(args: string[]): string[][] {
   }
 
   const selectedFiles = selectMatchingTestFiles(getFastTestFilesSync(), selectors, 'fast');
-  const partition = partitionFastTestFiles(selectedFiles);
+  const plan = planFastTestProcesses(selectedFiles);
   const invocations: string[][] = [];
-  if (partition.concurrent.length > 0) {
-    invocations.push(fastTestArgs(partition.concurrent, options));
+  for (const shard of plan.concurrentShards) {
+    invocations.push(fastTestArgs(shard, options));
   }
-  for (const file of partition.serial) {
+  for (const file of plan.serial) {
     invocations.push(['test', file, ...options]);
   }
   return invocations;
