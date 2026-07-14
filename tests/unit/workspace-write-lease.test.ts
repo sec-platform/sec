@@ -54,6 +54,21 @@ test('workspace writer lease is exclusive, exactly reentrant, and rejects mismat
     await expect(contender.release(workspaceRoot, lease.token)).rejects.toMatchObject({
       code: 'WORKSPACE-WRITE-LEASE-002'
     });
+    const sameHolderDifferentManager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 20_000,
+      hostname: 'lease-test-host',
+      pid: 100,
+      processNonce: 'process:one',
+      createId: ids('same-holder'),
+      processAlive: () => 'alive'
+    });
+    await sameHolderDifferentManager.assertOwned(workspaceRoot, lease.token);
+    await expect(sameHolderDifferentManager.withControlPlaneQuiesced(
+      workspaceRoot,
+      lease.token,
+      async () => undefined
+    )).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-002' });
     await lease.assertOwned();
 
     const forged = { ...lease.token, leaseId: 'forged' };
@@ -273,4 +288,60 @@ test('lease authority rejects a local-state junction that escapes the canonical 
       await rm(outside, { recursive: true, force: true });
     }
   }, 'engineering-compiler-workspace-lease-escaped-parent-');
+});
+
+test('workspace writer lease control-plane quiescence queues heartbeat mutation', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    let nowCalls = 0;
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 30_000,
+      now: () => {
+        nowCalls += 1;
+        return nowCalls;
+      }
+    });
+    const handle = await manager.acquire(workspaceRoot);
+    let heartbeats: readonly Promise<void>[] = [];
+    try {
+      const beforeHeartbeat = nowCalls;
+      await manager.withControlPlaneQuiesced(workspaceRoot, handle.token, async () => {
+        heartbeats = Array.from({ length: 20 }, () => handle.heartbeat());
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(nowCalls).toBe(beforeHeartbeat);
+      });
+      await Promise.all(heartbeats);
+      expect(nowCalls).toBe(beforeHeartbeat + 1);
+      await handle.assertOwned();
+    } finally {
+      await handle.release();
+    }
+  }, 'workspace-write-lease-quiescence-');
+});
+
+test('workspace writer lease quiescence rejects any stable temporary owner artifact', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 30_000
+    });
+    const handle = await manager.acquire(workspaceRoot);
+    const leaseDirectory = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
+    const staleTemporary = path.join(leaseDirectory, '.owner-stable.tmp');
+    try {
+      await writeFile(staleTemporary, '{}', 'utf8');
+      await expect(manager.withControlPlaneQuiesced(
+        workspaceRoot,
+        handle.token,
+        async () => undefined
+      )).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-002',
+        message: 'Workspace writer lease control plane is not canonical'
+      });
+    } finally {
+      await rm(staleTemporary, { force: true });
+      await handle.release();
+    }
+  }, 'workspace-write-lease-noncanonical-control-plane-');
 });

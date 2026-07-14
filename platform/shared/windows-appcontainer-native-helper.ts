@@ -1,26 +1,22 @@
 import path from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { writeFileSync, writeSync } from 'node:fs';
 
 import {
   createWindowsAppContainerProfileForNativeHelper,
   deriveWindowsAppContainerSidForNativeHelper,
+  encodeWindowsAppContainerNativeDerivedSid,
+  encodeWindowsAppContainerNativeFailure,
+  encodeWindowsAppContainerNativeOk,
   runWindowsAppContainerNativeChild,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
-  WindowsAppContainerExecutionError,
+  type WindowsAppContainerNativeHelperWirePayload,
   type WindowsAppContainerNativeExecutionRequest
 } from './windows-appcontainer-executor.ts';
-import { assertWorkspaceWriteLease } from './workspace-write-lease.ts';
 
 type NativeHelperEnvelope =
   | Readonly<{ mode: 'derive'; request: Readonly<{ appContainerName: string }> }>
   | Readonly<{ mode: 'create-profile'; request: WindowsAppContainerNativeExecutionRequest }>
   | Readonly<{ mode: 'execute'; request: WindowsAppContainerNativeExecutionRequest }>;
-
-type NativeHelperFailure = Readonly<{
-  status: 'failed';
-  phase: WindowsAppContainerExecutionError['phase'];
-  nativeCode?: number;
-}>;
 
 async function loadNativeHelperExit(): Promise<(exitCode: number) => never> {
   const { dlopen, FFIType } = await import('bun:ffi');
@@ -40,23 +36,8 @@ function exactKeys(value: object, expected: readonly string[]): boolean {
   return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
 }
 
-function nativeHelperFailure(error: unknown): NativeHelperFailure {
-  return error instanceof WindowsAppContainerExecutionError
-    ? Object.freeze({
-        status: 'failed',
-        phase: error.phase,
-        ...(error.nativeCode === undefined ? {} : { nativeCode: error.nativeCode })
-      })
-    : Object.freeze({ status: 'failed', phase: 'preparation' });
-}
-
-async function writeNativeHelperOutput(value: object): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    process.stdout.write(JSON.stringify(value), (error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+function writeNativeHelperOutput(payload: WindowsAppContainerNativeHelperWirePayload): void {
+  writeSync(1, payload);
 }
 
 function decodeRequest(encoded: string | undefined): NativeHelperEnvelope {
@@ -111,46 +92,48 @@ if (envelope.mode === 'derive') {
     const appContainerSid = await deriveWindowsAppContainerSidForNativeHelper(
       envelope.request.appContainerName
     );
-    await writeNativeHelperOutput({ status: 'ok', appContainerSid });
+    writeNativeHelperOutput(encodeWindowsAppContainerNativeDerivedSid(appContainerSid));
     exitNativeHelper(0);
   } catch (error) {
-    await writeNativeHelperOutput(nativeHelperFailure(error)).catch(() => undefined);
+    try {
+      writeNativeHelperOutput(encodeWindowsAppContainerNativeFailure(error));
+    } catch {}
     exitNativeHelper(1);
   }
 } else if (envelope.mode === 'create-profile') {
   try {
     assertNativeResultBoundary(envelope.request);
     await createWindowsAppContainerProfileForNativeHelper(envelope.request);
-    await writeNativeHelperOutput({ status: 'ok' });
+    writeNativeHelperOutput(encodeWindowsAppContainerNativeOk());
     exitNativeHelper(0);
   } catch (error) {
-    await writeNativeHelperOutput(nativeHelperFailure(error)).catch(() => undefined);
+    try {
+      writeNativeHelperOutput(encodeWindowsAppContainerNativeFailure(error));
+    } catch {}
     exitNativeHelper(1);
   }
 } else {
   try {
     assertNativeResultBoundary(envelope.request);
     await runWindowsAppContainerNativeChild(envelope.request);
-    await writeNativeHelperOutput({ status: 'ok' });
+    writeNativeHelperOutput(encodeWindowsAppContainerNativeOk());
     exitNativeHelper(0);
   } catch (error) {
-    const failure = nativeHelperFailure(error);
+    const failure = encodeWindowsAppContainerNativeFailure(error);
     try {
       assertNativeResultBoundary(envelope.request);
-      await assertWorkspaceWriteLease(
-        envelope.request.execution.workspaceRoot,
-        envelope.request.execution.workspaceWriteLease
-      );
-      await writeFile(
+      writeFileSync(
         envelope.request.nativeResultPath,
-        `${JSON.stringify(failure)}\n`,
+        `${failure}\n`,
         { flag: 'wx' }
       );
     } catch {
       // Lease loss or an invalid result boundary leaves the exact result absent.
       // The outer durable owner remains the sole recovery authority.
     }
-    await writeNativeHelperOutput(failure).catch(() => undefined);
+    try {
+      writeNativeHelperOutput(failure);
+    } catch {}
     exitNativeHelper(1);
   }
 }

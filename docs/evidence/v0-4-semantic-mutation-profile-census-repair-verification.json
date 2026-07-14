@@ -1,0 +1,83 @@
+{
+  "schema": "codex-development-profile-census-repair-verification-v1",
+  "status": "failed",
+  "recordedAt": "2026-07-14T06:40:53.8258820Z",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43"
+  },
+  "consumedAuthority": {
+    "r4EvidencePath": "docs/evidence/v0-4-semantic-mutation-profile-probe-r4-diagnosis.json",
+    "r4EvidenceFileSha256": "sha256:67c603aaa5df4257ef80db4c6aa7006990eaf25d04fcc34cf14cd9c718b65178",
+    "r4EvidenceDigest": "sha256:8e5b4f8bac2b8203e8727ea0a0b2a625f2984fc2d030cf7eb90a606ea460c332",
+    "r4AttemptRecordDigest": "sha256:384e06f98a04df5c20835c4a397cac7cf11526858d9fb8fa8e404e225dc5eca1",
+    "r4Classification": "reg-query-nonzero",
+    "r4PowerShellExitCode": 7
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-profile-census-repair-v1.md",
+      "fileSha256": "sha256:5f4ac6f7a5fc9bd130bbd79ca18673e8f269bcba257262a26224ce6f065ddbfd",
+      "blobId": "153419bfde6c20d04e73926df59f634ca8654f1f"
+    },
+    "runner": {
+      "path": "scripts/run-work-package-gate.ts",
+      "fileSha256": "sha256:eb65bcf4827230bf08b5a26fe3b2cc7d12e48d3f6d5660e9685e3a4868e9dc04",
+      "blobId": "90fdc7f760d9f982005b5dde3ae6eb6a777b0086"
+    },
+    "test": {
+      "path": "tests/unit/work-package-profile-census-repair.test.ts",
+      "fileSha256": "sha256:f9e9a7956afca6348c8bc22691e263d42abfc744250ef4fa24ac8e5419968ba3",
+      "blobId": "8335d0de3aa49133e1eaddac70ae17c4d3dc0213"
+    }
+  },
+  "gate": {
+    "gateId": "sm3-profile-census-repair-focused",
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/work-package-profile-census-repair.test.ts",
+      "--timeout",
+      "180000"
+    ],
+    "exitCode": 1,
+    "runnerReportedDurationMs": 2410,
+    "shellObservedDurationMs": 2800,
+    "tests": 2,
+    "passed": 1,
+    "failed": 1,
+    "assertions": 8,
+    "staticCommandCase": "passed",
+    "windowsCensusCase": "failed",
+    "windowsCensusCaseDurationMs": 1672,
+    "failureAssertion": {
+      "file": "tests/unit/work-package-profile-census-repair.test.ts",
+      "line": 22,
+      "expression": "expect(result.complete).toBe(true)",
+      "expected": true,
+      "received": false
+    }
+  },
+  "result": {
+    "realCensusAttempted": true,
+    "complete": false,
+    "reason": null,
+    "reasonAvailability": "not-emitted-by-test-assertion",
+    "rawRegistryOutputPersisted": false,
+    "rawProfileIdentityPersisted": false,
+    "retryAuthorized": false,
+    "classification": "profile-census-incomplete-unreported-reason"
+  },
+  "decision": {
+    "packageTerminal": true,
+    "rerunForbidden": true,
+    "oldGateExpansionForbidden": true,
+    "next": "Recompute the profile-authority boundary from live source without another census or diagnostic replay."
+  },
+  "invalidationRules": [
+    "This failed result is immutable evidence for the exact runner, test, manifest, head and tree recorded above.",
+    "A source or contract change cannot convert this run into PASS and requires separately authorized successor evidence.",
+    "The missing reason must remain unavailable; it cannot be reconstructed or inferred from duration or source review."
+  ]
+}

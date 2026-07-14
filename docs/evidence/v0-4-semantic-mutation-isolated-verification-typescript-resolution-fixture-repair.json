@@ -1,0 +1,150 @@
+{
+  "schema": "codex-development-isolated-verification-typescript-resolution-fixture-repair-v1",
+  "status": "passed",
+  "recordedAt": "2026-07-14T20:48:42.9916801+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The fixture repair is uncommitted and is bound individually by SHA-256 below."
+  },
+  "consumedTerminalAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-typescript-entry-focused-reconciliation.json",
+    "fileSha256": "sha256:f7771a333c03dc6f3e8a9745865eebeb3b14fc954836c1e546c57b18dbefc650",
+    "status": "failed",
+    "tests": 28,
+    "passed": 27,
+    "failed": 1,
+    "assertions": 511,
+    "rerunAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-typescript-resolution-fixture-repair-v1.md",
+      "fileSha256": "sha256:c3540fef28132daaaabde061527559b1cca49b482a2844af7fe91fdc160c1fca"
+    },
+    "unitTest": {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "fileSha256": "sha256:55530db73481c1bca7563eb1e70f03acd1a93e087aeae08bc2153c92d3473353"
+    },
+    "unchangedChildProgress": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-progress.ts",
+      "fileSha256": "sha256:09c1414baa5ae4fd3a8a4840a110ee44b0d6d1a03a62e7f20786b75953328149"
+    },
+    "unchangedIsolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:3e9f1911d65e0c01da54d05b9a163f8d76d78b26141c943a678988a31f684143"
+    },
+    "unchangedRuntimePlan": {
+      "path": "platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts",
+      "fileSha256": "sha256:2cd0347b372dcb0007d2bbaaa8a5c861264aff64310df7e399ca766c0a77d4c3"
+    },
+    "unchangedContractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:301cff1e5ce1d4282cf88d21190c290a6c360d735ef7370f35cfbff5a1ea31c3"
+    }
+  },
+  "staticReview": {
+    "reviewers": 2,
+    "conclusion": "NO BLOCKER",
+    "manifestAndOwnedHashesMatched": true,
+    "provenBoundaries": [
+      "The nearest valid TypeScript package uses a null root export to terminate bare resolution while the bound entry remains physically present.",
+      "A fixture-owned caseRoot ancestor package produces an absolute fallback identity before any repo ancestor and is classified as 77 without recording the path.",
+      "The alternate-main 77, entry-own/transitive 78, runtime 79 and later ts-morph/core 75 cases retain exact traces.",
+      "All new fixture state remains inside withTempWorkspace cleanup; no product loader, runtime state, test mode or external node_modules is changed."
+    ],
+    "testsOrResolverProbeRunByReviewers": false
+  },
+  "deltaGate": {
+    "gateId": "sm3-isolated-verification-typescript-resolution-fixture-delta",
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "staged loader classifies the manifest-bound TypeScript entry without exposing errors or paths",
+      "--timeout",
+      "180000"
+    ],
+    "attempt": 1,
+    "exitCode": 0,
+    "shellObservedDurationMs": 3878,
+    "runnerReportedDurationMs": 3760,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "filteredOut": 19,
+    "assertions": 42,
+    "rawOutputPersisted": false
+  },
+  "compositeEvidence": {
+    "status": "passed",
+    "tests": 28,
+    "passed": 28,
+    "failed": 0,
+    "basis": "The predecessor proved 27 of 28 tests against unchanged production and contract hashes. The only intervening test diff is confined to the sole failed physical classification test, and the named delta reran that complete test against the current unit hash.",
+    "reusedBaseline": {
+      "evidenceSha256": "sha256:f7771a333c03dc6f3e8a9745865eebeb3b14fc954836c1e546c57b18dbefc650",
+      "passedTests": 27,
+      "unitTestSha256": "sha256:9113366cc520ea671768435c70d13e452914f72f79a7b6353575a6433966d61c",
+      "contractTestSha256": "sha256:301cff1e5ce1d4282cf88d21190c290a6c360d735ef7370f35cfbff5a1ea31c3"
+    },
+    "interveningDiffImpact": {
+      "file": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "scope": "Only the previously failing staged-loader classification test changed: ambiguous package removal was replaced by a nearest exports-deny 76 case and a fixture-owned ancestor fallback 77 case.",
+      "invalidatedBaselineTests": [
+        "staged loader classifies the manifest-bound TypeScript entry without exposing errors or paths"
+      ],
+      "otherBaselineTestsInvalidated": false
+    },
+    "delta": {
+      "unitTestSha256": "sha256:55530db73481c1bca7563eb1e70f03acd1a93e087aeae08bc2153c92d3473353",
+      "passedTests": 1,
+      "assertions": 42
+    }
+  },
+  "provenFacts": [
+    "A valid nearest package with exports root null causes the generated product loader to return 76 with the durable trace bootstrap-entered to loader-entered.",
+    "Removing the staged package in the presence of a fixture-owned ancestor TypeScript package returns 77 with typescript-specifier-resolved as the last checkpoint.",
+    "An alternate staged main remains a second absolute wrong-identity 77 witness.",
+    "Entry-own and transitive rejection remain 78, post-import API failure remains 79, and ts-morph/core import failure remains later 75.",
+    "No child Error, resolved path, file URL, stdout or stderr content crossed the public boundary."
+  ],
+  "decision": {
+    "packageTerminal": true,
+    "deltaPassed": true,
+    "compositeFocusedPassed": true,
+    "exit76PhysicallyWitnessed": true,
+    "absoluteFallback77PhysicallyWitnessed": true,
+    "verticalV6RerunAuthorized": false,
+    "verticalV7Authorized": true,
+    "timeoutChangeAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze one real add-state-transition vertical-v7 against the exact composite evidence and current production/test hashes. Run it once without changing timeout or dependency closure."
+  },
+  "notRun": [
+    "full unit file rerun",
+    "contract file rerun",
+    "production AppContainer",
+    "real add-state-transition vertical",
+    "vertical-v6",
+    "old Gate",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This PASS applies only to the exact manifest, current unit test, unchanged production and contract hashes, head, tree and base recorded above.",
+    "The reused 27-test baseline remains valid only while the intervening diff stays confined to the named classification test and the production/contract hashes remain exact.",
+    "Any production, contract, shared helper or non-classification unit-test change invalidates the composite authorization and requires a separately frozen successor.",
+    "A vertical-v7 result may refine the terminal vertical-v6 TypeScript import boundary but cannot rewrite or rerun vertical-v6."
+  ]
+}

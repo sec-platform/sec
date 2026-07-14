@@ -93,6 +93,7 @@ async function copyWorkspaceTree(
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
     if (childRelative === '.git' || childRelative === 'node_modules' ||
+      childRelative === '.shared-deps' ||
       childRelative === '.sec/semantic-mutation' ||
       childRelative === '.sec/workspace-write-lease') continue;
     const sourcePath = path.join(source, entry.name);

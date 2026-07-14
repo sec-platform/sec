@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import type { CommitFence } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
+import { ISOLATED_VERIFICATION_ENV_KEY } from './process.ts';
+import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
 
 export const WORKSPACE_WRITE_LEASE_TOKEN_VERSION = 'workspace-write-lease-token-v1' as const;
 
@@ -61,14 +63,27 @@ export interface WorkspaceWriteLeaseHandle {
 }
 
 export interface WorkspaceWriteLeaseManager {
-  acquire(workspaceRoot: string): Promise<WorkspaceWriteLeaseHandle>;
+  acquire(
+    workspaceRoot: string,
+    options?: WorkspaceWriteLeaseAcquireOptions
+  ): Promise<WorkspaceWriteLeaseHandle>;
   assertOwned(workspaceRoot: string, token: WorkspaceWriteLeaseToken): Promise<void>;
   release(workspaceRoot: string, token: WorkspaceWriteLeaseToken): Promise<void>;
+  withControlPlaneQuiesced<Value>(
+    workspaceRoot: string,
+    token: WorkspaceWriteLeaseToken,
+    execute: () => Promise<Value>
+  ): Promise<Value>;
   withLease<Value>(
     workspaceRoot: string,
     reentrantToken: WorkspaceWriteLeaseToken | undefined,
-    execute: (token: WorkspaceWriteLeaseToken) => Promise<Value>
+    execute: (token: WorkspaceWriteLeaseToken) => Promise<Value>,
+    options?: WorkspaceWriteLeaseAcquireOptions
   ): Promise<Value>;
+}
+
+export interface WorkspaceWriteLeaseAcquireOptions {
+  readonly executionBoundary?: 'windows-appcontainer';
 }
 
 export interface WorkspaceWriteLeaseManagerOptions {
@@ -187,7 +202,44 @@ function workspaceIdentityFailureReason(error: unknown): WorkspaceIdentityFailur
   }
 }
 
-async function workspaceIdentity(workspaceRoot: string): Promise<string> {
+function assertWorkspaceIdentityBoundary(
+  workspaceRoot: string,
+  executionBoundary: WorkspaceWriteLeaseAcquireOptions['executionBoundary']
+): void {
+  if (executionBoundary === undefined) return;
+  if (executionBoundary !== 'windows-appcontainer' || process.platform !== 'win32' ||
+    process.env[ISOLATED_VERIFICATION_ENV_KEY] !== '1' ||
+    !isSemanticMutationStagingWorkspace(workspaceRoot)) {
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-004',
+      'Workspace lexical identity boundary is invalid'
+    );
+  }
+}
+
+async function workspaceIdentity(
+  workspaceRoot: string,
+  executionBoundary?: WorkspaceWriteLeaseAcquireOptions['executionBoundary']
+): Promise<string> {
+  assertWorkspaceIdentityBoundary(workspaceRoot, executionBoundary);
+  if (executionBoundary === 'windows-appcontainer') {
+    const resolved = path.resolve(workspaceRoot);
+    const stat = await fs.lstat(resolved);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-004',
+        'Workspace lexical identity is not a real directory',
+        { reason: 'not-directory' }
+      );
+    }
+    return sha256({
+      domain: 'workspace-write-lease-appcontainer-lexical-identity-v1',
+      resolved,
+      dev: String(stat.dev),
+      ino: String(stat.ino),
+      mode: Number(stat.mode)
+    });
+  }
   const canonical = await fs.realpath(workspaceRoot);
   const stat = await fs.stat(canonical);
   if (!stat.isDirectory()) {
@@ -205,7 +257,30 @@ async function workspaceIdentity(workspaceRoot: string): Promise<string> {
   });
 }
 
-async function assertLeaseParent(workspaceRoot: string, parent: string): Promise<void> {
+async function assertLeaseParent(
+  workspaceRoot: string,
+  parent: string,
+  executionBoundary?: WorkspaceWriteLeaseAcquireOptions['executionBoundary']
+): Promise<void> {
+  assertWorkspaceIdentityBoundary(workspaceRoot, executionBoundary);
+  if (executionBoundary === 'windows-appcontainer') {
+    const resolvedWorkspace = path.resolve(workspaceRoot);
+    const resolvedParent = path.resolve(parent);
+    const expectedParent = path.join(resolvedWorkspace, '.sec');
+    const [workspaceMetadata, parentMetadata] = await Promise.all([
+      fs.lstat(resolvedWorkspace),
+      fs.lstat(resolvedParent)
+    ]);
+    if (resolvedParent !== expectedParent ||
+      !workspaceMetadata.isDirectory() || workspaceMetadata.isSymbolicLink() ||
+      !parentMetadata.isDirectory() || parentMetadata.isSymbolicLink()) {
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-004',
+        'Workspace writer lease parent is not a lexical real directory inside the AppContainer workspace'
+      );
+    }
+    return;
+  }
   const [canonicalWorkspace, parentMetadata, canonicalParent] = await Promise.all([
     fs.realpath(workspaceRoot),
     fs.lstat(parent),
@@ -391,6 +466,12 @@ export function createWorkspaceWriteLeaseManager(
   const now = options.now ?? Date.now;
   const createId = options.createId ?? randomUUID;
   const processAlive = options.processAlive ?? defaultProcessAlive;
+  const controlPlaneTails = new Map<string, Promise<void>>();
+  const activeLeaseKeys = new Set<string>();
+  const activeLeaseBoundaries = new Map<
+    string,
+    WorkspaceWriteLeaseAcquireOptions['executionBoundary']
+  >();
   if (!Number.isSafeInteger(heartbeatIntervalMs) || heartbeatIntervalMs < 1 ||
     !Number.isSafeInteger(staleAfterMs) || staleAfterMs <= heartbeatIntervalMs ||
     !nonEmpty(hostname) || !safeInteger(pid) || !nonEmpty(processNonce)) {
@@ -411,16 +492,54 @@ export function createWorkspaceWriteLeaseManager(
     }
   };
 
-  const assertOwnedNative = async (workspaceRoot: string, token: WorkspaceWriteLeaseToken): Promise<void> => {
+  const tokenKey = (token: WorkspaceWriteLeaseToken): string => JSON.stringify(token);
+
+  const assertActiveLease = (token: WorkspaceWriteLeaseToken): void => {
+    assertManagerHolder(token);
+    if (!activeLeaseKeys.has(tokenKey(token))) {
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-002',
+        'Workspace writer lease token is not active in this manager'
+      );
+    }
+  };
+
+  const withControlPlaneLock = async <Value>(
+    token: WorkspaceWriteLeaseToken,
+    execute: () => Promise<Value>
+  ): Promise<Value> => {
+    const key = tokenKey(token);
+    const previous = controlPlaneTails.get(key) ?? Promise.resolve();
+    let releaseGate: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const current = previous.then(() => gate);
+    controlPlaneTails.set(key, current);
+    await previous;
+    try {
+      return await execute();
+    } finally {
+      releaseGate?.();
+      if (controlPlaneTails.get(key) === current) controlPlaneTails.delete(key);
+    }
+  };
+
+  const assertOwnedNative = async (
+    workspaceRoot: string,
+    token: WorkspaceWriteLeaseToken,
+    executionBoundary: WorkspaceWriteLeaseAcquireOptions['executionBoundary'] =
+      activeLeaseBoundaries.get(tokenKey(token))
+  ): Promise<void> => {
     if (!tokenLooksValid(token)) {
       throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-002', 'Workspace writer lease token is invalid');
     }
-    const expectedWorkspace = await workspaceIdentity(workspaceRoot).catch(() => '');
+    const expectedWorkspace = await workspaceIdentity(workspaceRoot, executionBoundary).catch(() => '');
     if (expectedWorkspace !== token.workspaceIdentityDigest) {
       throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-002', 'Workspace writer lease token targets a different workspace');
     }
     const { parent, lease } = pathsFor(workspaceRoot);
-    await assertLeaseParent(workspaceRoot, parent);
+    await assertLeaseParent(workspaceRoot, parent, executionBoundary);
     let owner: WorkspaceWriteLeaseOwner;
     let identity: string;
     try {
@@ -457,7 +576,8 @@ export function createWorkspaceWriteLeaseManager(
 
   const heartbeat = async (workspaceRoot: string, token: WorkspaceWriteLeaseToken): Promise<void> => {
     try {
-      await heartbeatNative(workspaceRoot, token);
+      assertActiveLease(token);
+      await withControlPlaneLock(token, () => heartbeatNative(workspaceRoot, token));
     } catch (error) {
       if (error instanceof WorkspaceWriteLeaseError) throw error;
       throw new WorkspaceWriteLeaseError(
@@ -465,6 +585,60 @@ export function createWorkspaceWriteLeaseManager(
         'Workspace writer lease heartbeat failed'
       );
     }
+  };
+
+  const assertCanonicalControlPlane = async (
+    workspaceRoot: string,
+    token: WorkspaceWriteLeaseToken
+  ): Promise<void> => {
+    try {
+      await assertOwned(workspaceRoot, token);
+      const { lease } = pathsFor(workspaceRoot);
+      const assertExactChildren = async (): Promise<void> => {
+        const children = (await fs.readdir(lease)).sort((left, right) => left.localeCompare(right));
+        if (children.length !== 1 || children[0] !== OWNER_FILE) {
+          throw new WorkspaceWriteLeaseError(
+            'WORKSPACE-WRITE-LEASE-002',
+            'Workspace writer lease control plane is not canonical'
+          );
+        }
+      };
+      await assertExactChildren();
+      const ownerMetadata = await fs.lstat(path.join(lease, OWNER_FILE));
+      if (!ownerMetadata.isFile() || ownerMetadata.isSymbolicLink() || Number(ownerMetadata.nlink) !== 1) {
+        throw new WorkspaceWriteLeaseError(
+          'WORKSPACE-WRITE-LEASE-002',
+          'Workspace writer lease owner record is not a canonical regular file'
+        );
+      }
+      await assertOwned(workspaceRoot, token);
+      await assertExactChildren();
+    } catch (error) {
+      if (error instanceof WorkspaceWriteLeaseError) throw error;
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-002',
+        'Workspace writer lease control plane could not be proven'
+      );
+    }
+  };
+
+  const withControlPlaneQuiesced = async <Value>(
+    workspaceRoot: string,
+    token: WorkspaceWriteLeaseToken,
+    execute: () => Promise<Value>
+  ): Promise<Value> => {
+    assertActiveLease(token);
+    return withControlPlaneLock(token, async () => {
+      await assertCanonicalControlPlane(workspaceRoot, token);
+      try {
+        const result = await execute();
+        await assertCanonicalControlPlane(workspaceRoot, token);
+        return result;
+      } catch (error) {
+        await assertCanonicalControlPlane(workspaceRoot, token);
+        throw error;
+      }
+    });
   };
 
   const quarantineStaleLease = async (workspaceRoot: string): Promise<boolean> => {
@@ -524,8 +698,12 @@ export function createWorkspaceWriteLeaseManager(
     return true;
   };
 
-  const acquireNative = async (workspaceRoot: string): Promise<WorkspaceWriteLeaseHandle> => {
-    const workspaceIdentityDigest = await workspaceIdentity(workspaceRoot).catch((error: unknown) => {
+  const acquireNative = async (
+    workspaceRoot: string,
+    acquireOptions: WorkspaceWriteLeaseAcquireOptions
+  ): Promise<WorkspaceWriteLeaseHandle> => {
+    const executionBoundary = acquireOptions.executionBoundary;
+    const workspaceIdentityDigest = await workspaceIdentity(workspaceRoot, executionBoundary).catch((error: unknown) => {
       throw new WorkspaceWriteLeaseError(
         'WORKSPACE-WRITE-LEASE-004',
         'Workspace identity could not be proven',
@@ -538,7 +716,7 @@ export function createWorkspaceWriteLeaseManager(
     });
     const { parent, lease } = pathsFor(workspaceRoot);
     await fs.mkdir(parent, { recursive: true });
-    await assertLeaseParent(workspaceRoot, parent);
+    await assertLeaseParent(workspaceRoot, parent, executionBoundary);
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const leaseId = createId();
@@ -562,12 +740,25 @@ export function createWorkspaceWriteLeaseManager(
         await publishLeaseCandidateNoReplace(candidate, lease);
         await fsyncDirectory(parent);
         const token = tokenFromOwner(owner);
-        await assertOwned(workspaceRoot, token);
+        await assertOwnedNative(workspaceRoot, token, executionBoundary);
 
         let released = false;
         let heartbeatFailure: unknown;
+        let heartbeatPending: Promise<void> | undefined;
+        const requestHeartbeat = (): Promise<void> => {
+          if (heartbeatPending) return heartbeatPending;
+          const pending = heartbeat(workspaceRoot, token);
+          heartbeatPending = pending;
+          const clearPending = (): void => {
+            if (heartbeatPending === pending) heartbeatPending = undefined;
+          };
+          void pending.then(clearPending, clearPending);
+          return pending;
+        };
+        activeLeaseKeys.add(tokenKey(token));
+        activeLeaseBoundaries.set(tokenKey(token), executionBoundary);
         const timer = setInterval(() => {
-          void heartbeat(workspaceRoot, token).catch((error) => {
+          void requestHeartbeat().catch((error) => {
             heartbeatFailure = error;
           });
         }, heartbeatIntervalMs);
@@ -594,7 +785,7 @@ export function createWorkspaceWriteLeaseManager(
           token,
           heartbeat: async () => {
             await assertHandle();
-            await heartbeat(workspaceRoot, token);
+            await requestHeartbeat();
           },
           assertOwned: assertHandle,
           release: releaseHandle
@@ -639,7 +830,10 @@ export function createWorkspaceWriteLeaseManager(
 
   const release = async (workspaceRoot: string, token: WorkspaceWriteLeaseToken): Promise<void> => {
     try {
-      await releaseNative(workspaceRoot, token);
+      assertActiveLease(token);
+      await withControlPlaneLock(token, () => releaseNative(workspaceRoot, token));
+      activeLeaseKeys.delete(tokenKey(token));
+      activeLeaseBoundaries.delete(tokenKey(token));
     } catch (error) {
       if (error instanceof WorkspaceWriteLeaseError) throw error;
       throw new WorkspaceWriteLeaseError(
@@ -649,9 +843,12 @@ export function createWorkspaceWriteLeaseManager(
     }
   };
 
-  const acquire = async (workspaceRoot: string): Promise<WorkspaceWriteLeaseHandle> => {
+  const acquire = async (
+    workspaceRoot: string,
+    acquireOptions: WorkspaceWriteLeaseAcquireOptions = {}
+  ): Promise<WorkspaceWriteLeaseHandle> => {
     try {
-      return await acquireNative(workspaceRoot);
+      return await acquireNative(workspaceRoot, acquireOptions);
     } catch (error) {
       if (error instanceof WorkspaceWriteLeaseError) throw error;
       throw new WorkspaceWriteLeaseError(
@@ -664,14 +861,15 @@ export function createWorkspaceWriteLeaseManager(
   const withLease = async <Value>(
     workspaceRoot: string,
     reentrantToken: WorkspaceWriteLeaseToken | undefined,
-    execute: (token: WorkspaceWriteLeaseToken) => Promise<Value>
+    execute: (token: WorkspaceWriteLeaseToken) => Promise<Value>,
+    acquireOptions: WorkspaceWriteLeaseAcquireOptions = {}
   ): Promise<Value> => {
     if (reentrantToken) {
-      assertManagerHolder(reentrantToken);
+      assertActiveLease(reentrantToken);
       await assertOwned(workspaceRoot, reentrantToken);
       return execute(reentrantToken);
     }
-    const handle = await acquire(workspaceRoot);
+    const handle = await acquire(workspaceRoot, acquireOptions);
     try {
       return await execute(handle.token);
     } finally {
@@ -679,7 +877,7 @@ export function createWorkspaceWriteLeaseManager(
     }
   };
 
-  return Object.freeze({ acquire, assertOwned, release, withLease });
+  return Object.freeze({ acquire, assertOwned, release, withControlPlaneQuiesced, withLease });
 }
 
 export const workspaceWriteLeaseManager = createWorkspaceWriteLeaseManager();
@@ -687,6 +885,8 @@ export const workspaceWriteLeaseManager = createWorkspaceWriteLeaseManager();
 export const acquireWorkspaceWriteLease = workspaceWriteLeaseManager.acquire;
 export const assertWorkspaceWriteLease = workspaceWriteLeaseManager.assertOwned;
 export const releaseWorkspaceWriteLease = workspaceWriteLeaseManager.release;
+export const withWorkspaceWriteLeaseControlPlaneQuiesced =
+  workspaceWriteLeaseManager.withControlPlaneQuiesced;
 export const withWorkspaceWriteLease = workspaceWriteLeaseManager.withLease;
 
 export function createWorkspaceWriteCommitFence(

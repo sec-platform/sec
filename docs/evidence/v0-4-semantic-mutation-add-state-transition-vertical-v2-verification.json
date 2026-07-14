@@ -1,0 +1,149 @@
+{
+  "schema": "codex-development-add-state-transition-vertical-verification-v2",
+  "status": "failed",
+  "recordedAt": "2026-07-14T16:16:19.1580570+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The vertical inputs are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedFocusedAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-isolated-verification-manifest-digest-fixture.json",
+    "fileSha256": "sha256:2096927141b0dbf52d5b4d7bbbb978ff65104c3b4d3dfa181a7e7cb0f1c27378",
+    "status": "passed",
+    "retryAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-add-state-transition-vertical-v2.md",
+      "fileSha256": "sha256:d85c09a7fd2203f8e17422d06eea60d4e2c9eed1cdeeaa32392163ddebfbf5f5"
+    },
+    "orchestrator": {
+      "path": "platform/orchestrator/semantic-mutation-orchestrator.ts",
+      "fileSha256": "sha256:26c1bc4204aa028838b3fb20c2f1f1381e5e24f4640d0101625dba89b4d386af"
+    },
+    "isolatedChild": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:62a5fcdc84d758151179a11d676da7e5a1a0d5d7515440ddf0983521521ccd98"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:76a33b3a0fbd4e34f09e949d8e47da5039258e8514562825c0a87248a85a39c2"
+    },
+    "integrationTest": {
+      "path": "tests/integration/semantic-mutation-apply.test.ts",
+      "fileSha256": "sha256:eb557a8cb6b70cb4d32282c94ce572abb467508018c7323412d792b54ecf16f1"
+    }
+  },
+  "gate": {
+    "gateId": "sm3-add-state-transition-contract-plus-real-apply-v2",
+    "argv": [
+      "bun",
+      "test",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--timeout",
+      "600000"
+    ],
+    "exitCode": 1,
+    "shellObservedDurationMs": 412144.587,
+    "runnerReportedDurationMs": 411700,
+    "tests": 12,
+    "passed": 11,
+    "failed": 1,
+    "unhandledErrors": 1,
+    "assertions": 306,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "failures": [
+    {
+      "id": "SM3-VERTICAL-V2-ARTIFACT-READ-001",
+      "kind": "real-apply-isolated-verification-artifact-read-blocked-after-test-timeout",
+      "file": "tests/integration/semantic-mutation-apply.test.ts",
+      "line": 368,
+      "test": "SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once",
+      "testTimeoutMs": 300000,
+      "testObservedDurationMs": 300015,
+      "lateApplyOutcome": {
+        "status": "rejected",
+        "planRevision": "sha256:3c8e7698dd2ad2c4bda6436b19de64010e77136f865f8baea1b98fd2d68829e3",
+        "resultRevision": "sha256:163697203f8488d64053447d7955a3739dc307451a58df67afc6b22a7446282f",
+        "actualDeltaRevision": "sha256:e6a70999fff6aff2978c59e498e1fe491d70964b401d065a3ce9fdfdbf19fa01",
+        "impactRevision": "sha256:cdbbc67b755b7dcbde9e3bdc8c75beb4f54145ce2179d885b666bed05ab2e5",
+        "verification": {
+          "adapterId": "semantic-mutation-local-verification",
+          "adapterRevision": "semantic-mutation-local-verification-v1",
+          "status": "blocked",
+          "reportRevision": "sha256:5a387867988ce7faeaf918f61a4ba89793ef8b45e2128e91d7893a460346d0af",
+          "verificationExecutionRevision": "sha256:10adc0fdf32f500c9dccfdef190e21746dd5c99a651da2527e9ebb1c6c126ec1"
+        },
+        "diagnostic": {
+          "origin": "semantic-mutation",
+          "code": "SEMANTIC-MUTATION-010",
+          "stage": "impact-verification",
+          "message": "Isolated Semantic Mutation Verification did not pass",
+          "details": {
+            "isolatedVerification": {
+              "stage": "artifact-read"
+            }
+          }
+        }
+      },
+      "rootCause": null,
+      "rootCauseAvailability": "The new typed envelope proves only the artifact-read stage. It contains no appcontainer-execution phase, native code or host-tool failure and therefore does not authorize a profile-cleanup diagnosis.",
+      "publishAndLiveSourceStateIndependentlyChecked": false,
+      "repairBoundary": "Freeze one static artifact-protocol trace from supervisor completion through result-file read, parse and validation. Do not rerun, probe AppContainer/profile state, expand timeout or infer cleanup failure from elapsed time."
+    }
+  ],
+  "passedCoverage": [
+    "All eight semantic-mutation apply contract cases passed, including EOL-normalized lease ordering, typed failure projection and digest domains.",
+    "The public dry-run recovery guard passed in 12578 ms.",
+    "The complete pre-publish failure matrix passed in 60313 ms.",
+    "The post-publish restore and journal failure matrix passed in 37297 ms.",
+    "The real happy path again reached canonical source resolution, staged rebuild, exact Fact Delta and Impact before isolated Verification blocked publication."
+  ],
+  "residue": {
+    "probeRun": false,
+    "cleanupRun": false,
+    "productionAppContainerAttempted": "unknown-from-public-evidence",
+    "registryOrProfileState": "unknown-not-probed",
+    "retainedR2R3AuthorityTouched": "not-independently-checked",
+    "disposition": "No post-run probe or cleanup was authorized. Test-owned teardown is not promoted as independent residue evidence."
+  },
+  "decision": {
+    "packageTerminal": true,
+    "productVerticalPassed": false,
+    "rerunAuthorized": false,
+    "profileCleanupRepairAuthorized": false,
+    "staticArtifactProtocolTraceAuthorized": true,
+    "oldGateExpansionAuthorized": false,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze one static-only artifact-read diagnosis package. A later implementation successor requires a source-backed root cause and its own exact manifest."
+  },
+  "notRun": [
+    "second real add-state-transition attempt",
+    "post-run AppContainer/profile/registry probe",
+    "cleanup repair",
+    "old 39-file owner batch",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick",
+    "Risk",
+    "Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This failure applies only to the exact manifest, tests, production hashes, head, tree and base bound above.",
+    "The typed artifact-read detail invalidates cleanup/profile speculation but does not by itself identify whether the artifact was missing, malformed, stale or rejected by validation.",
+    "A source repair cannot convert this run into PASS and requires a separately frozen successor with new evidence; this command must not be rerun under the current manifest."
+  ]
+}

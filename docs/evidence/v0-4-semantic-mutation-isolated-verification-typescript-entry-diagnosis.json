@@ -1,0 +1,169 @@
+{
+  "schema": "codex-development-isolated-verification-typescript-entry-diagnosis-v1",
+  "status": "failed",
+  "recordedAt": "2026-07-14T20:18:23.2879133+08:00",
+  "testedState": {
+    "headSha": "d392479637fd3503c1f3b365580bce5d913ffe5e",
+    "treeSha": "76b7984f73ae67205c560dc4f269df77a98f5631",
+    "baseSha": "f29ecb73ac64aaae23b7989688c4a3ca79593d43",
+    "worktreeBinding": "The diagnostic sources and focused tests are uncommitted and are bound individually by SHA-256 below."
+  },
+  "consumedTerminalAuthority": {
+    "path": "docs/evidence/v0-4-semantic-mutation-add-state-transition-vertical-v6-verification.json",
+    "fileSha256": "sha256:7630b3637cc0a4df3ab5ad683e573f5addc32e2887a8cf4d3890478199330ab7",
+    "status": "failed",
+    "terminationClass": "loader-import-failure",
+    "lastCheckpoint": "loader-entered",
+    "rerunAuthorized": false
+  },
+  "inputs": {
+    "manifest": {
+      "path": "docs/work-packages/sm3-isolated-verification-typescript-entry-diagnosis-v1.md",
+      "fileSha256": "sha256:b5bcefffe96099d070720a1dd88aa6b5948cba325e379db66b10d4630423b0e1"
+    },
+    "childProgress": {
+      "path": "platform/compiler/semantic-mutation/isolated-verification-child-progress.ts",
+      "fileSha256": "sha256:33682eccdaf4fd6b9d19af6847775466804d7dacff68f6848fb1e83946a21e4f"
+    },
+    "runtimePlan": {
+      "path": "platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts",
+      "fileSha256": "sha256:0c170259599988c5b14bd1cad033f5ef349aa2677077ee2e9b1ed0093bdaf8f4"
+    },
+    "isolatedChildHost": {
+      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "fileSha256": "sha256:a39bbd98c6c25795c6bcb7bd71b7dd9ac58c506a73385fea6a7ba18eee95447d"
+    },
+    "unitTest": {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "fileSha256": "sha256:90f34d21a748488de6a93baea5b26ea067ed88378fb3d72b257329f9318ce2d8"
+    },
+    "contractTest": {
+      "path": "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "fileSha256": "sha256:0e76f14c70af4e6ecde6f078236f259571a372c778a88a36bd48110ef9035bc3"
+    }
+  },
+  "staticReview": {
+    "reviewers": 2,
+    "conclusion": "NO BLOCKER",
+    "reviewedUnitTestSha256": "sha256:90f34d21a748488de6a93baea5b26ea067ed88378fb3d72b257329f9318ce2d8",
+    "provenBoundaries": [
+      "Exit 74, exit 75, exits 76 through 79 and unclassified nonzero retain an exact fail-closed host truth table.",
+      "Early diagnostic exits cannot consume canonical reports or become PASS, semantic rebuild or success rawDigests.",
+      "The TypeScript package manifest, selected main entry, entry bytes, loader parent and diagnostic revisions enter the opaque runtime plan and destination manifest proof.",
+      "The success fixture forces loader exact-URL import, ts-morph bare require and core bare import to use one TypeScript API object and rejects namespace-wrapper or duplicate-evaluation false positives.",
+      "No caught Error, path, file URL, module export, output or raw exit value crosses the public boundary."
+    ],
+    "testsOrGeneratedCodeRunByReviewers": false
+  },
+  "focusedGate": {
+    "gateId": "sm3-isolated-verification-typescript-entry-diagnosis-focused",
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "tests/contract/semantic-mutation-apply-contract.test.ts",
+      "--timeout",
+      "180000"
+    ],
+    "attempt": 1,
+    "exitCode": 1,
+    "shellObservedDurationMs": 34453,
+    "runnerReportedDurationMs": 34200,
+    "tests": 28,
+    "passed": 25,
+    "failed": 3,
+    "assertions": 483,
+    "rawOutputPersisted": false,
+    "secondAttemptAuthorized": false
+  },
+  "failures": [
+    {
+      "id": "SM3-TYPESCRIPT-RESOLUTION-FIXTURE-001",
+      "kind": "exit-classification-fixture-mismatch",
+      "file": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "line": 788,
+      "test": "staged loader classifies the manifest-bound TypeScript entry without exposing errors or paths",
+      "fixture": "typescript-resolution",
+      "expectedExitCode": 76,
+      "observedExitCode": 77,
+      "observed": "Removing the staged TypeScript package root did not produce the expected typescript-resolution-failure exit. The generated loader returned typescript-entry-identity-mismatch instead.",
+      "provenInterval": "Bun.resolveSync completed without throwing and the subsequent resolved-entry identity check rejected before exact-entry import. The trace assertion did not execute after the exit assertion failed, so no stronger durable-trace claim is recorded.",
+      "rootCause": null,
+      "successorBoundary": "Separately freeze whether a noncanonical unresolved Bun.resolveSync return belongs to exit 76 or whether the unit fixture must force a true resolver throw. Do not change the exact-entry, runtime probe or later-loader algebra in this package."
+    },
+    {
+      "id": "SM3-ARTIFACT-PROTOCOL-CHILD-PROJECTION-002",
+      "kind": "allowlisted-child-stage-projection-mismatch",
+      "file": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "line": 1430,
+      "test": "isolated host enforces receipt, exit, and complete canonical report coherence",
+      "expected": {
+        "stage": "artifact-protocol",
+        "child": { "stage": "preflight" },
+        "artifact": "verification-set",
+        "termination": { "class": "runner-controlled-failure", "checkpoint": "outcome-publish-started" }
+      },
+      "observed": {
+        "stage": "artifact-protocol",
+        "artifact": "verification-set",
+        "termination": { "class": "runner-controlled-failure", "checkpoint": "outcome-publish-started" }
+      },
+      "rootCause": "The early canonical-report poisoning branch returns artifact-protocol without projecting the already parsed allowlisted child stage, unlike adjacent coherent-control branches.",
+      "successorBoundary": "Separately freeze the minimal host projection reconciliation. It must preserve artifact-protocol, redaction and the ban on consuming early reports."
+    },
+    {
+      "id": "SM3-DESTINATION-TAMPER-ASSERTION-003",
+      "kind": "fail-closed-error-boundary-expectation-drift",
+      "file": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "line": 1778,
+      "test": "runtime plan rejects cloned bindings, stale sources, destination tamper, and extra empty directories",
+      "tamper": "The staged TypeScript package.json bytes were replaced with {}.",
+      "expectedMessageSubstring": "destination manifest is not exact",
+      "observedMessage": "Semantic Mutation isolated runtime destination structure is not exact",
+      "rootCause": "The tamper changed file size, so the exact path-and-size structure proof rejected before the later digest manifest proof.",
+      "productRuntimeFailure": false,
+      "successorBoundary": "Separately freeze the test expectation around the first valid fail-closed boundary, or use same-size tamper if the digest-manifest branch itself must be exercised. Do not weaken the earlier structure proof."
+    }
+  ],
+  "passedCoverage": [
+    "All eight Semantic Mutation contract tests passed against the new TypeScript entry binding, checkpoints, exits and host redaction sentinels.",
+    "The physical generated-loader success test passed in 312 ms and proved exact-entry import, ts-morph bare require and core bare import share one TypeScript module instance before core success publication.",
+    "Resolution-independent TypeScript entry/runtime authority, supervisor cancellation, AppContainer delegation, cleanup fencing, materialization, stale receipt handling, outcome parsing, termination redaction, report read ordering, package-entry authority and host-path-free bundle coverage passed.",
+    "The focused run completed 25 of 28 tests and 483 assertions without invoking production AppContainer, a real mutation vertical or GitHub Actions."
+  ],
+  "decision": {
+    "packageTerminal": true,
+    "focusedGatePassed": false,
+    "moduleCacheIdentityBlockerClosed": true,
+    "verticalV6RerunAuthorized": false,
+    "verticalV7Authorized": false,
+    "timeoutChangeAuthorized": false,
+    "successorRepairAuthorized": true,
+    "commitPushMergeAuthorized": false,
+    "next": "Freeze one minimal successor that reconciles the resolution-return classification, preserves the allowlisted child stage on early artifact-protocol, and aligns the tamper sentinel with the first fail-closed proof. Do not rerun this package."
+  },
+  "notRun": [
+    "second focused attempt",
+    "production AppContainer",
+    "real add-state-transition vertical",
+    "vertical-v6",
+    "old Gate",
+    "typecheck",
+    "changed-only imports",
+    "affected",
+    "Contract Freeze",
+    "Quick/Risk/Full",
+    "slow matrix",
+    "workspace/reference",
+    "GitHub Actions",
+    "commit",
+    "push",
+    "merge"
+  ],
+  "invalidationRules": [
+    "This failed focused result applies only to the exact manifest, production sources, tests, head, tree and base hashes recorded above.",
+    "The 25 passed tests remain exact evidence for their hashed inputs, including the closed module-cache identity blocker, but they do not promote this package or authorize vertical-v7.",
+    "Any repair requires a separately frozen successor and new evidence; this focused command must not be rerun under the current manifest.",
+    "The terminal vertical-v6 evidence remains unchanged and must not be retried."
+  ]
+}

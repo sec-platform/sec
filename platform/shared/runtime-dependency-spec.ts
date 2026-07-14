@@ -4,7 +4,7 @@ import { CompilerError } from './errors.ts';
 import { readJson } from './fs.ts';
 import { compilerRoot } from './paths.ts';
 
-interface RootPackageJson {
+export interface RootPackageJson {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 }
@@ -21,6 +21,14 @@ export interface RuntimePackageManifest {
   type: 'module';
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
+}
+
+export const RUNTIME_DEPS_PREBOUND_BINDING_FORMAT = 'runtime-deps-prebound-binding-v1' as const;
+export const RUNTIME_DEPS_PREBOUND_BINDING_FILE = '.sec-runtime-deps-binding-v1.json' as const;
+
+export interface RuntimeDepsPreboundBinding {
+  readonly formatVersion: typeof RUNTIME_DEPS_PREBOUND_BINDING_FORMAT;
+  readonly manifestHash: string;
 }
 
 const runtimeDependencyKeys = ['next', 'react', 'react-dom', 'yaml'] as const;
@@ -49,10 +57,7 @@ function stableHash(value: unknown): string {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-export async function loadRuntimeDependencySpec(
-  packageJsonPath = path.join(compilerRoot, 'package.json')
-): Promise<RuntimeDependencySpec> {
-  const rootPackage = await readJson<RootPackageJson>(packageJsonPath);
+export function buildRuntimeDependencySpec(rootPackage: RootPackageJson): RuntimeDependencySpec {
   const dependencies = Object.fromEntries(
     runtimeDependencyKeys.map((dependencyName) => [dependencyName, resolveVersion(rootPackage, dependencyName)])
   );
@@ -65,6 +70,38 @@ export async function loadRuntimeDependencySpec(
     devDependencies,
     manifestHash: stableHash({ dependencies, devDependencies })
   };
+}
+
+export function buildRuntimeDepsPreboundBinding(
+  spec: RuntimeDependencySpec
+): RuntimeDepsPreboundBinding {
+  return Object.freeze({
+    formatVersion: RUNTIME_DEPS_PREBOUND_BINDING_FORMAT,
+    manifestHash: spec.manifestHash
+  });
+}
+
+export function encodeRuntimeDepsPreboundBinding(spec: RuntimeDependencySpec): Uint8Array {
+  return new TextEncoder().encode(`${JSON.stringify(buildRuntimeDepsPreboundBinding(spec))}\n`);
+}
+
+export function isRuntimeDepsPreboundBinding(
+  value: unknown,
+  expectedManifestHash: string
+): value is RuntimeDepsPreboundBinding {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort((left, right) => left.localeCompare(right));
+  return keys.length === 2 && keys[0] === 'formatVersion' && keys[1] === 'manifestHash' &&
+    record.formatVersion === RUNTIME_DEPS_PREBOUND_BINDING_FORMAT &&
+    record.manifestHash === expectedManifestHash;
+}
+
+export async function loadRuntimeDependencySpec(
+  packageJsonPath = path.join(compilerRoot, 'package.json')
+): Promise<RuntimeDependencySpec> {
+  const rootPackage = await readJson<RootPackageJson>(packageJsonPath);
+  return buildRuntimeDependencySpec(rootPackage);
 }
 
 export function buildRuntimePackageManifest(
