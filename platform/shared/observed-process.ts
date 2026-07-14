@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';

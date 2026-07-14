@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFile,
   lstat,
@@ -16,8 +16,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
-import { assertSemanticMutationRecoveryRecordInvariant } from
-  '../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
+import { assertSemanticMutationRecoveryRecordInvariant } from '../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
 import {
   assertSemanticMutationRejectedTerminalRecordInvariant,
   readRejectedSemanticMutationTerminal
@@ -26,11 +25,11 @@ import {
   assertSemanticMutationTransactionRoot,
   semanticMutationWorkspaceRootFromTransactionRoot
 } from '../platform/compiler/semantic-mutation/transaction-identity.ts';
+import { CodexDevelopmentVerificationDigest } from '../platform/shared/ci-evidence-contract.ts';
 import {
   runObservedCommand,
   type ObservedCommandOutcome
 } from '../platform/shared/observed-process.ts';
-import { CodexDevelopmentVerificationDigest } from '../platform/shared/ci-evidence-contract.ts';
 import { recoverWindowsAppContainerOwnedTransaction } from '../platform/shared/windows-appcontainer-executor.ts';
 import { acquireWorkspaceWriteLease } from '../platform/shared/workspace-write-lease.ts';
 import {
@@ -44,8 +43,8 @@ import {
   WORK_PACKAGE_GATE_RUN_DIRECTORY_IDENTITY_DIGEST_V4,
   WORK_PACKAGE_GATE_RUN_DIRECTORY_V4,
   WORK_PACKAGE_GATE_SNAPSHOT_IDENTITY_DIGEST_V4,
-  assertWorkPackageGateEventV4,
   assertWorkPackageGateDiagnosticV4,
+  assertWorkPackageGateEventV4,
   assertWorkPackageGateEvidenceBundleV4,
   assertWorkPackageGateEvidenceV4,
   assertWorkPackageGateResidueCensusV4,

@@ -18,7 +18,6 @@ import {
   type SemanticMutationRequestV2,
   type VerificationRequirementV1
 } from '../../platform/compiler/index.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { canonicalVerificationUnion, sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import { semanticMutationStagedRebuildDiagnostic } from '../../platform/compiler/semantic-mutation/derive-staged-mutation.ts';
 import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
@@ -35,17 +34,18 @@ import {
   assertSemanticMutationRejectedTerminalRecordInvariant,
   readRejectedSemanticMutationTerminal,
   reserveSemanticMutationTerminalSequence,
+  writeRejectedSemanticMutationTerminal,
   type SemanticMutationTerminalIoObservation,
-  type SemanticMutationTerminalWriteTestHooks,
-  writeRejectedSemanticMutationTerminal
+  type SemanticMutationTerminalWriteTestHooks
 } from '../../platform/compiler/semantic-mutation/mutation-terminal-record.ts';
+import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import {
   assertSemanticMutationTransactionRoot,
   semanticMutationRequestIdentityDigest,
   semanticMutationStagedTransactionId,
   semanticMutationTransactionRoot
 } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
-import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
 import {
   applySemanticMutation,

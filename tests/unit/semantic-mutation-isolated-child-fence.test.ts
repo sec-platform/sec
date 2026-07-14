@@ -17,16 +17,16 @@ import {
   classifySemanticMutationIsolatedTermination,
   publishSemanticMutationIsolatedProgressCheckpoint,
   readSemanticMutationIsolatedProgressTrace,
-  semanticMutationIsolatedBootstrapBytes,
-  semanticMutationIsolatedProgressOwnedPaths,
-  semanticMutationIsolatedProgressCheckpointBytes,
-  semanticMutationIsolatedProgressCheckpointPath,
-  semanticMutationIsolatedProgressCheckpointPendingPath,
-  semanticMutationIsolatedStagedLoaderBytes,
   SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_EXIT_CODES,
   SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH,
+  semanticMutationIsolatedBootstrapBytes,
+  semanticMutationIsolatedProgressCheckpointBytes,
+  semanticMutationIsolatedProgressCheckpointPath,
+  semanticMutationIsolatedProgressCheckpointPendingPath,
+  semanticMutationIsolatedProgressOwnedPaths,
+  semanticMutationIsolatedStagedLoaderBytes,
   type SemanticMutationIsolatedProgressCheckpoint
 } from '../../platform/compiler/semantic-mutation/isolated-verification-child-progress.ts';
 import {
@@ -37,10 +37,10 @@ import {
   runIsolatedStagingScanBatchesForTests
 } from '../../platform/compiler/verify/assert-isolated-staging-tree.ts';
 import {
-  createSemanticMutationIsolatedVerificationSupervisor,
   buildSemanticMutationIsolatedVerificationEnvironment,
-  projectSemanticMutationIsolatedVerificationFailureForTests,
+  createSemanticMutationIsolatedVerificationSupervisor,
   probeSemanticMutationIsolatedRuntimeCapability,
+  projectSemanticMutationIsolatedVerificationFailureForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests,
   runSemanticMutationIsolatedVerificationChild,
   SemanticMutationIsolatedVerificationUnavailableError,
@@ -49,8 +49,8 @@ import {
 import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   materializeSemanticMutationIsolatedRuntime,
-  semanticMutationRuntimeSourceSnapshotCacheStatsForTests,
-  SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT
+  SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
+  semanticMutationRuntimeSourceSnapshotCacheStatsForTests
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';

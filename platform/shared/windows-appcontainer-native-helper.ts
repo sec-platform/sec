@@ -1,5 +1,5 @@
-import path from 'node:path';
 import { writeFileSync, writeSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   createWindowsAppContainerProfileForNativeHelper,
@@ -9,8 +9,8 @@ import {
   encodeWindowsAppContainerNativeOk,
   runWindowsAppContainerNativeChild,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
-  type WindowsAppContainerNativeHelperWirePayload,
-  type WindowsAppContainerNativeExecutionRequest
+  type WindowsAppContainerNativeExecutionRequest,
+  type WindowsAppContainerNativeHelperWirePayload
 } from './windows-appcontainer-executor.ts';
 
 type NativeHelperEnvelope =

@@ -1,15 +1,15 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 import { CodexDevelopmentVerificationDigest } from '../platform/shared/ci-evidence-contract.ts';
+import { workPackageWorktreeDigestForTests } from './run-work-package-gate.ts';
 import {
   syncWorkPackageGateDirectory,
   writeWorkPackageGateJsonAtomic,
   type WorkPackageGateIdentityProbeEvidenceV4
 } from './work-package-gate-contract.ts';
-import { workPackageWorktreeDigestForTests } from './run-work-package-gate.ts';
 import {
   runWorkPackageProfileProbe,
   workPackageProfileProbeExecutablePaths,

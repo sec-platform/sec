@@ -6,11 +6,6 @@ import { fileURLToPath } from 'node:url';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { listFilesRecursive, pathExists, type CommitFence } from '../../shared/fs.ts';
 import { readLockFile } from '../../shared/lock-utils.ts';
-import type { PolicyReport } from '../../shared/policy-types.ts';
-import {
-  PIPELINE_EXECUTION_BOUNDARIES,
-  type PipelineExecutionBoundary
-} from '../../shared/pipeline-types.ts';
 import {
   compilerRoot,
   getWorkspacePaths,
@@ -20,29 +15,34 @@ import {
   resolveWorkspacePlanPath
 } from '../../shared/paths.ts';
 import {
+  PIPELINE_EXECUTION_BOUNDARIES,
+  type PipelineExecutionBoundary
+} from '../../shared/pipeline-types.ts';
+import type { PolicyReport } from '../../shared/policy-types.ts';
+import {
   buildIsolatedProcessEnvironment,
   ensureIsolatedProcessDirectories,
   ISOLATED_VERIFICATION_ENV_KEY,
   runCommand,
   type CommandResult
 } from '../../shared/process.ts';
+import { isCanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
 import type {
   SemanticMutationVerificationCapabilityPlanV1,
   VerificationReport
 } from '../../shared/verification-types.ts';
-import { isCanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
-import type { WorkspaceWriteLeaseToken } from '../../shared/workspace-write-lease.ts';
 import {
   runWindowsAppContainerChild,
   WindowsAppContainerExecutionError,
   type WindowsAppContainerExecutionPhase,
   type WindowsAppContainerHostToolFailure
 } from '../../shared/windows-appcontainer-executor.ts';
+import type { WorkspaceWriteLeaseToken } from '../../shared/workspace-write-lease.ts';
+import { loadWorkspacePlan } from '../parse/load-plan.ts';
 import {
   buildWorkspaceSemanticBundle,
   type WorkspaceSemanticBundle
 } from '../semantic-frontend.ts';
-import { loadWorkspacePlan } from '../parse/load-plan.ts';
 import {
   parseSemanticMutationIsolatedChildOutcomeBytes,
   semanticMutationIsolatedChildOutcomePath,
@@ -53,8 +53,8 @@ import {
 import {
   classifySemanticMutationIsolatedTermination,
   readSemanticMutationIsolatedProgressTrace,
-  semanticMutationIsolatedProgressOwnedPaths,
   SEMANTIC_MUTATION_ISOLATED_PROGRESS_CHECKPOINTS,
+  semanticMutationIsolatedProgressOwnedPaths,
   type SemanticMutationIsolatedProgressCheckpoint,
   type SemanticMutationIsolatedProgressTrace,
   type SemanticMutationIsolatedTerminationClass
@@ -66,7 +66,6 @@ import {
 } from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
 import { isolatedPlaywrightBrowsersPath } from './run-runtime-verification.ts';
-import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
 import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   issueSemanticMutationIsolatedRuntimeCapability,
@@ -76,6 +75,7 @@ import {
   type SemanticMutationIsolatedCompilerRegistryInput,
   type SemanticMutationIsolatedRuntimeInputSources
 } from './semantic-mutation-isolated-runtime-plan.ts';
+import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
 
 export type { SemanticMutationIsolatedRuntimeInputSources } from './semantic-mutation-isolated-runtime-plan.ts';
 

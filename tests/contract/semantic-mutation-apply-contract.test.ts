@@ -21,9 +21,6 @@ import {
   type PipelineExecutionContext
 } from '../../platform/shared/pipeline-types.ts';
 import {
-  SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION
-} from '../../platform/shared/semantic-mutation-types.ts';
-import {
   SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
   SEMANTIC_MUTATION_RECOVERY_TRANSITIONS,
   SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,
@@ -33,6 +30,9 @@ import {
   type SemanticMutationApplyOutcomeV1,
   type SemanticMutationRequestRecordViewV1
 } from '../../platform/shared/semantic-mutation-transaction-types.ts';
+import {
+  SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION
+} from '../../platform/shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,

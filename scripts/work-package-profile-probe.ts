@@ -1,11 +1,11 @@
 import path from 'node:path';
 
+import { CodexDevelopmentVerificationDigest } from '../platform/shared/ci-evidence-contract.ts';
 import {
   runObservedCommand,
-  type ObservedCommandOutcome,
-  type ObservedCommandOptions
+  type ObservedCommandOptions,
+  type ObservedCommandOutcome
 } from '../platform/shared/observed-process.ts';
-import { CodexDevelopmentVerificationDigest } from '../platform/shared/ci-evidence-contract.ts';
 import type {
   WorkPackageGateIdentityProbeCompleteReasonV4,
   WorkPackageGateIdentityProbeEvidenceV4,

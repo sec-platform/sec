@@ -24,8 +24,8 @@ import {
   slotRuleViewRelativePath,
   sourceViewRelativePath
 } from '../shared/paths.ts';
-import { withPipelineTransaction } from '../shared/pipeline-kernel.ts';
 import { emitPipelineExecutionBoundary } from '../shared/pipeline-journal.ts';
+import { withPipelineTransaction } from '../shared/pipeline-kernel.ts';
 import { getPipelineStageDefinition } from '../shared/pipeline-pass-registry.ts';
 import { requirePipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
 import {

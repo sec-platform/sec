@@ -10,11 +10,11 @@ import {
   type RootPackageJson
 } from '../../shared/runtime-dependency-spec.ts';
 import {
-  semanticMutationIsolatedBootstrapBytes,
-  semanticMutationIsolatedStagedLoaderBytes,
   SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
-  SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH
+  SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH,
+  semanticMutationIsolatedBootstrapBytes,
+  semanticMutationIsolatedStagedLoaderBytes
 } from '../semantic-mutation/isolated-verification-child-progress.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry

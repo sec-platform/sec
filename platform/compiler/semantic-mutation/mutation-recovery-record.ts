@@ -1,4 +1,4 @@
-import { open, mkdir, readdir, readFile, rename, rm } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
   SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
@@ -14,8 +14,8 @@ import {
 } from '../../shared/semantic-mutation-transaction-types.ts';
 import type { SemanticMutationDiagnosticV2 } from '../../shared/semantic-mutation-types.ts';
 import {
-  cloneAndDeepFreeze,
   canonicalDiagnostics,
+  cloneAndDeepFreeze,
   digestString,
   exactOwnKeys,
   isPlainObject,
@@ -23,12 +23,17 @@ import {
   sha256
 } from './canonical.ts';
 import {
+  assertSemanticMutationTerminalCompletionReceipt,
+  readRejectedSemanticMutationTerminal,
+  reserveSemanticMutationTerminalSequence,
+  type SemanticMutationTerminalWriteTestHooks
+} from './mutation-terminal-record.ts';
+import {
   normalizeSemanticMutationAuthorization,
   normalizeSemanticMutationRequest
 } from './normalize-request.ts';
 import { assertSemanticMutationPlanInvariant } from './plan-semantic-mutation.ts';
 import { assertSemanticMutationResultInvariant } from './semantic-mutation-result.ts';
-import { semanticMutationRequiredVerificationDigest } from './verification-policy.ts';
 import {
   assertSemanticMutationRecoveryRecordsDirectory,
   assertSemanticMutationTransactionRoot,
@@ -37,12 +42,7 @@ import {
   semanticMutationWorkspaceRootFromTransactionRoot,
   type SemanticMutationCommitFence
 } from './transaction-identity.ts';
-import {
-  assertSemanticMutationTerminalCompletionReceipt,
-  readRejectedSemanticMutationTerminal,
-  reserveSemanticMutationTerminalSequence,
-  type SemanticMutationTerminalWriteTestHooks
-} from './mutation-terminal-record.ts';
+import { semanticMutationRequiredVerificationDigest } from './verification-policy.ts';
 
 const RETAINED_TERMINAL_STATES = new Set<SemanticMutationRecoveryState>([
   'verified',
