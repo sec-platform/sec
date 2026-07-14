@@ -13,6 +13,10 @@ import {
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 import {
+  withSemanticMutationIsolatedPhaseTelemetry,
+  type SemanticMutationIsolatedPhase
+} from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
+import {
   assertIsolatedStagingTree,
   type IsolatedStagingTreeOptions
 } from './assert-isolated-staging-tree.ts';
@@ -184,6 +188,16 @@ export async function runRuntimeVerification(
   if (isolated && !options.stagingWorkspaceRoot) {
     throw new Error('Isolated runtime verification requires its staging workspace root');
   }
+  const withIsolatedPhaseTelemetry = async <T>(
+    phase: SemanticMutationIsolatedPhase,
+    execute: () => Promise<T>
+  ): Promise<T> => isolated
+    ? await withSemanticMutationIsolatedPhaseTelemetry(
+        options.stagingWorkspaceRoot!,
+        phase,
+        execute
+      )
+    : await execute();
   const runtimeUnitFiles = relativeFiles(
     projectRoot,
     (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'unit'))).filter((file) => file.endsWith('.test.ts'))
@@ -241,7 +255,7 @@ export async function runRuntimeVerification(
     if (mode === 'full') {
       const buildInvocation = bunRunInvocation('build', isolated, isolatedConfigPath);
       const buildResult = await timed('next build', emitTiming, () =>
-        runRuntimeCommand(buildInvocation, baseEnv)
+        withIsolatedPhaseTelemetry('next-build', () => runRuntimeCommand(buildInvocation, baseEnv))
       );
       lane.status = normalizeStatus(buildResult.code);
       lane.build = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.build, buildResult.code, ['next build']);
@@ -255,7 +269,7 @@ export async function runRuntimeVerification(
     if (runtimeUnitFiles.length > 0) {
       const unitInvocation = bunRunInvocation('test:unit', isolated, isolatedConfigPath);
       const unitResult = await timed('bun unit', emitTiming, () =>
-        runRuntimeCommand(unitInvocation, baseEnv)
+        withIsolatedPhaseTelemetry('unit', () => runRuntimeCommand(unitInvocation, baseEnv))
       );
       lane.unit = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.unit, unitResult.code, runtimeUnitFiles);
       appendCommandOutput(lane.logs, unitResult, `runtime-unit:passed ${runtimeUnitFiles.join(',')}`);
@@ -302,7 +316,8 @@ export async function runRuntimeVerification(
       ? buildIsolatedRuntimeEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
       : { ...baseEnv, CI: process.env.CI ?? 'true', TEST_PORT: String(testPort) };
     const acceptanceResult = await timed('playwright test', emitTiming, () =>
-      runRuntimeCommand(acceptanceInvocation, acceptanceEnv)
+      withIsolatedPhaseTelemetry('playwright', () =>
+        runRuntimeCommand(acceptanceInvocation, acceptanceEnv))
     );
     lane.acceptance = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.acceptance, acceptanceResult.code, runtimeAcceptanceFiles);
     appendCommandOutput(lane.logs, acceptanceResult, `runtime-acceptance:passed ${runtimeAcceptanceFiles.join(',')}`);

@@ -59,6 +59,11 @@ import {
   type SemanticMutationIsolatedProgressTrace,
   type SemanticMutationIsolatedTerminationClass
 } from '../semantic-mutation/isolated-verification-child-progress.ts';
+import {
+  resetSemanticMutationIsolatedExecutionPhaseTelemetry,
+  resetSemanticMutationIsolatedPhaseTelemetry,
+  withSemanticMutationIsolatedPhaseTelemetry
+} from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
 import { isolatedPlaywrightBrowsersPath } from './run-runtime-verification.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
@@ -853,6 +858,7 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
       throw new Error('Isolated verification requires a controlled staging workspace');
     }
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
+    await resetSemanticMutationIsolatedPhaseTelemetry(stagingWorkspaceRoot);
     if (await pathExists(path.join(stagingWorkspaceRoot, 'source', 'schema', 'db.prisma.template'))) {
       throw new Error('Isolated Prisma execution is unavailable');
     }
@@ -1015,6 +1021,7 @@ export async function runSemanticMutationIsolatedVerificationChild(
     const supervisor = options.supervisor ?? createSemanticMutationIsolatedVerificationSupervisor();
     await commitFence();
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
+    await resetSemanticMutationIsolatedExecutionPhaseTelemetry(stagingWorkspaceRoot);
     const paths = getWorkspacePaths(stagingWorkspaceRoot);
     const childOutcomePath = semanticMutationIsolatedChildOutcomePath(stagingWorkspaceRoot);
     const childOutcomePendingPath = semanticMutationIsolatedChildOutcomePendingPath(stagingWorkspaceRoot);
@@ -1031,11 +1038,15 @@ export async function runSemanticMutationIsolatedVerificationChild(
       await rm(reportPath, { force: true });
     }
     const runtimeBinding = options.capabilityPlan ?? options.runtimeCapabilityForTest;
-    const { browsersPath, runnerRelativePath } = await materializeSemanticMutationIsolatedRuntime({
-      binding: runtimeBinding,
-      commitFence,
-      stagingWorkspaceRoot
-    });
+    const { browsersPath, runnerRelativePath } = await withSemanticMutationIsolatedPhaseTelemetry(
+      stagingWorkspaceRoot,
+      'runtime-materialize',
+      async () => await materializeSemanticMutationIsolatedRuntime({
+        binding: runtimeBinding,
+        commitFence,
+        stagingWorkspaceRoot
+      })
+    );
     await commitFence();
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
     const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');

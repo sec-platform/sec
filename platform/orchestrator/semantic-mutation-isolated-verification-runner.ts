@@ -11,6 +11,9 @@ import {
   SemanticMutationIsolatedProgressPublicationError,
   SEMANTIC_MUTATION_ISOLATED_EXIT_CODES
 } from '../compiler/semantic-mutation/isolated-verification-child-progress.ts';
+import {
+  withSemanticMutationIsolatedPhaseTelemetry
+} from '../compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from '../compiler/verify/assert-isolated-staging-tree.ts';
 import { isSemanticMutationStagingWorkspace } from '../compiler/verify/semantic-mutation-staging-boundary.ts';
 import { listFilesRecursive, pathExists } from '../shared/fs.ts';
@@ -88,20 +91,24 @@ async function main(): Promise<SemanticMutationIsolatedChildOutcomeV1 | null> {
     failureStage = 'verify-all';
     failureBoundary = 'pipeline-bootstrap';
     await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'verify-all');
-    const compiled = await compileWorkspace(stagingWorkspaceRoot, {
-      source: 'api',
-      from: 'resolve',
-      through: 'verify',
-      isolatedVerificationCapability,
-      onEvent: (event) => {
-        if (event.type === 'execution-boundary' && event.boundary) {
-          failureBoundary = event.boundary;
-        } else if (event.type === 'transaction-start') {
-          failureBoundary = 'pipeline-transaction';
-        }
-      },
-      verificationLane: 'all'
-    });
+    const compiled = await withSemanticMutationIsolatedPhaseTelemetry(
+      stagingWorkspaceRoot,
+      'compile-workspace',
+      async () => await compileWorkspace(stagingWorkspaceRoot, {
+        source: 'api',
+        from: 'resolve',
+        through: 'verify',
+        isolatedVerificationCapability,
+        onEvent: (event) => {
+          if (event.type === 'execution-boundary' && event.boundary) {
+            failureBoundary = event.boundary;
+          } else if (event.type === 'transaction-start') {
+            failureBoundary = 'pipeline-transaction';
+          }
+        },
+        verificationLane: 'all'
+      })
+    );
     failureStage = 'postcondition';
     await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'postcondition');
     const baseline = await readProjectBaseline(stagingWorkspaceRoot);
