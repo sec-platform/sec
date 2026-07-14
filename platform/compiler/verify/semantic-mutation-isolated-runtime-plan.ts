@@ -1396,7 +1396,14 @@ async function getRuntimeSourceSnapshot(
     bucket.set(key, slot);
   }
   trimRuntimeSourceSnapshotBucket(bucket, key);
-  if (slot.flight) return await slot.flight;
+  const sharedFlight = slot.flight;
+  if (sharedFlight) {
+    return await withSemanticMutationIsolatedPhaseTelemetry(
+      stagingWorkspaceRoot,
+      'source-snapshot-single-flight-wait',
+      async () => await sharedFlight
+    );
+  }
   const activeSlot = slot;
   const flight = (async () => {
     const currentSnapshot = activeSlot.snapshot;

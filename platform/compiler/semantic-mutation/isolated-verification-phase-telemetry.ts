@@ -8,6 +8,7 @@ export const SEMANTIC_MUTATION_ISOLATED_PHASE_TELEMETRY_FORMAT =
 export const SEMANTIC_MUTATION_ISOLATED_PHASES = Object.freeze([
   'source-snapshot-revalidate',
   'source-snapshot-capture',
+  'source-snapshot-single-flight-wait',
   'runtime-materialize',
   'compile-workspace',
   'next-build',
@@ -35,7 +36,8 @@ export type SemanticMutationIsolatedPhaseTelemetryReadResult =
 
 const SNAPSHOT_PHASES = new Set<SemanticMutationIsolatedPhase>([
   'source-snapshot-revalidate',
-  'source-snapshot-capture'
+  'source-snapshot-capture',
+  'source-snapshot-single-flight-wait'
 ]);
 const STATES = new Set<SemanticMutationIsolatedPhaseState>(['started', 'completed']);
 const MAX_EVENT_BYTES = 256;
