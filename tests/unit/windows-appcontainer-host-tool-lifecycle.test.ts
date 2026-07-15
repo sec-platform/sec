@@ -1,6 +1,9 @@
 import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { expect, test } from 'bun:test';
@@ -214,6 +217,146 @@ test.skipIf(process.platform !== 'win32')(
     expect(outcome.trigger).toBe('timed-out');
     expect(outcome.termination.requested).toBe(true);
     expect(performance.now() - startedAt).toBeLessThan(2_000);
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'native Job observes hard process exit while a Worker is blocked in finite synchronous FFI',
+  async () => {
+    const hardExitCode = 0x534d_3302;
+    const marker = 'main-responsive-before-hard-exit\n';
+    const tempRoot = await mkdtemp(join(tmpdir(), 'sec-observed-hard-exit-'));
+    const scriptPath = join(tempRoot, 'worker-ffi-hard-exit.mjs');
+
+    try {
+      await writeFile(scriptPath, `
+import { writeSync } from 'node:fs';
+import { dlopen, FFIType } from 'bun:ffi';
+
+if (Bun.isMainThread) {
+  const kernel32 = dlopen('kernel32.dll', {
+    CreateEventW: {
+      args: [FFIType.ptr, FFIType.i32, FFIType.i32, FFIType.ptr],
+      returns: FFIType.u64
+    },
+    WaitForSingleObject: {
+      args: [FFIType.u64, FFIType.u32],
+      returns: FFIType.u32
+    },
+    SetEvent: { args: [FFIType.u64], returns: FFIType.i32 },
+    CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+    GetCurrentProcess: { args: [], returns: FFIType.ptr },
+    TerminateProcess: {
+      args: [FFIType.ptr, FFIType.u32],
+      returns: FFIType.bool
+    },
+    ExitProcess: { args: [FFIType.u32], returns: FFIType.void }
+  });
+  let readyEvent = 0n;
+  let releaseEvent = 0n;
+  let worker;
+  const closeHandles = () => {
+    if (readyEvent !== 0n) kernel32.symbols.CloseHandle(readyEvent);
+    if (releaseEvent !== 0n) kernel32.symbols.CloseHandle(releaseEvent);
+    readyEvent = 0n;
+    releaseEvent = 0n;
+  };
+  const failSetup = () => {
+    worker?.terminate();
+    closeHandles();
+    process.exit(70);
+  };
+
+  try {
+    readyEvent = kernel32.symbols.CreateEventW(null, 1, 0, null);
+    releaseEvent = kernel32.symbols.CreateEventW(null, 1, 0, null);
+    if (readyEvent === 0n || releaseEvent === 0n) failSetup();
+
+    worker = new Worker(import.meta.url);
+    worker.onerror = failSetup;
+    worker.onmessage = ({ data }) => {
+      if (data !== 'finite-wait-returned') return;
+      closeHandles();
+      process.exit(71);
+    };
+    worker.postMessage({ readyEvent, releaseEvent });
+
+    const waitUntilEntered = () => {
+      const ready = kernel32.symbols.WaitForSingleObject(readyEvent, 0);
+      if (ready === 0x102) {
+        setTimeout(waitUntilEntered, 1);
+        return;
+      }
+      if (ready !== 0) {
+        kernel32.symbols.SetEvent(releaseEvent);
+        setTimeout(failSetup, 25);
+        return;
+      }
+      setTimeout(() => {
+        writeSync(1, ${JSON.stringify(marker)});
+        const self = kernel32.symbols.GetCurrentProcess();
+        kernel32.symbols.TerminateProcess(self, ${hardExitCode});
+        kernel32.symbols.ExitProcess(${hardExitCode});
+        process.exit(${hardExitCode});
+      }, 150);
+    };
+    waitUntilEntered();
+  } catch {
+    failSetup();
+  }
+} else {
+  const kernel32 = dlopen('kernel32.dll', {
+    SignalObjectAndWait: {
+      args: [FFIType.u64, FFIType.u64, FFIType.u32, FFIType.i32],
+      returns: FFIType.u32
+    }
+  });
+  self.onmessage = ({ data: { readyEvent, releaseEvent } }) => {
+    kernel32.symbols.SignalObjectAndWait(readyEvent, releaseEvent, 5_000, 0);
+    self.postMessage('finite-wait-returned');
+  };
+}
+`, 'utf8');
+
+      const startedAt = performance.now();
+      const outcome = await runObservedCommand(process.execPath, [
+        '--no-env-file',
+        '--no-install',
+        scriptPath
+      ], {
+        cwd: tempRoot,
+        maxObservedOutputBytes: 1_024,
+        terminationDeadlineMs: 250,
+        terminationGraceMs: 25,
+        timeoutMs: 1_500
+      });
+      const durationMs = performance.now() - startedAt;
+
+      expect(outcome.status).toBe('exited');
+      expect(outcome.exitCode).toBe(hardExitCode);
+      expect(outcome.signal).toBeNull();
+      expect(durationMs).toBeLessThan(1_500);
+      expect(outcome.stdout).toEqual({
+        bytes: Buffer.byteLength(marker),
+        digest: `sha256:${createHash('sha256').update(marker).digest('hex')}`,
+        observerTruncated: false
+      });
+      expect(outcome.stderr).toEqual({
+        bytes: 0,
+        digest: `sha256:${createHash('sha256').digest('hex')}`,
+        observerTruncated: false
+      });
+      expect(outcome.termination).toMatchObject({
+        requested: false,
+        gracefulAttempted: false,
+        forcedAttempted: false,
+        childCloseObserved: true,
+        streamsDrained: true,
+        treeClosed: true
+      });
+    } finally {
+      await rm(tempRoot, { force: true, recursive: true });
+    }
   }
 );
 
