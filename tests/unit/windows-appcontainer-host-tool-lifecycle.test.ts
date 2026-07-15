@@ -12,12 +12,14 @@ import {
   runObservedCommand,
   windowsPipeFailureDispositionForTests,
   windowsWaitDispositionForTests,
-  type ObservedCommandDependencies
+  type ObservedCommandDependencies,
+  type ObservedCommandOutcome
 } from '../../platform/shared/observed-process.ts';
 import {
   completeWindowsAppContainerOwnedExecutionForTests,
   projectWindowsAppContainerHostToolFailureForTests,
   runWindowsAppContainerExecutionStepsForTests,
+  settleObservedWindowsAppContainerNativeHelperForTests,
   windowsAppContainerExecutionCleanupChainForTests,
   WindowsAppContainerExecutionError
 } from '../../platform/shared/windows-appcontainer-executor.ts';
@@ -812,4 +814,135 @@ test('confirmed primary failure runs cleanup and retains ordered primary-plus-cl
   )).rejects.toBe(primary);
   expect(cleanupCalls).toBe(1);
   expect(windowsAppContainerExecutionCleanupChainForTests(primary)).toEqual([cleanup]);
+});
+
+function observedStream(contents: Uint8Array, observerTruncated = false) {
+  return Object.freeze({
+    bytes: contents.byteLength,
+    digest: `sha256:${createHash('sha256').update(contents).digest('hex')}` as const,
+    observerTruncated
+  });
+}
+
+function exactNativeHelperOutcome(stdout: Uint8Array, stderr: Uint8Array): ObservedCommandOutcome {
+  return Object.freeze({
+    status: 'exited',
+    started: true,
+    exitCode: 0,
+    signal: null,
+    durationMs: 12,
+    stdout: observedStream(stdout),
+    stderr: observedStream(stderr),
+    termination: Object.freeze({
+      requested: false,
+      gracefulAttempted: false,
+      forcedAttempted: false,
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    })
+  });
+}
+
+function captureObservedNativeHelperFailure(
+  outcome: ObservedCommandOutcome,
+  stdout = new Uint8Array()
+): WindowsAppContainerExecutionError {
+  try {
+    settleObservedWindowsAppContainerNativeHelperForTests(outcome, stdout, new Uint8Array());
+  } catch (error) {
+    expect(error).toBeInstanceOf(WindowsAppContainerExecutionError);
+    return error as WindowsAppContainerExecutionError;
+  }
+  throw new Error('expected observed native helper settlement to fail');
+}
+
+test('observed native helper accepts only an exact closed-tree untruncated wire', () => {
+  const stdout = Buffer.from('{"status":"ok"}', 'utf8');
+  expect(settleObservedWindowsAppContainerNativeHelperForTests(
+    exactNativeHelperOutcome(stdout, new Uint8Array()),
+    stdout,
+    new Uint8Array()
+  )).toEqual({ code: 0, stdout: '{"status":"ok"}', stderr: '' });
+});
+
+test('unproved native helper trees retain all owned resources without public diagnostic growth', async () => {
+  for (const trigger of ['timed-out', 'observer-failed', 'aborted'] as const) {
+    const primary = captureObservedNativeHelperFailure(Object.freeze({
+      status: 'termination-unproven',
+      trigger,
+      started: true,
+      exitCode: null,
+      signal: null,
+      durationMs: 20_000,
+      stdout: observedStream(new Uint8Array()),
+      stderr: observedStream(new Uint8Array()),
+      termination: Object.freeze({
+        requested: true,
+        gracefulAttempted: true,
+        forcedAttempted: true,
+        childCloseObserved: false,
+        streamsDrained: false,
+        treeClosed: false
+      })
+    }));
+    let cleanupCalls = 0;
+    for (let layer = 0; layer < 2; layer++) {
+      await expect(completeWindowsAppContainerOwnedExecutionForTests(
+        undefined,
+        primary,
+        async () => {
+          cleanupCalls += 1;
+        }
+      )).rejects.toBe(primary);
+    }
+    expect(cleanupCalls).toBe(0);
+    expect(primary).toMatchObject({
+      phase: 'preparation',
+      preparationSubstage: 'native-helper-invocation'
+    });
+    expect(primary.hostToolFailure).toBeUndefined();
+    expect(windowsAppContainerExecutionCleanupChainForTests(primary)).toEqual([]);
+  }
+});
+
+test('closed-tree native helper protocol failures permit cleanup while preserving the primary', async () => {
+  const wire = Buffer.from('{"status":"ok"}', 'utf8');
+  const exact = exactNativeHelperOutcome(wire, new Uint8Array());
+  const truncated = Object.freeze({
+    ...exact,
+    stdout: Object.freeze({ ...exact.stdout, observerTruncated: true })
+  });
+  const failures = [
+    captureObservedNativeHelperFailure(truncated, wire),
+    captureObservedNativeHelperFailure(exact, Buffer.from('{"status":"failed"}', 'utf8')),
+    captureObservedNativeHelperFailure(Object.freeze({
+      status: 'spawn-failed',
+      started: false,
+      exitCode: null,
+      signal: null,
+      durationMs: 1,
+      stdout: observedStream(new Uint8Array()),
+      stderr: observedStream(new Uint8Array()),
+      termination: Object.freeze({
+        requested: false,
+        gracefulAttempted: false,
+        forcedAttempted: false,
+        childCloseObserved: false,
+        streamsDrained: true,
+        treeClosed: true
+      })
+    }))
+  ];
+  for (const primary of failures) {
+    let cleanupCalls = 0;
+    await expect(completeWindowsAppContainerOwnedExecutionForTests(
+      undefined,
+      primary,
+      async () => {
+        cleanupCalls += 1;
+      }
+    )).rejects.toBe(primary);
+    expect(cleanupCalls).toBe(1);
+  }
 });

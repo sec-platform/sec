@@ -19,7 +19,6 @@ import {
   runObservedCommand,
   type ObservedCommandOutcome
 } from './observed-process.ts';
-import { runCommand } from './process.ts';
 import {
   acquireWorkspaceWriteLease,
   assertWorkspaceWriteLease,
@@ -73,7 +72,6 @@ const NATIVE_HELPER_ENTRY_PATH = fileURLToPath(
 );
 const WINDOWS_HOST_TOOL_DEADLINE_MS = 120_000;
 const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
-const WINDOWS_APPCONTAINER_LEASE_MONITOR_INTERVAL_MS = 250;
 const WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS = 20;
 
 type BunFfiToBuffer = (typeof import('bun:ffi'))['toBuffer'];
@@ -844,6 +842,7 @@ export function encodeWindowsAppContainerNativeDerivedSid(
 }
 
 const executionCleanupFailures = new WeakMap<Error, readonly Error[]>();
+const executionRetainedOwners = new WeakSet<Error>();
 const nativeHelperObservations = new WeakMap<Error, WindowsAppContainerNativeHelperObservation>();
 
 function executionCleanupChain(error: Error, seen = new Set<Error>()): readonly Error[] {
@@ -1654,7 +1653,8 @@ async function completeWindowsAppContainerOwnedExecution<T>(
 ): Promise<T> {
   let cleanupError: WindowsAppContainerFailure | undefined;
   const terminationUnconfirmed = primaryError instanceof WindowsAppContainerExecutionError &&
-    primaryError.hostToolFailure?.termination === 'unconfirmed';
+    (primaryError.hostToolFailure?.termination === 'unconfirmed' ||
+      executionRetainedOwners.has(primaryError));
   if (!terminationUnconfirmed) {
     try {
       await cleanup();
@@ -1975,6 +1975,61 @@ async function cleanupHostBunConfig(
   if (await pathExists(configRoot)) throw executionError('cleanup');
 }
 
+interface HostBunCommandResult {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function observedOutputMatches(
+  contents: Uint8Array,
+  evidence: ObservedCommandOutcome['stdout']
+): boolean {
+  return evidence.bytes === contents.byteLength &&
+    evidence.digest === `sha256:${createHash('sha256').update(contents).digest('hex')}`;
+}
+
+function settleObservedHostBunCommand(
+  outcome: ObservedCommandOutcome,
+  stdoutChunks: readonly Uint8Array[],
+  stderrChunks: readonly Uint8Array[]
+): HostBunCommandResult {
+  const stdout = Buffer.concat(stdoutChunks.map((chunk) => Buffer.from(chunk)));
+  const stderr = Buffer.concat(stderrChunks.map((chunk) => Buffer.from(chunk)));
+  const closedTree = outcome.termination.childCloseObserved &&
+    outcome.termination.streamsDrained && outcome.termination.treeClosed;
+  const cleanupSafe = outcome.started
+    ? closedTree
+    : outcome.termination.streamsDrained && outcome.termination.treeClosed;
+  const exactSuccess = outcome.status === 'exited' && outcome.started &&
+    outcome.exitCode !== null && outcome.signal === null &&
+    !outcome.termination.requested && closedTree &&
+    !outcome.stdout.observerTruncated && !outcome.stderr.observerTruncated &&
+    observedOutputMatches(stdout, outcome.stdout) &&
+    observedOutputMatches(stderr, outcome.stderr);
+  if (!exactSuccess) {
+    const error = executionError(
+      'preparation', undefined, undefined, 'native-helper-invocation'
+    );
+    if (!cleanupSafe) executionRetainedOwners.add(error);
+    throw error;
+  }
+  return Object.freeze({
+    code: outcome.exitCode,
+    stdout: stdout.toString(),
+    stderr: stderr.toString()
+  });
+}
+
+/** Test-only settlement seam; production bytes come only from the observed pipes. */
+export function settleObservedWindowsAppContainerNativeHelperForTests(
+  outcome: ObservedCommandOutcome,
+  stdout: Uint8Array,
+  stderr: Uint8Array
+): HostBunCommandResult {
+  return settleObservedHostBunCommand(outcome, [stdout], [stderr]);
+}
+
 async function runHostBunCommand(
   stagingRoot: string,
   environment: Readonly<Record<string, string>>,
@@ -1989,71 +2044,47 @@ async function runHostBunCommand(
     throw normalizeExecutionError(error, 'preparation', 'native-helper-materialization');
   }
   const { configPath, helperPath } = materialized;
-  let result: Awaited<ReturnType<typeof runCommand>> | undefined;
+  let result: HostBunCommandResult | undefined;
   let primaryError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
-  const controller = new AbortController();
-  let monitorStopped = false;
-  let monitorError: unknown;
-  const monitor = (async (): Promise<void> => {
-    while (!monitorStopped) {
-      await new Promise((resolve) => setTimeout(resolve, WINDOWS_APPCONTAINER_LEASE_MONITOR_INTERVAL_MS));
-      if (monitorStopped) return;
-      try {
-        await commitFence();
-      } catch (error) {
-        monitorError = error;
-        controller.abort();
-        return;
-      }
-    }
-  })();
   try {
-    try {
-      result = await runCommand(process.execPath, [
-        '--no-env-file',
-        `--config=${configPath}`,
-        '--no-install',
-        helperPath,
-        encodedRequest
-      ], {
-        beforeSpawn: commitFence,
-        // libuv cannot spawn with a Windows working directory beyond MAX_PATH even
-        // though Bun can read the absolute long-path config and helper arguments.
-        // The trusted helper uses only absolute staging-bound paths, so keep the
-        // process cwd at the volume root while the executable payload stays fenced.
-        cwd: path.parse(stagingRoot).root,
-        envMode: 'replace',
-        env: environment,
-        timeoutMs,
-        signal: controller.signal
-      });
-    } finally {
-      monitorStopped = true;
-      await monitor;
-    }
-    if (monitorError) throw monitorError;
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    const observed = await runObservedCommand(process.execPath, [
+      '--no-env-file',
+      `--config=${configPath}`,
+      '--no-install',
+      helperPath,
+      encodedRequest
+    ], {
+      beforeSpawn: commitFence,
+      // libuv cannot spawn with a Windows working directory beyond MAX_PATH even
+      // though Bun can read the absolute long-path config and helper arguments.
+      // The trusted helper uses only absolute staging-bound paths, so keep the
+      // process cwd at the volume root while the executable payload stays fenced.
+      cwd: path.parse(stagingRoot).root,
+      envMode: 'replace',
+      env: environment,
+      maxObservedOutputBytes: WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES,
+      onOutput: (stream, chunk) => {
+        (stream === 'stdout' ? stdoutChunks : stderrChunks).push(Buffer.from(chunk));
+      },
+      timeoutMs,
+      whileRunning: commitFence
+    });
+    result = settleObservedHostBunCommand(observed, stdoutChunks, stderrChunks);
     await commitFence();
   } catch (error) {
-    primaryError = normalizeExecutionError(monitorError ?? error,
+    primaryError = normalizeExecutionError(error,
       'preparation',
       'native-helper-invocation'
     );
   }
-  let cleanupError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
-  try {
-    await cleanupHostBunConfig(stagingRoot, commitFence);
-  } catch (error) {
-    cleanupError = normalizeExecutionError(error, 'cleanup');
-  }
-  if (primaryError) {
-    if (cleanupError) rememberExecutionCleanupFailure(primaryError, cleanupError);
-    throw primaryError;
-  }
-  if (cleanupError) throw cleanupError;
-  if (!result) {
-    throw executionError('preparation', undefined, undefined, 'native-helper-invocation');
-  }
-  return result;
+  return completeWindowsAppContainerOwnedExecution(
+    result,
+    primaryError,
+    () => cleanupHostBunConfig(stagingRoot, commitFence),
+    'preparation'
+  );
 }
 
 function buildAppContainerName(stagingRoot: string, stagingIdentityDigest: string): string {
