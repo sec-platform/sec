@@ -37,9 +37,11 @@ import {
   runIsolatedStagingScanBatchesForTests
 } from '../../platform/compiler/verify/assert-isolated-staging-tree.ts';
 import {
+  buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests,
   buildSemanticMutationIsolatedVerificationEnvironment,
   createSemanticMutationIsolatedVerificationSupervisor,
   probeSemanticMutationIsolatedRuntimeCapability,
+  projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests,
   projectSemanticMutationIsolatedVerificationFailureForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests,
   runSemanticMutationIsolatedVerificationChild,
@@ -126,12 +128,70 @@ test('isolated runner bundle prebinds its native helper before runner build stat
   const body = source.slice(start, end);
   const windowsGuard = body.indexOf("if (process.platform === 'win32') {");
   const prebind = body.indexOf('await prepareWindowsAppContainerNativeHelperBundle();');
-  const rootCapture = body.indexOf('captureIsolatedRuntimeBuildNodeModulesProof();');
+  const rootCapture = body.indexOf('captureIsolatedRuntimeBuildNodeModulesProof');
   const runnerBuild = body.indexOf('await Bun.build({');
   expect(windowsGuard).toBeGreaterThanOrEqual(0);
   expect(prebind).toBeGreaterThan(windowsGuard);
   expect(rootCapture).toBeGreaterThan(prebind);
   expect(runnerBuild).toBeGreaterThan(rootCapture);
+});
+
+test.serial('production isolated runner build returns only a finite pre-AppContainer diagnostic', async () => {
+  const result = await buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests();
+  expect(Object.isFrozen(result)).toBe(true);
+  expect(JSON.stringify(result)).not.toContain(compilerRoot);
+  if (result.status === 'available') {
+    expect(result).toEqual({ status: 'available' });
+    return;
+  }
+
+  expect(Object.isFrozen(result.diagnostic)).toBe(true);
+  if (result.diagnostic.stage === 'runtime-capability') {
+    expect(Object.isFrozen(result.diagnostic.runtimeCapability)).toBe(true);
+    expect([
+      'runner-build-root-proof',
+      'runner-build',
+      'runner-relocation',
+      'capability-issue'
+    ]).toContain(result.diagnostic.runtimeCapability.substage);
+    return;
+  }
+  expect(result.diagnostic).toMatchObject({
+    stage: 'appcontainer-execution',
+    appContainer: { phase: 'preparation' }
+  });
+});
+
+test('runtime capability diagnostic enum rejects forged detail without retaining raw fields', () => {
+  for (const substage of [
+    'runner-build-root-proof',
+    'runner-build',
+    'runner-relocation',
+    'capability-issue',
+    'unknown'
+  ] as const) {
+    const projected = projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests(substage);
+    expect(projected).toEqual({
+      stage: 'runtime-capability',
+      runtimeCapability: { substage }
+    });
+    expect(Object.isFrozen(projected)).toBe(true);
+    if (projected.stage === 'runtime-capability') {
+      expect(Object.isFrozen(projected.runtimeCapability)).toBe(true);
+    }
+  }
+
+  const forged = projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests({
+    substage: 'runner-relocation',
+    message: 'Z:\\must-not-survive',
+    stdout: 'secret-output',
+    stack: 'secret-stack'
+  });
+  expect(forged).toEqual({
+    stage: 'runtime-capability',
+    runtimeCapability: { substage: 'unknown' }
+  });
+  expect(JSON.stringify(forged)).not.toMatch(/Z:|secret|message|stdout|stack/u);
 });
 
 test('isolated runner relocation accepts exact logical and proven physical build roots', () => {
@@ -2169,6 +2229,16 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
       runtimeInputSources
     });
 
+    const unclassifiedFailure = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: async () => {
+        throw new Error('Z:\\must-not-survive generic runner failure');
+      },
+      runtimeInputSources
+    });
+    expect(unclassifiedFailure).toEqual({ status: 'unavailable' });
+    expect(semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(unclassifiedFailure))
+      .toBeUndefined();
+
     const preparationFailure = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
       buildRunnerBundle: async () => {
         throw new WindowsAppContainerExecutionError(
@@ -2189,6 +2259,8 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
         preparationSubstage: 'native-helper-build'
       }
     });
+    expect(semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests({ ...preparationFailure }))
+      .toBeUndefined();
 
     expect(await probe()).toEqual({ status: 'available' });
     await mkdir(path.join(stagingRoot, 'source', 'schema'), { recursive: true });

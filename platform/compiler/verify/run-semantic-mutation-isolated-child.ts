@@ -512,6 +512,51 @@ export type SemanticMutationIsolatedVerificationSupervisor = (
 
 export type SemanticMutationIsolatedRunnerBundleBuilder = () => Promise<Uint8Array>;
 
+export const SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES = Object.freeze([
+  'runner-build-root-proof',
+  'runner-build',
+  'runner-relocation',
+  'capability-issue',
+  'unknown'
+] as const);
+
+export type SemanticMutationIsolatedCapabilityPreparationSubstage =
+  (typeof SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES)[number];
+
+export type SemanticMutationIsolatedRuntimeCapabilityDiagnostic =
+  | SemanticMutationIsolatedVerificationFailure
+  | Readonly<{
+      readonly stage: 'runtime-capability';
+      readonly runtimeCapability: Readonly<{
+        readonly substage: SemanticMutationIsolatedCapabilityPreparationSubstage;
+      }>;
+    }>;
+
+class SemanticMutationIsolatedCapabilityPreparationError extends Error {
+  constructor(
+    public readonly substage: Exclude<
+      SemanticMutationIsolatedCapabilityPreparationSubstage,
+      'unknown'
+    >
+  ) {
+    super('Semantic Mutation isolated capability preparation failed');
+    this.name = 'SemanticMutationIsolatedCapabilityPreparationError';
+  }
+}
+
+async function withCapabilityPreparationBoundary<T>(
+  substage: Exclude<SemanticMutationIsolatedCapabilityPreparationSubstage, 'unknown'>,
+  execute: () => T | Promise<T>
+): Promise<T> {
+  try {
+    return await execute();
+  } catch (error) {
+    if (error instanceof SemanticMutationIsolatedCapabilityPreparationError) throw error;
+    if (error instanceof WindowsAppContainerExecutionError) throw error;
+    throw new SemanticMutationIsolatedCapabilityPreparationError(substage);
+  }
+}
+
 interface SemanticMutationIsolatedVerificationChildCommonOptions {
   readonly commitFence: CommitFence;
   readonly supervisor?: SemanticMutationIsolatedVerificationSupervisor;
@@ -886,30 +931,66 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
   if (process.platform === 'win32') {
     await prepareWindowsAppContainerNativeHelperBundle();
   }
-  const buildRootProof = captureIsolatedRuntimeBuildNodeModulesProof();
-  const result = await Bun.build({
-    entrypoints: [ISOLATED_RUNNER_PATH],
-    format: 'esm',
-    minify: false,
-    sourcemap: 'none',
-    splitting: false,
-    target: 'bun'
-  });
-  if (!result.success || result.outputs.length !== 1) {
-    throw new Error('Semantic Mutation isolated runner bundle could not be built');
-  }
-  const buildNodeModulesRoot = revalidateIsolatedRuntimeBuildNodeModulesProof(buildRootProof);
-  const bundle = relocateIsolatedRunnerBundle(
-    new Uint8Array(await result.outputs[0].arrayBuffer()),
-    buildNodeModulesRoot
+  const buildRootProof = await withCapabilityPreparationBoundary(
+    'runner-build-root-proof',
+    captureIsolatedRuntimeBuildNodeModulesProof
   );
-  const bundleText = new TextDecoder().decode(bundle);
-  const hostPaths = [compilerRoot, buildNodeModulesRoot].flatMap(hostPathVariants);
-  if (/(?:__dirname|__filename)\s*=\s*["'][A-Za-z]:[\\/]/u.test(bundleText) ||
-    hostPaths.some((hostPath) => bundleText.includes(hostPath))) {
-    throw new Error('Semantic Mutation isolated runner bundle contains a host path');
+  const result = await withCapabilityPreparationBoundary(
+    'runner-build',
+    async () => await Bun.build({
+      entrypoints: [ISOLATED_RUNNER_PATH],
+      format: 'esm',
+      minify: false,
+      sourcemap: 'none',
+      splitting: false,
+      target: 'bun'
+    })
+  );
+  if (!result.success || result.outputs.length !== 1) {
+    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build');
   }
+  const sourceBundle = await withCapabilityPreparationBoundary(
+    'runner-build',
+    async () => new Uint8Array(await result.outputs[0].arrayBuffer())
+  );
+  const buildNodeModulesRoot = await withCapabilityPreparationBoundary(
+    'runner-build-root-proof',
+    () => revalidateIsolatedRuntimeBuildNodeModulesProof(buildRootProof)
+  );
+  const bundle = await withCapabilityPreparationBoundary(
+    'runner-relocation',
+    () => {
+      const relocated = relocateIsolatedRunnerBundle(sourceBundle, buildNodeModulesRoot);
+      const bundleText = new TextDecoder().decode(relocated);
+      const hostPaths = [compilerRoot, buildNodeModulesRoot].flatMap(hostPathVariants);
+      if (/(?:__dirname|__filename)\s*=\s*["'][A-Za-z]:[\\/]/u.test(bundleText) ||
+        hostPaths.some((hostPath) => bundleText.includes(hostPath))) {
+        throw new Error('Semantic Mutation isolated runner bundle contains a host path');
+      }
+      return relocated;
+    }
+  );
   return bundle;
+}
+
+/** Test-only helper-first production runner build with finite, path-free failure evidence. */
+export async function buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests(): Promise<
+  | Readonly<{ readonly status: 'available' }>
+  | Readonly<{
+      readonly status: 'unavailable';
+      readonly diagnostic: SemanticMutationIsolatedRuntimeCapabilityDiagnostic;
+    }>
+> {
+  try {
+    await buildIsolatedRunnerBundle();
+    return Object.freeze({ status: 'available' as const });
+  } catch (error) {
+    return Object.freeze({
+      status: 'unavailable' as const,
+      diagnostic: isolatedRuntimeCapabilityDiagnostic(error) ??
+        projectSemanticMutationIsolatedRuntimeCapabilitySubstage('unknown')
+    });
+  }
 }
 
 function createProcessLocalRunnerBundleLoader(
@@ -950,8 +1031,45 @@ export interface SemanticMutationIsolatedRuntimeCapabilityProbeOptions {
   readonly runtimeInputSources?: SemanticMutationIsolatedRuntimeInputSources;
 }
 
+const CAPABILITY_PREPARATION_SUBSTAGES =
+  new Set<SemanticMutationIsolatedCapabilityPreparationSubstage>(
+    SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES
+  );
 const isolatedRuntimeCapabilityDiagnostics =
-  new WeakMap<object, SemanticMutationIsolatedVerificationFailure>();
+  new WeakMap<object, SemanticMutationIsolatedRuntimeCapabilityDiagnostic>();
+
+function projectSemanticMutationIsolatedRuntimeCapabilitySubstage(
+  value: unknown
+): SemanticMutationIsolatedRuntimeCapabilityDiagnostic {
+  const substage = typeof value === 'string' && CAPABILITY_PREPARATION_SUBSTAGES.has(
+    value as SemanticMutationIsolatedCapabilityPreparationSubstage
+  )
+    ? value as SemanticMutationIsolatedCapabilityPreparationSubstage
+    : 'unknown';
+  return Object.freeze({
+    stage: 'runtime-capability' as const,
+    runtimeCapability: Object.freeze({ substage })
+  });
+}
+
+function isolatedRuntimeCapabilityDiagnostic(
+  error: unknown
+): SemanticMutationIsolatedRuntimeCapabilityDiagnostic | undefined {
+  if (error instanceof WindowsAppContainerExecutionError) {
+    return isolatedVerificationFailure('appcontainer-execution', error);
+  }
+  if (error instanceof SemanticMutationIsolatedCapabilityPreparationError) {
+    return projectSemanticMutationIsolatedRuntimeCapabilitySubstage(error.substage);
+  }
+  return undefined;
+}
+
+/** Test-only fail-closed projection; arbitrary input cannot enter the diagnostic envelope. */
+export function projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests(
+  value: unknown
+): SemanticMutationIsolatedRuntimeCapabilityDiagnostic {
+  return projectSemanticMutationIsolatedRuntimeCapabilitySubstage(value);
+}
 
 /**
  * Test-only read of a path-free diagnostic bound to an opaque capability
@@ -959,7 +1077,7 @@ const isolatedRuntimeCapabilityDiagnostics =
  */
 export function semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(
   capability: { readonly status: 'available' | 'unavailable' }
-): SemanticMutationIsolatedVerificationFailure | undefined {
+): SemanticMutationIsolatedRuntimeCapabilityDiagnostic | undefined {
   return isolatedRuntimeCapabilityDiagnostics.get(capability);
 }
 
@@ -991,21 +1109,21 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
       throw new Error('Isolated opaque module linking is unavailable');
     }
     const bundle = await (options.buildRunnerBundle ?? loadProcessLocalIsolatedRunnerBundle)();
-    return await issueSemanticMutationIsolatedRuntimeCapability({
-      browserCache,
-      compilerRegistries: await compilerRegistryInputs(stagingWorkspaceRoot, sources),
-      runnerBundle: bundle,
-      sources,
-      stagingWorkspaceRoot
-    });
+    const compilerRegistries = await compilerRegistryInputs(stagingWorkspaceRoot, sources);
+    return await withCapabilityPreparationBoundary(
+      'capability-issue',
+      async () => await issueSemanticMutationIsolatedRuntimeCapability({
+        browserCache,
+        compilerRegistries,
+        runnerBundle: bundle,
+        sources,
+        stagingWorkspaceRoot
+      })
+    );
   } catch (error) {
     const unavailable = Object.freeze({ status: 'unavailable' as const });
-    if (error instanceof WindowsAppContainerExecutionError) {
-      isolatedRuntimeCapabilityDiagnostics.set(
-        unavailable,
-        isolatedVerificationFailure('appcontainer-execution', error)
-      );
-    }
+    const diagnostic = isolatedRuntimeCapabilityDiagnostic(error);
+    if (diagnostic) isolatedRuntimeCapabilityDiagnostics.set(unavailable, diagnostic);
     return unavailable;
   }
 }
