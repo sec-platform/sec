@@ -72,6 +72,8 @@ const NATIVE_HELPER_ENTRY_PATH = fileURLToPath(
 );
 const WINDOWS_HOST_TOOL_DEADLINE_MS = 120_000;
 const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+const WINDOWS_APPCONTAINER_NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS = 120_000;
+const WINDOWS_APPCONTAINER_NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS = 10_000;
 const WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS = 20;
 
 type BunFfiToBuffer = (typeof import('bun:ffi'))['toBuffer'];
@@ -929,6 +931,82 @@ function executionError(
     preparationSubstage,
     nativeHelperObservation
   );
+}
+
+interface WindowsAppContainerNativeExecutionDeadlines {
+  readonly childTimeoutMs: number;
+  readonly hostWatchdogMs: number;
+}
+
+interface WindowsAppContainerNativeExecutionBudget {
+  readonly startedAtMs: number;
+  readonly timeoutMs: number;
+}
+
+function arbitrateWindowsAppContainerNativeExecutionDeadlines(
+  requestedTimeoutMs: number | undefined
+): WindowsAppContainerNativeExecutionDeadlines {
+  const childTimeoutMs = requestedTimeoutMs ??
+    WINDOWS_APPCONTAINER_NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(childTimeoutMs) || childTimeoutMs <= 0 ||
+    childTimeoutMs > Number.MAX_SAFE_INTEGER -
+      WINDOWS_APPCONTAINER_NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS) {
+    throw executionError('invalid-input');
+  }
+  return Object.freeze({
+    childTimeoutMs,
+    hostWatchdogMs: childTimeoutMs +
+      WINDOWS_APPCONTAINER_NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS
+  });
+}
+
+function createWindowsAppContainerNativeExecutionBudget(
+  childTimeoutMs: number,
+  startedAtMs: number
+): WindowsAppContainerNativeExecutionBudget {
+  if (!Number.isSafeInteger(childTimeoutMs) || childTimeoutMs <= 0 ||
+    !Number.isSafeInteger(startedAtMs) || startedAtMs < 0) {
+    throw executionError('invalid-input');
+  }
+  return Object.freeze({ startedAtMs, timeoutMs: childTimeoutMs });
+}
+
+function remainingWindowsAppContainerNativeExecutionBudget(
+  budget: WindowsAppContainerNativeExecutionBudget,
+  observedAtMs: number
+): number {
+  if (!Number.isSafeInteger(observedAtMs) || observedAtMs < budget.startedAtMs) {
+    throw executionError('timeout');
+  }
+  const elapsedMs = observedAtMs - budget.startedAtMs;
+  if (!Number.isSafeInteger(elapsedMs) || elapsedMs >= budget.timeoutMs) {
+    throw executionError('timeout');
+  }
+  return budget.timeoutMs - elapsedMs;
+}
+
+/** Pure finite projection of the child-owned timeout and host settlement watchdog. */
+export function arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
+  requestedTimeoutMs: number | undefined
+): WindowsAppContainerNativeExecutionDeadlines {
+  return arbitrateWindowsAppContainerNativeExecutionDeadlines(requestedTimeoutMs);
+}
+
+/** Pure test seam for the helper-entry elapsed budget. */
+export function createWindowsAppContainerNativeExecutionBudgetForTests(
+  requestedTimeoutMs: number | undefined,
+  startedAtMs: number
+): WindowsAppContainerNativeExecutionBudget {
+  const deadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(requestedTimeoutMs);
+  return createWindowsAppContainerNativeExecutionBudget(deadlines.childTimeoutMs, startedAtMs);
+}
+
+/** Pure test seam for fail-closed elapsed-budget observation. */
+export function remainingWindowsAppContainerNativeExecutionBudgetForTests(
+  budget: WindowsAppContainerNativeExecutionBudget,
+  observedAtMs: number
+): number {
+  return remainingWindowsAppContainerNativeExecutionBudget(budget, observedAtMs);
 }
 
 function normalizeExecutionError(
@@ -1987,7 +2065,7 @@ interface ObservedDiagnosticCapture {
   readonly present: boolean;
 }
 
-export type ObservedNativeHelperSettlementClassificationForTests =
+type ObservedNativeHelperSettlementClassificationForTests =
   | Readonly<{ status: 'success' }>
   | Readonly<{
     status: 'rejected';
@@ -2029,14 +2107,14 @@ function observedOutputMatches(
 function classifyObservedHostBunCommand(
   outcome: ObservedCommandOutcome,
   stdout: Uint8Array,
-  diagnostic: ObservedDiagnosticCapture
+  diagnostic: ObservedDiagnosticCapture,
+  closedTree: boolean
 ): ObservedNativeHelperSettlementClassificationForTests {
   if (outcome.status === 'timed-out' || outcome.trigger === 'timed-out') {
     return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.timedOut;
   }
   if (!outcome.started) return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.notStarted;
-  if (!outcome.termination.childCloseObserved || !outcome.termination.streamsDrained ||
-    !outcome.termination.treeClosed) {
+  if (!closedTree) {
     return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.closureUnproven;
   }
   if (outcome.termination.requested) {
@@ -2076,7 +2154,12 @@ function settleObservedHostBunCommand(
   const cleanupSafe = outcome.started
     ? closedTree
     : outcome.termination.streamsDrained && outcome.termination.treeClosed;
-  const classification = classifyObservedHostBunCommand(outcome, stdout, diagnostic);
+  const classification = classifyObservedHostBunCommand(
+    outcome,
+    stdout,
+    diagnostic,
+    closedTree
+  );
   if (classification.status !== 'success') {
     const error = executionError(
       'preparation', undefined, undefined, 'native-helper-invocation'
@@ -2105,10 +2188,13 @@ export function classifyObservedWindowsAppContainerNativeHelperForTests(
   stdout: Uint8Array,
   stderr: Uint8Array
 ): ObservedNativeHelperSettlementClassificationForTests {
+  const closedTree = outcome.termination.childCloseObserved &&
+    outcome.termination.streamsDrained && outcome.termination.treeClosed;
   return classifyObservedHostBunCommand(
     outcome,
     stdout,
-    observedDiagnosticCaptureForTests(stderr)
+    observedDiagnosticCaptureForTests(stderr),
+    closedTree
   );
 }
 
@@ -2209,7 +2295,7 @@ function buildAppContainerName(stagingRoot: string, stagingIdentityDigest: strin
 async function executeNativeAppContainer(
   appContainerSidPointer: Pointer,
   prepared: PreparedExecution,
-  timeoutMs: number | undefined,
+  executionBudget: WindowsAppContainerNativeExecutionBudget,
   commitFence: () => Promise<void>,
   nativeResultPath: string
 ): Promise<number> {
@@ -2384,6 +2470,7 @@ async function executeNativeAppContainer(
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.processInformationBytes
     );
     await commitFence();
+    remainingWindowsAppContainerNativeExecutionBudget(executionBudget, Date.now());
     if (kernel32.symbols.CreateProcessW(
       prepared.executablePath,
       prepared.commandLine,
@@ -2407,25 +2494,25 @@ async function executeNativeAppContainer(
       throw executionError('launch');
     }
     await commitFence();
+    remainingWindowsAppContainerNativeExecutionBudget(executionBudget, Date.now());
     if (kernel32.symbols.ResumeThread(threadHandle) === MAXIMUM_RESUME_THREAD_RESULT) {
       throw executionError('launch');
     }
     kernel32.symbols.CloseHandle(threadHandle);
     threadHandle = 0n;
 
-    const startedAt = Date.now();
     while (true) {
+      const waitSliceMs = Math.min(
+        WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
+        remainingWindowsAppContainerNativeExecutionBudget(executionBudget, Date.now())
+      );
       const waitResult = kernel32.symbols.WaitForSingleObject(
         processHandle,
-        WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS
+        waitSliceMs
       );
       if (waitResult === WAIT_OBJECT_0) break;
       if (waitResult === WAIT_FAILED || waitResult !== WAIT_TIMEOUT) {
         throw executionError('wait');
-      }
-      if (timeoutMs !== undefined && Date.now() - startedAt >= timeoutMs) {
-        kernel32.symbols.TerminateProcess(processHandle, TERMINATED_EXIT_CODE);
-        throw executionError('timeout');
       }
     }
 
@@ -3130,8 +3217,16 @@ export async function createWindowsAppContainerProfileForNativeHelper(
 export async function runWindowsAppContainerNativeChild(
   request: WindowsAppContainerNativeExecutionRequest
 ): Promise<WindowsAppContainerExecutionResult> {
-  assertCapability();
+  const startedAtMs = Date.now();
   const execution = request.execution;
+  const executionDeadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(
+    execution.timeoutMs
+  );
+  const executionBudget = createWindowsAppContainerNativeExecutionBudget(
+    executionDeadlines.childTimeoutMs,
+    startedAtMs
+  );
+  assertCapability();
   const commitFence = () => assertWorkspaceWriteLease(
     execution.workspaceRoot,
     execution.workspaceWriteLease
@@ -3175,7 +3270,7 @@ export async function runWindowsAppContainerNativeChild(
   const exitCode = await executeNativeAppContainer(
     derivedSid.sidPointer,
     prepared,
-    execution.timeoutMs,
+    executionBudget,
     commitFence,
     request.nativeResultPath
   );
@@ -3474,6 +3569,9 @@ export async function runWindowsAppContainerChild(
   );
   await commitFence();
   const validated = await validateExecutionRequest(request);
+  const executionDeadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(
+    request.timeoutMs
+  );
   validateAndSortEnvironment(request.environment, validated.stagingRoot);
   await recoverPreviousOwnership(request, validated, commitFence);
 
@@ -3568,7 +3666,7 @@ export async function runWindowsAppContainerChild(
           validated.stagingRoot,
           request.environment,
           commitFence,
-          request.timeoutMs === undefined ? undefined : request.timeoutMs + 10_000
+          executionDeadlines.hostWatchdogMs
         );
       }
     });
