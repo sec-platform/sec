@@ -2900,5 +2900,7 @@ test.serial('isolated runtime capability builds a host-path-free production runn
       status: 'valid',
       trace: { lastCheckpoint: 'outcome-publish-started' }
     });
-  }, 'engineering-compiler-sm3-isolated-production-bundle-');
+  }, 'engineering-compiler-sm3-isolated-production-bundle-', {
+    retainOnCallbackFailure: true
+  });
 });
