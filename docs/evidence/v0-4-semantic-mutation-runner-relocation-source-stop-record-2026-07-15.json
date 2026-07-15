@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T15:02:56.5193167+08:00",
+  "profile": "v0.4-semantic-mutation-runner-relocation",
+  "branch": "codex/work-package-ledger-revision",
+  "baseSha": "f02dff924aed326b9844a8f51b535f794646ca18",
+  "testedHead": "54b1102c4bdc1cb89c1cc0fd6ab3990f94c31db7",
+  "currentHead": "f89bc0b9bf7d28ff461473db22e3d7e6718748ac",
+  "currentHeadTree": "38f25e21a69db21b270586346c0880de568b18b6",
+  "implementationState": "committed-clean-working-tree",
+  "status": "stopped-on-next-runner-relocation-invariant",
+  "mergeAllowed": false,
+  "repairAttempt": {
+    "commit": "54b1102c4bdc1cb89c1cc0fd6ab3990f94c31db7",
+    "scope": "Remove low-level isolated runtime exports from the public compiler facade and bind the sole host-capability owner directly.",
+    "collisionGuardResult": "PASS: the previous relocation binding collision was no longer emitted",
+    "publicFacadeContract": "8/8 PASS with 433 assertions",
+    "custodyLedger": "PASS: 25 custody blobs and 5 retained fixtures",
+    "typecheck": "PASS",
+    "diffCheck": "PASS"
+  },
+  "focusedDiagnostic": {
+    "kind": "real Bun production runner bundle plus existing relocation test seam",
+    "status": "FAIL",
+    "durationMs": 4578,
+    "failure": "Semantic Mutation isolated runner bundle has an invalid relocation source",
+    "sourceLine": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts:736"
+  },
+  "nonSemanticGateNotes": {
+    "architectureContract": "Not executed: the supplied test-name pattern matched zero tests",
+    "changedImportsAtTestedHead": "FAIL: two files required organization",
+    "styleRepairCommit": "f89bc0b9bf7d28ff461473db22e3d7e6718748ac",
+    "styleRepair": "Changed-only import organization modified only semantic-mutation-orchestrator import ordering; compiler/index line-ending noise was discarded. Gates were not rerun after the stop boundary."
+  },
+  "disposition": {
+    "previousCollisionFixed": true,
+    "nextInvariantLocated": true,
+    "publicVerticalStarted": false,
+    "slowBatchStarted": false,
+    "rootUserChangesTouched": false
+  },
+  "resumeBoundary": [
+    "Inspect the real Bun bundle assignment captured by the fixed relocation regex and classify which exact source predicate fails without emitting host paths into product output.",
+    "Repair the relocation source normalizer or dependency boundary; do not weaken the host-path guard, collision guard, or expected two-runtime-directory coverage.",
+    "Run one focused production-bundle relocation diagnostic, then the exact architecture contract, imports, custody, typecheck, and diff checks.",
+    "Only after those pass may the public vertical run once; do not start the slow DAG before it passes."
+  ]
+}
