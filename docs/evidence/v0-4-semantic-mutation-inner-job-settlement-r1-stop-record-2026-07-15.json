@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T23:36:51.6865357+08:00",
+  "profile": "v0.4-semantic-mutation-inner-job-settlement-r1",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-native-helper-hard-settle-r1-stop-record-2026-07-15.json",
+  "testedHead": "f36e4ea36e3a599f9c43bc351c523fe15b8fb02e",
+  "testedTree": "73d226bee66d6a7ce24c1de0a1c4715f83e58472",
+  "postReviewHead": "f03da31404c23350a976c2b96bfb4ebc51729cfe",
+  "postReviewTree": "3240fea0fda8f8030b6f7c3d2e69099c75d88aca",
+  "status": "stopped-on-repeated-execute-helper-timeout",
+  "mergeAllowed": false,
+  "stopReason": "The single authorized exact AppContainer seam still reached the host execute watchdog after the inner Job explicit termination repair. No second real seam was started. The result falsifies inner Job close-on-handle as the sufficient root repair and leaves a synchronous helper or native boundary before finite helper settlement as the smallest remaining candidate.",
+  "repairBatch": {
+    "commits": [
+      "f36e4ea36e3a599f9c43bc351c523fe15b8fb02e",
+      "f03da31404c23350a976c2b96bfb4ebc51729cfe"
+    ],
+    "changes": [
+      "Explicitly terminate the inner AppContainer Job on failed execution and require both a signaled root and ActiveProcesses equal to zero within one five-second absolute budget.",
+      "Keep TerminateProcess plus KILL_ON_JOB_CLOSE as a bounded fail-closed fallback.",
+      "Set executionCommitted only after the native result receipt is written.",
+      "Recompute the absolute settlement budget after each native wait before any sleep."
+    ],
+    "publicErrorExpanded": false,
+    "capabilityDiagnosticExpanded": false,
+    "settlementSidecarExpanded": false
+  },
+  "focusedEvidence": {
+    "innerJobSettlementSentinel": {
+      "status": "PASS",
+      "suiteDurationMs": 292,
+      "passed": 1,
+      "filtered": 38,
+      "expectCalls": 5
+    },
+    "typecheck": {
+      "status": "PASS",
+      "durationMs": 12700,
+      "head": "f03da31404c23350a976c2b96bfb4ebc51729cfe"
+    }
+  },
+  "realProductionSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "exitCode": 1,
+    "testDurationMs": 86047,
+    "suiteDurationMs": 87600,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 42,
+    "expectCallsBeforeFailure": 6,
+    "failure": {
+      "name": "WindowsAppContainerExecutionError",
+      "code": "VERIFY-APPCONTAINER-EXECUTION",
+      "phase": "preparation",
+      "preparationSubstage": "native-helper-invocation",
+      "nativeHelperObservationPresent": false
+    }
+  },
+  "retainedScenes": {
+    "newest": "D:/Project/sec/.tmp/codex-ledger-reconcile/.tmp/test-workspaces/engineering-compiler-sm3-isolated-production-bundle-jASQuQ",
+    "previousProjectionScene": "D:/Project/sec/.tmp/codex-ledger-reconcile/.tmp/test-workspaces/engineering-compiler-sm3-isolated-production-bundle-1VHDKL",
+    "preserved": true,
+    "newestFiniteMatrix": {
+      "sourceSnapshotStarted": true,
+      "sourceSnapshotCompleted": true,
+      "bootstrapEntered": false,
+      "progressFilesPresent": false,
+      "childOutcomePresent": false
+    },
+    "forcedCleanupPerformed": false
+  },
+  "boundedConclusion": {
+    "proven": [
+      "The outer execute watchdog still fires after the inner Job explicit settlement repair.",
+      "The newest retained scene still contains no first child bootstrap checkpoint.",
+      "The reviewed inner Job settlement loop is finite under its deterministic sentinel."
+    ],
+    "notProven": [
+      "Which helper preparation, CreateProcessW, Job assignment, ResumeThread, wait, or timeout-cleanup boundary last returned.",
+      "Whether any synchronous FFI call itself remains blocked until the outer Job terminates the helper."
+    ]
+  },
+  "stopDiscipline": {
+    "postRepairRealSeamRuns": 1,
+    "secondPostRepairRealSeamStarted": false,
+    "fullRunStarted": false,
+    "slowRunStarted": false,
+    "publicVerticalStarted": false,
+    "githubActionsStarted": false
+  },
+  "nextTaskEnvelope": {
+    "task": "finite helper-stage projection",
+    "currentBase": "f03da31404c23350a976c2b96bfb4ebc51729cfe",
+    "goal": "Use one temporary environment-gated projection containing only a fixed helper-stage enum to identify the last returned boundary before the host watchdog, then remove the projection immediately after one real seam.",
+    "forbidden": [
+      "running another real AppContainer seam in the same batch",
+      "deleting or mutating retained scenes",
+      "persisting paths, argv, environment, output bytes, hashes, messages, stacks, PIDs, SIDs, profile names, or durations in the projection",
+      "expanding the public error, capability diagnostic, or existing settlement sidecar",
+      "running full, slow, public vertical, or GitHub Actions lanes"
+    ]
+  }
+}
