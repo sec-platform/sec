@@ -196,12 +196,12 @@ test('compose-layer TS codegen uses CodeBuilder instead of template string conca
 });
 
 /**
- * 编译器门面契约：read-only API 通过 platform/compiler/index.ts 暴露；具有副作用的 writer
- * 不得进入 public facade，只能由拥有该 pipeline stage 的 production owner 直接导入 canonical
- * internal module。除下列精确 owner -> writer module pair 外，platform/ 仍不得导入编译器子目录。
+ * 编译器门面契约：read-only API 通过 platform/compiler/index.ts 暴露；具有副作用的运行时
+ * 不得进入 public facade，只能由拥有对应 pipeline stage 的 production owner 直接导入 canonical
+ * internal module。除下列精确 owner -> side-effect/runtime module pair 外，platform/ 仍不得导入编译器子目录。
  */
 const compilerInternalSubdirs = ['align', 'codegen', 'compose', 'emit', 'parse', 'repair', 'resolve', 'synthesize', 'verify', 'workbench'];
-const compilerInternalWriterImportAllowlist: Readonly<Record<string, readonly string[]>> = Object.freeze({
+const compilerInternalOwnerImportAllowlist: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'platform/orchestrator/compose-orchestrator.ts': Object.freeze([
     '../compiler/compose/compose-project.ts',
     '../compiler/synthesize/adapt-project.ts'
@@ -215,6 +215,9 @@ const compilerInternalWriterImportAllowlist: Readonly<Record<string, readonly st
   ]),
   'platform/orchestrator/repair-orchestrator.ts': Object.freeze([
     '../compiler/repair/build-repair-plan.ts'
+  ]),
+  'platform/orchestrator/semantic-mutation-orchestrator.ts': Object.freeze([
+    '../compiler/verify/run-semantic-mutation-isolated-child.ts'
   ]),
   'platform/orchestrator/verify-orchestrator.ts': Object.freeze([
     '../compiler/verify/verify-project.ts',
@@ -232,11 +235,11 @@ const compilerInternalImportPattern = new RegExp(
   'g'
 );
 
-function compilerInternalWriterImportIsAllowed(file: string, specifier: string): boolean {
-  return compilerInternalWriterImportAllowlist[file]?.includes(specifier) ?? false;
+function compilerInternalImportIsAllowed(file: string, specifier: string): boolean {
+  return compilerInternalOwnerImportAllowlist[file]?.includes(specifier) ?? false;
 }
 
-test('platform modules import compiler APIs only through the facade, not internal subdirs', async () => {
+test('platform modules import compiler APIs through the facade or an exact owner-scoped runtime boundary', async () => {
   const offenders: string[] = [];
   const observedAllowedPairs: string[] = [];
   const allPlatformFiles = await listTypeScriptFiles('platform');
@@ -253,7 +256,7 @@ test('platform modules import compiler APIs only through the facade, not interna
       if (!specifier) throw new Error(`Compiler internal import capture failed for ${file}`);
       const line = source.slice(0, match.index ?? 0).split('\n').length;
       const pair = `${file} -> ${specifier}`;
-      if (compilerInternalWriterImportIsAllowed(file, specifier)) {
+      if (compilerInternalImportIsAllowed(file, specifier)) {
         observedAllowedPairs.push(pair);
       } else {
         offenders.push(`${file}:${line} -> ${specifier}`);
@@ -262,15 +265,15 @@ test('platform modules import compiler APIs only through the facade, not interna
   }
 
   expect(offenders).toEqual([]);
-  const expectedAllowedPairs = Object.entries(compilerInternalWriterImportAllowlist)
+  const expectedAllowedPairs = Object.entries(compilerInternalOwnerImportAllowlist)
     .flatMap(([file, specifiers]) => specifiers.map((specifier) => `${file} -> ${specifier}`))
     .sort();
   expect(observedAllowedPairs.sort()).toEqual(expectedAllowedPairs);
-  expect(compilerInternalWriterImportIsAllowed(
+  expect(compilerInternalImportIsAllowed(
     'platform/orchestrator/unknown-owner.ts',
     '../compiler/emit/write-provenance.ts'
   )).toBe(false);
-  expect(compilerInternalWriterImportIsAllowed(
+  expect(compilerInternalImportIsAllowed(
     'platform/orchestrator/emit-orchestrator.ts',
     '../compiler/emit/unknown-writer.ts'
   )).toBe(false);

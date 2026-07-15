@@ -459,7 +459,12 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     'composeProject', 'adaptProject', 'verifyProject',
     'writeCiArtifactManifest', 'lockProject', 'writeExplainGraph', 'writeLocalViews',
     'writeProvenance', 'writeReviewSummary', 'applyRepairPlan', 'writeRepairPlan',
-    'writePolicySnapshot', 'applyViewMutations', 'buildSemanticMutationVerificationExecutionRef'
+    'writePolicySnapshot', 'applyViewMutations', 'buildSemanticMutationVerificationExecutionRef',
+    'SemanticMutationIsolatedVerificationUnavailableError',
+    'probeSemanticMutationIsolatedRuntimeCapability',
+    'runSemanticMutationIsolatedVerificationChild',
+    'IsolatedVerificationArtifacts',
+    'SemanticMutationIsolatedVerificationFailure'
   ]) {
     expect(sources.compilerFacade, `public Compiler facade exports ${forbiddenWriter}`)
       .not.toMatch(new RegExp(`export[^;]+\\b${forbiddenWriter}\\b`, 'su'));
