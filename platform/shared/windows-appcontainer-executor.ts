@@ -1987,12 +1987,82 @@ interface ObservedDiagnosticCapture {
   readonly present: boolean;
 }
 
+export type ObservedNativeHelperSettlementClassificationForTests =
+  | Readonly<{ status: 'success' }>
+  | Readonly<{
+    status: 'rejected';
+    reason:
+      | 'timed-out'
+      | 'not-started'
+      | 'closure-unproven'
+      | 'requested-termination'
+      | 'not-exited'
+      | 'exit-status-unproven'
+      | 'stdout-truncated'
+      | 'stderr-truncated'
+      | 'stdout-evidence-mismatch'
+      | 'stderr-evidence-mismatch';
+  }>;
+
+const OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS = Object.freeze({
+  success: Object.freeze({ status: 'success' as const }),
+  timedOut: Object.freeze({ status: 'rejected' as const, reason: 'timed-out' as const }),
+  notStarted: Object.freeze({ status: 'rejected' as const, reason: 'not-started' as const }),
+  closureUnproven: Object.freeze({ status: 'rejected' as const, reason: 'closure-unproven' as const }),
+  requestedTermination: Object.freeze({ status: 'rejected' as const, reason: 'requested-termination' as const }),
+  notExited: Object.freeze({ status: 'rejected' as const, reason: 'not-exited' as const }),
+  exitStatusUnproven: Object.freeze({ status: 'rejected' as const, reason: 'exit-status-unproven' as const }),
+  stdoutTruncated: Object.freeze({ status: 'rejected' as const, reason: 'stdout-truncated' as const }),
+  stderrTruncated: Object.freeze({ status: 'rejected' as const, reason: 'stderr-truncated' as const }),
+  stdoutEvidenceMismatch: Object.freeze({ status: 'rejected' as const, reason: 'stdout-evidence-mismatch' as const }),
+  stderrEvidenceMismatch: Object.freeze({ status: 'rejected' as const, reason: 'stderr-evidence-mismatch' as const })
+});
+
 function observedOutputMatches(
   contents: Uint8Array,
   evidence: ObservedCommandOutcome['stdout']
 ): boolean {
   return evidence.bytes === contents.byteLength &&
     evidence.digest === `sha256:${createHash('sha256').update(contents).digest('hex')}`;
+}
+
+function classifyObservedHostBunCommand(
+  outcome: ObservedCommandOutcome,
+  stdout: Uint8Array,
+  diagnostic: ObservedDiagnosticCapture
+): ObservedNativeHelperSettlementClassificationForTests {
+  if (outcome.status === 'timed-out' || outcome.trigger === 'timed-out') {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.timedOut;
+  }
+  if (!outcome.started) return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.notStarted;
+  if (!outcome.termination.childCloseObserved || !outcome.termination.streamsDrained ||
+    !outcome.termination.treeClosed) {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.closureUnproven;
+  }
+  if (outcome.termination.requested) {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.requestedTermination;
+  }
+  if (outcome.status !== 'exited') {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.notExited;
+  }
+  if (outcome.exitCode === null || outcome.signal !== null) {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.exitStatusUnproven;
+  }
+  if (outcome.stdout.observerTruncated) {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stdoutTruncated;
+  }
+  if (outcome.stderr.observerTruncated) {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stderrTruncated;
+  }
+  if (!observedOutputMatches(stdout, outcome.stdout)) {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stdoutEvidenceMismatch;
+  }
+  if (diagnostic.bytes !== outcome.stderr.bytes ||
+    diagnostic.digest !== outcome.stderr.digest ||
+    diagnostic.present !== (outcome.stderr.bytes > 0)) {
+    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stderrEvidenceMismatch;
+  }
+  return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.success;
 }
 
 function settleObservedHostBunCommand(
@@ -2006,15 +2076,8 @@ function settleObservedHostBunCommand(
   const cleanupSafe = outcome.started
     ? closedTree
     : outcome.termination.streamsDrained && outcome.termination.treeClosed;
-  const exactSuccess = outcome.status === 'exited' && outcome.started &&
-    outcome.exitCode !== null && outcome.signal === null &&
-    !outcome.termination.requested && closedTree &&
-    !outcome.stdout.observerTruncated && !outcome.stderr.observerTruncated &&
-    observedOutputMatches(stdout, outcome.stdout) &&
-    diagnostic.bytes === outcome.stderr.bytes &&
-    diagnostic.digest === outcome.stderr.digest &&
-    diagnostic.present === (outcome.stderr.bytes > 0);
-  if (!exactSuccess) {
+  const classification = classifyObservedHostBunCommand(outcome, stdout, diagnostic);
+  if (classification.status !== 'success') {
     const error = executionError(
       'preparation', undefined, undefined, 'native-helper-invocation'
     );
@@ -2028,17 +2091,38 @@ function settleObservedHostBunCommand(
   });
 }
 
+function observedDiagnosticCaptureForTests(stderr: Uint8Array): ObservedDiagnosticCapture {
+  return Object.freeze({
+    bytes: stderr.byteLength,
+    digest: `sha256:${createHash('sha256').update(stderr).digest('hex')}`,
+    present: stderr.byteLength > 0
+  });
+}
+
+/** Test-only finite projection; it returns no process or wire values. */
+export function classifyObservedWindowsAppContainerNativeHelperForTests(
+  outcome: ObservedCommandOutcome,
+  stdout: Uint8Array,
+  stderr: Uint8Array
+): ObservedNativeHelperSettlementClassificationForTests {
+  return classifyObservedHostBunCommand(
+    outcome,
+    stdout,
+    observedDiagnosticCaptureForTests(stderr)
+  );
+}
+
 /** Test-only settlement seam; production bytes come only from the observed pipes. */
 export function settleObservedWindowsAppContainerNativeHelperForTests(
   outcome: ObservedCommandOutcome,
   stdout: Uint8Array,
   stderr: Uint8Array
 ): HostBunCommandResult {
-  return settleObservedHostBunCommand(outcome, [stdout], Object.freeze({
-    bytes: stderr.byteLength,
-    digest: `sha256:${createHash('sha256').update(stderr).digest('hex')}`,
-    present: stderr.byteLength > 0
-  }));
+  return settleObservedHostBunCommand(
+    outcome,
+    [stdout],
+    observedDiagnosticCaptureForTests(stderr)
+  );
 }
 
 async function runHostBunCommand(
