@@ -20,6 +20,7 @@ import {
   classifyObservedWindowsAppContainerNativeHelperForTests,
   completeWindowsAppContainerOwnedExecutionForTests,
   createWindowsAppContainerNativeExecutionBudgetForTests,
+  normalizeWindowsAppContainerPreparationErrorForTests,
   projectWindowsAppContainerHostToolFailureForTests,
   remainingWindowsAppContainerNativeExecutionBudgetForTests,
   runWindowsAppContainerExecutionStepsForTests,
@@ -27,6 +28,10 @@ import {
   windowsAppContainerExecutionCleanupChainForTests,
   WindowsAppContainerExecutionError
 } from '../../platform/shared/windows-appcontainer-executor.ts';
+import {
+  bindWindowsAppContainerObservedNativeHelperSettlement,
+  windowsAppContainerObservedNativeHelperSettlementForTests
+} from '../../platform/shared/windows-appcontainer-native-helper-settlement.ts';
 
 interface FakeChild extends EventEmitter {
   readonly stdout: PassThrough;
@@ -899,6 +904,43 @@ test('native helper elapsed budget is bounded and fails closed on clock rollback
   }
 });
 
+function captureObservedNativeHelperFailure(
+  outcome: ObservedCommandOutcome,
+  stdout: Uint8Array = new Uint8Array(),
+  stderr: Uint8Array = new Uint8Array(),
+  mode: 'derive' | 'create-profile' | 'execute' = 'execute'
+): WindowsAppContainerExecutionError {
+  try {
+    settleObservedWindowsAppContainerNativeHelperForTests(outcome, stdout, stderr, mode);
+  } catch (error) {
+    expect(error).toBeInstanceOf(WindowsAppContainerExecutionError);
+    return error as WindowsAppContainerExecutionError;
+  }
+  throw new Error('expected observed native helper settlement to fail');
+}
+
+test('native helper settlement sidecar survives finite preparation normalization', () => {
+  const primary = new WindowsAppContainerExecutionError('preparation');
+  bindWindowsAppContainerObservedNativeHelperSettlement(
+    primary,
+    'derive',
+    Object.freeze({ status: 'rejected', reason: 'not-exited' })
+  );
+
+  const normalized = normalizeWindowsAppContainerPreparationErrorForTests(
+    primary,
+    'native-helper-invocation'
+  ) as WindowsAppContainerExecutionError;
+  const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(normalized);
+
+  expect(normalized).not.toBe(primary);
+  expect(normalized.preparationSubstage).toBe('native-helper-invocation');
+  expect(settlement).toBe(windowsAppContainerObservedNativeHelperSettlementForTests(primary));
+  expect(settlement).toEqual({ mode: 'derive', reason: 'not-exited' });
+  expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
+  expect(normalized.nativeHelperObservation).toBeUndefined();
+});
+
 test('observed native helper settlement classifier separates finite lifecycle dimensions', () => {
   const stdout = Buffer.from('{"status":"ok"}', 'utf8');
   const exact = exactNativeHelperOutcome(stdout, new Uint8Array());
@@ -962,6 +1004,14 @@ test('observed native helper settlement classifier separates finite lifecycle di
     );
     expect(classification).toEqual(expected);
     expect(Object.isFrozen(classification)).toBe(true);
+    if (classification.status === 'rejected') {
+      const primary = captureObservedNativeHelperFailure(outcome, stdout);
+      const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
+      expect(settlement).toEqual({ mode: 'execute', reason: classification.reason });
+      expect(Object.isFrozen(settlement)).toBe(true);
+      expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
+      expect(primary.nativeHelperObservation).toBeUndefined();
+    }
   }
 });
 
@@ -1019,21 +1069,19 @@ test('observed native helper settlement classifier separates stream truncation a
     );
     expect(classification).toEqual({ status: 'rejected', reason });
     expect(Object.isFrozen(classification)).toBe(true);
+    const primary = captureObservedNativeHelperFailure(
+      outcome,
+      observedStdout,
+      observedDiagnostic,
+      'create-profile'
+    );
+    const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
+    expect(settlement).toEqual({ mode: 'create-profile', reason });
+    expect(Object.isFrozen(settlement)).toBe(true);
+    expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
+    expect(primary.nativeHelperObservation).toBeUndefined();
   }
 });
-
-function captureObservedNativeHelperFailure(
-  outcome: ObservedCommandOutcome,
-  stdout = new Uint8Array()
-): WindowsAppContainerExecutionError {
-  try {
-    settleObservedWindowsAppContainerNativeHelperForTests(outcome, stdout, new Uint8Array());
-  } catch (error) {
-    expect(error).toBeInstanceOf(WindowsAppContainerExecutionError);
-    return error as WindowsAppContainerExecutionError;
-  }
-  throw new Error('expected observed native helper settlement to fail');
-}
 
 test('native helper classification stays explanatory while closed-tree evidence governs cleanup', async () => {
   const wire = Buffer.from('{"status":"ok"}', 'utf8');
@@ -1051,6 +1099,10 @@ test('native helper classification stays explanatory while closed-tree evidence 
   )).toEqual({ status: 'rejected', reason: 'timed-out' });
 
   const primary = captureObservedNativeHelperFailure(closedTimedOut, wire);
+  expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
+    mode: 'execute',
+    reason: 'timed-out'
+  });
   let cleanupCalls = 0;
   await expect(completeWindowsAppContainerOwnedExecutionForTests(
     undefined,
@@ -1122,6 +1174,10 @@ test('unproved native helper trees retain all owned resources without public dia
       preparationSubstage: 'native-helper-invocation'
     });
     expect(primary.hostToolFailure).toBeUndefined();
+    expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
+      mode: 'execute',
+      reason: trigger === 'timed-out' ? 'timed-out' : 'closure-unproven'
+    });
     expect(windowsAppContainerExecutionCleanupChainForTests(primary)).toEqual([]);
   }
 });
@@ -1134,27 +1190,43 @@ test('closed-tree native helper protocol failures permit cleanup while preservin
     stdout: Object.freeze({ ...exact.stdout, observerTruncated: true })
   });
   const failures = [
-    captureObservedNativeHelperFailure(truncated, wire),
-    captureObservedNativeHelperFailure(exact, Buffer.from('{"status":"failed"}', 'utf8')),
-    captureObservedNativeHelperFailure(Object.freeze({
-      status: 'spawn-failed',
-      started: false,
-      exitCode: null,
-      signal: null,
-      durationMs: 1,
-      stdout: observedStream(new Uint8Array()),
-      stderr: observedStream(new Uint8Array()),
-      termination: Object.freeze({
-        requested: false,
-        gracefulAttempted: false,
-        forcedAttempted: false,
-        childCloseObserved: false,
-        streamsDrained: true,
-        treeClosed: true
-      })
-    }))
-  ];
-  for (const primary of failures) {
+    {
+      primary: captureObservedNativeHelperFailure(truncated, wire),
+      reason: 'stdout-truncated'
+    },
+    {
+      primary: captureObservedNativeHelperFailure(
+        exact,
+        Buffer.from('{"status":"failed"}', 'utf8')
+      ),
+      reason: 'stdout-evidence-mismatch'
+    },
+    {
+      primary: captureObservedNativeHelperFailure(Object.freeze({
+        status: 'spawn-failed',
+        started: false,
+        exitCode: null,
+        signal: null,
+        durationMs: 1,
+        stdout: observedStream(new Uint8Array()),
+        stderr: observedStream(new Uint8Array()),
+        termination: Object.freeze({
+          requested: false,
+          gracefulAttempted: false,
+          forcedAttempted: false,
+          childCloseObserved: false,
+          streamsDrained: true,
+          treeClosed: true
+        })
+      })),
+      reason: 'not-started'
+    }
+  ] as const;
+  for (const { primary, reason } of failures) {
+    expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
+      mode: 'execute',
+      reason
+    });
     let cleanupCalls = 0;
     await expect(completeWindowsAppContainerOwnedExecutionForTests(
       undefined,

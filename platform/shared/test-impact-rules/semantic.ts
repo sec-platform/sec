@@ -88,7 +88,23 @@ const SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS = [
   "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
 ];
 
+const WINDOWS_APPCONTAINER_NATIVE_HELPER_SETTLEMENT_FAST_TESTS = [
+  "tests/contract/semantic-mutation-apply-contract.test.ts",
+  "tests/contract/test-impact.test.ts",
+  "tests/unit/ci-pr-risk-selection.test.ts",
+  "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts",
+];
+
 export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: "semantic-mutation",
+    identity: { kind: "architecture-owner", id: "semantic-mutation" },
+    sourceFiles: [
+      "platform/shared/windows-appcontainer-native-helper-settlement.ts",
+    ],
+    fast: WINDOWS_APPCONTAINER_NATIVE_HELPER_SETTLEMENT_FAST_TESTS,
+    slow: [],
+  },
   {
     owner: "semantic-mutation",
     identity: { kind: "architecture-owner", id: "semantic-mutation" },

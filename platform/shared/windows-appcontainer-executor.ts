@@ -20,6 +20,15 @@ import {
   type ObservedCommandOutcome
 } from './observed-process.ts';
 import {
+  bindWindowsAppContainerObservedNativeHelperSettlement,
+  classifyWindowsAppContainerObservedNativeHelperSettlement,
+  copyWindowsAppContainerObservedNativeHelperSettlement,
+  WINDOWS_APPCONTAINER_OBSERVED_NATIVE_HELPER_EXIT_STATUS_UNPROVEN,
+  type WindowsAppContainerObservedNativeHelperDiagnosticCapture,
+  type WindowsAppContainerObservedNativeHelperMode,
+  type WindowsAppContainerObservedNativeHelperSettlementClassification
+} from './windows-appcontainer-native-helper-settlement.ts';
+import {
   acquireWorkspaceWriteLease,
   assertWorkspaceWriteLease,
   type WorkspaceWriteLeaseHandle,
@@ -1029,6 +1038,7 @@ function normalizeExecutionError(
         observation
       );
       if (observation) nativeHelperObservations.set(normalized, observation);
+      copyWindowsAppContainerObservedNativeHelperSettlement(error, normalized);
       return normalized;
     }
     return error;
@@ -2059,94 +2069,11 @@ interface HostBunCommandResult {
   readonly diagnosticPresent: boolean;
 }
 
-interface ObservedDiagnosticCapture {
-  readonly bytes: number;
-  readonly digest: `sha256:${string}`;
-  readonly present: boolean;
-}
-
-type ObservedNativeHelperSettlementClassificationForTests =
-  | Readonly<{ status: 'success' }>
-  | Readonly<{
-    status: 'rejected';
-    reason:
-      | 'timed-out'
-      | 'not-started'
-      | 'closure-unproven'
-      | 'requested-termination'
-      | 'not-exited'
-      | 'exit-status-unproven'
-      | 'stdout-truncated'
-      | 'stderr-truncated'
-      | 'stdout-evidence-mismatch'
-      | 'stderr-evidence-mismatch';
-  }>;
-
-const OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS = Object.freeze({
-  success: Object.freeze({ status: 'success' as const }),
-  timedOut: Object.freeze({ status: 'rejected' as const, reason: 'timed-out' as const }),
-  notStarted: Object.freeze({ status: 'rejected' as const, reason: 'not-started' as const }),
-  closureUnproven: Object.freeze({ status: 'rejected' as const, reason: 'closure-unproven' as const }),
-  requestedTermination: Object.freeze({ status: 'rejected' as const, reason: 'requested-termination' as const }),
-  notExited: Object.freeze({ status: 'rejected' as const, reason: 'not-exited' as const }),
-  exitStatusUnproven: Object.freeze({ status: 'rejected' as const, reason: 'exit-status-unproven' as const }),
-  stdoutTruncated: Object.freeze({ status: 'rejected' as const, reason: 'stdout-truncated' as const }),
-  stderrTruncated: Object.freeze({ status: 'rejected' as const, reason: 'stderr-truncated' as const }),
-  stdoutEvidenceMismatch: Object.freeze({ status: 'rejected' as const, reason: 'stdout-evidence-mismatch' as const }),
-  stderrEvidenceMismatch: Object.freeze({ status: 'rejected' as const, reason: 'stderr-evidence-mismatch' as const })
-});
-
-function observedOutputMatches(
-  contents: Uint8Array,
-  evidence: ObservedCommandOutcome['stdout']
-): boolean {
-  return evidence.bytes === contents.byteLength &&
-    evidence.digest === `sha256:${createHash('sha256').update(contents).digest('hex')}`;
-}
-
-function classifyObservedHostBunCommand(
-  outcome: ObservedCommandOutcome,
-  stdout: Uint8Array,
-  diagnostic: ObservedDiagnosticCapture,
-  closedTree: boolean
-): ObservedNativeHelperSettlementClassificationForTests {
-  if (outcome.status === 'timed-out' || outcome.trigger === 'timed-out') {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.timedOut;
-  }
-  if (!outcome.started) return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.notStarted;
-  if (!closedTree) {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.closureUnproven;
-  }
-  if (outcome.termination.requested) {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.requestedTermination;
-  }
-  if (outcome.status !== 'exited') {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.notExited;
-  }
-  if (outcome.exitCode === null || outcome.signal !== null) {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.exitStatusUnproven;
-  }
-  if (outcome.stdout.observerTruncated) {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stdoutTruncated;
-  }
-  if (outcome.stderr.observerTruncated) {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stderrTruncated;
-  }
-  if (!observedOutputMatches(stdout, outcome.stdout)) {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stdoutEvidenceMismatch;
-  }
-  if (diagnostic.bytes !== outcome.stderr.bytes ||
-    diagnostic.digest !== outcome.stderr.digest ||
-    diagnostic.present !== (outcome.stderr.bytes > 0)) {
-    return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.stderrEvidenceMismatch;
-  }
-  return OBSERVED_NATIVE_HELPER_SETTLEMENT_CLASSIFICATIONS.success;
-}
-
 function settleObservedHostBunCommand(
+  mode: WindowsAppContainerObservedNativeHelperMode,
   outcome: ObservedCommandOutcome,
   stdoutChunks: readonly Uint8Array[],
-  diagnostic: ObservedDiagnosticCapture
+  diagnostic: WindowsAppContainerObservedNativeHelperDiagnosticCapture
 ): HostBunCommandResult {
   const stdout = Buffer.concat(stdoutChunks.map((chunk) => Buffer.from(chunk)));
   const closedTree = outcome.termination.childCloseObserved &&
@@ -2154,16 +2081,20 @@ function settleObservedHostBunCommand(
   const cleanupSafe = outcome.started
     ? closedTree
     : outcome.termination.streamsDrained && outcome.termination.treeClosed;
-  const classification = classifyObservedHostBunCommand(
+  const classification = classifyWindowsAppContainerObservedNativeHelperSettlement(
     outcome,
     stdout,
-    diagnostic,
-    closedTree
+    diagnostic
   );
   if (classification.status !== 'success' || outcome.exitCode === null) {
+    const rejection: WindowsAppContainerObservedNativeHelperSettlementClassification =
+      classification.status === 'rejected'
+        ? classification
+        : WINDOWS_APPCONTAINER_OBSERVED_NATIVE_HELPER_EXIT_STATUS_UNPROVEN;
     const error = executionError(
       'preparation', undefined, undefined, 'native-helper-invocation'
     );
+    bindWindowsAppContainerObservedNativeHelperSettlement(error, mode, rejection);
     if (!cleanupSafe) executionRetainedOwners.add(error);
     throw error;
   }
@@ -2174,7 +2105,9 @@ function settleObservedHostBunCommand(
   });
 }
 
-function observedDiagnosticCaptureForTests(stderr: Uint8Array): ObservedDiagnosticCapture {
+function observedDiagnosticCaptureForTests(
+  stderr: Uint8Array
+): WindowsAppContainerObservedNativeHelperDiagnosticCapture {
   return Object.freeze({
     bytes: stderr.byteLength,
     digest: `sha256:${createHash('sha256').update(stderr).digest('hex')}`,
@@ -2187,14 +2120,11 @@ export function classifyObservedWindowsAppContainerNativeHelperForTests(
   outcome: ObservedCommandOutcome,
   stdout: Uint8Array,
   stderr: Uint8Array
-): ObservedNativeHelperSettlementClassificationForTests {
-  const closedTree = outcome.termination.childCloseObserved &&
-    outcome.termination.streamsDrained && outcome.termination.treeClosed;
-  return classifyObservedHostBunCommand(
+): WindowsAppContainerObservedNativeHelperSettlementClassification {
+  return classifyWindowsAppContainerObservedNativeHelperSettlement(
     outcome,
     stdout,
-    observedDiagnosticCaptureForTests(stderr),
-    closedTree
+    observedDiagnosticCaptureForTests(stderr)
   );
 }
 
@@ -2202,9 +2132,11 @@ export function classifyObservedWindowsAppContainerNativeHelperForTests(
 export function settleObservedWindowsAppContainerNativeHelperForTests(
   outcome: ObservedCommandOutcome,
   stdout: Uint8Array,
-  stderr: Uint8Array
+  stderr: Uint8Array,
+  mode: WindowsAppContainerObservedNativeHelperMode = 'execute'
 ): HostBunCommandResult {
   return settleObservedHostBunCommand(
+    mode,
     outcome,
     [stdout],
     observedDiagnosticCaptureForTests(stderr)
@@ -2212,6 +2144,7 @@ export function settleObservedWindowsAppContainerNativeHelperForTests(
 }
 
 async function runHostBunCommand(
+  mode: WindowsAppContainerObservedNativeHelperMode,
   stagingRoot: string,
   environment: Readonly<Record<string, string>>,
   commitFence: () => Promise<void>,
@@ -2260,7 +2193,7 @@ async function runHostBunCommand(
       timeoutMs,
       whileRunning: commitFence
     });
-    result = settleObservedHostBunCommand(observed, stdoutChunks, Object.freeze({
+    result = settleObservedHostBunCommand(mode, observed, stdoutChunks, Object.freeze({
       bytes: diagnosticBytes,
       digest: `sha256:${diagnosticDigest.digest('hex')}`,
       present: diagnosticPresent
@@ -3096,6 +3029,7 @@ async function invokeNativeHelper(
 ): Promise<void | WindowsAppContainerExecutionResult> {
   const serialized = encodeNativeHelperRequestForHost({ mode, request: helperRequest });
   const result = await runHostBunCommand(
+    mode,
     stagingRoot,
     environment,
     commitFence,
@@ -3172,6 +3106,7 @@ async function deriveAppContainerSidViaHelper(
     request: { appContainerName }
   });
   const result = await runHostBunCommand(
+    'derive',
     stagingRoot,
     environment,
     commitFence,
