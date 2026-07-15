@@ -414,7 +414,7 @@ test('Windows AppContainer native-helper bundle retries one transient rejected b
     if (attempts === 1) throw new Error('transient-build-rejection');
     return expected;
   });
-  await expect(loader.build()).rejects.toThrow('transient-build-rejection');
+  await expect(loader.prepare()).rejects.toThrow('transient-build-rejection');
   expect(await loader.build()).toEqual(expected);
   expect(await loader.build()).toEqual(expected);
   expect(attempts).toBe(2);
@@ -426,6 +426,35 @@ test('Windows AppContainer native-helper bundle retries one transient rejected b
   expect(invalid).toBeInstanceOf(WindowsAppContainerExecutionError);
   expect((invalid as WindowsAppContainerExecutionError).preparationSubstage)
     .toBe('native-helper-bundle-contract');
+});
+
+test('Windows AppContainer native-helper prebind and later build share one opaque source', async () => {
+  let attempts = 0;
+  let releaseSource!: () => void;
+  const sourceReleased = new Promise<void>((resolve) => {
+    releaseSource = resolve;
+  });
+  const expected = new TextEncoder().encode('export default 1;\n');
+  const loader = createWindowsAppContainerNativeHelperBundleLoaderForTests(async () => {
+    attempts += 1;
+    await sourceReleased;
+    return expected;
+  });
+
+  const prebind = loader.prepare();
+  const laterBuild = loader.build();
+  expect(attempts).toBe(1);
+  releaseSource();
+  expect(await prebind).toBeUndefined();
+  expect(await laterBuild).toEqual(expected);
+  expect(attempts).toBe(1);
+
+  expected[0] = 0;
+  const callerBytes = await loader.build();
+  expect(new TextDecoder().decode(callerBytes)).toBe('export default 1;\n');
+  callerBytes[0] = 0;
+  expect(new TextDecoder().decode(await loader.build())).toBe('export default 1;\n');
+  expect(attempts).toBe(1);
 });
 
 test('Windows AppContainer native-helper entry proof rejects missing, aliases, and identity drift', async () => {
