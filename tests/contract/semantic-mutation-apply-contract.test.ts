@@ -762,6 +762,9 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.isolatedChild).toContain("envMode: 'replace'");
   expect(sources.isolatedChild).toContain('maxObservedOutputBytes: SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES');
   expect(sources.isolatedChild).toContain('frameDigest !== outcome.stdout.digest');
+  expect(sources.isolatedChild).toContain('let cleanupProven = true;');
+  expect(sources.isolatedChild).toContain('cleanupProven = false;');
+  expect(sources.isolatedChild).toContain('if (cleanupProven) await cleanup(processRoot);');
   expect(sources.isolatedChild).not.toContain('const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(');
   expect(sources.runnerBuildChild).toContain('fileURLToPath(new URL(');
   expect(sources.runnerBuildChild).toContain('if (import.meta.main)');

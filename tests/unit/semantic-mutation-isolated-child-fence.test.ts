@@ -501,8 +501,10 @@ test('fresh-process runner build maps abort, timeout, signal, observer, and tree
     ['stderr', 1],
     ['stdout', SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES + 1]
   ] as const) {
+    let retainedRoot: string | undefined;
     const terminated = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
       async (_command, _args, options) => {
+        retainedRoot = path.dirname(String(options.env?.HOME));
         options.onChunk?.(stream, byteLength);
         throw new Error('observer callback should have terminated this fixture');
       }
@@ -511,7 +513,86 @@ test('fresh-process runner build maps abort, timeout, signal, observer, and tree
       status: 'unavailable',
       diagnostic: { runtimeCapability: { substage: 'runner-build-invocation' } }
     });
+    if (retainedRoot) await rm(retainedRoot, { recursive: true, force: true });
   }
+});
+
+test('fresh-process runner build cleans only pre-spawn or proven-closed process roots', async () => {
+  const cleanupCalls: string[] = [];
+  const cleanup = async (processRoot: string): Promise<void> => {
+    cleanupCalls.push(processRoot);
+    await rm(processRoot, { recursive: true, force: true });
+  };
+  const payload = Uint8Array.from([1]);
+  const frame = semanticMutationRunnerBuildSuccessFrame(payload);
+  const clean = await readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests(
+    async (_command, _args, options) => {
+      options.onChunk?.('stdout', frame.byteLength);
+      options.onOutput?.('stdout', frame);
+      return observedRunnerBuildOutcome(frame);
+    },
+    undefined,
+    cleanup
+  );
+  expect(clean).toEqual(payload);
+  expect(cleanupCalls).toHaveLength(1);
+
+  const preSpawn = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    async () => observedRunnerBuildOutcome(new Uint8Array(), {
+      status: 'spawn-failed',
+      started: false
+    }),
+    undefined,
+    cleanup
+  );
+  expect(preSpawn).toMatchObject({
+    status: 'unavailable',
+    diagnostic: { runtimeCapability: { substage: 'runner-build-invocation' } }
+  });
+  expect(cleanupCalls).toHaveLength(2);
+
+  for (const status of ['tree-unproven', 'termination-unproven'] as const) {
+    let retainedRoot: string | undefined;
+    const result = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+      async (_command, _args, options) => {
+        retainedRoot = path.dirname(String(options.env?.HOME));
+        return observedRunnerBuildOutcome(new Uint8Array(), {
+          status,
+          termination: {
+            ...observedRunnerBuildOutcome(new Uint8Array()).termination,
+            streamsDrained: status !== 'termination-unproven',
+            treeClosed: false
+          }
+        });
+      },
+      undefined,
+      cleanup
+    );
+    expect(result).toMatchObject({
+      status: 'unavailable',
+      diagnostic: { runtimeCapability: { substage: 'runner-build-invocation' } }
+    });
+    expect(cleanupCalls).toHaveLength(2);
+    expect(retainedRoot).toBeDefined();
+    if (retainedRoot) await rm(retainedRoot, { recursive: true, force: true });
+  }
+
+  let thrownRoot: string | undefined;
+  const thrown = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    async (_command, _args, options) => {
+      thrownRoot = path.dirname(String(options.env?.HOME));
+      throw new Error('unknown started state');
+    },
+    undefined,
+    cleanup
+  );
+  expect(thrown).toMatchObject({
+    status: 'unavailable',
+    diagnostic: { runtimeCapability: { substage: 'runner-build-invocation' } }
+  });
+  expect(cleanupCalls).toHaveLength(2);
+  expect(thrownRoot).toBeDefined();
+  if (thrownRoot) await rm(thrownRoot, { recursive: true, force: true });
 });
 
 test('runtime capability diagnostic enum rejects forged detail without retaining raw fields', () => {

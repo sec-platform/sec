@@ -615,6 +615,12 @@ type SemanticMutationRunnerBuildObservedCommand = (
   options: ObservedCommandOptions
 ) => Promise<ObservedCommandOutcome>;
 
+type SemanticMutationRunnerBuildProcessRootCleanup = (processRoot: string) => Promise<void>;
+
+async function cleanupSemanticMutationRunnerBuildProcessRoot(processRoot: string): Promise<void> {
+  await rm(processRoot, { recursive: true, force: true });
+}
+
 function exactObservedRunnerBuildLifecycle(outcome: ObservedCommandOutcome): boolean {
   return outcome.status === 'exited' && outcome.started && outcome.signal === null &&
     !outcome.termination.requested && !outcome.termination.gracefulAttempted &&
@@ -626,10 +632,13 @@ function exactObservedRunnerBuildLifecycle(outcome: ObservedCommandOutcome): boo
 
 async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
   execute: SemanticMutationRunnerBuildObservedCommand = runObservedCommand,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cleanup: SemanticMutationRunnerBuildProcessRootCleanup =
+    cleanupSemanticMutationRunnerBuildProcessRoot
 ): Promise<Uint8Array> {
   try {
     const processRoot = await mkdtemp(path.join(tmpdir(), 'sec-sm-runner-build-'));
+    let cleanupProven = true;
     let bundle: Uint8Array;
     try {
       await ensureIsolatedProcessDirectories(processRoot);
@@ -637,6 +646,7 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
       let observedStdoutBytes = 0;
       let outcome: ObservedCommandOutcome;
       try {
+        cleanupProven = false;
         outcome = await execute(process.execPath, [
           '--no-install',
           '--no-env-file',
@@ -665,6 +675,10 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
           timeoutMs: RUNNER_BUILD_CHILD_TIMEOUT_MS,
           windowsHide: true
         });
+        cleanupProven = !outcome.started || (
+          outcome.termination.childCloseObserved && outcome.termination.streamsDrained &&
+          outcome.termination.treeClosed
+        );
       } catch {
         throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
       }
@@ -708,7 +722,7 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
         throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
       }
     } finally {
-      await rm(processRoot, { recursive: true, force: true });
+      if (cleanupProven) await cleanup(processRoot);
     }
     return bundle;
   } catch (error) {
@@ -720,15 +734,17 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
 /** Test-only observed-process seam; production fixes the child entry, arguments and environment. */
 export async function readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests(
   execute: SemanticMutationRunnerBuildObservedCommand,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cleanup?: SemanticMutationRunnerBuildProcessRootCleanup
 ): Promise<Uint8Array> {
-  return await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(execute, signal);
+  return await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(execute, signal, cleanup);
 }
 
 /** Test-only finite projection for the fresh-process observed-command boundary. */
 export async function classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
   execute: SemanticMutationRunnerBuildObservedCommand,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cleanup?: SemanticMutationRunnerBuildProcessRootCleanup
 ): Promise<
   | Readonly<{ readonly status: 'available'; readonly bundle: Uint8Array }>
   | Readonly<{
@@ -739,7 +755,11 @@ export async function classifySemanticMutationIsolatedRunnerBuildFreshProcessFor
   try {
     return Object.freeze({
       status: 'available' as const,
-      bundle: await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(execute, signal)
+      bundle: await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
+        execute,
+        signal,
+        cleanup
+      )
     });
   } catch (error) {
     return Object.freeze({
