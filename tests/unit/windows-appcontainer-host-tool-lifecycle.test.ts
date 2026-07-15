@@ -995,15 +995,20 @@ test('execute helper explicitly settles the inner AppContainer Job within one fi
   }, 100)).toBe(false);
 
   let deadlineNowMs = 2_000;
+  let deadlineSleepCalls = 0;
   expect(settleWindowsAppContainerNativeJobAfterFailureForTests({
     nowMs: () => deadlineNowMs,
     terminateJob: () => true,
-    waitForRoot: () => 0,
-    queryActiveProcesses: () => 1,
-    sleep: (timeoutMs) => {
+    waitForRoot: (timeoutMs) => {
       deadlineNowMs += timeoutMs;
+      return 0;
+    },
+    queryActiveProcesses: () => 1,
+    sleep: () => {
+      deadlineSleepCalls += 1;
     }
-  }, 40)).toBe(false);
+  }, 20)).toBe(false);
+  expect(deadlineSleepCalls).toBe(0);
 });
 
 function captureObservedNativeHelperFailure(
