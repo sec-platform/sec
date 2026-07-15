@@ -1076,10 +1076,10 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     "diagnosticStream: diagnosticStreamPresent ? 'present' : 'empty'"
   );
   expect(sources.appContainer).toContain('nativeReceipt: nativeReceipt.classification');
-  expect(sources.appContainer).toContain('const controller = new AbortController()');
-  expect(sources.appContainer).toContain('signal: controller.signal');
-  expect(sources.appContainer).toContain('controller.abort()');
-  expect(sources.appContainer).toContain('normalizeExecutionError(monitorError ?? error,');
+  expect(sources.appContainer).not.toContain('const controller = new AbortController()');
+  expect(sources.appContainer).not.toContain('signal: controller.signal');
+  expect(sources.appContainer).not.toContain('controller.abort()');
+  expect(sources.appContainer).not.toContain('normalizeExecutionError(monitorError ?? error,');
   expect(sources.appContainer).toContain('WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS');
   expect(sources.appContainer).toContain(
     'writeFileSync(nativeResultPath, `${JSON.stringify({ exitCode })}\\n`, { flag: \'wx\' })'
@@ -1159,7 +1159,18 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer.match(
     /const bunConfigPath = path\.join\(path\.dirname\(process\.execPath\), 'bunfig\.toml'\)/gu
   )?.length).toBe(2);
-  expect(sources.appContainer).toContain('await cleanupHostBunConfig(stagingRoot, commitFence)');
+  expect(sources.appContainer).toContain('() => cleanupHostBunConfig(stagingRoot, commitFence)');
+  expect(sources.appContainer).not.toContain("import { runCommand } from './process.ts'");
+  expect(sources.appContainer).toContain('const executionRetainedOwners = new WeakSet<Error>();');
+  expect(sources.appContainer).toContain('executionRetainedOwners.has(primaryError)');
+  expect(sources.appContainer).toContain('if (!cleanupSafe) executionRetainedOwners.add(error);');
+  expect(sources.appContainer).toContain(
+    'maxObservedOutputBytes: WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES'
+  );
+  expect(sources.appContainer).toContain('whileRunning: commitFence');
+  expect(sources.appContainer).toContain(
+    'result = settleObservedHostBunCommand(observed, stdoutChunks, Object.freeze({'
+  );
   expect(sources.verificationAdapter).toContain('!exactEndpoint(input.attempted)');
   expect(sources.verificationAdapter).toContain('JSON.stringify(input.requirements) !== JSON.stringify(requirements)');
   expect(sources.verificationAdapter).toContain('assertSemanticMutationVerificationReportInvariant(report)');
