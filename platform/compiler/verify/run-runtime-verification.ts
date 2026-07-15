@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { CommitFence } from '../../shared/fs.ts';
 import { listFilesRecursive, pathExists, writeText } from '../../shared/fs.ts';
@@ -56,10 +57,38 @@ export function bunRunInvocation(
     : { command: 'bun', args: ['run', script] };
 }
 
+type PhysicalPathResolver = (value: string) => string;
+
+function resolveHostPlaywrightBrowsersPath(
+  root: string,
+  resolvePhysicalPath: PhysicalPathResolver
+): string {
+  const localFallback = path.join(root, '.shared-deps', '.playwright-browsers');
+  try {
+    const physicalNodeModules = resolvePhysicalPath(path.join(root, 'node_modules'));
+    const physicalParent = path.dirname(physicalNodeModules);
+    const dependencyHost = path.basename(physicalParent) === '.shared-deps'
+      ? path.dirname(physicalParent)
+      : physicalParent;
+    return resolvePhysicalPath(path.join(dependencyHost, '.shared-deps', '.playwright-browsers'));
+  } catch {
+    return localFallback;
+  }
+}
+
+/** Test-only pure seam for physical dependency-bridge path resolution. */
+export function resolveHostPlaywrightBrowsersPathForTests(
+  root: string,
+  resolvePhysicalPath: PhysicalPathResolver
+): string {
+  return resolveHostPlaywrightBrowsersPath(root, resolvePhysicalPath);
+}
+
 export function isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot?: string): string {
-  return stagingWorkspaceRoot
-    ? path.join(stagingWorkspaceRoot, '.isolated-process', 'playwright-browsers')
-    : path.join(compilerRoot, '.shared-deps', '.playwright-browsers');
+  if (stagingWorkspaceRoot) {
+    return path.join(stagingWorkspaceRoot, '.isolated-process', 'playwright-browsers');
+  }
+  return resolveHostPlaywrightBrowsersPath(compilerRoot, realpathSync);
 }
 
 export function buildIsolatedRuntimeEnvironment(

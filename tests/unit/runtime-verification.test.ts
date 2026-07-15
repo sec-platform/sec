@@ -4,7 +4,9 @@ import path from 'node:path';
 import {
   buildIsolatedRuntimeEnvironment,
   bunRunInvocation,
-  normalizeRuntimeVerificationLog
+  isolatedPlaywrightBrowsersPath,
+  normalizeRuntimeVerificationLog,
+  resolveHostPlaywrightBrowsersPathForTests
 } from '../../platform/compiler/verify/run-runtime-verification.ts';
 
 test('runtime verification logs normalize elapsed durations', () => {
@@ -23,6 +25,65 @@ test('isolated runtime uses fixed Bun argv without auto-install', () => {
     args: ['--no-env-file', `--config=${fixedConfigPath}`, '--no-install', 'run', 'build']
   });
   expect(path.relative(stagingRoot, fixedConfigPath).startsWith('..')).toBe(false);
+});
+
+test('host Playwright cache follows the physical dependency bridge without copying', () => {
+  const worktreeRoot = path.resolve('external-worktree');
+  const dependencyHost = path.resolve('dependency-host');
+  const canonicalCache = path.join(dependencyHost, 'canonical-playwright-cache');
+  const cacheCandidate = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
+  const resolvePhysicalPath = (value: string): string => {
+    if (value === path.join(worktreeRoot, 'node_modules')) {
+      return path.join(dependencyHost, 'node_modules');
+    }
+    if (value === cacheCandidate) return canonicalCache;
+    throw new Error('physical path is unavailable');
+  };
+
+  expect(resolveHostPlaywrightBrowsersPathForTests(
+    worktreeRoot,
+    resolvePhysicalPath
+  )).toBe(canonicalCache);
+});
+
+test('host Playwright cache unwraps a shared-deps node_modules target exactly once', () => {
+  const worktreeRoot = path.resolve('shared-deps-worktree');
+  const dependencyHost = path.resolve('shared-deps-host');
+  const cache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
+  const resolvePhysicalPath = (value: string): string => {
+    if (value === path.join(worktreeRoot, 'node_modules')) {
+      return path.join(dependencyHost, '.shared-deps', 'node_modules');
+    }
+    if (value === cache) return cache;
+    throw new Error('physical path is unavailable');
+  };
+
+  expect(resolveHostPlaywrightBrowsersPathForTests(
+    worktreeRoot,
+    resolvePhysicalPath
+  )).toBe(cache);
+});
+
+test('host Playwright cache falls back locally when the bridge or host cache is unavailable', () => {
+  const worktreeRoot = path.resolve('fallback-worktree');
+  const localCache = path.join(worktreeRoot, '.shared-deps', '.playwright-browsers');
+  expect(resolveHostPlaywrightBrowsersPathForTests(worktreeRoot, () => {
+    throw new Error('bridge is unavailable');
+  })).toBe(localCache);
+
+  let calls = 0;
+  expect(resolveHostPlaywrightBrowsersPathForTests(worktreeRoot, () => {
+    calls += 1;
+    if (calls === 1) return path.join(path.resolve('dependency-host'), 'node_modules');
+    throw new Error('host cache is unavailable');
+  })).toBe(localCache);
+});
+
+test('staged Playwright cache remains inside the isolated process root', () => {
+  const stagingRoot = path.resolve('isolated-staging-contract');
+  expect(isolatedPlaywrightBrowsersPath(stagingRoot)).toBe(
+    path.join(stagingRoot, '.isolated-process', 'playwright-browsers')
+  );
 });
 
 test('isolated runtime environment excludes live fallbacks and contains writable homes', () => {
