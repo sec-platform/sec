@@ -10,6 +10,11 @@ import {
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
+import {
+  createWorkspaceWithDeferredCleanup,
+  removeWorkspaceDirectoryWithRetry,
+  settleWorkspaceCallback
+} from './workspace-cleanup.ts';
 
 const workspaceParent = getTestWorkspaceTempRoot();
 const templateParent = path.join(workspaceParent, '.templates');
@@ -27,6 +32,10 @@ export type WorkspaceTemplateKind =
   | 'explained-all-default';
 export type WorkspaceScenarioKind = WorkspaceTemplateKind;
 
+export type WorkspaceCallbackOptions = {
+  readonly retainOnCallbackFailure?: boolean;
+};
+
 afterAll(async () => {
   for (const directory of deferredCleanupDirs) {
     await removeWorkspaceDirectory(directory);
@@ -40,41 +49,51 @@ function sleepMs(delayMs: number): Promise<void> {
 }
 
 async function removeWorkspaceDirectory(directory: string): Promise<void> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      await fs.rm(directory, { recursive: true, force: true });
-      deferredCleanupDirs.delete(directory);
-      return;
-    } catch (error) {
-      const failure = error as NodeJS.ErrnoException;
-      if (failure.code !== 'EBUSY' && failure.code !== 'EPERM') {
-        throw error;
-      }
-      await sleepMs(100 * (attempt + 1));
+  await removeWorkspaceDirectoryWithRetry({
+    directory,
+    deferredCleanupDirs,
+    seam: {
+      platform: process.platform,
+      removeDirectory: fs.rm,
+      sleep: sleepMs
     }
-  }
-  await fs.rm(directory, { recursive: true, force: true });
-  deferredCleanupDirs.delete(directory);
+  });
+}
+
+async function runWorkspaceCallback<T>(
+  workspaceRoot: string,
+  callback: (workspaceRoot: string) => Promise<T>,
+  options: WorkspaceCallbackOptions
+): Promise<T> {
+  return settleWorkspaceCallback(
+    () => callback(workspaceRoot),
+    () => removeWorkspaceDirectory(workspaceRoot),
+    options.retainOnCallbackFailure === true
+      ? {
+          retainOnCallbackFailure: true,
+          directory: workspaceRoot,
+          deferredCleanupDirs
+        }
+      : undefined
+  );
 }
 
 export async function createWorkspace(prefix = 'engineering-compiler-test-'): Promise<string> {
   await fs.mkdir(workspaceParent, { recursive: true });
-  const directory = await fs.mkdtemp(path.join(workspaceParent, prefix));
-  deferredCleanupDirs.add(directory);
-  return directory;
+  return createWorkspaceWithDeferredCleanup(
+    path.join(workspaceParent, prefix),
+    deferredCleanupDirs,
+    fs.mkdtemp
+  );
 }
 
 export async function withTempWorkspace<T>(
   callback: (workspaceRoot: string) => Promise<T>,
-  prefix = 'engineering-compiler-test-'
+  prefix = 'engineering-compiler-test-',
+  options: WorkspaceCallbackOptions = {}
 ): Promise<T> {
-  await fs.mkdir(workspaceParent, { recursive: true });
-  const workspaceRoot = await fs.mkdtemp(path.join(workspaceParent, prefix));
-  try {
-    return await callback(workspaceRoot);
-  } finally {
-    await removeWorkspaceDirectory(workspaceRoot);
-  }
+  const workspaceRoot = await createWorkspace(prefix);
+  return runWorkspaceCallback(workspaceRoot, callback, options);
 }
 
 type WorkspacePipelineFixtureOptions = {
@@ -291,14 +310,11 @@ export async function prepareResolvedWorkspace(options: WorkspacePipelineFixture
 
 export async function withWorkspaceScenario<T>(
   kind: WorkspaceScenarioKind,
-  callback: (workspaceRoot: string) => Promise<T>
+  callback: (workspaceRoot: string) => Promise<T>,
+  options: WorkspaceCallbackOptions = {}
 ): Promise<T> {
   const workspaceRoot = await cloneWorkspaceTemplate(kind, `engineering-compiler-${kind}-scenario-`);
-  try {
-    return await callback(workspaceRoot);
-  } finally {
-    await removeWorkspaceDirectory(workspaceRoot);
-  }
+  return runWorkspaceCallback(workspaceRoot, callback, options);
 }
 
 export async function expectWorkspaceVerifies(
