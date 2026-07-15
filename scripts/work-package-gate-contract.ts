@@ -67,7 +67,7 @@ export const WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4 = Object.freeze({
   'tests/contract/semantic-mutation-apply-contract.test.ts': 'sha256:1b6ea1100ff79c6f22fa4f198549a6cd0d8647024ac3479ec02eaae04aaf3a24',
   'tests/integration/pipeline-workspace-write-lease.test.ts': 'sha256:e039203824a945c0e097d57cce4b3fd1949ef51a929e920724b9295698644ef1',
   'tests/unit/semantic-mutation-apply.test.ts': 'sha256:7035519278b6717f036af2dccdfce87cf0886bada066ec4e4a113460ddb3ffd6',
-  'tests/unit/semantic-mutation-isolated-child-fence.test.ts': 'sha256:d109c09ea089b11a226a52aed99142049ea5f820cdad92f55f240874490fd82f',
+  'tests/unit/semantic-mutation-isolated-child-fence.test.ts': 'sha256:73f36012008a8e7285ab9eeed43db4f70f9b21c04f421aeda831b5eb2d1bb3c3',
   'tests/unit/semantic-mutation-runtime-materialization.test.ts': 'sha256:fccad2edfddc5a49d961d8c7f800ad0b6500af30c31fd262517ef2543f5d31b1',
   'tests/unit/windows-appcontainer-executor.test.ts': 'sha256:2ee690a213bd4e5e834a9e25e8dd3c9ffab14b50c1057975f537a945b80917ae',
   'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts': 'sha256:00041f830b808f071ce4f289108a34b60a1fec9a18bebfe01603e73c630a8ea3',
