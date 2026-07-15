@@ -12,6 +12,19 @@ interface CliOptions {
   readonly revision: string;
 }
 
+const RETAINED_RECOVERY_FIXTURE_LEDGER = Object.freeze({
+  'tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json':
+    'sha256:7cb79c1eb4c33bab8af8bfcace434b8edfb51c8647575b8cc59de6ec6e92611d',
+  'tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json':
+    'sha256:e4dbbe8287b0a4de39cb7c58fd565612928efed72755ac027877ae5a67a0ea6f',
+  'tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json':
+    'sha256:08e76fb31bebe12fdb394d71106d3be0c02e774fdebd18e74d9e480c72fd834d',
+  'tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json':
+    'sha256:fbb7b1d936698cb3f0a1bfb91343ac986b6f79759163dac374be3f2ea93c8596',
+  'tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json':
+    'sha256:d9bc5c8e840bbd7fa8824107c1bed18a9eac1152da8843799ad1837f77e59f4f'
+} as const);
+
 function usage(): never {
   throw new Error(
     'Usage: bun scripts/work-package-gate-custody-ledger.ts <check|render> --revision <revision>'
@@ -58,12 +71,16 @@ function custodyDigest(bytes: Uint8Array): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }
 
-function renderLedger(ledger: Readonly<Record<string, string>>, revision: string): string {
+function renderLedger(
+  ledger: Readonly<Record<string, string>>,
+  revision: string,
+  label = 'custody'
+): string {
   const lines = Object.entries(ledger).map(
     ([relativePath, digest]) => `  '${relativePath}': '${digest}',`
   );
   return [
-    `// Candidate custody ledger rendered from Git commit ${revision}.`,
+    `// Candidate ${label} ledger rendered from Git commit ${revision}.`,
     'Object.freeze({',
     ...lines,
     '} as const);'
@@ -74,8 +91,16 @@ export function workPackageGateCustodyLedgerForRevision(
   repoRoot: string,
   revision: string
 ): Readonly<Record<string, `sha256:${string}`>> {
+  return gitBlobLedgerForRevision(repoRoot, revision, Object.keys(WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4));
+}
+
+function gitBlobLedgerForRevision(
+  repoRoot: string,
+  revision: string,
+  relativePaths: readonly string[]
+): Readonly<Record<string, `sha256:${string}`>> {
   const commit = resolveCommit(repoRoot, revision);
-  const ledger = Object.fromEntries(Object.keys(WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4).map((relativePath) => {
+  const ledger = Object.fromEntries(relativePaths.map((relativePath) => {
     const bytes = git(repoRoot, ['cat-file', 'blob', `${commit}:${relativePath}`], 'buffer');
     if (!Buffer.isBuffer(bytes)) throw new Error('git cat-file did not return blob bytes');
     return [relativePath, custodyDigest(bytes)] as const;
@@ -88,8 +113,19 @@ export function workPackageGateCustodyLedgerMain(argv: readonly string[] = proce
   const repoRoot = path.resolve(import.meta.dir, '..');
   const commit = resolveCommit(repoRoot, options.revision);
   const candidate = workPackageGateCustodyLedgerForRevision(repoRoot, commit);
+  const fixtureCandidate = gitBlobLedgerForRevision(
+    repoRoot,
+    commit,
+    Object.keys(RETAINED_RECOVERY_FIXTURE_LEDGER)
+  );
   if (options.command === 'render') {
     console.log(renderLedger(candidate, commit));
+    console.log();
+    console.log(renderLedger(
+      fixtureCandidate,
+      commit,
+      'retained-recovery fixture'
+    ));
     return 0;
   }
 
@@ -98,17 +134,38 @@ export function workPackageGateCustodyLedgerMain(argv: readonly string[] = proce
       relativePath as keyof typeof WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4
     ] !== digest
   );
-  if (drift.length > 0) {
+  const fixtureDrift = Object.entries(fixtureCandidate).filter(
+    ([relativePath, digest]) => RETAINED_RECOVERY_FIXTURE_LEDGER[
+      relativePath as keyof typeof RETAINED_RECOVERY_FIXTURE_LEDGER
+    ] !== digest
+  );
+  if (drift.length > 0 || fixtureDrift.length > 0) {
     console.error(`Work Package custody ledger drifted at ${commit}:`);
-    for (const [relativePath, digest] of drift) {
-      const expected = WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4[
-        relativePath as keyof typeof WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4
-      ];
+    for (const [relativePath, digest, expected] of [
+      ...drift.map(([relativePath, digest]) => [
+        relativePath,
+        digest,
+        WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4[
+          relativePath as keyof typeof WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4
+        ]
+      ] as const),
+      ...fixtureDrift.map(([relativePath, digest]) => [
+        relativePath,
+        digest,
+        RETAINED_RECOVERY_FIXTURE_LEDGER[
+          relativePath as keyof typeof RETAINED_RECOVERY_FIXTURE_LEDGER
+        ]
+      ] as const)
+    ]) {
       console.error(`- ${relativePath}: expected ${expected}, Git blob ${digest}`);
     }
     return 1;
   }
-  console.log(`Work Package custody ledger matches ${commit} (${Object.keys(candidate).length} Git blobs).`);
+  console.log(
+    `Work Package custody ledger matches ${commit} ` +
+    `(${Object.keys(candidate).length} custody Git blobs; ` +
+    `${Object.keys(fixtureCandidate).length} retained-recovery fixture Git blobs).`
+  );
   return 0;
 }
 
