@@ -709,7 +709,16 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     "publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'outcome-publish-started')"
   );
   expect(sources.isolatedChild).toContain(
-    "compilerModulesRoot: path.join(compilerRoot, '.shared-deps', 'node_modules')"
+    'const DEFAULT_RUNTIME_DEPENDENCY_SOURCES = resolveIsolatedRuntimeDependencySources();'
+  );
+  expect(sources.isolatedChild).toContain(
+    'browserCache: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.browserCache'
+  );
+  expect(sources.isolatedChild).toContain(
+    'compilerModulesRoot: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules'
+  );
+  expect(sources.isolatedChild).toContain(
+    'dependencyModules: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules'
   );
   expect(sources.runtimeDependencySpec).toContain("'ts-morph'");
   expect(sources.isolatedChild).not.toContain("external: ['ts-morph', 'typescript']");

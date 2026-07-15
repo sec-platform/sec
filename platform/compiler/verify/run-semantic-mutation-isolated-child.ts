@@ -65,7 +65,10 @@ import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
-import { isolatedPlaywrightBrowsersPath } from './run-runtime-verification.ts';
+import {
+  isolatedPlaywrightBrowsersPath,
+  resolveIsolatedRuntimeDependencySources
+} from './run-runtime-verification.ts';
 import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   issueSemanticMutationIsolatedRuntimeCapability,
@@ -324,12 +327,13 @@ const ISOLATED_RUNNER_PATH = fileURLToPath(
   new URL('../../orchestrator/semantic-mutation-isolated-verification-runner.ts', import.meta.url)
 );
 
+const DEFAULT_RUNTIME_DEPENDENCY_SOURCES = resolveIsolatedRuntimeDependencySources();
 const DEFAULT_RUNTIME_INPUT_SOURCES = Object.freeze({
-  browserCache: isolatedPlaywrightBrowsersPath(),
-  compilerModulesRoot: path.join(compilerRoot, '.shared-deps', 'node_modules'),
+  browserCache: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.browserCache,
+  compilerModulesRoot: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules,
   compilerPackage: path.join(compilerRoot, 'package.json'),
   composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
-  dependencyModules: path.join(compilerRoot, '.shared-deps', 'node_modules'),
+  dependencyModules: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules,
   officialPolicies: path.join(compilerRoot, 'platform', 'policies', 'official'),
   officialRegistry: path.join(compilerRoot, 'platform', 'registry', 'official')
 } satisfies SemanticMutationIsolatedRuntimeInputSources);

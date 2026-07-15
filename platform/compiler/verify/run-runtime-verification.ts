@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { CommitFence } from '../../shared/fs.ts';
 import { listFilesRecursive, pathExists, writeText } from '../../shared/fs.ts';
@@ -57,38 +57,124 @@ export function bunRunInvocation(
     : { command: 'bun', args: ['run', script] };
 }
 
-type PhysicalPathResolver = (value: string) => string;
+interface DependencyPathMetadata {
+  readonly identity: string;
+  readonly isDirectory: boolean;
+  readonly isSymbolicLink: boolean;
+}
 
-function resolveHostPlaywrightBrowsersPath(
+interface DependencyPathProbe {
+  lstat(value: string): DependencyPathMetadata;
+  realpath(value: string): string;
+}
+
+export interface IsolatedRuntimeDependencySources {
+  readonly nodeModules: string;
+  readonly browserCache: string;
+}
+
+const NODE_DEPENDENCY_PATH_PROBE: DependencyPathProbe = Object.freeze({
+  lstat(value: string): DependencyPathMetadata {
+    const metadata = lstatSync(value);
+    return Object.freeze({
+      identity: [
+        metadata.dev,
+        metadata.ino,
+        metadata.mode,
+        metadata.nlink,
+        metadata.size,
+        metadata.ctimeMs,
+        metadata.mtimeMs
+      ].map(String).join(':'),
+      isDirectory: metadata.isDirectory(),
+      isSymbolicLink: metadata.isSymbolicLink()
+    });
+  },
+  realpath: realpathSync
+});
+
+function foldedPath(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32'
+    ? resolved.toLocaleLowerCase('en-US')
+    : resolved;
+}
+
+function foldedPathSegment(value: string): string {
+  return process.platform === 'win32'
+    ? value.toLocaleLowerCase('en-US')
+    : value;
+}
+
+function sameMetadata(left: DependencyPathMetadata, right: DependencyPathMetadata): boolean {
+  return left.identity === right.identity &&
+    left.isDirectory === right.isDirectory &&
+    left.isSymbolicLink === right.isSymbolicLink;
+}
+
+function fallbackDependencySources(root: string): Readonly<IsolatedRuntimeDependencySources> {
+  return Object.freeze({
+    nodeModules: path.join(root, '.shared-deps', 'node_modules'),
+    browserCache: path.join(root, '.shared-deps', '.playwright-browsers')
+  });
+}
+
+function resolveIsolatedRuntimeDependencySourcesWithProbe(
   root: string,
-  resolvePhysicalPath: PhysicalPathResolver
-): string {
-  const localFallback = path.join(root, '.shared-deps', '.playwright-browsers');
+  probe: DependencyPathProbe
+): Readonly<IsolatedRuntimeDependencySources> {
+  const fallback = fallbackDependencySources(root);
   try {
-    const physicalNodeModules = resolvePhysicalPath(path.join(root, 'node_modules'));
+    const nodeModulesBridge = path.join(root, 'node_modules');
+    const bridgeBefore = probe.lstat(nodeModulesBridge);
+    const physicalNodeModules = probe.realpath(nodeModulesBridge);
+    const bridgeAfter = probe.lstat(nodeModulesBridge);
+    if (!sameMetadata(bridgeBefore, bridgeAfter) ||
+      foldedPathSegment(path.basename(physicalNodeModules)) !== 'node_modules') {
+      return fallback;
+    }
+    const physicalTarget = probe.lstat(physicalNodeModules);
+    if (!physicalTarget.isDirectory || physicalTarget.isSymbolicLink) return fallback;
+
     const physicalParent = path.dirname(physicalNodeModules);
-    const dependencyHost = path.basename(physicalParent) === '.shared-deps'
+    const dependencyHost = foldedPathSegment(path.basename(physicalParent)) === '.shared-deps'
       ? path.dirname(physicalParent)
       : physicalParent;
-    return resolvePhysicalPath(path.join(dependencyHost, '.shared-deps', '.playwright-browsers'));
+    const browserCache = path.resolve(
+      dependencyHost,
+      '.shared-deps',
+      '.playwright-browsers'
+    );
+    const cacheBefore = probe.lstat(browserCache);
+    if (!cacheBefore.isDirectory || cacheBefore.isSymbolicLink) return fallback;
+    const physicalCache = probe.realpath(browserCache);
+    const cacheAfter = probe.lstat(browserCache);
+    if (!sameMetadata(cacheBefore, cacheAfter) ||
+      foldedPath(physicalCache) !== foldedPath(browserCache)) {
+      return fallback;
+    }
+    return Object.freeze({ nodeModules: physicalNodeModules, browserCache });
   } catch {
-    return localFallback;
+    return fallback;
   }
 }
 
-/** Test-only pure seam for physical dependency-bridge path resolution. */
-export function resolveHostPlaywrightBrowsersPathForTests(
+/** Test-only pure seam for physical dependency bridge and cache proofs. */
+export function resolveIsolatedRuntimeDependencySourcesForTests(
   root: string,
-  resolvePhysicalPath: PhysicalPathResolver
-): string {
-  return resolveHostPlaywrightBrowsersPath(root, resolvePhysicalPath);
+  probe: DependencyPathProbe
+): Readonly<IsolatedRuntimeDependencySources> {
+  return resolveIsolatedRuntimeDependencySourcesWithProbe(root, probe);
+}
+
+export function resolveIsolatedRuntimeDependencySources(): Readonly<IsolatedRuntimeDependencySources> {
+  return resolveIsolatedRuntimeDependencySourcesWithProbe(compilerRoot, NODE_DEPENDENCY_PATH_PROBE);
 }
 
 export function isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot?: string): string {
-  if (stagingWorkspaceRoot) {
-    return path.join(stagingWorkspaceRoot, '.isolated-process', 'playwright-browsers');
-  }
-  return resolveHostPlaywrightBrowsersPath(compilerRoot, realpathSync);
+  return stagingWorkspaceRoot
+    ? path.join(stagingWorkspaceRoot, '.isolated-process', 'playwright-browsers')
+    : path.join(compilerRoot, '.shared-deps', '.playwright-browsers');
 }
 
 export function buildIsolatedRuntimeEnvironment(
