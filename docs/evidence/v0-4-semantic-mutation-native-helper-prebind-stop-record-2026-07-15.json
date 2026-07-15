@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T16:22:09.5577259+08:00",
+  "profile": "v0.4-semantic-mutation-native-helper-prebind",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-native-helper-build-stop-record-2026-07-15.json",
+  "repairBaseSha": "4861098df9e43bd934699b78b36e4ad09e6a9661",
+  "currentHead": "1a6bf4c7fcf83513ac65ceb7a457799ff28cc901",
+  "currentHeadTree": "f17eb3f6e3231e62b5d5fac2aac84f4c4c2b04fe",
+  "implementationState": "committed-clean-working-tree-before-stop-record",
+  "status": "stopped-on-unclassified-capability-after-native-helper-prebind",
+  "mergeAllowed": false,
+  "stopReason": "The Windows-only native helper prebind, single-flight reuse, cache retry, byte-alias isolation, and typed AppContainer diagnostic projection are committed and focused gates pass. The one exact real production seam now returns an unavailable capability before materialization, but no path-free diagnostic is attached. The batch stopped without a rerun because the current capability boundary cannot distinguish the new failure predicate.",
+  "repair": {
+    "implementationCommit": "b610ac7c358cac4bde6039269a872f79b7107360",
+    "diagnosticCloseoutCommit": "2b9cef151bbb0fd99ee1cffc145b455cf8b615b3",
+    "custodyReconciliationCommit": "1a6bf4c7fcf83513ac65ceb7a457799ff28cc901",
+    "scope": "Prebuild the native helper before the production runner Bun.build on Windows, retain one process-local immutable single-flight bundle, reuse it during AppContainer preparation, and preserve finite path-free Windows preparation evidence behind a test-only identity-bound diagnostic.",
+    "focusedNativeHelper": "4/4 PASS with 25 assertions",
+    "focusedPrebindAndDiagnostic": "2/2 PASS with 15 assertions; follow-up focused 2/2 PASS",
+    "exactProductionHelperBuild": "1/1 PASS",
+    "exactArchitectureContract": "PASS at both implementation commits; the following commit changes only three custody digests",
+    "exactHeadTypecheck": "PASS in 13.2s",
+    "exactHeadChangedImports": "PASS in 8.0s from 4861098df9e43bd934699b78b36e4ad09e6a9661",
+    "exactHeadDiffCheck": "PASS in 2.2s",
+    "exactHeadCustodyLedger": "PASS in 6.9s; 25 custody Git blobs and 5 retained-recovery fixture Git blobs"
+  },
+  "realProductionBundleSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "exitCode": 1,
+    "durationMs": 3100,
+    "testDurationMs": 609,
+    "suiteDurationMs": 1840,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 29,
+    "expectCallsBeforeFailure": 1,
+    "failure": {
+      "capabilityStatus": "unavailable",
+      "diagnosticPresent": false,
+      "expectedCapabilityStatus": "available",
+      "expectedDiagnosticPresent": false,
+      "assertionSite": "tests/unit/semantic-mutation-isolated-child-fence.test.ts:2250"
+    }
+  },
+  "boundedDiagnosis": {
+    "previousBlocker": "A late native helper Bun.build failed after the production runner Bun.build with preparationSubstage native-helper-build.",
+    "currentObservation": "After moving the helper build before the runner build, the capability becomes unavailable before the test reaches materialization or AppContainer launch, and the WindowsAppContainerExecutionError-only WeakMap diagnostic is absent.",
+    "proven": [
+      "The exact head passes typecheck, changed-import, diff, custody, focused helper, focused prebind, production helper-build, and architecture contracts.",
+      "The one real seam did not expose an AppContainer phase, preparation substage, native code, host-tool failure, or native-helper observation.",
+      "The public capability object retained its exact one-property status contract."
+    ],
+    "notYetProven": "The failing predicate may be the production runner build after helper prebind or another pre-AppContainer capability predicate inside the probe catch boundary. The current finite diagnostic cannot distinguish them.",
+    "noSecondRealSeamRun": true
+  },
+  "disposition": {
+    "nativeHelperLateBuildBlockerMoved": true,
+    "newFailureUniquelyClassified": false,
+    "publicVerticalStarted": false,
+    "slowBatchStarted": false,
+    "rootUserChangesTouched": false
+  },
+  "notRun": [
+    "second real production-bundle AppContainer seam",
+    "SM-3 public vertical",
+    "canonical 12-suite slow delta DAG",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "merge and branch cleanup"
+  ],
+  "resumeBoundary": [
+    "Add a finite path-free diagnostic for the pre-AppContainer capability predicates without changing the one-property public status object.",
+    "Classify only the smallest runner prebind, runner build-root proof, runner Bun.build, runner relocation, runtime-source snapshot, and capability-issue boundaries needed to select one repair branch.",
+    "Use read-only or in-memory focused sentinels first; do not repeat the real seam until one unique predicate is observable and focused contracts pass.",
+    "Do not run the public vertical or slow DAG until the real seam advances beyond capability issuance."
+  ]
+}
