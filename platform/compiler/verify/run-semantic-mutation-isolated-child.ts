@@ -954,10 +954,10 @@ const isolatedRuntimeCapabilityDiagnostics =
   new WeakMap<object, SemanticMutationIsolatedVerificationFailure>();
 
 /**
- * Reads a path-free diagnostic bound to an opaque capability probe result.
- * The public capability status retains its exact one-property contract.
+ * Test-only read of a path-free diagnostic bound to an opaque capability
+ * probe result. Product callers consume only the exact one-property status.
  */
-export function semanticMutationIsolatedRuntimeCapabilityDiagnostic(
+export function semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(
   capability: { readonly status: 'available' | 'unavailable' }
 ): SemanticMutationIsolatedVerificationFailure | undefined {
   return isolatedRuntimeCapabilityDiagnostics.get(capability);

@@ -43,7 +43,7 @@ import {
   projectSemanticMutationIsolatedVerificationFailureForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests,
   runSemanticMutationIsolatedVerificationChild,
-  semanticMutationIsolatedRuntimeCapabilityDiagnostic,
+  semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests,
   SemanticMutationIsolatedVerificationUnavailableError,
   type SemanticMutationIsolatedRuntimeInputSources
 } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
@@ -2182,7 +2182,7 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
     });
     expect(preparationFailure).toEqual({ status: 'unavailable' });
     expect(Object.keys(preparationFailure)).toEqual(['status']);
-    expect(semanticMutationIsolatedRuntimeCapabilityDiagnostic(preparationFailure)).toEqual({
+    expect(semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(preparationFailure)).toEqual({
       stage: 'appcontainer-execution',
       appContainer: {
         phase: 'preparation',
@@ -2195,7 +2195,8 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
     await writeFile(path.join(stagingRoot, 'source', 'schema', 'db.prisma.template'), 'model A {}', 'utf8');
     const prismaUnavailable = await probe();
     expect(prismaUnavailable).toEqual({ status: 'unavailable' });
-    expect(semanticMutationIsolatedRuntimeCapabilityDiagnostic(prismaUnavailable)).toBeUndefined();
+    expect(semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(prismaUnavailable))
+      .toBeUndefined();
     await rm(path.join(stagingRoot, 'source', 'schema'), { recursive: true, force: true });
     await mkdir(path.join(stagingRoot, 'source', 'code', 'opaque', 'example'), { recursive: true });
     await writeFile(path.join(stagingRoot, 'source', 'code', 'opaque', 'example', 'module.yaml'), 'name: example', 'utf8');
@@ -2243,7 +2244,13 @@ test.serial('isolated runtime capability builds a host-path-free production runn
     const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
       runtimeInputSources
     });
-    expect(capability).toEqual({ status: 'available' });
+    expect({
+      capability,
+      diagnostic: semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(capability)
+    }).toEqual({
+      capability: { status: 'available' },
+      diagnostic: undefined
+    });
     const materialized = await materializeSemanticMutationIsolatedRuntime({
       binding: capability,
       commitFence: async () => undefined,
