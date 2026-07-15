@@ -112,6 +112,14 @@ function sameMetadata(left: DependencyPathMetadata, right: DependencyPathMetadat
     left.isSymbolicLink === right.isSymbolicLink;
 }
 
+function stableCanonicalPhysicalDirectory(value: string, probe: DependencyPathProbe): boolean {
+  const before = probe.lstat(value);
+  if (!before.isDirectory || before.isSymbolicLink) return false;
+  const physical = probe.realpath(value);
+  const after = probe.lstat(value);
+  return sameMetadata(before, after) && foldedPath(physical) === foldedPath(value);
+}
+
 function fallbackDependencySources(root: string): Readonly<IsolatedRuntimeDependencySources> {
   return Object.freeze({
     nodeModules: path.join(root, '.shared-deps', 'node_modules'),
@@ -133,27 +141,22 @@ function resolveIsolatedRuntimeDependencySourcesWithProbe(
       foldedPathSegment(path.basename(physicalNodeModules)) !== 'node_modules') {
       return fallback;
     }
-    const physicalTarget = probe.lstat(physicalNodeModules);
-    if (!physicalTarget.isDirectory || physicalTarget.isSymbolicLink) return fallback;
 
     const physicalParent = path.dirname(physicalNodeModules);
     const dependencyHost = foldedPathSegment(path.basename(physicalParent)) === '.shared-deps'
       ? path.dirname(physicalParent)
       : physicalParent;
-    const browserCache = path.resolve(
-      dependencyHost,
-      '.shared-deps',
+    const sharedDependenciesRoot = path.resolve(dependencyHost, '.shared-deps');
+    const nodeModules = path.join(sharedDependenciesRoot, 'node_modules');
+    const browserCache = path.join(
+      sharedDependenciesRoot,
       '.playwright-browsers'
     );
-    const cacheBefore = probe.lstat(browserCache);
-    if (!cacheBefore.isDirectory || cacheBefore.isSymbolicLink) return fallback;
-    const physicalCache = probe.realpath(browserCache);
-    const cacheAfter = probe.lstat(browserCache);
-    if (!sameMetadata(cacheBefore, cacheAfter) ||
-      foldedPath(physicalCache) !== foldedPath(browserCache)) {
+    if (!stableCanonicalPhysicalDirectory(nodeModules, probe) ||
+      !stableCanonicalPhysicalDirectory(browserCache, probe)) {
       return fallback;
     }
-    return Object.freeze({ nodeModules: physicalNodeModules, browserCache });
+    return Object.freeze({ nodeModules, browserCache });
   } catch {
     return fallback;
   }

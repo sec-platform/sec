@@ -57,14 +57,19 @@ test('isolated runtime uses fixed Bun argv without auto-install', () => {
   expect(path.relative(stagingRoot, fixedConfigPath).startsWith('..')).toBe(false);
 });
 
-test('isolated dependency sources freeze one external physical bridge host', () => {
+test('isolated dependency sources derive one curated pair from an external physical bridge host', () => {
   const worktreeRoot = path.resolve('external-worktree');
   const dependencyHost = path.resolve('dependency-host');
   const bridge = path.join(worktreeRoot, 'node_modules');
-  const nodeModules = path.join(dependencyHost, 'node_modules');
+  const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
+  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   const result = resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
-    realpaths: { [bridge]: nodeModules, [browserCache]: browserCache },
+    realpaths: {
+      [bridge]: physicalBridgeTarget,
+      [nodeModules]: nodeModules,
+      [browserCache]: browserCache
+    },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
       [nodeModules]: metadata('modules'),
@@ -83,7 +88,7 @@ test('isolated dependency sources unwrap a shared-deps node_modules target exact
   const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
-    realpaths: { [bridge]: nodeModules, [browserCache]: browserCache },
+    realpaths: { [bridge]: nodeModules, [nodeModules]: nodeModules, [browserCache]: browserCache },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
       [nodeModules]: metadata('modules'),
@@ -92,15 +97,80 @@ test('isolated dependency sources unwrap a shared-deps node_modules target exact
   }))).toEqual({ nodeModules, browserCache });
 });
 
-test('isolated dependency sources reject an aliased cache and fall back as one local pair', () => {
+test('isolated dependency sources reject an aliased node_modules and fall back as one local pair', () => {
   const worktreeRoot = path.resolve('fallback-worktree');
   const dependencyHost = path.resolve('aliased-dependency-host');
   const bridge = path.join(worktreeRoot, 'node_modules');
-  const nodeModules = path.join(dependencyHost, 'node_modules');
+  const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
+  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const aliasedNodeModules = path.join(path.resolve('elsewhere'), 'node_modules');
+  const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
+  expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
+    realpaths: {
+      [bridge]: physicalBridgeTarget,
+      [nodeModules]: aliasedNodeModules,
+      [browserCache]: browserCache
+    },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [nodeModules]: metadata('modules'),
+      [browserCache]: metadata('cache')
+    }
+  }))).toEqual({
+    nodeModules: path.join(worktreeRoot, '.shared-deps', 'node_modules'),
+    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers')
+  });
+});
+
+test('isolated dependency sources reject unstable node_modules identity as one local pair', () => {
+  const worktreeRoot = path.resolve('unstable-modules-worktree');
+  const dependencyHost = path.resolve('unstable-modules-host');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
+  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
+  const stableProbe = pathProbe({
+    realpaths: {
+      [bridge]: physicalBridgeTarget,
+      [nodeModules]: nodeModules,
+      [browserCache]: browserCache
+    },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [nodeModules]: metadata('modules-before'),
+      [browserCache]: metadata('cache')
+    }
+  });
+  let nodeModulesReads = 0;
+  const result = resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, {
+    ...stableProbe,
+    lstat(value: string) {
+      if (value !== nodeModules) return stableProbe.lstat(value);
+      nodeModulesReads += 1;
+      return metadata(nodeModulesReads === 1 ? 'modules-before' : 'modules-after');
+    }
+  });
+
+  expect(result).toEqual({
+    nodeModules: path.join(worktreeRoot, '.shared-deps', 'node_modules'),
+    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers')
+  });
+});
+
+test('isolated dependency sources reject an aliased cache and fall back as one local pair', () => {
+  const worktreeRoot = path.resolve('aliased-cache-worktree');
+  const dependencyHost = path.resolve('aliased-cache-host');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
+  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   const aliasedCache = path.join(path.resolve('elsewhere'), '.playwright-browsers');
   expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
-    realpaths: { [bridge]: nodeModules, [browserCache]: aliasedCache },
+    realpaths: {
+      [bridge]: physicalBridgeTarget,
+      [nodeModules]: nodeModules,
+      [browserCache]: aliasedCache
+    },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
       [nodeModules]: metadata('modules'),
