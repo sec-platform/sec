@@ -98,6 +98,7 @@ interface NativeHelperBuildResult {
 type NativeHelperBuilder = (entryPath: string) => Promise<NativeHelperBuildResult>;
 interface NativeHelperBundleLoader {
   readonly build: () => Promise<Uint8Array>;
+  readonly prepare: () => Promise<void>;
 }
 
 const NATIVE_HELPER_ENTRY_PROBE: NativeHelperEntryProbe = Object.freeze({
@@ -172,24 +173,30 @@ async function defaultNativeHelperBundleSource(
 
 function createNativeHelperBundleLoader(source: NativeHelperBundleSource): NativeHelperBundleLoader {
   let cachedPromise: Promise<Uint8Array> | undefined;
+  const load = (): Promise<Uint8Array> => {
+    if (cachedPromise) return cachedPromise;
+    const pending = (async () => {
+      const bytes = await source();
+      const text = new TextDecoder().decode(bytes);
+      if (bytes.byteLength === 0 || /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u.test(text)) {
+        throw executionError('preparation', undefined, undefined, 'native-helper-bundle-contract');
+      }
+      return bytes.slice();
+    })();
+    let cached: Promise<Uint8Array>;
+    cached = pending.catch((error: unknown) => {
+      if (cachedPromise === cached) cachedPromise = undefined;
+      throw error;
+    });
+    cachedPromise = cached;
+    return cached;
+  };
   return Object.freeze({
-    build: (): Promise<Uint8Array> => {
-      if (cachedPromise) return cachedPromise;
-      const pending = (async () => {
-        const bytes = await source();
-        const text = new TextDecoder().decode(bytes);
-        if (bytes.byteLength === 0 || /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u.test(text)) {
-          throw executionError('preparation', undefined, undefined, 'native-helper-bundle-contract');
-        }
-        return bytes;
-      })();
-      let cached: Promise<Uint8Array>;
-      cached = pending.catch((error: unknown) => {
-        if (cachedPromise === cached) cachedPromise = undefined;
-        throw error;
-      });
-      cachedPromise = cached;
-      return cached;
+    async build(): Promise<Uint8Array> {
+      return (await load()).slice();
+    },
+    async prepare(): Promise<void> {
+      await load();
     }
   });
 }
@@ -209,6 +216,19 @@ export function createWindowsAppContainerNativeHelperBundleLoaderForTests(
   source: NativeHelperBundleSource
 ): NativeHelperBundleLoader {
   return createNativeHelperBundleLoader(source);
+}
+
+/**
+ * Prebinds the process-local native helper while the host build environment is
+ * still pristine. The opaque bundle remains owned by this module and is reused
+ * by the later AppContainer launch through the same single-flight loader.
+ */
+export async function prepareWindowsAppContainerNativeHelperBundle(): Promise<void> {
+  try {
+    await nativeHelperBundleLoader.prepare();
+  } catch (error) {
+    throw normalizeExecutionError(error, 'preparation', 'native-helper-build');
+  }
 }
 
 /** Test-only pure seams for the native-helper entry proof and exact production build. */

@@ -32,6 +32,7 @@ import type {
   VerificationReport
 } from '../../shared/verification-types.ts';
 import {
+  prepareWindowsAppContainerNativeHelperBundle,
   runWindowsAppContainerChild,
   WindowsAppContainerExecutionError,
   type WindowsAppContainerExecutionPhase,
@@ -882,6 +883,9 @@ export function relocateSemanticMutationIsolatedRunnerBundleForTests(
 }
 
 async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
+  if (process.platform === 'win32') {
+    await prepareWindowsAppContainerNativeHelperBundle();
+  }
   const buildRootProof = captureIsolatedRuntimeBuildNodeModulesProof();
   const result = await Bun.build({
     entrypoints: [ISOLATED_RUNNER_PATH],
@@ -946,6 +950,19 @@ export interface SemanticMutationIsolatedRuntimeCapabilityProbeOptions {
   readonly runtimeInputSources?: SemanticMutationIsolatedRuntimeInputSources;
 }
 
+const isolatedRuntimeCapabilityDiagnostics =
+  new WeakMap<object, SemanticMutationIsolatedVerificationFailure>();
+
+/**
+ * Reads a path-free diagnostic bound to an opaque capability probe result.
+ * The public capability status retains its exact one-property contract.
+ */
+export function semanticMutationIsolatedRuntimeCapabilityDiagnostic(
+  capability: { readonly status: 'available' | 'unavailable' }
+): SemanticMutationIsolatedVerificationFailure | undefined {
+  return isolatedRuntimeCapabilityDiagnostics.get(capability);
+}
+
 /**
  * Proves that the current staged workspace can execute the bundled compiler
  * without consulting host source, host Git, or a network package registry.
@@ -981,8 +998,15 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
       sources,
       stagingWorkspaceRoot
     });
-  } catch {
-    return { status: 'unavailable' };
+  } catch (error) {
+    const unavailable = Object.freeze({ status: 'unavailable' as const });
+    if (error instanceof WindowsAppContainerExecutionError) {
+      isolatedRuntimeCapabilityDiagnostics.set(
+        unavailable,
+        isolatedVerificationFailure('appcontainer-execution', error)
+      );
+    }
+    return unavailable;
   }
 }
 

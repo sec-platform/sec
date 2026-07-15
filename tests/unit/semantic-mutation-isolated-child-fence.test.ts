@@ -43,6 +43,7 @@ import {
   projectSemanticMutationIsolatedVerificationFailureForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests,
   runSemanticMutationIsolatedVerificationChild,
+  semanticMutationIsolatedRuntimeCapabilityDiagnostic,
   SemanticMutationIsolatedVerificationUnavailableError,
   type SemanticMutationIsolatedRuntimeInputSources
 } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
@@ -108,6 +109,29 @@ function relocationBundle(assignments: readonly string[]): Uint8Array {
 test('isolated runner relocation rejects missing Bun EJS compatibility guard', () => {
   expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(new Uint8Array()))
     .toThrow('Semantic Mutation isolated runner bundle has an invalid EJS ESM compatibility guard');
+});
+
+test('isolated runner bundle prebinds its native helper before runner build state changes', async () => {
+  const source = await readFile(path.join(
+    compilerRoot,
+    'platform',
+    'compiler',
+    'verify',
+    'run-semantic-mutation-isolated-child.ts'
+  ), 'utf8');
+  const start = source.indexOf('async function buildIsolatedRunnerBundle()');
+  const end = source.indexOf('\nfunction createProcessLocalRunnerBundleLoader(', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const body = source.slice(start, end);
+  const windowsGuard = body.indexOf("if (process.platform === 'win32') {");
+  const prebind = body.indexOf('await prepareWindowsAppContainerNativeHelperBundle();');
+  const rootCapture = body.indexOf('captureIsolatedRuntimeBuildNodeModulesProof();');
+  const runnerBuild = body.indexOf('await Bun.build({');
+  expect(windowsGuard).toBeGreaterThanOrEqual(0);
+  expect(prebind).toBeGreaterThan(windowsGuard);
+  expect(rootCapture).toBeGreaterThan(prebind);
+  expect(runnerBuild).toBeGreaterThan(rootCapture);
 });
 
 test('isolated runner relocation accepts exact logical and proven physical build roots', () => {
@@ -2145,10 +2169,33 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
       runtimeInputSources
     });
 
+    const preparationFailure = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: async () => {
+        throw new WindowsAppContainerExecutionError(
+          'preparation',
+          undefined,
+          undefined,
+          'native-helper-build'
+        );
+      },
+      runtimeInputSources
+    });
+    expect(preparationFailure).toEqual({ status: 'unavailable' });
+    expect(Object.keys(preparationFailure)).toEqual(['status']);
+    expect(semanticMutationIsolatedRuntimeCapabilityDiagnostic(preparationFailure)).toEqual({
+      stage: 'appcontainer-execution',
+      appContainer: {
+        phase: 'preparation',
+        preparationSubstage: 'native-helper-build'
+      }
+    });
+
     expect(await probe()).toEqual({ status: 'available' });
     await mkdir(path.join(stagingRoot, 'source', 'schema'), { recursive: true });
     await writeFile(path.join(stagingRoot, 'source', 'schema', 'db.prisma.template'), 'model A {}', 'utf8');
-    expect(await probe()).toEqual({ status: 'unavailable' });
+    const prismaUnavailable = await probe();
+    expect(prismaUnavailable).toEqual({ status: 'unavailable' });
+    expect(semanticMutationIsolatedRuntimeCapabilityDiagnostic(prismaUnavailable)).toBeUndefined();
     await rm(path.join(stagingRoot, 'source', 'schema'), { recursive: true, force: true });
     await mkdir(path.join(stagingRoot, 'source', 'code', 'opaque', 'example'), { recursive: true });
     await writeFile(path.join(stagingRoot, 'source', 'code', 'opaque', 'example', 'module.yaml'), 'name: example', 'utf8');
