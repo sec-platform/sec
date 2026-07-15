@@ -16,6 +16,7 @@ import {
   type ObservedCommandOutcome
 } from '../../platform/shared/observed-process.ts';
 import {
+  classifyObservedWindowsAppContainerNativeHelperForTests,
   completeWindowsAppContainerOwnedExecutionForTests,
   projectWindowsAppContainerHostToolFailureForTests,
   runWindowsAppContainerExecutionStepsForTests,
@@ -843,6 +844,126 @@ function exactNativeHelperOutcome(stdout: Uint8Array, stderr: Uint8Array): Obser
     })
   });
 }
+
+test('observed native helper settlement classifier separates finite lifecycle dimensions', () => {
+  const stdout = Buffer.from('{"status":"ok"}', 'utf8');
+  const exact = exactNativeHelperOutcome(stdout, new Uint8Array());
+  const cases: readonly Readonly<{
+    outcome: ObservedCommandOutcome;
+    expected: Readonly<Record<string, string>>;
+  }>[] = [
+    { outcome: exact, expected: { status: 'success' } },
+    {
+      outcome: Object.freeze({
+        ...exact,
+        status: 'lifecycle-failed',
+        trigger: 'lifecycle-failed'
+      }),
+      expected: { status: 'rejected', reason: 'not-exited' }
+    },
+    {
+      outcome: Object.freeze({
+        ...exact,
+        status: 'termination-unproven',
+        trigger: 'timed-out',
+        termination: Object.freeze({
+          ...exact.termination,
+          requested: true,
+          childCloseObserved: false,
+          streamsDrained: false,
+          treeClosed: false
+        })
+      }),
+      expected: { status: 'rejected', reason: 'timed-out' }
+    },
+    {
+      outcome: Object.freeze({ ...exact, status: 'spawn-failed', started: false }),
+      expected: { status: 'rejected', reason: 'not-started' }
+    },
+    {
+      outcome: Object.freeze({
+        ...exact,
+        termination: Object.freeze({ ...exact.termination, requested: true })
+      }),
+      expected: { status: 'rejected', reason: 'requested-termination' }
+    },
+    {
+      outcome: Object.freeze({
+        ...exact,
+        status: 'tree-unproven',
+        termination: Object.freeze({ ...exact.termination, treeClosed: false })
+      }),
+      expected: { status: 'rejected', reason: 'closure-unproven' }
+    },
+    {
+      outcome: Object.freeze({ ...exact, exitCode: null }),
+      expected: { status: 'rejected', reason: 'exit-status-unproven' }
+    }
+  ];
+  for (const { outcome, expected } of cases) {
+    const classification = classifyObservedWindowsAppContainerNativeHelperForTests(
+      outcome,
+      stdout,
+      new Uint8Array()
+    );
+    expect(classification).toEqual(expected);
+    expect(Object.isFrozen(classification)).toBe(true);
+  }
+});
+
+test('observed native helper settlement classifier separates stream truncation and evidence mismatch', () => {
+  const stdout = Buffer.from('{"status":"ok"}', 'utf8');
+  const diagnostic = Buffer.from('diagnostic', 'utf8');
+  const emptyDiagnostic = new Uint8Array();
+  const exact = exactNativeHelperOutcome(stdout, emptyDiagnostic);
+  const exactWithDiagnostic = exactNativeHelperOutcome(stdout, diagnostic);
+  const cases: readonly Readonly<{
+    outcome: ObservedCommandOutcome;
+    observedStdout: Uint8Array;
+    observedDiagnostic: Uint8Array;
+    reason: string;
+  }>[] = [
+    {
+      outcome: Object.freeze({
+        ...exact,
+        stdout: Object.freeze({ ...exact.stdout, observerTruncated: true })
+      }),
+      observedStdout: stdout,
+      observedDiagnostic: emptyDiagnostic,
+      reason: 'stdout-truncated'
+    },
+    {
+      outcome: Object.freeze({
+        ...exactWithDiagnostic,
+        stderr: Object.freeze({ ...exactWithDiagnostic.stderr, observerTruncated: true })
+      }),
+      observedStdout: stdout,
+      observedDiagnostic: diagnostic,
+      reason: 'stderr-truncated'
+    },
+    {
+      outcome: exact,
+      observedStdout: Buffer.from('{"status":"no"}', 'utf8'),
+      observedDiagnostic: emptyDiagnostic,
+      reason: 'stdout-evidence-mismatch'
+    },
+    {
+      outcome: exactWithDiagnostic,
+      observedStdout: stdout,
+      observedDiagnostic: Buffer.from('mismatch', 'utf8'),
+      reason: 'stderr-evidence-mismatch'
+    }
+  ];
+  for (const { outcome, observedStdout, observedDiagnostic, reason } of cases) {
+    const classification = classifyObservedWindowsAppContainerNativeHelperForTests(
+      outcome,
+      observedStdout,
+      observedDiagnostic
+    );
+    expect(classification).toEqual({ status: 'rejected', reason });
+    expect(Object.isFrozen(classification)).toBe(true);
+  }
+});
 
 function captureObservedNativeHelperFailure(
   outcome: ObservedCommandOutcome,
