@@ -20,11 +20,14 @@ import {
   classifyObservedWindowsAppContainerNativeHelperForTests,
   completeWindowsAppContainerOwnedExecutionForTests,
   createWindowsAppContainerNativeExecutionBudgetForTests,
+  encodeWindowsAppContainerNativeFailure,
   normalizeWindowsAppContainerPreparationErrorForTests,
   projectWindowsAppContainerHostToolFailureForTests,
   remainingWindowsAppContainerNativeExecutionBudgetForTests,
   runWindowsAppContainerExecutionStepsForTests,
   settleObservedWindowsAppContainerNativeHelperForTests,
+  settleWindowsAppContainerNativeHelperInvocationForTests,
+  waitForWindowsAppContainerNativeProcessForTests,
   windowsAppContainerExecutionCleanupChainForTests,
   WindowsAppContainerExecutionError
 } from '../../platform/shared/windows-appcontainer-executor.ts';
@@ -902,6 +905,56 @@ test('native helper elapsed budget is bounded and fails closed on clock rollback
       expect(error).toMatchObject({ phase: 'timeout' });
     }
   }
+});
+
+test('execute helper settles the child deadline before the host watchdog', () => {
+  const observedAtMs = [1_000, 61_000];
+  const waitSlices: number[] = [];
+  let innerFailure: unknown;
+  try {
+    waitForWindowsAppContainerNativeProcessForTests(60_000, 1_000, {
+      nowMs: () => observedAtMs.shift()!,
+      waitForProcess: (timeoutMs) => {
+        waitSlices.push(timeoutMs);
+        return 0x0000_0102;
+      }
+    });
+  } catch (error) {
+    innerFailure = error;
+  }
+
+  expect(innerFailure).toBeInstanceOf(WindowsAppContainerExecutionError);
+  expect(innerFailure).toMatchObject({ phase: 'timeout' });
+  expect(waitSlices).toEqual([20]);
+  const failureWire = String(encodeWindowsAppContainerNativeFailure(innerFailure));
+  expect(failureWire).toBe('{"status":"failed","phase":"timeout"}');
+
+  let receiptBackedFailure: unknown;
+  try {
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'execute',
+      1,
+      failureWire,
+      false,
+      { value: JSON.parse(failureWire) }
+    );
+  } catch (error) {
+    receiptBackedFailure = error;
+  }
+  expect(receiptBackedFailure).toBeInstanceOf(WindowsAppContainerExecutionError);
+  expect(receiptBackedFailure).toMatchObject({
+    phase: 'timeout',
+    nativeHelperObservation: {
+      mode: 'execute',
+      exitClass: 'nonzero',
+      diagnosticStream: 'empty',
+      protocol: 'declared-failure',
+      nativeReceipt: 'declared-failure'
+    }
+  });
+  expect(windowsAppContainerObservedNativeHelperSettlementForTests(
+    receiptBackedFailure as Error
+  )).toBeUndefined();
 });
 
 function captureObservedNativeHelperFailure(

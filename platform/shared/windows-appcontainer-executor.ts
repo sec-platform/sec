@@ -952,6 +952,11 @@ interface WindowsAppContainerNativeExecutionBudget {
   readonly timeoutMs: number;
 }
 
+interface WindowsAppContainerNativeProcessWaitDependencies {
+  readonly nowMs: () => number;
+  readonly waitForProcess: (timeoutMs: number) => number;
+}
+
 function arbitrateWindowsAppContainerNativeExecutionDeadlines(
   requestedTimeoutMs: number | undefined
 ): WindowsAppContainerNativeExecutionDeadlines {
@@ -994,6 +999,23 @@ function remainingWindowsAppContainerNativeExecutionBudget(
   return budget.timeoutMs - elapsedMs;
 }
 
+function waitForWindowsAppContainerNativeProcess(
+  budget: WindowsAppContainerNativeExecutionBudget,
+  dependencies: WindowsAppContainerNativeProcessWaitDependencies
+): void {
+  while (true) {
+    const waitSliceMs = Math.min(
+      WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
+      remainingWindowsAppContainerNativeExecutionBudget(budget, dependencies.nowMs())
+    );
+    const waitResult = dependencies.waitForProcess(waitSliceMs);
+    if (waitResult === WAIT_OBJECT_0) return;
+    if (waitResult === WAIT_FAILED || waitResult !== WAIT_TIMEOUT) {
+      throw executionError('wait');
+    }
+  }
+}
+
 /** Pure finite projection of the child-owned timeout and host settlement watchdog. */
 export function arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
   requestedTimeoutMs: number | undefined
@@ -1016,6 +1038,19 @@ export function remainingWindowsAppContainerNativeExecutionBudgetForTests(
   observedAtMs: number
 ): number {
   return remainingWindowsAppContainerNativeExecutionBudget(budget, observedAtMs);
+}
+
+/** Deterministic test seam for the production-used native process wait loop. */
+export function waitForWindowsAppContainerNativeProcessForTests(
+  requestedTimeoutMs: number,
+  startedAtMs: number,
+  dependencies: WindowsAppContainerNativeProcessWaitDependencies
+): void {
+  const budget = createWindowsAppContainerNativeExecutionBudgetForTests(
+    requestedTimeoutMs,
+    startedAtMs
+  );
+  waitForWindowsAppContainerNativeProcess(budget, dependencies);
 }
 
 function normalizeExecutionError(
@@ -2434,20 +2469,13 @@ async function executeNativeAppContainer(
     kernel32.symbols.CloseHandle(threadHandle);
     threadHandle = 0n;
 
-    while (true) {
-      const waitSliceMs = Math.min(
-        WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
-        remainingWindowsAppContainerNativeExecutionBudget(executionBudget, Date.now())
-      );
-      const waitResult = kernel32.symbols.WaitForSingleObject(
+    waitForWindowsAppContainerNativeProcess(executionBudget, {
+      nowMs: Date.now,
+      waitForProcess: (timeoutMs) => kernel32!.symbols.WaitForSingleObject(
         processHandle,
-        waitSliceMs
-      );
-      if (waitResult === WAIT_OBJECT_0) break;
-      if (waitResult === WAIT_FAILED || waitResult !== WAIT_TIMEOUT) {
-        throw executionError('wait');
-      }
-    }
+        timeoutMs
+      )
+    });
 
     const exitCodeBuffer = Buffer.alloc(4);
     if (kernel32.symbols.GetExitCodeProcess(processHandle, exitCodeBuffer) === 0) {

@@ -1451,6 +1451,15 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   );
   expect(helperExitPreload).toBeGreaterThan(-1);
   expect(helperProfileCreate).toBeGreaterThan(helperExitPreload);
+  const helperHardTerminate = sources.appContainerHelper.indexOf(
+    'kernel32.symbols.TerminateProcess(currentProcess, exitCode)'
+  );
+  const helperExitFallback = sources.appContainerHelper.indexOf(
+    'kernel32.symbols.ExitProcess(exitCode)'
+  );
+  expect(sources.appContainerHelper).toContain('kernel32.symbols.GetCurrentProcess()');
+  expect(helperHardTerminate).toBeGreaterThan(-1);
+  expect(helperExitFallback).toBeGreaterThan(helperHardTerminate);
   expect(sources.appContainerHelper).toContain("mode: 'create-profile'");
   expect(sources.appContainerHelper).toContain('writeSync(1, payload)');
   expect(sources.appContainerHelper).toContain('writeFileSync(');
@@ -1550,6 +1559,14 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     startedAtMs: 1_000,
     timeoutMs: 60_000
   });
+  expect(sources.appContainer).toContain(
+    'function waitForWindowsAppContainerNativeProcess('
+  );
+  expect(sources.appContainer).toContain([
+    'waitForWindowsAppContainerNativeProcess(executionBudget, {',
+    '      nowMs: Date.now,',
+    '      waitForProcess: (timeoutMs) => kernel32!.symbols.WaitForSingleObject('
+  ].join('\n'));
   const nativeChildStart = sources.appContainer.indexOf(
     'export async function runWindowsAppContainerNativeChild('
   );
