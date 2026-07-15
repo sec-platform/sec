@@ -10,24 +10,20 @@ export type {
 } from '../shared/semantic-mutation-transaction-types.ts';
 export type * from '../shared/semantic-mutation-types.ts';
 export { alignInterfaces } from './align/align-interfaces.ts';
-export { composeProject } from './compose/compose-project.ts';
-export { buildCiArtifactManifest, writeCiArtifactManifest } from './emit/ci-artifacts.ts';
-export { lockProject } from './emit/lock-project.ts';
+export { buildCiArtifactManifest } from './emit/ci-artifacts.ts';
 export { readReviewGovernanceReports } from './emit/read-review-governance-reports.ts';
 export { semanticViewArtifactsAreCurrent } from './emit/semantic-view-artifact-contract.ts';
 export {
   buildExplainGraph,
   renderExplainGraphDot,
-  renderExplainGraphMermaid,
-  writeExplainGraph
+  renderExplainGraphMermaid
 } from './emit/write-explain-graph.ts';
-export { buildLocalViewArtifacts, writeLocalViews } from './emit/write-local-views.ts';
-export { buildProvenance, writeProvenance } from './emit/write-provenance.ts';
+export { buildLocalViewArtifacts } from './emit/write-local-views.ts';
+export { buildProvenance } from './emit/write-provenance.ts';
 export {
   buildProvenanceSummary,
   buildReviewSummary,
-  buildSemanticViewSummary,
-  writeReviewSummary
+  buildSemanticViewSummary
 } from './emit/write-review-summary.ts';
 export {
   buildEngineeringIR,
@@ -62,10 +58,8 @@ export { projectScenarioView } from './projection/project-scenario-view.ts';
 export { projectStateView } from './projection/project-state-view.ts';
 export { buildSemanticInspector } from './projection/semantic-view-utils.ts';
 export {
-  applyRepairPlan,
   buildRepairPlan,
-  previewRepairPlan,
-  writeRepairPlan
+  previewRepairPlan
 } from './repair/build-repair-plan.ts';
 export { resolveGraph } from './resolve/resolve-graph.ts';
 export {
@@ -102,7 +96,6 @@ export {
 } from './semantic-mutation/transaction-identity.ts';
 export { buildSemanticMutationVerificationPlanningContext } from './semantic-mutation/verification-policy.ts';
 export { buildSemanticGeneratorPlan } from './semantic-plan.ts';
-export { adaptProject } from './synthesize/adapt-project.ts';
 export { assertIsolatedStagingTree } from './verify/assert-isolated-staging-tree.ts';
 export { buildAcceptanceCoverage } from './verify/build-acceptance-coverage.ts';
 export { createSkippedRuntimeLane } from './verify/run-runtime-verification.ts';
@@ -119,6 +112,4 @@ export {
   planSemanticMutationVerificationCapabilities
 } from './verify/semantic-mutation-verification-adapter.ts';
 export { validateResolvedTemplates } from './verify/validate-resolved-templates.ts';
-export { verifyProject } from './verify/verify-project.ts';
-export { writePolicySnapshot } from './verify/write-policy-snapshot.ts';
-export { applyViewMutations, type ViewMutationReport } from './workbench/apply-view-mutations.ts';
+export type { ViewMutationReport } from './workbench/apply-view-mutations.ts';

@@ -1,7 +1,7 @@
 import {
   applyViewMutations,
   type ViewMutationReport
-} from '../compiler/index.ts';
+} from '../compiler/workbench/apply-view-mutations.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease,
