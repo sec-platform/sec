@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T16:39:49.2993438+08:00",
+  "profile": "v0.4-semantic-mutation-runner-relocation",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-native-helper-prebind-stop-record-2026-07-15.json",
+  "repairBaseSha": "b4b91da0786c9098b6940bd5f753ca375e1012da",
+  "currentHead": "18aeebf3cf8acf4a861f0e0b19916a55d106c26d",
+  "currentHeadTree": "35e16b23a2fef7e11e284122c57f1cc1f496aae0",
+  "implementationState": "committed-clean-working-tree-before-stop-record",
+  "status": "stopped-on-runner-relocation-host-path-residue",
+  "mergeAllowed": false,
+  "stopReason": "The capability diagnostic gap is closed and the helper-first production runner build now identifies runner-relocation without exposing raw build output. A separate one-shot in-memory relocation sentinel passes every internal binding, EJS, trusted-source, two-of-two coverage, and trusted-root host-path predicate. Source comparison proves that the production boundary adds exactly one untested predicate: absolute-drive __dirname or __filename assignment residue. The batch stopped before changing relocation behavior or repeating the real AppContainer seam.",
+  "diagnosticRepair": {
+    "implementationCommit": "914f48d0d49dc92223b040a6dfe1fe694dff2933",
+    "custodyReconciliationCommit": "18aeebf3cf8acf4a861f0e0b19916a55d106c26d",
+    "publicCapabilityShape": "exact one-property status object",
+    "diagnosticShape": "identity-bound test-only WeakMap containing either the existing AppContainer failure or deep-frozen runtime-capability substage evidence",
+    "runtimeCapabilitySubstages": [
+      "runner-build-root-proof",
+      "runner-build",
+      "runner-relocation",
+      "capability-issue",
+      "unknown"
+    ],
+    "genericFailureBehavior": "unavailable without diagnostic",
+    "rawDataBehavior": "forged or raw detail fails closed to unknown; paths, messages, commands, environment, stdout, stderr, causes, and stacks are not retained",
+    "focusedRelocationDiagnosticAndBlocker": "9/9 PASS",
+    "focusedDiagnosticAndBlockerFollowup": "2/2 PASS",
+    "helperFirstProductionRunnerBuild": "1/1 PASS with 5 assertions; finite result selected runtime-capability unavailable and the only remaining build substage was runner-relocation",
+    "semanticAuthorityAndRedactionContract": "1/1 PASS with 401 assertions",
+    "exactArchitectureContract": "1/1 PASS",
+    "exactHeadTypecheck": "PASS in 10.9s",
+    "exactHeadChangedImports": "PASS in 5.6s from b4b91da0786c9098b6940bd5f753ca375e1012da",
+    "exactHeadDiffCheck": "PASS in 1.8s",
+    "exactHeadCustodyLedger": "PASS in 5.0s; 25 custody Git blobs and 5 retained-recovery fixture Git blobs"
+  },
+  "boundedRelocationDiagnosis": {
+    "sentinelCount": 1,
+    "sentinelKind": "helper-first production runner Bun.build followed by the test-only in-memory relocation seam",
+    "sentinelResult": "success",
+    "bundleWrittenToFilesystem": false,
+    "appContainerStarted": false,
+    "internalPredicates": {
+      "bindingCollision": "PASS",
+      "ejsGuard": "PASS",
+      "trustedSourceIdentity": "PASS",
+      "unexpectedSource": "PASS",
+      "twoOfTwoCoverage": "PASS",
+      "trustedRootHostPathResidue": "PASS"
+    },
+    "sourceDifference": "The test relocation seam directly returns relocateIsolatedRunnerBundle. The production runner-relocation boundary additionally rejects absolute-drive __dirname or __filename assignments after relocation.",
+    "uniqueRemainingReason": "host-path-residue",
+    "precisePredicate": "absolute-drive __dirname or __filename assignment not covered by the internal trusted-root text scan",
+    "rawBundleOrErrorRecorded": false
+  },
+  "disposition": {
+    "capabilityDiagnosticGapClosed": true,
+    "runnerBuildRuledOut": true,
+    "internalRelocationContractPassed": true,
+    "concretePredicateSelected": true,
+    "realProductionSeamRerun": false,
+    "publicVerticalStarted": false,
+    "slowBatchStarted": false,
+    "rootUserChangesTouched": false
+  },
+  "notRun": [
+    "second real production-bundle AppContainer seam",
+    "SM-3 public vertical",
+    "canonical 12-suite slow delta DAG",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "merge and branch cleanup"
+  ],
+  "nextTaskEnvelope": {
+    "task": "exact absolute-drive runner binding relocation",
+    "currentBase": "18aeebf3cf8acf4a861f0e0b19916a55d106c26d",
+    "singleWriter": true,
+    "ownedPaths": [
+      "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "tests/contract/semantic-mutation-apply-contract.test.ts"
+    ],
+    "goal": "Normalize only the proven Bun-emitted absolute-drive __dirname or __filename assignment into the existing runtime-relative path helper contract before the unchanged outer host-path rejection runs.",
+    "forbidden": [
+      "removing or weakening the outer absolute-drive regex",
+      "widening trusted node_modules roots",
+      "weakening exact source and filename pairing",
+      "weakening two-of-two coverage",
+      "retaining or emitting raw host paths, bundle text, logs, messages, commands, or environment values",
+      "changing the AppContainer, ACL, cleanup, native-helper, or public capability contracts"
+    ],
+    "acceptance": [
+      "A minimal fixture matching the exact Bun output shape relocates deterministically to the runtime-relative helper",
+      "Aliases, duplicates, unknown sources, filename mismatches, and noncanonical assignments still fail closed",
+      "The unchanged outer absolute-drive and exact host-root scans pass after relocation",
+      "The helper-first production runner build diagnostic becomes available",
+      "Focused relocation, authority, architecture, typecheck, imports, diff, and custody gates pass before one more real seam"
+    ]
+  }
+}
