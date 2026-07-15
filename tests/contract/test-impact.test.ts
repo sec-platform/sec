@@ -21,6 +21,58 @@ test('test impact selector includes tests that directly import changed sources',
   expect(selection.slow).not.toContain('tests/contract/test-impact.test.ts');
 });
 
+test('test impact assigns focused governance and frozen work-package ownership', () => {
+  const agentGovernance = selectTestsForSources([
+    'AGENTS.md',
+    '.codex/agents/implementation-worker.toml',
+    '.codex/agents/verification-evidence-reviewer.toml'
+  ]);
+  expect(agentGovernance.owners).toEqual(['agent-governance']);
+  expect(agentGovernance.fast).toEqual(expect.arrayContaining([
+    'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/contract/test-impact.test.ts'
+  ]));
+  expect(agentGovernance.slow).toEqual([]);
+
+  const workPackageEvidenceSources = [
+    'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
+    'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json'
+  ];
+  const workPackageEvidence = selectTestsForSources(workPackageEvidenceSources);
+  expect(workPackageEvidence.owners).toEqual(['work-package-gate']);
+  expect(workPackageEvidence.fast).toEqual(expect.arrayContaining([
+    'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/work-package-gate-contract.test.ts',
+    'tests/unit/work-package-gate-execution.test.ts'
+  ]));
+  expect(workPackageEvidence.slow).toEqual([]);
+
+  const workPackageFixtureSources = [
+    'tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json',
+    'tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json',
+    'tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json',
+    'tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json',
+    'tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json'
+  ];
+  const workPackageFixtures = selectTestsForSources(workPackageFixtureSources);
+  expect(workPackageFixtures.owners).toEqual(['work-package-gate']);
+  expect(workPackageFixtures.fast).toEqual(expect.arrayContaining([
+    'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/work-package-gate-execution.test.ts'
+  ]));
+  expect(workPackageFixtures.fast).not.toContain('tests/unit/work-package-gate-contract.test.ts');
+  expect(workPackageFixtures.slow).toEqual([]);
+  for (const source of [...workPackageEvidenceSources, ...workPackageFixtureSources]) {
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'work-package-gate',
+      identity: { kind: 'contract', id: 'work-package-gate' }
+    }]);
+  }
+});
+
 test('test impact selector includes tests that dynamically import changed sources', () => {
   const selection = selectTestsForSources(['platform/dev-runner/test-runner.ts']);
 
