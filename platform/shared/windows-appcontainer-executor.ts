@@ -35,6 +35,7 @@ import {
 } from './workspace-write-lease.ts';
 
 const PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x0002_0002;
+const PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002_000d;
 const PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x0002_0009;
 const EXTENDED_STARTUPINFO_PRESENT = 0x0008_0000;
 const CREATE_UNICODE_ENVIRONMENT = 0x0000_0400;
@@ -438,8 +439,9 @@ export const WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1 = Object.freeze({
   jobObjectExtendedLimitInformationBytes: 144,
   jobObjectLimitFlagsOffset: 16,
   procThreadAttributeHandleList: PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+  procThreadAttributeJobList: PROC_THREAD_ATTRIBUTE_JOB_LIST,
   procThreadAttributeSecurityCapabilities: PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-  procThreadAttributeCount: 2,
+  procThreadAttributeCount: 3,
   standardHandleCount: 3,
   startfUseStdHandles: STARTF_USESTDHANDLES,
   inheritHandles: 1,
@@ -1672,10 +1674,6 @@ async function loadWindowsAppContainerKernel32() {
       args: [FFIType.u64, FFIType.i32, FFIType.ptr, FFIType.u32],
       returns: FFIType.i32
     },
-    AssignProcessToJobObject: {
-      args: [FFIType.u64, FFIType.u64],
-      returns: FFIType.i32
-    },
     ResumeThread: {
       args: [FFIType.u64],
       returns: FFIType.u32
@@ -2517,6 +2515,27 @@ async function executeNativeAppContainer(
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.pointerBytes * 2
     );
     attributePayloads.push(standardHandleList);
+
+    const jobInformation = Buffer.alloc(
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.jobObjectExtendedLimitInformationBytes
+    );
+    jobInformation.writeUInt32LE(
+      JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.jobObjectLimitFlagsOffset
+    );
+    jobHandle = kernel32.symbols.CreateJobObjectW(null, null);
+    if (jobHandle === 0n || kernel32.symbols.SetInformationJobObject(
+      jobHandle,
+      JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+      jobInformation,
+      jobInformation.byteLength
+    ) === 0) {
+      throw executionError('launch');
+    }
+    const jobHandleList = Buffer.alloc(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.pointerBytes);
+    jobHandleList.writeBigUInt64LE(jobHandle, 0);
+    attributePayloads.push(jobHandleList);
+
     const attributeListSize = Buffer.alloc(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.pointerBytes);
     kernel32.symbols.InitializeProcThreadAttributeList(
       null,
@@ -2561,6 +2580,17 @@ async function executeNativeAppContainer(
     ) === 0) {
       throw executionError('launch');
     }
+    if (kernel32.symbols.UpdateProcThreadAttribute(
+      attributeList,
+      0,
+      BigInt(PROC_THREAD_ATTRIBUTE_JOB_LIST),
+      jobHandleList,
+      BigInt(jobHandleList.byteLength),
+      null,
+      null
+    ) === 0) {
+      throw executionError('launch');
+    }
     const startupInfoEx = Buffer.alloc(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExBytes);
     startupInfoEx.writeUInt32LE(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExBytes, 0);
     startupInfoEx.writeUInt32LE(
@@ -2583,23 +2613,6 @@ async function executeNativeAppContainer(
       BigInt(ptr(attributeList)),
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.startupInfoExAttributeListOffset
     );
-
-    const jobInformation = Buffer.alloc(
-      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.jobObjectExtendedLimitInformationBytes
-    );
-    jobInformation.writeUInt32LE(
-      JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.jobObjectLimitFlagsOffset
-    );
-    jobHandle = kernel32.symbols.CreateJobObjectW(null, null);
-    if (jobHandle === 0n || kernel32.symbols.SetInformationJobObject(
-      jobHandle,
-      JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-      jobInformation,
-      jobInformation.byteLength
-    ) === 0) {
-      throw executionError('launch');
-    }
 
     const processInformation = Buffer.alloc(
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.processInformationBytes
@@ -2624,8 +2637,7 @@ async function executeNativeAppContainer(
     threadHandle = processInformation.readBigUInt64LE(
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.processInformationThreadHandleOffset
     );
-    if (processHandle === 0n || threadHandle === 0n ||
-      kernel32.symbols.AssignProcessToJobObject(jobHandle, processHandle) === 0) {
+    if (processHandle === 0n || threadHandle === 0n) {
       throw executionError('launch');
     }
     await commitFence();

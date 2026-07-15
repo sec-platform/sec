@@ -1294,6 +1294,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.processRunner).toContain("options.envMode === 'replace' ? {} : process.env");
   expect(sources.appContainer).toContain('PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES');
   expect(sources.appContainer).toContain('PROC_THREAD_ATTRIBUTE_HANDLE_LIST');
+  expect(sources.appContainer).toContain('PROC_THREAD_ATTRIBUTE_JOB_LIST');
   expect(sources.appContainer).toContain('STARTF_USESTDHANDLES');
   expect(sources.appContainer).toContain('CreateFileW');
   expect(sources.appContainer).toContain('standardInputHandle = openNullHandle(GENERIC_READ)');
@@ -1310,6 +1311,25 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer).toContain('CloseHandle(standardErrorHandle)');
   expect(sources.appContainer).toContain('attributePayloads.push(securityCapabilities)');
   expect(sources.appContainer).toContain('attributePayloads.push(standardHandleList)');
+  expect(sources.appContainer).toContain('attributePayloads.push(jobHandleList)');
+  const createInnerJob = sources.appContainer.indexOf(
+    'jobHandle = kernel32.symbols.CreateJobObjectW(null, null)'
+  );
+  const initializeAttributeList = sources.appContainer.indexOf(
+    'kernel32.symbols.InitializeProcThreadAttributeList('
+  );
+  const publishJobList = sources.appContainer.indexOf(
+    'BigInt(PROC_THREAD_ATTRIBUTE_JOB_LIST)'
+  );
+  const createAppContainerProcess = sources.appContainer.indexOf(
+    'kernel32.symbols.CreateProcessW('
+  );
+  expect(createInnerJob).toBeGreaterThan(-1);
+  expect(initializeAttributeList).toBeGreaterThan(createInnerJob);
+  expect(publishJobList).toBeGreaterThan(initializeAttributeList);
+  expect(createAppContainerProcess).toBeGreaterThan(publishJobList);
+  expect(sources.appContainer).not.toContain('AssignProcessToJobObject');
+  expect(sources.appContainer).not.toContain('CREATE_BREAKAWAY_FROM_JOB');
   const deleteAttributeList = sources.appContainer.indexOf(
     'DeleteProcThreadAttributeList(attributeList)'
   );
