@@ -157,3 +157,16 @@ test('runner build changes select only the focused verification PR-risk suite', 
     expect(selection.reasons).toEqual(['ownership-impact']);
   }
 });
+
+test('native-helper settlement changes resolve without slow PR-risk expansion', () => {
+  const selection = selectCiPrRiskSlowSuites([
+    'platform/shared/windows-appcontainer-native-helper-settlement.ts'
+  ]);
+
+  expect(selection.suites).toEqual([]);
+  expect(selection.slowTests).toEqual([]);
+  expect(selection.affectedSlowTests).toEqual([]);
+  expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);
+  expect(selection.reasons).toEqual(['ownership-impact']);
+  expect(selection.resolved).toBe(true);
+});

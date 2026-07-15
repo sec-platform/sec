@@ -255,6 +255,26 @@ test('test impact selector gives runner build boundaries a focused semantic-muta
   }
 });
 
+test('test impact selector gives native-helper settlement focused non-AppContainer coverage', () => {
+  const source = 'platform/shared/windows-appcontainer-native-helper-settlement.ts';
+  const selection = selectTestsForSources([source]);
+
+  expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);
+  expect(selection.fast).toEqual([
+    'tests/contract/semantic-mutation-apply-contract.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
+  ]);
+  expect(selection.slow).toEqual([]);
+  expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
+    .toEqual([{
+      source,
+      owner: 'semantic-mutation',
+      identity: { kind: 'architecture-owner', id: 'semantic-mutation' }
+    }]);
+});
+
 test('test impact selector assigns neutral isolated Verification capabilities to Pipeline ownership', () => {
   const sourceFiles = [
     'platform/shared/verification-artifact-contract.ts',

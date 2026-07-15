@@ -110,6 +110,22 @@ function typeLiteralKeys(source: string, aliasName: string): string[][] {
   return results;
 }
 
+function typeStringLiteralValues(source: string, aliasName: string): string[] {
+  const file = ts.createSourceFile('contract.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declaration = file.statements.find((statement): statement is ts.TypeAliasDeclaration =>
+    ts.isTypeAliasDeclaration(statement) && statement.name.text === aliasName);
+  if (!declaration) throw new Error(`Missing type alias ${aliasName}`);
+  const members = ts.isUnionTypeNode(declaration.type)
+    ? declaration.type.types
+    : [declaration.type];
+  return members.map((member) => {
+    if (!ts.isLiteralTypeNode(member) || !ts.isStringLiteral(member.literal)) {
+      throw new Error(`Type alias ${aliasName} contains a non-string-literal member`);
+    }
+    return member.literal.text;
+  });
+}
+
 function classPublicReadonlyKeys(source: string, className: string): string[] {
   const file = ts.createSourceFile('contract.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const declaration = file.statements.find((statement): statement is ts.ClassDeclaration =>
@@ -489,6 +505,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     stagingTree: 'platform/compiler/verify/assert-isolated-staging-tree.ts',
     composeProject: 'platform/compiler/compose/compose-project.ts',
     prismaMerge: 'platform/compiler/compose/merge-prisma-template.ts',
+    nativeHelperSettlement: 'platform/shared/windows-appcontainer-native-helper-settlement.ts',
     appContainer: 'platform/shared/windows-appcontainer-executor.ts',
     appContainerHelper: 'platform/shared/windows-appcontainer-native-helper.ts'
   }).map(async ([name, relative]) => [
@@ -546,6 +563,22 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
       'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_FRAME_INVALID',
       'SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN',
       'createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests'
+    ]) {
+      expect(facade).not.toMatch(
+        new RegExp(`export[^;]+\\b${internalSettlementSymbol}\\b`, 'su')
+      );
+    }
+  }
+  for (const facade of [sources.compilerFacade, sources.orchestratorFacade, sources.orchestratorIndex]) {
+    expect(facade).not.toContain('windows-appcontainer-native-helper-settlement');
+    for (const internalSettlementSymbol of [
+      'WindowsAppContainerObservedNativeHelperSettlementRejection',
+      'WindowsAppContainerObservedNativeHelperSettlementClassification',
+      'WindowsAppContainerObservedNativeHelperSettlement',
+      'classifyWindowsAppContainerObservedNativeHelperSettlement',
+      'bindWindowsAppContainerObservedNativeHelperSettlement',
+      'copyWindowsAppContainerObservedNativeHelperSettlement',
+      'windowsAppContainerObservedNativeHelperSettlementForTests'
     ]) {
       expect(facade).not.toMatch(
         new RegExp(`export[^;]+\\b${internalSettlementSymbol}\\b`, 'su')
@@ -1304,8 +1337,59 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   )).toEqual([[
     'mode', 'exitClass', 'diagnosticStream', 'protocol', 'nativeReceipt'
   ]]);
+  expect(typeStringLiteralValues(
+    sources.nativeHelperSettlement,
+    'WindowsAppContainerObservedNativeHelperMode'
+  )).toEqual(['derive', 'create-profile', 'execute']);
+  expect(typeStringLiteralValues(
+    sources.nativeHelperSettlement,
+    'WindowsAppContainerObservedNativeHelperSettlementRejection'
+  )).toEqual([
+    'timed-out',
+    'not-started',
+    'closure-unproven',
+    'requested-termination',
+    'not-exited',
+    'exit-status-unproven',
+    'stdout-truncated',
+    'stderr-truncated',
+    'stdout-evidence-mismatch',
+    'stderr-evidence-mismatch'
+  ]);
+  expect(typeLiteralKeys(
+    sources.nativeHelperSettlement,
+    'WindowsAppContainerObservedNativeHelperSettlementClassification'
+  )).toEqual([['status'], ['status', 'reason']]);
+  expect(sources.nativeHelperSettlement).toContain(
+    "Readonly<{ readonly status: 'success' }>"
+  );
+  expect(sources.nativeHelperSettlement).toContain([
+    "readonly status: 'rejected';",
+    '      readonly reason: WindowsAppContainerObservedNativeHelperSettlementRejection;'
+  ].join('\n'));
+  expect(typeLiteralKeys(
+    sources.nativeHelperSettlement,
+    'WindowsAppContainerObservedNativeHelperSettlement'
+  )).toEqual([['mode', 'reason']]);
+  expect(sources.nativeHelperSettlement).toContain(
+    'new WeakMap<Error, WindowsAppContainerObservedNativeHelperSettlement>()'
+  );
+  expect(sources.nativeHelperSettlement.match(/new WeakMap<.*>\(\)/gu)?.length).toBe(1);
+  expect(sources.nativeHelperSettlement).toContain(
+    'settlementsByError.set(error, Object.freeze({ mode, reason: classification.reason }))'
+  );
+  expect(sources.nativeHelperSettlement).toContain(
+    'if (settlement) settlementsByError.set(target, settlement)'
+  );
+  expect(sources.nativeHelperSettlement).toContain('return settlementsByError.get(error)');
+  expect(sources.appContainer).toContain(
+    'copyWindowsAppContainerObservedNativeHelperSettlement(error, normalized);'
+  );
   expect(sources.appContainer).not.toContain(
-    'export type ObservedNativeHelperSettlementClassificationForTests'
+    'export type WindowsAppContainerObservedNativeHelperSettlement'
+  );
+  expect(sources.appContainer).not.toContain(
+    'windowsAppContainerObservedNativeHelperSettlementForTests'
   );
   expect(classPublicReadonlyKeys(
     sources.appContainer,
@@ -1417,17 +1501,43 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(settlementStart).toBeGreaterThan(-1);
   expect(settlementEnd).toBeGreaterThan(settlementStart);
   expect(settlement).toContain([
+    'function settleObservedHostBunCommand(',
+    '  mode: WindowsAppContainerObservedNativeHelperMode,'
+  ].join('\n'));
+  expect(settlement).toContain([
     'const cleanupSafe = outcome.started',
     '    ? closedTree',
     '    : outcome.termination.streamsDrained && outcome.termination.treeClosed;'
   ].join('\n'));
-  expect(settlement).toContain('const classification = classifyObservedHostBunCommand(');
+  expect(settlement).toContain(
+    'const classification = classifyWindowsAppContainerObservedNativeHelperSettlement('
+  );
   expect(settlement).toContain(
     "if (classification.status !== 'success' || outcome.exitCode === null)"
   );
+  expect(settlement).toContain(
+    'bindWindowsAppContainerObservedNativeHelperSettlement(error, mode, rejection);'
+  );
   expect(settlement).toContain('if (!cleanupSafe) executionRetainedOwners.add(error);');
-  expect(settlement.indexOf('const cleanupSafe ='))
-    .toBeLessThan(settlement.indexOf('const classification ='));
+  const cleanupStart = settlement.indexOf('const closedTree =');
+  const classificationStart = settlement.indexOf('const classification =');
+  const cleanupAuthorization = settlement.slice(cleanupStart, classificationStart);
+  expect(cleanupStart).toBeGreaterThan(-1);
+  expect(classificationStart).toBeGreaterThan(cleanupStart);
+  expect(cleanupAuthorization).not.toContain('classification');
+  expect(cleanupAuthorization).not.toContain('reason');
+  const rejectionCreate = settlement.indexOf('const error = executionError(');
+  const sidecarBind = settlement.indexOf(
+    'bindWindowsAppContainerObservedNativeHelperSettlement(error, mode, rejection);'
+  );
+  const retentionDecision = settlement.indexOf(
+    'if (!cleanupSafe) executionRetainedOwners.add(error);'
+  );
+  const rejectionThrow = settlement.indexOf('throw error;');
+  expect(rejectionCreate).toBeGreaterThan(classificationStart);
+  expect(sidecarBind).toBeGreaterThan(rejectionCreate);
+  expect(retentionDecision).toBeGreaterThan(sidecarBind);
+  expect(rejectionThrow).toBeGreaterThan(retentionDecision);
   expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(60_000)).toEqual({
     childTimeoutMs: 60_000,
     hostWatchdogMs: 70_000
@@ -1469,7 +1579,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   );
   expect(sources.appContainer).toContain('whileRunning: commitFence');
   expect(sources.appContainer).toContain(
-    'result = settleObservedHostBunCommand(observed, stdoutChunks, Object.freeze({'
+    'result = settleObservedHostBunCommand(mode, observed, stdoutChunks, Object.freeze({'
   );
   expect(sources.verificationAdapter).toContain('!exactEndpoint(input.attempted)');
   expect(sources.verificationAdapter).toContain('JSON.stringify(input.requirements) !== JSON.stringify(requirements)');
