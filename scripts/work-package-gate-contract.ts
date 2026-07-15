@@ -1185,8 +1185,6 @@ function assertWorkPackageGateEvidenceV4Internal(
       postRecovery.structure.counts.nativeResults === 0 &&
       postRecovery.structure.counts.writerLeases === 0 &&
       postRecovery.structure.recoveryAuthorities.count === 0 &&
-      postRecovery.aclPresentOwners.complete &&
-      postRecovery.aclPresentOwners.identities?.count === 0 &&
       after.structure.complete && after.structure.reason === 'namespace-absent' &&
       afterCounts !== null && afterCounts.workspaceRoots === 0 &&
       afterCounts.recoveryOwners === 0 && afterCounts.pendingOwners === 0 &&

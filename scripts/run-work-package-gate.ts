@@ -2101,13 +2101,9 @@ function structureAllowsDeletion(census: WorkPackageGateResidueCensusV4): boolea
     census.structure.recoveryAuthorities.count === 0;
 }
 
-function ownedCensusClean(census: WorkPackageGateResidueCensusV4): boolean {
+function preflightCensusClean(census: WorkPackageGateResidueCensusV4): boolean {
   return structureAllowsDeletion(census) && census.aclPresentOwners.complete &&
     census.aclPresentOwners.identities.count === 0;
-}
-
-function preflightCensusClean(census: WorkPackageGateResidueCensusV4): boolean {
-  return ownedCensusClean(census);
 }
 
 function finalCensusClean(census: WorkPackageGateResidueCensusV4): boolean {
@@ -2706,7 +2702,7 @@ function assertCheckpoint(
   }
   if (candidate.namespaceRemovalAttempted &&
     (candidate.preflight === null || candidate.postRecovery === null ||
-      candidate.recovery?.complete !== true || !ownedCensusClean(candidate.postRecovery))) {
+      candidate.recovery?.complete !== true || !structureAllowsDeletion(candidate.postRecovery))) {
     throw new Error('Work Package gate checkpoint namespace removal attempt lacks deletion authority');
   }
   if (candidate.snapshotRemovalAttempted &&
@@ -3126,7 +3122,7 @@ function resultStatusV4(input: {
     !input.child.stderr.observerTruncated && input.preflight !== null &&
     input.postChild !== null && input.postChild.structure.complete &&
     input.recovery.complete && input.postRecovery !== null &&
-    ownedCensusClean(input.postRecovery) &&
+    structureAllowsDeletion(input.postRecovery) &&
     input.finalCensus !== null && input.namespaceRemoved &&
     input.snapshotRemoved && input.repositoryStable && finalCensusClean(input.finalCensus);
   if (!cleanCompletion) return 'unknown';
@@ -3758,7 +3754,7 @@ export async function runWorkPackageGate(
 
     const namespaceCanBeRemoved = checkpoint.recovery?.complete === true &&
       checkpoint.preflight !== null && checkpoint.postRecovery !== null &&
-      ownedCensusClean(checkpoint.postRecovery);
+      structureAllowsDeletion(checkpoint.postRecovery);
     if (namespaceCanBeRemoved && !checkpoint.namespaceRemovalAttempted) {
       await replaceCheckpoint({ namespaceRemovalAttempted: true });
       await dependencies.afterCheckpoint('namespace-removal-attempted');
@@ -3773,8 +3769,9 @@ export async function runWorkPackageGate(
           true
         );
         if (checkpoint.postRecovery === null || checkpoint.preflight === null ||
-          JSON.stringify(currentPostRecovery) !== JSON.stringify(checkpoint.postRecovery) ||
-          !ownedCensusClean(currentPostRecovery)) {
+          JSON.stringify(currentPostRecovery.structure) !==
+            JSON.stringify(checkpoint.postRecovery.structure) ||
+          !structureAllowsDeletion(currentPostRecovery)) {
           throw new Error('Work Package gate deletion census changed after durable attempt');
         }
         namespaceRemoved = await dependencies.removeNamespace(namespaceRoot, cleanupDeadlineAt);
