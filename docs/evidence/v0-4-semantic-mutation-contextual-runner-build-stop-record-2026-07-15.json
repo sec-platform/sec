@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T16:58:57.8105355+08:00",
+  "profile": "v0.4-semantic-mutation-contextual-runner-build",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-runner-relocation-stop-record-2026-07-15.json",
+  "repairBaseSha": "18aeebf3cf8acf4a861f0e0b19916a55d106c26d",
+  "currentHead": "b481c1cba0b38c94187d3478918a3be0433ffd99",
+  "currentHeadTree": "91b2e762d3d70bab4508fe91d494cefe791a3873",
+  "implementationState": "committed-clean-working-tree",
+  "status": "stopped-on-contextual-runner-build",
+  "mergeAllowed": false,
+  "stopReason": "The corrected relocation evidence and clean-process sentinels rule out a relocation grammar change. The one exact production-context seam at the current head returns a finite runtime-capability diagnostic with substage runner-build before capability issuance or AppContainer launch. The batch stopped without a rerun because clean-process helper-first build success does not reproduce the production probe context.",
+  "diagnosticState": {
+    "implementationCommit": "914f48d0d49dc92223b040a6dfe1fe694dff2933",
+    "custodyReconciliationCommit": "18aeebf3cf8acf4a861f0e0b19916a55d106c26d",
+    "evidenceCorrectionCommit": "b481c1cba0b38c94187d3478918a3be0433ffd99",
+    "publicCapabilityShape": "exact one-property status object",
+    "exactHeadTypecheck": "PASS in 10.9s at 18aeebf; later commits change evidence only",
+    "exactHeadChangedImports": "PASS in 5.6s at 18aeebf; later commits change evidence only",
+    "exactHeadDiffCheck": "PASS at b481c1c",
+    "exactHeadCustodyLedger": "PASS at b481c1c in 5.0s; 25 custody Git blobs and 5 retained-recovery fixture Git blobs"
+  },
+  "realProductionBundleSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "exitCode": 1,
+    "durationMs": 2800,
+    "testDurationMs": 469,
+    "suiteDurationMs": 1580,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 31,
+    "expectCallsBeforeFailure": 1,
+    "failure": {
+      "capabilityStatus": "unavailable",
+      "diagnosticPresent": true,
+      "stage": "runtime-capability",
+      "runtimeCapabilitySubstage": "runner-build",
+      "assertionSite": "tests/unit/semantic-mutation-isolated-child-fence.test.ts:2322"
+    }
+  },
+  "boundedConclusion": {
+    "helperPrebindError": false,
+    "runnerBuildRootProofError": false,
+    "runnerBuildError": true,
+    "runnerRelocationReached": false,
+    "compilerRegistryInputsReached": false,
+    "capabilityIssueReached": false,
+    "appContainerReached": false,
+    "contextSensitivity": "The clean-process helper-first Bun.build sentinels succeeded, while the exact production test setup and probe path failed during runner-build. The reproducing condition is therefore contextual and must not be inferred from build order alone.",
+    "rawBuildLogsOrErrorsRecorded": false,
+    "realSeamRerun": false
+  },
+  "notRun": [
+    "second real seam in this diagnostic batch",
+    "SM-3 public vertical",
+    "canonical 12-suite slow delta DAG",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "merge and branch cleanup"
+  ],
+  "nextTaskEnvelope": {
+    "task": "runner-build finite outcome evidence",
+    "currentBase": "b481c1cba0b38c94187d3478918a3be0433ffd99",
+    "singleWriter": true,
+    "ownedPaths": [
+      "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "tests/contract/semantic-mutation-apply-contract.test.ts"
+    ],
+    "goal": "Split runner-build into the smallest finite path-free invocation, unsuccessful-result, output-count, and output-read outcomes so one focused production-context probe identifies the exact build predicate.",
+    "forbidden": [
+      "raw Bun logs, error messages, bundle text, host paths, commands, environment values, stdout, stderr, causes, or stacks",
+      "changing relocation grammar or host-path contracts",
+      "changing native-helper, AppContainer, ACL, cleanup, public capability, or runtime-plan contracts",
+      "running the real AppContainer seam before the finite runner-build predicate is selected"
+    ],
+    "acceptance": [
+      "Every runner build exit maps to exactly one finite substage",
+      "Unexpected or forged values fail closed to unknown without retaining raw fields",
+      "The exact public capability remains one property and the test-only diagnostic remains identity-bound and deep-frozen",
+      "A production-context focused sentinel selects one runner-build predicate without starting AppContainer",
+      "Focused projection, runner build, authority, architecture, typecheck, imports, diff, and custody gates pass before one more real seam"
+    ]
+  }
+}
