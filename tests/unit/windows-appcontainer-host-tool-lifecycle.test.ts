@@ -26,6 +26,7 @@ import {
   remainingWindowsAppContainerNativeExecutionBudgetForTests,
   runWindowsAppContainerExecutionStepsForTests,
   settleObservedWindowsAppContainerNativeHelperForTests,
+  settleWindowsAppContainerNativeJobAfterFailureForTests,
   settleWindowsAppContainerNativeHelperInvocationForTests,
   waitForWindowsAppContainerNativeProcessForTests,
   windowsAppContainerExecutionCleanupChainForTests,
@@ -955,6 +956,54 @@ test('execute helper settles the child deadline before the host watchdog', () =>
   expect(windowsAppContainerObservedNativeHelperSettlementForTests(
     receiptBackedFailure as Error
   )).toBeUndefined();
+});
+
+test('execute helper explicitly settles the inner AppContainer Job within one finite budget', () => {
+  let nowMs = 1_000;
+  let terminateCalls = 0;
+  let waitCalls = 0;
+  let sleepCalls = 0;
+  const activeProcesses = [2, 1, 0];
+  expect(settleWindowsAppContainerNativeJobAfterFailureForTests({
+    nowMs: () => nowMs,
+    terminateJob: () => {
+      terminateCalls += 1;
+      return true;
+    },
+    waitForRoot: () => {
+      waitCalls += 1;
+      return 0;
+    },
+    queryActiveProcesses: () => activeProcesses.shift() ?? 0,
+    sleep: (timeoutMs) => {
+      sleepCalls += 1;
+      nowMs += timeoutMs;
+    }
+  }, 100)).toBe(true);
+  expect({ terminateCalls, waitCalls, sleepCalls }).toEqual({
+    terminateCalls: 1,
+    waitCalls: 1,
+    sleepCalls: 2
+  });
+
+  expect(settleWindowsAppContainerNativeJobAfterFailureForTests({
+    nowMs: () => 1_000,
+    terminateJob: () => true,
+    waitForRoot: () => 0,
+    queryActiveProcesses: () => null,
+    sleep: () => undefined
+  }, 100)).toBe(false);
+
+  let deadlineNowMs = 2_000;
+  expect(settleWindowsAppContainerNativeJobAfterFailureForTests({
+    nowMs: () => deadlineNowMs,
+    terminateJob: () => true,
+    waitForRoot: () => 0,
+    queryActiveProcesses: () => 1,
+    sleep: (timeoutMs) => {
+      deadlineNowMs += timeoutMs;
+    }
+  }, 40)).toBe(false);
 });
 
 function captureObservedNativeHelperFailure(
