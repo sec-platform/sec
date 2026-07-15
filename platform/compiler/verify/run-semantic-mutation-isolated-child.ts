@@ -512,9 +512,24 @@ export type SemanticMutationIsolatedVerificationSupervisor = (
 
 export type SemanticMutationIsolatedRunnerBundleBuilder = () => Promise<Uint8Array>;
 
+interface SemanticMutationIsolatedRunnerBuildOutput {
+  readonly arrayBuffer: () => Promise<ArrayBuffer>;
+}
+
+interface SemanticMutationIsolatedRunnerBuildResult {
+  readonly success: boolean;
+  readonly outputs: readonly SemanticMutationIsolatedRunnerBuildOutput[];
+}
+
+type SemanticMutationIsolatedRunnerBuilder =
+  () => Promise<SemanticMutationIsolatedRunnerBuildResult>;
+
 export const SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES = Object.freeze([
   'runner-build-root-proof',
-  'runner-build',
+  'runner-build-invocation',
+  'runner-build-unsuccessful',
+  'runner-build-output-count',
+  'runner-build-output-read',
   'runner-relocation',
   'capability-issue',
   'unknown'
@@ -554,6 +569,28 @@ async function withCapabilityPreparationBoundary<T>(
     if (error instanceof SemanticMutationIsolatedCapabilityPreparationError) throw error;
     if (error instanceof WindowsAppContainerExecutionError) throw error;
     throw new SemanticMutationIsolatedCapabilityPreparationError(substage);
+  }
+}
+
+async function readSemanticMutationIsolatedRunnerBuildOutput(
+  build: SemanticMutationIsolatedRunnerBuilder
+): Promise<Uint8Array> {
+  let result: SemanticMutationIsolatedRunnerBuildResult;
+  try {
+    result = await build();
+  } catch {
+    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
+  }
+  if (!result.success) {
+    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-unsuccessful');
+  }
+  if (result.outputs.length !== 1) {
+    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-count');
+  }
+  try {
+    return new Uint8Array(await result.outputs[0].arrayBuffer());
+  } catch {
+    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
   }
 }
 
@@ -935,8 +972,7 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
     'runner-build-root-proof',
     captureIsolatedRuntimeBuildNodeModulesProof
   );
-  const result = await withCapabilityPreparationBoundary(
-    'runner-build',
+  const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(
     async () => await Bun.build({
       entrypoints: [ISOLATED_RUNNER_PATH],
       format: 'esm',
@@ -945,13 +981,6 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
       splitting: false,
       target: 'bun'
     })
-  );
-  if (!result.success || result.outputs.length !== 1) {
-    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build');
-  }
-  const sourceBundle = await withCapabilityPreparationBoundary(
-    'runner-build',
-    async () => new Uint8Array(await result.outputs[0].arrayBuffer())
   );
   const buildNodeModulesRoot = await withCapabilityPreparationBoundary(
     'runner-build-root-proof',
@@ -983,6 +1012,28 @@ export async function buildSemanticMutationIsolatedRunnerBundleDiagnosticForTest
 > {
   try {
     await buildIsolatedRunnerBundle();
+    return Object.freeze({ status: 'available' as const });
+  } catch (error) {
+    return Object.freeze({
+      status: 'unavailable' as const,
+      diagnostic: isolatedRuntimeCapabilityDiagnostic(error) ??
+        projectSemanticMutationIsolatedRuntimeCapabilitySubstage('unknown')
+    });
+  }
+}
+
+/** Test-only finite outcome projection for the exact production runner build reader. */
+export async function classifySemanticMutationIsolatedRunnerBuildForTests(
+  build: SemanticMutationIsolatedRunnerBuilder
+): Promise<
+  | Readonly<{ readonly status: 'available' }>
+  | Readonly<{
+      readonly status: 'unavailable';
+      readonly diagnostic: SemanticMutationIsolatedRuntimeCapabilityDiagnostic;
+    }>
+> {
+  try {
+    await readSemanticMutationIsolatedRunnerBuildOutput(build);
     return Object.freeze({ status: 'available' as const });
   } catch (error) {
     return Object.freeze({

@@ -39,6 +39,7 @@ import {
 import {
   buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests,
   buildSemanticMutationIsolatedVerificationEnvironment,
+  classifySemanticMutationIsolatedRunnerBuildForTests,
   createSemanticMutationIsolatedVerificationSupervisor,
   probeSemanticMutationIsolatedRuntimeCapability,
   projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests,
@@ -150,7 +151,10 @@ test.serial('production isolated runner build returns only a finite pre-AppConta
     expect(Object.isFrozen(result.diagnostic.runtimeCapability)).toBe(true);
     expect([
       'runner-build-root-proof',
-      'runner-build',
+      'runner-build-invocation',
+      'runner-build-unsuccessful',
+      'runner-build-output-count',
+      'runner-build-output-read',
       'runner-relocation',
       'capability-issue'
     ]).toContain(result.diagnostic.runtimeCapability.substage);
@@ -162,10 +166,67 @@ test.serial('production isolated runner build returns only a finite pre-AppConta
   });
 });
 
+test('runner build maps invocation, result, output count, and output read to finite outcomes', async () => {
+  const readableOutput = Object.freeze({
+    async arrayBuffer(): Promise<ArrayBuffer> {
+      return new ArrayBuffer(1);
+    }
+  });
+  const raw = String.raw`Z:\must-not-survive\runner-build`;
+  const cases = [
+    {
+      substage: 'runner-build-invocation',
+      build: async () => { throw new Error(raw); }
+    },
+    {
+      substage: 'runner-build-unsuccessful',
+      build: async () => ({ success: false, outputs: [], logs: raw })
+    },
+    {
+      substage: 'runner-build-output-count',
+      build: async () => ({ success: true, outputs: [] })
+    },
+    {
+      substage: 'runner-build-output-count',
+      build: async () => ({ success: true, outputs: [readableOutput, readableOutput] })
+    },
+    {
+      substage: 'runner-build-output-read',
+      build: async () => ({
+        success: true,
+        outputs: [{ async arrayBuffer(): Promise<ArrayBuffer> { throw new Error(raw); } }]
+      })
+    }
+  ] as const;
+
+  for (const fixture of cases) {
+    const result = await classifySemanticMutationIsolatedRunnerBuildForTests(fixture.build);
+    expect(result).toEqual({
+      status: 'unavailable',
+      diagnostic: {
+        stage: 'runtime-capability',
+        runtimeCapability: { substage: fixture.substage }
+      }
+    });
+    expect(Object.isFrozen(result)).toBe(true);
+    if (result.status !== 'unavailable') throw new Error('runner build fixture unexpectedly passed');
+    expect(Object.isFrozen(result.diagnostic)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(raw);
+  }
+
+  expect(await classifySemanticMutationIsolatedRunnerBuildForTests(async () => ({
+    success: true,
+    outputs: [readableOutput]
+  }))).toEqual({ status: 'available' });
+});
+
 test('runtime capability diagnostic enum rejects forged detail without retaining raw fields', () => {
   for (const substage of [
     'runner-build-root-proof',
-    'runner-build',
+    'runner-build-invocation',
+    'runner-build-unsuccessful',
+    'runner-build-output-count',
+    'runner-build-output-read',
     'runner-relocation',
     'capability-issue',
     'unknown'
