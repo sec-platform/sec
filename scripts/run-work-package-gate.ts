@@ -142,6 +142,17 @@ export interface WorkPackageGateOptions {
 export interface WorkPackageGateDependencies {
   readonly readText: (filePath: string) => Promise<string>;
   readonly readBytes: (filePath: string) => Promise<Uint8Array>;
+  readonly protectedLedger: {
+    readonly custody: Readonly<Record<string, `sha256:${string}`>>;
+    readonly localArtifacts: Readonly<Record<string, `sha256:${string}`>>;
+  };
+  readonly filesystemIdentityExpectation: {
+    readonly namespace: string;
+    readonly runDirectoryIdentityDigest: string;
+    readonly namespaceIdentityDigest: string;
+    readonly snapshotIdentityDigest: string;
+    readonly namespaceRootIdentityDigest: string;
+  };
   readonly pathExists: (filePath: string) => Promise<boolean>;
   readonly protectedPathAuthority: (repoRoot: string) => Promise<readonly {
     readonly path: string;
@@ -399,18 +410,19 @@ async function assertProtectedLedgerEntries(
 
 async function assertProtectedLedger(
   repoRoot: string,
+  ledger: WorkPackageGateDependencies['protectedLedger'],
   readBytes: (filePath: string) => Promise<Uint8Array>
 ): Promise<void> {
   await assertProtectedLedgerEntries(
     repoRoot,
     'custody',
-    WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4,
+    ledger.custody,
     readBytes
   );
   await assertProtectedLedgerEntries(
     repoRoot,
     'local-artifact',
-    WORK_PACKAGE_GATE_LOCAL_ARTIFACT_LEDGER_V4,
+    ledger.localArtifacts,
     readBytes
   );
 }
@@ -421,17 +433,18 @@ async function assertV4PathAuthority(
   snapshotRoot: string,
   namespaceRoot: string,
   namespace: string,
-  protectedPaths: readonly ProtectedPathV4[]
+  protectedPaths: readonly ProtectedPathV4[],
+  expected: WorkPackageGateDependencies['filesystemIdentityExpectation']
 ): Promise<WorkPackageGateExecutionAuthorityV4> {
   const runDirectoryIdentityDigest = sha256Text(canonicalFilesystemIdentity(runDir));
   const namespaceIdentityDigest = sha256Text(namespace);
   const snapshotIdentityDigest = sha256Text(canonicalFilesystemIdentity(snapshotRoot));
   const namespaceRootIdentityDigest = sha256Text(canonicalFilesystemIdentity(namespaceRoot));
-  if (runDirectoryIdentityDigest !== WORK_PACKAGE_GATE_RUN_DIRECTORY_IDENTITY_DIGEST_V4 ||
-    namespace !== WORK_PACKAGE_GATE_NAMESPACE_V4 ||
-    namespaceIdentityDigest !== WORK_PACKAGE_GATE_NAMESPACE_IDENTITY_DIGEST_V4 ||
-    snapshotIdentityDigest !== WORK_PACKAGE_GATE_SNAPSHOT_IDENTITY_DIGEST_V4 ||
-    namespaceRootIdentityDigest !== WORK_PACKAGE_GATE_NAMESPACE_ROOT_IDENTITY_DIGEST_V4) {
+  if (runDirectoryIdentityDigest !== expected.runDirectoryIdentityDigest ||
+    namespace !== expected.namespace ||
+    namespaceIdentityDigest !== expected.namespaceIdentityDigest ||
+    snapshotIdentityDigest !== expected.snapshotIdentityDigest ||
+    namespaceRootIdentityDigest !== expected.namespaceRootIdentityDigest) {
     throw new Error('Work Package gate V4 filesystem identity binding is invalid');
   }
   const publicationDirectory = path.join(
@@ -480,10 +493,10 @@ async function assertV4PathAuthority(
   }
   return Object.freeze({
     protectedLedgerDigest: WORK_PACKAGE_GATE_PROTECTED_LEDGER_DIGEST_V4,
-    runDirectoryIdentityDigest,
-    namespaceIdentityDigest,
-    snapshotIdentityDigest,
-    namespaceRootIdentityDigest
+    runDirectoryIdentityDigest: WORK_PACKAGE_GATE_RUN_DIRECTORY_IDENTITY_DIGEST_V4,
+    namespaceIdentityDigest: WORK_PACKAGE_GATE_NAMESPACE_IDENTITY_DIGEST_V4,
+    snapshotIdentityDigest: WORK_PACKAGE_GATE_SNAPSHOT_IDENTITY_DIGEST_V4,
+    namespaceRootIdentityDigest: WORK_PACKAGE_GATE_NAMESPACE_ROOT_IDENTITY_DIGEST_V4
   });
 }
 
@@ -2047,6 +2060,17 @@ async function defaultRemoveNamespace(namespaceRoot: string, deadlineAtMs: numbe
 const DEFAULT_DEPENDENCIES: WorkPackageGateDependencies = {
   readText: (filePath) => readFile(filePath, 'utf8'),
   readBytes: (filePath) => readFile(filePath),
+  protectedLedger: Object.freeze({
+    custody: WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4,
+    localArtifacts: WORK_PACKAGE_GATE_LOCAL_ARTIFACT_LEDGER_V4
+  }),
+  filesystemIdentityExpectation: Object.freeze({
+    namespace: WORK_PACKAGE_GATE_NAMESPACE_V4,
+    runDirectoryIdentityDigest: WORK_PACKAGE_GATE_RUN_DIRECTORY_IDENTITY_DIGEST_V4,
+    namespaceIdentityDigest: WORK_PACKAGE_GATE_NAMESPACE_IDENTITY_DIGEST_V4,
+    snapshotIdentityDigest: WORK_PACKAGE_GATE_SNAPSHOT_IDENTITY_DIGEST_V4,
+    namespaceRootIdentityDigest: WORK_PACKAGE_GATE_NAMESPACE_ROOT_IDENTITY_DIGEST_V4
+  }),
   pathExists: defaultPathExists,
   protectedPathAuthority: collectProtectedPathAuthorityV4,
   gitRevision,
@@ -3224,7 +3248,7 @@ export async function runWorkPackageGate(
   const statePath = path.join(runDir, 'state.json');
   const evidencePath = path.join(runDir, 'evidence.json');
   const checkpointPath = path.join(runDir, 'checkpoint.json');
-  await assertProtectedLedger(repoRoot, dependencies.readBytes);
+  await assertProtectedLedger(repoRoot, dependencies.protectedLedger, dependencies.readBytes);
   const protectedPaths = normalizeProtectedPathAuthority(
     await dependencies.protectedPathAuthority(repoRoot)
   );
@@ -3236,10 +3260,11 @@ export async function runWorkPackageGate(
     snapshotRoot,
     namespaceRoot,
     namespace,
-    protectedPaths
+    protectedPaths,
+    dependencies.filesystemIdentityExpectation
   );
   const revalidateExternalAuthority = async (): Promise<void> => {
-    await assertProtectedLedger(repoRoot, dependencies.readBytes);
+    await assertProtectedLedger(repoRoot, dependencies.protectedLedger, dependencies.readBytes);
     const pendingPublicationDirectory = path.join(
       repoRoot,
       '.tmp',
@@ -3262,7 +3287,8 @@ export async function runWorkPackageGate(
       snapshotRoot,
       namespaceRoot,
       namespace,
-      currentProtectedPaths
+      currentProtectedPaths,
+      dependencies.filesystemIdentityExpectation
     );
     if (JSON.stringify(current) !== JSON.stringify(authority)) {
       throw new Error('Work Package gate execution authority changed');
@@ -3626,7 +3652,7 @@ export async function runWorkPackageGate(
     const cleanupDeadlineAt = dependencies.monotonicNowMs() + options.cleanupMs;
     let protectedLedgerStable = true;
     try {
-      await assertProtectedLedger(repoRoot, dependencies.readBytes);
+      await assertProtectedLedger(repoRoot, dependencies.protectedLedger, dependencies.readBytes);
     } catch {
       protectedLedgerStable = false;
     }

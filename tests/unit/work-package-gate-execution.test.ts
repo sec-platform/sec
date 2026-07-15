@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { link, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, link, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'bun:test';
@@ -32,7 +32,9 @@ import {
 } from '../../scripts/run-work-package-gate.ts';
 import {
   WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4,
+  WORK_PACKAGE_GATE_EXECUTION_MANIFEST_PATH_V4,
   WORK_PACKAGE_GATE_RUN_DIRECTORY_V4,
+  WORK_PACKAGE_GATE_SELECTION_MANIFEST_PATH,
   assertWorkPackageGateEvidenceBundleV4,
   assertWorkPackageGateEvidenceV4,
   finalizeWorkPackageGateEventV4,
@@ -55,6 +57,82 @@ const v4Options: WorkPackageGateOptions = Object.freeze({
 });
 const v4RunDir = path.join(repoRoot, ...WORK_PACKAGE_GATE_RUN_DIRECTORY_V4.split('/'));
 const v4PendingDir = workPackageGateCheckpointPublicationDirectoryForTests(repoRoot, v4RunDir);
+const syntheticLedgerRoot = path.join(repoRoot, '.tmp', 'work-package-gate-protected-ledger-fixture');
+const syntheticCustodyRelative = '.tmp/work-package-gate-protected-ledger-fixture/custody.txt';
+const syntheticLocalArtifactRelative =
+  '.tmp/work-package-gate-protected-ledger-fixture/local-artifact.bin';
+const syntheticCustodyBytes = Buffer.from('first\nsecond\n', 'utf8');
+const syntheticLocalArtifactBytes = Buffer.from([0x00, 0x0d, 0x0a, 0xff]);
+const frozenR2SnapshotRelative =
+  '.tmp/gate-execution-snapshots/gate-d4ecb7717e828f3111ae866fa084e957-owned';
+const canonicalRequiredAuthorityPaths = Object.freeze({
+  r2Run: path.join(repoRoot, '.tmp', 'sm3-r2-work-package-gate'),
+  snapshot: path.join(repoRoot, ...frozenR2SnapshotRelative.split('/')),
+  sidecar: path.join(repoRoot, ...`${frozenR2SnapshotRelative}.owner-v1.json`.split('/')),
+  namespace: path.join(
+    repoRoot,
+    ...frozenR2SnapshotRelative.split('/'),
+    '.tmp',
+    'test-workspaces',
+    path.basename(frozenR2SnapshotRelative)
+  ),
+  externalWorkspaces: path.join(repoRoot, '.tmp', 'test-workspaces')
+});
+const createdCanonicalAuthorityPaths = new Set<string>();
+const syntheticProtectedLedger = Object.freeze({
+  custody: Object.freeze({
+    [syntheticCustodyRelative]: workPackageGateProtectedLedgerDigestForTests(
+      'custody',
+      syntheticCustodyBytes
+    )
+  }),
+  localArtifacts: Object.freeze({
+    [syntheticLocalArtifactRelative]: workPackageGateProtectedLedgerDigestForTests(
+      'local-artifact',
+      syntheticLocalArtifactBytes
+    )
+  })
+});
+
+function canonicalFilesystemIdentityForTests(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32'
+    ? resolved.toLocaleLowerCase('en-US')
+    : resolved;
+}
+
+function filesystemIdentityDigest(value: string): `sha256:${string}` {
+  return `sha256:${createHash('sha256')
+    .update(canonicalFilesystemIdentityForTests(value), 'utf8')
+    .digest('hex')}`;
+}
+
+const syntheticV4Namespace = `gate-${createHash('sha256')
+  .update(canonicalFilesystemIdentityForTests(v4RunDir), 'utf8')
+  .digest('hex')
+  .slice(0, 32)}-owned`;
+const syntheticFilesystemIdentityExpectation = Object.freeze({
+  namespace: syntheticV4Namespace,
+  runDirectoryIdentityDigest: filesystemIdentityDigest(v4RunDir),
+  namespaceIdentityDigest: `sha256:${createHash('sha256')
+    .update(syntheticV4Namespace, 'utf8')
+    .digest('hex')}`,
+  snapshotIdentityDigest: filesystemIdentityDigest(path.join(
+    repoRoot,
+    '.tmp',
+    'gate-execution-snapshots',
+    syntheticV4Namespace
+  )),
+  namespaceRootIdentityDigest: filesystemIdentityDigest(path.join(
+    repoRoot,
+    '.tmp',
+    'gate-execution-snapshots',
+    syntheticV4Namespace,
+    '.tmp',
+    'test-workspaces',
+    syntheticV4Namespace
+  ))
+});
 
 test('Windows namespace mutex is global across interactive and service sessions', () => {
   expect(workPackageGateNamespaceMutexNameForTests(v4RunDir))
@@ -63,13 +141,9 @@ test('Windows namespace mutex is global across interactive and service sessions'
 
 const fakeProtectedPathAuthority = Object.freeze([
   ['.tmp/sm3-r2-work-package-gate', true],
-  ['.tmp/gate-execution-snapshots/gate-d4ecb7717e828f3111ae866fa084e957-owned', true],
-  ['.tmp/gate-execution-snapshots/gate-d4ecb7717e828f3111ae866fa084e957-owned.owner-v1.json', true],
-  [
-    '.tmp/gate-execution-snapshots/gate-d4ecb7717e828f3111ae866fa084e957-owned/' +
-      '.tmp/test-workspaces/gate-d4ecb7717e828f3111ae866fa084e957-owned',
-    true
-  ],
+  [frozenR2SnapshotRelative, true],
+  [`${frozenR2SnapshotRelative}.owner-v1.json`, true],
+  [`${frozenR2SnapshotRelative}/.tmp/test-workspaces/${path.basename(frozenR2SnapshotRelative)}`, true],
   ['.tmp/sm3-r3-work-package-gate', false],
   ['.tmp/sm3-r3-v2-work-package-gate', false],
   ['.tmp/sm3-r3-v3-work-package-gate', false],
@@ -84,8 +158,87 @@ async function cleanV4Publications(): Promise<void> {
   await rm(v4PendingDir, { recursive: true, force: true });
 }
 
-beforeEach(cleanV4Publications);
-afterEach(cleanV4Publications);
+async function prepareSyntheticProtectedLedger(): Promise<void> {
+  await rm(syntheticLedgerRoot, { recursive: true, force: true });
+  await mkdir(syntheticLedgerRoot, { recursive: true });
+  await Promise.all([
+    writeFile(
+      path.join(repoRoot, ...syntheticCustodyRelative.split('/')),
+      syntheticCustodyBytes
+    ),
+    writeFile(
+      path.join(repoRoot, ...syntheticLocalArtifactRelative.split('/')),
+      syntheticLocalArtifactBytes
+    )
+  ]);
+}
+
+async function pathPresent(filePath: string): Promise<boolean> {
+  try {
+    await lstat(filePath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function prepareCanonicalProtectedPathAuthority(): Promise<void> {
+  createdCanonicalAuthorityPaths.clear();
+  const core = [
+    canonicalRequiredAuthorityPaths.r2Run,
+    canonicalRequiredAuthorityPaths.snapshot,
+    canonicalRequiredAuthorityPaths.sidecar,
+    canonicalRequiredAuthorityPaths.namespace
+  ];
+  const corePresent = await Promise.all(core.map(pathPresent));
+  if (corePresent.some(Boolean) && !corePresent.every(Boolean)) {
+    throw new Error('Work Package gate test authority fixture is partially pre-existing');
+  }
+  if (!corePresent.some(Boolean)) {
+    await mkdir(canonicalRequiredAuthorityPaths.r2Run, { recursive: true });
+    createdCanonicalAuthorityPaths.add(canonicalRequiredAuthorityPaths.r2Run);
+    await mkdir(canonicalRequiredAuthorityPaths.namespace, { recursive: true });
+    createdCanonicalAuthorityPaths.add(canonicalRequiredAuthorityPaths.snapshot);
+    await writeFile(canonicalRequiredAuthorityPaths.sidecar, '{"fixture":"owned"}\n', 'utf8');
+    createdCanonicalAuthorityPaths.add(canonicalRequiredAuthorityPaths.sidecar);
+  }
+  if (!await pathPresent(canonicalRequiredAuthorityPaths.externalWorkspaces)) {
+    await mkdir(canonicalRequiredAuthorityPaths.externalWorkspaces, { recursive: true });
+    createdCanonicalAuthorityPaths.add(canonicalRequiredAuthorityPaths.externalWorkspaces);
+  }
+}
+
+async function cleanCanonicalProtectedPathAuthority(): Promise<void> {
+  if (createdCanonicalAuthorityPaths.has(canonicalRequiredAuthorityPaths.r2Run)) {
+    await rm(canonicalRequiredAuthorityPaths.r2Run, { recursive: true, force: true });
+  }
+  if (createdCanonicalAuthorityPaths.has(canonicalRequiredAuthorityPaths.snapshot)) {
+    await rm(canonicalRequiredAuthorityPaths.snapshot, { recursive: true, force: true });
+  }
+  if (createdCanonicalAuthorityPaths.has(canonicalRequiredAuthorityPaths.sidecar)) {
+    await rm(canonicalRequiredAuthorityPaths.sidecar, { force: true });
+  }
+  if (createdCanonicalAuthorityPaths.has(canonicalRequiredAuthorityPaths.externalWorkspaces)) {
+    await rm(canonicalRequiredAuthorityPaths.externalWorkspaces, { recursive: true, force: true });
+  }
+  createdCanonicalAuthorityPaths.clear();
+}
+
+async function cleanSyntheticProtectedLedger(): Promise<void> {
+  await rm(syntheticLedgerRoot, { recursive: true, force: true });
+}
+
+beforeEach(async () => {
+  await cleanV4Publications();
+  await prepareSyntheticProtectedLedger();
+  await prepareCanonicalProtectedPathAuthority();
+});
+afterEach(async () => {
+  await cleanV4Publications();
+  await cleanCanonicalProtectedPathAuthority();
+  await cleanSyntheticProtectedLedger();
+});
 
 function revision(value: string): string {
   const result = spawnSync('git', ['rev-parse', value], {
@@ -95,6 +248,29 @@ function revision(value: string): string {
   });
   expect(result.status).toBe(0);
   return result.stdout.trim();
+}
+
+const frozenManifestPaths = new Map([
+  WORK_PACKAGE_GATE_EXECUTION_MANIFEST_PATH_V4,
+  WORK_PACKAGE_GATE_SELECTION_MANIFEST_PATH
+].map((relativePath) => [
+  path.resolve(repoRoot, ...relativePath.split('/')),
+  relativePath
+] as const));
+const frozenManifestTextCache = new Map<string, string>();
+
+function frozenManifestText(relativePath: string): string {
+  const cached = frozenManifestTextCache.get(relativePath);
+  if (cached !== undefined) return cached;
+  const testedHead = revision('HEAD');
+  const result = spawnSync('git', ['cat-file', 'blob', `${testedHead}:${relativePath}`], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  expect(result.status).toBe(0);
+  frozenManifestTextCache.set(relativePath, result.stdout);
+  return result.stdout;
 }
 
 test('execution snapshot materializes the exact dirty tree in a detached worktree', async () => {
@@ -321,36 +497,98 @@ test('R2 sidecar and terminal completion authority are bound to exact frozen val
 });
 
 test('production collector binds retained recovery generations and their terminal receipts', async () => {
-  const authority = await workPackageGateProtectedPathAuthorityForTests(repoRoot);
-  const required = new Set(authority.filter((entry) => entry.required).map((entry) => path.resolve(entry.path)));
-  const retainedWorkspace = path.join(
-    repoRoot,
-    '.tmp',
-    'gate-execution-snapshots',
-    'gate-d4ecb7717e828f3111ae866fa084e957-owned',
-    '.tmp',
-    'test-workspaces',
-    'gate-d4ecb7717e828f3111ae866fa084e957-owned',
-    'engineering-compiler-sm3-terminal-retention-fSCj2d'
-  );
-  const recoveryTransaction = path.join(
-    retainedWorkspace,
-    '.sec',
-    'semantic-mutation',
-    'v1',
-    'transactions',
-    'e16b6426e3e9f84bea8c592c447a623f9f0029a2e1ada2c33f160e7b27f0536d'
-  );
-  const terminalOrder = path.join(
-    retainedWorkspace,
-    '.sec',
-    'semantic-mutation',
-    'v1',
-    'terminal-order'
-  );
-  expect(required.has(path.join(recoveryTransaction, 'records', '000003-verified.json'))).toBe(true);
-  expect(required.has(path.join(terminalOrder, '000000000002.json'))).toBe(true);
-  expect(required.has(path.join(terminalOrder, '.sequence-head.json'))).toBe(true);
+  const fixtureParent = path.join(repoRoot, '.tmp');
+  await mkdir(fixtureParent, { recursive: true });
+  const fixtureRepo = await mkdtemp(path.join(fixtureParent, 'work-package-gate-retained-fixture-'));
+  const snapshotRelative = '.tmp/gate-execution-snapshots/gate-d4ecb7717e828f3111ae866fa084e957-owned';
+  const ownerRelative = `${snapshotRelative}.owner-v1.json`;
+  const namespace = 'gate-d4ecb7717e828f3111ae866fa084e957-owned';
+  const retainedNamespace = 'engineering-compiler-sm3-terminal-retention-fSCj2d';
+  const transactionIdentity = 'e16b6426e3e9f84bea8c592c447a623f9f0029a2e1ada2c33f160e7b27f0536d';
+  const frozenRecords = [
+    '000001-prepared.json',
+    '000002-authoring-committed.json',
+    '000003-verified.json'
+  ] as const;
+  try {
+    await mkdir(path.join(fixtureRepo, '.tmp', 'sm3-r2-work-package-gate'), { recursive: true });
+    await mkdir(path.join(fixtureRepo, 'docs', 'evidence'), { recursive: true });
+    await writeFile(
+      path.join(fixtureRepo, 'docs', 'evidence', 'v0-4-semantic-mutation-apply-r2-verification.json'),
+      `${JSON.stringify({
+        preservedAuthority: {
+          executionSnapshot: snapshotRelative,
+          executionSnapshotOwner: ownerRelative,
+          retainedNamespace
+        }
+      }, null, 2)}\n`,
+      'utf8'
+    );
+
+    const snapshotRoot = path.join(fixtureRepo, ...snapshotRelative.split('/'));
+    await publishWorkPackageExecutionSnapshotOwnerForTests(
+      fixtureRepo,
+      snapshotRoot,
+      'f29ecb73ac64aaae23b7989688c4a3ca79593d43',
+      'dcdc37f6353a61a6770f930c54a25c22200a8829',
+      'sha256:6468cf74715c883051ce85bab5d2fd8bbad8e170d73efc48225cb906fb93740c'
+    );
+    const retainedWorkspace = path.join(
+      snapshotRoot,
+      '.tmp',
+      'test-workspaces',
+      namespace,
+      retainedNamespace
+    );
+    const recoveryTransaction = path.join(
+      retainedWorkspace,
+      '.sec',
+      'semantic-mutation',
+      'v1',
+      'transactions',
+      transactionIdentity
+    );
+    const recordsDirectory = path.join(recoveryTransaction, 'records');
+    const terminalOrder = path.join(
+      retainedWorkspace,
+      '.sec',
+      'semantic-mutation',
+      'v1',
+      'terminal-order'
+    );
+    await Promise.all([mkdir(recordsDirectory, { recursive: true }), mkdir(terminalOrder, { recursive: true })]);
+    const fixtureRoot = path.join(repoRoot, 'tests', 'fixtures', 'work-package-gate-retained-recovery');
+    await Promise.all([
+      ...frozenRecords.map((name) => copyFile(
+        path.join(fixtureRoot, 'records', name),
+        path.join(recordsDirectory, name)
+      )),
+      copyFile(
+        path.join(fixtureRoot, 'terminal-order', '000000000002.json'),
+        path.join(terminalOrder, '000000000002.json')
+      ),
+      copyFile(
+        path.join(fixtureRoot, 'terminal-order', '.sequence-head.json'),
+        path.join(terminalOrder, '.sequence-head.json')
+      )
+    ]);
+
+    const authority = await workPackageGateProtectedPathAuthorityForTests(fixtureRepo);
+    const required = new Set(
+      authority.filter((entry) => entry.required).map((entry) => path.resolve(entry.path))
+    );
+    for (const name of frozenRecords) {
+      const copied = path.join(recordsDirectory, name);
+      const metadata = await lstat(copied);
+      expect(metadata.isFile()).toBe(true);
+      expect(metadata.isSymbolicLink()).toBe(false);
+      expect(required.has(copied)).toBe(true);
+    }
+    expect(required.has(path.join(terminalOrder, '000000000002.json'))).toBe(true);
+    expect(required.has(path.join(terminalOrder, '.sequence-head.json'))).toBe(true);
+  } finally {
+    await rm(fixtureRepo, { recursive: true, force: true });
+  }
 });
 
 function identitySet(values: readonly string[]) {
@@ -425,6 +663,14 @@ function fakeDependencies(input: {
   let censusIndex = 0;
   let now = 0;
   const overrides: Partial<WorkPackageGateDependencies> = {
+    readText: async (filePath) => {
+      const trackedManifest = frozenManifestPaths.get(path.resolve(filePath));
+      return trackedManifest === undefined
+        ? readFile(filePath, 'utf8')
+        : frozenManifestText(trackedManifest);
+    },
+    protectedLedger: syntheticProtectedLedger,
+    filesystemIdentityExpectation: syntheticFilesystemIdentityExpectation,
     protectedPathAuthority: async () => fakeProtectedPathAuthority,
     gitRevision: (_root, value) => value === 'HEAD' ? head : tree,
     worktreeDigest: async () => worktree,
@@ -635,7 +881,7 @@ test('protected ledger drift stops before checkpoint publication and child launc
   const { overrides, counters } = fakeDependencies();
   await expect(runWorkPackageGate(v4Options, {
     ...overrides,
-    readBytes: async (filePath) => filePath.endsWith('sm3-r2-bounded-runtime-gate-v1.md')
+    readBytes: async (filePath) => filePath.endsWith('custody.txt')
       ? Buffer.from('drift')
       : readFile(filePath)
   })).rejects.toThrow('protected ledger drifted');
