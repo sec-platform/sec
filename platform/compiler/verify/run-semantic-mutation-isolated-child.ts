@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, open, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { listFilesRecursive, pathExists, type CommitFence } from '../../shared/fs.ts';
@@ -89,6 +88,9 @@ import {
   type SemanticMutationIsolatedCompilerRegistryInput,
   type SemanticMutationIsolatedRuntimeInputSources
 } from './semantic-mutation-isolated-runtime-plan.ts';
+import {
+  SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE
+} from './semantic-mutation-runner-build-child.ts';
 import {
   parseSemanticMutationRunnerBuildSuccessFrame,
   SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES,
@@ -378,9 +380,6 @@ export function projectSemanticMutationIsolatedVerificationFailureForTests(
   return isolatedVerificationFailure(stage, error);
 }
 
-const RUNNER_BUILD_CHILD_PATH = fileURLToPath(
-  new URL('./semantic-mutation-runner-build-child.ts', import.meta.url)
-);
 const RUNNER_BUILD_CHILD_TIMEOUT_MS = 120_000;
 const EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST =
   `sha256:${createHash('sha256').update(new Uint8Array()).digest('hex')}`;
@@ -657,7 +656,8 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
         outcome = await execute(process.execPath, [
           '--no-install',
           '--no-env-file',
-          RUNNER_BUILD_CHILD_PATH,
+          '--eval',
+          SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE,
           SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN
         ], {
           cwd: compilerRoot,

@@ -60,6 +60,10 @@ import {
   semanticMutationRuntimeSourceSnapshotCacheStatsForTests
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import {
+  SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE,
+  SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH
+} from '../../platform/compiler/verify/semantic-mutation-runner-build-child.ts';
+import {
   SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES,
   SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES,
   SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES,
@@ -289,10 +293,10 @@ test('fresh-process runner build fixes launch authority and returns an owned ver
   expect(bundle).toEqual(Uint8Array.from([1, 2, 3, 4]));
   expect(launch).toBeDefined();
   expect(launch?.command).toBe(process.execPath);
-  expect(launch?.args.slice(0, 2)).toEqual(['--no-install', '--no-env-file']);
-  expect(launch?.args[2]).toMatch(/platform[\\/]compiler[\\/]verify[\\/]semantic-mutation-runner-build-child\.ts$/u);
-  expect(launch?.args[3]).toBe(SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN);
-  expect(launch?.args).toHaveLength(4);
+  expect(launch?.args.slice(0, 3)).toEqual(['--no-install', '--no-env-file', '--eval']);
+  expect(launch?.args[3]).toBe(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE);
+  expect(launch?.args[4]).toBe(SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN);
+  expect(launch?.args).toHaveLength(5);
   expect(launch?.options.cwd).toBe(compilerRoot);
   expect(launch?.options.envMode).toBe('replace');
   expect(launch?.options.maxObservedOutputBytes).toBe(
@@ -304,26 +308,31 @@ test('fresh-process runner build fixes launch authority and returns an owned ver
     /(?:proxy|node_options|bun_options)/iu.test(key))).toBe(false);
 });
 
-test('fresh-process runner build accepts only its fixed child token without module-load execution', async () => {
-  const childPath = path.join(
-    compilerRoot,
-    'platform',
-    'compiler',
-    'verify',
-    'semantic-mutation-runner-build-child.ts'
-  );
-  const source = await readFile(childPath, 'utf8');
-  const tokenGuard = source.indexOf('process.argv[2] !== SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN');
+test('fresh-process runner build eval source is fixed, self-contained, and token guarded', async () => {
+  const source = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE;
+  const tokenGuard = source.indexOf('process.argv.length !== 2 || process.argv[1] !== TOKEN');
   const build = source.indexOf('result = await Bun.build({');
   expect(tokenGuard).toBeGreaterThanOrEqual(0);
   expect(build).toBeGreaterThan(tokenGuard);
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH).toBe(
+    'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts'
+  );
+  expect(source).toContain(
+    `const RUNNER_ENTRY = ${JSON.stringify(SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH)};`
+  );
+  expect(source).not.toMatch(/\b(?:import|require)\b/u);
+  expect(source).not.toMatch(/(?:[A-Za-z]:[\\/]|file:|node_modules|import\.meta)/u);
+  expect(source).not.toContain('Bun.spawn');
+  expect(source).not.toContain('process.execPath');
+  expect(source).not.toContain('semantic-mutation-runner-build-child');
   await expect(import('../../platform/compiler/verify/semantic-mutation-runner-build-child.ts'))
     .resolves.toBeDefined();
 
   const invalid = await runCommand(process.execPath, [
     '--no-install',
     '--no-env-file',
-    childPath,
+    '--eval',
+    source,
     'invalid-runner-build-token'
   ], { cwd: compilerRoot, timeoutMs: 10_000 });
   expect(invalid).toEqual({

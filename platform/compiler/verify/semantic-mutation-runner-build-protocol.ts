@@ -18,11 +18,15 @@ export type SemanticMutationRunnerBuildFailureSubstage =
   | 'runner-build-output-count'
   | 'runner-build-output-read';
 
-const FRAME_MAGIC = Uint8Array.from([0x53, 0x4d, 0x52, 0x42, 0x01, 0x00, 0x00, 0x00]);
-const FRAME_LENGTH_BYTES = 8;
-const FRAME_DIGEST_BYTES = 32;
+export const SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_MAGIC_BYTES = Object.freeze([
+  0x53, 0x4d, 0x52, 0x42, 0x01, 0x00, 0x00, 0x00
+] as const);
+export const SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES = 8;
+export const SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_DIGEST_BYTES = 32;
+const FRAME_MAGIC = Uint8Array.from(SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_MAGIC_BYTES);
 export const SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES =
-  FRAME_MAGIC.byteLength + FRAME_LENGTH_BYTES + FRAME_DIGEST_BYTES;
+  FRAME_MAGIC.byteLength + SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES +
+  SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_DIGEST_BYTES;
 export const SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES =
   SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES +
   SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES;
@@ -62,7 +66,10 @@ export function semanticMutationRunnerBuildSuccessFrame(payload: Uint8Array): Ui
     BigInt(payload.byteLength),
     true
   );
-  frame.set(digest(payload), FRAME_MAGIC.byteLength + FRAME_LENGTH_BYTES);
+  frame.set(
+    digest(payload),
+    FRAME_MAGIC.byteLength + SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES
+  );
   frame.set(payload, SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES);
   return frame;
 }
@@ -82,7 +89,7 @@ export function parseSemanticMutationRunnerBuildSuccessFrame(frame: Uint8Array):
   const payloadLength = new DataView(
     frame.buffer,
     frame.byteOffset + FRAME_MAGIC.byteLength,
-    FRAME_LENGTH_BYTES
+    SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES
   ).getBigUint64(0, true);
   if (payloadLength === 0n ||
     payloadLength > BigInt(SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES) ||
@@ -93,7 +100,7 @@ export function parseSemanticMutationRunnerBuildSuccessFrame(frame: Uint8Array):
   const payloadOffset = SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES;
   const payload = Uint8Array.from(frame.subarray(payloadOffset));
   const expectedDigest = frame.subarray(
-    FRAME_MAGIC.byteLength + FRAME_LENGTH_BYTES,
+    FRAME_MAGIC.byteLength + SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES,
     payloadOffset
   );
   if (!timingSafeEqual(Buffer.from(digest(payload)), Buffer.from(expectedDigest))) {

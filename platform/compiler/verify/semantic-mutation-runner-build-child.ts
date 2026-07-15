@@ -1,56 +1,71 @@
-import { fileURLToPath } from 'node:url';
-
 import {
   SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES,
-  SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN,
-  semanticMutationRunnerBuildSuccessFrame
+  SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_DIGEST_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_MAGIC_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN
 } from './semantic-mutation-runner-build-protocol.ts';
 
-const ISOLATED_RUNNER_PATH = fileURLToPath(new URL(
-  '../../orchestrator/semantic-mutation-isolated-verification-runner.ts',
-  import.meta.url
-));
+export const SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH =
+  'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts';
 
-async function runSemanticMutationRunnerBuildChild(): Promise<number> {
-  if (process.argv.length !== 3 ||
-    process.argv[2] !== SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN) {
-    return SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.invocation;
-  }
-  let result: Awaited<ReturnType<typeof Bun.build>>;
-  try {
-    result = await Bun.build({
-      entrypoints: [ISOLATED_RUNNER_PATH],
-      format: 'esm',
-      minify: false,
-      sourcemap: 'none',
-      splitting: false,
-      target: 'bun'
-    });
-  } catch {
-    return SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.invocation;
-  }
-  if (!result.success) return SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful;
-  if (result.outputs.length !== 1) {
-    return SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputCount;
-  }
-  let frame: Uint8Array;
-  try {
-    const payload = Uint8Array.from(new Uint8Array(await result.outputs[0].arrayBuffer()));
-    frame = semanticMutationRunnerBuildSuccessFrame(payload);
-  } catch {
-    return SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputRead;
-  }
-  try {
-    const written = await Bun.write(Bun.stdout, frame);
-    return written === frame.byteLength
-      ? 0
-      : SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputRead;
-  } catch {
-    return SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputRead;
-  }
-}
-
-if (import.meta.main) {
-  const exitCode = await runSemanticMutationRunnerBuildChild();
-  process.exit(exitCode);
-}
+export const SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE = [
+  "'use strict';",
+  `const TOKEN = ${JSON.stringify(SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN)};`,
+  `const RUNNER_ENTRY = ${JSON.stringify(SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH)};`,
+  `const EXIT_INVOCATION = ${SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.invocation};`,
+  `const EXIT_UNSUCCESSFUL = ${SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful};`,
+  `const EXIT_OUTPUT_COUNT = ${SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputCount};`,
+  `const EXIT_OUTPUT_READ = ${SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputRead};`,
+  `const FRAME_MAGIC = Uint8Array.from(${JSON.stringify(SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_MAGIC_BYTES)});`,
+  `const FRAME_LENGTH_BYTES = ${SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES};`,
+  `const FRAME_DIGEST_BYTES = ${SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_DIGEST_BYTES};`,
+  `const FRAME_HEADER_BYTES = ${SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES};`,
+  `const MAX_BUNDLE_BYTES = ${SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES};`,
+  'function successFrame(payload) {',
+  '  if (!(payload instanceof Uint8Array) || payload.byteLength === 0 ||',
+  '    payload.byteLength > MAX_BUNDLE_BYTES) throw new Error();',
+  '  const digest = new Uint8Array(new Bun.CryptoHasher("sha256").update(payload).digest());',
+  '  if (digest.byteLength !== FRAME_DIGEST_BYTES) throw new Error();',
+  '  const frame = new Uint8Array(FRAME_HEADER_BYTES + payload.byteLength);',
+  '  frame.set(FRAME_MAGIC, 0);',
+  '  new DataView(frame.buffer).setBigUint64(FRAME_MAGIC.byteLength, BigInt(payload.byteLength), true);',
+  '  frame.set(digest, FRAME_MAGIC.byteLength + FRAME_LENGTH_BYTES);',
+  '  frame.set(payload, FRAME_HEADER_BYTES);',
+  '  return frame;',
+  '}',
+  'async function run() {',
+  '  if (process.argv.length !== 2 || process.argv[1] !== TOKEN) return EXIT_INVOCATION;',
+  '  let result;',
+  '  try {',
+  '    result = await Bun.build({',
+  '      entrypoints: [RUNNER_ENTRY],',
+  "      format: 'esm',",
+  '      minify: false,',
+  "      sourcemap: 'none',",
+  '      splitting: false,',
+  "      target: 'bun'",
+  '    });',
+  '  } catch {',
+  '    return EXIT_INVOCATION;',
+  '  }',
+  '  if (!result.success) return EXIT_UNSUCCESSFUL;',
+  '  if (result.outputs.length !== 1) return EXIT_OUTPUT_COUNT;',
+  '  let frame;',
+  '  try {',
+  '    const payload = Uint8Array.from(new Uint8Array(await result.outputs[0].arrayBuffer()));',
+  '    frame = successFrame(payload);',
+  '  } catch {',
+  '    return EXIT_OUTPUT_READ;',
+  '  }',
+  '  try {',
+  '    const written = await Bun.write(Bun.stdout, frame);',
+  '    return written === frame.byteLength ? 0 : EXIT_OUTPUT_READ;',
+  '  } catch {',
+  '    return EXIT_OUTPUT_READ;',
+  '  }',
+  '}',
+  'process.exit(await run());'
+].join('\n');
