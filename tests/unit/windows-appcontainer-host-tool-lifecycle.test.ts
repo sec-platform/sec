@@ -904,7 +904,7 @@ test('observed native helper settlement classifier separates finite lifecycle di
   const exact = exactNativeHelperOutcome(stdout, new Uint8Array());
   const cases: readonly Readonly<{
     outcome: ObservedCommandOutcome;
-    expected: Readonly<Record<string, string>>;
+    expected: ReturnType<typeof classifyObservedWindowsAppContainerNativeHelperForTests>;
   }>[] = [
     { outcome: exact, expected: { status: 'success' } },
     {
@@ -975,7 +975,10 @@ test('observed native helper settlement classifier separates stream truncation a
     outcome: ObservedCommandOutcome;
     observedStdout: Uint8Array;
     observedDiagnostic: Uint8Array;
-    reason: string;
+    reason: Extract<
+      ReturnType<typeof classifyObservedWindowsAppContainerNativeHelperForTests>,
+      { readonly status: 'rejected' }
+    >['reason'];
   }>[] = [
     {
       outcome: Object.freeze({

@@ -116,9 +116,9 @@ function classPublicReadonlyKeys(source: string, className: string): string[] {
     ts.isClassDeclaration(statement) && statement.name?.text === className);
   if (!declaration) throw new Error(`Missing class ${className}`);
   const hasModifier = (
-    node: ts.ClassElement | ts.ParameterDeclaration,
+    node: ts.PropertyDeclaration | ts.ParameterDeclaration,
     kind: ts.SyntaxKind
-  ): boolean => node.modifiers?.some((modifier) => modifier.kind === kind) ?? false;
+  ): boolean => ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false;
   const publicReadonlyName = (
     node: ts.PropertyDeclaration | ts.ParameterDeclaration
   ): string | null => {
@@ -1245,7 +1245,9 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     '    : outcome.termination.streamsDrained && outcome.termination.treeClosed;'
   ].join('\n'));
   expect(settlement).toContain('const classification = classifyObservedHostBunCommand(');
-  expect(settlement).toContain("if (classification.status !== 'success')");
+  expect(settlement).toContain(
+    "if (classification.status !== 'success' || outcome.exitCode === null)"
+  );
   expect(settlement).toContain('if (!cleanupSafe) executionRetainedOwners.add(error);');
   expect(settlement.indexOf('const cleanupSafe ='))
     .toBeLessThan(settlement.indexOf('const classification ='));
