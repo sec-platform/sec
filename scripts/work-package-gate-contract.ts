@@ -70,7 +70,7 @@ export const WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4 = Object.freeze({
   'tests/unit/semantic-mutation-isolated-child-fence.test.ts': 'sha256:cd90768c3c49cc0028c25931c48c4c4b53ed8d8984be6cec97cf760dc39155ef',
   'tests/unit/semantic-mutation-runtime-materialization.test.ts': 'sha256:fccad2edfddc5a49d961d8c7f800ad0b6500af30c31fd262517ef2543f5d31b1',
   'tests/unit/windows-appcontainer-executor.test.ts': 'sha256:29ffd7d6e94a74612d7ac6f9a298487f10273c1867ee4d48c741905cb993e9bf',
-  'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts': 'sha256:d367893924251209dc19e9774f947bae022fbdd705a38b7f97c3fe907c614a46',
+  'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts': 'sha256:a473bee42d9c8edaa9dd05e7923c62528f7779d7568a52f5a70653f47f88e51b',
   'tests/unit/workspace-write-lease.test.ts': 'sha256:6536d2cd28a520be241bfe2ecb07c81706afd293a55fd29f4f4dfceeec07fa87'
 } as const);
 
