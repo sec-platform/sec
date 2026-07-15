@@ -11,6 +11,10 @@ import {
 } from '../../platform/compiler/index.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
+import {
+  SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE,
+  SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH
+} from '../../platform/compiler/verify/semantic-mutation-runner-build-child.ts';
 import { isSemanticMutationStagingWorkspace } from '../../platform/compiler/verify/semantic-mutation-staging-boundary.ts';
 import { assertSemanticMutationVerificationReportInvariant } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
 import { applySemanticMutation } from '../../platform/orchestrator.ts';
@@ -479,6 +483,11 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     'SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES',
     'SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES',
     'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_MAGIC_BYTES',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_DIGEST_BYTES',
     'semanticMutationRunnerBuildSuccessFrame',
     'parseSemanticMutationRunnerBuildSuccessFrame',
     'semanticMutationRunnerBuildFailureSubstage',
@@ -759,6 +768,8 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   );
   expect(sources.isolatedChild).toContain('runObservedCommand');
   expect(sources.isolatedChild).toContain("'--no-install',\n          '--no-env-file'");
+  expect(sources.isolatedChild).toContain("'--eval',\n          SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE");
+  expect(sources.isolatedChild).not.toContain('RUNNER_BUILD_CHILD_PATH');
   expect(sources.isolatedChild).toContain("envMode: 'replace'");
   expect(sources.isolatedChild).toContain('maxObservedOutputBytes: SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES');
   expect(sources.isolatedChild).toContain('frameDigest !== outcome.stdout.digest');
@@ -775,17 +786,35 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(runnerBuildPrimaryFailure).toBeGreaterThan(-1);
   expect(runnerBuildCleanupFailure).toBeGreaterThan(runnerBuildPrimaryFailure);
   expect(sources.isolatedChild).not.toContain('const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(');
-  expect(sources.runnerBuildChild).toContain('fileURLToPath(new URL(');
-  expect(sources.runnerBuildChild).toContain('if (import.meta.main)');
+  expect(sources.runnerBuildChild).toContain(
+    'export const SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE = ['
+  );
+  expect(sources.runnerBuildChild).not.toContain('fileURLToPath');
+  expect(sources.runnerBuildChild).not.toContain('import.meta.main');
   expect(sources.runnerBuildChild).not.toContain('process.env');
   expect(sources.runnerBuildChild).not.toContain('console.');
   expect(sources.runnerBuildChild).not.toContain('process.stderr');
-  const runnerBuildTokenGuard = sources.runnerBuildChild.indexOf(
-    'process.argv[2] !== SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN'
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH).toBe(
+    'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts'
   );
-  const runnerBuildInvocation = sources.runnerBuildChild.indexOf('result = await Bun.build({');
-  const runnerBuildUnsuccessful = sources.runnerBuildChild.indexOf('if (!result.success)');
-  const runnerBuildOutputCount = sources.runnerBuildChild.indexOf('if (result.outputs.length !== 1)');
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE)
+    .not.toMatch(/\b(?:import|require)\b/u);
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE)
+    .not.toMatch(/(?:[A-Za-z]:[\\/]|file:|node_modules|import\.meta)/u);
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toContain('Bun.spawn');
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toContain('process.execPath');
+  const runnerBuildTokenGuard = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
+    'process.argv.length !== 2 || process.argv[1] !== TOKEN'
+  );
+  const runnerBuildInvocation = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
+    'result = await Bun.build({'
+  );
+  const runnerBuildUnsuccessful = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
+    'if (!result.success)'
+  );
+  const runnerBuildOutputCount = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
+    'if (result.outputs.length !== 1)'
+  );
   expect(runnerBuildTokenGuard).toBeGreaterThan(-1);
   expect(runnerBuildInvocation).toBeGreaterThan(runnerBuildTokenGuard);
   expect(runnerBuildUnsuccessful).toBeGreaterThan(runnerBuildInvocation);
