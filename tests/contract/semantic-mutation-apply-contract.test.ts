@@ -25,10 +25,6 @@ import {
   type PipelineExecutionContext
 } from '../../platform/shared/pipeline-types.ts';
 import {
-  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
-  createWindowsAppContainerNativeExecutionBudgetForTests
-} from '../../platform/shared/windows-appcontainer-executor.ts';
-import {
   SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
   SEMANTIC_MUTATION_RECOVERY_TRANSITIONS,
   SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,
@@ -47,6 +43,10 @@ import {
   SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
   SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
 } from '../../platform/shared/verification-types.ts';
+import {
+  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
+  createWindowsAppContainerNativeExecutionBudgetForTests
+} from '../../platform/shared/windows-appcontainer-executor.ts';
 import { WORKSPACE_WRITE_LEASE_TOKEN_VERSION } from '../../platform/shared/workspace-write-lease.ts';
 
 function sha256(value: unknown): string {
