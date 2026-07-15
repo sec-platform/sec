@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T17:13:07.7657391+08:00",
+  "profile": "v0.4-semantic-mutation-runner-build-invocation",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-contextual-runner-build-stop-record-2026-07-15.json",
+  "repairBaseSha": "a4435630cd01ca2fde7997367888a24dde4174ac",
+  "currentHead": "f5836a9b4a4fc0466eb8f22dc6ee39103596c45b",
+  "currentHeadTree": "3b4317f0f7903b8b265bf2d92843f0dffda98516",
+  "implementationState": "committed-clean-working-tree",
+  "status": "stopped-on-runner-build-invocation",
+  "mergeAllowed": false,
+  "stopReason": "The exact production-context seam selected runner-build-invocation. A separate one-shot fresh-process sentinel using the same entry and build options, plus the same staging, browser, runtime-input, descriptor, and helper-prebind context categories, succeeded with one readable output and no build logs. The failure is therefore process-contextual to bun:test, the full test-module import graph, probe pre-build state, or the process-local loader path. The batch stopped without a rerun or contract weakening.",
+  "finiteOutcomeRepair": {
+    "implementationCommit": "068c559218c23e6330434f0b378eb25f02832b93",
+    "custodyReconciliationCommit": "f5836a9b4a4fc0466eb8f22dc6ee39103596c45b",
+    "productionOutcomes": [
+      "runner-build-invocation",
+      "runner-build-unsuccessful",
+      "runner-build-output-count",
+      "runner-build-output-read"
+    ],
+    "aggregateRunnerBuildRemoved": true,
+    "rawDataRetained": false,
+    "focusedOutcomeEnumAndBlocker": "3/3 PASS with 62 assertions; final focused 2/2 PASS with 47 assertions",
+    "helperFirstCleanProcessBuild": "1/1 PASS",
+    "semanticAuthorityContract": "1/1 PASS with 407 assertions",
+    "exactArchitectureContract": "1/1 PASS",
+    "exactHeadTypecheck": "PASS in 11.2s",
+    "exactHeadChangedImports": "PASS in 5.2s from a4435630cd01ca2fde7997367888a24dde4174ac",
+    "exactHeadDiffCheck": "PASS",
+    "exactHeadCustodyLedger": "PASS; 25 custody Git blobs and 5 retained-recovery fixture Git blobs"
+  },
+  "realProductionBundleSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "exitCode": 1,
+    "durationMs": 2800,
+    "testDurationMs": 484,
+    "suiteDurationMs": 1590,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 32,
+    "expectCallsBeforeFailure": 1,
+    "failure": {
+      "capabilityStatus": "unavailable",
+      "diagnosticPresent": true,
+      "stage": "runtime-capability",
+      "runtimeCapabilitySubstage": "runner-build-invocation",
+      "assertionSite": "tests/unit/semantic-mutation-isolated-child-fence.test.ts:2383"
+    }
+  },
+  "freshProcessComparison": {
+    "sentinelCount": 1,
+    "outcome": "success",
+    "logPresence": "empty",
+    "appContainerStarted": false,
+    "contextCategoriesReproduced": [
+      "temporary staging baseline",
+      "browser and runtime-input fixtures",
+      "production Playwright descriptor read",
+      "revision-specific browser executable",
+      "native helper prebind",
+      "production runner build and single output read"
+    ],
+    "remainingContextDifferences": [
+      "bun:test worker or harness and the full test-module import graph",
+      "probe staging-tree and telemetry predicates before runner build",
+      "process-local runner loader call path"
+    ],
+    "rawLogsErrorsPathsOrBundleRecorded": false
+  },
+  "decision": {
+    "entryOptionsOrDependencyContractSelected": false,
+    "processContextIsolationSelected": true,
+    "isolationScope": "runner build and output read only",
+    "workerAcceptedWithoutProof": false,
+    "freshPidPreferred": true,
+    "publicVerticalStarted": false,
+    "slowBatchStarted": false,
+    "rootUserChangesTouched": false
+  },
+  "notRun": [
+    "second real seam in this outcome batch",
+    "SM-3 public vertical",
+    "canonical 12-suite slow delta DAG",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "merge and branch cleanup"
+  ],
+  "nextTaskEnvelope": {
+    "task": "fresh-pid production runner builder",
+    "currentBase": "f5836a9b4a4fc0466eb8f22dc6ee39103596c45b",
+    "singleWriter": true,
+    "goal": "Run only the production runner Bun.build and unique output read in a fresh Bun process, return an owned byte bundle on success, and return only finite exit classes on failure.",
+    "forbidden": [
+      "raw child stdout or stderr diagnostics, Bun logs, error messages, host paths, commands, environment values, causes, or stacks in the failure envelope",
+      "writing the bundle to a persistent host path",
+      "expanding process isolation to relocation, capability issuance, AppContainer, ACL, or cleanup",
+      "weakening exact-one output, relocation, digest, or host-path contracts",
+      "using a Worker without an A/B proof that it has independent Bun.build native state"
+    ],
+    "acceptance": [
+      "The child entry and build options are fixed by code rather than caller-controlled input",
+      "The child protocol is finite and versioned; success transfers one owned nonempty byte sequence and failure transfers no raw diagnostics",
+      "Parent validates process exit, byte length, and protocol before relocation",
+      "Spawn, timeout, abort, termination, protocol, and output ownership fail closed to finite runner-build outcomes",
+      "A focused bun:test-context sentinel succeeds through runner build and read before one more real seam",
+      "Focused lifecycle, protocol, outcome, authority, architecture, typecheck, imports, diff, and custody gates pass"
+    ]
+  }
+}
