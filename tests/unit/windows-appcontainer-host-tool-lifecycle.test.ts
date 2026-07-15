@@ -16,9 +16,12 @@ import {
   type ObservedCommandOutcome
 } from '../../platform/shared/observed-process.ts';
 import {
+  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
   classifyObservedWindowsAppContainerNativeHelperForTests,
   completeWindowsAppContainerOwnedExecutionForTests,
+  createWindowsAppContainerNativeExecutionBudgetForTests,
   projectWindowsAppContainerHostToolFailureForTests,
+  remainingWindowsAppContainerNativeExecutionBudgetForTests,
   runWindowsAppContainerExecutionStepsForTests,
   settleObservedWindowsAppContainerNativeHelperForTests,
   windowsAppContainerExecutionCleanupChainForTests,
@@ -845,6 +848,57 @@ function exactNativeHelperOutcome(stdout: Uint8Array, stderr: Uint8Array): Obser
   });
 }
 
+test('native helper deadline arbitration gives the child a finite preparation-to-exit budget', () => {
+  const explicit = arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(60_000);
+  expect(explicit).toEqual({ childTimeoutMs: 60_000, hostWatchdogMs: 70_000 });
+  expect(Object.isFrozen(explicit)).toBe(true);
+
+  const implicit = arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(undefined);
+  expect(implicit).toEqual({ childTimeoutMs: 120_000, hostWatchdogMs: 130_000 });
+  expect(Object.isFrozen(implicit)).toBe(true);
+
+  const helperEntryBudget = createWindowsAppContainerNativeExecutionBudgetForTests(
+    60_000,
+    1_000
+  );
+  expect(helperEntryBudget).toEqual({ startedAtMs: 1_000, timeoutMs: 60_000 });
+  expect(Object.isFrozen(helperEntryBudget)).toBe(true);
+});
+
+test('native helper deadline arbitration rejects invalid and overflowing budgets', () => {
+  for (const timeoutMs of [0, -1, 1.5]) {
+    expect(() => arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(timeoutMs))
+      .toThrow(WindowsAppContainerExecutionError);
+  }
+
+  const maximumChildTimeoutMs = Number.MAX_SAFE_INTEGER - 10_000;
+  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
+    maximumChildTimeoutMs
+  )).toEqual({
+    childTimeoutMs: maximumChildTimeoutMs,
+    hostWatchdogMs: Number.MAX_SAFE_INTEGER
+  });
+  expect(() => arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
+    maximumChildTimeoutMs + 1
+  )).toThrow(WindowsAppContainerExecutionError);
+});
+
+test('native helper elapsed budget is bounded and fails closed on clock rollback', () => {
+  const budget = createWindowsAppContainerNativeExecutionBudgetForTests(60_000, 1_000);
+  expect(remainingWindowsAppContainerNativeExecutionBudgetForTests(budget, 1_000)).toBe(60_000);
+  expect(remainingWindowsAppContainerNativeExecutionBudgetForTests(budget, 60_999)).toBe(1);
+
+  for (const observedAtMs of [999, 61_000, Number.NaN]) {
+    try {
+      remainingWindowsAppContainerNativeExecutionBudgetForTests(budget, observedAtMs);
+      throw new Error('expected elapsed budget rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(WindowsAppContainerExecutionError);
+      expect(error).toMatchObject({ phase: 'timeout' });
+    }
+  }
+});
+
 test('observed native helper settlement classifier separates finite lifecycle dimensions', () => {
   const stdout = Buffer.from('{"status":"ok"}', 'utf8');
   const exact = exactNativeHelperOutcome(stdout, new Uint8Array());
@@ -977,6 +1031,33 @@ function captureObservedNativeHelperFailure(
   }
   throw new Error('expected observed native helper settlement to fail');
 }
+
+test('native helper classification stays explanatory while closed-tree evidence governs cleanup', async () => {
+  const wire = Buffer.from('{"status":"ok"}', 'utf8');
+  const exact = exactNativeHelperOutcome(wire, new Uint8Array());
+  const closedTimedOut = Object.freeze({
+    ...exact,
+    status: 'timed-out' as const,
+    trigger: 'timed-out' as const,
+    termination: Object.freeze({ ...exact.termination, requested: true })
+  });
+  expect(classifyObservedWindowsAppContainerNativeHelperForTests(
+    closedTimedOut,
+    wire,
+    new Uint8Array()
+  )).toEqual({ status: 'rejected', reason: 'timed-out' });
+
+  const primary = captureObservedNativeHelperFailure(closedTimedOut, wire);
+  let cleanupCalls = 0;
+  await expect(completeWindowsAppContainerOwnedExecutionForTests(
+    undefined,
+    primary,
+    async () => {
+      cleanupCalls += 1;
+    }
+  )).rejects.toBe(primary);
+  expect(cleanupCalls).toBe(1);
+});
 
 test('observed native helper accepts only an exact closed-tree untruncated wire', () => {
   const stdout = Buffer.from('{"status":"ok"}', 'utf8');
