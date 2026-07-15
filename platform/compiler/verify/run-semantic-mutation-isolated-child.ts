@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
-import { lstat, open, readFile, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, open, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { listFilesRecursive, pathExists, type CommitFence } from '../../shared/fs.ts';
 import { readLockFile } from '../../shared/lock-utils.ts';
+import {
+  runObservedCommand,
+  type ObservedCommandOptions,
+  type ObservedCommandOutcome
+} from '../../shared/observed-process.ts';
 import {
   compilerRoot,
   getWorkspacePaths,
@@ -83,6 +89,12 @@ import {
   type SemanticMutationIsolatedCompilerRegistryInput,
   type SemanticMutationIsolatedRuntimeInputSources
 } from './semantic-mutation-isolated-runtime-plan.ts';
+import {
+  parseSemanticMutationRunnerBuildSuccessFrame,
+  SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN,
+  semanticMutationRunnerBuildFailureSubstage
+} from './semantic-mutation-runner-build-protocol.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
 
 export type { SemanticMutationIsolatedRuntimeInputSources } from './semantic-mutation-isolated-runtime-plan.ts';
@@ -366,9 +378,12 @@ export function projectSemanticMutationIsolatedVerificationFailureForTests(
   return isolatedVerificationFailure(stage, error);
 }
 
-const ISOLATED_RUNNER_PATH = fileURLToPath(
-  new URL('../../orchestrator/semantic-mutation-isolated-verification-runner.ts', import.meta.url)
+const RUNNER_BUILD_CHILD_PATH = fileURLToPath(
+  new URL('./semantic-mutation-runner-build-child.ts', import.meta.url)
 );
+const RUNNER_BUILD_CHILD_TIMEOUT_MS = 120_000;
+const EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST =
+  `sha256:${createHash('sha256').update(new Uint8Array()).digest('hex')}`;
 
 const DEFAULT_RUNTIME_DEPENDENCY_SOURCES = resolveIsolatedRuntimeDependencySources();
 const DEFAULT_RUNTIME_INPUT_SOURCES = Object.freeze({
@@ -591,6 +606,147 @@ async function readSemanticMutationIsolatedRunnerBuildOutput(
     return new Uint8Array(await result.outputs[0].arrayBuffer());
   } catch {
     throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
+  }
+}
+
+type SemanticMutationRunnerBuildObservedCommand = (
+  command: string,
+  args: readonly string[],
+  options: ObservedCommandOptions
+) => Promise<ObservedCommandOutcome>;
+
+function exactObservedRunnerBuildLifecycle(outcome: ObservedCommandOutcome): boolean {
+  return outcome.status === 'exited' && outcome.started && outcome.signal === null &&
+    !outcome.termination.requested && !outcome.termination.gracefulAttempted &&
+    !outcome.termination.forcedAttempted &&
+    outcome.termination.childCloseObserved && outcome.termination.streamsDrained &&
+    outcome.termination.treeClosed && !outcome.stdout.observerTruncated &&
+    !outcome.stderr.observerTruncated;
+}
+
+async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
+  execute: SemanticMutationRunnerBuildObservedCommand = runObservedCommand,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  try {
+    const processRoot = await mkdtemp(path.join(tmpdir(), 'sec-sm-runner-build-'));
+    let bundle: Uint8Array;
+    try {
+      await ensureIsolatedProcessDirectories(processRoot);
+      const stdoutChunks: Uint8Array[] = [];
+      let observedStdoutBytes = 0;
+      let outcome: ObservedCommandOutcome;
+      try {
+        outcome = await execute(process.execPath, [
+          '--no-install',
+          '--no-env-file',
+          RUNNER_BUILD_CHILD_PATH,
+          SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN
+        ], {
+          cwd: compilerRoot,
+          env: buildIsolatedProcessEnvironment(processRoot, { CI: 'true' }),
+          envMode: 'replace',
+          maxObservedOutputBytes: SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES,
+          onChunk(stream, byteLength) {
+            if (stream === 'stderr' && byteLength > 0) {
+              throw new Error('Semantic Mutation runner build stderr is forbidden');
+            }
+            if (stream === 'stdout') {
+              observedStdoutBytes += byteLength;
+              if (observedStdoutBytes > SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES) {
+                throw new Error('Semantic Mutation runner build stdout exceeds its cap');
+              }
+            }
+          },
+          onOutput(stream, chunk) {
+            if (stream === 'stdout') stdoutChunks.push(Uint8Array.from(chunk));
+          },
+          signal,
+          timeoutMs: RUNNER_BUILD_CHILD_TIMEOUT_MS,
+          windowsHide: true
+        });
+      } catch {
+        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
+      }
+      if (!exactObservedRunnerBuildLifecycle(outcome)) {
+        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
+      }
+      const failureSubstage = semanticMutationRunnerBuildFailureSubstage(outcome.exitCode);
+      if (failureSubstage !== undefined) {
+        if (outcome.stdout.bytes !== 0 || outcome.stderr.bytes !== 0 ||
+          outcome.stdout.digest !== EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST ||
+          outcome.stderr.digest !== EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST) {
+          throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
+        }
+        throw new SemanticMutationIsolatedCapabilityPreparationError(failureSubstage);
+      }
+      if (outcome.exitCode !== 0) {
+        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
+      }
+      if (outcome.stderr.bytes !== 0 ||
+        outcome.stderr.digest !== EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST) {
+        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
+      }
+      try {
+        const observedBytes = stdoutChunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+        if (observedBytes !== outcome.stdout.bytes ||
+          observedBytes > SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES) {
+          throw new Error('Semantic Mutation runner build observation is incomplete');
+        }
+        const frame = new Uint8Array(observedBytes);
+        let offset = 0;
+        for (const chunk of stdoutChunks) {
+          frame.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        const frameDigest = `sha256:${createHash('sha256').update(frame).digest('hex')}`;
+        if (frameDigest !== outcome.stdout.digest) {
+          throw new Error('Semantic Mutation runner build frame observation digest is invalid');
+        }
+        bundle = Uint8Array.from(parseSemanticMutationRunnerBuildSuccessFrame(frame));
+      } catch {
+        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
+      }
+    } finally {
+      await rm(processRoot, { recursive: true, force: true });
+    }
+    return bundle;
+  } catch (error) {
+    if (error instanceof SemanticMutationIsolatedCapabilityPreparationError) throw error;
+    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
+  }
+}
+
+/** Test-only observed-process seam; production fixes the child entry, arguments and environment. */
+export async function readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests(
+  execute: SemanticMutationRunnerBuildObservedCommand,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  return await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(execute, signal);
+}
+
+/** Test-only finite projection for the fresh-process observed-command boundary. */
+export async function classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+  execute: SemanticMutationRunnerBuildObservedCommand,
+  signal?: AbortSignal
+): Promise<
+  | Readonly<{ readonly status: 'available'; readonly bundle: Uint8Array }>
+  | Readonly<{
+      readonly status: 'unavailable';
+      readonly diagnostic: SemanticMutationIsolatedRuntimeCapabilityDiagnostic;
+    }>
+> {
+  try {
+    return Object.freeze({
+      status: 'available' as const,
+      bundle: await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(execute, signal)
+    });
+  } catch (error) {
+    return Object.freeze({
+      status: 'unavailable' as const,
+      diagnostic: isolatedRuntimeCapabilityDiagnostic(error) ??
+        projectSemanticMutationIsolatedRuntimeCapabilitySubstage('unknown')
+    });
   }
 }
 
@@ -972,16 +1128,7 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
     'runner-build-root-proof',
     captureIsolatedRuntimeBuildNodeModulesProof
   );
-  const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(
-    async () => await Bun.build({
-      entrypoints: [ISOLATED_RUNNER_PATH],
-      format: 'esm',
-      minify: false,
-      sourcemap: 'none',
-      splitting: false,
-      target: 'bun'
-    })
-  );
+  const sourceBundle = await readSemanticMutationIsolatedRunnerBuildFromFreshProcess();
   const buildNodeModulesRoot = await withCapabilityPreparationBoundary(
     'runner-build-root-proof',
     () => revalidateIsolatedRuntimeBuildNodeModulesProof(buildRootProof)
