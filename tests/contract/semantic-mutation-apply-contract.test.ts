@@ -469,6 +469,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     'SemanticMutationIsolatedRuntimeCapabilityDiagnostic',
     'SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES',
     'buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests',
+    'classifySemanticMutationIsolatedRunnerBuildForTests',
     'projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests',
     'semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests'
   ]) {
@@ -733,6 +734,17 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   );
   expect(sources.runtimeDependencySpec).toContain("'ts-morph'");
   expect(sources.isolatedChild).not.toContain("external: ['ts-morph', 'typescript']");
+  for (const runnerBuildOutcome of [
+    'runner-build-invocation',
+    'runner-build-unsuccessful',
+    'runner-build-output-count',
+    'runner-build-output-read'
+  ]) {
+    expect(sources.isolatedChild).toContain(`'${runnerBuildOutcome}'`);
+  }
+  expect(sources.isolatedChild).not.toContain(
+    "new SemanticMutationIsolatedCapabilityPreparationError('runner-build')"
+  );
   expect(sources.isolatedChild).toContain('relocateIsolatedRunnerBundle(');
   expect(sources.isolatedChild).toContain("'/node_modules/@ts-morph/common/dist'");
   expect(sources.isolatedChild).toContain("'/node_modules/typescript/lib'");
