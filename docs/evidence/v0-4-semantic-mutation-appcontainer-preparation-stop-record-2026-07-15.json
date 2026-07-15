@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T15:27:48.2180421+08:00",
+  "profile": "v0.4-semantic-mutation-appcontainer-preparation",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "branchBaseSha": "f02dff924aed326b9844a8f51b535f794646ca18",
+  "repairBaseSha": "f584bee96efcbdc4405dc71065acbba7c7d5e528",
+  "currentHead": "959a3bba6b49bd5fbf807635f8c54b49720467c6",
+  "currentHeadTree": "7eef5e9f771905a77b4ecb4f1caabb20f5151215",
+  "implementationState": "committed-clean-working-tree",
+  "status": "stopped-on-appcontainer-preparation-substage-unknown",
+  "mergeAllowed": false,
+  "stopReason": "The relocation source blocker is repaired and the real production Bun bundle now reaches the Windows AppContainer boundary. The exact public vertical then stops at a typed AppContainer preparation failure whose current path-free envelope does not identify one unique preparation substage. The slow DAG was not started.",
+  "repair": {
+    "implementationCommit": "c854722267e8cb3c277c52e574e3f07279778a2c",
+    "custodyReconciliationCommit": "959a3bba6b49bd5fbf807635f8c54b49720467c6",
+    "scope": "Freeze and revalidate the node_modules bridge plus physical target identity around Bun.build, then accept only the logical compiler node_modules root or that proven physical build root during relocation.",
+    "focusedProofTests": "12/12 PASS with 27 assertions",
+    "focusedRelocationTests": "6/6 PASS with 12 assertions",
+    "exactArchitectureContract": "1/1 PASS with 383 assertions at c854722; the following commit changes only the custody digest for the newly committed fence test blob",
+    "exactHeadTypecheck": "PASS in 16.0s",
+    "exactHeadChangedImports": "PASS in 9.8s from f584bee96efcbdc4405dc71065acbba7c7d5e528",
+    "exactHeadDiffCheck": "PASS in 1.8s from f584bee96efcbdc4405dc71065acbba7c7d5e528",
+    "exactHeadCustodyLedger": "PASS in 7.4s; 25 custody Git blobs and 5 retained-recovery fixture Git blobs"
+  },
+  "realProductionBundle": {
+    "test": "isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary",
+    "relocationStatus": "PASS",
+    "assertionsBeforeBoundary": 6,
+    "durationMs": 7780,
+    "subsequentFailure": "Windows AppContainer isolated execution failed during preparation"
+  },
+  "publicVertical": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--test-name-pattern",
+      "^SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "exitCode": 1,
+    "durationMs": 161700,
+    "testDurationMs": 159281,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 3,
+    "failure": {
+      "testFile": "tests/integration/semantic-mutation-apply.test.ts",
+      "testLine": 374,
+      "resultStatus": "rejected",
+      "verificationStatus": "blocked",
+      "rejectedAt": "impact-verification",
+      "diagnostics": [
+        {
+          "code": "SEMANTIC-MUTATION-010",
+          "stage": "impact-verification",
+          "isolatedVerification": {
+            "stage": "appcontainer-execution",
+            "appContainer": {
+              "phase": "preparation"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "boundedDiagnosis": {
+    "callChain": "createSemanticMutationIsolatedVerificationSupervisor -> runWindowsAppContainerChild -> normalizeExecutionError(error, 'preparation')",
+    "nativeCodePresent": false,
+    "hostToolFailurePresent": false,
+    "hostToolFailureConclusion": "No classified host-tool failure was reported; classified icacls or profile-query failures would carry the bounded hostToolFailure envelope.",
+    "rootCausePrecision": "The evidence proves the preparation phase but cannot select one unique preparation predicate. Native helper build/protocol/receipt, SID derivation, provisional owner publication, runtime file identity, system-directory lookup, and helper preparation remain possible no-code boundaries.",
+    "evidenceGap": "Native helper observations are currently process-local test state and are not projected into the production failure envelope. The failed temporary workspace is cleaned, so the helper mode, protocol classification, and native receipt cannot be reconstructed after the run."
+  },
+  "residue": {
+    "trackedWorktreeCleanAfterFailure": true,
+    "rootUserChangesTouched": false
+  },
+  "notRun": [
+    "canonical 12-suite slow delta DAG",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "merge and branch cleanup"
+  ],
+  "nextTaskEnvelope": {
+    "task": "AppContainer preparation substage typed evidence",
+    "currentBase": "959a3bba6b49bd5fbf807635f8c54b49720467c6",
+    "singleWriter": true,
+    "ownedPaths": [
+      "platform/shared/windows-appcontainer-executor.ts",
+      "platform/shared/windows-appcontainer-native-helper.ts",
+      "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "tests/unit/windows-appcontainer-executor.test.ts",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts"
+    ],
+    "goal": "Add a finite path-free preparation substage and helper observation projection so the next real boundary run identifies the exact failing preparation invariant.",
+    "forbidden": [
+      "raw stdout or stderr",
+      "host paths or command lines",
+      "environment values",
+      "weakened AppContainer, ACL, cleanup, or isolation contracts"
+    ],
+    "acceptance": [
+      "Every preparation boundary projects a finite typed substage",
+      "Unknown errors remain fail-closed",
+      "Helper mode, exit class, protocol classification, and native receipt are strictly enumerated and path-free",
+      "Run settlement and projection unit tests before one real production-bundle AppContainer seam",
+      "Stop after the first concrete substage, native code, or helper observation is captured"
+    ]
+  },
+  "closeout": {
+    "relocationBlockerRepaired": true,
+    "publicVerticalPassed": false,
+    "slowBatchStarted": false,
+    "mergedToMain": false
+  }
+}
