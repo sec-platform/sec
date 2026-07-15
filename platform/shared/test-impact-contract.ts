@@ -6,6 +6,7 @@ import { Node, Project, SyntaxKind } from 'ts-morph';
 import { uniqueSorted } from './collections.ts';
 import { compilerRoot, posixPath } from './paths.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
+import { governanceTestOwnershipDeclarations } from './test-impact-rules/governance.ts';
 import { pipelineTestOwnershipDeclarations } from './test-impact-rules/pipeline.ts';
 import { semanticTestOwnershipDeclarations } from './test-impact-rules/semantic.ts';
 import {
@@ -44,15 +45,18 @@ export function isVerificationInfrastructureFile(file: string): boolean {
   return VERIFICATION_INFRASTRUCTURE_PATTERNS.some((pattern) => pattern.test(file));
 }
 
-export function isTestImpactSourceFile(file: string): boolean {
-  if (/^tests\/.+\.(?:test|spec)\.tsx?$/u.test(file)) return false;
-  return classifyTestImpactSource(file) !== null;
-}
-
 export const testOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  ...governanceTestOwnershipDeclarations,
   ...pipelineTestOwnershipDeclarations,
   ...semanticTestOwnershipDeclarations
 ];
+
+export function isTestImpactSourceFile(file: string): boolean {
+  if (/^tests\/.+\.(?:test|spec)\.tsx?$/u.test(file)) return false;
+  return classifyTestImpactSource(file) !== null || testOwnershipDeclarations.some((declaration) => (
+    matchesTestOwnershipDeclaration(declaration, file)
+  ));
+}
 
 export const testImpactFallbackRules: TestImpactRule[] = [
   {

@@ -42,10 +42,6 @@ const MANDATORY_SENTINEL_PATTERNS = [
   /^platform\/shared\/test-impact-rules\//
 ];
 
-const NON_EXECUTABLE_EVIDENCE_PATTERNS = [
-  /^docs\/evidence\/[^/]+\.json$/u
-];
-
 function baselineSlowSuiteIds(): string[] {
   return slowTestPrRiskBaselineSuiteIds();
 }
@@ -77,7 +73,6 @@ export function selectCiPrRiskSlowSuites(files: string[] | null): CiPrRiskSlowSu
   const unresolvedFiles = files.filter((file) => {
     if (
       /^docs\/.+\.md$/u.test(file) || isFastTestFile(file) || isSlowTestFile(file) ||
-      NON_EXECUTABLE_EVIDENCE_PATTERNS.some((pattern) => pattern.test(file)) ||
       BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)) ||
       MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
     ) return false;

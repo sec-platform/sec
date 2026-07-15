@@ -106,16 +106,39 @@ test('explicit documentation ownership and direct slow tests remain resolved', (
   expect(directSlowTest.suites).toContain('e2e-dry-run-plan');
 });
 
-test('verification evidence is non-executable without generalizing JSON ownership', () => {
-  const evidence = selectCiPrRiskSlowSuites([
-    'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
-    'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json'
+test('agent governance and frozen work-package inputs use focused owners without slow fallback', () => {
+  const agentGovernance = selectCiPrRiskSlowSuites([
+    'AGENTS.md',
+    '.codex/agents/implementation-worker.toml',
+    '.codex/agents/verification-evidence-reviewer.toml'
   ]);
-  expect(evidence.resolved).toBe(true);
-  expect(evidence.reasons).not.toContain('changed-files-unresolved');
-  expect(evidence.suites).toEqual([]);
+  expect(agentGovernance.resolved).toBe(true);
+  expect(agentGovernance.reasons).toContain('ownership-impact');
+  expect(agentGovernance.owners).toEqual(['agent-governance']);
+  expect(agentGovernance.suites).toEqual([]);
 
-  for (const file of ['docs/project-state.json', 'docs/evidence/archive/probe.json']) {
+  const workPackageGate = selectCiPrRiskSlowSuites([
+    'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
+    'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
+    'tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json',
+    'tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json',
+    'tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json',
+    'tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json',
+    'tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json'
+  ]);
+  expect(workPackageGate.resolved).toBe(true);
+  expect(workPackageGate.reasons).toContain('ownership-impact');
+  expect(workPackageGate.owners).toEqual(['work-package-gate']);
+  expect(workPackageGate.suites).toEqual([]);
+
+  for (const file of [
+    'docs/project-state.json',
+    'docs/evidence/unowned.json',
+    'docs/evidence/archive/probe.json',
+    '.codex/agents/unowned.toml',
+    'tests/fixtures/other/prepared.json',
+    'tests/fixtures/work-package-gate-retained-recovery/runtime-hook.ts'
+  ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.resolved).toBe(false);
     expect(selection.reasons).toContain('changed-files-unresolved');
