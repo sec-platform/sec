@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T15:51:53.1147253+08:00",
+  "profile": "v0.4-semantic-mutation-native-helper-build",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-appcontainer-preparation-stop-record-2026-07-15.json",
+  "repairBaseSha": "901330486fb26daa9fcbc81afb0434f7f651fe8f",
+  "currentHead": "da6de16788c30162d455a16b35118133955fa4c7",
+  "currentHeadTree": "b03920fe248ba8f4feca24af5a39c536a1fa9016",
+  "implementationState": "committed-clean-working-tree",
+  "status": "stopped-on-native-helper-build",
+  "mergeAllowed": false,
+  "typedEvidenceRepair": {
+    "implementationCommit": "529f1db11ddeaac234448da0507226f4a90c54bd",
+    "custodyReconciliationCommit": "da6de16788c30162d455a16b35118133955fa4c7",
+    "windowsFocused": "4/4 PASS with 70 assertions",
+    "semanticProjectionFocused": "1/1 PASS with 13 assertions",
+    "exactArchitectureContract": "1/1 PASS with 383 assertions at 529f1db; the following commit changes only custody digests",
+    "exactHeadTypecheck": "PASS in 15.5s",
+    "exactHeadChangedImports": "PASS in 9.3s from 901330486fb26daa9fcbc81afb0434f7f651fe8f",
+    "exactHeadDiffCheck": "PASS in 2.3s",
+    "exactHeadCustodyLedger": "PASS in 7.6s; 25 custody Git blobs and 5 retained-recovery fixture Git blobs"
+  },
+  "realProductionBundleSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "exitCode": 1,
+    "durationMs": 7430,
+    "testDurationMs": 5937,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 28,
+    "assertionsBeforeFailure": 6,
+    "failure": {
+      "phase": "preparation",
+      "preparationSubstage": "native-helper-build",
+      "nativeCodePresent": false,
+      "hostToolFailurePresent": false,
+      "nativeHelperObservationPresent": false,
+      "throwSite": "platform/shared/windows-appcontainer-executor.ts:128",
+      "callChain": "buildNativeHelperBundle -> materializeHostBunRuntime -> runHostBunCommand -> deriveAppContainerSidViaHelper -> runWindowsAppContainerChild"
+    }
+  },
+  "disposition": {
+    "preparationEvidenceGapClosed": true,
+    "firstConcreteSubstageCaptured": true,
+    "publicVerticalStarted": false,
+    "slowBatchStarted": false,
+    "rootUserChangesTouched": false
+  },
+  "notRun": [
+    "SM-3 public vertical",
+    "canonical 12-suite slow delta DAG",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "merge and branch cleanup"
+  ],
+  "resumeBoundary": [
+    "Run one in-memory Bun.build with the exact native helper entrypoint and options; classify success, output count, and bounded build logs without writing a bundle.",
+    "Repair only the native-helper build or dependency-closure cause; do not weaken bundle-content, helper-wire, AppContainer, ACL, cleanup, or isolation contracts.",
+    "Run the helper loader/build focused test, typed projection tests, exact architecture contract, and static gates before one more real production-bundle AppContainer seam.",
+    "Do not run the public vertical or slow DAG until the real seam advances beyond native-helper-build."
+  ]
+}
