@@ -480,6 +480,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     isolatedChild: 'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
     runnerBuildChild: 'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
     runnerBuildProtocol: 'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts',
+    runnerBuildSettlement: 'platform/compiler/verify/semantic-mutation-runner-build-settlement.ts',
     isolatedRuntimeBinding: 'platform/compiler/verify/semantic-mutation-isolated-runtime-binding.ts',
     isolatedRuntimePlan: 'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts',
     runtimeDependencySpec: 'platform/shared/runtime-dependency-spec.ts',
@@ -524,11 +525,32 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     'semanticMutationRunnerBuildSuccessFrame',
     'parseSemanticMutationRunnerBuildSuccessFrame',
     'semanticMutationRunnerBuildFailureSubstage',
+    'classifySemanticMutationRunnerBuildSettlement',
+    'SemanticMutationRunnerBuildSettlementRejection',
+    'SemanticMutationRunnerBuildSettlementClassification',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_FRAME_INVALID',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN',
+    'createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests',
     'projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests',
     'semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests'
   ]) {
     expect(sources.compilerFacade, `public Compiler facade exports ${forbiddenWriter}`)
       .not.toMatch(new RegExp(`export[^;]+\\b${forbiddenWriter}\\b`, 'su'));
+  }
+  for (const facade of [sources.compilerFacade, sources.orchestratorFacade, sources.orchestratorIndex]) {
+    expect(facade).not.toContain('semantic-mutation-runner-build-settlement');
+    for (const internalSettlementSymbol of [
+      'classifySemanticMutationRunnerBuildSettlement',
+      'SemanticMutationRunnerBuildSettlementRejection',
+      'SemanticMutationRunnerBuildSettlementClassification',
+      'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_FRAME_INVALID',
+      'SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN',
+      'createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests'
+    ]) {
+      expect(facade).not.toMatch(
+        new RegExp(`export[^;]+\\b${internalSettlementSymbol}\\b`, 'su')
+      );
+    }
   }
 
   const normalizeIndex = sources.mutationOrchestrator.indexOf('normalizeSemanticMutationRequest(input.request)');
@@ -805,19 +827,174 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.isolatedChild).not.toContain('RUNNER_BUILD_CHILD_PATH');
   expect(sources.isolatedChild).toContain("envMode: 'replace'");
   expect(sources.isolatedChild).toContain('maxObservedOutputBytes: SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES');
-  expect(sources.isolatedChild).toContain('frameDigest !== outcome.stdout.digest');
+  expect(typeLiteralKeys(
+    sources.runnerBuildSettlement,
+    'SemanticMutationRunnerBuildSettlementClassification'
+  )).toEqual([
+    ['status'],
+    ['status', 'substage'],
+    ['status', 'reason']
+  ]);
+  const settlementRejectionStart = sources.runnerBuildSettlement.indexOf(
+    'export type SemanticMutationRunnerBuildSettlementRejection ='
+  );
+  const settlementRejectionEnd = sources.runnerBuildSettlement.indexOf(
+    '\n\nexport type SemanticMutationRunnerBuildSettlementClassification =',
+    settlementRejectionStart
+  );
+  expect(settlementRejectionStart).toBeGreaterThan(-1);
+  expect(settlementRejectionEnd).toBeGreaterThan(settlementRejectionStart);
+  expect([...sources.runnerBuildSettlement
+    .slice(settlementRejectionStart, settlementRejectionEnd)
+    .matchAll(/\| '([^']+)'/gu)]
+    .map((match) => match[1])).toEqual([
+    'execute-rejected',
+    'timed-out',
+    'not-started',
+    'closure-unproven',
+    'requested-termination',
+    'not-exited',
+    'exit-status-unproven',
+    'stdout-truncated',
+    'stderr-truncated',
+    'stdout-evidence-mismatch',
+    'stderr-evidence-mismatch',
+    'declared-failure-contaminated',
+    'unexpected-exit',
+    'protocol-frame-invalid',
+    'output-ownership-unproven'
+  ]);
+  expect(sources.runnerBuildSettlement).not.toMatch(
+    /\b(?:cleanup|cleanupProven|processRoot|rm)\b/u
+  );
+  expect(sources.runnerBuildSettlement).toContain(
+    'outcome.stdout.digest !== observedDigest(observedStdout)'
+  );
+
+  const publicRunnerBuildSubstagesStart = sources.isolatedChild.indexOf(
+    'export const SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES = Object.freeze(['
+  );
+  const publicRunnerBuildSubstagesEnd = sources.isolatedChild.indexOf(
+    '] as const);',
+    publicRunnerBuildSubstagesStart
+  );
+  expect(publicRunnerBuildSubstagesStart).toBeGreaterThan(-1);
+  expect(publicRunnerBuildSubstagesEnd).toBeGreaterThan(publicRunnerBuildSubstagesStart);
+  expect([...sources.isolatedChild
+    .slice(publicRunnerBuildSubstagesStart, publicRunnerBuildSubstagesEnd)
+    .matchAll(/^\s+'([^']+)',?$/gmu)]
+    .map((match) => match[1])).toEqual([
+    'runner-build-root-proof',
+    'runner-build-invocation',
+    'runner-build-unsuccessful',
+    'runner-build-output-count',
+    'runner-build-output-read',
+    'runner-relocation',
+    'capability-issue',
+    'unknown'
+  ]);
+
+  const runnerBuildObserverStart = sources.isolatedChild.indexOf(
+    'function notifySemanticMutationRunnerBuildSettlement('
+  );
+  const runnerBuildObserverEnd = sources.isolatedChild.indexOf(
+    '\nasync function cleanupSemanticMutationRunnerBuildProcessRoot(',
+    runnerBuildObserverStart
+  );
+  const runnerBuildObserver = sources.isolatedChild.slice(
+    runnerBuildObserverStart,
+    runnerBuildObserverEnd
+  );
+  expect(runnerBuildObserverStart).toBeGreaterThan(-1);
+  expect(runnerBuildObserverEnd).toBeGreaterThan(runnerBuildObserverStart);
+  expect(runnerBuildObserver).toContain('try {');
+  expect(runnerBuildObserver).toContain('observe?.(classification);');
+  expect(runnerBuildObserver).toContain('} catch {');
+  expect(runnerBuildObserver).not.toMatch(/\b(?:cleanup|cleanupProven|processRoot|rm)\b/u);
+
+  const runnerBuildReaderStart = sources.isolatedChild.indexOf(
+    'async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess('
+  );
+  const runnerBuildReaderEnd = sources.isolatedChild.indexOf(
+    '/** Test-only observed-process seam;',
+    runnerBuildReaderStart
+  );
+  const runnerBuildReader = sources.isolatedChild.slice(
+    runnerBuildReaderStart,
+    runnerBuildReaderEnd
+  );
+  expect(runnerBuildReaderStart).toBeGreaterThan(-1);
+  expect(runnerBuildReaderEnd).toBeGreaterThan(runnerBuildReaderStart);
+  const runnerBuildCleanupProof = runnerBuildReader.indexOf(
+    'cleanupProven = !outcome.started'
+  );
+  const runnerBuildClassification = runnerBuildReader.indexOf(
+    'const classification = classifySemanticMutationRunnerBuildSettlement(outcome, frame);'
+  );
+  expect(runnerBuildCleanupProof).toBeGreaterThan(-1);
+  expect(runnerBuildClassification).toBeGreaterThan(runnerBuildCleanupProof);
+  const runnerBuildCleanupGate = runnerBuildReader.indexOf('if (cleanupProven) {');
+  const runnerBuildPrimaryFailure = runnerBuildReader.indexOf('if (primaryFailed) {');
+  expect(runnerBuildCleanupGate).toBeGreaterThan(runnerBuildClassification);
+  expect(runnerBuildPrimaryFailure).toBeGreaterThan(runnerBuildCleanupGate);
+  const runnerBuildCleanup = runnerBuildReader.slice(
+    runnerBuildCleanupGate,
+    runnerBuildPrimaryFailure
+  );
+  expect(runnerBuildCleanup).toContain('await cleanup(processRoot);');
+  expect(runnerBuildCleanup).not.toMatch(/\b(?:classification|settlement|reason|status)\b/u);
+  const runnerBuildOwnershipGuard = runnerBuildReader.indexOf(
+    "if (cleanupFailed || bundle === undefined || settlement?.status !== 'success')"
+  );
+  const runnerBuildOwnershipRejection = runnerBuildReader.indexOf(
+    'SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN',
+    runnerBuildOwnershipGuard
+  );
+  const runnerBuildOwnershipFailure = runnerBuildReader.indexOf(
+    "throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');",
+    runnerBuildOwnershipRejection
+  );
+  const runnerBuildSuccessNotification = runnerBuildReader.indexOf([
+    'notifySemanticMutationRunnerBuildSettlement(',
+    '      observeSettlement,',
+    '      settlement',
+    '    );'
+  ].join('\n'), runnerBuildOwnershipFailure);
+  const runnerBuildReturn = runnerBuildReader.indexOf('return bundle;', runnerBuildSuccessNotification);
+  expect(runnerBuildOwnershipGuard).toBeGreaterThan(runnerBuildPrimaryFailure);
+  expect(runnerBuildOwnershipRejection).toBeGreaterThan(runnerBuildOwnershipGuard);
+  expect(runnerBuildOwnershipFailure).toBeGreaterThan(runnerBuildOwnershipRejection);
+  expect(runnerBuildSuccessNotification).toBeGreaterThan(runnerBuildOwnershipFailure);
+  expect(runnerBuildReturn).toBeGreaterThan(runnerBuildSuccessNotification);
+  expect(runnerBuildReader).not.toContain(
+    'settlement ?? SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN'
+  );
+
+  const runnerBuildSettlementProjectionStart = sources.isolatedChild.indexOf(
+    'function runnerBuildSettlementFailureSubstage('
+  );
+  const runnerBuildSettlementProjectionEnd = sources.isolatedChild.indexOf(
+    '\nasync function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(',
+    runnerBuildSettlementProjectionStart
+  );
+  const runnerBuildSettlementProjection = sources.isolatedChild.slice(
+    runnerBuildSettlementProjectionStart,
+    runnerBuildSettlementProjectionEnd
+  );
+  expect(runnerBuildSettlementProjectionStart).toBeGreaterThan(-1);
+  expect(runnerBuildSettlementProjectionEnd).toBeGreaterThan(
+    runnerBuildSettlementProjectionStart
+  );
+  expect(runnerBuildSettlementProjection).toContain("'stdout-evidence-mismatch'");
+  expect(runnerBuildSettlementProjection).toContain("'stderr-evidence-mismatch'");
+  expect(runnerBuildSettlementProjection).toContain("'protocol-frame-invalid'");
+  expect(runnerBuildSettlementProjection).toContain("? 'runner-build-output-read'");
+  expect(runnerBuildSettlementProjection).toContain(": 'runner-build-invocation';");
+  expect(runnerBuildSettlementProjection).not.toContain("'output-ownership-unproven'");
   expect(sources.isolatedChild).toContain('let cleanupProven = true;');
   expect(sources.isolatedChild).toContain('cleanupProven = false;');
   expect(sources.isolatedChild).toContain('maxRetries: 3');
   expect(sources.isolatedChild).toContain('retryDelay: 25');
-  const runnerBuildPrimaryFailure = sources.isolatedChild.indexOf(
-    'if (primaryFailed) throw primaryError;'
-  );
-  const runnerBuildCleanupFailure = sources.isolatedChild.indexOf(
-    'if (cleanupFailed || bundle === undefined)'
-  );
-  expect(runnerBuildPrimaryFailure).toBeGreaterThan(-1);
-  expect(runnerBuildCleanupFailure).toBeGreaterThan(runnerBuildPrimaryFailure);
   expect(sources.isolatedChild).not.toContain('const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(');
   expect(sources.runnerBuildChild).toContain(
     'export const SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE = ['

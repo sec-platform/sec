@@ -629,7 +629,7 @@ function notifySemanticMutationRunnerBuildSettlement(
   try {
     observe?.(classification);
   } catch {
-    // Test-only observation cannot change production settlement or cleanup authority.
+    // Test-only observation cannot change production control flow.
   }
 }
 
