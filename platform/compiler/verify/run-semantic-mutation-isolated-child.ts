@@ -35,7 +35,9 @@ import {
   runWindowsAppContainerChild,
   WindowsAppContainerExecutionError,
   type WindowsAppContainerExecutionPhase,
-  type WindowsAppContainerHostToolFailure
+  type WindowsAppContainerHostToolFailure,
+  type WindowsAppContainerNativeHelperObservation,
+  type WindowsAppContainerPreparationSubstage
 } from '../../shared/windows-appcontainer-executor.ts';
 import type { WorkspaceWriteLeaseToken } from '../../shared/workspace-write-lease.ts';
 import { loadWorkspacePlan } from '../parse/load-plan.ts';
@@ -119,8 +121,10 @@ export interface SemanticMutationIsolatedVerificationFailure {
   }>;
   readonly appContainer?: Readonly<{
     readonly phase: WindowsAppContainerExecutionPhase;
+    readonly preparationSubstage?: WindowsAppContainerPreparationSubstage;
     readonly nativeCode?: number;
     readonly hostToolFailure?: WindowsAppContainerHostToolFailure;
+    readonly nativeHelperObservation?: WindowsAppContainerNativeHelperObservation;
   }>;
 }
 
@@ -174,6 +178,26 @@ const APPCONTAINER_HOST_TOOL_REASONS = new Set<WindowsAppContainerHostToolFailur
 const APPCONTAINER_TERMINATIONS = new Set<WindowsAppContainerHostToolFailure['termination']>([
   'not-requested', 'confirmed', 'unconfirmed'
 ]);
+const APPCONTAINER_PREPARATION_SUBSTAGES = new Set<WindowsAppContainerPreparationSubstage>([
+  'native-helper-build', 'native-helper-materialization', 'native-helper-invocation',
+  'native-helper-protocol', 'native-helper-diagnostic', 'native-receipt', 'sid-derivation',
+  'profile-creation', 'owner-publication', 'runtime-identity', 'system-directory', 'unknown'
+]);
+const APPCONTAINER_NATIVE_HELPER_MODES = new Set<WindowsAppContainerNativeHelperObservation['mode']>([
+  'derive', 'create-profile', 'execute'
+]);
+const APPCONTAINER_NATIVE_HELPER_EXIT_CLASSES =
+  new Set<WindowsAppContainerNativeHelperObservation['exitClass']>(['zero', 'nonzero', 'invalid']);
+const APPCONTAINER_NATIVE_HELPER_DIAGNOSTICS =
+  new Set<WindowsAppContainerNativeHelperObservation['diagnosticStream']>(['empty', 'present']);
+const APPCONTAINER_NATIVE_HELPER_PROTOCOLS =
+  new Set<WindowsAppContainerNativeHelperObservation['protocol']>([
+    'ok', 'declared-failure', 'invalid'
+  ]);
+const APPCONTAINER_NATIVE_RECEIPTS =
+  new Set<WindowsAppContainerNativeHelperObservation['nativeReceipt']>([
+    'not-applicable', 'absent', 'exit-code', 'declared-failure', 'invalid', 'read-error'
+  ]);
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -271,12 +295,25 @@ function redactIsolatedVerificationFailure(
         termination: hostToolRecord.termination as WindowsAppContainerHostToolFailure['termination']
       })
     : undefined;
+  const phase = appContainerRecord.phase as WindowsAppContainerExecutionPhase;
+  const preparationSubstage = phase === 'preparation' &&
+    typeof appContainerRecord.preparationSubstage === 'string' &&
+    APPCONTAINER_PREPARATION_SUBSTAGES.has(
+      appContainerRecord.preparationSubstage as WindowsAppContainerPreparationSubstage
+    )
+    ? appContainerRecord.preparationSubstage as WindowsAppContainerPreparationSubstage
+    : phase === 'preparation' ? 'unknown' : undefined;
+  const nativeHelperObservation = projectNativeHelperObservation(
+    appContainerRecord.nativeHelperObservation
+  );
   const appContainer = Object.freeze({
-    phase: appContainerRecord.phase as WindowsAppContainerExecutionPhase,
+    phase,
+    ...(preparationSubstage === undefined ? {} : { preparationSubstage }),
     ...(Number.isSafeInteger(appContainerRecord.nativeCode)
       ? { nativeCode: appContainerRecord.nativeCode as number }
       : {}),
-    ...(hostToolFailure === undefined ? {} : { hostToolFailure })
+    ...(hostToolFailure === undefined ? {} : { hostToolFailure }),
+    ...(nativeHelperObservation === undefined ? {} : { nativeHelperObservation })
   });
   return Object.freeze({
     stage,
@@ -309,8 +346,10 @@ function isolatedVerificationFailure(
       stage: 'appcontainer-execution',
       appContainer: {
         phase: error.phase,
+        preparationSubstage: error.preparationSubstage,
         nativeCode: error.nativeCode,
-        hostToolFailure: error.hostToolFailure
+        hostToolFailure: error.hostToolFailure,
+        nativeHelperObservation: error.nativeHelperObservation
       }
     }, 'appcontainer-execution');
   }
@@ -704,6 +743,33 @@ function nativePathKey(value: string): string {
   return process.platform === 'win32'
     ? resolved.toLocaleLowerCase('en-US')
     : resolved;
+}
+
+function projectNativeHelperObservation(
+  value: unknown
+): WindowsAppContainerNativeHelperObservation | undefined {
+  const record = recordValue(value);
+  if (!record || !APPCONTAINER_NATIVE_HELPER_MODES.has(
+    record.mode as WindowsAppContainerNativeHelperObservation['mode']
+  ) || !APPCONTAINER_NATIVE_HELPER_EXIT_CLASSES.has(
+    record.exitClass as WindowsAppContainerNativeHelperObservation['exitClass']
+  ) || !APPCONTAINER_NATIVE_HELPER_DIAGNOSTICS.has(
+    record.diagnosticStream as WindowsAppContainerNativeHelperObservation['diagnosticStream']
+  ) || !APPCONTAINER_NATIVE_HELPER_PROTOCOLS.has(
+    record.protocol as WindowsAppContainerNativeHelperObservation['protocol']
+  ) || !APPCONTAINER_NATIVE_RECEIPTS.has(
+    record.nativeReceipt as WindowsAppContainerNativeHelperObservation['nativeReceipt']
+  )) {
+    return undefined;
+  }
+  return Object.freeze({
+    mode: record.mode as WindowsAppContainerNativeHelperObservation['mode'],
+    exitClass: record.exitClass as WindowsAppContainerNativeHelperObservation['exitClass'],
+    diagnosticStream:
+      record.diagnosticStream as WindowsAppContainerNativeHelperObservation['diagnosticStream'],
+    protocol: record.protocol as WindowsAppContainerNativeHelperObservation['protocol'],
+    nativeReceipt: record.nativeReceipt as WindowsAppContainerNativeHelperObservation['nativeReceipt']
+  });
 }
 
 function sameNativePath(left: string, right: string): boolean {

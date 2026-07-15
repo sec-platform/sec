@@ -225,6 +225,45 @@ test('isolated verification failure projection allowlists typed fields at runtim
   });
   expect(JSON.stringify(projected)).not.toContain(secret);
 
+  const preparationSource = new WindowsAppContainerExecutionError(
+    'preparation',
+    undefined,
+    undefined,
+    'native-helper-protocol',
+    {
+      mode: 'execute',
+      exitClass: 'nonzero',
+      diagnosticStream: 'present',
+      protocol: 'invalid',
+      nativeReceipt: 'invalid',
+      stdout: secret,
+      stderr: secret,
+      rawOutput: secret
+    } as never
+  );
+  const preparationProjected = projectSemanticMutationIsolatedVerificationFailureForTests(
+    'artifact-read',
+    preparationSource
+  );
+  expect(preparationProjected).toEqual({
+    stage: 'appcontainer-execution',
+    appContainer: {
+      phase: 'preparation',
+      preparationSubstage: 'native-helper-protocol',
+      nativeHelperObservation: {
+        mode: 'execute',
+        exitClass: 'nonzero',
+        diagnosticStream: 'present',
+        protocol: 'invalid',
+        nativeReceipt: 'invalid'
+      }
+    }
+  });
+  expect(Object.isFrozen(preparationProjected)).toBe(true);
+  expect(Object.isFrozen(preparationProjected.appContainer)).toBe(true);
+  expect(Object.isFrozen(preparationProjected.appContainer?.nativeHelperObservation)).toBe(true);
+  expect(JSON.stringify(preparationProjected)).not.toContain(secret);
+
   const forgedWrapped = Object.assign(
     Object.create(SemanticMutationIsolatedVerificationUnavailableError.prototype) as object,
     {
@@ -259,6 +298,39 @@ test('isolated verification failure projection allowlists typed fields at runtim
     }
   });
   expect(JSON.stringify(reprojected)).not.toContain(secret);
+
+  const forgedPreparation = Object.assign(
+    Object.create(SemanticMutationIsolatedVerificationUnavailableError.prototype) as object,
+    {
+      failure: {
+        stage: 'appcontainer-execution',
+        appContainer: {
+          phase: 'preparation',
+          preparationSubstage: 'forged-substage',
+          nativeHelperObservation: {
+            mode: 'execute',
+            exitClass: 'raw-exit',
+            diagnosticStream: 'present',
+            protocol: 'invalid',
+            nativeReceipt: 'invalid',
+            stdout: secret
+          },
+          stdout: secret,
+          path: secret
+        }
+      }
+    }
+  );
+  expect(projectSemanticMutationIsolatedVerificationFailureForTests(
+    'runtime-materialization',
+    forgedPreparation
+  )).toEqual({
+    stage: 'appcontainer-execution',
+    appContainer: {
+      phase: 'preparation',
+      preparationSubstage: 'unknown'
+    }
+  });
 
   const childProjected = projectSemanticMutationIsolatedVerificationFailureForTests(
     'runtime-materialization',

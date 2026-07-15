@@ -8,6 +8,7 @@ import {
   encodeWindowsAppContainerNativeDerivedSid,
   encodeWindowsAppContainerNativeFailure,
   encodeWindowsAppContainerNativeOk,
+  normalizeWindowsAppContainerPreparationErrorForTests,
   probeWindowsAppContainerCapabilityForTests,
   publishWindowsAppContainerProvisionalOwnerForTests,
   recoverWindowsAppContainerProvisionalOwnerForTests,
@@ -192,9 +193,10 @@ test('Windows AppContainer helper observations are finite and redact protocol co
       'execute', 0, encodeWindowsAppContainerNativeOk(), true, { value: { exitCode: 0 } }
     ));
   expect(diagnosticFailure.phase).toBe('preparation');
+  expect(diagnosticFailure.preparationSubstage).toBe('native-helper-diagnostic');
   expect(windowsAppContainerNativeHelperObservationForTests(diagnosticFailure)).toEqual({
     mode: 'execute',
-    helperExit: 0,
+    exitClass: 'zero',
     diagnosticStream: 'present',
     protocol: 'ok',
     nativeReceipt: 'exit-code'
@@ -214,19 +216,44 @@ test('Windows AppContainer helper observations are finite and redact protocol co
   });
   expect(windowsAppContainerNativeHelperObservationForTests(declaredFailure)).toEqual({
     mode: 'execute',
-    helperExit: 1,
+    exitClass: 'nonzero',
     diagnosticStream: 'empty',
     protocol: 'declared-failure',
     nativeReceipt: 'declared-failure'
   });
+
+  const typedPreparationFailure = captureFailure(() =>
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'create-profile',
+      1,
+      encodeWindowsAppContainerNativeFailure(new WindowsAppContainerExecutionError(
+        'preparation',
+        5,
+        undefined,
+        'profile-creation'
+      )),
+      false,
+      'not-applicable'
+    ));
+  expect(typedPreparationFailure.preparationSubstage).toBe('profile-creation');
+  expect(typedPreparationFailure.nativeCode).toBe(5);
+  expect(typedPreparationFailure.nativeHelperObservation).toEqual({
+    mode: 'create-profile',
+    exitClass: 'nonzero',
+    diagnosticStream: 'empty',
+    protocol: 'declared-failure',
+    nativeReceipt: 'not-applicable'
+  });
+  expect(Object.isFrozen(typedPreparationFailure.nativeHelperObservation)).toBe(true);
 
   const abnormalHelperExit = captureFailure(() =>
     settleWindowsAppContainerNativeHelperInvocationForTests(
       'execute', 3_221_225_477, '{"status":"ok"}', false, { value: { exitCode: 0 } }
     ));
   expect(abnormalHelperExit.phase).toBe('preparation');
-  expect(windowsAppContainerNativeHelperObservationForTests(abnormalHelperExit)?.helperExit)
-    .toBe(3_221_225_477);
+  expect(abnormalHelperExit.preparationSubstage).toBe('native-helper-protocol');
+  expect(windowsAppContainerNativeHelperObservationForTests(abnormalHelperExit)?.exitClass)
+    .toBe('nonzero');
 
   for (const [receiptRead, nativeReceipt] of [
     ['absent', 'absent'],
@@ -259,7 +286,7 @@ test('Windows AppContainer helper observations are finite and redact protocol co
   const redactedObservation = windowsAppContainerNativeHelperObservationForTests(redactedFailure);
   expect(redactedObservation).toEqual({
     mode: 'execute',
-    helperExit: 1,
+    exitClass: 'nonzero',
     diagnosticStream: 'present',
     protocol: 'invalid',
     nativeReceipt: 'invalid'
@@ -267,6 +294,7 @@ test('Windows AppContainer helper observations are finite and redact protocol co
   expect(`${redactedFailure.message}${JSON.stringify(redactedFailure)}${JSON.stringify(redactedObservation)}`)
     .not.toContain('secret-');
   expect(Object.isFrozen(redactedObservation)).toBe(true);
+  expect(redactedFailure.nativeHelperObservation).toEqual(redactedObservation);
 
   for (const invalidRun of [
     () => settleWindowsAppContainerNativeHelperInvocationForTests(
@@ -294,12 +322,47 @@ test('Windows AppContainer helper observations are finite and redact protocol co
   }
 
   expect(String(encodeWindowsAppContainerNativeFailure(new Error('secret-error-path'))))
-    .toBe('{"status":"failed","phase":"preparation"}');
+    .toBe('{"status":"failed","phase":"preparation","substage":"unknown"}');
   expect(String(encodeWindowsAppContainerNativeFailure(
     new WindowsAppContainerExecutionError('launch', 0x1_0000_0000)
-  ))).toBe('{"status":"failed","phase":"preparation"}');
+  ))).toBe('{"status":"failed","phase":"preparation","substage":"unknown"}');
   expect(String(encodeWindowsAppContainerNativeDerivedSid('S-1-15-2-1-2-3-4-5-6-7')))
     .toBe('{"status":"ok","appContainerSid":"S-1-15-2-1-2-3-4-5-6-7"}');
+  const invalidSid = captureFailure(() => encodeWindowsAppContainerNativeDerivedSid('not-a-sid'));
+  expect(invalidSid.preparationSubstage).toBe('sid-derivation');
+});
+
+test('Windows AppContainer preparation normalization is finite and preserves explicit evidence', () => {
+  const unknown = normalizeWindowsAppContainerPreparationErrorForTests(
+    new Error(String.raw`C:\secret\unknown-error`)
+  );
+  expect(unknown).toBeInstanceOf(WindowsAppContainerExecutionError);
+  expect((unknown as WindowsAppContainerExecutionError).phase).toBe('preparation');
+  expect((unknown as WindowsAppContainerExecutionError).preparationSubstage).toBe('unknown');
+  expect(JSON.stringify(unknown)).not.toContain('secret');
+
+  const upgraded = normalizeWindowsAppContainerPreparationErrorForTests(
+    new WindowsAppContainerExecutionError('preparation', undefined, undefined, undefined, {
+      mode: 'derive',
+      exitClass: 'zero',
+      diagnosticStream: 'empty',
+      protocol: 'ok',
+      nativeReceipt: 'not-applicable'
+    }),
+    'runtime-identity'
+  ) as WindowsAppContainerExecutionError;
+  expect(upgraded.preparationSubstage).toBe('runtime-identity');
+  expect(windowsAppContainerNativeHelperObservationForTests(upgraded))
+    .toEqual(upgraded.nativeHelperObservation);
+  expect(Object.isFrozen(upgraded.nativeHelperObservation)).toBe(true);
+
+  const explicit = normalizeWindowsAppContainerPreparationErrorForTests(
+    new WindowsAppContainerExecutionError(
+      'preparation', undefined, undefined, 'owner-publication'
+    ),
+    'runtime-identity'
+  ) as WindowsAppContainerExecutionError;
+  expect(explicit.preparationSubstage).toBe('owner-publication');
 });
 
 test('non-Windows hosts report capability unavailable without a spawn fallback', async () => {
@@ -353,6 +416,14 @@ test('Windows AppContainer native-helper bundle retries one transient rejected b
   expect(await loader.build()).toEqual(expected);
   expect(await loader.build()).toEqual(expected);
   expect(attempts).toBe(2);
+
+  const invalidLoader = createWindowsAppContainerNativeHelperBundleLoaderForTests(
+    async () => new Uint8Array()
+  );
+  const invalid = await invalidLoader.build().then(() => undefined, (error: unknown) => error);
+  expect(invalid).toBeInstanceOf(WindowsAppContainerExecutionError);
+  expect((invalid as WindowsAppContainerExecutionError).preparationSubstage)
+    .toBe('native-helper-build');
 });
 
 test('Windows AppContainer owner pending publication recovers before rename and after rename', async () => {
@@ -376,6 +447,13 @@ test('Windows AppContainer owner pending publication recovers before rename and 
     expect(await exists(path.join(afterRename, ownerName))).toBe(true);
     expect(await exists(path.join(afterRename, pendingName))).toBe(false);
     expect(await recoverWindowsAppContainerProvisionalOwnerForTests(afterRename)).toBe('canonical');
+    const ownerFailure = await publishWindowsAppContainerProvisionalOwnerForTests(
+      afterRename,
+      'after-pending'
+    ).then(() => undefined, (error: unknown) => error);
+    expect(ownerFailure).toBeInstanceOf(WindowsAppContainerExecutionError);
+    expect((ownerFailure as WindowsAppContainerExecutionError).preparationSubstage)
+      .toBe('owner-publication');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
