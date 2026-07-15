@@ -23,11 +23,13 @@ import {
   encodeWindowsAppContainerNativeFailure,
   normalizeWindowsAppContainerPreparationErrorForTests,
   projectWindowsAppContainerHostToolFailureForTests,
+  remainingWindowsAppContainerNativeHelperTimeout,
   remainingWindowsAppContainerNativeExecutionBudgetForTests,
   runWindowsAppContainerExecutionStepsForTests,
   settleObservedWindowsAppContainerNativeHelperForTests,
   settleWindowsAppContainerNativeJobAfterFailureForTests,
   settleWindowsAppContainerNativeHelperInvocationForTests,
+  superviseWindowsAppContainerNativeWorkerForHelper,
   waitForWindowsAppContainerNativeProcessForTests,
   windowsAppContainerExecutionCleanupChainForTests,
   WindowsAppContainerExecutionError
@@ -906,6 +908,73 @@ test('native helper elapsed budget is bounded and fails closed on clock rollback
       expect(error).toMatchObject({ phase: 'timeout' });
     }
   }
+});
+
+test('native worker supervisor settles exactly once across completion failure and timeout', async () => {
+  let terminal: ((value: unknown) => void) | undefined;
+  let fail: (() => void) | undefined;
+  let timer: (() => void) | undefined;
+  let clearCalls = 0;
+  const timers = {
+    setTimer: (callback: () => void) => {
+      timer = callback;
+      return 1;
+    },
+    clearTimer: () => {
+      clearCalls += 1;
+    }
+  };
+  const completed = superviseWindowsAppContainerNativeWorkerForHelper(
+    60_000,
+    (onTerminal, onFailure) => {
+      terminal = onTerminal;
+      fail = onFailure;
+    },
+    timers
+  );
+  terminal!({ kind: 'completed', exitCode: 44 });
+  fail!();
+  timer!();
+  expect(await completed).toEqual({ kind: 'completed', exitCode: 44 });
+  expect(clearCalls).toBe(1);
+
+  const failureWire = encodeWindowsAppContainerNativeFailure(
+    new WindowsAppContainerExecutionError('timeout')
+  );
+  const failed = superviseWindowsAppContainerNativeWorkerForHelper(
+    60_000,
+    (onTerminal) => onTerminal({ kind: 'failed', payload: failureWire }),
+    timers
+  );
+  expect(await failed).toEqual({ kind: 'failed', payload: failureWire });
+
+  let closeTerminal: ((value: unknown) => void) | undefined;
+  let close: (() => void) | undefined;
+  const closed = superviseWindowsAppContainerNativeWorkerForHelper(
+    60_000,
+    (onTerminal, onFailure) => {
+      closeTerminal = onTerminal;
+      close = onFailure;
+    },
+    timers
+  );
+  close!();
+  closeTerminal!({ kind: 'completed', exitCode: 0 });
+  const closeError = await closed.then(() => undefined, (error: unknown) => error);
+  expect(closeError).toMatchObject({ code: 'VERIFY-APPCONTAINER-UNAVAILABLE' });
+  expect(clearCalls).toBe(3);
+
+  const timedOut = superviseWindowsAppContainerNativeWorkerForHelper(
+    60_000,
+    () => undefined,
+    timers
+  );
+  timer!();
+  const timeoutError = await timedOut.then(() => undefined, (error: unknown) => error);
+  expect(timeoutError).toBeInstanceOf(WindowsAppContainerExecutionError);
+  expect(timeoutError).toMatchObject({ phase: 'timeout' });
+  expect(remainingWindowsAppContainerNativeHelperTimeout(60_000, 1_000, 1_100))
+    .toBe(59_900);
 });
 
 test('execute helper settles the child deadline before the host watchdog', () => {

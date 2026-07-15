@@ -7,7 +7,9 @@ import {
   encodeWindowsAppContainerNativeDerivedSid,
   encodeWindowsAppContainerNativeFailure,
   encodeWindowsAppContainerNativeOk,
+  remainingWindowsAppContainerNativeHelperTimeout,
   runWindowsAppContainerNativeChild,
+  superviseWindowsAppContainerNativeWorkerForHelper,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
   type WindowsAppContainerNativeExecutionRequest,
   type WindowsAppContainerNativeHelperWirePayload
@@ -17,6 +19,13 @@ type NativeHelperEnvelope =
   | Readonly<{ mode: 'derive'; request: Readonly<{ appContainerName: string }> }>
   | Readonly<{ mode: 'create-profile'; request: WindowsAppContainerNativeExecutionRequest }>
   | Readonly<{ mode: 'execute'; request: WindowsAppContainerNativeExecutionRequest }>;
+
+interface NativeExecutionWorkerGlobal {
+  onmessage: ((event: Readonly<{ data: unknown }>) => void) | null;
+  postMessage(value: unknown): void;
+}
+
+const nativeExecutionWorkerGlobal = globalThis as unknown as NativeExecutionWorkerGlobal;
 
 async function loadNativeHelperExit(): Promise<(exitCode: number) => never> {
   const { dlopen, FFIType } = await import('bun:ffi');
@@ -53,6 +62,21 @@ function exactKeys(value: object, expected: readonly string[]): boolean {
 
 function writeNativeHelperOutput(payload: WindowsAppContainerNativeHelperWirePayload): void {
   writeSync(1, payload);
+}
+
+function terminateNativeHelperWithOutput(
+  payload: WindowsAppContainerNativeHelperWirePayload,
+  exitCode: number,
+  exitNativeHelper: (exitCode: number) => never
+): never {
+  try {
+    writeNativeHelperOutput(payload);
+  } catch {}
+  try {
+    return exitNativeHelper(exitCode);
+  } catch {
+    return process.exit(exitCode);
+  }
 }
 
 function decodeRequest(encoded: string | undefined): NativeHelperEnvelope {
@@ -98,57 +122,130 @@ function assertNativeResultBoundary(request: WindowsAppContainerNativeExecutionR
   }
 }
 
-// Load the termination binding before any profile creation. If Bun's userenv
-// FFI corrupts process memory, the profile helper performs no later dlopen.
-const exitNativeHelper = await loadNativeHelperExit();
-const envelope = decodeRequest(process.argv[2]);
-if (envelope.mode === 'derive') {
+async function runNativeExecutionWorker(encodedRequest: unknown): Promise<void> {
+  let terminal: Readonly<Record<string, unknown>>;
   try {
-    const appContainerSid = await deriveWindowsAppContainerSidForNativeHelper(
-      envelope.request.appContainerName
-    );
-    writeNativeHelperOutput(encodeWindowsAppContainerNativeDerivedSid(appContainerSid));
-    exitNativeHelper(0);
-  } catch (error) {
-    try {
-      writeNativeHelperOutput(encodeWindowsAppContainerNativeFailure(error));
-    } catch {}
-    exitNativeHelper(1);
-  }
-} else if (envelope.mode === 'create-profile') {
-  try {
+    if (typeof encodedRequest !== 'string') throw new Error('invalid worker request');
+    const envelope = decodeRequest(encodedRequest);
+    if (envelope.mode !== 'execute') throw new Error('invalid worker mode');
     assertNativeResultBoundary(envelope.request);
-    await createWindowsAppContainerProfileForNativeHelper(envelope.request);
-    writeNativeHelperOutput(encodeWindowsAppContainerNativeOk());
-    exitNativeHelper(0);
+    const result = await runWindowsAppContainerNativeChild(envelope.request);
+    terminal = Object.freeze({ kind: 'completed', exitCode: result.exitCode });
   } catch (error) {
-    try {
-      writeNativeHelperOutput(encodeWindowsAppContainerNativeFailure(error));
-    } catch {}
-    exitNativeHelper(1);
+    terminal = Object.freeze({
+      kind: 'failed',
+      payload: encodeWindowsAppContainerNativeFailure(error)
+    });
   }
-} else {
-  try {
-    assertNativeResultBoundary(envelope.request);
-    await runWindowsAppContainerNativeChild(envelope.request);
-    writeNativeHelperOutput(encodeWindowsAppContainerNativeOk());
-    exitNativeHelper(0);
-  } catch (error) {
-    const failure = encodeWindowsAppContainerNativeFailure(error);
+  nativeExecutionWorkerGlobal.postMessage(terminal);
+  nativeExecutionWorkerGlobal.onmessage = () => undefined;
+}
+
+function installNativeExecutionWorker(): void {
+  nativeExecutionWorkerGlobal.onmessage = (event): void => {
+    nativeExecutionWorkerGlobal.onmessage = null;
+    void runNativeExecutionWorker(event.data);
+  };
+}
+
+function superviseNativeExecution(
+  encodedRequest: string,
+  timeoutMs: number
+) {
+  return superviseWindowsAppContainerNativeWorkerForHelper(
+    timeoutMs,
+    (onTerminal, onFailure) => {
+      const worker = new Worker(import.meta.url, { ref: true });
+      worker.onmessage = (event) => onTerminal(event.data);
+      worker.onmessageerror = () => onFailure();
+      worker.onerror = (event) => {
+        event.preventDefault();
+        onFailure();
+      };
+      worker.addEventListener('close', () => onFailure(), { once: true });
+      worker.postMessage(encodedRequest);
+    }
+  );
+}
+
+async function runNativeHelperMain(): Promise<void> {
+  const helperStartedAtMs = Date.now();
+  // Load the termination binding before any profile creation. If Bun's userenv
+  // FFI corrupts process memory, the profile helper performs no later dlopen.
+  const exitNativeHelper = await loadNativeHelperExit();
+  const encodedRequest = process.argv[2];
+  const envelope = decodeRequest(encodedRequest);
+  if (envelope.mode === 'derive') {
+    try {
+      const appContainerSid = await deriveWindowsAppContainerSidForNativeHelper(
+        envelope.request.appContainerName
+      );
+      writeNativeHelperOutput(encodeWindowsAppContainerNativeDerivedSid(appContainerSid));
+      exitNativeHelper(0);
+    } catch (error) {
+      try {
+        writeNativeHelperOutput(encodeWindowsAppContainerNativeFailure(error));
+      } catch {}
+      exitNativeHelper(1);
+    }
+  } else if (envelope.mode === 'create-profile') {
     try {
       assertNativeResultBoundary(envelope.request);
+      await createWindowsAppContainerProfileForNativeHelper(envelope.request);
+      writeNativeHelperOutput(encodeWindowsAppContainerNativeOk());
+      exitNativeHelper(0);
+    } catch (error) {
+      try {
+        writeNativeHelperOutput(encodeWindowsAppContainerNativeFailure(error));
+      } catch {}
+      exitNativeHelper(1);
+    }
+  } else {
+    try {
+      assertNativeResultBoundary(envelope.request);
+      const settlement = await superviseNativeExecution(
+        encodedRequest!,
+        remainingWindowsAppContainerNativeHelperTimeout(
+          envelope.request.execution.timeoutMs,
+          helperStartedAtMs,
+          Date.now()
+        )
+      );
+      if (settlement.kind === 'completed') {
+        writeFileSync(
+          envelope.request.nativeResultPath,
+          `${JSON.stringify({ exitCode: settlement.exitCode })}\n`,
+          { flag: 'wx' }
+        );
+        return terminateNativeHelperWithOutput(
+          encodeWindowsAppContainerNativeOk(),
+          0,
+          exitNativeHelper
+        );
+      }
       writeFileSync(
         envelope.request.nativeResultPath,
-        `${failure}\n`,
+        `${settlement.payload}\n`,
         { flag: 'wx' }
       );
-    } catch {
-      // Lease loss or an invalid result boundary leaves the exact result absent.
-      // The outer durable owner remains the sole recovery authority.
+      return terminateNativeHelperWithOutput(settlement.payload, 1, exitNativeHelper);
+    } catch (error) {
+      const failure = encodeWindowsAppContainerNativeFailure(error);
+      try {
+        assertNativeResultBoundary(envelope.request);
+        writeFileSync(
+          envelope.request.nativeResultPath,
+          `${failure}\n`,
+          { flag: 'wx' }
+        );
+      } catch {
+        // Lease loss or an invalid result boundary leaves the exact result absent.
+        // The outer durable owner remains the sole recovery authority.
+      }
+      return terminateNativeHelperWithOutput(failure, 1, exitNativeHelper);
     }
-    try {
-      writeNativeHelperOutput(failure);
-    } catch {}
-    exitNativeHelper(1);
   }
 }
+
+if (Bun.isMainThread) await runNativeHelperMain();
+else installNativeExecutionWorker();

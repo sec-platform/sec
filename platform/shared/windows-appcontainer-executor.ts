@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
 import {
   copyFile,
   lstat,
@@ -961,6 +960,86 @@ interface WindowsAppContainerNativeProcessWaitDependencies {
   readonly waitForProcess: (timeoutMs: number) => number;
 }
 
+export type WindowsAppContainerNativeWorkerSettlement =
+  | Readonly<{ kind: 'completed'; exitCode: number }>
+  | Readonly<{
+      kind: 'failed';
+      payload: WindowsAppContainerNativeHelperWirePayload;
+    }>;
+
+export type WindowsAppContainerNativeWorkerStart = (
+  onTerminal: (value: unknown) => void,
+  onFailure: () => void
+) => void;
+
+interface WindowsAppContainerNativeWorkerSupervisorTimers {
+  readonly setTimer: (callback: () => void, timeoutMs: number) => unknown;
+  readonly clearTimer: (handle: unknown) => void;
+}
+
+const WINDOWS_APPCONTAINER_NATIVE_WORKER_SUPERVISOR_TIMERS:
+WindowsAppContainerNativeWorkerSupervisorTimers = Object.freeze({
+  setTimer: (callback: () => void, timeoutMs: number) => setTimeout(callback, timeoutMs),
+  clearTimer: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>)
+});
+
+function decodeWindowsAppContainerNativeWorkerSettlement(
+  value: unknown
+): WindowsAppContainerNativeWorkerSettlement | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.kind === 'completed' && exactObjectKeys(record, ['exitCode', 'kind']) &&
+    isWindowsDword(record.exitCode)) {
+    return Object.freeze({ kind: 'completed', exitCode: Number(record.exitCode) });
+  }
+  if (record.kind !== 'failed' || !exactObjectKeys(record, ['kind', 'payload']) ||
+    typeof record.payload !== 'string' ||
+    decodeNativeHelperOutput('execute', 1, record.payload).classification !== 'declared-failure') {
+    return undefined;
+  }
+  return Object.freeze({
+    kind: 'failed',
+    payload: record.payload as WindowsAppContainerNativeHelperWirePayload
+  });
+}
+
+export function superviseWindowsAppContainerNativeWorkerForHelper(
+  timeoutMs: number,
+  start: WindowsAppContainerNativeWorkerStart,
+  timers: WindowsAppContainerNativeWorkerSupervisorTimers =
+    WINDOWS_APPCONTAINER_NATIVE_WORKER_SUPERVISOR_TIMERS
+): Promise<WindowsAppContainerNativeWorkerSettlement> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    return Promise.reject(new WindowsAppContainerExecutionError('invalid-input'));
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer: unknown;
+    const finish = (
+      result: WindowsAppContainerNativeWorkerSettlement | undefined,
+      error?: Error
+    ): void => {
+      if (settled) return;
+      settled = true;
+      timers.clearTimer(timer);
+      if (result) resolve(result);
+      else reject(error ?? new WindowsAppContainerCapabilityUnavailableError());
+    };
+    timer = timers.setTimer(
+      () => finish(undefined, new WindowsAppContainerExecutionError('timeout')),
+      timeoutMs
+    );
+    try {
+      start(
+        (value) => finish(decodeWindowsAppContainerNativeWorkerSettlement(value)),
+        () => finish(undefined)
+      );
+    } catch {
+      finish(undefined);
+    }
+  });
+}
+
 interface WindowsAppContainerNativeJobSettlementDependencies {
   readonly nowMs: () => number;
   readonly terminateJob: () => boolean;
@@ -1090,6 +1169,23 @@ export function remainingWindowsAppContainerNativeExecutionBudgetForTests(
   observedAtMs: number
 ): number {
   return remainingWindowsAppContainerNativeExecutionBudget(budget, observedAtMs);
+}
+
+export function remainingWindowsAppContainerNativeHelperTimeout(
+  requestedTimeoutMs: number | undefined,
+  helperStartedAtMs: number,
+  observedAtMs: number
+): number {
+  const deadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(
+    requestedTimeoutMs
+  );
+  return remainingWindowsAppContainerNativeExecutionBudget(
+    createWindowsAppContainerNativeExecutionBudget(
+      deadlines.childTimeoutMs,
+      helperStartedAtMs
+    ),
+    observedAtMs
+  );
 }
 
 /** Deterministic test seam for the production-used native process wait loop. */
@@ -2336,8 +2432,7 @@ async function executeNativeAppContainer(
   appContainerSidPointer: Pointer,
   prepared: PreparedExecution,
   executionBudget: WindowsAppContainerNativeExecutionBudget,
-  commitFence: () => Promise<void>,
-  nativeResultPath: string
+  commitFence: () => Promise<void>
 ): Promise<number> {
   let kernel32: Awaited<ReturnType<typeof openWindowsAppContainerKernel32>> | undefined;
   let attributeList: Buffer | undefined;
@@ -2554,7 +2649,6 @@ async function executeNativeAppContainer(
       throw executionError('wait');
     }
     const exitCode = exitCodeBuffer.readUInt32LE(0);
-    writeFileSync(nativeResultPath, `${JSON.stringify({ exitCode })}\n`, { flag: 'wx' });
     executionCommitted = true;
     return exitCode;
   } catch (error) {
@@ -3327,8 +3421,7 @@ export async function runWindowsAppContainerNativeChild(
     derivedSid.sidPointer,
     prepared,
     executionBudget,
-    commitFence,
-    request.nativeResultPath
+    commitFence
   );
   return Object.freeze({ exitCode });
 }
