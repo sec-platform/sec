@@ -6,8 +6,38 @@ import {
   bunRunInvocation,
   isolatedPlaywrightBrowsersPath,
   normalizeRuntimeVerificationLog,
-  resolveHostPlaywrightBrowsersPathForTests
+  resolveIsolatedRuntimeDependencySourcesForTests
 } from '../../platform/compiler/verify/run-runtime-verification.ts';
+import { compilerRoot } from '../../platform/shared/paths.ts';
+
+function metadata(
+  identity: string,
+  options: { readonly directory?: boolean; readonly symbolicLink?: boolean } = {}
+) {
+  return Object.freeze({
+    identity,
+    isDirectory: options.directory ?? true,
+    isSymbolicLink: options.symbolicLink ?? false
+  });
+}
+
+function pathProbe(input: {
+  readonly realpaths: Readonly<Record<string, string>>;
+  readonly metadata: Readonly<Record<string, ReturnType<typeof metadata>>>;
+}) {
+  return {
+    lstat(value: string) {
+      const result = input.metadata[value];
+      if (!result) throw new Error('metadata is unavailable');
+      return result;
+    },
+    realpath(value: string) {
+      const result = input.realpaths[value];
+      if (!result) throw new Error('physical path is unavailable');
+      return result;
+    }
+  };
+}
 
 test('runtime verification logs normalize elapsed durations', () => {
   expect(
@@ -27,60 +57,66 @@ test('isolated runtime uses fixed Bun argv without auto-install', () => {
   expect(path.relative(stagingRoot, fixedConfigPath).startsWith('..')).toBe(false);
 });
 
-test('host Playwright cache follows the physical dependency bridge without copying', () => {
+test('isolated dependency sources freeze one external physical bridge host', () => {
   const worktreeRoot = path.resolve('external-worktree');
   const dependencyHost = path.resolve('dependency-host');
-  const canonicalCache = path.join(dependencyHost, 'canonical-playwright-cache');
-  const cacheCandidate = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
-  const resolvePhysicalPath = (value: string): string => {
-    if (value === path.join(worktreeRoot, 'node_modules')) {
-      return path.join(dependencyHost, 'node_modules');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const nodeModules = path.join(dependencyHost, 'node_modules');
+  const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
+  const result = resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
+    realpaths: { [bridge]: nodeModules, [browserCache]: browserCache },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [nodeModules]: metadata('modules'),
+      [browserCache]: metadata('cache')
     }
-    if (value === cacheCandidate) return canonicalCache;
-    throw new Error('physical path is unavailable');
-  };
+  }));
 
-  expect(resolveHostPlaywrightBrowsersPathForTests(
-    worktreeRoot,
-    resolvePhysicalPath
-  )).toBe(canonicalCache);
+  expect(result).toEqual({ nodeModules, browserCache });
+  expect(Object.isFrozen(result)).toBe(true);
 });
 
-test('host Playwright cache unwraps a shared-deps node_modules target exactly once', () => {
+test('isolated dependency sources unwrap a shared-deps node_modules target exactly once', () => {
   const worktreeRoot = path.resolve('shared-deps-worktree');
   const dependencyHost = path.resolve('shared-deps-host');
-  const cache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
-  const resolvePhysicalPath = (value: string): string => {
-    if (value === path.join(worktreeRoot, 'node_modules')) {
-      return path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
+  expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
+    realpaths: { [bridge]: nodeModules, [browserCache]: browserCache },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [nodeModules]: metadata('modules'),
+      [browserCache]: metadata('cache')
     }
-    if (value === cache) return cache;
-    throw new Error('physical path is unavailable');
-  };
-
-  expect(resolveHostPlaywrightBrowsersPathForTests(
-    worktreeRoot,
-    resolvePhysicalPath
-  )).toBe(cache);
+  }))).toEqual({ nodeModules, browserCache });
 });
 
-test('host Playwright cache falls back locally when the bridge or host cache is unavailable', () => {
+test('isolated dependency sources reject an aliased cache and fall back as one local pair', () => {
   const worktreeRoot = path.resolve('fallback-worktree');
-  const localCache = path.join(worktreeRoot, '.shared-deps', '.playwright-browsers');
-  expect(resolveHostPlaywrightBrowsersPathForTests(worktreeRoot, () => {
-    throw new Error('bridge is unavailable');
-  })).toBe(localCache);
-
-  let calls = 0;
-  expect(resolveHostPlaywrightBrowsersPathForTests(worktreeRoot, () => {
-    calls += 1;
-    if (calls === 1) return path.join(path.resolve('dependency-host'), 'node_modules');
-    throw new Error('host cache is unavailable');
-  })).toBe(localCache);
+  const dependencyHost = path.resolve('aliased-dependency-host');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const nodeModules = path.join(dependencyHost, 'node_modules');
+  const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
+  const aliasedCache = path.join(path.resolve('elsewhere'), '.playwright-browsers');
+  expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
+    realpaths: { [bridge]: nodeModules, [browserCache]: aliasedCache },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [nodeModules]: metadata('modules'),
+      [browserCache]: metadata('cache')
+    }
+  }))).toEqual({
+    nodeModules: path.join(worktreeRoot, '.shared-deps', 'node_modules'),
+    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers')
+  });
 });
 
-test('staged Playwright cache remains inside the isolated process root', () => {
+test('writable and staged Playwright caches remain rooted in their original owners', () => {
   const stagingRoot = path.resolve('isolated-staging-contract');
+  expect(isolatedPlaywrightBrowsersPath()).toBe(
+    path.join(compilerRoot, '.shared-deps', '.playwright-browsers')
+  );
   expect(isolatedPlaywrightBrowsersPath(stagingRoot)).toBe(
     path.join(stagingRoot, '.isolated-process', 'playwright-browsers')
   );
