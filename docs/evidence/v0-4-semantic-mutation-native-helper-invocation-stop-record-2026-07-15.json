@@ -1,0 +1,146 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T21:54:13.6517332+08:00",
+  "profile": "v0.4-semantic-mutation-native-helper-invocation",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-runner-build-invocation-r2-stop-record-2026-07-15.json",
+  "repairBaseSha": "c499100921203bd54d36538a7f0c02730e2fc36b",
+  "testedHead": "aa3a3fcc8adfe13902b7f19675f983f35483f1ff",
+  "testedTree": "d1001e93a816fabe6a9ffc879fb9e1854fb8e0d5",
+  "trackedWorktreeCleanBefore": true,
+  "status": "stopped-on-native-helper-invocation",
+  "mergeAllowed": false,
+  "stopReason": "The one authorized real production seam passed the finite fresh-process runner-build settlement and materialized the isolated runtime, then failed during AppContainer preparation at native-helper-invocation after 83.515 seconds. The exact typed failure was captured, the newest test workspace was retained, and the batch stopped without a rerun, cleanup, contract weakening, full/slow expansion, or GitHub Actions.",
+  "completedRepairBatch": {
+    "implementationCommit": "bc70d1b82cde8eb1911a6b47c7a12d26d10de3c1",
+    "authorityCommit": "aa3a3fcc8adfe13902b7f19675f983f35483f1ff",
+    "runnerBuildSettlement": {
+      "productionConsumer": true,
+      "publicDiagnosticExpanded": false,
+      "cleanupAuthorizedByClassification": false,
+      "outputOwnershipFailureClassified": true,
+      "freshProductionLoaderWarmsDefaultSingleton": false
+    }
+  },
+  "finalFocusedGateWave": {
+    "typecheck": {
+      "status": "PASS",
+      "durationMs": 10600
+    },
+    "runnerFocused": {
+      "status": "PASS",
+      "passed": 9,
+      "filtered": 34,
+      "expectCalls": 123,
+      "durationMs": 5650
+    },
+    "authorityAndImpact": {
+      "status": "PASS",
+      "passed": 3,
+      "filtered": 36,
+      "expectCalls": 565,
+      "durationMs": 2610
+    },
+    "changedImports": {
+      "status": "PASS",
+      "base": "c499100921203bd54d36538a7f0c02730e2fc36b"
+    },
+    "custodyLedger": {
+      "status": "PASS",
+      "revision": "aa3a3fcc8adfe13902b7f19675f983f35483f1ff",
+      "custodyGitBlobs": 25,
+      "retainedRecoveryFixtureGitBlobs": 5
+    },
+    "diffCheck": {
+      "status": "PASS",
+      "base": "c499100921203bd54d36538a7f0c02730e2fc36b"
+    }
+  },
+  "realProductionSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "exitCode": 1,
+    "wallDurationMs": 86200,
+    "testDurationMs": 83515,
+    "suiteDurationMs": 84650,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 42,
+    "expectCallsBeforeFailure": 6,
+    "failure": {
+      "name": "WindowsAppContainerExecutionError",
+      "code": "VERIFY-APPCONTAINER-EXECUTION",
+      "phase": "preparation",
+      "preparationSubstage": "native-helper-invocation",
+      "nativeCodePresent": false,
+      "hostToolFailurePresent": false,
+      "nativeHelperObservationPresent": false,
+      "throwSite": "platform/shared/windows-appcontainer-executor.ts:927",
+      "settlementSite": "platform/shared/windows-appcontainer-executor.ts:2164"
+    }
+  },
+  "retainedScene": {
+    "path": "D:/Project/sec/.tmp/codex-ledger-reconcile/.tmp/test-workspaces/engineering-compiler-sm3-isolated-production-bundle-NujebV",
+    "preserved": true,
+    "runnerBundleMaterialized": true,
+    "sourceSnapshotTelemetryPresent": true,
+    "nativeResultObserved": false,
+    "isolatedChildProgressObserved": false,
+    "cleanupAttemptedByAgent": false,
+    "observedArtifacts": [
+      ".isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-bootstrap.mjs",
+      ".isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-loader.mjs",
+      ".isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-runner.mjs",
+      ".isolated-process/phase-telemetry/semantic-mutation-isolated-phase-telemetry-v1-source-snapshot-capture-started.json",
+      ".isolated-process/phase-telemetry/semantic-mutation-isolated-phase-telemetry-v1-source-snapshot-capture-completed.json"
+    ]
+  },
+  "stopDiscipline": {
+    "realSeamAttemptCount": 1,
+    "realSeamRerunStarted": false,
+    "retainedWorkspaceDeleted": false,
+    "rootUserChangesTouched": false,
+    "fullOrSlowLaneStarted": false,
+    "githubActionsStarted": false
+  },
+  "notRun": [
+    "second real production seam",
+    "SM-3 public vertical",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "retained-scene cleanup",
+    "merge and branch cleanup"
+  ],
+  "nextTaskEnvelope": {
+    "task": "native-helper invocation observation propagation",
+    "currentBase": "aa3a3fcc8adfe13902b7f19675f983f35483f1ff",
+    "singleWriterPerCanonicalSurface": true,
+    "goal": "Without rerunning the real seam, use the retained workspace and existing finite observed-helper classifier to determine why native-helper-invocation produced no finite nativeHelperObservation, then close that internal observation boundary without expanding the public diagnostic.",
+    "forbidden": [
+      "rerunning the real AppContainer seam in the same batch",
+      "deleting or mutating the retained workspace",
+      "persisting raw helper output, paths, argv, environment, messages, causes, stacks, SIDs, or profile names",
+      "authorizing cleanup from classification",
+      "weakening AppContainer, ACL, timeout, host-path, relocation, lease, or public diagnostic contracts",
+      "running full, slow, public vertical, or GitHub Actions lanes"
+    ],
+    "acceptance": [
+      "The missing nativeHelperObservation boundary is selected by focused pure or non-AppContainer evidence.",
+      "Production consumes only a finite path-free internal classification.",
+      "Public diagnostics remain unchanged.",
+      "Cleanup remains authorized only by independent process-tree closure evidence.",
+      "The retained workspace remains untouched."
+    ]
+  }
+}
