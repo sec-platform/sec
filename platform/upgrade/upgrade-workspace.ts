@@ -2,11 +2,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import semver from 'semver';
+import { writeProvenance } from '../compiler/emit/write-provenance.ts';
 import {
   loadManifestById,
   loadOverrideManifest,
-  loadWorkspacePlan,
-  writeProvenance
+  loadWorkspacePlan
 } from '../compiler/index.ts';
 import { compileWorkspace } from '../orchestrator/pipeline-orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
