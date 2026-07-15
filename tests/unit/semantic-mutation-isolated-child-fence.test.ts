@@ -320,6 +320,16 @@ test('fresh-process runner build eval source is fixed, self-contained, and token
   expect(source).toContain(
     `const RUNNER_ENTRY = ${JSON.stringify(SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH)};`
   );
+  expect(source).toContain([
+    '      minify: {',
+    '        whitespace: true,',
+    '        syntax: true,',
+    '        identifiers: false',
+    '      },'
+  ].join('\n'));
+  expect(source.match(/\bminify:/gu)).toHaveLength(1);
+  expect(source).not.toMatch(/\bminify:\s*true\b/u);
+  expect(source).not.toMatch(/\bidentifiers:\s*true\b/u);
   expect(source).not.toMatch(/\b(?:import|require)\b/u);
   expect(source).not.toMatch(/(?:[A-Za-z]:[\\/]|file:|node_modules|import\.meta)/u);
   expect(source).not.toContain('Bun.spawn');
