@@ -5,13 +5,6 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../compiler/index.ts';
-import {
-  probeSemanticMutationIsolatedRuntimeCapability,
-  runSemanticMutationIsolatedVerificationChild,
-  SemanticMutationIsolatedVerificationUnavailableError,
-  type IsolatedVerificationArtifacts,
-  type SemanticMutationIsolatedVerificationFailure
-} from '../compiler/verify/run-semantic-mutation-isolated-child.ts';
 import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import {
   atomicPublishSemanticMutationSource,
@@ -53,6 +46,13 @@ import {
   type SemanticMutationCommitFence
 } from '../compiler/semantic-mutation/transaction-identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../compiler/semantic-mutation/verification-policy.ts';
+import {
+  probeSemanticMutationIsolatedRuntimeCapability,
+  runSemanticMutationIsolatedVerificationChild,
+  SemanticMutationIsolatedVerificationUnavailableError,
+  type IsolatedVerificationArtifacts,
+  type SemanticMutationIsolatedVerificationFailure
+} from '../compiler/verify/run-semantic-mutation-isolated-child.ts';
 import type { FactDeltaEndpointContext } from '../shared/engineering-ir-types.ts';
 import {
   type SemanticMutationApplyInputV1,
