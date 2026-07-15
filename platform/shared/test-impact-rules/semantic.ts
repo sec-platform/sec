@@ -81,7 +81,24 @@ const SEMANTIC_MUTATION_FAST_TESTS = [
   "tests/contract/contract-freeze.test.ts",
 ];
 
+const SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS = [
+  "tests/contract/semantic-mutation-apply-contract.test.ts",
+  "tests/contract/test-impact.test.ts",
+  "tests/integration/project-runtime.test.ts",
+  "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+];
+
 export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: "semantic-mutation",
+    identity: { kind: "architecture-owner", id: "semantic-mutation" },
+    sourceFiles: [
+      "platform/compiler/verify/semantic-mutation-runner-build-child.ts",
+      "platform/compiler/verify/semantic-mutation-runner-build-protocol.ts",
+    ],
+    fast: SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS,
+    slow: ["tests/e2e/verification.test.ts"],
+  },
   {
     owner: "semantic-mutation",
     identity: { kind: "architecture-owner", id: "semantic-mutation" },
