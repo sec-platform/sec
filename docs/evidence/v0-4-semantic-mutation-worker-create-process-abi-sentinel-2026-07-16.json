@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1",
+  "recordType": "bounded-diagnostic-evidence",
+  "recordedAt": "2026-07-16T01:41:04.5115631+08:00",
+  "profile": "v0.4-semantic-mutation-worker-create-process-abi-sentinel",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "testedBaseHead": "cbceab72a97124c4f20beca3289815bfd6e6301a",
+  "testedBaseTree": "8fe9af3a4aaad0202af18e7620b9ab7844f8125e",
+  "testedWorkingTreeFile": {
+    "path": "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts",
+    "gitBlob": "0f68308255d894975972d40709e1663d44ada777",
+    "committedAtTestTime": false
+  },
+  "status": "passed-bounded-non-appcontainer-worker-create-process-abi-sentinel",
+  "mergeAllowed": false,
+  "test": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts",
+      "--test-name-pattern",
+      "^Worker CreateProcessW ABI returns with handle-list and nested Job-list attributes$",
+      "--timeout",
+      "10000"
+    ],
+    "status": "PASS",
+    "exitCode": 0,
+    "testDurationMs": 203,
+    "suiteDurationMs": 461,
+    "passedTestCount": 1,
+    "failedTestCount": 0,
+    "filteredTestCount": 41,
+    "expectCallCount": 7
+  },
+  "sentinelShape": {
+    "appContainerUsed": false,
+    "outerObserver": {
+      "implementation": "production runObservedCommand",
+      "stableJobObserved": true,
+      "childCloseObserved": true,
+      "streamsDrained": true,
+      "treeClosed": true
+    },
+    "nativeInvocation": {
+      "executionContext": "Bun Worker",
+      "ffi": "bun:ffi",
+      "entrypoint": "CreateProcessW",
+      "standardHandles": [
+        "NUL stdin",
+        "NUL stdout",
+        "NUL stderr"
+      ],
+      "procThreadAttributes": [
+        "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
+        "PROC_THREAD_ATTRIBUTE_JOB_LIST"
+      ],
+      "procThreadAttributeCount": 2,
+      "creationFlagsHex": "0x08080404",
+      "createSuspended": true,
+      "securityCapabilitiesIncluded": false,
+      "createReturned": true,
+      "threadResumed": false
+    },
+    "innerJobSettlement": {
+      "terminateJobObjectCalled": true,
+      "processWaitSignaled": true,
+      "activeProcessesAfterSettlement": 0,
+      "cleanupCompletedBeforeCompletedMessage": true
+    }
+  },
+  "boundedConclusion": {
+    "proven": [
+      "On the tested Windows working tree, production runObservedCommand can observe a generic Bun child whose Worker performs the specified CreateProcessW FFI call.",
+      "The Worker CreateProcessW ABI returned when supplied NUL standard handles plus HANDLE_LIST and JOB_LIST attributes with attribute count 2 and creation flags 0x08080404.",
+      "The suspended inner process did not need to be resumed before TerminateJobObject, a signaled process wait, and Job accounting with ActiveProcesses equal to 0.",
+      "The sentinel cleaned up its attribute list and owned handles before reporting completed to the main thread.",
+      "The generic Worker plus Bun FFI plus CreateProcessW ABI plus nested Job combination is feasible for this bounded non-AppContainer shape."
+    ],
+    "notProven": [
+      "That CreateProcessW returns when PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES is present.",
+      "That AppContainer profile creation, capability SID derivation, ACL preparation, or AppContainer execution succeeds.",
+      "That the production runner inputs, environment, handle set, attribute payloads, or their interactions succeed.",
+      "That the exact production AppContainer seam passes.",
+      "That the overall isolated runtime capability is complete or merge-ready."
+    ]
+  },
+  "nextStep": {
+    "task": "Add one minimal SECURITY_CAPABILITIES create-returned sentinel derived from this bounded ABI shape.",
+    "goal": "Determine whether adding the SECURITY_CAPABILITIES attribute changes CreateProcessW from returning to blocking or failing before widening back to production runner inputs.",
+    "forbidden": [
+      "running the exact full AppContainer production seam as the next discriminator",
+      "claiming this non-AppContainer PASS proves AppContainer or security-capability success",
+      "adding production runner inputs before the SECURITY_CAPABILITIES create-returned boundary is isolated",
+      "mutating or deleting retained forensic scenes"
+    ]
+  },
+  "stopDiscipline": {
+    "sentinelRunsRecorded": 1,
+    "exactProductionSeamStarted": false,
+    "fullRunStarted": false,
+    "slowRunStarted": false,
+    "githubActionsStarted": false
+  },
+  "invalidation": [
+    "Any change to the tested working-tree file after the recorded gitBlob requires a new sentinel result.",
+    "Any change to runObservedCommand, its Windows Job controller, or the native ABI shape requires new focused evidence before inheriting this PASS.",
+    "A SECURITY_CAPABILITIES or AppContainer result is separate evidence and cannot be inferred from this non-AppContainer sentinel."
+  ]
+}
