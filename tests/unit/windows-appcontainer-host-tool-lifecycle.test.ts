@@ -380,7 +380,6 @@ const FAIL = Object.freeze({
   closure: 86
 });
 const wide = (value) => Buffer.from(value + '\0', 'utf16le');
-
 if (Bun.isMainThread) {
   const kernel32 = dlopen('kernel32.dll', {
     GetCurrentProcess: { args: [], returns: FFIType.u64 },
@@ -632,6 +631,385 @@ if (Bun.isMainThread) {
       });
     } finally {
       await rm(tempRoot, { force: true, recursive: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Worker CreateProcessW returns with SECURITY_CAPABILITIES and nested Job-list attributes',
+  async () => {
+    const profileName = `sec.sm3.sentinel.${process.pid}.${Date.now().toString(36)}`;
+    const tempRoot = await mkdtemp(join(tmpdir(), 'sec-security-capabilities-create-'));
+    const scriptPath = join(tempRoot, 'worker-security-capabilities-create.mjs');
+    const profileManagerPath = join(tempRoot, 'profile-manager.mjs');
+    let profileManagerWritten = false;
+    let profileCreated = false;
+
+    try {
+      await writeFile(profileManagerPath, String.raw`
+import { dlopen, FFIType } from 'bun:ffi';
+const wide = (value) => Buffer.from(value + '\0', 'utf16le');
+const kernel32 = dlopen('kernel32.dll', {
+  GetCurrentProcess: { args: [], returns: FFIType.u64 },
+  TerminateProcess: { args: [FFIType.u64, FFIType.u32], returns: FFIType.i32 },
+  ExitProcess: { args: [FFIType.u32], returns: FFIType.void }
+});
+const hardExit = (code) => {
+  kernel32.symbols.TerminateProcess(kernel32.symbols.GetCurrentProcess(), code);
+  kernel32.symbols.ExitProcess(code);
+  process.exit(code);
+};
+const userenv = dlopen('userenv.dll', {
+  CreateAppContainerProfile: {
+    args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u32, FFIType.ptr],
+    returns: FFIType.i32
+  },
+  DeleteAppContainerProfile: { args: [FFIType.ptr], returns: FFIType.i32 }
+});
+const [operation, profileName] = process.argv.slice(2);
+if (operation === 'create') {
+  const sidHolder = Buffer.alloc(8);
+  const result = userenv.symbols.CreateAppContainerProfile(
+    wide(profileName), wide('SEC sentinel'), wide('Ephemeral SECURITY_CAPABILITIES sentinel'),
+    null, 0, sidHolder
+  );
+  hardExit(result < 0 ? 91 : 0);
+}
+if (operation === 'delete') {
+  hardExit(userenv.symbols.DeleteAppContainerProfile(wide(profileName)) < 0 ? 92 : 0);
+}
+hardExit(90);
+`, 'utf8');
+      profileManagerWritten = true;
+      await writeFile(scriptPath, String.raw`
+import { writeSync } from 'node:fs';
+import { dlopen, FFIType, ptr, read } from 'bun:ffi';
+
+const FAIL = Object.freeze({
+  setup: 81,
+  returned: 82,
+  create: 83,
+  wait: 85,
+  closure: 86
+});
+const wide = (value) => Buffer.from(value + '\0', 'utf16le');
+const mode = process.argv[2];
+const profileName = process.argv[3];
+const secure = mode === 'secure';
+
+if (Bun.isMainThread) {
+  const kernel32 = dlopen('kernel32.dll', {
+    GetCurrentProcess: { args: [], returns: FFIType.u64 },
+    TerminateProcess: { args: [FFIType.u64, FFIType.u32], returns: FFIType.i32 },
+    ExitProcess: { args: [FFIType.u32], returns: FFIType.void }
+  });
+  const userenv = dlopen('userenv.dll', {
+    DeriveAppContainerSidFromAppContainerName: {
+      args: [FFIType.ptr, FFIType.ptr],
+      returns: FFIType.i32
+    }
+  });
+  const hardExit = (code) => {
+    const self = kernel32.symbols.GetCurrentProcess();
+    kernel32.symbols.TerminateProcess(self, code);
+    kernel32.symbols.ExitProcess(code);
+    process.exit(code);
+  };
+  if (mode !== 'control' && mode !== 'secure') hardExit(FAIL.setup);
+  const sidHolder = Buffer.alloc(8);
+  if (userenv.symbols.DeriveAppContainerSidFromAppContainerName(
+    wide(profileName), sidHolder
+  ) < 0) hardExit(FAIL.setup);
+  const sidPointerValue = read.ptr(ptr(sidHolder));
+  if (!sidPointerValue) hardExit(FAIL.setup);
+  const sidPointer = BigInt(sidPointerValue);
+  let createReturned = false;
+  const watchdog = setTimeout(
+    () => hardExit(createReturned ? FAIL.wait : FAIL.returned),
+    1_200
+  );
+  try {
+    const worker = new Worker(import.meta.url, { ref: true });
+    worker.onerror = () => hardExit(FAIL.setup);
+    worker.onmessage = ({ data }) => {
+      if (!data || typeof data !== 'object') hardExit(FAIL.returned);
+      if (data.stage === 'create-returned') {
+        createReturned = true;
+        return;
+      }
+      if (data.stage === 'failed' && Object.values(FAIL).includes(data.code)) {
+        hardExit(data.code);
+      }
+      if (data.stage !== 'completed' || !createReturned) hardExit(FAIL.returned);
+      clearTimeout(watchdog);
+      writeSync(1, mode + '-create-returned;inner-job-closed\n');
+      hardExit(0);
+    };
+    worker.postMessage({ secure, sidPointer });
+  } catch {
+    hardExit(FAIL.setup);
+  }
+} else {
+  self.onmessage = ({ data: { secure, sidPointer } }) => {
+    let phase = 'setup';
+    let kernel32;
+    let attributeList;
+    let attributeListInitialized = false;
+    let attributePayloads = [];
+    const handles = new Set();
+    const closeHandle = (handle) => {
+      if (!kernel32 || handle === 0n || !handles.delete(handle)) return;
+      kernel32.symbols.CloseHandle(handle);
+    };
+    const cleanup = () => {
+      if (attributeListInitialized && attributeList && kernel32) {
+        kernel32.symbols.DeleteProcThreadAttributeList(attributeList);
+        attributeListInitialized = false;
+        attributeList = undefined;
+      }
+      for (const handle of [...handles]) closeHandle(handle);
+      void attributePayloads.length;
+      attributePayloads = [];
+    };
+    const fail = (code) => self.postMessage({ stage: 'failed', code });
+    try {
+      kernel32 = dlopen('kernel32.dll', {
+        CreateFileW: {
+          args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr,
+            FFIType.u32, FFIType.u32, FFIType.u64],
+          returns: FFIType.u64
+        },
+        CreateJobObjectW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.u64 },
+        SetInformationJobObject: {
+          args: [FFIType.u64, FFIType.i32, FFIType.ptr, FFIType.u32],
+          returns: FFIType.i32
+        },
+        QueryInformationJobObject: {
+          args: [FFIType.u64, FFIType.i32, FFIType.ptr, FFIType.u32, FFIType.ptr],
+          returns: FFIType.i32
+        },
+        InitializeProcThreadAttributeList: {
+          args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr],
+          returns: FFIType.i32
+        },
+        UpdateProcThreadAttribute: {
+          args: [FFIType.ptr, FFIType.u32, FFIType.u64, FFIType.ptr,
+            FFIType.u64, FFIType.ptr, FFIType.ptr],
+          returns: FFIType.i32
+        },
+        DeleteProcThreadAttributeList: { args: [FFIType.ptr], returns: FFIType.void },
+        CreateProcessW: {
+          args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.i32,
+            FFIType.u32, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+          returns: FFIType.i32
+        },
+        TerminateJobObject: { args: [FFIType.u64, FFIType.u32], returns: FFIType.i32 },
+        WaitForSingleObject: { args: [FFIType.u64, FFIType.u32], returns: FFIType.u32 },
+        GetLastError: { args: [], returns: FFIType.u32 },
+        Sleep: { args: [FFIType.u32], returns: FFIType.void },
+        CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 }
+      });
+      const security = Buffer.alloc(24);
+      security.writeUInt32LE(24, 0);
+      security.writeUInt32LE(1, 16);
+      const openNull = (access) => {
+        const handle = kernel32.symbols.CreateFileW(
+          wide('NUL'), access, 3, security, 3, 0x80, 0n
+        );
+        if (handle === 0n || handle === 0xffff_ffff_ffff_ffffn) throw new Error('setup');
+        handles.add(handle);
+        return handle;
+      };
+      const stdinHandle = openNull(0x8000_0000);
+      const stdoutHandle = openNull(0x4000_0000);
+      const stderrHandle = openNull(0x4000_0000);
+      const jobInformation = Buffer.alloc(144);
+      jobInformation.writeUInt32LE(0x2000, 16);
+      const jobHandle = kernel32.symbols.CreateJobObjectW(null, null);
+      if (jobHandle === 0n || kernel32.symbols.SetInformationJobObject(
+        jobHandle, 9, jobInformation, jobInformation.byteLength
+      ) === 0) throw new Error('setup');
+      handles.add(jobHandle);
+
+      const securityCapabilities = Buffer.alloc(24);
+      securityCapabilities.writeBigUInt64LE(BigInt(sidPointer), 0);
+      securityCapabilities.writeBigUInt64LE(0n, 8);
+      securityCapabilities.writeUInt32LE(0, 16);
+      securityCapabilities.writeUInt32LE(0, 20);
+      const handleList = Buffer.alloc(24);
+      handleList.writeBigUInt64LE(stdinHandle, 0);
+      handleList.writeBigUInt64LE(stdoutHandle, 8);
+      handleList.writeBigUInt64LE(stderrHandle, 16);
+      const jobList = Buffer.alloc(8);
+      jobList.writeBigUInt64LE(jobHandle, 0);
+      attributePayloads = secure
+        ? [securityCapabilities, handleList, jobList]
+        : [handleList, jobList];
+      const attributeCount = secure ? 3 : 2;
+      const attributeListSize = Buffer.alloc(8);
+      kernel32.symbols.InitializeProcThreadAttributeList(
+        null, attributeCount, 0, attributeListSize
+      );
+      attributeList = Buffer.alloc(Number(attributeListSize.readBigUInt64LE(0)));
+      if (kernel32.symbols.InitializeProcThreadAttributeList(
+        attributeList, attributeCount, 0, attributeListSize
+      ) === 0) throw new Error('setup');
+      attributeListInitialized = true;
+      if ((secure && kernel32.symbols.UpdateProcThreadAttribute(
+        attributeList, 0, 0x0002_0009n, securityCapabilities,
+        BigInt(securityCapabilities.byteLength), null, null
+      ) === 0) || kernel32.symbols.UpdateProcThreadAttribute(
+        attributeList, 0, 0x0002_0002n, handleList,
+        BigInt(handleList.byteLength), null, null
+      ) === 0 || kernel32.symbols.UpdateProcThreadAttribute(
+        attributeList, 0, 0x0002_000dn, jobList,
+        BigInt(jobList.byteLength), null, null
+      ) === 0) throw new Error('setup');
+
+      const startup = Buffer.alloc(112);
+      startup.writeUInt32LE(112, 0);
+      startup.writeUInt32LE(0x100, 60);
+      startup.writeBigUInt64LE(stdinHandle, 80);
+      startup.writeBigUInt64LE(stdoutHandle, 88);
+      startup.writeBigUInt64LE(stderrHandle, 96);
+      startup.writeBigUInt64LE(BigInt(ptr(attributeList)), 104);
+      const processInformation = Buffer.alloc(24);
+      const environment = Buffer.from(
+        Object.entries(process.env)
+          .filter((entry) => entry[1] !== undefined)
+          .sort((left, right) => left[0].toLowerCase().localeCompare(right[0].toLowerCase()))
+          .map((entry) => entry[0] + '=' + entry[1]).join('\0') + '\0\0',
+        'utf16le'
+      );
+      const commandLine = wide(
+        '"' + process.execPath + '" --no-env-file --no-install -e "process.exit(0)"'
+      );
+      phase = 'create';
+      const created = kernel32.symbols.CreateProcessW(
+        wide(process.execPath), commandLine, null, null, 1,
+        0x0808_0404, environment, wide(process.cwd()), startup, processInformation
+      );
+      if (created === 0) {
+        const nativeCode = kernel32.symbols.GetLastError();
+        self.postMessage({ stage: 'failed', code: FAIL.create, nativeCode });
+        return;
+      }
+      const processHandle = processInformation.readBigUInt64LE(0);
+      let threadHandle = processInformation.readBigUInt64LE(8);
+      const processId = processInformation.readUInt32LE(16);
+      if (processHandle === 0n || threadHandle === 0n || processId === 0) {
+        fail(FAIL.returned);
+        return;
+      }
+      handles.add(processHandle);
+      handles.add(threadHandle);
+      self.postMessage({ stage: 'create-returned' });
+
+      closeHandle(threadHandle);
+      threadHandle = 0n;
+      phase = 'wait';
+      if (kernel32.symbols.TerminateJobObject(jobHandle, 0x534d_3304) === 0) {
+        fail(FAIL.wait);
+        return;
+      }
+      if (kernel32.symbols.WaitForSingleObject(processHandle, 600) !== 0) {
+        fail(FAIL.wait);
+        return;
+      }
+      phase = 'closure';
+      const accounting = Buffer.alloc(48);
+      let innerClosed = false;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (kernel32.symbols.QueryInformationJobObject(
+          jobHandle, 1, accounting, accounting.byteLength, null
+        ) !== 0 && accounting.readUInt32LE(40) === 0) {
+          innerClosed = true;
+          break;
+        }
+        kernel32.symbols.Sleep(5);
+      }
+      if (!innerClosed) {
+        fail(FAIL.closure);
+        return;
+      }
+      cleanup();
+      self.postMessage({ stage: 'completed' });
+    } catch {
+      fail(FAIL[phase] ?? FAIL.setup);
+    } finally {
+      cleanup();
+    }
+  };
+}
+`, 'utf8');
+
+      const observedOptions = {
+        cwd: tempRoot,
+        maxObservedOutputBytes: 1_024,
+        terminationDeadlineMs: 250,
+        terminationGraceMs: 25,
+        timeoutMs: 1_500
+      } as const;
+      const startedAt = performance.now();
+      const profileSetup = await runObservedCommand(process.execPath, [
+        '--no-env-file', '--no-install', profileManagerPath, 'create', profileName
+      ], observedOptions);
+      profileCreated = profileSetup.status === 'exited' && profileSetup.exitCode === 0;
+      expect(profileSetup).toMatchObject({ status: 'exited', exitCode: 0 });
+
+      const runArm = (mode: 'control' | 'secure') => runObservedCommand(process.execPath, [
+        '--no-env-file', '--no-install', scriptPath, mode, profileName
+      ], observedOptions);
+      const control = await runArm('control');
+      const secure = await runArm('secure');
+      expect(performance.now() - startedAt).toBeLessThan(3_000);
+
+      for (const [mode, outcome] of [
+        ['control', control],
+        ['secure', secure]
+      ] as const) {
+        const marker = `${mode}-create-returned;inner-job-closed\n`;
+        expect(outcome.status).toBe('exited');
+        expect(outcome.exitCode).toBe(0);
+        expect(outcome.signal).toBeNull();
+        expect(outcome.stdout).toEqual({
+          bytes: Buffer.byteLength(marker),
+          digest: `sha256:${createHash('sha256').update(marker).digest('hex')}`,
+          observerTruncated: false
+        });
+        expect(outcome.stderr.bytes).toBe(0);
+        expect(outcome.termination).toMatchObject({
+          requested: false,
+          forcedAttempted: false,
+          childCloseObserved: true,
+          streamsDrained: true,
+          treeClosed: true
+        });
+      }
+    } finally {
+      try {
+        if (profileManagerWritten && profileCreated) {
+          const profileCleanup = await runObservedCommand(process.execPath, [
+            '--no-env-file', '--no-install', profileManagerPath, 'delete', profileName
+          ], {
+            cwd: tempRoot,
+            terminationDeadlineMs: 250,
+            terminationGraceMs: 25,
+            timeoutMs: 1_000
+          });
+          expect(profileCleanup).toMatchObject({
+            status: 'exited',
+            exitCode: 0,
+            termination: {
+              childCloseObserved: true,
+              streamsDrained: true,
+              treeClosed: true
+            }
+          });
+        }
+      } finally {
+        await rm(tempRoot, { force: true, recursive: true });
+      }
     }
   }
 );
