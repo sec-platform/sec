@@ -21,12 +21,27 @@ type NativeHelperEnvelope =
 async function loadNativeHelperExit(): Promise<(exitCode: number) => never> {
   const { dlopen, FFIType } = await import('bun:ffi');
   const kernel32 = dlopen('kernel32.dll', {
+    GetCurrentProcess: {
+      args: [],
+      returns: FFIType.u64
+    },
+    TerminateProcess: {
+      args: [FFIType.u64, FFIType.u32],
+      returns: FFIType.i32
+    },
     ExitProcess: {
       args: [FFIType.u32],
       returns: FFIType.void
     }
   } as const);
   return (exitCode: number): never => {
+    // The helper has already flushed its finite protocol synchronously. Prefer
+    // hard self-termination so AppContainer Job/DLL teardown cannot keep the
+    // host watchdog waiting after the child-owned deadline has settled.
+    const currentProcess = kernel32.symbols.GetCurrentProcess();
+    if (kernel32.symbols.TerminateProcess(currentProcess, exitCode) !== 0) {
+      return process.exit(exitCode);
+    }
     kernel32.symbols.ExitProcess(exitCode);
     return process.exit(exitCode);
   };
