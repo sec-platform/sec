@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { link, mkdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -40,10 +41,12 @@ import {
   buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests,
   buildSemanticMutationIsolatedVerificationEnvironment,
   classifySemanticMutationIsolatedRunnerBuildForTests,
+  classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests,
   createSemanticMutationIsolatedVerificationSupervisor,
   probeSemanticMutationIsolatedRuntimeCapability,
   projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests,
   projectSemanticMutationIsolatedVerificationFailureForTests,
+  readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests,
   runSemanticMutationIsolatedVerificationChild,
   semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests,
@@ -56,7 +59,20 @@ import {
   SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
   semanticMutationRuntimeSourceSnapshotCacheStatsForTests
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+import {
+  SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES,
+  SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN,
+  semanticMutationRunnerBuildSuccessFrame
+} from '../../platform/compiler/verify/semantic-mutation-runner-build-protocol.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
+import type {
+  ObservedCommandOptions,
+  ObservedCommandOutcome
+} from '../../platform/shared/observed-process.ts';
+import { runObservedCommand } from '../../platform/shared/observed-process.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureIsolatedProcessDirectories, runCommand } from '../../platform/shared/process.ts';
 import { RUNTIME_DEPS_PREBOUND_BINDING_FILE } from '../../platform/shared/runtime-dependency-spec.ts';
@@ -114,7 +130,7 @@ test('isolated runner relocation rejects missing Bun EJS compatibility guard', (
     .toThrow('Semantic Mutation isolated runner bundle has an invalid EJS ESM compatibility guard');
 });
 
-test('isolated runner bundle prebinds its native helper before runner build state changes', async () => {
+test('isolated runner bundle prebinds its native helper before the fresh-process build', async () => {
   const source = await readFile(path.join(
     compilerRoot,
     'platform',
@@ -130,40 +146,20 @@ test('isolated runner bundle prebinds its native helper before runner build stat
   const windowsGuard = body.indexOf("if (process.platform === 'win32') {");
   const prebind = body.indexOf('await prepareWindowsAppContainerNativeHelperBundle();');
   const rootCapture = body.indexOf('captureIsolatedRuntimeBuildNodeModulesProof');
-  const runnerBuild = body.indexOf('await Bun.build({');
+  const runnerBuild = body.indexOf(
+    'await readSemanticMutationIsolatedRunnerBuildFromFreshProcess()'
+  );
   expect(windowsGuard).toBeGreaterThanOrEqual(0);
   expect(prebind).toBeGreaterThan(windowsGuard);
   expect(rootCapture).toBeGreaterThan(prebind);
   expect(runnerBuild).toBeGreaterThan(rootCapture);
 });
 
-test.serial('production isolated runner build returns only a finite pre-AppContainer diagnostic', async () => {
+test.serial('production isolated runner build succeeds through fresh process before AppContainer', async () => {
   const result = await buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests();
   expect(Object.isFrozen(result)).toBe(true);
   expect(JSON.stringify(result)).not.toContain(compilerRoot);
-  if (result.status === 'available') {
-    expect(result).toEqual({ status: 'available' });
-    return;
-  }
-
-  expect(Object.isFrozen(result.diagnostic)).toBe(true);
-  if (result.diagnostic.stage === 'runtime-capability') {
-    expect(Object.isFrozen(result.diagnostic.runtimeCapability)).toBe(true);
-    expect([
-      'runner-build-root-proof',
-      'runner-build-invocation',
-      'runner-build-unsuccessful',
-      'runner-build-output-count',
-      'runner-build-output-read',
-      'runner-relocation',
-      'capability-issue'
-    ]).toContain(result.diagnostic.runtimeCapability.substage);
-    return;
-  }
-  expect(result.diagnostic).toMatchObject({
-    stage: 'appcontainer-execution',
-    appContainer: { phase: 'preparation' }
-  });
+  expect(result).toEqual({ status: 'available' });
 });
 
 test('runner build maps invocation, result, output count, and output read to finite outcomes', async () => {
@@ -218,6 +214,304 @@ test('runner build maps invocation, result, output count, and output read to fin
     success: true,
     outputs: [readableOutput]
   }))).toEqual({ status: 'available' });
+});
+
+function observedDigest(bytes: Uint8Array): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+function observedRunnerBuildOutcome(
+  stdoutBytes: Uint8Array,
+  overrides: Partial<ObservedCommandOutcome> = {}
+): ObservedCommandOutcome {
+  const empty = new Uint8Array();
+  return {
+    status: 'exited',
+    started: true,
+    exitCode: 0,
+    signal: null,
+    durationMs: 1,
+    stdout: {
+      bytes: stdoutBytes.byteLength,
+      digest: observedDigest(stdoutBytes),
+      observerTruncated: false
+    },
+    stderr: { bytes: 0, digest: observedDigest(empty), observerTruncated: false },
+    termination: {
+      requested: false,
+      gracefulAttempted: false,
+      forcedAttempted: false,
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    },
+    ...overrides
+  };
+}
+
+function observedRunnerBuildExecutor(
+  stdoutBytes: Uint8Array,
+  overrides: Partial<ObservedCommandOutcome> = {}
+): (
+  command: string,
+  args: readonly string[],
+  options: ObservedCommandOptions
+) => Promise<ObservedCommandOutcome> {
+  return async (_command, _args, options) => {
+    if (stdoutBytes.byteLength > 0) {
+      options.onChunk?.('stdout', stdoutBytes.byteLength);
+      options.onOutput?.('stdout', stdoutBytes);
+    }
+    return observedRunnerBuildOutcome(stdoutBytes, overrides);
+  };
+}
+
+test('fresh-process runner build fixes launch authority and returns an owned verified payload', async () => {
+  const payload = Uint8Array.from([1, 2, 3, 4]);
+  const frame = semanticMutationRunnerBuildSuccessFrame(payload);
+  let launch: Readonly<{
+    command: string;
+    args: readonly string[];
+    options: ObservedCommandOptions;
+  }> | undefined;
+  const bundle = await readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests(
+    async (command, args, options) => {
+      launch = { command, args: [...args], options };
+      options.onChunk?.('stdout', frame.byteLength);
+      options.onOutput?.('stdout', frame);
+      return observedRunnerBuildOutcome(frame);
+    }
+  );
+
+  expect(bundle).toEqual(payload);
+  expect(bundle).not.toBe(payload);
+  frame[SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES] ^= 0xff;
+  expect(bundle).toEqual(Uint8Array.from([1, 2, 3, 4]));
+  expect(launch).toBeDefined();
+  expect(launch?.command).toBe(process.execPath);
+  expect(launch?.args.slice(0, 2)).toEqual(['--no-install', '--no-env-file']);
+  expect(launch?.args[2]).toMatch(/platform[\\/]compiler[\\/]verify[\\/]semantic-mutation-runner-build-child\.ts$/u);
+  expect(launch?.args[3]).toBe(SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN);
+  expect(launch?.args).toHaveLength(4);
+  expect(launch?.options.cwd).toBe(compilerRoot);
+  expect(launch?.options.envMode).toBe('replace');
+  expect(launch?.options.maxObservedOutputBytes).toBe(
+    SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES
+  );
+  expect(launch?.options.windowsHide).toBe(true);
+  expect(launch?.options.env?.PATH).toBe('');
+  expect(Object.keys(launch?.options.env ?? {}).some((key) =>
+    /(?:proxy|node_options|bun_options)/iu.test(key))).toBe(false);
+});
+
+test('fresh-process runner build accepts only its fixed child token without module-load execution', async () => {
+  const childPath = path.join(
+    compilerRoot,
+    'platform',
+    'compiler',
+    'verify',
+    'semantic-mutation-runner-build-child.ts'
+  );
+  const source = await readFile(childPath, 'utf8');
+  const tokenGuard = source.indexOf('process.argv[2] !== SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN');
+  const build = source.indexOf('result = await Bun.build({');
+  expect(tokenGuard).toBeGreaterThanOrEqual(0);
+  expect(build).toBeGreaterThan(tokenGuard);
+  await expect(import('../../platform/compiler/verify/semantic-mutation-runner-build-child.ts'))
+    .resolves.toBeDefined();
+
+  const invalid = await runCommand(process.execPath, [
+    '--no-install',
+    '--no-env-file',
+    childPath,
+    'invalid-runner-build-token'
+  ], { cwd: compilerRoot, timeoutMs: 10_000 });
+  expect(invalid).toEqual({
+    code: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.invocation,
+    stdout: '',
+    stderr: ''
+  });
+});
+
+test('fresh-process runner build maps four clean child exits and distrusts contaminated exits', async () => {
+  const fixtures = [
+    [SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.invocation, 'runner-build-invocation'],
+    [SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful, 'runner-build-unsuccessful'],
+    [SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputCount, 'runner-build-output-count'],
+    [SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputRead, 'runner-build-output-read']
+  ] as const;
+  for (const [exitCode, substage] of fixtures) {
+    const result = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+      observedRunnerBuildExecutor(new Uint8Array(), { exitCode })
+    );
+    expect(result).toEqual({
+      status: 'unavailable',
+      diagnostic: {
+        stage: 'runtime-capability',
+        runtimeCapability: { substage }
+      }
+    });
+  }
+
+  const contamination = Uint8Array.from([0x78]);
+  const contaminated = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    observedRunnerBuildExecutor(contamination, {
+      exitCode: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.outputRead
+    })
+  );
+  expect(contaminated).toEqual({
+    status: 'unavailable',
+    diagnostic: {
+      stage: 'runtime-capability',
+      runtimeCapability: { substage: 'runner-build-invocation' }
+    }
+  });
+
+  const forgedEmptyDigest = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    observedRunnerBuildExecutor(new Uint8Array(), {
+      exitCode: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful,
+      stdout: {
+        bytes: 0,
+        digest: `sha256:${'0'.repeat(64)}`,
+        observerTruncated: false
+      }
+    })
+  );
+  expect(forgedEmptyDigest).toMatchObject({
+    status: 'unavailable',
+    diagnostic: { runtimeCapability: { substage: 'runner-build-invocation' } }
+  });
+});
+
+test('fresh-process runner build rejects malformed, truncated, oversized, trailing, and corrupt frames', async () => {
+  const valid = semanticMutationRunnerBuildSuccessFrame(Uint8Array.from([1, 2, 3]));
+  const mutate = (offset: number, value: number): Uint8Array => {
+    const copy = Uint8Array.from(valid);
+    copy[offset] = value;
+    return copy;
+  };
+  const withLength = (length: bigint): Uint8Array => {
+    const copy = Uint8Array.from(valid);
+    new DataView(copy.buffer).setBigUint64(8, length, true);
+    return copy;
+  };
+  const empty = valid.slice(0, SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES);
+  new DataView(empty.buffer).setBigUint64(8, 0n, true);
+  const frames = [
+    valid.slice(0, SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_HEADER_BYTES - 1),
+    Uint8Array.from([...valid, 0]),
+    Uint8Array.from([...valid, ...valid]),
+    valid.slice(0, -1),
+    mutate(0, 0),
+    mutate(4, 2),
+    withLength(2n),
+    withLength(BigInt(SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES) + 1n),
+    mutate(16, valid[16] ^ 0xff),
+    empty
+  ];
+
+  for (const frame of frames) {
+    const result = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+      observedRunnerBuildExecutor(frame)
+    );
+    expect(result).toEqual({
+      status: 'unavailable',
+      diagnostic: {
+        stage: 'runtime-capability',
+        runtimeCapability: { substage: 'runner-build-output-read' }
+      }
+    });
+  }
+
+  const badObserverDigest = observedRunnerBuildOutcome(valid, {
+    stdout: {
+      bytes: valid.byteLength,
+      digest: `sha256:${'0'.repeat(64)}`,
+      observerTruncated: false
+    }
+  });
+  const result = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    async (_command, _args, options) => {
+      options.onChunk?.('stdout', valid.byteLength);
+      options.onOutput?.('stdout', valid);
+      return badObserverDigest;
+    }
+  );
+  expect(result).toMatchObject({
+    status: 'unavailable',
+    diagnostic: { runtimeCapability: { substage: 'runner-build-output-read' } }
+  });
+});
+
+test('fresh-process runner build maps abort, timeout, signal, observer, and tree failures to invocation', async () => {
+  const empty = new Uint8Array();
+  const lifecycleVectors: Partial<ObservedCommandOutcome>[] = [
+    { status: 'spawn-failed', started: false },
+    { started: false },
+    { status: 'aborted', trigger: 'aborted' },
+    { status: 'timed-out', trigger: 'timed-out' },
+    { status: 'observer-failed', trigger: 'observer-failed' },
+    { status: 'lifecycle-failed', trigger: 'lifecycle-failed' },
+    { status: 'tree-unproven', termination: {
+      ...observedRunnerBuildOutcome(empty).termination,
+      treeClosed: false
+    } },
+    { status: 'termination-unproven', termination: {
+      ...observedRunnerBuildOutcome(empty).termination,
+      streamsDrained: false,
+      treeClosed: false
+    } },
+    { signal: 'SIGTERM' },
+    { exitCode: 99 },
+    { termination: { ...observedRunnerBuildOutcome(empty).termination, requested: true } },
+    { termination: { ...observedRunnerBuildOutcome(empty).termination, gracefulAttempted: true } },
+    { termination: { ...observedRunnerBuildOutcome(empty).termination, forcedAttempted: true } },
+    { stdout: { bytes: 0, digest: observedDigest(empty), observerTruncated: true } },
+    { stderr: { bytes: 1, digest: observedDigest(Uint8Array.from([1])), observerTruncated: false } }
+  ];
+  for (const vector of lifecycleVectors) {
+    const result = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+      observedRunnerBuildExecutor(empty, vector)
+    );
+    expect(result).toEqual({
+      status: 'unavailable',
+      diagnostic: {
+        stage: 'runtime-capability',
+        runtimeCapability: {
+          substage: vector.stderr?.bytes === 1
+            ? 'runner-build-output-read'
+            : 'runner-build-invocation'
+        }
+      }
+    });
+  }
+
+  const controller = new AbortController();
+  controller.abort();
+  const preAborted = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    runObservedCommand,
+    controller.signal
+  );
+  expect(preAborted).toMatchObject({
+    status: 'unavailable',
+    diagnostic: { runtimeCapability: { substage: 'runner-build-invocation' } }
+  });
+
+  for (const [stream, byteLength] of [
+    ['stderr', 1],
+    ['stdout', SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES + 1]
+  ] as const) {
+    const terminated = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+      async (_command, _args, options) => {
+        options.onChunk?.(stream, byteLength);
+        throw new Error('observer callback should have terminated this fixture');
+      }
+    );
+    expect(terminated).toMatchObject({
+      status: 'unavailable',
+      diagnostic: { runtimeCapability: { substage: 'runner-build-invocation' } }
+    });
+  }
 });
 
 test('runtime capability diagnostic enum rejects forged detail without retaining raw fields', () => {

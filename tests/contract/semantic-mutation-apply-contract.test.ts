@@ -433,6 +433,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     workbench: 'platform/orchestrator/workbench-server-v2.ts',
     upgrade: 'platform/upgrade/upgrade-workspace.ts',
     processRunner: 'platform/shared/process.ts',
+    observedProcess: 'platform/shared/observed-process.ts',
     projectRuntime: 'platform/shared/project-runtime.ts',
     runtimeVerification: 'platform/compiler/verify/run-runtime-verification.ts',
     verifyProject: 'platform/compiler/verify/verify-project.ts',
@@ -440,6 +441,8 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     isolatedChildOutcome: 'platform/compiler/semantic-mutation/isolated-verification-child-outcome.ts',
     isolatedChildProgress: 'platform/compiler/semantic-mutation/isolated-verification-child-progress.ts',
     isolatedChild: 'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
+    runnerBuildChild: 'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
+    runnerBuildProtocol: 'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts',
     isolatedRuntimeBinding: 'platform/compiler/verify/semantic-mutation-isolated-runtime-binding.ts',
     isolatedRuntimePlan: 'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts',
     runtimeDependencySpec: 'platform/shared/runtime-dependency-spec.ts',
@@ -470,6 +473,15 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     'SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES',
     'buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests',
     'classifySemanticMutationIsolatedRunnerBuildForTests',
+    'readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests',
+    'classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES',
+    'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN',
+    'semanticMutationRunnerBuildSuccessFrame',
+    'parseSemanticMutationRunnerBuildSuccessFrame',
+    'semanticMutationRunnerBuildFailureSubstage',
     'projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests',
     'semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests'
   ]) {
@@ -745,6 +757,32 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.isolatedChild).not.toContain(
     "new SemanticMutationIsolatedCapabilityPreparationError('runner-build')"
   );
+  expect(sources.isolatedChild).toContain('runObservedCommand');
+  expect(sources.isolatedChild).toContain("'--no-install',\n          '--no-env-file'");
+  expect(sources.isolatedChild).toContain("envMode: 'replace'");
+  expect(sources.isolatedChild).toContain('maxObservedOutputBytes: SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES');
+  expect(sources.isolatedChild).toContain('frameDigest !== outcome.stdout.digest');
+  expect(sources.isolatedChild).not.toContain('const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(');
+  expect(sources.runnerBuildChild).toContain('fileURLToPath(new URL(');
+  expect(sources.runnerBuildChild).toContain('if (import.meta.main)');
+  expect(sources.runnerBuildChild).not.toContain('process.env');
+  expect(sources.runnerBuildChild).not.toContain('console.');
+  expect(sources.runnerBuildChild).not.toContain('process.stderr');
+  const runnerBuildTokenGuard = sources.runnerBuildChild.indexOf(
+    'process.argv[2] !== SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN'
+  );
+  const runnerBuildInvocation = sources.runnerBuildChild.indexOf('result = await Bun.build({');
+  const runnerBuildUnsuccessful = sources.runnerBuildChild.indexOf('if (!result.success)');
+  const runnerBuildOutputCount = sources.runnerBuildChild.indexOf('if (result.outputs.length !== 1)');
+  expect(runnerBuildTokenGuard).toBeGreaterThan(-1);
+  expect(runnerBuildInvocation).toBeGreaterThan(runnerBuildTokenGuard);
+  expect(runnerBuildUnsuccessful).toBeGreaterThan(runnerBuildInvocation);
+  expect(runnerBuildOutputCount).toBeGreaterThan(runnerBuildUnsuccessful);
+  expect(sources.runnerBuildProtocol).toContain('setBigUint64(');
+  expect(sources.runnerBuildProtocol).toContain("createHash('sha256')");
+  expect(sources.runnerBuildProtocol).toContain('timingSafeEqual(');
+  expect(sources.runnerBuildProtocol).toContain('Uint8Array.from(frame.subarray(payloadOffset))');
+  expect(sources.observedProcess).toContain('export async function runObservedCommand(');
   expect(sources.isolatedChild).toContain('relocateIsolatedRunnerBundle(');
   expect(sources.isolatedChild).toContain("'/node_modules/@ts-morph/common/dist'");
   expect(sources.isolatedChild).toContain("'/node_modules/typescript/lib'");
