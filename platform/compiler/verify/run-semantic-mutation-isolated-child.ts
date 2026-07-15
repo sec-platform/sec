@@ -66,8 +66,10 @@ import {
 } from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
 import {
+  captureIsolatedRuntimeBuildNodeModulesProof,
   isolatedPlaywrightBrowsersPath,
-  resolveIsolatedRuntimeDependencySources
+  resolveIsolatedRuntimeDependencySources,
+  revalidateIsolatedRuntimeBuildNodeModulesProof
 } from './run-runtime-verification.ts';
 import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
@@ -689,6 +691,7 @@ async function readChildOutcomePendingResult(
 
 const BUNDLED_RUNTIME_PATH_HELPER = '__secSemanticMutationRuntimePathV1';
 const BUNDLED_RUNTIME_PATH_IMPORT = '__secSemanticMutationFileUrlToPathV1';
+const BUNDLED_NODE_MODULES_SOURCE_PREFIX = '/node_modules/';
 const BUNDLED_EJS_ESM_CJS_COMPAT_ASSIGNMENT = 'module_utils.exports = utils;';
 const BUNDLED_EJS_ESM_CJS_COMPAT_GUARD = [
   'if (typeof exports_utils != "undefined") {',
@@ -696,13 +699,32 @@ const BUNDLED_EJS_ESM_CJS_COMPAT_GUARD = [
   '}'
 ].join('\n');
 
-function isCompilerBuildPath(filePath: string): boolean {
-  const relative = path.relative(path.resolve(compilerRoot), path.resolve(filePath));
-  return relative === '' ||
-    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+function nativePathKey(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32'
+    ? resolved.toLocaleLowerCase('en-US')
+    : resolved;
 }
 
-function relocateIsolatedRunnerBundle(bundle: Uint8Array): Uint8Array {
+function sameNativePath(left: string, right: string): boolean {
+  return nativePathKey(left) === nativePathKey(right);
+}
+
+function hostPathVariants(root: string): readonly string[] {
+  const resolvedRoot = path.resolve(root);
+  const posixRoot = resolvedRoot.replaceAll('\\', '/');
+  return Object.freeze([
+    resolvedRoot,
+    posixRoot,
+    JSON.stringify(resolvedRoot).slice(1, -1),
+    `file:///${posixRoot}`
+  ]);
+}
+
+function relocateIsolatedRunnerBundle(
+  bundle: Uint8Array,
+  buildNodeModulesRoot?: string
+): Uint8Array {
   const source = new TextDecoder().decode(bundle);
   if (source.includes(BUNDLED_RUNTIME_PATH_HELPER) || source.includes(BUNDLED_RUNTIME_PATH_IMPORT)) {
     throw new Error('Semantic Mutation isolated runner bundle relocation binding collides');
@@ -717,10 +739,24 @@ function relocateIsolatedRunnerBundle(bundle: Uint8Array): Uint8Array {
   // this exact required block restores the upstream ESM semantics. A missing
   // block is dependency-output drift and must fail closed.
   const normalizedSource = source.replace(BUNDLED_EJS_ESM_CJS_COMPAT_GUARD, '');
-  const expectedRuntimeDirectories = new Map([
-    ['/node_modules/@ts-morph/common/dist', '../../node_modules/@ts-morph/common/dist'],
-    ['/node_modules/typescript/lib', '../../node_modules/typescript/lib']
-  ] as const);
+  const provenBuildNodeModulesRoot = buildNodeModulesRoot ??
+    revalidateIsolatedRuntimeBuildNodeModulesProof(
+      captureIsolatedRuntimeBuildNodeModulesProof()
+    );
+  const expectedRuntimeDirectories = Object.freeze([
+    Object.freeze({
+      sourceSuffix: '/node_modules/@ts-morph/common/dist',
+      runtimeDirectory: '../../node_modules/@ts-morph/common/dist'
+    }),
+    Object.freeze({
+      sourceSuffix: '/node_modules/typescript/lib',
+      runtimeDirectory: '../../node_modules/typescript/lib'
+    })
+  ]);
+  const trustedBuildRoots = Object.freeze([
+    path.join(compilerRoot, 'node_modules'),
+    path.resolve(provenBuildNodeModulesRoot)
+  ]);
   const observedRuntimeDirectories = new Set<string>();
   const assignmentPattern =
     /var __dirname = ("(?:[^"\\]|\\.)*"), __filename = ("(?:[^"\\]|\\.)*");/gu;
@@ -731,35 +767,34 @@ function relocateIsolatedRunnerBundle(bundle: Uint8Array): Uint8Array {
       const sourceFile = JSON.parse(encodedFile) as unknown;
       if (typeof sourceDirectory !== 'string' || typeof sourceFile !== 'string' ||
         !path.isAbsolute(sourceDirectory) || !path.isAbsolute(sourceFile) ||
-        !isCompilerBuildPath(sourceDirectory) || !isCompilerBuildPath(sourceFile) ||
-        path.dirname(sourceFile) !== sourceDirectory || path.basename(sourceFile) !== 'typescript.js') {
+        path.basename(sourceFile) !== 'typescript.js' ||
+        !sameNativePath(sourceFile, path.join(sourceDirectory, 'typescript.js'))) {
         throw new Error('Semantic Mutation isolated runner bundle has an invalid relocation source');
       }
-      const normalizedDirectory = sourceDirectory.replaceAll('\\', '/');
-      const expected = [...expectedRuntimeDirectories.entries()].find(([suffix]) =>
-        normalizedDirectory.endsWith(suffix));
-      if (!expected || observedRuntimeDirectories.has(expected[0])) {
+      const expected = expectedRuntimeDirectories.find((runtime) =>
+        trustedBuildRoots.some((trustedRoot) => sameNativePath(
+          sourceDirectory,
+          path.join(
+            trustedRoot,
+            runtime.sourceSuffix.slice(BUNDLED_NODE_MODULES_SOURCE_PREFIX.length)
+          )
+        )));
+      if (!expected || observedRuntimeDirectories.has(expected.runtimeDirectory)) {
         throw new Error('Semantic Mutation isolated runner bundle has an unexpected relocation source');
       }
-      observedRuntimeDirectories.add(expected[0]);
-      const runtimeDirectory = expected[1];
+      observedRuntimeDirectories.add(expected.runtimeDirectory);
+      const runtimeDirectory = expected.runtimeDirectory;
       return `var __dirname = ${BUNDLED_RUNTIME_PATH_HELPER}(${JSON.stringify(runtimeDirectory)}), ` +
         `__filename = ${BUNDLED_RUNTIME_PATH_HELPER}(${JSON.stringify(`${runtimeDirectory}/typescript.js`)});`;
     }
   );
-  if (observedRuntimeDirectories.size !== expectedRuntimeDirectories.size ||
-    [...expectedRuntimeDirectories.keys()].some((entry) => !observedRuntimeDirectories.has(entry)) ||
+  if (observedRuntimeDirectories.size !== expectedRuntimeDirectories.length ||
+    expectedRuntimeDirectories.some((entry) => !observedRuntimeDirectories.has(entry.runtimeDirectory)) ||
     assignmentPattern.test(relocated)) {
     throw new Error('Semantic Mutation isolated runner bundle relocation coverage is incomplete');
   }
-  const resolvedCompilerRoot = path.resolve(compilerRoot);
-  const compilerRootVariants = [
-    resolvedCompilerRoot,
-    resolvedCompilerRoot.replaceAll('\\', '/'),
-    JSON.stringify(resolvedCompilerRoot).slice(1, -1),
-    `file:///${resolvedCompilerRoot.replaceAll('\\', '/')}`
-  ];
-  if (compilerRootVariants.some((hostPath) => relocated.includes(hostPath))) {
+  const hostPaths = [compilerRoot, provenBuildNodeModulesRoot].flatMap(hostPathVariants);
+  if (hostPaths.some((hostPath) => relocated.includes(hostPath))) {
     throw new Error('Semantic Mutation isolated runner bundle contains a host path after relocation');
   }
   const prelude = [
@@ -773,12 +808,14 @@ function relocateIsolatedRunnerBundle(bundle: Uint8Array): Uint8Array {
 
 /** Test-only relocation seam; product callers receive only opaque capability evidence. */
 export function relocateSemanticMutationIsolatedRunnerBundleForTests(
-  bundle: Uint8Array
+  bundle: Uint8Array,
+  buildNodeModulesRoot?: string
 ): Uint8Array {
-  return relocateIsolatedRunnerBundle(bundle);
+  return relocateIsolatedRunnerBundle(bundle, buildNodeModulesRoot);
 }
 
 async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
+  const buildRootProof = captureIsolatedRuntimeBuildNodeModulesProof();
   const result = await Bun.build({
     entrypoints: [ISOLATED_RUNNER_PATH],
     format: 'esm',
@@ -790,17 +827,15 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
   if (!result.success || result.outputs.length !== 1) {
     throw new Error('Semantic Mutation isolated runner bundle could not be built');
   }
+  const buildNodeModulesRoot = revalidateIsolatedRuntimeBuildNodeModulesProof(buildRootProof);
   const bundle = relocateIsolatedRunnerBundle(
-    new Uint8Array(await result.outputs[0].arrayBuffer())
+    new Uint8Array(await result.outputs[0].arrayBuffer()),
+    buildNodeModulesRoot
   );
   const bundleText = new TextDecoder().decode(bundle);
-  const compilerRootVariants = [
-    path.resolve(compilerRoot),
-    path.resolve(compilerRoot).replaceAll('\\', '/'),
-    `file:///${path.resolve(compilerRoot).replaceAll('\\', '/')}`
-  ];
+  const hostPaths = [compilerRoot, buildNodeModulesRoot].flatMap(hostPathVariants);
   if (/(?:__dirname|__filename)\s*=\s*["'][A-Za-z]:[\\/]/u.test(bundleText) ||
-    compilerRootVariants.some((hostPath) => bundleText.includes(hostPath))) {
+    hostPaths.some((hostPath) => bundleText.includes(hostPath))) {
     throw new Error('Semantic Mutation isolated runner bundle contains a host path');
   }
   return bundle;
