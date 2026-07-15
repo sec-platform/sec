@@ -94,9 +94,14 @@ import {
 import {
   parseSemanticMutationRunnerBuildSuccessFrame,
   SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES,
-  SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN,
-  semanticMutationRunnerBuildFailureSubstage
+  SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN
 } from './semantic-mutation-runner-build-protocol.ts';
+import {
+  classifySemanticMutationRunnerBuildSettlement,
+  SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN,
+  SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_FRAME_INVALID,
+  type SemanticMutationRunnerBuildSettlementClassification
+} from './semantic-mutation-runner-build-settlement.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
 
 export type { SemanticMutationIsolatedRuntimeInputSources } from './semantic-mutation-isolated-runtime-plan.ts';
@@ -381,8 +386,6 @@ export function projectSemanticMutationIsolatedVerificationFailureForTests(
 }
 
 const RUNNER_BUILD_CHILD_TIMEOUT_MS = 120_000;
-const EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST =
-  `sha256:${createHash('sha256').update(new Uint8Array()).digest('hex')}`;
 
 const DEFAULT_RUNTIME_DEPENDENCY_SOURCES = resolveIsolatedRuntimeDependencySources();
 const DEFAULT_RUNTIME_INPUT_SOURCES = Object.freeze({
@@ -615,6 +618,20 @@ type SemanticMutationRunnerBuildObservedCommand = (
 ) => Promise<ObservedCommandOutcome>;
 
 type SemanticMutationRunnerBuildProcessRootCleanup = (processRoot: string) => Promise<void>;
+type SemanticMutationRunnerBuildSettlementObserver = (
+  classification: SemanticMutationRunnerBuildSettlementClassification
+) => void;
+
+function notifySemanticMutationRunnerBuildSettlement(
+  observe: SemanticMutationRunnerBuildSettlementObserver | undefined,
+  classification: SemanticMutationRunnerBuildSettlementClassification
+): void {
+  try {
+    observe?.(classification);
+  } catch {
+    // Test-only observation cannot change production settlement or cleanup authority.
+  }
+}
 
 async function cleanupSemanticMutationRunnerBuildProcessRoot(processRoot: string): Promise<void> {
   await rm(processRoot, {
@@ -625,20 +642,39 @@ async function cleanupSemanticMutationRunnerBuildProcessRoot(processRoot: string
   });
 }
 
-function exactObservedRunnerBuildLifecycle(outcome: ObservedCommandOutcome): boolean {
-  return outcome.status === 'exited' && outcome.started && outcome.signal === null &&
-    !outcome.termination.requested && !outcome.termination.gracefulAttempted &&
-    !outcome.termination.forcedAttempted &&
-    outcome.termination.childCloseObserved && outcome.termination.streamsDrained &&
-    outcome.termination.treeClosed && !outcome.stdout.observerTruncated &&
-    !outcome.stderr.observerTruncated;
+function observedRunnerBuildOutput(chunks: readonly Uint8Array[]): Uint8Array {
+  const byteLength = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+  if (byteLength > SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES) {
+    throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
+  }
+  const output = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+function runnerBuildSettlementFailureSubstage(
+  classification: Extract<
+    SemanticMutationRunnerBuildSettlementClassification,
+    { readonly status: 'rejected' }
+  >
+): 'runner-build-invocation' | 'runner-build-output-read' {
+  return classification.reason === 'stdout-evidence-mismatch' ||
+    classification.reason === 'stderr-evidence-mismatch' ||
+    classification.reason === 'protocol-frame-invalid'
+    ? 'runner-build-output-read'
+    : 'runner-build-invocation';
 }
 
 async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
   execute: SemanticMutationRunnerBuildObservedCommand = runObservedCommand,
   signal?: AbortSignal,
   cleanup: SemanticMutationRunnerBuildProcessRootCleanup =
-    cleanupSemanticMutationRunnerBuildProcessRoot
+    cleanupSemanticMutationRunnerBuildProcessRoot,
+  observeSettlement?: SemanticMutationRunnerBuildSettlementObserver
 ): Promise<Uint8Array> {
   try {
     const processRoot = await mkdtemp(path.join(tmpdir(), 'sec-sm-runner-build-'));
@@ -646,6 +682,7 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
     let bundle: Uint8Array | undefined;
     let primaryFailed = false;
     let primaryError: unknown;
+    let settlement: SemanticMutationRunnerBuildSettlementClassification | undefined;
     try {
       await ensureIsolatedProcessDirectories(processRoot);
       const stdoutChunks: Uint8Array[] = [];
@@ -687,47 +724,31 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
           outcome.termination.treeClosed
         );
       } catch {
+        settlement = classifySemanticMutationRunnerBuildSettlement(
+          undefined,
+          new Uint8Array()
+        );
         throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
       }
-      if (!exactObservedRunnerBuildLifecycle(outcome)) {
-        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
+      const frame = observedRunnerBuildOutput(stdoutChunks);
+      const classification = classifySemanticMutationRunnerBuildSettlement(outcome, frame);
+      if (classification.status === 'child-failure') {
+        settlement = classification;
+        throw new SemanticMutationIsolatedCapabilityPreparationError(classification.substage);
       }
-      const failureSubstage = semanticMutationRunnerBuildFailureSubstage(outcome.exitCode);
-      if (failureSubstage !== undefined) {
-        if (outcome.stdout.bytes !== 0 || outcome.stderr.bytes !== 0 ||
-          outcome.stdout.digest !== EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST ||
-          outcome.stderr.digest !== EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST) {
-          throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
-        }
-        throw new SemanticMutationIsolatedCapabilityPreparationError(failureSubstage);
-      }
-      if (outcome.exitCode !== 0) {
-        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
-      }
-      if (outcome.stderr.bytes !== 0 ||
-        outcome.stderr.digest !== EMPTY_OBSERVED_RUNNER_BUILD_STREAM_DIGEST) {
-        throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
+      if (classification.status === 'rejected') {
+        settlement = classification;
+        throw new SemanticMutationIsolatedCapabilityPreparationError(
+          runnerBuildSettlementFailureSubstage(classification)
+        );
       }
       try {
-        const observedBytes = stdoutChunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-        if (observedBytes !== outcome.stdout.bytes ||
-          observedBytes > SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES) {
-          throw new Error('Semantic Mutation runner build observation is incomplete');
-        }
-        const frame = new Uint8Array(observedBytes);
-        let offset = 0;
-        for (const chunk of stdoutChunks) {
-          frame.set(chunk, offset);
-          offset += chunk.byteLength;
-        }
-        const frameDigest = `sha256:${createHash('sha256').update(frame).digest('hex')}`;
-        if (frameDigest !== outcome.stdout.digest) {
-          throw new Error('Semantic Mutation runner build frame observation digest is invalid');
-        }
         bundle = Uint8Array.from(parseSemanticMutationRunnerBuildSuccessFrame(frame));
       } catch {
+        settlement = SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_FRAME_INVALID;
         throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
       }
+      settlement = classification;
     } catch (error) {
       primaryFailed = true;
       primaryError = error;
@@ -740,10 +761,23 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
         cleanupFailed = true;
       }
     }
-    if (primaryFailed) throw primaryError;
-    if (cleanupFailed || bundle === undefined) {
+    if (primaryFailed) {
+      if (settlement) {
+        notifySemanticMutationRunnerBuildSettlement(observeSettlement, settlement);
+      }
+      throw primaryError;
+    }
+    if (cleanupFailed || bundle === undefined || settlement?.status !== 'success') {
+      notifySemanticMutationRunnerBuildSettlement(
+        observeSettlement,
+        SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN
+      );
       throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
     }
+    notifySemanticMutationRunnerBuildSettlement(
+      observeSettlement,
+      settlement
+    );
     return bundle;
   } catch (error) {
     if (error instanceof SemanticMutationIsolatedCapabilityPreparationError) throw error;
@@ -755,16 +789,23 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
 export async function readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests(
   execute: SemanticMutationRunnerBuildObservedCommand,
   signal?: AbortSignal,
-  cleanup?: SemanticMutationRunnerBuildProcessRootCleanup
+  cleanup?: SemanticMutationRunnerBuildProcessRootCleanup,
+  observeSettlement?: SemanticMutationRunnerBuildSettlementObserver
 ): Promise<Uint8Array> {
-  return await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(execute, signal, cleanup);
+  return await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
+    execute,
+    signal,
+    cleanup,
+    observeSettlement
+  );
 }
 
 /** Test-only finite projection for the fresh-process observed-command boundary. */
 export async function classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
   execute: SemanticMutationRunnerBuildObservedCommand,
   signal?: AbortSignal,
-  cleanup?: SemanticMutationRunnerBuildProcessRootCleanup
+  cleanup?: SemanticMutationRunnerBuildProcessRootCleanup,
+  observeSettlement?: SemanticMutationRunnerBuildSettlementObserver
 ): Promise<
   | Readonly<{ readonly status: 'available'; readonly bundle: Uint8Array }>
   | Readonly<{
@@ -778,7 +819,8 @@ export async function classifySemanticMutationIsolatedRunnerBuildFreshProcessFor
       bundle: await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
         execute,
         signal,
-        cleanup
+        cleanup,
+        observeSettlement
       )
     });
   } catch (error) {
@@ -1188,7 +1230,9 @@ export function relocateSemanticMutationIsolatedRunnerBundleForTests(
   return relocateIsolatedRunnerBundle(bundle, buildNodeModulesRoot);
 }
 
-async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
+async function buildIsolatedRunnerBundle(
+  observeSettlement?: SemanticMutationRunnerBuildSettlementObserver
+): Promise<Uint8Array> {
   if (process.platform === 'win32') {
     await prepareWindowsAppContainerNativeHelperBundle();
   }
@@ -1196,7 +1240,12 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
     'runner-build-root-proof',
     captureIsolatedRuntimeBuildNodeModulesProof
   );
-  const sourceBundle = await readSemanticMutationIsolatedRunnerBuildFromFreshProcess();
+  const sourceBundle = await readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
+    runObservedCommand,
+    undefined,
+    cleanupSemanticMutationRunnerBuildProcessRoot,
+    observeSettlement
+  );
   const buildNodeModulesRoot = await withCapabilityPreparationBoundary(
     'runner-build-root-proof',
     () => revalidateIsolatedRuntimeBuildNodeModulesProof(buildRootProof)
@@ -1288,6 +1337,15 @@ export function createSemanticMutationIsolatedRunnerBundleLoaderForTests(
   build: SemanticMutationIsolatedRunnerBundleBuilder
 ): SemanticMutationIsolatedRunnerBundleBuilder {
   return createProcessLocalRunnerBundleLoader(build);
+}
+
+/** Test-only fresh production loader; it never warms the module-local production cache. */
+export function createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests(
+  observeSettlement?: SemanticMutationRunnerBuildSettlementObserver
+): SemanticMutationIsolatedRunnerBundleBuilder {
+  return createProcessLocalRunnerBundleLoader(
+    () => buildIsolatedRunnerBundle(observeSettlement)
+  );
 }
 
 export interface SemanticMutationIsolatedRuntimeCapabilityProbeOptions {

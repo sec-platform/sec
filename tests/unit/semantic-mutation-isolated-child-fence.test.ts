@@ -42,6 +42,7 @@ import {
   buildSemanticMutationIsolatedVerificationEnvironment,
   classifySemanticMutationIsolatedRunnerBuildForTests,
   classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests,
+  createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests,
   createSemanticMutationIsolatedVerificationSupervisor,
   probeSemanticMutationIsolatedRuntimeCapability,
   projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests,
@@ -71,6 +72,10 @@ import {
   SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN,
   semanticMutationRunnerBuildSuccessFrame
 } from '../../platform/compiler/verify/semantic-mutation-runner-build-protocol.ts';
+import {
+  classifySemanticMutationRunnerBuildSettlement,
+  type SemanticMutationRunnerBuildSettlementClassification
+} from '../../platform/compiler/verify/semantic-mutation-runner-build-settlement.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import type {
   ObservedCommandOptions,
@@ -153,7 +158,7 @@ test('isolated runner bundle prebinds its native helper before the fresh-process
     'verify',
     'run-semantic-mutation-isolated-child.ts'
   ), 'utf8');
-  const start = source.indexOf('async function buildIsolatedRunnerBundle()');
+  const start = source.indexOf('async function buildIsolatedRunnerBundle(');
   const end = source.indexOf('\nfunction createProcessLocalRunnerBundleLoader(', start);
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);
@@ -162,7 +167,7 @@ test('isolated runner bundle prebinds its native helper before the fresh-process
   const prebind = body.indexOf('await prepareWindowsAppContainerNativeHelperBundle();');
   const rootCapture = body.indexOf('captureIsolatedRuntimeBuildNodeModulesProof');
   const runnerBuild = body.indexOf(
-    'await readSemanticMutationIsolatedRunnerBuildFromFreshProcess()'
+    'const sourceBundle = await readSemanticMutationIsolatedRunnerBuildFromFreshProcess('
   );
   expect(windowsGuard).toBeGreaterThanOrEqual(0);
   expect(prebind).toBeGreaterThan(windowsGuard);
@@ -175,6 +180,31 @@ test.serial('production isolated runner build succeeds through fresh process bef
   expect(Object.isFrozen(result)).toBe(true);
   expect(JSON.stringify(result)).not.toContain(compilerRoot);
   expect(result).toEqual({ status: 'available' });
+});
+
+test.serial('production runtime capability probe settles its fresh-process runner before AppContainer', async () => {
+  await withTempWorkspace(async (root) => {
+    const { runtimeInputSources, stagingRoot } = await createProductionRuntimeCapabilityContext(root);
+    let settlement: SemanticMutationRunnerBuildSettlementClassification | undefined;
+    const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests(
+        (classification) => {
+          settlement = classification;
+        }
+      ),
+      runtimeInputSources
+    });
+
+    expect({
+      capability,
+      diagnostic: semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(capability),
+      settlement
+    }).toEqual({
+      capability: { status: 'available' },
+      diagnostic: undefined,
+      settlement: { status: 'success' }
+    });
+  }, 'engineering-compiler-sm3-isolated-production-probe-');
 });
 
 test('runner build maps invocation, result, output count, and output read to finite outcomes', async () => {
@@ -473,8 +503,112 @@ test('fresh-process runner build rejects malformed, truncated, oversized, traili
   });
 });
 
-test('fresh-process runner build maps abort, timeout, signal, observer, and tree failures to invocation', async () => {
+test('fresh-process runner build settlement classifier separates invocation dimensions and preserves public closure', async () => {
   const empty = new Uint8Array();
+  const byte = Uint8Array.from([1]);
+  const closed = observedRunnerBuildOutcome(empty);
+  const settlementVectors: readonly Readonly<{
+    outcome: ObservedCommandOutcome | undefined;
+    observedStdout: Uint8Array;
+    expected: SemanticMutationRunnerBuildSettlementClassification;
+  }>[] = [
+    { outcome: undefined, observedStdout: empty, expected: { status: 'rejected', reason: 'execute-rejected' } },
+    {
+      outcome: observedRunnerBuildOutcome(empty, { status: 'timed-out', trigger: 'timed-out' }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'timed-out' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, { status: 'spawn-failed', started: false }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'not-started' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, {
+        status: 'tree-unproven',
+        termination: { ...closed.termination, treeClosed: false }
+      }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'closure-unproven' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, {
+        termination: { ...closed.termination, requested: true }
+      }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'requested-termination' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, { status: 'lifecycle-failed' }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'not-exited' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, { exitCode: null }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'exit-status-unproven' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, {
+        stdout: { ...closed.stdout, observerTruncated: true }
+      }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'stdout-truncated' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, {
+        stderr: { ...closed.stderr, observerTruncated: true }
+      }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'stderr-truncated' }
+    },
+    {
+      outcome: closed,
+      observedStdout: byte,
+      expected: { status: 'rejected', reason: 'stdout-evidence-mismatch' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, {
+        stderr: { bytes: 1, digest: observedDigest(byte), observerTruncated: false }
+      }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'stderr-evidence-mismatch' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(byte, {
+        exitCode: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful
+      }),
+      observedStdout: byte,
+      expected: { status: 'rejected', reason: 'declared-failure-contaminated' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, {
+        exitCode: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful,
+        stderr: { bytes: 1, digest: observedDigest(byte), observerTruncated: false }
+      }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'declared-failure-contaminated' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, { exitCode: 99 }),
+      observedStdout: empty,
+      expected: { status: 'rejected', reason: 'unexpected-exit' }
+    },
+    {
+      outcome: observedRunnerBuildOutcome(empty, {
+        exitCode: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful
+      }),
+      observedStdout: empty,
+      expected: { status: 'child-failure', substage: 'runner-build-unsuccessful' }
+    },
+    { outcome: closed, observedStdout: empty, expected: { status: 'success' } }
+  ];
+  for (const { outcome, observedStdout, expected } of settlementVectors) {
+    const classification = classifySemanticMutationRunnerBuildSettlement(outcome, observedStdout);
+    expect(classification).toEqual(expected);
+    expect(Object.isFrozen(classification)).toBe(true);
+  }
+
   const lifecycleVectors: Partial<ObservedCommandOutcome>[] = [
     { status: 'spawn-failed', started: false },
     { started: false },
@@ -630,12 +764,16 @@ test('fresh-process runner build preserves primary failure and rejects success w
     await rm(processRoot, { recursive: true, force: true });
     throw new Error('cleanup detail must not escape');
   };
+  let primarySettlement: SemanticMutationRunnerBuildSettlementClassification | undefined;
   const primary = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
     observedRunnerBuildExecutor(new Uint8Array(), {
       exitCode: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful
     }),
     undefined,
-    cleanupFailure
+    cleanupFailure,
+    (classification) => {
+      primarySettlement = classification;
+    }
   );
   expect(primary).toEqual({
     status: 'unavailable',
@@ -645,12 +783,20 @@ test('fresh-process runner build preserves primary failure and rejects success w
     }
   });
   expect(JSON.stringify(primary)).not.toContain('cleanup detail');
+  expect(primarySettlement).toEqual({
+    status: 'child-failure',
+    substage: 'runner-build-unsuccessful'
+  });
 
   const frame = semanticMutationRunnerBuildSuccessFrame(Uint8Array.from([1]));
+  let cleanupSettlement: SemanticMutationRunnerBuildSettlementClassification | undefined;
   const cleanupBlockedSuccess = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
     observedRunnerBuildExecutor(frame),
     undefined,
-    cleanupFailure
+    cleanupFailure,
+    (classification) => {
+      cleanupSettlement = classification;
+    }
   );
   expect(cleanupBlockedSuccess).toEqual({
     status: 'unavailable',
@@ -660,6 +806,10 @@ test('fresh-process runner build preserves primary failure and rejects success w
     }
   });
   expect(JSON.stringify(cleanupBlockedSuccess)).not.toContain('cleanup detail');
+  expect(cleanupSettlement).toEqual({
+    status: 'rejected',
+    reason: 'output-ownership-unproven'
+  });
 });
 
 test('runtime capability diagnostic enum rejects forged detail without retaining raw fields', () => {
@@ -1187,6 +1337,46 @@ async function writeProjectBaseline(stagingRoot: string): Promise<void> {
   await writeFile(path.join(stagingRoot, '.sec', 'cache', 'project-baseline.json'), JSON.stringify({
     formatVersion: '1', artifacts: []
   }), 'utf8');
+}
+
+async function createProductionRuntimeCapabilityContext(root: string): Promise<Readonly<{
+  readonly runtimeInputSources: SemanticMutationIsolatedRuntimeInputSources;
+  readonly stagingRoot: string;
+}>> {
+  const stagingRoot = stagingWorkspaceRoot(root);
+  const browserSource = path.join(root, 'browser-source');
+  await writeProjectBaseline(stagingRoot);
+  await mkdir(browserSource, { recursive: true });
+  await writeFile(path.join(browserSource, 'browser.bin'), 'browser', 'utf8');
+  const fixtureRuntimeInputSources = await createRuntimeInputSources(root, browserSource);
+  const productionCompilerModulesRoot = path.join(
+    process.cwd(),
+    '.shared-deps',
+    'node_modules'
+  );
+  const playwrightDescriptor = JSON.parse(await readFile(path.join(
+    productionCompilerModulesRoot,
+    'playwright-core',
+    'browsers.json'
+  ), 'utf8')) as { readonly browsers: readonly { readonly name: string; readonly revision: string }[] };
+  const chromiumHeadlessShell = playwrightDescriptor.browsers.find((browser) =>
+    browser.name === 'chromium-headless-shell');
+  if (!chromiumHeadlessShell) throw new Error('production Playwright descriptor is unavailable');
+  const browserExecutable = path.join(
+    browserSource,
+    `chromium_headless_shell-${chromiumHeadlessShell.revision}`,
+    'chrome-headless-shell-win64',
+    'chrome-headless-shell.exe'
+  );
+  await mkdir(path.dirname(browserExecutable), { recursive: true });
+  await writeFile(browserExecutable, 'production-bundle-browser-fixture', 'utf8');
+  return Object.freeze({
+    runtimeInputSources: {
+      ...fixtureRuntimeInputSources,
+      compilerModulesRoot: productionCompilerModulesRoot
+    },
+    stagingRoot
+  });
 }
 
 function isolatedVerificationArtifacts(status: 'passed' | 'failed') {
@@ -2834,37 +3024,7 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
 
 test.serial('isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary', async () => {
   await withTempWorkspace(async (root) => {
-    const stagingRoot = stagingWorkspaceRoot(root);
-    const browserSource = path.join(root, 'browser-source');
-    await writeProjectBaseline(stagingRoot);
-    await mkdir(browserSource, { recursive: true });
-    await writeFile(path.join(browserSource, 'browser.bin'), 'browser', 'utf8');
-    const fixtureRuntimeInputSources = await createRuntimeInputSources(root, browserSource);
-    const productionCompilerModulesRoot = path.join(
-      process.cwd(),
-      '.shared-deps',
-      'node_modules'
-    );
-    const playwrightDescriptor = JSON.parse(await readFile(path.join(
-      productionCompilerModulesRoot,
-      'playwright-core',
-      'browsers.json'
-    ), 'utf8')) as { readonly browsers: readonly { readonly name: string; readonly revision: string }[] };
-    const chromiumHeadlessShell = playwrightDescriptor.browsers.find((browser) =>
-      browser.name === 'chromium-headless-shell');
-    if (!chromiumHeadlessShell) throw new Error('production Playwright descriptor is unavailable');
-    const browserExecutable = path.join(
-      browserSource,
-      `chromium_headless_shell-${chromiumHeadlessShell.revision}`,
-      'chrome-headless-shell-win64',
-      'chrome-headless-shell.exe'
-    );
-    await mkdir(path.dirname(browserExecutable), { recursive: true });
-    await writeFile(browserExecutable, 'production-bundle-browser-fixture', 'utf8');
-    const runtimeInputSources: SemanticMutationIsolatedRuntimeInputSources = {
-      ...fixtureRuntimeInputSources,
-      compilerModulesRoot: productionCompilerModulesRoot
-    };
+    const { runtimeInputSources, stagingRoot } = await createProductionRuntimeCapabilityContext(root);
 
     const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
       runtimeInputSources
