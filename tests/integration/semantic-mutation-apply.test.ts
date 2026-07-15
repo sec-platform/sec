@@ -355,9 +355,15 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
     const input = { request, base, authorization: authorization() };
     const first = await planSemanticMutationTransaction(workspaceRoot, input);
     const second = await planSemanticMutationTransaction(workspaceRoot, input);
+    if (first.status !== 'ready') {
+      throw new Error(JSON.stringify({
+        status: first.status,
+        rejectedAt: first.rejectedAt,
+        diagnostics: first.diagnostics.map(({ code, stage }) => ({ code, stage }))
+      }));
+    }
     expect(first.status).toBe('ready');
     expect(second).toEqual(first);
-    if (first.status !== 'ready') throw new Error(JSON.stringify(first));
 
     const applied = await applySemanticMutation(workspaceRoot, {
       ...input,
