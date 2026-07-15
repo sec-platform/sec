@@ -61,15 +61,15 @@ export const WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4 = Object.freeze({
   'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts': 'sha256:bb26bb576b1efe91a92bbde3487c26683d1643f30d762648e91820238565c45e',
   'platform/orchestrator/workspace-orchestrator.ts': 'sha256:c5a2a0bb78928b0193cd7caa99756923f7fe75a9718fd80c1aa7aaf3cde02007',
   'platform/shared/observed-process.ts': 'sha256:fcc8af07f57b47ce8bd553dee3f44f3392b6de1bb69e550d643c9192b0b252df',
-  'platform/shared/windows-appcontainer-executor.ts': 'sha256:ed9c918dd2109d1cab3100496232838c5f6ba1badbaa115d292c24d8b238457f',
+  'platform/shared/windows-appcontainer-executor.ts': 'sha256:12282d89c97051b31614b16fd02dafaad841b626705b12dd33868a7a4501b566',
   'platform/shared/windows-appcontainer-native-helper.ts': 'sha256:fafe83d7ba029c31bdf99c1a64e35f1c063f687021b7f53652d2cf04a7760944',
   'platform/shared/workspace-write-lease.ts': 'sha256:3b4adf7cfcb1857f59bb17e3f0a9ce25d571d1dfd740457148d346f29de38d68',
   'tests/contract/semantic-mutation-apply-contract.test.ts': 'sha256:1b6ea1100ff79c6f22fa4f198549a6cd0d8647024ac3479ec02eaae04aaf3a24',
   'tests/integration/pipeline-workspace-write-lease.test.ts': 'sha256:e039203824a945c0e097d57cce4b3fd1949ef51a929e920724b9295698644ef1',
   'tests/unit/semantic-mutation-apply.test.ts': 'sha256:7035519278b6717f036af2dccdfce87cf0886bada066ec4e4a113460ddb3ffd6',
-  'tests/unit/semantic-mutation-isolated-child-fence.test.ts': 'sha256:73f36012008a8e7285ab9eeed43db4f70f9b21c04f421aeda831b5eb2d1bb3c3',
+  'tests/unit/semantic-mutation-isolated-child-fence.test.ts': 'sha256:7862243f257df103d623a2b560ba6681d80cbb7a80828e1a54b88da6661de378',
   'tests/unit/semantic-mutation-runtime-materialization.test.ts': 'sha256:fccad2edfddc5a49d961d8c7f800ad0b6500af30c31fd262517ef2543f5d31b1',
-  'tests/unit/windows-appcontainer-executor.test.ts': 'sha256:2ee690a213bd4e5e834a9e25e8dd3c9ffab14b50c1057975f537a945b80917ae',
+  'tests/unit/windows-appcontainer-executor.test.ts': 'sha256:7dbfae8c19cabc64a2a8ca3d63060f267824f0da5499e3c902fd4f4b86f52aa5',
   'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts': 'sha256:00041f830b808f071ce4f289108a34b60a1fec9a18bebfe01603e73c630a8ea3',
   'tests/unit/workspace-write-lease.test.ts': 'sha256:6536d2cd28a520be241bfe2ecb07c81706afd293a55fd29f4f4dfceeec07fa87'
 } as const);
