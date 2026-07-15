@@ -4,12 +4,14 @@ import path from 'node:path';
 
 import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
+  buildWindowsAppContainerNativeHelperBundleSourceForTests,
   createWindowsAppContainerNativeHelperBundleLoaderForTests,
   encodeWindowsAppContainerNativeDerivedSid,
   encodeWindowsAppContainerNativeFailure,
   encodeWindowsAppContainerNativeOk,
   normalizeWindowsAppContainerPreparationErrorForTests,
   probeWindowsAppContainerCapabilityForTests,
+  proveWindowsAppContainerNativeHelperEntryForTests,
   publishWindowsAppContainerProvisionalOwnerForTests,
   recoverWindowsAppContainerProvisionalOwnerForTests,
   redactWindowsAppContainerProbeCapabilityForTests,
@@ -423,7 +425,101 @@ test('Windows AppContainer native-helper bundle retries one transient rejected b
   const invalid = await invalidLoader.build().then(() => undefined, (error: unknown) => error);
   expect(invalid).toBeInstanceOf(WindowsAppContainerExecutionError);
   expect((invalid as WindowsAppContainerExecutionError).preparationSubstage)
+    .toBe('native-helper-bundle-contract');
+});
+
+test('Windows AppContainer native-helper entry proof rejects missing, aliases, and identity drift', async () => {
+  const entryPath = path.resolve('native-helper-entry.ts');
+  const physicalPath = path.resolve('physical-native-helper-entry.ts');
+  const metadata = (identity: string) => Object.freeze({
+    identity,
+    isFile: true,
+    isSymbolicLink: false,
+    linkCount: 1
+  });
+  const assertEntryFailure = async (probe: Parameters<
+    typeof proveWindowsAppContainerNativeHelperEntryForTests
+  >[1]) => {
+    const failure = await proveWindowsAppContainerNativeHelperEntryForTests(entryPath, probe)
+      .then(() => undefined, (error: unknown) => error);
+    expect(failure).toBeInstanceOf(WindowsAppContainerExecutionError);
+    expect((failure as WindowsAppContainerExecutionError).preparationSubstage)
+      .toBe('native-helper-entry');
+  };
+
+  await assertEntryFailure({
+    async lstat() { throw new Error('missing'); },
+    async realpath() { return entryPath; }
+  });
+  await assertEntryFailure({
+    async lstat() { return metadata('stable'); },
+    async realpath() { return physicalPath; }
+  });
+  let reads = 0;
+  await assertEntryFailure({
+    async lstat() { return metadata(++reads === 1 ? 'before' : 'after'); },
+    async realpath() { return entryPath; }
+  });
+});
+
+test('Windows AppContainer native-helper build and bundle contract failures stay distinct', async () => {
+  const entryPath = path.resolve('native-helper-entry.ts');
+  const metadata = Object.freeze({
+    identity: 'stable',
+    isFile: true,
+    isSymbolicLink: false,
+    linkCount: 1
+  });
+  const probe = {
+    async lstat() { return metadata; },
+    async realpath() { return entryPath; }
+  };
+  const buildFailure = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+    entryPath,
+    probe,
+    async () => { throw new Error('build rejected'); }
+  ).then(() => undefined, (error: unknown) => error);
+  expect(buildFailure).toBeInstanceOf(WindowsAppContainerExecutionError);
+  expect((buildFailure as WindowsAppContainerExecutionError).preparationSubstage)
     .toBe('native-helper-build');
+
+  const unsuccessfulBuild = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+    entryPath,
+    probe,
+    async () => ({ success: false, outputs: [] })
+  ).then(() => undefined, (error: unknown) => error);
+  expect((unsuccessfulBuild as WindowsAppContainerExecutionError).preparationSubstage)
+    .toBe('native-helper-build');
+
+  const invalidOutputCount = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+    entryPath,
+    probe,
+    async () => ({
+      success: true,
+      outputs: [
+        { async arrayBuffer() { return new ArrayBuffer(1); } },
+        { async arrayBuffer() { return new ArrayBuffer(1); } }
+      ]
+    })
+  ).then(() => undefined, (error: unknown) => error);
+  expect((invalidOutputCount as WindowsAppContainerExecutionError).preparationSubstage)
+    .toBe('native-helper-build');
+
+  for (const source of ['', 'import value from "./helper.ts";\n']) {
+    const loader = createWindowsAppContainerNativeHelperBundleLoaderForTests(async () =>
+      new TextEncoder().encode(source));
+    const failure = await loader.build().then(() => undefined, (error: unknown) => error);
+    expect((failure as WindowsAppContainerExecutionError).preparationSubstage)
+      .toBe('native-helper-bundle-contract');
+  }
+});
+
+test('Windows AppContainer exact native-helper production entry builds without AppContainer', async () => {
+  const bundle = await buildWindowsAppContainerNativeHelperBundleSourceForTests();
+  expect(bundle.byteLength).toBeGreaterThan(0);
+  expect(new TextDecoder().decode(bundle)).not.toMatch(
+    /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u
+  );
 });
 
 test('Windows AppContainer owner pending publication recovers before rename and after rename', async () => {

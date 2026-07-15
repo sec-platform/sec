@@ -68,7 +68,9 @@ const PROBE_OWNER_FORMAT_VERSION = 'windows-appcontainer-probe-owner-v1';
 const PROBE_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-probe-owner-v1.json';
 const PROBE_OWNER_PENDING_FILE_NAME = `${PROBE_OWNER_FILE_NAME}.pending-v1`;
 const NATIVE_RESULT_FILE_NAME = '.semantic-mutation-appcontainer-result-v1.json';
-const NATIVE_HELPER_PATH = fileURLToPath(new URL('./windows-appcontainer-native-helper.ts', import.meta.url));
+const NATIVE_HELPER_ENTRY_PATH = fileURLToPath(
+  new URL('./windows-appcontainer-native-helper.ts', import.meta.url)
+);
 const WINDOWS_HOST_TOOL_DEADLINE_MS = 120_000;
 const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 const WINDOWS_APPCONTAINER_LEASE_MONITOR_INTERVAL_MS = 250;
@@ -76,23 +78,96 @@ const WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS = 20;
 
 type BunFfiToBuffer = (typeof import('bun:ffi'))['toBuffer'];
 type NativeHelperBundleSource = () => Promise<Uint8Array>;
+interface NativeHelperEntryMetadata {
+  readonly identity: string;
+  readonly isFile: boolean;
+  readonly isSymbolicLink: boolean;
+  readonly linkCount: number;
+}
+interface NativeHelperEntryProbe {
+  readonly lstat: (value: string) => Promise<NativeHelperEntryMetadata>;
+  readonly realpath: (value: string) => Promise<string>;
+}
+interface NativeHelperBuildOutput {
+  readonly arrayBuffer: () => Promise<ArrayBuffer>;
+}
+interface NativeHelperBuildResult {
+  readonly success: boolean;
+  readonly outputs: readonly NativeHelperBuildOutput[];
+}
+type NativeHelperBuilder = (entryPath: string) => Promise<NativeHelperBuildResult>;
 interface NativeHelperBundleLoader {
   readonly build: () => Promise<Uint8Array>;
 }
 
-async function defaultNativeHelperBundleSource(): Promise<Uint8Array> {
-  const result = await Bun.build({
-    entrypoints: [NATIVE_HELPER_PATH],
-    format: 'esm',
-    minify: false,
-    sourcemap: 'none',
-    splitting: false,
-    target: 'bun'
-  });
-  if (!result.success || result.outputs.length !== 1) {
-    throw executionError('preparation', undefined, undefined, 'native-helper-build');
+const NATIVE_HELPER_ENTRY_PROBE: NativeHelperEntryProbe = Object.freeze({
+  async lstat(value: string): Promise<NativeHelperEntryMetadata> {
+    const metadata = await lstat(value);
+    return Object.freeze({
+      identity: [
+        metadata.dev, metadata.ino, metadata.mode, metadata.nlink, metadata.size,
+        metadata.ctimeMs, metadata.mtimeMs
+      ].map(String).join(':'),
+      isFile: metadata.isFile(),
+      isSymbolicLink: metadata.isSymbolicLink(),
+      linkCount: Number(metadata.nlink)
+    });
+  },
+  realpath
+});
+
+const NATIVE_HELPER_BUILDER: NativeHelperBuilder = async (NATIVE_HELPER_PATH) => Bun.build({
+  entrypoints: [NATIVE_HELPER_PATH],
+  format: 'esm',
+  minify: false,
+  sourcemap: 'none',
+  splitting: false,
+  target: 'bun'
+});
+
+function sameNativePath(left: string, right: string): boolean {
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  return process.platform === 'win32'
+    ? resolvedLeft.toLocaleLowerCase('en-US') === resolvedRight.toLocaleLowerCase('en-US')
+    : resolvedLeft === resolvedRight;
+}
+
+async function proveNativeHelperEntry(
+  entryPath: string,
+  probe: NativeHelperEntryProbe
+): Promise<string> {
+  try {
+    const before = await probe.lstat(entryPath);
+    const physicalPath = await probe.realpath(entryPath);
+    const after = await probe.lstat(entryPath);
+    if (!before.isFile || before.isSymbolicLink || before.linkCount !== 1 ||
+      before.identity !== after.identity || before.isFile !== after.isFile ||
+      before.isSymbolicLink !== after.isSymbolicLink || before.linkCount !== after.linkCount ||
+      !sameNativePath(physicalPath, entryPath)) {
+      throw new Error('invalid native helper entry');
+    }
+    return path.resolve(physicalPath);
+  } catch {
+    throw executionError('preparation', undefined, undefined, 'native-helper-entry');
   }
-  return new Uint8Array(await result.outputs[0].arrayBuffer());
+}
+
+async function defaultNativeHelperBundleSource(
+  entryPath = NATIVE_HELPER_ENTRY_PATH,
+  probe = NATIVE_HELPER_ENTRY_PROBE,
+  builder = NATIVE_HELPER_BUILDER
+): Promise<Uint8Array> {
+  const provenEntryPath = await proveNativeHelperEntry(entryPath, probe);
+  try {
+    const result = await builder(provenEntryPath);
+    if (!result.success || result.outputs.length !== 1) {
+      throw executionError('preparation', undefined, undefined, 'native-helper-build');
+    }
+    return new Uint8Array(await result.outputs[0].arrayBuffer());
+  } catch (error) {
+    throw normalizeExecutionError(error, 'preparation', 'native-helper-build');
+  }
 }
 
 function createNativeHelperBundleLoader(source: NativeHelperBundleSource): NativeHelperBundleLoader {
@@ -104,7 +179,7 @@ function createNativeHelperBundleLoader(source: NativeHelperBundleSource): Nativ
         const bytes = await source();
         const text = new TextDecoder().decode(bytes);
         if (bytes.byteLength === 0 || /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u.test(text)) {
-          throw executionError('preparation', undefined, undefined, 'native-helper-build');
+          throw executionError('preparation', undefined, undefined, 'native-helper-bundle-contract');
         }
         return bytes;
       })();
@@ -134,6 +209,22 @@ export function createWindowsAppContainerNativeHelperBundleLoaderForTests(
   source: NativeHelperBundleSource
 ): NativeHelperBundleLoader {
   return createNativeHelperBundleLoader(source);
+}
+
+/** Test-only pure seams for the native-helper entry proof and exact production build. */
+export async function proveWindowsAppContainerNativeHelperEntryForTests(
+  entryPath: string,
+  probe: NativeHelperEntryProbe
+): Promise<string> {
+  return proveNativeHelperEntry(entryPath, probe);
+}
+
+export async function buildWindowsAppContainerNativeHelperBundleSourceForTests(
+  entryPath = NATIVE_HELPER_ENTRY_PATH,
+  probe = NATIVE_HELPER_ENTRY_PROBE,
+  builder = NATIVE_HELPER_BUILDER
+): Promise<Uint8Array> {
+  return defaultNativeHelperBundleSource(entryPath, probe, builder);
 }
 
 const WINDOWS_APPCONTAINER_ENVIRONMENT_KEYS = new Set([
@@ -358,7 +449,9 @@ export type WindowsAppContainerExecutionPhase =
   | 'cleanup';
 
 export type WindowsAppContainerPreparationSubstage =
+  | 'native-helper-entry'
   | 'native-helper-build'
+  | 'native-helper-bundle-contract'
   | 'native-helper-materialization'
   | 'native-helper-invocation'
   | 'native-helper-protocol'
@@ -412,7 +505,9 @@ const WINDOWS_APPCONTAINER_EXECUTION_PHASES = new Set<WindowsAppContainerExecuti
 );
 
 const WINDOWS_APPCONTAINER_PREPARATION_SUBSTAGES = new Set<WindowsAppContainerPreparationSubstage>([
+  'native-helper-entry',
   'native-helper-build',
+  'native-helper-bundle-contract',
   'native-helper-materialization',
   'native-helper-invocation',
   'native-helper-protocol',

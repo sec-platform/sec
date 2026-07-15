@@ -264,6 +264,26 @@ test('isolated verification failure projection allowlists typed fields at runtim
   expect(Object.isFrozen(preparationProjected.appContainer?.nativeHelperObservation)).toBe(true);
   expect(JSON.stringify(preparationProjected)).not.toContain(secret);
 
+  for (const preparationSubstage of [
+    'native-helper-entry',
+    'native-helper-build',
+    'native-helper-bundle-contract'
+  ] as const) {
+    const typedProjection = projectSemanticMutationIsolatedVerificationFailureForTests(
+      'artifact-read',
+      new WindowsAppContainerExecutionError(
+        'preparation',
+        undefined,
+        undefined,
+        preparationSubstage
+      )
+    );
+    expect(typedProjection).toEqual({
+      stage: 'appcontainer-execution',
+      appContainer: { phase: 'preparation', preparationSubstage }
+    });
+  }
+
   const forgedWrapped = Object.assign(
     Object.create(SemanticMutationIsolatedVerificationUnavailableError.prototype) as object,
     {

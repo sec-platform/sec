@@ -179,7 +179,8 @@ const APPCONTAINER_TERMINATIONS = new Set<WindowsAppContainerHostToolFailure['te
   'not-requested', 'confirmed', 'unconfirmed'
 ]);
 const APPCONTAINER_PREPARATION_SUBSTAGES = new Set<WindowsAppContainerPreparationSubstage>([
-  'native-helper-build', 'native-helper-materialization', 'native-helper-invocation',
+  'native-helper-entry', 'native-helper-build', 'native-helper-bundle-contract',
+  'native-helper-materialization', 'native-helper-invocation',
   'native-helper-protocol', 'native-helper-diagnostic', 'native-receipt', 'sid-derivation',
   'profile-creation', 'owner-publication', 'runtime-identity', 'system-directory', 'unknown'
 ]);
