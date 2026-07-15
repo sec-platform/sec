@@ -1407,7 +1407,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer).not.toContain('controller.abort()');
   expect(sources.appContainer).not.toContain('normalizeExecutionError(monitorError ?? error,');
   expect(sources.appContainer).toContain('WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS');
-  expect(sources.appContainer).toContain(
+  expect(sources.appContainer).not.toContain(
     'writeFileSync(nativeResultPath, `${JSON.stringify({ exitCode })}\\n`, { flag: \'wx\' })'
   );
   expect(sources.appContainer).toContain(
@@ -1463,6 +1463,26 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainerHelper).toContain("mode: 'create-profile'");
   expect(sources.appContainerHelper).toContain('writeSync(1, payload)');
   expect(sources.appContainerHelper).toContain('writeFileSync(');
+  expect(sources.appContainerHelper).toContain(
+    'new Worker(import.meta.url, { ref: true })'
+  );
+  expect(sources.appContainerHelper).toContain(
+    'if (Bun.isMainThread) await runNativeHelperMain()'
+  );
+  const nativeWorkerStart = sources.appContainerHelper.indexOf(
+    'async function runNativeExecutionWorker('
+  );
+  const nativeWorkerEnd = sources.appContainerHelper.indexOf(
+    '\nfunction installNativeExecutionWorker()',
+    nativeWorkerStart
+  );
+  expect(nativeWorkerStart).toBeGreaterThan(-1);
+  expect(nativeWorkerEnd).toBeGreaterThan(nativeWorkerStart);
+  const nativeWorker = sources.appContainerHelper.slice(nativeWorkerStart, nativeWorkerEnd);
+  expect(nativeWorker).not.toContain('writeNativeHelperOutput(');
+  expect(nativeWorker).not.toContain('writeFileSync(');
+  expect(nativeWorker).not.toContain('exitNativeHelper(');
+  expect(sources.appContainerHelper).not.toContain("mode: 'worker'");
   expect(sources.appContainerHelper).not.toContain('process.stdout.write');
   expect(sources.appContainerHelper).not.toContain('assertWorkspaceWriteLease');
   expect(sources.appContainer).toContain(

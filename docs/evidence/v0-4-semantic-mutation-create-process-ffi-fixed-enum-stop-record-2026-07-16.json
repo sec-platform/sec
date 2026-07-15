@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-16T00:24:49.1212912+08:00",
+  "profile": "v0.4-semantic-mutation-create-process-ffi-fixed-enum",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-inner-job-settlement-r1-stop-record-2026-07-15.json",
+  "currentBase": "656462677d831d6ec1508e7f4f1b5a59c1c4d9dd",
+  "currentHead": "656462677d831d6ec1508e7f4f1b5a59c1c4d9dd",
+  "status": "stopped-after-create-process-ffi-root-cause-probe",
+  "mergeAllowed": false,
+  "stopReason": "The single authorized fixed-enum probe observed create-process-entered and did not observe the matching create-process-returned stage before the outer execute watchdog. No additional exact AppContainer seam is authorized in this batch.",
+  "probeScope": {
+    "kind": "temporary-fixed-enum-helper-stage",
+    "authorizedRealSeamRuns": 1,
+    "observedFields": [
+      "helperStage"
+    ],
+    "allowedValues": [
+      "create-process-entered",
+      "create-process-returned"
+    ],
+    "publicErrorExpanded": false,
+    "capabilityDiagnosticExpanded": false,
+    "settlementSidecarExpanded": false
+  },
+  "probeResult": {
+    "observed": [
+      {
+        "helperStage": "create-process-entered"
+      }
+    ],
+    "notObserved": [
+      {
+        "helperStage": "create-process-returned"
+      }
+    ],
+    "temporaryProbeFullyRemoved": true,
+    "temporaryProbePersistedInProductCode": false
+  },
+  "rootCauseInference": {
+    "proven": [
+      "The execute path entered the synchronous Bun FFI CreateProcessW invocation in the observed run.",
+      "The matching create-process-returned stage was not observed before the outer execute watchdog settled the run.",
+      "For this observed execution, the synchronous Bun FFI CreateProcessW invocation did not return within the outer watchdog boundary."
+    ],
+    "notProven": [
+      "That the same FFI invocation can never return outside the observed watchdog boundary.",
+      "The lower-level Windows or Bun runtime mechanism responsible for the non-return.",
+      "That moving execute into a supervised same-bundle Worker has already repaired or validated the real AppContainer seam."
+    ]
+  },
+  "retention": {
+    "scene": "D:/Project/sec/.tmp/codex-ledger-reconcile/.tmp/test-workspaces/engineering-compiler-sm3-isolated-production-bundle-rQOSCF",
+    "preserved": true,
+    "mustRemainUnmodified": true,
+    "forcedCleanupPerformed": false
+  },
+  "stopDiscipline": {
+    "fixedEnumProbeRuns": 1,
+    "secondExactSeamAuthorized": false,
+    "secondExactSeamStarted": false,
+    "fullRunStarted": false,
+    "slowRunStarted": false,
+    "githubActionsStarted": false
+  },
+  "nextStep": {
+    "task": "supervise execute native invocation in a same-bundle Worker",
+    "goal": "Keep derive and create-profile on their existing helper-main paths while isolating the execute native call in a Worker supervised by the responsive helper main thread.",
+    "verificationBoundary": "Use focused synthetic and contract validation first. Any later exact AppContainer seam requires a new bounded authorization and must not be represented by this record as already passing.",
+    "forbidden": [
+      "running another exact AppContainer seam in this batch",
+      "deleting or mutating the retained scene",
+      "restoring the temporary fixed-enum probe as a persistent public diagnostic",
+      "expanding the public error, capability diagnostic, or settlement sidecar",
+      "running full, slow, or GitHub Actions lanes"
+    ]
+  },
+  "invalidation": [
+    "A change to the stage placement around the synchronous CreateProcessW FFI call invalidates this boundary attribution for the changed tree.",
+    "A change to the fixed-enum mapping invalidates comparisons with the recorded observed and not-observed values.",
+    "A later result from a different head or working tree does not retroactively validate the Worker repair on currentBase/currentHead.",
+    "Mutation or deletion of the retained scene invalidates its use as preserved forensic evidence."
+  ]
+}

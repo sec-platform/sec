@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
@@ -549,6 +550,36 @@ test('Windows AppContainer exact native-helper production entry builds without A
   expect(new TextDecoder().decode(bundle)).not.toMatch(
     /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u
   );
+});
+
+test('Windows AppContainer exact native-helper bundle self-boots its finite Worker role', async () => {
+  const root = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-helper-worker-'));
+  let worker: Worker | undefined;
+  try {
+    const helperPath = path.join(root, 'native-helper.mjs');
+    await writeFile(helperPath, await buildWindowsAppContainerNativeHelperBundleSourceForTests());
+    worker = new Worker(pathToFileURL(helperPath), { ref: true });
+    const terminal = await new Promise<unknown>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('worker bootstrap timed out')), 2_000);
+      worker!.onmessage = (event) => {
+        clearTimeout(timeout);
+        resolve(event.data);
+      };
+      worker!.onerror = (event) => {
+        event.preventDefault();
+        clearTimeout(timeout);
+        reject(new Error('worker bootstrap failed'));
+      };
+      worker!.postMessage('invalid-request');
+    });
+    expect(terminal).toEqual({
+      kind: 'failed',
+      payload: '{"status":"failed","phase":"preparation","substage":"unknown"}'
+    });
+  } finally {
+    worker?.terminate();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('Windows AppContainer owner pending publication recovers before rename and after rename', async () => {
