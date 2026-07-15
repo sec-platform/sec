@@ -2160,7 +2160,7 @@ function settleObservedHostBunCommand(
     diagnostic,
     closedTree
   );
-  if (classification.status !== 'success') {
+  if (classification.status !== 'success' || outcome.exitCode === null) {
     const error = executionError(
       'preparation', undefined, undefined, 'native-helper-invocation'
     );
