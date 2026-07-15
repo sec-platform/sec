@@ -1011,12 +1011,20 @@ async function readChildOutcomePendingResult(
 const BUNDLED_RUNTIME_PATH_HELPER = '__secSemanticMutationRuntimePathV1';
 const BUNDLED_RUNTIME_PATH_IMPORT = '__secSemanticMutationFileUrlToPathV1';
 const BUNDLED_NODE_MODULES_SOURCE_PREFIX = '/node_modules/';
-const BUNDLED_EJS_ESM_CJS_COMPAT_ASSIGNMENT = 'module_utils.exports = utils;';
-const BUNDLED_EJS_ESM_CJS_COMPAT_GUARD = [
-  'if (typeof exports_utils != "undefined") {',
-  `  ${BUNDLED_EJS_ESM_CJS_COMPAT_ASSIGNMENT}`,
-  '}'
-].join('\n');
+const BUNDLED_EJS_ESM_CJS_COMPAT_FORMS = Object.freeze([
+  Object.freeze({
+    assignment: 'module_utils.exports = utils;',
+    guard: [
+      'if (typeof exports_utils != "undefined") {',
+      '  module_utils.exports = utils;',
+      '}'
+    ].join('\n')
+  }),
+  Object.freeze({
+    assignment: 'module_utils.exports=utils;',
+    guard: 'if(typeof exports_utils<"u")module_utils.exports=utils;'
+  })
+]);
 
 function nativePathKey(value: string): string {
   const resolved = path.resolve(value);
@@ -1075,16 +1083,25 @@ function relocateIsolatedRunnerBundle(
   if (source.includes(BUNDLED_RUNTIME_PATH_HELPER) || source.includes(BUNDLED_RUNTIME_PATH_IMPORT)) {
     throw new Error('Semantic Mutation isolated runner bundle relocation binding collides');
   }
-  const brokenEjsAssignmentCount = source.split(BUNDLED_EJS_ESM_CJS_COMPAT_ASSIGNMENT).length - 1;
-  const exactEjsGuardCount = source.split(BUNDLED_EJS_ESM_CJS_COMPAT_GUARD).length - 1;
-  if (brokenEjsAssignmentCount !== 1 || exactEjsGuardCount !== 1) {
+  const brokenEjsAssignmentCount = BUNDLED_EJS_ESM_CJS_COMPAT_FORMS.reduce(
+    (count, form) => count + source.split(form.assignment).length - 1,
+    0
+  );
+  const exactEjsGuardCount = BUNDLED_EJS_ESM_CJS_COMPAT_FORMS.reduce(
+    (count, form) => count + source.split(form.guard).length - 1,
+    0
+  );
+  const observedEjsGuard = BUNDLED_EJS_ESM_CJS_COMPAT_FORMS.find((form) =>
+    source.includes(form.guard));
+  if (brokenEjsAssignmentCount !== 1 || exactEjsGuardCount !== 1 || !observedEjsGuard) {
     throw new Error('Semantic Mutation isolated runner bundle has an invalid EJS ESM compatibility guard');
   }
   // Bun 1.3.6 rewrites EJS's dead ESM `exports/module` compatibility branch
-  // into a live `exports_utils` guard while omitting `module_utils`. Removing
-  // this exact required block restores the upstream ESM semantics. A missing
-  // block is dependency-output drift and must fail closed.
-  const normalizedSource = source.replace(BUNDLED_EJS_ESM_CJS_COMPAT_GUARD, '');
+  // into one of two fixed `exports_utils` guards while omitting `module_utils`:
+  // the readable bundle form or Bun's conservative syntax/whitespace-minified
+  // form. Removing exactly one complete known block restores the upstream ESM
+  // semantics. Missing, multiple, or mixed blocks are dependency-output drift.
+  const normalizedSource = source.replace(observedEjsGuard.guard, '');
   const provenBuildNodeModulesRoot = buildNodeModulesRoot ??
     revalidateIsolatedRuntimeBuildNodeModulesProof(
       captureIsolatedRuntimeBuildNodeModulesProof()
@@ -1105,10 +1122,21 @@ function relocateIsolatedRunnerBundle(
   ]);
   const observedRuntimeDirectories = new Set<string>();
   const assignmentPattern =
-    /var __dirname = ("(?:[^"\\]|\\.)*"), __filename = ("(?:[^"\\]|\\.)*");/gu;
+    /var __dirname = ("(?:[^"\\]|\\.)*"), __filename = ("(?:[^"\\]|\\.)*");|var __dirname=("(?:[^"\\]|\\.)*"),__filename=("(?:[^"\\]|\\.)*");/gu;
   const relocated = normalizedSource.replace(
     assignmentPattern,
-    (assignment: string, encodedDirectory: string, encodedFile: string): string => {
+    (
+      assignment: string,
+      readableDirectory: string | undefined,
+      readableFile: string | undefined,
+      minifiedDirectory: string | undefined,
+      minifiedFile: string | undefined
+    ): string => {
+      const encodedDirectory = readableDirectory ?? minifiedDirectory;
+      const encodedFile = readableFile ?? minifiedFile;
+      if (encodedDirectory === undefined || encodedFile === undefined) {
+        throw new Error('Semantic Mutation isolated runner bundle has an invalid relocation source');
+      }
       const sourceDirectory = JSON.parse(encodedDirectory) as unknown;
       const sourceFile = JSON.parse(encodedFile) as unknown;
       if (typeof sourceDirectory !== 'string' || typeof sourceFile !== 'string' ||

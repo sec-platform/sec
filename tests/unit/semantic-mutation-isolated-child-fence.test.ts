@@ -120,13 +120,24 @@ const BUNDLED_EJS_RELOCATION_GUARD = [
   '  module_utils.exports = utils;',
   '}'
 ].join('\n');
+const BUNDLED_EJS_CONSERVATIVE_MINIFIED_RELOCATION_GUARD =
+  'if(typeof exports_utils<"u")module_utils.exports=utils;';
 
-function relocationAssignment(directory: string, file = path.join(directory, 'typescript.js')): string {
-  return `var __dirname = ${JSON.stringify(directory)}, __filename = ${JSON.stringify(file)};`;
+function relocationAssignment(
+  directory: string,
+  file = path.join(directory, 'typescript.js'),
+  format: 'readable' | 'conservative-minified' = 'readable'
+): string {
+  return format === 'readable'
+    ? `var __dirname = ${JSON.stringify(directory)}, __filename = ${JSON.stringify(file)};`
+    : `var __dirname=${JSON.stringify(directory)},__filename=${JSON.stringify(file)};`;
 }
 
-function relocationBundle(assignments: readonly string[]): Uint8Array {
-  return new TextEncoder().encode([BUNDLED_EJS_RELOCATION_GUARD, ...assignments].join('\n'));
+function relocationBundle(
+  assignments: readonly string[],
+  guards: readonly string[] = [BUNDLED_EJS_RELOCATION_GUARD]
+): Uint8Array {
+  return new TextEncoder().encode([...guards, ...assignments].join('\n'));
 }
 
 test('isolated runner relocation rejects missing Bun EJS compatibility guard', () => {
@@ -703,6 +714,56 @@ test('isolated runner relocation accepts exact logical and proven physical build
   expect(relocated).toContain('../../node_modules/typescript/lib');
   expect(relocated).not.toContain(logicalRoot);
   expect(relocated).not.toContain(physicalRoot);
+});
+
+test('isolated runner relocation accepts the fixed conservative-minified bundle form', () => {
+  const logicalRoot = path.join(compilerRoot, 'node_modules');
+  const physicalRoot = path.join(path.resolve('relocation-minified-host'), 'node_modules');
+  const commonDirectory = path.join(logicalRoot, '@ts-morph', 'common', 'dist');
+  const typescriptDirectory = path.join(physicalRoot, 'typescript', 'lib');
+  const relocated = new TextDecoder().decode(relocateSemanticMutationIsolatedRunnerBundleForTests(
+    relocationBundle([
+      relocationAssignment(commonDirectory, undefined, 'conservative-minified'),
+      relocationAssignment(typescriptDirectory, undefined, 'conservative-minified')
+    ], [BUNDLED_EJS_CONSERVATIVE_MINIFIED_RELOCATION_GUARD]),
+    physicalRoot
+  ));
+
+  expect(relocated).toContain('../../node_modules/@ts-morph/common/dist');
+  expect(relocated).toContain('../../node_modules/typescript/lib');
+  expect(relocated).not.toContain(BUNDLED_EJS_CONSERVATIVE_MINIFIED_RELOCATION_GUARD);
+  expect(relocated).not.toContain(logicalRoot);
+  expect(relocated).not.toContain(physicalRoot);
+});
+
+test('isolated runner relocation rejects multiple and ambiguous EJS compatibility guards', () => {
+  const physicalRoot = path.join(path.resolve('relocation-guard-host'), 'node_modules');
+  const assignments = [
+    relocationAssignment(
+      path.join(physicalRoot, '@ts-morph', 'common', 'dist'),
+      undefined,
+      'conservative-minified'
+    ),
+    relocationAssignment(
+      path.join(physicalRoot, 'typescript', 'lib'),
+      undefined,
+      'conservative-minified'
+    )
+  ];
+
+  for (const guards of [
+    [
+      BUNDLED_EJS_CONSERVATIVE_MINIFIED_RELOCATION_GUARD,
+      BUNDLED_EJS_CONSERVATIVE_MINIFIED_RELOCATION_GUARD
+    ],
+    [BUNDLED_EJS_RELOCATION_GUARD, BUNDLED_EJS_CONSERVATIVE_MINIFIED_RELOCATION_GUARD],
+    ['module_utils.exports=utils;']
+  ]) {
+    expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(
+      relocationBundle(assignments, guards),
+      physicalRoot
+    )).toThrow('invalid EJS ESM compatibility guard');
+  }
 });
 
 test('isolated runner relocation uses Windows-native case, separator, and trailing-directory equality', () => {
