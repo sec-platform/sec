@@ -859,11 +859,26 @@ function captureObservedNativeHelperFailure(
 
 test('observed native helper accepts only an exact closed-tree untruncated wire', () => {
   const stdout = Buffer.from('{"status":"ok"}', 'utf8');
-  expect(settleObservedWindowsAppContainerNativeHelperForTests(
+  const result = settleObservedWindowsAppContainerNativeHelperForTests(
     exactNativeHelperOutcome(stdout, new Uint8Array()),
     stdout,
     new Uint8Array()
-  )).toEqual({ code: 0, stdout: '{"status":"ok"}', stderr: '' });
+  );
+  expect(result).toEqual({
+    code: 0,
+    payload: '{"status":"ok"}',
+    diagnosticPresent: false
+  });
+  const diagnostic = Buffer.from('redacted', 'utf8');
+  expect(settleObservedWindowsAppContainerNativeHelperForTests(
+    exactNativeHelperOutcome(stdout, diagnostic),
+    stdout,
+    diagnostic
+  )).toEqual({
+    code: 0,
+    payload: '{"status":"ok"}',
+    diagnosticPresent: true
+  });
 });
 
 test('unproved native helper trees retain all owned resources without public diagnostic growth', async () => {

@@ -1977,8 +1977,14 @@ async function cleanupHostBunConfig(
 
 interface HostBunCommandResult {
   readonly code: number;
-  readonly stdout: string;
-  readonly stderr: string;
+  readonly payload: string;
+  readonly diagnosticPresent: boolean;
+}
+
+interface ObservedDiagnosticCapture {
+  readonly bytes: number;
+  readonly digest: `sha256:${string}`;
+  readonly present: boolean;
 }
 
 function observedOutputMatches(
@@ -1992,10 +1998,9 @@ function observedOutputMatches(
 function settleObservedHostBunCommand(
   outcome: ObservedCommandOutcome,
   stdoutChunks: readonly Uint8Array[],
-  stderrChunks: readonly Uint8Array[]
+  diagnostic: ObservedDiagnosticCapture
 ): HostBunCommandResult {
   const stdout = Buffer.concat(stdoutChunks.map((chunk) => Buffer.from(chunk)));
-  const stderr = Buffer.concat(stderrChunks.map((chunk) => Buffer.from(chunk)));
   const closedTree = outcome.termination.childCloseObserved &&
     outcome.termination.streamsDrained && outcome.termination.treeClosed;
   const cleanupSafe = outcome.started
@@ -2006,7 +2011,9 @@ function settleObservedHostBunCommand(
     !outcome.termination.requested && closedTree &&
     !outcome.stdout.observerTruncated && !outcome.stderr.observerTruncated &&
     observedOutputMatches(stdout, outcome.stdout) &&
-    observedOutputMatches(stderr, outcome.stderr);
+    diagnostic.bytes === outcome.stderr.bytes &&
+    diagnostic.digest === outcome.stderr.digest &&
+    diagnostic.present === (outcome.stderr.bytes > 0);
   if (!exactSuccess) {
     const error = executionError(
       'preparation', undefined, undefined, 'native-helper-invocation'
@@ -2016,8 +2023,8 @@ function settleObservedHostBunCommand(
   }
   return Object.freeze({
     code: outcome.exitCode,
-    stdout: stdout.toString(),
-    stderr: stderr.toString()
+    payload: stdout.toString(),
+    diagnosticPresent: diagnostic.present
   });
 }
 
@@ -2027,7 +2034,11 @@ export function settleObservedWindowsAppContainerNativeHelperForTests(
   stdout: Uint8Array,
   stderr: Uint8Array
 ): HostBunCommandResult {
-  return settleObservedHostBunCommand(outcome, [stdout], [stderr]);
+  return settleObservedHostBunCommand(outcome, [stdout], Object.freeze({
+    bytes: stderr.byteLength,
+    digest: `sha256:${createHash('sha256').update(stderr).digest('hex')}`,
+    present: stderr.byteLength > 0
+  }));
 }
 
 async function runHostBunCommand(
@@ -2048,7 +2059,9 @@ async function runHostBunCommand(
   let primaryError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
   try {
     const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
+    const diagnosticDigest = createHash('sha256');
+    let diagnosticBytes = 0;
+    let diagnosticPresent = false;
     const observed = await runObservedCommand(process.execPath, [
       '--no-env-file',
       `--config=${configPath}`,
@@ -2066,12 +2079,22 @@ async function runHostBunCommand(
       env: environment,
       maxObservedOutputBytes: WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES,
       onOutput: (stream, chunk) => {
-        (stream === 'stdout' ? stdoutChunks : stderrChunks).push(Buffer.from(chunk));
+        if (stream === 'stdout') {
+          stdoutChunks.push(Buffer.from(chunk));
+          return;
+        }
+        diagnosticBytes += chunk.byteLength;
+        diagnosticDigest.update(chunk);
+        if (chunk.byteLength > 0) diagnosticPresent = true;
       },
       timeoutMs,
       whileRunning: commitFence
     });
-    result = settleObservedHostBunCommand(observed, stdoutChunks, stderrChunks);
+    result = settleObservedHostBunCommand(observed, stdoutChunks, Object.freeze({
+      bytes: diagnosticBytes,
+      digest: `sha256:${diagnosticDigest.digest('hex')}`,
+      present: diagnosticPresent
+    }));
     await commitFence();
   } catch (error) {
     primaryError = normalizeExecutionError(error,
@@ -2920,16 +2943,16 @@ async function invokeNativeHelper(
     return settleNativeHelperInvocation(
       'execute',
       result.code,
-      result.stdout,
-      result.stderr !== '',
+      result.payload,
+      result.diagnosticPresent,
       nativeReceipt
     );
   }
   settleNativeHelperInvocation(
     'create-profile',
     result.code,
-    result.stdout,
-    result.stderr !== '',
+    result.payload,
+    result.diagnosticPresent,
     nativeReceipt
   );
 }
@@ -2987,8 +3010,8 @@ async function deriveAppContainerSidViaHelper(
   return settleNativeHelperInvocation(
     'derive',
     result.code,
-    result.stdout,
-    result.stderr !== '',
+    result.payload,
+    result.diagnosticPresent,
     Object.freeze({ classification: 'not-applicable' })
   );
 }
