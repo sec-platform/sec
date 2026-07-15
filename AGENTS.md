@@ -5,7 +5,7 @@
 ## 工程事实与决策顺序
 
 - `main` 是唯一正式工程事实。Branch、PR、Issue、Completion Report 和历史聊天只作为线索。
-- 每轮规划前重新读取 latest `main`、open PR/Issue、相关 head/base/merge-base/diff、review threads、有效验证证据、authority docs 与实际代码。
+- 完整事实重载只在新 Work Package 启动、Task Envelope 缺少有效 Capsule 或 authority revision、base 经 merge/rebase 改变、authority/contract/ownership seam 改变、命中 `reload_if`、现有证据与代码冲突，或最终 merge/closeout 审查时执行；普通新 Task Envelope 和 reconciliation 只要 Capsule 仍有效，就只能读取其中标记的失效项与当前 delta。
 - Squash merge 后按最终代码与 diff 判断能力是否进入 `main`，不得用原 commit ancestry 误判遗漏。
 - 先从 architecture authority、代码和测试重新计算 DAG；不要默认沿用上一轮计划。
 
@@ -17,22 +17,27 @@
 - 同一个 canonical type、revision algorithm、builder、pipeline stage order 或 authority 章节默认串行，除非 ownership seam 已明确。
 - 保持 delegation depth 为 1。普通 worker 不得继续递归分派。
 - 可用角色位于 `.codex/agents/`；按任务选择最小角色集合。
+- A0 为每个执行 batch 提供 Context Capsule：base/head、goal、authority refs 与已观察 revision、owned/forbidden surface、prerequisite、acceptance、`gate_owner` 与可复用 evidence、reconciliation point、stop condition 和 `reload_if`。未命中 `reload_if` 时，worker 不得重新审计全仓。
+- Public contract 与被测接口已经冻结，且 tests/fixtures ownership 与生产代码、Contract Freeze registry 完全不重叠时，A0 可复用 `implementation-worker` 并行派发 `work_kind=test-prep`；否则 reviewer 只准备测试矩阵，由 canonical writer 串行落盘。
 
 ## Worker 协议
 
-正式实现 worker 的 Task Envelope 必须包含：task/Issue、current base、branch、architectural goal、ownership、forbidden paths、dependency、acceptance 和 required tests。
+正式实现 worker 的 Task Envelope 必须包含：task/Issue、current base、branch、architectural goal、ownership、forbidden paths、dependency、acceptance、required tests、`gate_owner` 和 stop condition。
 
 Worker 执行：
 
 ```text
-inspect → implement → focused local validation → commit → Draft PR/update existing PR → Completion Report → stop
+inspect → implement → focused local validation → commit → Draft PR/update existing PR → Reconciliation Delta → stop
 ```
 
 Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label，不得修改其他 worker ownership，不得顺手全仓重构，也不得通过删除测试或弱化合同解决失败。
 
+每个 reconciliation/stop 必须返回结构化 Delta：tested head、changed files/symbols、public/authority delta、acceptance delta、focused results、reusable/invalidated evidence、new blocker 和 next ready seam；同时记录 `inspect_ms`、`implement_ms`、`focused_validation_ms`、`wait_ms`、`reconcile_ms`、`context_reload_count` 与 `duplicate_gate_count`，不得另写叙述性进度文档。
+
 ## 验证与 Actions 经济性
 
 - 验证结论必须绑定 tested head/base、profile、contract revision（已知时）、命令/Gate、scope、result、duration/evidence 与 invalidation rule。
+- 每个 Gate 只有一个 `gate_owner` 可以执行；结果以 `gate_key + tested head + profile` 唯一标识。同一标识已有未失效结果时必须复用，其他 worker/reviewer只能选择或审计 Gate，不得重复执行。
 - 优先复用 `docs/test-feedback-and-ci-lanes.md` 中仍有效的昂贵证据。后续只重跑被 intervening diff 失效的 Gate。
 - 旧结果不得伪装成新 head 的 exact-head 结果；允许记录“已验证 baseline + diff impact + delta focused validation”的组合证据。
 - 本地环境足以证明的 Gate 在本地运行；GitHub Actions 只在 required contract 仍缺证据时触发一次。不得恢复 every-push、daily full 或重复 full/slow rerun。
