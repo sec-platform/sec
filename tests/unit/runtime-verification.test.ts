@@ -4,9 +4,11 @@ import path from 'node:path';
 import {
   buildIsolatedRuntimeEnvironment,
   bunRunInvocation,
+  captureIsolatedRuntimeBuildNodeModulesProofForTests,
   isolatedPlaywrightBrowsersPath,
   normalizeRuntimeVerificationLog,
-  resolveIsolatedRuntimeDependencySourcesForTests
+  resolveIsolatedRuntimeDependencySourcesForTests,
+  revalidateIsolatedRuntimeBuildNodeModulesProofForTests
 } from '../../platform/compiler/verify/run-runtime-verification.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 
@@ -67,11 +69,13 @@ test('isolated dependency sources derive one curated pair from an external physi
   const result = resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
+      [physicalBridgeTarget]: physicalBridgeTarget,
       [nodeModules]: nodeModules,
       [browserCache]: browserCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalBridgeTarget]: metadata('physical-modules'),
       [nodeModules]: metadata('modules'),
       [browserCache]: metadata('cache')
     }
@@ -108,11 +112,13 @@ test('isolated dependency sources reject an aliased node_modules and fall back a
   expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
+      [physicalBridgeTarget]: physicalBridgeTarget,
       [nodeModules]: aliasedNodeModules,
       [browserCache]: browserCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalBridgeTarget]: metadata('physical-modules'),
       [nodeModules]: metadata('modules'),
       [browserCache]: metadata('cache')
     }
@@ -132,11 +138,13 @@ test('isolated dependency sources reject unstable node_modules identity as one l
   const stableProbe = pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
+      [physicalBridgeTarget]: physicalBridgeTarget,
       [nodeModules]: nodeModules,
       [browserCache]: browserCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalBridgeTarget]: metadata('physical-modules'),
       [nodeModules]: metadata('modules-before'),
       [browserCache]: metadata('cache')
     }
@@ -168,11 +176,13 @@ test('isolated dependency sources reject an aliased cache and fall back as one l
   expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
+      [physicalBridgeTarget]: physicalBridgeTarget,
       [nodeModules]: nodeModules,
       [browserCache]: aliasedCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalBridgeTarget]: metadata('physical-modules'),
       [nodeModules]: metadata('modules'),
       [browserCache]: metadata('cache')
     }
@@ -180,6 +190,87 @@ test('isolated dependency sources reject an aliased cache and fall back as one l
     nodeModules: path.join(worktreeRoot, '.shared-deps', 'node_modules'),
     browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers')
   });
+});
+
+test('isolated build root proof freezes and revalidates one physical bridge target', () => {
+  const worktreeRoot = path.resolve('build-proof-worktree');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const physicalRoot = path.join(path.resolve('build-proof-host'), 'node_modules');
+  const probe = pathProbe({
+    realpaths: { [bridge]: physicalRoot, [physicalRoot]: physicalRoot },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalRoot]: metadata('physical-root')
+    }
+  });
+
+  const proof = captureIsolatedRuntimeBuildNodeModulesProofForTests(worktreeRoot, probe);
+  expect(proof.buildNodeModulesRoot).toBe(physicalRoot);
+  expect(Object.isFrozen(proof)).toBe(true);
+  expect(Object.isFrozen(proof.bridgeMetadata)).toBe(true);
+  expect(Object.isFrozen(proof.targetMetadata)).toBe(true);
+  expect(revalidateIsolatedRuntimeBuildNodeModulesProofForTests(worktreeRoot, proof, probe))
+    .toBe(physicalRoot);
+});
+
+test('isolated build root proof rejects bridge identity drift during revalidation', () => {
+  const worktreeRoot = path.resolve('build-proof-drift-worktree');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const physicalRoot = path.join(path.resolve('build-proof-drift-host'), 'node_modules');
+  let bridgeReads = 0;
+  const stableProbe = pathProbe({
+    realpaths: { [bridge]: physicalRoot, [physicalRoot]: physicalRoot },
+    metadata: {
+      [bridge]: metadata('bridge-before', { directory: false, symbolicLink: true }),
+      [physicalRoot]: metadata('physical-root')
+    }
+  });
+  const probe = {
+    ...stableProbe,
+    lstat(value: string) {
+      if (value !== bridge) return stableProbe.lstat(value);
+      bridgeReads += 1;
+      return metadata(bridgeReads <= 2 ? 'bridge-before' : 'bridge-after', {
+        directory: false,
+        symbolicLink: true
+      });
+    }
+  };
+  const proof = captureIsolatedRuntimeBuildNodeModulesProofForTests(worktreeRoot, probe);
+
+  expect(() => revalidateIsolatedRuntimeBuildNodeModulesProofForTests(worktreeRoot, proof, probe))
+    .toThrow('proof changed during bundle build');
+});
+
+test('isolated build root proof rejects physical target identity drift and aliases', () => {
+  const worktreeRoot = path.resolve('build-proof-target-drift-worktree');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const physicalRoot = path.join(path.resolve('build-proof-target-drift-host'), 'node_modules');
+  let targetReads = 0;
+  const driftProbe = pathProbe({
+    realpaths: { [bridge]: physicalRoot, [physicalRoot]: physicalRoot },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalRoot]: metadata('physical-before')
+    }
+  });
+  expect(() => captureIsolatedRuntimeBuildNodeModulesProofForTests(worktreeRoot, {
+    ...driftProbe,
+    lstat(value: string) {
+      if (value !== physicalRoot) return driftProbe.lstat(value);
+      targetReads += 1;
+      return metadata(targetReads === 1 ? 'physical-before' : 'physical-after');
+    }
+  })).toThrow('could not be proven');
+
+  const aliasRoot = path.join(path.resolve('build-proof-alias-host'), 'node_modules');
+  expect(() => captureIsolatedRuntimeBuildNodeModulesProofForTests(worktreeRoot, pathProbe({
+    realpaths: { [bridge]: physicalRoot, [physicalRoot]: aliasRoot },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalRoot]: metadata('physical-root')
+    }
+  }))).toThrow('could not be proven');
 });
 
 test('writable and staged Playwright caches remain rooted in their original owners', () => {

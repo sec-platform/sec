@@ -73,6 +73,13 @@ export interface IsolatedRuntimeDependencySources {
   readonly browserCache: string;
 }
 
+export interface IsolatedRuntimeBuildNodeModulesProof {
+  readonly nodeModulesBridge: string;
+  readonly buildNodeModulesRoot: string;
+  readonly bridgeMetadata: DependencyPathMetadata;
+  readonly targetMetadata: DependencyPathMetadata;
+}
+
 const NODE_DEPENDENCY_PATH_PROBE: DependencyPathProbe = Object.freeze({
   lstat(value: string): DependencyPathMetadata {
     const metadata = lstatSync(value);
@@ -112,6 +119,58 @@ function sameMetadata(left: DependencyPathMetadata, right: DependencyPathMetadat
     left.isSymbolicLink === right.isSymbolicLink;
 }
 
+function frozenMetadata(value: DependencyPathMetadata): DependencyPathMetadata {
+  return Object.freeze({
+    identity: value.identity,
+    isDirectory: value.isDirectory,
+    isSymbolicLink: value.isSymbolicLink
+  });
+}
+
+function provePhysicalNodeModulesBridgeWithProbe(
+  root: string,
+  probe: DependencyPathProbe
+): Readonly<IsolatedRuntimeBuildNodeModulesProof> | undefined {
+  try {
+    const nodeModulesBridge = path.join(root, 'node_modules');
+    const bridgeBefore = probe.lstat(nodeModulesBridge);
+    const buildNodeModulesRoot = probe.realpath(nodeModulesBridge);
+    const bridgeAfter = probe.lstat(nodeModulesBridge);
+    if (!sameMetadata(bridgeBefore, bridgeAfter) ||
+      foldedPathSegment(path.basename(buildNodeModulesRoot)) !== 'node_modules') {
+      return undefined;
+    }
+
+    const targetBefore = probe.lstat(buildNodeModulesRoot);
+    if (!targetBefore.isDirectory || targetBefore.isSymbolicLink) return undefined;
+    const canonicalTarget = probe.realpath(buildNodeModulesRoot);
+    const targetAfter = probe.lstat(buildNodeModulesRoot);
+    if (!sameMetadata(targetBefore, targetAfter) ||
+      foldedPath(canonicalTarget) !== foldedPath(buildNodeModulesRoot)) {
+      return undefined;
+    }
+
+    return Object.freeze({
+      nodeModulesBridge,
+      buildNodeModulesRoot,
+      bridgeMetadata: frozenMetadata(bridgeAfter),
+      targetMetadata: frozenMetadata(targetAfter)
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function sameBuildNodeModulesProof(
+  left: IsolatedRuntimeBuildNodeModulesProof,
+  right: IsolatedRuntimeBuildNodeModulesProof
+): boolean {
+  return foldedPath(left.nodeModulesBridge) === foldedPath(right.nodeModulesBridge) &&
+    foldedPath(left.buildNodeModulesRoot) === foldedPath(right.buildNodeModulesRoot) &&
+    sameMetadata(left.bridgeMetadata, right.bridgeMetadata) &&
+    sameMetadata(left.targetMetadata, right.targetMetadata);
+}
+
 function stableCanonicalPhysicalDirectory(value: string, probe: DependencyPathProbe): boolean {
   const before = probe.lstat(value);
   if (!before.isDirectory || before.isSymbolicLink) return false;
@@ -133,14 +192,9 @@ function resolveIsolatedRuntimeDependencySourcesWithProbe(
 ): Readonly<IsolatedRuntimeDependencySources> {
   const fallback = fallbackDependencySources(root);
   try {
-    const nodeModulesBridge = path.join(root, 'node_modules');
-    const bridgeBefore = probe.lstat(nodeModulesBridge);
-    const physicalNodeModules = probe.realpath(nodeModulesBridge);
-    const bridgeAfter = probe.lstat(nodeModulesBridge);
-    if (!sameMetadata(bridgeBefore, bridgeAfter) ||
-      foldedPathSegment(path.basename(physicalNodeModules)) !== 'node_modules') {
-      return fallback;
-    }
+    const buildProof = provePhysicalNodeModulesBridgeWithProbe(root, probe);
+    if (!buildProof) return fallback;
+    const physicalNodeModules = buildProof.buildNodeModulesRoot;
 
     const physicalParent = path.dirname(physicalNodeModules);
     const dependencyHost = foldedPathSegment(path.basename(physicalParent)) === '.shared-deps'
@@ -172,6 +226,59 @@ export function resolveIsolatedRuntimeDependencySourcesForTests(
 
 export function resolveIsolatedRuntimeDependencySources(): Readonly<IsolatedRuntimeDependencySources> {
   return resolveIsolatedRuntimeDependencySourcesWithProbe(compilerRoot, NODE_DEPENDENCY_PATH_PROBE);
+}
+
+function captureIsolatedRuntimeBuildNodeModulesProofWithProbe(
+  root: string,
+  probe: DependencyPathProbe
+): Readonly<IsolatedRuntimeBuildNodeModulesProof> {
+  const proof = provePhysicalNodeModulesBridgeWithProbe(root, probe);
+  if (!proof) {
+    throw new Error('Isolated runtime build node_modules root could not be proven');
+  }
+  return proof;
+}
+
+function revalidateIsolatedRuntimeBuildNodeModulesProofWithProbe(
+  root: string,
+  proof: IsolatedRuntimeBuildNodeModulesProof,
+  probe: DependencyPathProbe
+): string {
+  const current = provePhysicalNodeModulesBridgeWithProbe(root, probe);
+  if (!current || !sameBuildNodeModulesProof(proof, current)) {
+    throw new Error('Isolated runtime build node_modules proof changed during bundle build');
+  }
+  return current.buildNodeModulesRoot;
+}
+
+export function captureIsolatedRuntimeBuildNodeModulesProof(): Readonly<IsolatedRuntimeBuildNodeModulesProof> {
+  return captureIsolatedRuntimeBuildNodeModulesProofWithProbe(compilerRoot, NODE_DEPENDENCY_PATH_PROBE);
+}
+
+export function revalidateIsolatedRuntimeBuildNodeModulesProof(
+  proof: IsolatedRuntimeBuildNodeModulesProof
+): string {
+  return revalidateIsolatedRuntimeBuildNodeModulesProofWithProbe(
+    compilerRoot,
+    proof,
+    NODE_DEPENDENCY_PATH_PROBE
+  );
+}
+
+/** Test-only pure seams for the frozen build-root proof lifecycle. */
+export function captureIsolatedRuntimeBuildNodeModulesProofForTests(
+  root: string,
+  probe: DependencyPathProbe
+): Readonly<IsolatedRuntimeBuildNodeModulesProof> {
+  return captureIsolatedRuntimeBuildNodeModulesProofWithProbe(root, probe);
+}
+
+export function revalidateIsolatedRuntimeBuildNodeModulesProofForTests(
+  root: string,
+  proof: IsolatedRuntimeBuildNodeModulesProof,
+  probe: DependencyPathProbe
+): string {
+  return revalidateIsolatedRuntimeBuildNodeModulesProofWithProbe(root, proof, probe);
 }
 
 export function isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot?: string): string {

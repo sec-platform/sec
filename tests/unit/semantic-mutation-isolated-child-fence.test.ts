@@ -53,7 +53,7 @@ import {
   semanticMutationRuntimeSourceSnapshotCacheStatsForTests
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureIsolatedProcessDirectories, runCommand } from '../../platform/shared/process.ts';
 import { RUNTIME_DEPS_PREBOUND_BINDING_FILE } from '../../platform/shared/runtime-dependency-spec.ts';
 import {
@@ -91,9 +91,100 @@ function workspaceWriteLeaseToken(): WorkspaceWriteLeaseToken {
   });
 }
 
+const BUNDLED_EJS_RELOCATION_GUARD = [
+  'if (typeof exports_utils != "undefined") {',
+  '  module_utils.exports = utils;',
+  '}'
+].join('\n');
+
+function relocationAssignment(directory: string, file = path.join(directory, 'typescript.js')): string {
+  return `var __dirname = ${JSON.stringify(directory)}, __filename = ${JSON.stringify(file)};`;
+}
+
+function relocationBundle(assignments: readonly string[]): Uint8Array {
+  return new TextEncoder().encode([BUNDLED_EJS_RELOCATION_GUARD, ...assignments].join('\n'));
+}
+
 test('isolated runner relocation rejects missing Bun EJS compatibility guard', () => {
   expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(new Uint8Array()))
     .toThrow('Semantic Mutation isolated runner bundle has an invalid EJS ESM compatibility guard');
+});
+
+test('isolated runner relocation accepts exact logical and proven physical build roots', () => {
+  const logicalRoot = path.join(compilerRoot, 'node_modules');
+  const physicalRoot = path.join(path.resolve('relocation-physical-host'), 'node_modules');
+  const commonDirectory = path.join(logicalRoot, '@ts-morph', 'common', 'dist');
+  const typescriptDirectory = path.join(physicalRoot, 'typescript', 'lib');
+  const relocated = new TextDecoder().decode(relocateSemanticMutationIsolatedRunnerBundleForTests(
+    relocationBundle([
+      relocationAssignment(commonDirectory),
+      relocationAssignment(typescriptDirectory)
+    ]),
+    physicalRoot
+  ));
+
+  expect(relocated).toContain('../../node_modules/@ts-morph/common/dist');
+  expect(relocated).toContain('../../node_modules/typescript/lib');
+  expect(relocated).not.toContain(logicalRoot);
+  expect(relocated).not.toContain(physicalRoot);
+});
+
+test('isolated runner relocation uses Windows-native case, separator, and trailing-directory equality', () => {
+  if (process.platform !== 'win32') return;
+  const physicalRoot = path.join(path.resolve('relocation-native-host'), 'node_modules');
+  const commonDirectory = `${path.join(physicalRoot, '@ts-morph', 'common', 'dist')}${path.sep}`
+    .toUpperCase()
+    .replaceAll('\\', '/');
+  const typescriptDirectory = `${path.join(physicalRoot, 'typescript', 'lib')}${path.sep}`
+    .toUpperCase()
+    .replaceAll('\\', '/');
+
+  expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(relocationBundle([
+    relocationAssignment(commonDirectory),
+    relocationAssignment(typescriptDirectory)
+  ]), physicalRoot)).not.toThrow();
+});
+
+test('isolated runner relocation rejects unproven, prefix-collision, and nested build roots', () => {
+  const physicalRoot = path.join(path.resolve('relocation-trusted-host'), 'node_modules');
+  const rejectedRoots = [
+    path.join(path.resolve('relocation-unproven-host'), 'node_modules'),
+    `${physicalRoot}-prefix-collision`,
+    path.join(physicalRoot, '.cache', 'typescript-version', 'node_modules')
+  ];
+
+  for (const rejectedRoot of rejectedRoots) {
+    expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(relocationBundle([
+      relocationAssignment(path.join(rejectedRoot, '@ts-morph', 'common', 'dist')),
+      relocationAssignment(path.join(rejectedRoot, 'typescript', 'lib'))
+    ]), physicalRoot)).toThrow('unexpected relocation source');
+  }
+});
+
+test('isolated runner relocation rejects directory-file mismatch', () => {
+  const physicalRoot = path.join(path.resolve('relocation-mismatch-host'), 'node_modules');
+  const commonDirectory = path.join(physicalRoot, '@ts-morph', 'common', 'dist');
+  const typescriptDirectory = path.join(physicalRoot, 'typescript', 'lib');
+
+  expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(relocationBundle([
+    relocationAssignment(commonDirectory, path.join(typescriptDirectory, 'typescript.js')),
+    relocationAssignment(typescriptDirectory)
+  ]), physicalRoot)).toThrow('invalid relocation source');
+});
+
+test('isolated runner relocation rejects duplicate and missing two-of-two coverage', () => {
+  const physicalRoot = path.join(path.resolve('relocation-coverage-host'), 'node_modules');
+  const commonAssignment = relocationAssignment(
+    path.join(physicalRoot, '@ts-morph', 'common', 'dist')
+  );
+
+  expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(relocationBundle([
+    commonAssignment,
+    commonAssignment
+  ]), physicalRoot)).toThrow('unexpected relocation source');
+  expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(relocationBundle([
+    commonAssignment
+  ]), physicalRoot)).toThrow('relocation coverage is incomplete');
 });
 
 test('isolated verification failure projection allowlists typed fields at runtime', () => {
