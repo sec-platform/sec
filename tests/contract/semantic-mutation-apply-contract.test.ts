@@ -464,7 +464,13 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     'probeSemanticMutationIsolatedRuntimeCapability',
     'runSemanticMutationIsolatedVerificationChild',
     'IsolatedVerificationArtifacts',
-    'SemanticMutationIsolatedVerificationFailure'
+    'SemanticMutationIsolatedVerificationFailure',
+    'SemanticMutationIsolatedCapabilityPreparationSubstage',
+    'SemanticMutationIsolatedRuntimeCapabilityDiagnostic',
+    'SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES',
+    'buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests',
+    'projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests',
+    'semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests'
   ]) {
     expect(sources.compilerFacade, `public Compiler facade exports ${forbiddenWriter}`)
       .not.toMatch(new RegExp(`export[^;]+\\b${forbiddenWriter}\\b`, 'su'));
@@ -813,6 +819,24 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.isolatedChildOutcome).toContain("record.stage !== 'verify-all'");
   expect(sources.isolatedChild).toContain('projectChildOutcome(childOutcome.value)');
   expect(sources.isolatedChild).not.toContain("executionBoundary: 'windows-appcontainer'");
+  const runtimeCapabilityProjectionStart = sources.isolatedChild.indexOf(
+    'function projectSemanticMutationIsolatedRuntimeCapabilitySubstage('
+  );
+  const runtimeCapabilityProjectionEnd = sources.isolatedChild.indexOf(
+    '\nfunction isolatedRuntimeCapabilityDiagnostic(',
+    runtimeCapabilityProjectionStart
+  );
+  expect(runtimeCapabilityProjectionStart).toBeGreaterThan(-1);
+  expect(runtimeCapabilityProjectionEnd).toBeGreaterThan(runtimeCapabilityProjectionStart);
+  const runtimeCapabilityProjection = sources.isolatedChild.slice(
+    runtimeCapabilityProjectionStart,
+    runtimeCapabilityProjectionEnd
+  );
+  expect(runtimeCapabilityProjection).toContain("stage: 'runtime-capability' as const");
+  expect(runtimeCapabilityProjection).toContain('runtimeCapability: Object.freeze({ substage })');
+  for (const rawField of ['cause', 'command', 'env', 'message', 'path', 'stack', 'stderr', 'stdout']) {
+    expect(runtimeCapabilityProjection).not.toMatch(new RegExp(`\\b${rawField}\\b`, 'u'));
+  }
   expect(sources.neutralIsolationCapability).toContain(
     'const workspaceRootsByCapability = new WeakMap<object, string>()'
   );
