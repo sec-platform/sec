@@ -231,6 +231,29 @@ test('test impact selector owns the SM-3 lease and isolated AppContainer executi
   }
 });
 
+test('test impact selector gives the runner build protocol a focused semantic-mutation owner', () => {
+  for (const source of [
+    'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
+    'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts'
+  ]) {
+    const selection = selectTestsForSources([source]);
+    expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);
+    expect(selection.fast).toEqual([
+      'tests/contract/semantic-mutation-apply-contract.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/integration/project-runtime.test.ts',
+      'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
+    ]);
+    expect(selection.slow).toEqual(['tests/e2e/verification.test.ts']);
+    expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
+      .toEqual([{
+        source,
+        owner: 'semantic-mutation',
+        identity: { kind: 'architecture-owner', id: 'semantic-mutation' }
+      }]);
+  }
+});
+
 test('test impact selector assigns neutral isolated Verification capabilities to Pipeline ownership', () => {
   const sourceFiles = [
     'platform/shared/verification-artifact-contract.ts',

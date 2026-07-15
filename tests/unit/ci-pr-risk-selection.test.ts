@@ -144,3 +144,15 @@ test('agent governance and frozen work-package inputs use focused owners without
     expect(selection.reasons).toContain('changed-files-unresolved');
   }
 });
+
+test('runner build changes select only the focused verification PR-risk suite', () => {
+  for (const source of [
+    'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
+    'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts'
+  ]) {
+    const selection = selectCiPrRiskSlowSuites([source]);
+    expect(selection.suites).toEqual(['e2e-verify-lock']);
+    expect(selection.resolved).toBe(true);
+    expect(selection.reasons).toEqual(['ownership-impact']);
+  }
+});
