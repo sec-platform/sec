@@ -95,6 +95,7 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     sourceFiles: [
       "platform/compiler/verify/semantic-mutation-runner-build-child.ts",
       "platform/compiler/verify/semantic-mutation-runner-build-protocol.ts",
+      "platform/compiler/verify/semantic-mutation-runner-build-settlement.ts",
     ],
     fast: SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS,
     slow: ["tests/e2e/verification.test.ts"],

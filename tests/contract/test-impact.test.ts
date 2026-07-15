@@ -231,10 +231,11 @@ test('test impact selector owns the SM-3 lease and isolated AppContainer executi
   }
 });
 
-test('test impact selector gives the runner build protocol a focused semantic-mutation owner', () => {
+test('test impact selector gives runner build boundaries a focused semantic-mutation owner', () => {
   for (const source of [
     'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
-    'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts'
+    'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts',
+    'platform/compiler/verify/semantic-mutation-runner-build-settlement.ts'
   ]) {
     const selection = selectTestsForSources([source]);
     expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);

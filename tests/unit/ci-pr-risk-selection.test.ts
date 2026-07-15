@@ -148,7 +148,8 @@ test('agent governance and frozen work-package inputs use focused owners without
 test('runner build changes select only the focused verification PR-risk suite', () => {
   for (const source of [
     'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
-    'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts'
+    'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts',
+    'platform/compiler/verify/semantic-mutation-runner-build-settlement.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([source]);
     expect(selection.suites).toEqual(['e2e-verify-lock']);
