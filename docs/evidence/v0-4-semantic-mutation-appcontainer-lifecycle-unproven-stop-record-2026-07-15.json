@@ -1,0 +1,153 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T18:06:30.1589942+08:00",
+  "profile": "v0.4-semantic-mutation-appcontainer-lifecycle-unproven",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-runner-build-invocation-stop-record-2026-07-15.json",
+  "repairBaseSha": "f5836a9b4a4fc0466eb8f22dc6ee39103596c45b",
+  "currentHead": "8473f3340592495e08ea3702211c3dc51bdc898b",
+  "currentHeadTree": "2d12aaf58afce42cbc0e20147e5d8a07abb025a1",
+  "implementationState": "committed-clean-working-tree-with-retained-ignored-forensics",
+  "status": "stopped-on-unproven-appcontainer-lifecycle",
+  "mergeAllowed": false,
+  "stopReason": "The single authorized real seam crossed the fresh-process runner build, materialization, launch-manifest, relocation, and host-path-free boundaries. Its first AppContainer launch did not return before test cleanup. The host helper path reached its bounded deadline without proving child and process-tree closure, but executor cleanup began. Generic fixture cleanup then failed with EACCES and replaced the original launch error while partially deleting outcome, progress, telemetry, and recovery evidence. The exact typed launch failure is therefore unrecoverable. This batch stopped without a rerun, forced cleanup, contract weakening, or public/slow expansion.",
+  "freshPidRepair": {
+    "buildIsolationCommit": "6307037af4489e88d01321a3f9ce5dfd1427a628",
+    "unprovenRootRetentionCommit": "ff3067b",
+    "cleanupPrimaryPrecedenceCommit": "a62ce2e",
+    "hostExecutableAuthorityCommit": "1f118803fb972582b578c8ef08f6237f1cea762e",
+    "custodyReconciliationCommit": "8473f3340592495e08ea3702211c3dc51bdc898b",
+    "contextualFreshBuildAndProtocol": "8/8 PASS with 79 assertions at 1f11880",
+    "semanticAuthorityContract": "1/1 PASS with 455 assertions at 8473f33",
+    "exactHeadTypecheck": "PASS",
+    "exactHeadChangedImports": "PASS from 6307037",
+    "exactHeadDiffCheck": "PASS",
+    "exactHeadCustodyLedger": "PASS; 25 custody Git blobs and 5 retained-recovery fixture Git blobs",
+    "independentFinalAudit": "PASS with no fresh-PID runtime blocker"
+  },
+  "realAppContainerSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "runCount": 1,
+    "status": "FAIL",
+    "exitCode": 1,
+    "wallDurationMs": 82700,
+    "testDurationMs": 79797,
+    "suiteDurationMs": 81100,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 39,
+    "expectCallsBeforeFailure": 6,
+    "confirmed": {
+      "runtimeCapability": {
+        "status": "available",
+        "diagnostic": null
+      },
+      "runtimeMaterialized": true,
+      "launchManifestValid": true,
+      "relocationAndHostPathContract": "passed",
+      "appContainerBoundaryAttempted": true
+    },
+    "unproven": {
+      "appContainerChildStarted": "unproven",
+      "runnerEntered": "unproven",
+      "childTreeClosed": "unproven",
+      "primaryAssertionEvaluated": false,
+      "exactTypedPhase": "unrecoverable"
+    },
+    "primaryErrorVisibility": "masked-by-fixture-finally",
+    "fixtureCleanupFailure": {
+      "operation": "recursive-remove",
+      "code": "EACCES",
+      "targetClass": "retained-test-workspace-containing-staged-runtime-executable"
+    },
+    "typedPrimaryInference": {
+      "observed": false,
+      "stage": "appcontainer-execution",
+      "phase": "preparation",
+      "preparationSubstage": "native-helper-invocation",
+      "confidence": "strong-timing-and-source-inference-only"
+    }
+  },
+  "retainedForensics": {
+    "forcedCleanupPerformed": false,
+    "rootAclContainsDeny": false,
+    "visibleBunProcessAfterSettlement": false,
+    "profileState": "present-redacted",
+    "profileAclMatchesInSurvivingTree": 0,
+    "runtimeResidue": [
+      ".sm3r/bun.exe",
+      ".sm3r/bunfig.toml"
+    ],
+    "outcome": "destroyed-or-absent-after-partial-cleanup",
+    "progress": "destroyed-or-absent-after-partial-cleanup",
+    "telemetry": "destroyed-or-absent-after-partial-cleanup",
+    "automaticRecoveryAuthority": "partially-deleted-and-unavailable"
+  },
+  "lifecycleDiagnosis": {
+    "hostHelperRunner": "legacy runCommand",
+    "deadlineContract": "requested child timeout plus 10000 ms host-helper allowance",
+    "treeClosureProofBeforeCleanup": false,
+    "cleanupObservedBeforeProfileDelete": [
+      "ACL removal completed",
+      "runtime recursive removal interrupted",
+      "profile deletion not reached"
+    ],
+    "fixtureSecondaryDefects": [
+      "Windows EACCES is not in the bounded retry set",
+      "callback primary is replaced by cleanup failure",
+      "generic recursive cleanup partially deletes retained recovery evidence"
+    ]
+  },
+  "decision": {
+    "runnerBuildBlockerCrossed": true,
+    "lifecycleRepairSelected": true,
+    "fixturePrimaryPreservationSelected": true,
+    "immediateEaccesRetryOnlyRejected": true,
+    "publicVerticalStarted": false,
+    "slowBatchStarted": false,
+    "rootUserChangesTouched": false,
+    "retainedProfileOrWorkspaceDeleted": false
+  },
+  "notRun": [
+    "second real AppContainer seam in this lifecycle batch",
+    "SM-3 public vertical",
+    "canonical slow delta DAG",
+    "full-fast",
+    "all-slow",
+    "GitHub Actions",
+    "merge and branch cleanup"
+  ],
+  "nextTaskEnvelope": {
+    "task": "prove native-helper process-tree closure before cleanup and preserve fixture primary errors",
+    "currentBase": "8473f3340592495e08ea3702211c3dc51bdc898b",
+    "singleWriterPerCanonicalSurface": true,
+    "goals": [
+      "Migrate the native-helper host invocation to observed process lifecycle evidence and prohibit ACL, runtime, or profile cleanup when child and tree closure are unproven.",
+      "Make test-workspace settlement preserve callback primary identity, retain failed workspaces for deferred cleanup, and bound Windows-only transient EACCES retries on success cleanup."
+    ],
+    "forbidden": [
+      "rerunning the real AppContainer seam before focused lifecycle and fixture-cleanup tests pass",
+      "deleting or recovering the retained profile or workspace without separate authority",
+      "weakening AppContainer, ACL, host-path, relocation, lease, or public diagnostic contracts",
+      "persisting raw helper output, paths, SIDs, profile names, argv, environment, messages, causes, or stacks in product diagnostics",
+      "running full, slow, or GitHub Actions lanes"
+    ],
+    "acceptance": [
+      "Termination-unproven outcomes retain owner, ACL, runtime, and profile authorities and return a finite path-free failure.",
+      "Only child-close, streams-drained, tree-closed outcomes may enter cleanup.",
+      "Callback primary failures are never replaced by fixture cleanup failures.",
+      "Successful callbacks still fail if cleanup exhausts its bounded retry policy.",
+      "The retained forensic workspace and profile remain untouched until separately authorized."
+    ]
+  }
+}
