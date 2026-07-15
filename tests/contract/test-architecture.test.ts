@@ -196,20 +196,49 @@ test('compose-layer TS codegen uses CodeBuilder instead of template string conca
 });
 
 /**
- * 编译器门面契约：platform/ 下除 platform/compiler/ 自身外的所有模块，
- * 必须通过 platform/compiler/index.ts 门面导入编译器 API，
- * 不允许直接导入编译器子目录（align/codegen/compose/emit/parse/repair/resolve/synthesize/verify/workbench）。
- *
- * 这类似 LLVM 的 API 边界：外部使用者只能通过 llvm/Support 之类的公共头文件访问，
- * 不能直接 include 内部实现头文件。
+ * 编译器门面契约：read-only API 通过 platform/compiler/index.ts 暴露；具有副作用的 writer
+ * 不得进入 public facade，只能由拥有该 pipeline stage 的 production owner 直接导入 canonical
+ * internal module。除下列精确 owner -> writer module pair 外，platform/ 仍不得导入编译器子目录。
  */
 const compilerInternalSubdirs = ['align', 'codegen', 'compose', 'emit', 'parse', 'repair', 'resolve', 'synthesize', 'verify', 'workbench'];
+const compilerInternalWriterImportAllowlist: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'platform/orchestrator/compose-orchestrator.ts': Object.freeze([
+    '../compiler/compose/compose-project.ts',
+    '../compiler/synthesize/adapt-project.ts'
+  ]),
+  'platform/orchestrator/emit-orchestrator.ts': Object.freeze([
+    '../compiler/emit/ci-artifacts.ts',
+    '../compiler/emit/lock-project.ts',
+    '../compiler/emit/write-explain-graph.ts',
+    '../compiler/emit/write-local-views.ts',
+    '../compiler/emit/write-review-summary.ts'
+  ]),
+  'platform/orchestrator/repair-orchestrator.ts': Object.freeze([
+    '../compiler/repair/build-repair-plan.ts'
+  ]),
+  'platform/orchestrator/verify-orchestrator.ts': Object.freeze([
+    '../compiler/verify/verify-project.ts',
+    '../compiler/verify/write-policy-snapshot.ts'
+  ]),
+  'platform/orchestrator/workbench-orchestrator.ts': Object.freeze([
+    '../compiler/workbench/apply-view-mutations.ts'
+  ]),
+  'platform/upgrade/upgrade-workspace.ts': Object.freeze([
+    '../compiler/emit/write-provenance.ts'
+  ])
+});
 const compilerInternalImportPattern = new RegExp(
-  `from\\s+['"]\\.\\./compiler/(?:${compilerInternalSubdirs.join('|')})/`
+  `from\\s+['"](?<specifier>\\.\\./compiler/(?:${compilerInternalSubdirs.join('|')})/[^'"]+)['"]`,
+  'g'
 );
+
+function compilerInternalWriterImportIsAllowed(file: string, specifier: string): boolean {
+  return compilerInternalWriterImportAllowlist[file]?.includes(specifier) ?? false;
+}
 
 test('platform modules import compiler APIs only through the facade, not internal subdirs', async () => {
   const offenders: string[] = [];
+  const observedAllowedPairs: string[] = [];
   const allPlatformFiles = await listTypeScriptFiles('platform');
 
   for (const file of allPlatformFiles) {
@@ -219,13 +248,30 @@ test('platform modules import compiler APIs only through the facade, not interna
     if (file.startsWith('tests/')) continue;
 
     const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
-    const lines = source.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (compilerInternalImportPattern.test(lines[i])) {
-        offenders.push(`${file}:${i + 1} -> ${lines[i].trim()}`);
+    for (const match of source.matchAll(compilerInternalImportPattern)) {
+      const specifier = match.groups?.specifier;
+      if (!specifier) throw new Error(`Compiler internal import capture failed for ${file}`);
+      const line = source.slice(0, match.index ?? 0).split('\n').length;
+      const pair = `${file} -> ${specifier}`;
+      if (compilerInternalWriterImportIsAllowed(file, specifier)) {
+        observedAllowedPairs.push(pair);
+      } else {
+        offenders.push(`${file}:${line} -> ${specifier}`);
       }
     }
   }
 
   expect(offenders).toEqual([]);
+  const expectedAllowedPairs = Object.entries(compilerInternalWriterImportAllowlist)
+    .flatMap(([file, specifiers]) => specifiers.map((specifier) => `${file} -> ${specifier}`))
+    .sort();
+  expect(observedAllowedPairs.sort()).toEqual(expectedAllowedPairs);
+  expect(compilerInternalWriterImportIsAllowed(
+    'platform/orchestrator/unknown-owner.ts',
+    '../compiler/emit/write-provenance.ts'
+  )).toBe(false);
+  expect(compilerInternalWriterImportIsAllowed(
+    'platform/orchestrator/emit-orchestrator.ts',
+    '../compiler/emit/unknown-writer.ts'
+  )).toBe(false);
 });
