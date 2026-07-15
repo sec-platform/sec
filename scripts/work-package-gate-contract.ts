@@ -64,7 +64,7 @@ export const WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4 = Object.freeze({
   'platform/shared/windows-appcontainer-executor.ts': 'sha256:ed9c918dd2109d1cab3100496232838c5f6ba1badbaa115d292c24d8b238457f',
   'platform/shared/windows-appcontainer-native-helper.ts': 'sha256:fafe83d7ba029c31bdf99c1a64e35f1c063f687021b7f53652d2cf04a7760944',
   'platform/shared/workspace-write-lease.ts': 'sha256:3b4adf7cfcb1857f59bb17e3f0a9ce25d571d1dfd740457148d346f29de38d68',
-  'tests/contract/semantic-mutation-apply-contract.test.ts': 'sha256:e1a22e040c2b469ac7b7823e6b434b0dbcd1f906f1df144edd5420e01b9210ca',
+  'tests/contract/semantic-mutation-apply-contract.test.ts': 'sha256:26124cc5aa456755b4936fbdc5e2686aee2e53b406de62457edd6f68a867c680',
   'tests/integration/pipeline-workspace-write-lease.test.ts': 'sha256:e039203824a945c0e097d57cce4b3fd1949ef51a929e920724b9295698644ef1',
   'tests/unit/semantic-mutation-apply.test.ts': 'sha256:7035519278b6717f036af2dccdfce87cf0886bada066ec4e4a113460ddb3ffd6',
   'tests/unit/semantic-mutation-isolated-child-fence.test.ts': 'sha256:d109c09ea089b11a226a52aed99142049ea5f820cdad92f55f240874490fd82f',
