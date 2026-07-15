@@ -1051,11 +1051,20 @@ function settleWindowsAppContainerNativeJobAfterFailure(
       if (waitResult === WAIT_OBJECT_0) rootClosed = true;
       else if (waitResult !== WAIT_TIMEOUT) return false;
     }
+    const afterWaitMs = dependencies.nowMs();
+    if (!Number.isSafeInteger(afterWaitMs) || afterWaitMs < observedAtMs ||
+      afterWaitMs >= deadlineAtMs) return false;
     const activeProcesses = dependencies.queryActiveProcesses();
     if (activeProcesses === null || !Number.isSafeInteger(activeProcesses) ||
       activeProcesses < 0) return false;
     if (rootClosed && activeProcesses === 0) return true;
-    if (rootClosed) dependencies.sleep(sliceMs);
+    if (rootClosed) {
+      const beforeSleepMs = dependencies.nowMs();
+      if (!Number.isSafeInteger(beforeSleepMs) || beforeSleepMs < afterWaitMs ||
+        beforeSleepMs >= deadlineAtMs) return false;
+      dependencies.sleep(Math.min(WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
+        deadlineAtMs - beforeSleepMs));
+    }
   }
 }
 
@@ -2340,7 +2349,7 @@ async function executeNativeAppContainer(
   let standardInputHandle = 0n;
   let standardOutputHandle = 0n;
   let standardErrorHandle = 0n;
-  let processCompleted = false;
+  let executionCommitted = false;
 
   try {
     const { ptr } = await import('bun:ffi');
@@ -2544,16 +2553,16 @@ async function executeNativeAppContainer(
     if (kernel32.symbols.GetExitCodeProcess(processHandle, exitCodeBuffer) === 0) {
       throw executionError('wait');
     }
-    processCompleted = true;
     const exitCode = exitCodeBuffer.readUInt32LE(0);
     writeFileSync(nativeResultPath, `${JSON.stringify({ exitCode })}\n`, { flag: 'wx' });
+    executionCommitted = true;
     return exitCode;
   } catch (error) {
     if (error instanceof WindowsAppContainerExecutionError) throw error;
     throw new WindowsAppContainerCapabilityUnavailableError();
   } finally {
     if (kernel32) {
-      if (processHandle !== 0n && !processCompleted) {
+      if (processHandle !== 0n && !executionCommitted) {
         const jobAccounting = Buffer.alloc(
           WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_BYTES
         );
