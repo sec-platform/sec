@@ -25,6 +25,10 @@ import {
   type PipelineExecutionContext
 } from '../../platform/shared/pipeline-types.ts';
 import {
+  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
+  createWindowsAppContainerNativeExecutionBudgetForTests
+} from '../../platform/shared/windows-appcontainer-executor.ts';
+import {
   SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
   SEMANTIC_MUTATION_RECOVERY_TRANSITIONS,
   SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,
@@ -104,6 +108,35 @@ function typeLiteralKeys(source: string, aliasName: string): string[][] {
   };
   visit(declaration.type);
   return results;
+}
+
+function classPublicReadonlyKeys(source: string, className: string): string[] {
+  const file = ts.createSourceFile('contract.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declaration = file.statements.find((statement): statement is ts.ClassDeclaration =>
+    ts.isClassDeclaration(statement) && statement.name?.text === className);
+  if (!declaration) throw new Error(`Missing class ${className}`);
+  const hasModifier = (
+    node: ts.ClassElement | ts.ParameterDeclaration,
+    kind: ts.SyntaxKind
+  ): boolean => node.modifiers?.some((modifier) => modifier.kind === kind) ?? false;
+  const publicReadonlyName = (
+    node: ts.PropertyDeclaration | ts.ParameterDeclaration
+  ): string | null => {
+    if (!hasModifier(node, ts.SyntaxKind.PublicKeyword) ||
+      !hasModifier(node, ts.SyntaxKind.ReadonlyKeyword) || node.name === undefined) return null;
+    return node.name.getText().replace(/^['"]|['"]$/gu, '');
+  };
+  return declaration.members.flatMap((member) => {
+    if (ts.isPropertyDeclaration(member)) {
+      const name = publicReadonlyName(member);
+      return name === null ? [] : [name];
+    }
+    if (!ts.isConstructorDeclaration(member)) return [];
+    return member.parameters.flatMap((parameter) => {
+      const name = publicReadonlyName(parameter);
+      return name === null ? [] : [name];
+    });
+  });
 }
 
 test('SM-3 freezes lease, journal, query, rollback, Pipeline proof, and Verification revisions', () => {
@@ -803,6 +836,16 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     .not.toMatch(/(?:[A-Za-z]:[\\/]|file:|node_modules|import\.meta)/u);
   expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toContain('Bun.spawn');
   expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toContain('process.execPath');
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).toContain([
+    '      minify: {',
+    '        whitespace: true,',
+    '        syntax: true,',
+    '        identifiers: false',
+    '      },'
+  ].join('\n'));
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.match(/\bminify:/gu)).toHaveLength(1);
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toMatch(/\bminify:\s*true\b/u);
+  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toMatch(/\bidentifiers:\s*true\b/u);
   const runnerBuildTokenGuard = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
     'process.argv.length !== 2 || process.argv[1] !== TOKEN'
   );
@@ -1072,6 +1115,28 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer).toContain(
     'const nativeHelperObservations = new WeakMap<Error, WindowsAppContainerNativeHelperObservation>()'
   );
+  expect(sources.appContainer.match(
+    /^const \w+ = new WeakMap<.*>\(\);$/gmu
+  )).toEqual([
+    'const executionCleanupFailures = new WeakMap<Error, readonly Error[]>();',
+    'const nativeHelperObservations = new WeakMap<Error, WindowsAppContainerNativeHelperObservation>();'
+  ]);
+  expect(typeLiteralKeys(
+    sources.appContainer,
+    'WindowsAppContainerNativeHelperObservation'
+  )).toEqual([[
+    'mode', 'exitClass', 'diagnosticStream', 'protocol', 'nativeReceipt'
+  ]]);
+  expect(sources.appContainer).not.toContain(
+    'export type ObservedNativeHelperSettlementClassificationForTests'
+  );
+  expect(classPublicReadonlyKeys(
+    sources.appContainer,
+    'WindowsAppContainerExecutionError'
+  )).toEqual([
+    'code', 'preparationSubstage', 'nativeHelperObservation',
+    'phase', 'nativeCode', 'hostToolFailure'
+  ]);
   expect(sources.appContainer).toContain(
     "diagnosticStream: diagnosticStreamPresent ? 'present' : 'empty'"
   );
@@ -1164,6 +1229,62 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer).toContain('const executionRetainedOwners = new WeakSet<Error>();');
   expect(sources.appContainer).toContain('executionRetainedOwners.has(primaryError)');
   expect(sources.appContainer).toContain('if (!cleanupSafe) executionRetainedOwners.add(error);');
+  const settlementStart = sources.appContainer.indexOf(
+    'function settleObservedHostBunCommand('
+  );
+  const settlementEnd = sources.appContainer.indexOf(
+    '\nfunction observedDiagnosticCaptureForTests(',
+    settlementStart
+  );
+  const settlement = sources.appContainer.slice(settlementStart, settlementEnd);
+  expect(settlementStart).toBeGreaterThan(-1);
+  expect(settlementEnd).toBeGreaterThan(settlementStart);
+  expect(settlement).toContain([
+    'const cleanupSafe = outcome.started',
+    '    ? closedTree',
+    '    : outcome.termination.streamsDrained && outcome.termination.treeClosed;'
+  ].join('\n'));
+  expect(settlement).toContain('const classification = classifyObservedHostBunCommand(');
+  expect(settlement).toContain("if (classification.status !== 'success')");
+  expect(settlement).toContain('if (!cleanupSafe) executionRetainedOwners.add(error);');
+  expect(settlement.indexOf('const cleanupSafe ='))
+    .toBeLessThan(settlement.indexOf('const classification ='));
+  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(60_000)).toEqual({
+    childTimeoutMs: 60_000,
+    hostWatchdogMs: 70_000
+  });
+  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(undefined)).toEqual({
+    childTimeoutMs: 120_000,
+    hostWatchdogMs: 130_000
+  });
+  expect(createWindowsAppContainerNativeExecutionBudgetForTests(60_000, 1_000)).toEqual({
+    startedAtMs: 1_000,
+    timeoutMs: 60_000
+  });
+  const nativeChildStart = sources.appContainer.indexOf(
+    'export async function runWindowsAppContainerNativeChild('
+  );
+  const nativeChildEnd = sources.appContainer.indexOf(
+    '\nexport async function cleanupWindowsAppContainerNativeOwner(',
+    nativeChildStart
+  );
+  const nativeChild = sources.appContainer.slice(nativeChildStart, nativeChildEnd);
+  expect(nativeChild.indexOf('const startedAtMs = Date.now();'))
+    .toBeLessThan(nativeChild.indexOf('assertCapability();'));
+  expect(nativeChild).toContain([
+    'const executionBudget = createWindowsAppContainerNativeExecutionBudget(',
+    '    executionDeadlines.childTimeoutMs,',
+    '    startedAtMs',
+    '  );'
+  ].join('\n'));
+  expect(sources.appContainer).toContain([
+    "'execute',",
+    '          nativeRequest,',
+    '          validated.stagingRoot,',
+    '          request.environment,',
+    '          commitFence,',
+    '          executionDeadlines.hostWatchdogMs'
+  ].join('\n'));
   expect(sources.appContainer).toContain(
     'maxObservedOutputBytes: WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES'
   );
