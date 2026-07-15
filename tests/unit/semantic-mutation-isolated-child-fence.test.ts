@@ -595,6 +595,43 @@ test('fresh-process runner build cleans only pre-spawn or proven-closed process 
   if (thrownRoot) await rm(thrownRoot, { recursive: true, force: true });
 });
 
+test('fresh-process runner build preserves primary failure and rejects success when cleanup fails', async () => {
+  const cleanupFailure = async (processRoot: string): Promise<void> => {
+    await rm(processRoot, { recursive: true, force: true });
+    throw new Error('cleanup detail must not escape');
+  };
+  const primary = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    observedRunnerBuildExecutor(new Uint8Array(), {
+      exitCode: SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES.unsuccessful
+    }),
+    undefined,
+    cleanupFailure
+  );
+  expect(primary).toEqual({
+    status: 'unavailable',
+    diagnostic: {
+      stage: 'runtime-capability',
+      runtimeCapability: { substage: 'runner-build-unsuccessful' }
+    }
+  });
+  expect(JSON.stringify(primary)).not.toContain('cleanup detail');
+
+  const frame = semanticMutationRunnerBuildSuccessFrame(Uint8Array.from([1]));
+  const cleanupBlockedSuccess = await classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests(
+    observedRunnerBuildExecutor(frame),
+    undefined,
+    cleanupFailure
+  );
+  expect(cleanupBlockedSuccess).toEqual({
+    status: 'unavailable',
+    diagnostic: {
+      stage: 'runtime-capability',
+      runtimeCapability: { substage: 'runner-build-invocation' }
+    }
+  });
+  expect(JSON.stringify(cleanupBlockedSuccess)).not.toContain('cleanup detail');
+});
+
 test('runtime capability diagnostic enum rejects forged detail without retaining raw fields', () => {
   for (const substage of [
     'runner-build-root-proof',
